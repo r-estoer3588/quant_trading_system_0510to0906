@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Codex Edit Current File",
+      "type": "shell",
+      "command": "codex edit ${file}"
+    }
+  ]
+}

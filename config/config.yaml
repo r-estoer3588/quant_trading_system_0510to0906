@@ -1,0 +1,86 @@
+﻿# 量的トレーディング設定 (外出し YAML)
+# 環境変数はこのYAMLを上書きできます（例: RESULTS_DIR, LOG_LEVEL など）
+
+risk:
+  # 1トレードのリスク割合（資金に対する%）
+  risk_pct: 0.02
+  # 同時保有の最大銘柄数
+  max_positions: 10
+  # 1トレードの最大ポジション比率（資金に対する%）
+  max_pct: 0.10
+
+strategies:
+  # 各システム固有パラメータ（必要に応じて追加）
+  system1:
+    rsi_period: 14
+    rsi_buy: 30
+    rsi_sell: 70
+    atr_period: 20
+    take_profit_rr: 2.0
+    stop_loss_rr: 1.0
+  system2:
+    fast_sma: 20
+    slow_sma: 50
+    atr_period: 14
+  system3:
+    ema_short: 12
+    ema_long: 26
+    signal: 9
+  system4: {}
+  system5: {}
+  system6: {}
+  system7: {}
+
+data:
+  vendor: EODHD
+  eodhd_base: https://eodhistoricaldata.com
+  # .env の EODHD_API_KEY を優先
+  api_key_env: EODHD_API_KEY
+  cache_dir: data_cache
+  max_workers: 8
+  request_timeout: 10
+  download_retries: 3
+  api_throttle_seconds: 1.5
+
+backtest:
+  start_date: 2018-01-01
+  end_date: 2024-12-31
+  max_symbols: 500
+  top_n_rank: 50
+  initial_capital: 100000
+
+outputs:
+  results_csv_dir: results_csv
+  logs_dir: logs
+  signals_dir: data_cache/signals
+
+logging:
+  level: INFO    # DEBUG/INFO/WARN/ERROR
+  # rotation は loguru 互換の文字列か、日次ローテーションを意味する "daily"
+  rotation: daily
+  filename: app.log
+
+scheduler:
+  timezone: America/New_York
+  jobs:
+    - name: update_tickers
+      cron: "0 6 * * 1-5"
+      task: update_tickers
+    - name: bulk_last_day
+      cron: "45 6 * * 1-5"
+      task: bulk_last_day
+    - name: warm_cache
+      cron: "0 7 * * 1-5"    # 平日 07:00
+      task: cache_daily_data   # python スクリプト/関数名の想定
+    - name: run_today_signals
+      cron: "15 8 * * 1-5"
+      task: run_today_signals
+    - name: send_signals
+      cron: "30 8 * * 1-5"   # 平日 08:30
+      task: notify_signals
+
+ui:
+  default_capital: 100000
+  auto_tickers: [AAPL, MSFT, NVDA, META, AMZN, GOOGL, TSLA]
+  debug_mode: false
+  show_download_buttons: false

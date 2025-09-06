@@ -1,0 +1,8 @@
+# クリティカル UI まわり。変更にはレビュー必須にするための CODEOWNERS。
+# 自分の GitHub ユーザー名/チーム名に置き換えてください。
+
+common/ui_components.py @YOUR_GITHUB_HANDLE
+common/ui_bridge.py     @YOUR_GITHUB_HANDLE
+common/ui_tabs.py       @YOUR_GITHUB_HANDLE
+app_integrated.py       @YOUR_GITHUB_HANDLE
+

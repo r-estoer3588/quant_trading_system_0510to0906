@@ -1,0 +1,13 @@
+# Dev tooling
+pre-commit>=3.8,<4
+ruff>=0.6,<1
+black>=24.8,<25
+isort>=5.13,<6
+mypy>=1.11,<2
+bandit>=1.7,<2
+pip-audit>=2.7,<3
+
+# Testing helpers
+pytest>=8,<9
+pytest-cov>=5,<6
+freezegun>=1.5,<2

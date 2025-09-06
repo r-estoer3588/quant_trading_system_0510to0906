@@ -1,0 +1,13 @@
+# キャッシュ関連
+data_cache/
+bt_cache/
+results_csv/
+__pycache__/
+common/__pycache__/
+logs/*
+logs/images/
+.pytest_cache/
+# temp files
+*.tmp
+.env
+*.env

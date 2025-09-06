@@ -1,0 +1,26 @@
+# 優先度：小さいほど先（=強い）
+priority:
+  "7": 0   # S7 ヘッジ最優先（順序のみ）
+  "6": 1   # S6 トレンド系ショート
+  "2": 2   # S2 RSIスラスト ショート
+  "1": 3   # S1 主力ロング
+  "5": 4   # S5 ロング補助
+  "4": 5   # S4 ロング補助
+  "3": 6   # S3 ロング補助
+
+scoring:
+  "1": { w_rank: 0.6, w_trend: 0.25, w_filter: 0.15 }
+  "2": { w_thrust: 0.5, w_vol: 0.3,  w_filter: 0.2 }
+  "6": { w_trend: 0.55, w_vol: 0.25, w_filter: 0.2 }
+  "7": {}  # regime.severity をそのまま使用
+  "3": { w_core: 0.7, w_filter: 0.3 }
+  "4": { w_core: 0.7, w_filter: 0.3 }
+  "5": { w_core: 0.7, w_filter: 0.3 }
+
+regime:  # スコア補助（順序安定化）
+  bear:
+    spy_roc200_lt: 0.0
+    vix_gt: 22
+  severity:
+    weights: { roc200: 0.5, vix: 0.3, adx: 0.2 }
+

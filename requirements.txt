@@ -1,0 +1,23 @@
+## Core dependencies
+streamlit>=1.28,<2
+matplotlib>=3.7,<4
+seaborn>=0.12,<0.14
+pandas>=2.0,<3
+numpy>=1.24,<3
+requests>=2.31,<3
+pandas-market-calendars>=5.0,<6
+ta>=0.11,<1
+
+# Env & config
+python-dotenv>=1.0,<2
+PyYAML>=6,<7
+pydantic>=2,<3
+
+# Notifications (optional)
+slack_sdk>=3.26,<4
+
+# Trading
+alpaca-py>=0.21,<1
+
+# Dev/Test (optional)
+# pytest>=8,<9
