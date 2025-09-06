@@ -290,54 +290,58 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
     )
 
     if mode != "Backtest":
+        # Show long/short capital inputs and Alpaca fetch BEFORE the user presses the run button
+        # Ensure session_state keys exist before creating widgets so they can be updated later
+        if "batch_cap_long" not in st.session_state:
+            st.session_state["batch_cap_long"] = 2000
+        if "batch_cap_short" not in st.session_state:
+            st.session_state["batch_cap_short"] = 2000
+
+        col1, col2 = st.columns(2)
+        with col1:
+            cap_long = st.number_input(
+                tr("capital long (USD)"),
+                min_value=0,
+                step=100,
+                key="batch_cap_long",
+            )
+        with col2:
+            cap_short = st.number_input(
+                tr("capital short (USD)"),
+                min_value=0,
+                step=100,
+                key="batch_cap_short",
+            )
+
+        # Alpaca fetch button (also visible before running)
+        from common import broker_alpaca as ba
+
+        if st.button(tr("Fetch Alpaca balances")):
+            try:
+                client = ba.get_client(paper=True)
+                acct = client.get_account()
+                bp = None
+                try:
+                    bp = float(
+                        getattr(acct, "buying_power", None) or getattr(acct, "cash", None) or 0.0
+                    )
+                except Exception:
+                    bp = None
+                if bp:
+                    half = round(float(bp) / 2.0, 2)
+                    st.session_state["batch_cap_long"] = half
+                    st.session_state["batch_cap_short"] = half
+                    st.success(f"Set long/short to {half} each")
+                else:
+                    st.warning(tr("could not read buying_power/cash"))
+            except Exception as e:
+                st.error(f"Alpaca error: {e}")
+
+        # If user pressed the run button, perform the computation using the current inputs
         if run_btn:
             from scripts.run_all_systems_today import compute_today_signals
-            from common import broker_alpaca as ba
 
             symbols = all_tickers if use_all else all_tickers[: int(limit_symbols)]
-
-            # allow separate long/short capital inputs (default 2000)
-            col1, col2 = st.columns(2)
-            with col1:
-                cap_long = st.number_input(
-                    tr("capital long (USD)"),
-                    min_value=0,
-                    value=2000,
-                    step=100,
-                    key="batch_cap_long",
-                )
-            with col2:
-                cap_short = st.number_input(
-                    tr("capital short (USD)"),
-                    min_value=0,
-                    value=2000,
-                    step=100,
-                    key="batch_cap_short",
-                )
-
-            # Alpaca fetch button
-            if st.button(tr("Fetch Alpaca balances")):
-                try:
-                    client = ba.get_client(paper=True)
-                    acct = client.get_account()
-                    bp = None
-                    try:
-                        bp = float(
-                            getattr(acct, "buying_power", None)
-                            or getattr(acct, "cash", None)
-                            or 0.0
-                        )
-                    except Exception:
-                        bp = None
-                    if bp:
-                        half = round(float(bp) / 2.0, 2)
-                        st.session_state["batch_cap_long"] = half
-                        st.session_state["batch_cap_short"] = half
-                        st.success(f"Set long/short to {half} each")
-                    else:
-                        st.warning(tr("could not read buying_power/cash"))
-                except Exception as e:
-                    st.error(f"Alpaca error: {e}")
 
             # log area
             if "batch_today_logs" not in st.session_state:

@@ -57,7 +57,6 @@ with st.sidebar:
             "Capital Long ($)",
             min_value=0.0,
             step=100.0,
-            value=st.session_state["cap_long_input"],
             key="cap_long_input",
         )
     with col2:
@@ -65,7 +64,6 @@ with st.sidebar:
             "Capital Short ($)",
             min_value=0.0,
             step=100.0,
-            value=st.session_state["cap_short_input"],
             key="cap_short_input",
         )
 

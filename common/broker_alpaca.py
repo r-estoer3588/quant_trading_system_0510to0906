@@ -26,7 +26,9 @@ except Exception:  # pragma: no cover
 
 def _require_sdk() -> None:
     if TradingClient is None:
-        raise RuntimeError("alpaca-py がインストールされていません。requirements に追加/インストールしてください。")
+        raise RuntimeError(
+            "alpaca-py がインストールされていません。requirements に追加/インストールしてください。"
+        )
 
 
 def _load_env_once() -> None:
@@ -34,7 +36,9 @@ def _load_env_once() -> None:
     load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"), override=False)
 
 
-def get_client(*, paper: Optional[bool] = None, api_key: Optional[str] = None, secret_key: Optional[str] = None):
+def get_client(
+    *, paper: Optional[bool] = None, api_key: Optional[str] = None, secret_key: Optional[str] = None
+):
     """TradingClient を生成して返す。
 
     - paper: None の場合は `ALPACA_PAPER` を '1/true/yes/on' として解釈（デフォルト True）
@@ -49,6 +53,12 @@ def get_client(*, paper: Optional[bool] = None, api_key: Optional[str] = None, s
     secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError("ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。")
+
+    # Prefer explicit base URL from env if provided (e.g. https://paper-api.alpaca.markets)
+    base_url = os.getenv("ALPACA_API_BASE_URL")
+    if base_url:
+        # TradingClient accepts base_url kw; pass it and let SDK handle paper flag if needed
+        return TradingClient(api_key, secret_key, base_url=base_url)  # type: ignore[arg-type]
     return TradingClient(api_key, secret_key, paper=bool(paper))  # type: ignore[arg-type]
 
 
@@ -122,7 +132,9 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            log_callback(f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}")
+            log_callback(
+                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            )
         except Exception:
             pass
     return order
@@ -215,12 +227,15 @@ def subscribe_order_updates(client, log_callback=None):
         raise RuntimeError("alpaca-py がインストールされていません。")
 
     stream = TradingStream(client.api_key, client.secret_key, paper=client.paper)  # type: ignore[attr-defined]
+    stream_any: Any = stream  # type: ignore
 
-    @stream.on_order_update
+    @stream_any.on_order_update
     async def _(data):  # noqa: ANN001 - SDK 固有
         if log_callback:
             try:
-                log_callback(f"WS update {data.event} id={data.order.id} status={data.order.status}")
+                log_callback(
+                    f"WS update {data.event} id={data.order.id} status={data.order.status}"
+                )
             except Exception:
                 pass
 
