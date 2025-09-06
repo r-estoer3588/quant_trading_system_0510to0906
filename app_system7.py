@@ -99,6 +99,121 @@ def run_tab(
             "銘柄数": len(data_dict) if data_dict else 0,
             "開始資金": int(capital),
         }
+
+        # --- 追加: 資産推移と実行日数チェック（資金不足の可能性を判定） ---
+        try:
+            # 累積PnL から時系列の equity を作成（capital + cumulative_pnl）
+            equity = (float(capital) + df2["cumulative_pnl"].astype(float)).astype(float)
+            # 最小資産と最終資産
+            min_equity = float(equity.min())
+            final_equity = float(equity.iloc[-1]) if len(equity) > 0 else float(capital)
+            stats["最小資産"] = f"{min_equity:.2f}"
+            stats["最終資産"] = f"{final_equity:.2f}"
+
+            # 実行日数（カレンダー日数）と取引記録数
+            if "entry_date" in df2.columns and "exit_date" in df2.columns:
+                start_dt = pd.to_datetime(df2["entry_date"]).min()
+                end_dt = pd.to_datetime(df2["exit_date"]).max()
+                total_calendar_days = (end_dt - start_dt).days + 1
+                trade_records = len(df2)
+                stats["実行日数"] = f"{total_calendar_days}日 (取引記録: {trade_records})"
+            else:
+                stats["実行日数"] = f"{len(df2)} レコード"
+
+            # 日付インデックスを持つ equity Series を作成
+            if "exit_date" in df2.columns:
+                eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["exit_date"]))
+            elif "entry_date" in df2.columns:
+                eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["entry_date"]))
+            else:
+                eq_series = pd.Series(equity.values)
+
+            # 資金が0以下になった日一覧
+            zero_days = eq_series[eq_series <= 0]
+            if not zero_days.empty:
+                first_zero_date = pd.to_datetime(zero_days.index[0])
+                zero_count = len(zero_days)
+                stats["資金尽きた日"] = f"{first_zero_date:%Y-%m-%d} (件数: {zero_count})"
+                st.error(
+                    tr(
+                        "バックテスト中に資金が0以下になった日があります: {d} (件数: {n})",
+                        d=f"{first_zero_date:%Y-%m-%d}",
+                        n=zero_count,
+                    )
+                )
+                with st.expander(tr("資金が0以下だった日付一覧"), expanded=False):
+                    df_log = pd.DataFrame(
+                        {
+                            "date": pd.to_datetime(zero_days.index),
+                            "equity": zero_days.values,
+                        }
+                    )
+                    df_log = df_log.sort_values("date")
+                    st.dataframe(df_log)
+                    try:
+                        csv = df_log.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label=tr("資金尽きた日一覧をCSVでダウンロード"),
+                            data=csv,
+                            file_name=f"{SYSTEM_NAME}_zero_equity_log.csv",
+                            mime="text/csv",
+                        )
+                    except Exception:
+                        pass
+
+            # 初期資金の閾値（例: 10%）を下回った日一覧
+            threshold = float(capital) * 0.1
+            low_days = eq_series[eq_series <= threshold]
+            if not low_days.empty:
+                first_low_date = pd.to_datetime(low_days.index[0])
+                low_count = len(low_days)
+                stats["資金10%未満日"] = f"{first_low_date:%Y-%m-%d} (件数: {low_count})"
+                st.warning(
+                    tr(
+                        "最終資産あるいは途中で初期資金の10%を下回った日があります: {d} (件数: {n})",
+                        d=f"{first_low_date:%Y-%m-%d}",
+                        n=low_count,
+                    )
+                )
+                with st.expander(tr("資金が10%未満だった日付一覧"), expanded=False):
+                    df_low = pd.DataFrame(
+                        {
+                            "date": pd.to_datetime(low_days.index),
+                            "equity": low_days.values,
+                        }
+                    )
+                    df_low = df_low.sort_values("date")
+                    st.dataframe(df_low)
+                    try:
+                        csv2 = df_low.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label=tr("資金10%未満日一覧をCSVでダウンロード"),
+                            data=csv2,
+                            file_name=f"{SYSTEM_NAME}_low_equity_log.csv",
+                            mime="text/csv",
+                        )
+                    except Exception:
+                        pass
+
+            # 資金不足の判定基準（簡易）
+            if min_equity <= 0:
+                st.warning(
+                    tr(
+                        "バックテスト中に資金が途中で尽きた可能性があります（途中の資産 <= 0）。"
+                        "初期資金を増やすか、ポジションサイズ／リスク管理の見直しを検討してください。"
+                    )
+                )
+            elif final_equity < float(capital) * 0.1:
+                st.warning(
+                    tr(
+                        "最終資産が初期資金の10%未満です。取引が継続できなかったか、極端な損失が発生した可能性があります。"
+                    )
+                )
+        except Exception:
+            # チェック失敗でも処理を続行
+            pass
+        # --- 追加ここまで ---
+
         # メトリクスは共通 show_results で統一表示
         pass
         # 年別サマリー（%表記）
