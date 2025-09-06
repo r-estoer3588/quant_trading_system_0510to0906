@@ -187,7 +187,9 @@ class Notifier:
             platform = detect_default_platform()
         self.platform = platform
         self.webhook_url = webhook_url or (
-            os.getenv("SLACK_WEBHOOK_URL") if platform == "slack" else os.getenv("DISCORD_WEBHOOK_URL")
+            os.getenv("SLACK_WEBHOOK_URL")
+            if platform == "slack"
+            else os.getenv("DISCORD_WEBHOOK_URL")
         )
         self.logger = _setup_logger()
 
@@ -203,10 +205,14 @@ class Notifier:
                 except Exception as e:  # pragma: no cover
                     self.logger.warning("Slack API exception: %s", e)
                 if not ok:
-                    self.logger.error("Slack API送信に失敗しました（Webhookへはフォールバックしません）")
+                    self.logger.error(
+                        "Slack API送信に失敗しました（Webhookへはフォールバックしません）"
+                    )
                 return
         if not self.webhook_url:
-            self.logger.warning("webhook 未設定のため送信をスキップします platform=%s", self.platform)
+            self.logger.warning(
+                "webhook 未設定のため送信をスキップします platform=%s", self.platform
+            )
             return
         url = self.webhook_url
         masked = mask_secret(url)
@@ -344,10 +350,14 @@ class Notifier:
                 mention = _m
         if mention:
             if self.platform == "slack":
-                tag = "<!channel>" if str(mention).lower() in {"channel", "@everyone"} else "<!here>"
+                tag = (
+                    "<!channel>" if str(mention).lower() in {"channel", "@everyone"} else "<!here>"
+                )
                 desc = f"{tag}\n" + desc
             else:
-                content = "@everyone" if str(mention).lower() in {"channel", "@everyone"} else "@here"
+                content = (
+                    "@everyone" if str(mention).lower() in {"channel", "@everyone"} else "@here"
+                )
 
         payload: dict[str, Any]
         if self.platform == "discord":
@@ -414,10 +424,14 @@ class Notifier:
             payload["_channel"] = channel
         self._post(payload)
 
-    def send_signals(self, system_name: str, signals: list[str], *, channel: str | None = None) -> None:
+    def send_signals(
+        self, system_name: str, signals: list[str], *, channel: str | None = None
+    ) -> None:
         direction = SYSTEM_POSITION.get(system_name.lower(), "")
         color = (
-            COLOR_LONG if direction == "long" else COLOR_SHORT if direction == "short" else COLOR_NEUTRAL
+            COLOR_LONG
+            if direction == "long"
+            else COLOR_SHORT if direction == "short" else COLOR_NEUTRAL
         )
         title = f"📢 {system_name} 日次シグナル ・ {now_jst_str()}"
         ch = channel or (os.getenv("SLACK_CHANNEL_SIGNALS") if self.platform == "slack" else None)
@@ -429,7 +443,9 @@ class Notifier:
         items = [f"{emoji} {s}" if emoji else s for s in signals]
         fields = chunk_fields("銘柄", items, inline=False)
         self.send(title, "", fields=fields, color=color, channel=ch)
-        self.logger.info("signals %s direction=%s count=%d", system_name, direction or "none", len(signals))
+        self.logger.info(
+            "signals %s direction=%s count=%d", system_name, direction or "none", len(signals)
+        )
 
     def send_backtest(
         self,
@@ -440,7 +456,9 @@ class Notifier:
         *,
         channel: str | None = None,
     ) -> None:
-        period_with_run = f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
+        period_with_run = (
+            f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
+        )
         self.send_backtest_ex(system_name, period_with_run, stats, ranking, channel=channel)
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:3])
         self.logger.info("backtest %s stats=%s top=%d", system_name, summary, min(len(ranking), 10))
@@ -475,7 +493,9 @@ class Notifier:
         summary: dict[str, Any],
         image_url: str | None = None,
     ) -> None:
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        )
         fields = {k: str(v) for k, v in summary.items()}
         self.send(title, "", fields=fields, image_url=image_url)
         self.logger.info("summary %s %s keys=%d", system_name, period_type, len(summary))
@@ -493,7 +513,9 @@ class Notifier:
     ) -> None:
         direction = SYSTEM_POSITION.get(system_name.lower(), "")
         color = (
-            COLOR_LONG if direction == "long" else COLOR_SHORT if direction == "short" else COLOR_NEUTRAL
+            COLOR_LONG
+            if direction == "long"
+            else COLOR_SHORT if direction == "short" else COLOR_NEUTRAL
         )
         title = f"📊 {system_name} バックテスト ・ {period}"
         fields = {k: str(v) for k, v in stats.items()}
@@ -525,7 +547,10 @@ class Notifier:
         ch = channel or (os.getenv("SLACK_CHANNEL_EQUITY") if self.platform == "slack" else None)
         self.send(title, desc, fields=fields, color=color, image_url=image_url, channel=ch)
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:3])
-        self.logger.info("backtest_ex %s stats=%s top=%d", system_name, summary, min(len(ranking), 10))
+        self.logger.info(
+            "backtest_ex %s stats=%s top=%d", system_name, summary, min(len(ranking), 10)
+        )
+
 
 class BroadcastNotifier:
     def __init__(self, notifiers: list[Notifier]) -> None:
@@ -533,13 +558,24 @@ class BroadcastNotifier:
         self.logger = _setup_logger()
 
     def _each(self, fn_name: str, *args, **kwargs) -> None:
+        """
+        各 Notifier を登録順に試し、最初に成功した Notifier で処理を終了する。
+        失敗はログに記録し、すべて失敗した場合は警告ログを出すのみ（例外は伝播しない）。
+        """
+        any_succeeded = False
         for n in self._notifiers:
+            platform = getattr(n, "platform", "?")
             try:
                 getattr(n, fn_name)(*args, **kwargs)
+                self.logger.info("broadcast %s succeeded platform=%s", fn_name, platform)
+                any_succeeded = True
+                break  # 成功したら以降の通知は行わない（Slack成功時はDiscordに送らない）
             except Exception as e:  # pragma: no cover
-                self.logger.warning(
-                    "broadcast %s failed platform=%s %s", fn_name, getattr(n, "platform", "?"), e
-                )
+                self.logger.warning("broadcast %s failed platform=%s %s", fn_name, platform, e)
+                # 継続して次の Notifier（例: Slack失敗時にDiscordへ）を試す
+
+        if not any_succeeded:
+            self.logger.warning("broadcast %s: all notifiers failed", fn_name)
 
     def send(self, *args, **kwargs) -> None:
         self._each("send", *args, **kwargs)
@@ -559,6 +595,7 @@ class BroadcastNotifier:
     def send_summary(self, *args, **kwargs) -> None:
         self._each("send_summary", *args, **kwargs)
 
+
 class FallbackNotifier:
     def __init__(self) -> None:
         self._logger = _setup_logger()
@@ -568,7 +605,9 @@ class FallbackNotifier:
         )
         try:
             discord_url = os.getenv("DISCORD_WEBHOOK_URL")
-            self._discord = Notifier(platform="discord", webhook_url=discord_url) if discord_url else None
+            self._discord = (
+                Notifier(platform="discord", webhook_url=discord_url) if discord_url else None
+            )
         except Exception:
             self._discord = None
 
@@ -601,12 +640,16 @@ class FallbackNotifier:
                 if 200 <= r.status_code < 300:
                     self._logger.info("fallback: sent via Slack Webhook")
                     return True
-                self._logger.warning("fallback: webhook status=%s body=%s", r.status_code, truncate(r.text, 200))
+                self._logger.warning(
+                    "fallback: webhook status=%s body=%s", r.status_code, truncate(r.text, 200)
+                )
             except Exception as e:
                 self._logger.warning("fallback: Slack webhook exception: %s", e)
         return False
 
-    def _slack_upload_file(self, image_path: str, *, title: str, initial_comment: str, channel: str | None) -> bool:
+    def _slack_upload_file(
+        self, image_path: str, *, title: str, initial_comment: str, channel: str | None
+    ) -> bool:
         if _notifications_disabled():
             return True
         token = self._slack_token
@@ -645,7 +688,15 @@ class FallbackNotifier:
             self._logger.warning("fallback: Discord send failed (%s) %s", fn_name, e)
             return False
 
-    def send(self, title: str, message: str, fields: dict[str, str] | list[dict[str, Any]] | None = None, image_url: str | None = None, color: int | None = None, channel: str | None = None) -> None:  # noqa: E501
+    def send(
+        self,
+        title: str,
+        message: str,
+        fields: dict[str, str] | list[dict[str, Any]] | None = None,
+        image_url: str | None = None,
+        color: int | None = None,
+        channel: str | None = None,
+    ) -> None:  # noqa: E501
         lines = [f"{title}"]
         if message:
             lines.append(str(message))
@@ -656,23 +707,51 @@ class FallbackNotifier:
         ch = channel or os.getenv("SLACK_CHANNEL_LOGS") or None
         if self._slack_send_text(text, channel=ch):
             return
-        if not self._discord_call("send", title, message, fields=fields, image_url=image_url, color=color):
+        if not self._discord_call(
+            "send", title, message, fields=fields, image_url=image_url, color=color
+        ):
             raise RuntimeError("notification failed (slack+discord)")
 
-    def send_with_mention(self, title: str, message: str, fields: dict[str, str] | list[dict[str, Any]] | None = None, image_url: str | None = None, color: int | None = None, mention: str | bool | None = None, channel: str | None = None, image_path: str | None = None) -> None:  # noqa: E501
+    def send_with_mention(
+        self,
+        title: str,
+        message: str,
+        fields: dict[str, str] | list[dict[str, Any]] | None = None,
+        image_url: str | None = None,
+        color: int | None = None,
+        mention: str | bool | None = None,
+        channel: str | None = None,
+        image_path: str | None = None,
+    ) -> None:  # noqa: E501
         tag = None
         if mention:
             tag = "@everyone" if str(mention).lower() in {"channel", "@everyone"} else "@here"
-        text = f"{('@' + tag.split('@')[-1]) + ' ' if tag else ''}{title}\n{message}" if message else f"{('@' + tag.split('@')[-1]) + ' ' if tag else ''}{title}"
+        text = (
+            f"{('@' + tag.split('@')[-1]) + ' ' if tag else ''}{title}\n{message}"
+            if message
+            else f"{('@' + tag.split('@')[-1]) + ' ' if tag else ''}{title}"
+        )
         ch = channel or os.getenv("SLACK_CHANNEL_EQUITY") or None
-        if image_path and self._slack_upload_file(image_path, title=title, initial_comment=text, channel=ch):
+        if image_path and self._slack_upload_file(
+            image_path, title=title, initial_comment=text, channel=ch
+        ):
             return
         if self._slack_send_text(text, channel=ch):
             return
-        if not self._discord_call("send_with_mention", title, message, fields=fields, image_url=image_url, color=color, mention=mention):  # noqa: E501
+        if not self._discord_call(
+            "send_with_mention",
+            title,
+            message,
+            fields=fields,
+            image_url=image_url,
+            color=color,
+            mention=mention,
+        ):  # noqa: E501
             raise RuntimeError("notification failed (slack+discord)")
 
-    def send_signals(self, system_name: str, signals: list[str], *, channel: str | None = None) -> None:
+    def send_signals(
+        self, system_name: str, signals: list[str], *, channel: str | None = None
+    ) -> None:
         title = f"📢 {system_name} 日次シグナル ・ {now_jst_str()}"
         if not signals:
             text = f"{title}\n本日のシグナルはありません"
@@ -685,11 +764,32 @@ class FallbackNotifier:
         if not self._discord_call("send_signals", system_name, signals):
             raise RuntimeError("notification failed (slack+discord)")
 
-    def send_backtest(self, system_name: str, period: str, stats: dict[str, Any], ranking: list[str], *, channel: str | None = None) -> None:  # noqa: E501
-        period_with_run = f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
+    def send_backtest(
+        self,
+        system_name: str,
+        period: str,
+        stats: dict[str, Any],
+        ranking: list[str],
+        *,
+        channel: str | None = None,
+    ) -> None:  # noqa: E501
+        period_with_run = (
+            f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
+        )
         self.send_backtest_ex(system_name, period_with_run, stats, ranking, channel=channel)
 
-    def send_backtest_ex(self, system_name: str, period: str, stats: dict[str, Any], ranking: list[Any], image_url: str | None = None, mention: str | bool | None = None, *, channel: str | None = None, image_path: str | None = None) -> None:  # noqa: E501
+    def send_backtest_ex(
+        self,
+        system_name: str,
+        period: str,
+        stats: dict[str, Any],
+        ranking: list[Any],
+        image_url: str | None = None,
+        mention: str | bool | None = None,
+        *,
+        channel: str | None = None,
+        image_path: str | None = None,
+    ) -> None:  # noqa: E501
         title = f"📊 {system_name} バックテスト ・ {period}"
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:5])
         lines = [title]
@@ -716,11 +816,21 @@ class FallbackNotifier:
             lines.append("\n".join(top))
         ch = channel or os.getenv("SLACK_CHANNEL_EQUITY") or None
         text = "\n".join(lines)
-        if image_path and self._slack_upload_file(image_path, title=title, initial_comment=text, channel=ch):
+        if image_path and self._slack_upload_file(
+            image_path, title=title, initial_comment=text, channel=ch
+        ):
             return
         if self._slack_send_text(text, channel=ch):
             return
-        if not self._discord_call("send_backtest_ex", system_name, period, stats, ranking, image_url=image_url, mention=mention):  # noqa: E501
+        if not self._discord_call(
+            "send_backtest_ex",
+            system_name,
+            period,
+            stats,
+            ranking,
+            image_url=image_url,
+            mention=mention,
+        ):  # noqa: E501
             raise RuntimeError("notification failed (slack+discord)")
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]]) -> None:
@@ -741,23 +851,41 @@ class FallbackNotifier:
         if not self._discord_call("send_trade_report", system_name, trades):
             raise RuntimeError("notification failed (slack+discord)")
 
-    def send_summary(self, system_name: str, period_type: str, period_label: str, summary: dict[str, Any], image_url: str | None = None) -> None:  # noqa: E501
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+    def send_summary(
+        self,
+        system_name: str,
+        period_type: str,
+        period_label: str,
+        summary: dict[str, Any],
+        image_url: str | None = None,
+    ) -> None:  # noqa: E501
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        )
         kv = ", ".join(f"{k}={v}" for k, v in list(summary.items())[:10])
         text = f"{title}\n{kv}" if kv else title
         if self._slack_send_text(text):
             return
-        if not self._discord_call("send_summary", system_name, period_type, period_label, summary, image_url=image_url):  # noqa: E501
+        if not self._discord_call(
+            "send_summary", system_name, period_type, period_label, summary, image_url=image_url
+        ):  # noqa: E501
             raise RuntimeError("notification failed (slack+discord)")
 
-def create_notifier(platform: str = "auto", broadcast: bool | None = None, fallback: bool | None = None):
+
+def create_notifier(
+    platform: str = "auto", broadcast: bool | None = None, fallback: bool | None = None
+):
     if broadcast is None:
         flag = os.getenv("NOTIFY_BROADCAST", "").strip().lower()
         broadcast = flag in {"1", "true", "yes", "on", "both", "all"}
     if fallback is None:
         fallback = True
     if fallback:
-        if os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL"):
+        if (
+            os.getenv("SLACK_BOT_TOKEN")
+            or os.getenv("SLACK_WEBHOOK_URL")
+            or os.getenv("DISCORD_WEBHOOK_URL")
+        ):
             return FallbackNotifier()
     if broadcast:
         notifiers: list[Notifier] = []
@@ -780,11 +908,15 @@ def create_notifier(platform: str = "auto", broadcast: bool | None = None, fallb
         return Notifier(platform=platform)
     return Notifier(platform=platform)
 
+
 def get_notifiers_from_env() -> list[Notifier]:
     try:
-        if os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL"):
+        if (
+            os.getenv("SLACK_BOT_TOKEN")
+            or os.getenv("SLACK_WEBHOOK_URL")
+            or os.getenv("DISCORD_WEBHOOK_URL")
+        ):
             return [FallbackNotifier()]
     except Exception:
         pass
     return [Notifier(platform="auto")]
-
