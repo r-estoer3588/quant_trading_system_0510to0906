@@ -1,4 +1,5 @@
-﻿"""
+﻿# -*- coding: utf-8 -*-
+"""
 共通UIコンポーネント（UTF-8・日本語対応）。
 既存の公開API（関数名・戻り値）は維持しつつ、各フェーズ（データ取得/インジ計算/候補抽出/バックテスト）で
 UIManager（任意）に進捗とログを出力できるようにしている。
@@ -17,9 +18,11 @@ import pandas as pd
 import streamlit as st
 
 from common.utils import safe_filename, get_cached_data
+
 try:
     # 設定からUIフラグを参照（失敗時はデフォルト動作にフォールバック）
     from config.settings import get_settings
+
     _APP_SETTINGS = get_settings(create_dirs=True)
 except Exception:
     _APP_SETTINGS = None
@@ -32,11 +35,13 @@ from common.holding_tracker import (
 )
 from core.system1 import generate_roc200_ranking_system1
 import common.i18n as i18n
+
 # 互換用エイリアス（既存コードの tr(...) 呼び出しを維持）
 tr = i18n.tr
 import matplotlib as mpl
 import logging
 from matplotlib import font_manager as _font_manager
+
 
 # ------------------------------
 # Type overloads for static checkers
@@ -44,8 +49,8 @@ from matplotlib import font_manager as _font_manager
 @overload
 def fetch_data(
     symbols: Iterable[str], max_workers: int = 8, ui_manager: object | None = None
-) -> Dict[str, pd.DataFrame]:
-    ...
+) -> Dict[str, pd.DataFrame]: ...
+
 
 @overload
 def prepare_backtest_data(
@@ -55,8 +60,8 @@ def prepare_backtest_data(
     spy_df: pd.DataFrame | None = None,
     ui_manager: object | None = None,
     **kwargs: Any,
-) -> tuple[dict[str, pd.DataFrame] | None, Any | None, pd.DataFrame | None]:
-    ...
+) -> tuple[dict[str, pd.DataFrame] | None, Any | None, pd.DataFrame | None]: ...
+
 
 @overload
 def run_backtest_with_logging(
@@ -66,8 +71,8 @@ def run_backtest_with_logging(
     capital: float,
     system_name: str = "SystemX",
     ui_manager: object | None = None,
-) -> pd.DataFrame:
-    ...
+) -> pd.DataFrame: ...
+
 
 @overload
 def run_backtest_app(
@@ -84,8 +89,8 @@ def run_backtest_app(
     dict[str, pd.DataFrame] | None,
     float,
     Any | None,
-]:
-    ...
+]: ...
+
 
 @overload
 def show_signal_trade_summary(
@@ -93,8 +98,8 @@ def show_signal_trade_summary(
     trades_df: pd.DataFrame | None,
     system_name: str,
     display_name: str | None = None,
-) -> pd.DataFrame:
-    ...
+) -> pd.DataFrame: ...
+
 
 @overload
 def save_signal_and_trade_logs(
@@ -102,12 +107,14 @@ def save_signal_and_trade_logs(
     results: pd.DataFrame | list[dict[str, Any]] | None,
     system_name: str,
     capital: float,
-) -> None:
-    ...
+) -> None: ...
+
 
 @overload
-def save_prepared_data_cache(data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX") -> None:
-    ...
+def save_prepared_data_cache(
+    data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"
+) -> None: ...
+
 
 @overload
 def show_results(
@@ -116,8 +123,8 @@ def show_results(
     system_name: str = "SystemX",
     *,
     key_context: str = "main",
-) -> None:
-    ...
+) -> None: ...
+
 
 # 日本語表示のためのフォントフォールバック（Windows向け優先）
 def _set_japanese_font_fallback() -> None:
@@ -144,6 +151,7 @@ def _set_japanese_font_fallback() -> None:
         mpl.rcParams["axes.unicode_minus"] = False
     except Exception:
         pass
+
 
 _set_japanese_font_fallback()
 
@@ -234,9 +242,7 @@ def _load_symbol_cached(
     return symbol, None
 
 
-def load_symbol(
-    symbol: str, cache_dir: str = "data_cache"
-) -> tuple[str, pd.DataFrame | None]:
+def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.DataFrame | None]:
     base_path = str(base_cache_path(symbol))
     raw_path = os.path.join(cache_dir, f"{safe_filename(symbol)}.csv")
     return _load_symbol_cached(
@@ -251,12 +257,10 @@ def load_symbol(
 @overload
 def fetch_data(
     symbols: Iterable[str], max_workers: int = 8, ui_manager: object | None = None
-) -> Dict[str, pd.DataFrame]:
-    ...
+) -> Dict[str, pd.DataFrame]: ...
 
-def fetch_data(
-    symbols, max_workers: int = 8, ui_manager=None
-) -> Dict[str, pd.DataFrame]:
+
+def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> Dict[str, pd.DataFrame]:
     data_dict: Dict[str, pd.DataFrame] = {}
     total = len(symbols)
     # UIManagerのフェーズ（fetch）があればそこへ出力
@@ -343,8 +347,8 @@ def prepare_backtest_data(
     spy_df: pd.DataFrame | None = None,
     ui_manager: object | None = None,
     **kwargs: Any,
-) -> tuple[dict[str, pd.DataFrame] | None, Any | None, pd.DataFrame | None]:
-    ...
+) -> tuple[dict[str, pd.DataFrame] | None, Any | None, pd.DataFrame | None]: ...
+
 
 def prepare_backtest_data(
     strategy,
@@ -493,8 +497,8 @@ def run_backtest_with_logging(
     capital: float,
     system_name: str = "SystemX",
     ui_manager: object | None = None,
-) -> pd.DataFrame:
-    ...
+) -> pd.DataFrame: ...
+
 
 def run_backtest_with_logging(
     strategy,
@@ -604,13 +608,13 @@ def run_backtest_app(
     dict[str, pd.DataFrame] | None,
     float,
     Any | None,
-]:
-    ...
+]: ...
+
 
 def run_backtest_app(
     strategy,
     system_name: str = "SystemX",
-    limit_銘柄: int = 10,
+    limit_symbols: int = 10,
     system_title: str | None = None,
     spy_df: pd.DataFrame | None = None,
     ui_manager=None,
@@ -628,15 +632,12 @@ def run_backtest_app(
     key_debug = f"{system_name}_debug_logs"
 
     has_prev = any(
-        k in st.session_state
-        for k in [key_results, key_cands, f"{system_name}_capital_saved"]
+        k in st.session_state for k in [key_results, key_cands, f"{system_name}_capital_saved"]
     )
     if has_prev:
         with st.expander("前回の結果（リランでも保持）", expanded=False):
             prev_res = st.session_state.get(key_results)
-            prev_cap = st.session_state.get(
-                key_capital_saved, st.session_state.get(key_capital, 0)
-            )
+            prev_cap = st.session_state.get(key_capital_saved, st.session_state.get(key_capital, 0))
             if prev_res is not None and getattr(prev_res, "empty", False) is False:
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
@@ -657,7 +658,9 @@ def run_backtest_app(
                 ]:
                     if k in st.session_state:
                         del st.session_state[k]
-                st.experimental_rerun()
+                # 型チェッカーや古い Streamlit 実装に対応するため存在を確認してから呼び出す
+                if hasattr(st, "experimental_rerun"):
+                    st.experimental_rerun()
 
     if st.button(tr("clear streamlit cache"), key=f"{system_name}_clear_cache"):
         st.cache_data.clear()
@@ -668,9 +671,7 @@ def run_backtest_app(
         st.session_state[debug_key] = True
     st.checkbox(tr("show debug logs"), key=debug_key)
 
-    use_auto = st.checkbox(
-        tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto"
-    )
+    use_auto = st.checkbox(tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto")
     _init_cap = int(st.session_state.get(key_capital_saved, 1000))
     capital = st.number_input(
         tr("capital (USD)"),
@@ -730,6 +731,7 @@ def run_backtest_app(
             st.checkbox(_label, key=_notify_key)
         try:
             import os as _os  # local alias to avoid top imports churn
+
             if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_WEBHOOK_URL")):
                 st.caption(tr("Webhook URL が未設定です（.env を確認）"))
         except Exception:
@@ -782,81 +784,42 @@ def run_backtest_app(
 def summarize_results(results_df: pd.DataFrame, capital: float):
     df = results_df.copy()
 
-    # デバッグ出力を強制的に有効化（一時的）
-    st.write("DEBUG 1: データフレーム基本情報")
-    st.write("Shape:", df.shape)
-    st.write("Columns:", df.columns.tolist())
-    st.write("Sample data:", df[["entry_date", "exit_date", "pnl"]].head())
-
     # 日付を確実に日時型に
     df["entry_date"] = pd.to_datetime(df["entry_date"])
     df["exit_date"] = pd.to_datetime(df["exit_date"])
 
-    st.write("DEBUG 2: 日付範囲")
-    st.write("Entry date range:", df["entry_date"].min(), "to", df["entry_date"].max())
-    st.write("Exit date range:", df["exit_date"].min(), "to", df["exit_date"].max())
+    # 基本集計
+    df = df.sort_values("exit_date").reset_index(drop=True)
+    trades = len(df)
+    total_return = float(df["pnl"].sum()) if "pnl" in df.columns else 0.0
+    wins = int((df["pnl"] > 0).sum()) if "pnl" in df.columns else 0
+    win_rate = (wins / trades * 100.0) if trades > 0 else 0.0
 
-    # 1. 基本的な集計（既存）
-    df["cum_pnl"] = df["pnl"].cumsum()
-    df["equity"] = float(capital) + df["cum_pnl"]
-
-    st.write("DEBUG 3: 累積PnL確認")
-    st.write("Cumulative PnL range:", df["cum_pnl"].min(), "to", df["cum_pnl"].max())
-    st.write("Equity range:", df["equity"].min(), "to", df["equity"].max())
-
-    # 2. 日次ベースの保有状況とエクイティを計算
-    if not df.empty:
-        # 全期間の日付レンジを作成
-        date_range = pd.date_range(
-            start=df["entry_date"].min(), end=df["exit_date"].max(), freq="D"
-        )
-
-        st.write("DEBUG 4: 日次集計前")
-        st.write("Date range length:", len(date_range))
-        st.write("First/Last dates:", date_range[0], date_range[-1])
-
-        # 各日のポジション状態を集計（既存コード）
-        daily_states = []
-        daily_equity = capital  # 初期資金から開始
-
-        for i, d in enumerate(date_range):
-            # その日のアクティブなポジションを抽出
-            active = df[(df["entry_date"] <= d) & (df["exit_date"] >= d)]
-            # その日の損益を集計
-            day_pnl = df[df["exit_date"].dt.date == d.date()]["pnl"].sum()
-            daily_equity += day_pnl
-
-            daily_states.append(
-                {
-                    "date": d,
-                    "active_positions": len(active),
-                    "equity": daily_equity,
-                }
-            )
-
-            # 途中経過を表示（最初の5日分）
-            if i < 5:
-                st.write(f"DEBUG 5-{i}: Day {d.date()}")
-                st.write(f"Active positions: {len(active)}")
-                st.write(f"Day PnL: {day_pnl}")
-                st.write(f"Daily equity: {daily_equity}")
-
-        # 日次状態をDataFrameに変換
-        daily_df = pd.DataFrame(daily_states)
-
-        st.write("DEBUG 6: 日次集計結果サンプル")
-        st.write(daily_df.head())
-
-        # ドローダウン計算
-        daily_df["cum_max"] = daily_df["equity"].cummax()
-        daily_df["drawdown"] = daily_df["equity"] - daily_df["cum_max"]
-        max_dd = float(abs(daily_df["drawdown"].min()))
-
-        st.write("DEBUG 7: ドローダウン計算結果")
-        st.write("Max drawdown:", max_dd)
-        st.write("Drawdown stats:", daily_df["drawdown"].describe())
+    # exit_date 基準で累積PnL を作成（グラフ用）
+    df2 = df.copy()
+    if "pnl" in df2.columns:
+        df2["cumulative_pnl"] = df2["pnl"].cumsum()
     else:
+        df2["cumulative_pnl"] = 0.0
+
+    # 日次保有状態・エクイティ等（簡易版）
+    # cumulative_pnl からドローダウンを計算
+    try:
+        cum = df2["cumulative_pnl"].astype(float)
+        dd_series = cum - cum.cummax()
+        max_dd = float(abs(dd_series.min()))
+    except Exception:
         max_dd = 0.0
+
+    summary = {
+        "trades": int(trades),
+        "total_return": float(total_return),
+        "win_rate": float(win_rate),
+        "max_dd": float(max_dd),
+    }
+
+    # 呼び出し元は (summary, df2) を期待しているため返す
+    return summary, df2
 
 
 @overload
@@ -866,8 +829,8 @@ def show_results(
     system_name: str = "SystemX",
     *,
     key_context: str = "main",
-) -> None:
-    ...
+) -> None: ...
+
 
 def show_results(
     results_df: pd.DataFrame,
@@ -951,16 +914,18 @@ def show_results(
     plt.xlabel(i18n.tr("date"))
     plt.ylabel(i18n.tr("pnl"))
     plt.legend()
-    st.pyplot(plt)
+    # streamlit.pyplot には Figure を渡す（plt モジュールそのものを渡さない）
+    try:
+        fig = plt.gcf()
+        st.pyplot(fig)
+    except Exception:
+        # フォールバック: 直接渡すのは避けるがエラー時は無視
+        pass
 
     st.subheader(i18n.tr("yearly summary"))
-    st.dataframe(
-        df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-    )
+    st.dataframe(df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index())
     st.subheader(i18n.tr("monthly summary"))
-    st.dataframe(
-        df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-    )
+    st.dataframe(df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index())
 
     st.subheader(i18n.tr("holdings heatmap (by day)"))
     progress_heatmap = st.progress(0)
@@ -991,12 +956,12 @@ def show_results(
     csv_bytes = holding_matrix.to_csv().encode("utf-8")
     if getattr(getattr(_APP_SETTINGS, "ui", None), "show_download_buttons", True):
         st.download_button(
-        label=(i18n.tr("download holdings csv")),
-        data=csv_bytes,
-        file_name=f"holding_status_{system_name}.csv",
-        mime="text/csv",
-        key=f"{system_name}_{key_context}_download_holding_csv",
-    )
+            label=(i18n.tr("download holdings csv")),
+            data=csv_bytes,
+            file_name=f"holding_status_{system_name}.csv",
+            mime="text/csv",
+            key=f"{system_name}_{key_context}_download_holding_csv",
+        )
     try:
         progress_heatmap.empty()
     except Exception:
@@ -1009,8 +974,8 @@ def show_signal_trade_summary(
     trades_df: pd.DataFrame | None,
     system_name: str,
     display_name: str | None = None,
-) -> pd.DataFrame:
-    ...
+) -> pd.DataFrame: ...
+
 
 def show_signal_trade_summary(
     source_df, trades_df, system_name: str, display_name: str | None = None
@@ -1023,20 +988,14 @@ def show_signal_trade_summary(
             sym: int(df.get("setup", pd.Series(dtype=int)).sum())
             for sym, df in (source_df or {}).items()
         }
-        signal_counts = pd.DataFrame(
-            signal_counts.items(), columns=["symbol", "Signal_Count"]
-        )
+        signal_counts = pd.DataFrame(signal_counts.items(), columns=["symbol", "Signal_Count"])
 
     if trades_df is not None and not trades_df.empty:
-        trade_counts = (
-            trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
-        )
+        trade_counts = trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
     else:
         trade_counts = pd.DataFrame(columns=["symbol", "Trade_Count"])
 
-    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(
-        0
-    )
+    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(0)
     summary_df["Signal_Count"] = summary_df["Signal_Count"].astype(int)
     summary_df["Trade_Count"] = summary_df["Trade_Count"].astype(int)
 
@@ -1056,14 +1015,10 @@ def display_roc200_ranking(
         st.info(tr("ランキングデータがありません"))
         return
     df = ranking_df.copy()
-    df["Date"] = (
-        pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
-    )
+    df["Date"] = pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
     df = df.reset_index(drop=True)
     if "ROC200_Rank" not in df.columns and "ROC200" in df.columns:
-        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(
-            ascending=False, method="first"
-        )
+        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(ascending=False, method="first")
     if years:
         start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
         df = df[df["Date"] >= start_date]
@@ -1086,8 +1041,8 @@ def save_signal_and_trade_logs(
     results: pd.DataFrame | list[dict[str, Any]] | None,
     system_name: str,
     capital: float,
-) -> None:
-    ...
+) -> None: ...
+
 
 def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     today_str = pd.Timestamp.today().strftime("%Y-%m-%d_%H%M")
@@ -1099,9 +1054,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     os.makedirs(trade_dir, exist_ok=True)
 
     if signal_counts_df is not None and not signal_counts_df.empty:
-        signal_path = os.path.join(
-            sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv"
-        )
+        signal_path = os.path.join(sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv")
         signal_counts_df.to_csv(signal_path, index=False)
         st.write(tr("シグナルを保存しました: {signal_path}", signal_path=signal_path))
         # 即時ダウンロード
@@ -1130,9 +1083,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             st.dataframe(trades_df[cols] if cols else trades_df)
         except Exception:
             pass
-        trade_path = os.path.join(
-            trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv"
-        )
+        trade_path = os.path.join(trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv")
         trades_df.to_csv(trade_path, index=False)
         st.write(tr("トレードを保存しました: {trade_path}", trade_path=trade_path))
         # 即時ダウンロード
@@ -1148,8 +1099,36 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
 @overload
 def save_prepared_data_cache(
     data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"
-) -> None:
-    ...
+) -> None: ...
+
+
+def save_prepared_data_cache(data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"):
+    st.info(tr("{system_name} の日次データを保存中...", system_name=system_name))
+    if not data_dict:
+        st.warning(tr("保存するデータがありません"))
+        return
+    total = len(data_dict)
+    progress_bar = st.progress(0)
+    for i, (sym, df) in enumerate(data_dict.items(), 1):
+        path = os.path.join("data_cache", f"{safe_filename(sym)}.csv")
+        try:
+            df.to_csv(path)
+        except Exception:
+            # 書き込み失敗してもループ継続
+            pass
+        progress_bar.progress(0 if total == 0 else i / total)
+    st.write(tr("{total}件のファイルを保存しました", total=total))
+    try:
+        progress_bar.empty()
+    except Exception:
+        pass
+
+
+@overload
+def save_prepared_data_cache(
+    data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"
+) -> None: ...
+
 
 def save_prepared_data_cache(data_dict, system_name: str = "SystemX"):
     st.info(tr("{system_name} の日次データを保存中...", system_name=system_name))
