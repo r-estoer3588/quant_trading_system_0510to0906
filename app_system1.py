@@ -95,7 +95,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
-        stats: dict[str, str] = {
+        stats: dict[str, Any] = {
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{max_dd:.2f} ({max_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
@@ -118,7 +118,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             ye = daily_eq.resample("Y").last()
             yearly_df = pd.DataFrame(
                 {
-                    "year": ye.index.year,
+                    "year": pd.to_datetime(ye.index).year,
                     "pnl": (ye - ys).values,
                     "return_pct": ((ye / ys - 1) * 100).values,
                 }
@@ -146,10 +146,14 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
                 today = today.sort_values(roc_col, ascending=False).head(10)
                 for _, r in today.iterrows():
                     item: dict[str, Any] = {"symbol": str(r.get("symbol"))}
+                    val: Any = r.get(roc_col)
                     try:
-                        item["roc"] = float(r.get(roc_col))
+                        if val is None:
+                            item["roc"] = val
+                        else:
+                            item["roc"] = float(val)
                     except Exception:
-                        item["roc"] = r.get(roc_col)
+                        item["roc"] = val
                     if vol_col is not None:
                         item["volume"] = r.get(vol_col)
                     ranking.append(item)

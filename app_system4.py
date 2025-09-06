@@ -69,9 +69,7 @@ def display_rsi4_ranking(
     )
     with st.expander(title, expanded=False):
         st.dataframe(
-            df.reset_index(drop=True)[
-                ["Date", "RSI4_Rank", "symbol", "RSI4"]
-            ],
+            df.reset_index(drop=True)[["Date", "RSI4_Rank", "symbol", "RSI4"]],
             hide_index=False,
         )
 
@@ -131,15 +129,10 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (
-                    df2["drawdown"] / (float(capital) + df2["cum_max"])
-                ).min()
-                * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
-        stats: dict[str, str] = {
+        stats: dict[str, str | int] = {
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{_max_dd:.2f} ({_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
@@ -156,9 +149,27 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             daily_eq = equity.resample("D").last().ffill()
             ys = daily_eq.resample("Y").first()
             ye = daily_eq.resample("Y").last()
+            # extract years robustly even if index is not a DatetimeIndex (e.g., MultiIndex)
+            try:
+                # common case: DatetimeIndex exposes .year
+                years = ye.index.year  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    # try converting index values to datetime then get year
+                    years = pd.to_datetime(ye.index).year
+                except Exception:
+                    if isinstance(ye.index, pd.MultiIndex):
+                        # take level 0 values and convert to year where possible
+                        try:
+                            lvl0 = ye.index.get_level_values(0)
+                            years = pd.to_datetime(lvl0).year
+                        except Exception:
+                            years = pd.Index([getattr(i, "year", None) for i in ye.index])
+                    else:
+                        years = pd.Index([getattr(i, "year", None) for i in ye.index])
             yearly_df = pd.DataFrame(
                 {
-                    "year": ye.index.year,
+                    "year": years,
                     "pnl": (ye - ys).values,
                     "return_pct": ((ye / ys - 1) * 100).values,
                 }
@@ -173,10 +184,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             else []
         )
         period = ""
-        if (
-            "entry_date" in results_df.columns
-            and "exit_date" in results_df.columns
-        ):
+        if "entry_date" in results_df.columns and "exit_date" in results_df.columns:
             start = pd.to_datetime(results_df["entry_date"]).min()
             end = pd.to_datetime(results_df["exit_date"]).max()
             period = f"{start:%Y-%m-%d}〜{end:%Y-%m-%d}"
@@ -190,9 +198,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             for n in notifiers:
                 try:
                     _mention: str | None = (
-                        "channel"
-                        if getattr(n, "platform", None) == "slack"
-                        else None
+                        "channel" if getattr(n, "platform", None) == "slack" else None
                     )
                     if hasattr(n, "send_backtest_ex"):
                         n.send_backtest_ex(

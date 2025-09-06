@@ -1,5 +1,6 @@
+from __future__ import annotations
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
@@ -121,15 +122,10 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (
-                    df2["drawdown"] / (float(capital) + df2["cum_max"])
-                ).min()
-                * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
-        stats: dict[str, str] = {
+        stats: dict[str, Any] = {
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{_max_dd:.2f} ({_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
@@ -148,7 +144,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             ye = daily_eq.resample("Y").last()
             yearly_df = pd.DataFrame(
                 {
-                    "year": ye.index.year,
+                    "year": pd.to_datetime(ye.index).year,
                     "pnl": (ye - ys).values,
                     "return_pct": ((ye / ys - 1) * 100).values,
                 }
@@ -163,10 +159,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             else []
         )
         period = ""
-        if (
-            "entry_date" in results_df.columns
-            and "exit_date" in results_df.columns
-        ):
+        if "entry_date" in results_df.columns and "exit_date" in results_df.columns:
             start = pd.to_datetime(results_df["entry_date"]).min()
             end = pd.to_datetime(results_df["exit_date"]).max()
             period = f"{start:%Y-%m-%d}〜{end:%Y-%m-%d}"
@@ -180,9 +173,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             for n in notifiers:
                 try:
                     _mention: str | None = (
-                        "channel"
-                        if getattr(n, "platform", None) == "slack"
-                        else None
+                        "channel" if getattr(n, "platform", None) == "slack" else None
                     )
                     if hasattr(n, "send_backtest_ex"):
                         n.send_backtest_ex(

@@ -34,21 +34,37 @@ with st.sidebar:
         value=", ".join(default_syms),
         height=100,
     )
-    syms = [s.strip().upper() for s in syms_text.replace("\n", ",").replace(" ", ",").split(",") if s.strip()]
+    syms = [
+        s.strip().upper()
+        for s in syms_text.replace("\n", ",").replace(" ", ",").split(",")
+        if s.strip()
+    ]
 
     st.header("Budgets")
     col1, col2 = st.columns(2)
     with col1:
-        cap_long = st.number_input("Capital Long ($)", min_value=0.0, step=1000.0, value=float(settings.backtest.initial_capital))
+        cap_long = st.number_input(
+            "Capital Long ($)",
+            min_value=0.0,
+            step=1000.0,
+            value=float(settings.backtest.initial_capital),
+        )
     with col2:
-        cap_short = st.number_input("Capital Short ($)", min_value=0.0, step=1000.0, value=float(settings.backtest.initial_capital))
+        cap_short = st.number_input(
+            "Capital Short ($)",
+            min_value=0.0,
+            step=1000.0,
+            value=float(settings.backtest.initial_capital),
+        )
 
     save_csv = st.checkbox("Save CSV to signals_dir", value=False)
 
     st.header("Filters")
     only_long = st.checkbox("Trade only LONG", value=False)
     only_short = st.checkbox("Trade only SHORT", value=False)
-    top_per_system = st.number_input("Top N per system", min_value=0, step=1, value=0, help="0 for unlimited")
+    top_per_system = st.number_input(
+        "Top N per system", min_value=0, step=1, value=0, help="0 for unlimited"
+    )
 
     st.header("Alpaca Auto-Trade")
     do_trade = st.checkbox("Auto submit via Alpaca", value=False)
@@ -85,7 +101,9 @@ if st.button("▶ Run Today Signals", type="primary"):
                 filtered = filtered[filtered["side"].str.lower() == "short"]
         if top_per_system and top_per_system > 0 and "system" in filtered.columns:
             by = ["system"] + (["side"] if "side" in filtered.columns else [])
-            filtered = filtered.groupby(by, as_index=False, group_keys=False).head(int(top_per_system))
+            filtered = filtered.groupby(by, as_index=False, group_keys=False).head(
+                int(top_per_system)
+            )
 
         st.dataframe(filtered, use_container_width=True)
         csv = filtered.to_csv(index=False).encode("utf-8")
@@ -108,7 +126,19 @@ if st.button("▶ Run Today Signals", type="primary"):
                     side = "buy" if str(r.get("side")).lower() == "long" else "sell"
                     if not sym or qty <= 0:
                         continue
-                    limit_price = float(r.get("entry_price")) if order_type == "limit" else None
+                    # Safely parse entry_price only when using limit orders and a value is present
+                    entry_price_raw = r.get("entry_price")
+                    if (
+                        order_type == "limit"
+                        and entry_price_raw is not None
+                        and entry_price_raw != ""
+                    ):
+                        try:
+                            limit_price = float(entry_price_raw)
+                        except (TypeError, ValueError):
+                            limit_price = None
+                    else:
+                        limit_price = None
                     try:
                         order = ba.submit_order_with_retry(
                             client,
@@ -123,26 +153,31 @@ if st.button("▶ Run Today Signals", type="primary"):
                             rate_limit_seconds=float(max(0.0, delay)),
                             log_callback=lambda m: st.write(m),
                         )
-                        results.append({
-                            "symbol": sym,
-                            "side": side,
-                            "qty": qty,
-                            "order_id": getattr(order, "id", None),
-                            "status": getattr(order, "status", None),
-                        })
+                        results.append(
+                            {
+                                "symbol": sym,
+                                "side": side,
+                                "qty": qty,
+                                "order_id": getattr(order, "id", None),
+                                "status": getattr(order, "status", None),
+                            }
+                        )
                     except Exception as e:
-                        results.append({
-                            "symbol": sym,
-                            "side": side,
-                            "qty": qty,
-                            "error": str(e),
-                        })
+                        results.append(
+                            {
+                                "symbol": sym,
+                                "side": side,
+                                "qty": qty,
+                                "error": str(e),
+                            }
+                        )
             if results:
                 st.dataframe(pd.DataFrame(results), use_container_width=True)
                 notifier.send_trade_report("integrated", results)
                 if poll_status and any(r.get("order_id") for r in results):
                     st.info("Polling order status for 10 seconds...")
                     import time
+
                     order_ids = [r.get("order_id") for r in results if r.get("order_id")]
                     end = time.time() + 10
                     last = {}
