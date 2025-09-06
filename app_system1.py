@@ -11,7 +11,7 @@ import streamlit as st
 from common.cache_utils import save_prepared_data_cache
 from common.equity_curve import save_equity_curve
 from common.i18n import language_selector, load_translations_from_dir, tr
-from common.notifier import Notifier
+from common.notifier import Notifier, now_jst_str
 from common.performance_summary import summarize as summarize_perf
 from common.ui_components import (
     clean_date_column,
@@ -99,6 +99,9 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{max_dd:.2f} ({max_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
+            "実施日時": now_jst_str(),
+            "銘柄数": len(data_dict) if data_dict else 0,
+            "開始資金": int(capital),
         }
         # 画面上にも DD と DD% を表示（統合サマリーと同様）
         # show_results 側で統一表示するため、ここでのメトリクス表示は不要

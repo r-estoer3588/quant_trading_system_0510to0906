@@ -12,6 +12,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, Iterable, Tuple, overload
 
+import matplotlib as mpl
+from matplotlib import font_manager as _font_manager
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import pandas as pd
@@ -209,8 +211,8 @@ def default_log_callback(
     elapsed = time.time() - start_time
     remain = (elapsed / processed) * (total - processed) if processed else 0
     return (
-        f"{prefix}: {processed}/{total} 件 | 経過: {int(elapsed//60)}分{int(elapsed%60)}秒"
-        f" / 残り目安: 約{int(remain//60)}分{int(remain%60)}秒"
+        f"{prefix}: {processed}/{total} 件 | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒"
+        f" / 残り目安: 約{int(remain // 60)}分{int(remain % 60)}秒"
     )
 
 
@@ -452,6 +454,7 @@ def prepare_backtest_data(
                     log_area=cand_log,
                     progress_bar=cand_progress,
                 ),
+                log_callback=lambda msg: cand_log.text(str(msg)),
                 **kwargs,
             )
         except (TypeError, ValueError):
@@ -923,9 +926,13 @@ def show_results(
         pass
 
     st.subheader(i18n.tr("yearly summary"))
-    st.dataframe(df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index())
+    yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
+    yearly["pnl"] = yearly["pnl"].map(lambda v: f"${v:,.1f}")
+    st.dataframe(yearly)
     st.subheader(i18n.tr("monthly summary"))
-    st.dataframe(df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index())
+    monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
+    monthly["pnl"] = monthly["pnl"].map(lambda v: f"${v:,.1f}")
+    st.dataframe(monthly)
 
     st.subheader(i18n.tr("holdings heatmap (by day)"))
     progress_heatmap = st.progress(0)

@@ -6,6 +6,7 @@ import streamlit as st
 
 from common.equity_curve import save_equity_curve
 from common.i18n import tr
+from common.notifier import now_jst_str
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
 from common.performance_summary import summarize as summarize_perf
@@ -160,6 +161,11 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         if trades_df is not None and not trades_df.empty:
             summary, df2 = summarize_perf(trades_df, capital_i)
             d = summary.to_dict()
+            d.update({
+                "実施日時": now_jst_str(),
+                "銘柄数": len(symbols),
+                "開始資金": int(capital_i),
+            })
             cols = st.columns(6)
             try:
                 dd_pct = (df2["drawdown"] / (capital_i + df2["cum_max"])).min() * 100
@@ -400,7 +406,10 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             sys_name = f"System{i}"
             sys_log.text(f"{sys_name}: starting...")
             try:
-                mod = __import__(f"strategies.system{i}_strategy", fromlist=[f"System{i}Strategy"])  # type: ignore
+                mod = __import__(
+                    f"strategies.system{i}_strategy",
+                    fromlist=[f"System{i}Strategy"],
+                )  # type: ignore
                 cls = getattr(mod, f"System{i}Strategy")
                 strat = cls()
 
@@ -465,6 +474,11 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             summary, all_df2 = summarize_perf(all_df, capital)
             cols = st.columns(6)
             d = summary.to_dict()
+            d.update({
+                "実施日時": now_jst_str(),
+                "銘柄数": len(symbols),
+                "開始資金": int(capital),
+            })
             cols[0].metric(tr("trades"), d.get("trades"))
             cols[1].metric(tr("total pnl"), f"{d.get('total_return', 0):.2f}")
             cols[2].metric(tr("win rate (%)"), f"{d.get('win_rate', 0):.2f}")
