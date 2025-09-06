@@ -31,7 +31,9 @@ def prepare_data_vectorized_system4(
             continue
         try:
             x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
-            x["ATR40"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=40).average_true_range()
+            x["ATR40"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=40
+            ).average_true_range()
             x["HV50"] = (
                 np.log(x["Close"] / x["Close"].shift(1)).rolling(50).std() * np.sqrt(252) * 100
             )

@@ -26,7 +26,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    def prepare_data(self, raw_data_dict, **kwargs):
+    def prepare_data(self, raw_data_dict: dict[str, "pd.DataFrame"], *args, **kwargs):
+        # UIから渡される unknown なキーワード（例: single_mode）を吸収して下流関数へ渡さない
+        # これにより prepare_data_vectorized_system7 のシグネチャを変更せずに互換性を保ちます。
+        kwargs.pop("single_mode", None)
         return prepare_data_vectorized_system7(raw_data_dict, **kwargs)
 
     def generate_candidates(self, prepared_dict, **kwargs):
@@ -60,9 +63,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
         stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
 
-        for i, (entry_date, candidates) in enumerate(
-            sorted(candidates_by_date.items()), 1
-        ):
+        for i, (entry_date, candidates) in enumerate(sorted(candidates_by_date.items()), 1):
             if position_open and entry_date >= current_exit_date:
                 position_open = False
                 current_exit_date = None
@@ -76,9 +77,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 stop_price = entry_price + stop_mult * atr
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = (
-                    capital_current if single_mode else capital_current * max_pct
-                )
+                max_position_value = capital_current if single_mode else capital_current * max_pct
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
