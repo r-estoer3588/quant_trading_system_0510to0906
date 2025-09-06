@@ -66,18 +66,6 @@ def run_tab(
     )
     results_df, _, data_dict, capital, candidates_by_date = _rb
 
-    if st.checkbox(tr("チェック: インジケーターの確認"), value=False):
-        if data_dict:
-            for _sym, df in data_dict.items():
-                st.write(tr("例: 2020年02月〜03月"))
-                st.dataframe(df.loc["2020-02-01":"2020-03-31"])  # 確認用
-        else:
-            st.info(
-                tr(
-                    "データが取得できていないため表示できません。バックテストを先に実行してください。"
-                )
-            )
-
     if results_df is not None and candidates_by_date is not None:
         summary_df = show_signal_trade_summary(
             data_dict,
@@ -206,6 +194,18 @@ def run_tab(
                     prev_cap or 0.0,
                     SYSTEM_NAME,
                     key_context="prev",
+                )
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    import sys
+
+    if "streamlit" not in sys.argv[0]:
+        run_tab()
+            SYSTEM_NAME,
+            key_context="prev",
                 )
             except Exception:
                 pass

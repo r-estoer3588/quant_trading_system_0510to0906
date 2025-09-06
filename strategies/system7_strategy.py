@@ -32,7 +32,13 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         kwargs.pop("single_mode", None)
         return prepare_data_vectorized_system7(raw_data_dict, **kwargs)
 
-    def generate_candidates(self, prepared_dict, **kwargs):
+    def generate_candidates(self, *args, **kwargs):
+        # 柔軟に引数を受け取り、UI などから渡される unknown なキーワード（例: single_mode）を吸収して
+        # 下流の generate_candidates_system7 に渡さないようにします。
+        prepared_dict = kwargs.pop("prepared_dict", None)
+        if prepared_dict is None and len(args) > 0:
+            prepared_dict = args[0]
+        kwargs.pop("single_mode", None)
         return generate_candidates_system7(prepared_dict, **kwargs)
 
     def run_backtest(
@@ -73,8 +79,21 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
             for c in candidates:
                 entry_price = float(df.loc[entry_date, "Open"])
-                atr = float(c["ATR50"])
+                # ATR が None/NaN の場合は当該候補をスキップ（Pylance の型警告/ゼロ除算対策）
+                atr_val = None
+                try:
+                    # c が dict の場合などを想定
+                    atr_val = c.get("ATR50") if isinstance(c, dict) else c["ATR50"]
+                except Exception:
+                    atr_val = None
+                if atr_val is None or pd.isna(atr_val):
+                    continue
+                atr = float(atr_val)
                 stop_price = entry_price + stop_mult * atr
+                # 差がゼロまたは負ならリスク計算できないためスキップ
+                diff = stop_price - entry_price
+                if diff <= 0:
+                    continue
 
                 risk_per_trade = risk_pct * capital_current
                 max_position_value = capital_current if single_mode else capital_current * max_pct
@@ -109,7 +128,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                         "entry_date": entry_date,
                         "exit_date": exit_date,
                         "entry_price": entry_price,
-                        "exit_price": round(exit_price, 2),
+                        "exit_price": round(float(exit_price), 2),
                         "shares": shares,
                         "pnl": round(pnl, 2),
                         "return_%": round(return_pct, 2),
