@@ -23,6 +23,7 @@ class TodaySignal:
     stop_price: float
     score_key: Optional[str] = None
     score: Optional[float] = None
+    reason: Optional[str] = None
 
 
 def _infer_side(system_name: str) -> str:
@@ -32,7 +33,9 @@ def _infer_side(system_name: str) -> str:
     return "long"
 
 
-def _score_from_candidate(system_name: str, candidate: dict) -> Tuple[Optional[str], Optional[float], bool]:
+def _score_from_candidate(
+    system_name: str, candidate: dict
+) -> Tuple[Optional[str], Optional[float], bool]:
     """
     候補レコードからスコア項目と並び順（昇順か）を推定して返す。
     戻り値: (score_key, score_value, asc)
@@ -41,11 +44,11 @@ def _score_from_candidate(system_name: str, candidate: dict) -> Tuple[Optional[s
     # システム別の代表スコア
     key_order: List[Tuple[List[str], bool]] = [
         (["ROC200"], False),  # s1: 大きいほど良い
-        (["ADX7"], False),    # s2,s5: 大きいほど良い
+        (["ADX7"], False),  # s2,s5: 大きいほど良い
         (["DropRate_3D"], False),  # s3: 大きいほど良い（下落率）
-        (["RSI4"], True),     # s4: 小さいほど良い
-        (["Return6D"], False),# s6: 大きいほど良い
-        (["ATR50"], False),   # s7: 参考
+        (["RSI4"], True),  # s4: 小さいほど良い
+        (["Return6D"], False),  # s6: 大きいほど良い
+        (["ATR50"], False),  # s7: 参考
     ]
     # system 固有優先順位
     if name == "system4":
@@ -75,14 +78,18 @@ def _pick_atr_col(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def _compute_entry_stop(strategy, df: pd.DataFrame, candidate: dict, side: str) -> Optional[Tuple[float, float]]:
+def _compute_entry_stop(
+    strategy, df: pd.DataFrame, candidate: dict, side: str
+) -> Optional[Tuple[float, float]]:
     # strategy 独自の compute_entry があれば優先
     if hasattr(strategy, "compute_entry") and callable(getattr(strategy, "compute_entry")):
         try:
             res = strategy.compute_entry(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
                 entry, stop = float(res[0]), float(res[1])
-                if entry > 0 and (side == "short" and stop > entry or side == "long" and entry > stop):
+                if entry > 0 and (
+                    side == "short" and stop > entry or side == "long" and entry > stop
+                ):
                     return round(entry, 4), round(stop, 4)
         except Exception:
             pass
@@ -205,6 +212,65 @@ def get_today_signals_for_strategy(
             continue
         entry, stop = comp
         skey, sval, _asc = _score_from_candidate(system_name, c)
+        # build human-readable reason
+        reason_parts: List[str] = []
+        if skey is not None:
+            reason_parts.append(f"{skey}={sval}")
+            # attempt to compute rank among prepared universe for the same entry_date
+            try:
+                entry_date_norm = pd.Timestamp(c.get("entry_date")).normalize()
+                vals = []
+                for psym, pdf in prepared.items():
+                    # try to get the score value at the same entry date
+                    try:
+                        # if Date column exists
+                        if "Date" in pdf.columns:
+                            row = pdf[pd.to_datetime(pdf["Date"]).dt.normalize() == entry_date_norm]
+                        else:
+                            row = pdf[pd.to_datetime(pdf.index).normalize() == entry_date_norm]
+                        if not row.empty and skey in row.columns:
+                            v = row.iloc[0][skey]
+                            if v is not None and not pd.isna(v):
+                                vals.append(float(v))
+                    except Exception:
+                        continue
+                if vals:
+                    # compute rank
+                    total = len(vals)
+                    # include candidate value
+                    try:
+                        candidate_val = float(sval) if sval is not None else None
+                    except Exception:
+                        candidate_val = None
+                    rank = None
+                    if candidate_val is not None:
+                        sorted_vals = sorted(vals, reverse=not _asc)
+                        # 1-based rank
+                        try:
+                            rank = sorted_vals.index(candidate_val) + 1
+                        except ValueError:
+                            # candidate_val might not exactly match due to float precision
+                            # approximate by finding nearest
+                            diffs = [abs(candidate_val - x) for x in sorted_vals]
+                            rank = diffs.index(min(diffs)) + 1
+                    if rank is not None:
+                        reason_parts.append(f"rank={rank}/{total}")
+            except Exception:
+                pass
+
+        # fallback generic info
+        if not reason_parts:
+            # include keys present in candidate for debugging
+            try:
+                keys = ", ".join(
+                    f"{k}:{v}" for k, v in c.items() if k not in {"symbol", "entry_date"}
+                )
+                reason_parts.append(keys[:500])
+            except Exception:
+                reason_parts.append("selected")
+
+        reason_text = "; ".join(reason_parts)
+
         rows.append(
             TodaySignal(
                 symbol=str(sym),
@@ -216,6 +282,7 @@ def get_today_signals_for_strategy(
                 stop_price=float(stop),
                 score_key=skey,
                 score=sval,
+                reason=reason_text,
             )
         )
 
@@ -243,4 +310,3 @@ __all__ = [
     "LONG_SYSTEMS",
     "SHORT_SYSTEMS",
 ]
-

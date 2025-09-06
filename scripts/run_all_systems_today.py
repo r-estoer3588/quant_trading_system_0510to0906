@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Callable
 
 import pandas as pd
 
@@ -24,8 +24,25 @@ from strategies.system7_strategy import System7Strategy
 from common.signal_merge import Signal, merge_signals
 
 
+_LOG_CALLBACK = None
+
+
 def _log(msg: str):
-    print(msg, flush=True)
+    # Print to stdout for CLI users
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
+    # Also forward to UI callback if set
+    try:
+        cb = globals().get("_LOG_CALLBACK")
+        if cb and callable(cb):
+            try:
+                cb(str(msg))
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _load_raw_data(symbols: List[str], cache_dir: str) -> Dict[str, pd.DataFrame]:
@@ -82,11 +99,29 @@ def _amount_pick(
 
                 # 望ましい枚数（全システム割当基準）
                 try:
-                    desired_shares = stg.calculate_position_size(
-                        budgets[name], entry, stop,
-                        risk_pct=float(getattr(stg, "config", {}).get("risk_pct", 0.02)),
-                        max_pct=float(getattr(stg, "config", {}).get("max_pct", 0.10)),
-                    )
+                    # stg may be typed as object; call via cast to avoid static type errors
+                    # call calculate_position_size if available
+                    calc_fn = getattr(stg, "calculate_position_size", None)
+                    if callable(calc_fn):
+                        try:
+                            ds = calc_fn(
+                                budgets[name],
+                                entry,
+                                stop,
+                                risk_pct=float(getattr(stg, "config", {}).get("risk_pct", 0.02)),
+                                max_pct=float(getattr(stg, "config", {}).get("max_pct", 0.10)),
+                            )
+                            if ds is None:
+                                desired_shares = 0
+                            else:
+                                try:
+                                    desired_shares = int(float(ds))
+                                except Exception:
+                                    desired_shares = 0
+                        except Exception:
+                            desired_shares = 0
+                    else:
+                        desired_shares = 0
                 except Exception:
                     desired_shares = 0
                 if desired_shares <= 0:
@@ -151,7 +186,15 @@ def _submit_orders(
         side = "buy" if str(r.get("side")).lower() == "long" else "sell"
         if not sym or qty <= 0:
             continue
-        limit_price = float(r.get("entry_price")) if order_type == "limit" else None
+        # safely parse limit price
+        limit_price = None
+        if order_type == "limit":
+            try:
+                val = r.get("entry_price")
+                if val is not None and val != "":
+                    limit_price = float(val)
+            except Exception:
+                limit_price = None
         try:
             order = ba.submit_order_with_retry(
                 client,
@@ -166,20 +209,24 @@ def _submit_orders(
                 rate_limit_seconds=max(0.0, float(delay)),
                 log_callback=_log,
             )
-            results.append({
-                "symbol": sym,
-                "side": side,
-                "qty": qty,
-                "order_id": getattr(order, "id", None),
-                "status": getattr(order, "status", None),
-            })
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": side,
+                    "qty": qty,
+                    "order_id": getattr(order, "id", None),
+                    "status": getattr(order, "status", None),
+                }
+            )
         except Exception as e:
-            results.append({
-                "symbol": sym,
-                "side": side,
-                "qty": qty,
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": side,
+                    "qty": qty,
+                    "error": str(e),
+                }
+            )
     if results:
         out = pd.DataFrame(results)
         _log("\n=== Alpaca submission results ===")
@@ -190,7 +237,9 @@ def _submit_orders(
     return pd.DataFrame()
 
 
-def _apply_filters(df: pd.DataFrame, *, only_long: bool = False, only_short: bool = False, top_per_system: int = 0) -> pd.DataFrame:
+def _apply_filters(
+    df: pd.DataFrame, *, only_long: bool = False, only_short: bool = False, top_per_system: int = 0
+) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     out = df.copy()
@@ -214,12 +263,15 @@ def compute_today_signals(
     capital_short: float | None = None,
     save_csv: bool = False,
     notify: bool = True,
+    log_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
     戻り値: (final_df, per_system_df_dict)
     """
     settings = get_settings(create_dirs=True)
+    # install log callback for helpers
+    globals()["_LOG_CALLBACK"] = log_callback
     cache_dir = str(settings.DATA_CACHE_DIR)
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
@@ -249,7 +301,9 @@ def compute_today_signals(
     if "SPY" not in symbols:
         symbols.append("SPY")
 
-    _log(f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）")
+    _log(
+        f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）"
+    )
 
     # データ読み込み
     raw_data = _load_raw_data(symbols, cache_dir)
@@ -261,8 +315,13 @@ def compute_today_signals(
 
     # ストラテジ初期化
     strategy_objs = [
-        System1Strategy(), System2Strategy(), System3Strategy(),
-        System4Strategy(), System5Strategy(), System6Strategy(), System7Strategy(),
+        System1Strategy(),
+        System2Strategy(),
+        System3Strategy(),
+        System4Strategy(),
+        System5Strategy(),
+        System6Strategy(),
+        System7Strategy(),
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
 
@@ -275,9 +334,18 @@ def compute_today_signals(
             continue
         base = {"SPY": raw_data.get("SPY")} if name == "system7" else raw_data
         _log(f"🔎 {name}: シグナル抽出を開始")
-        df = stg.get_today_signals(base, market_df=spy_df, today=today)
+        # pass through log/progress callbacks so strategy code can report progress
+        df = stg.get_today_signals(
+            base,
+            market_df=spy_df,
+            today=today,
+            progress_callback=None,
+            log_callback=log_callback,
+        )
         if not df.empty:
-            asc = _asc_by_score_key(df["score_key"].iloc[0] if "score_key" in df.columns and len(df) else None)
+            asc = _asc_by_score_key(
+                df["score_key"].iloc[0] if "score_key" in df.columns and len(df) else None
+            )
             df = df.sort_values("score", ascending=asc, na_position="last").reset_index(drop=True)
         per_system[name] = df
         _log(f"✅ {name}: {len(df)} 件")
@@ -292,7 +360,9 @@ def compute_today_signals(
         slots_long = slots_long if slots_long is not None else max_pos
         slots_short = slots_short if slots_short is not None else max_pos
 
-        def _distribute_slots(weights: Dict[str, float], total_slots: int, counts: Dict[str, int]) -> Dict[str, int]:
+        def _distribute_slots(
+            weights: Dict[str, float], total_slots: int, counts: Dict[str, int]
+        ) -> Dict[str, int]:
             base = {k: int(total_slots * weights.get(k, 0.0)) for k in weights}
             for k in list(base.keys()):
                 if counts.get(k, 0) <= 0:
@@ -302,7 +372,11 @@ def compute_today_signals(
             used = sum(base.values())
             remain = max(0, total_slots - used)
             if remain > 0:
-                order = sorted(weights.keys(), key=lambda k: (counts.get(k, 0), weights.get(k, 0.0)), reverse=True)
+                order = sorted(
+                    weights.keys(),
+                    key=lambda k: (counts.get(k, 0), weights.get(k, 0.0)),
+                    reverse=True,
+                )
                 idx = 0
                 while remain > 0 and order:
                     k = order[idx % len(order)]
@@ -327,7 +401,7 @@ def compute_today_signals(
             if df is None or df.empty or slot <= 0:
                 continue
             take = df.head(slot).copy()
-            take["alloc_weight"] = (long_alloc.get(name) or short_alloc.get(name) or 0.0)
+            take["alloc_weight"] = long_alloc.get(name) or short_alloc.get(name) or 0.0
             chosen_frames.append(take)
         final_df = pd.concat(chosen_frames, ignore_index=True) if chosen_frames else pd.DataFrame()
     else:
@@ -357,7 +431,9 @@ def compute_today_signals(
 
     if not final_df.empty:
         sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]
-        final_df = final_df.sort_values(sort_cols, ascending=[True, True, True][: len(sort_cols)]).reset_index(drop=True)
+        final_df = final_df.sort_values(
+            sort_cols, ascending=[True, True, True][: len(sort_cols)]
+        ).reset_index(drop=True)
 
         if notify:
             try:
@@ -380,20 +456,48 @@ def compute_today_signals(
             df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
 
+    # clear callback
+    try:
+        globals().pop("_LOG_CALLBACK", None)
+    except Exception:
+        pass
+
     return final_df, per_system
 
 
 def main():
     parser = argparse.ArgumentParser(description="全システム当日シグナル抽出・集約")
-    parser.add_argument("--symbols", nargs="*", help="対象シンボル。未指定なら設定のauto_tickersを使用")
-    parser.add_argument("--slots-long", type=int, default=None, help="買いサイドの最大採用数（スロット方式）")
-    parser.add_argument("--slots-short", type=int, default=None, help="売りサイドの最大採用数（スロット方式）")
-    parser.add_argument("--capital-long", type=float, default=None, help="買いサイド予算（ドル）。指定時は金額配分モード")
-    parser.add_argument("--capital-short", type=float, default=None, help="売りサイド予算（ドル）。指定時は金額配分モード")
-    parser.add_argument("--save-csv", action="store_true", help="signalsディレクトリにCSVを保存する")
+    parser.add_argument(
+        "--symbols", nargs="*", help="対象シンボル。未指定なら設定のauto_tickersを使用"
+    )
+    parser.add_argument(
+        "--slots-long", type=int, default=None, help="買いサイドの最大採用数（スロット方式）"
+    )
+    parser.add_argument(
+        "--slots-short", type=int, default=None, help="売りサイドの最大採用数（スロット方式）"
+    )
+    parser.add_argument(
+        "--capital-long",
+        type=float,
+        default=None,
+        help="買いサイド予算（ドル）。指定時は金額配分モード",
+    )
+    parser.add_argument(
+        "--capital-short",
+        type=float,
+        default=None,
+        help="売りサイド予算（ドル）。指定時は金額配分モード",
+    )
+    parser.add_argument(
+        "--save-csv", action="store_true", help="signalsディレクトリにCSVを保存する"
+    )
     # Alpaca 自動発注オプション
-    parser.add_argument("--alpaca-submit", action="store_true", help="Alpaca に自動発注（shares 必須）")
-    parser.add_argument("--order-type", choices=["market", "limit"], default="market", help="注文種別")
+    parser.add_argument(
+        "--alpaca-submit", action="store_true", help="Alpaca に自動発注（shares 必須）"
+    )
+    parser.add_argument(
+        "--order-type", choices=["market", "limit"], default="market", help="注文種別"
+    )
     parser.add_argument("--tif", choices=["GTC", "DAY"], default="GTC", help="Time In Force")
     parser.add_argument("--live", action="store_true", help="ライブ口座で発注（デフォルトはPaper）")
     args = parser.parse_args()
@@ -438,7 +542,9 @@ def main():
         ]
         merge_signals([signals_for_merge], portfolio_state={}, market_state={})
         if args.alpaca_submit:
-            _submit_orders(final_df, paper=(not args.live), order_type=args.order_type, tif=args.tif)
+            _submit_orders(
+                final_df, paper=(not args.live), order_type=args.order_type, tif=args.tif
+            )
 
 
 if __name__ == "__main__":

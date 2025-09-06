@@ -42,19 +42,31 @@ with st.sidebar:
 
     st.header("Budgets")
     col1, col2 = st.columns(2)
+    # use session_state so we can update values programmatically (e.g., fetch from Alpaca)
+    if "cap_long_input" not in st.session_state:
+        st.session_state["cap_long_input"] = float(
+            getattr(settings.backtest, "initial_capital", 2000.0) or 2000.0
+        )
+    if "cap_short_input" not in st.session_state:
+        st.session_state["cap_short_input"] = float(
+            getattr(settings.backtest, "initial_capital", 2000.0) or 2000.0
+        )
+
     with col1:
         cap_long = st.number_input(
             "Capital Long ($)",
             min_value=0.0,
-            step=1000.0,
-            value=float(settings.backtest.initial_capital),
+            step=100.0,
+            value=st.session_state["cap_long_input"],
+            key="cap_long_input",
         )
     with col2:
         cap_short = st.number_input(
             "Capital Short ($)",
             min_value=0.0,
-            step=1000.0,
-            value=float(settings.backtest.initial_capital),
+            step=100.0,
+            value=st.session_state["cap_short_input"],
+            key="cap_short_input",
         )
 
     save_csv = st.checkbox("Save CSV to signals_dir", value=False)
@@ -75,13 +87,48 @@ with st.sidebar:
     delay = st.number_input("Delay (sec)", min_value=0.0, step=0.5, value=0.5)
     poll_status = st.checkbox("Poll order status (10s)", value=False)
 
+    # Alpaca: fetch balances and populate inputs
+    if st.button("🔍 Fetch Alpaca Balances into inputs"):
+        try:
+            client = ba.get_client(paper=paper_mode)
+            acct = client.get_account()
+            bp = None
+            try:
+                bp = float(getattr(acct, "buying_power", None) or getattr(acct, "cash", None))
+            except Exception:
+                bp = None
+            if bp is None:
+                st.warning("Alpaca account info: buying_power/cash not available")
+            else:
+                # split into long/short equally
+                half = round(max(0.0, float(bp)) / 2.0, 2)
+                st.session_state["cap_long_input"] = half
+                st.session_state["cap_short_input"] = half
+                st.success(f"Set Capital Long/Short to {half} each (half of buying_power={bp})")
+        except Exception as e:
+            st.error(f"Alpaca 残高取得エラー: {e}")
+
 if st.button("▶ Run Today Signals", type="primary"):
+    # prepare live log display
+    if "_today_logs" not in st.session_state:
+        st.session_state["_today_logs"] = []
+    log_box = st.empty()
+
+    def _ui_log(msg: str) -> None:
+        try:
+            st.session_state["_today_logs"].append(str(msg))
+            # show as code block for monospaced output
+            log_box.code("\n".join(st.session_state["_today_logs"]))
+        except Exception:
+            pass
+
     with st.spinner("Running..."):
         final_df, per_system = compute_today_signals(
             syms,
             capital_long=cap_long,
             capital_short=cap_short,
             save_csv=save_csv,
+            log_callback=_ui_log,
         )
 
     for name, df in per_system.items():
@@ -151,7 +198,7 @@ if st.button("▶ Run Today Signals", type="primary"):
                             retries=int(retries),
                             backoff_seconds=float(max(0.0, delay)),
                             rate_limit_seconds=float(max(0.0, delay)),
-                            log_callback=lambda m: st.write(m),
+                            log_callback=_ui_log,
                         )
                         results.append(
                             {
@@ -194,6 +241,15 @@ if st.button("▶ Run Today Signals", type="primary"):
             if df is None or df.empty:
                 st.write("(empty)")
             else:
+                # show dataframe (includes reason column if available)
                 st.dataframe(df, use_container_width=True)
                 csv2 = df.to_csv(index=False).encode("utf-8")
                 st.download_button(f"Download {name}", data=csv2, file_name=f"signals_{name}.csv")
+
+                # Debug: show per-symbol reason text for why it was selected
+                if "reason" in df.columns:
+                    with st.expander(f"{name} - selection reasons", expanded=False):
+                        for _, row in df.iterrows():
+                            sym = row.get("symbol")
+                            reason = row.get("reason")
+                            st.markdown(f"- **{sym}**: {reason}")

@@ -101,35 +101,77 @@ def run_tab(
         }
 
         # --- 追加: 資産推移と実行日数チェック（資金不足の可能性を判定） ---
+        # 累積PnL から時系列の equity を作成（capital + cumulative_pnl）
+        equity = (float(capital) + df2["cumulative_pnl"].astype(float)).astype(float)
+        # 最小資産と最終資産
+        min_equity = float(equity.min())
+        final_equity = float(equity.iloc[-1]) if len(equity) > 0 else float(capital)
+        stats["最小資産"] = f"{min_equity:.2f}"
+        stats["最終資産"] = f"{final_equity:.2f}"
+
+        # 実行日数（カレンダー日数）と取引記録数
+        if "entry_date" in df2.columns and "exit_date" in df2.columns:
+            start_dt = pd.to_datetime(df2["entry_date"]).min()
+            end_dt = pd.to_datetime(df2["exit_date"]).max()
+            total_calendar_days = (end_dt - start_dt).days + 1
+            trade_records = len(df2)
+            stats["実行日数"] = f"{total_calendar_days}日 (取引記録: {trade_records})"
+        else:
+            stats["実行日数"] = f"{len(df2)} レコード"
+
+        # 日付インデックスを持つ equity Series を作成
+        if "exit_date" in df2.columns:
+            eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["exit_date"]))
+        elif "entry_date" in df2.columns:
+            eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["entry_date"]))
+        else:
+            eq_series = pd.Series(equity.values)
+        # インデックスをソートして日次にリサンプル（取引の無い日も埋める）
         try:
-            # 累積PnL から時系列の equity を作成（capital + cumulative_pnl）
-            equity = (float(capital) + df2["cumulative_pnl"].astype(float)).astype(float)
-            # 最小資産と最終資産
-            min_equity = float(equity.min())
-            final_equity = float(equity.iloc[-1]) if len(equity) > 0 else float(capital)
-            stats["最小資産"] = f"{min_equity:.2f}"
-            stats["最終資産"] = f"{final_equity:.2f}"
+            eq_series = eq_series.sort_index()
+            # 日次にリサンプルして直近の値で補完（取引が無い日は直近の資産を保持）
+            daily_eq = eq_series.resample("D").last().ffill()
+        except Exception:
+            # リサンプル不可ならそのまま使用
+            daily_eq = eq_series
 
-            # 実行日数（カレンダー日数）と取引記録数
-            if "entry_date" in df2.columns and "exit_date" in df2.columns:
-                start_dt = pd.to_datetime(df2["entry_date"]).min()
-                end_dt = pd.to_datetime(df2["exit_date"]).max()
-                total_calendar_days = (end_dt - start_dt).days + 1
-                trade_records = len(df2)
-                stats["実行日数"] = f"{total_calendar_days}日 (取引記録: {trade_records})"
+        # 常に要約を見える化（見落とし防止）
+        try:
+            st.metric(label=tr("最小資産"), value=f"{min_equity:.2f}")
+            st.metric(label=tr("最終資産"), value=f"{final_equity:.2f}")
+            st.caption(tr("※詳細は下の展開部を確認してください"))
+        except Exception:
+            pass
+
+        # --- 常時表示: 資産推移の可視化（ラインチャート + 直近テーブル） ---
+        try:
+            if daily_eq is None or len(daily_eq) == 0:
+                st.info(tr("資産推移データが存在しません。取引記録や累積PnL を確認してください。"))
             else:
-                stats["実行日数"] = f"{len(df2)} レコード"
+                with st.expander(tr("資産推移（直近）"), expanded=False):
+                    try:
+                        st.line_chart(daily_eq)
+                    except Exception:
+                        # line_chartが失敗したらテーブルで代替
+                        df_tbl = pd.DataFrame(
+                            {"date": pd.to_datetime(daily_eq.index), "equity": daily_eq.values}
+                        )
+                        st.dataframe(df_tbl.tail(30).sort_values("date"))
+                    # 直近30行を表示（表示用）
+                    try:
+                        df_recent = pd.DataFrame(
+                            {"date": pd.to_datetime(daily_eq.index), "equity": daily_eq.values}
+                        )
+                        st.dataframe(df_recent.tail(30).sort_values("date"))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # --- /常時表示ここまで ---
 
-            # 日付インデックスを持つ equity Series を作成
-            if "exit_date" in df2.columns:
-                eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["exit_date"]))
-            elif "entry_date" in df2.columns:
-                eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["entry_date"]))
-            else:
-                eq_series = pd.Series(equity.values)
-
-            # 資金が0以下になった日一覧
-            zero_days = eq_series[eq_series <= 0]
+        # 資金が0以下になった日一覧（日次で判定）
+        try:
+            zero_days = daily_eq[daily_eq <= 0]
             if not zero_days.empty:
                 first_zero_date = pd.to_datetime(zero_days.index[0])
                 zero_count = len(zero_days)
@@ -141,7 +183,8 @@ def run_tab(
                         n=zero_count,
                     )
                 )
-                with st.expander(tr("資金が0以下だった日付一覧"), expanded=False):
+                # 自動展開してユーザーに見せる（問題ありなら展開）
+                with st.expander(tr("資金が0以下だった日付一覧"), expanded=True):
                     df_log = pd.DataFrame(
                         {
                             "date": pd.to_datetime(zero_days.index),
@@ -160,10 +203,14 @@ def run_tab(
                         )
                     except Exception:
                         pass
+        except Exception:
+            # 日次判定失敗でも先に進める
+            pass
 
-            # 初期資金の閾値（例: 10%）を下回った日一覧
+        # 初期資金の閾値（例: 10%）を下回った日一覧（日次で判定）
+        try:
             threshold = float(capital) * 0.1
-            low_days = eq_series[eq_series <= threshold]
+            low_days = daily_eq[daily_eq <= threshold]
             if not low_days.empty:
                 first_low_date = pd.to_datetime(low_days.index[0])
                 low_count = len(low_days)
@@ -175,7 +222,8 @@ def run_tab(
                         n=low_count,
                     )
                 )
-                with st.expander(tr("資金が10%未満だった日付一覧"), expanded=False):
+                # 自動展開してユーザーに見せる（問題ありなら展開）
+                with st.expander(tr("資金が10%未満だった日付一覧"), expanded=True):
                     df_low = pd.DataFrame(
                         {
                             "date": pd.to_datetime(low_days.index),
@@ -194,23 +242,7 @@ def run_tab(
                         )
                     except Exception:
                         pass
-
-            # 資金不足の判定基準（簡易）
-            if min_equity <= 0:
-                st.warning(
-                    tr(
-                        "バックテスト中に資金が途中で尽きた可能性があります（途中の資産 <= 0）。"
-                        "初期資金を増やすか、ポジションサイズ／リスク管理の見直しを検討してください。"
-                    )
-                )
-            elif final_equity < float(capital) * 0.1:
-                st.warning(
-                    tr(
-                        "最終資産が初期資金の10%未満です。取引が継続できなかったか、極端な損失が発生した可能性があります。"
-                    )
-                )
         except Exception:
-            # チェック失敗でも処理を続行
             pass
         # --- 追加ここまで ---
 

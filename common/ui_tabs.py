@@ -7,6 +7,7 @@ import streamlit as st
 from common.equity_curve import save_equity_curve
 from common.i18n import tr
 from common.notifier import now_jst_str
+
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
 from common.performance_summary import summarize as summarize_perf
@@ -26,7 +27,7 @@ def _show_sys_result(df, capital):
     cols = st.columns(6)
     # 統合タブと同じ算出式（ピーク資産比の%）
     try:
-        dd_pct = (df2["drawdown"] / (capital + df2["cum_max"])) .min() * 100
+        dd_pct = (df2["drawdown"] / (capital + df2["cum_max"])).min() * 100
     except Exception:
         dd_pct = 0.0
     cols[0].metric(tr("trades"), d.get("trades"))
@@ -161,11 +162,13 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         if trades_df is not None and not trades_df.empty:
             summary, df2 = summarize_perf(trades_df, capital_i)
             d = summary.to_dict()
-            d.update({
-                "実施日時": now_jst_str(),
-                "銘柄数": len(symbols),
-                "開始資金": int(capital_i),
-            })
+            d.update(
+                {
+                    "実施日時": now_jst_str(),
+                    "銘柄数": len(symbols),
+                    "開始資金": int(capital_i),
+                }
+            )
             cols = st.columns(6)
             try:
                 dd_pct = (df2["drawdown"] / (capital_i + df2["cum_max"])).min() * 100
@@ -289,26 +292,92 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
     if mode != "Backtest":
         if run_btn:
             from scripts.run_all_systems_today import compute_today_signals
+            from common import broker_alpaca as ba
 
             symbols = all_tickers if use_all else all_tickers[: int(limit_symbols)]
+
+            # allow separate long/short capital inputs (default 2000)
+            col1, col2 = st.columns(2)
+            with col1:
+                cap_long = st.number_input(
+                    tr("capital long (USD)"),
+                    min_value=0,
+                    value=2000,
+                    step=100,
+                    key="batch_cap_long",
+                )
+            with col2:
+                cap_short = st.number_input(
+                    tr("capital short (USD)"),
+                    min_value=0,
+                    value=2000,
+                    step=100,
+                    key="batch_cap_short",
+                )
+
+            # Alpaca fetch button
+            if st.button(tr("Fetch Alpaca balances")):
+                try:
+                    client = ba.get_client(paper=True)
+                    acct = client.get_account()
+                    bp = None
+                    try:
+                        bp = float(
+                            getattr(acct, "buying_power", None)
+                            or getattr(acct, "cash", None)
+                            or 0.0
+                        )
+                    except Exception:
+                        bp = None
+                    if bp:
+                        half = round(float(bp) / 2.0, 2)
+                        st.session_state["batch_cap_long"] = half
+                        st.session_state["batch_cap_short"] = half
+                        st.success(f"Set long/short to {half} each")
+                    else:
+                        st.warning(tr("could not read buying_power/cash"))
+                except Exception as e:
+                    st.error(f"Alpaca error: {e}")
+
+            # log area
+            if "batch_today_logs" not in st.session_state:
+                st.session_state["batch_today_logs"] = []
+            log_box = st.empty()
+
+            def _ui_log(msg: str) -> None:
+                try:
+                    st.session_state["batch_today_logs"].append(str(msg))
+                    log_box.code("\n".join(st.session_state["batch_today_logs"]))
+                except Exception:
+                    pass
+
             with st.spinner(tr("running today signals...")):
                 final_df, per_system = compute_today_signals(
                     symbols,
-                    capital_long=float(capital),
-                    capital_short=float(capital),
+                    capital_long=float(cap_long),
+                    capital_short=float(cap_short),
                     save_csv=False,
+                    log_callback=_ui_log,
                 )
+
             if final_df is None or final_df.empty:
                 st.info(tr("no results"))
             else:
                 st.dataframe(final_df, use_container_width=True)
-            with st.expander("Per-system details"):
+            with st.expander(tr("Per-system details")):
                 for name, df in per_system.items():
                     st.markdown(f"#### {name}")
                     if df is None or df.empty:
                         st.write("(empty)")
                     else:
                         st.dataframe(df, use_container_width=True)
+                        # show reason text if available
+                        if "reason" in df.columns:
+                            with st.expander(f"{name} - selection reasons", expanded=False):
+                                for _, row in df.iterrows():
+                                    sym = row.get("symbol")
+                                    reason = row.get("reason")
+                                    st.markdown(f"- **{sym}**: {reason}")
         return
 
     log_tail_lines = st.number_input(
@@ -331,9 +400,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             # 可能なら保存DFからピーク比のDD%を再計算
             try:
                 _cap = float(saved_capital or 0)
-                dd_pct_saved = (
-                    (saved_df["drawdown"] / (_cap + saved_df["cum_max"])) .min() * 100
-                )
+                dd_pct_saved = (saved_df["drawdown"] / (_cap + saved_df["cum_max"])).min() * 100
             except Exception:
                 dd_pct_saved = 0.0
             cols[0].metric(tr("trades"), saved_summary.get("trades"))
@@ -474,20 +541,20 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             summary, all_df2 = summarize_perf(all_df, capital)
             cols = st.columns(6)
             d = summary.to_dict()
-            d.update({
-                "実施日時": now_jst_str(),
-                "銘柄数": len(symbols),
-                "開始資金": int(capital),
-            })
+            d.update(
+                {
+                    "実施日時": now_jst_str(),
+                    "銘柄数": len(symbols),
+                    "開始資金": int(capital),
+                }
+            )
             cols[0].metric(tr("trades"), d.get("trades"))
             cols[1].metric(tr("total pnl"), f"{d.get('total_return', 0):.2f}")
             cols[2].metric(tr("win rate (%)"), f"{d.get('win_rate', 0):.2f}")
             cols[3].metric("PF", f"{d.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{d.get('sharpe', 0):.2f}")
             try:
-                dd_pct_overall = (
-                    (all_df2["drawdown"] / (capital + all_df2["cum_max"])) .min() * 100
-                )
+                dd_pct_overall = (all_df2["drawdown"] / (capital + all_df2["cum_max"])).min() * 100
             except Exception:
                 dd_pct_overall = 0.0
             cols[5].metric(
