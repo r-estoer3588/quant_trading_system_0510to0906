@@ -1,6 +1,15 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+from pathlib import Path
 
 import streamlit as st
+
+from common.i18n import language_selector, load_translations_from_dir, tr
+from common.logging_utils import setup_logging
+import common.ui_patch  # noqa: F401
+from common.ui_tabs import render_batch_tab, render_integrated_tab
+from common.utils_spy import get_spy_data_cached
+from config.settings import get_settings
 
 # Must be the first Streamlit command on the page
 st.set_page_config(page_title="Trading Systems 1-7 (Integrated)", layout="wide")
@@ -8,22 +17,16 @@ st.set_page_config(page_title="Trading Systems 1-7 (Integrated)", layout="wide")
 # Mark that we are running inside the integrated UI to avoid duplicate widgets
 st.session_state["_integrated_ui"] = True
 
-import common.ui_patch  # noqa: F401
-from pathlib import Path
-from common.i18n import tr, load_translations_from_dir, language_selector
 
-from config.settings import get_settings
-from common.logging_utils import setup_logging
-# 遁E��インポ�Eトに変更�E�Emport 時�E副作用を避ける�E�E
-from common.utils_spy import get_spy_data_cached
-from common.ui_tabs import render_integrated_tab, render_batch_tab
 # expose Notifier symbol for tests (module-level)
 try:  # noqa: WPS501
-    from common.notifier import Notifier  # type: ignore
+    from common.notifier import Notifier, create_notifier  # type: ignore
 except Exception:  # pragma: no cover
+
     class Notifier:  # type: ignore
         def __init__(self, *args, **kwargs) -> None:
             pass
+
 
 # Load external translations once at startup
 load_translations_from_dir(Path(__file__).parent / "translations")
@@ -34,10 +37,13 @@ def main() -> None:
     logger = setup_logging(settings)
     logger.info("app_integrated start")
     # Auto-detect Slack/Discord from environment
-    # Notifier は遁E��インポ�EチE
-    
+    # Notifier 縺ｯ驕・ｻｶ繧､繝ｳ繝昴・繝・
 
-    notifier = Notifier(platform="auto")
+    try:
+        # Slack が失敗した場合のみ Discord にフォールバック
+        notifier = create_notifier(platform="slack", fallback=True)  # type: ignore
+    except Exception:
+        notifier = Notifier(platform="auto")  # type: ignore
 
     # Show language selector exactly once
     language_selector()

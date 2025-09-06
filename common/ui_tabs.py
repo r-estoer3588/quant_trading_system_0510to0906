@@ -264,13 +264,17 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         value=int(settings.ui.default_capital),
         step=1000,
     )
+    # 銘柄数と上限/全選択オプション
+    all_tickers = get_all_tickers()
+    max_allowed = len(all_tickers)
     limit_symbols = st.number_input(
         tr("symbol limit"),
         min_value=50,
-        max_value=5000,
-        value=min(500, get_all_tickers().__len__()),
+        max_value=max_allowed,
+        value=min(500, max_allowed),
         step=50,
     )
+    use_all = st.checkbox(tr("use all symbols"), key="batch_all")
     run_btn = st.button(
         tr("run batch") if mode == "Backtest" else tr("run today signals"),
         key="run_batch" if mode == "Backtest" else "run_today",
@@ -280,8 +284,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         if run_btn:
             from scripts.run_all_systems_today import compute_today_signals
 
-            all_tickers = get_all_tickers()
-            symbols = all_tickers[: int(limit_symbols)]
+            symbols = all_tickers if use_all else all_tickers[: int(limit_symbols)]
             with st.spinner(tr("running today signals...")):
                 final_df, per_system = compute_today_signals(
                     symbols,
@@ -383,8 +386,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         st.info(tr("no saved logs yet"))
 
     if run_btn:
-        all_tickers = get_all_tickers()
-        symbols = all_tickers[: int(limit_symbols)]
+        symbols = all_tickers if use_all else all_tickers[: int(limit_symbols)]
         spy_df = get_spy_with_indicators(get_spy_data_cached())
 
         overall = []

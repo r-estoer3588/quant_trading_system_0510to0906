@@ -57,7 +57,9 @@ class StrategyBase(ABC):
         pass
 
     @abstractmethod
-    def generate_candidates(self, data_dict: dict, market_df: pd.DataFrame, **kwargs):
+    def generate_candidates(
+        self, data_dict: dict, market_df: pd.DataFrame | None = None, **kwargs
+    ):
         """日別仕掛け候補を生成"""
         pass
 

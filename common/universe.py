@@ -68,6 +68,28 @@ def save_universe_file(symbols: List[str], path: str | None = None) -> str:
     return str(p)
 
 
+def _read_text_with_fallback(p: Path) -> str:
+    """Read text with encoding fallbacks to avoid hard failures on Windows-created files.
+
+    Tries utf-8, then utf-8-sig, cp932 (Shift_JIS), cp1252, and latin-1.
+    As a last resort, decodes with utf-8 and errors='ignore'.
+    """
+    encodings = ("utf-8", "utf-8-sig", "cp932", "cp1252", "latin-1")
+    for enc in encodings:
+        try:
+            return p.read_text(encoding=enc)
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            # Other IO errors should bubble up in the caller; continue for robustness here
+            continue
+    # last resort: ignore undecodable bytes
+    try:
+        return p.read_bytes().decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
 def load_universe_file(path: str | None = None) -> List[str]:
     settings = get_settings(create_dirs=True)
     if path is None:
@@ -75,7 +97,7 @@ def load_universe_file(path: str | None = None) -> List[str]:
     p = Path(path)
     if not p.exists():
         return []
-    txt = p.read_text(encoding="utf-8").strip()
+    txt = _read_text_with_fallback(p).strip()
     if not txt:
         return []
     return [s.strip().upper() for s in txt.splitlines() if s.strip()]

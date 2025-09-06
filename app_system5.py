@@ -1,28 +1,30 @@
-import streamlit as st  
-import common.ui_patch  # noqa: F401
+from pathlib import Path
+from typing import cast
+
 import pandas as pd
-from strategies.system5_strategy import System5Strategy
+import streamlit as st
+
+from common.cache_utils import save_prepared_data_cache
+from common.equity_curve import save_equity_curve
+from common.i18n import language_selector, load_translations_from_dir, tr
+from common.notifier import Notifier, get_notifiers_from_env
+from common.performance_summary import summarize as summarize_perf
 from common.ui_components import (
     run_backtest_app,
-    show_signal_trade_summary,
     save_signal_and_trade_logs,
+    show_signal_trade_summary,
 )
-from common.cache_utils import save_prepared_data_cache
 from common.ui_manager import UIManager
-from pathlib import Path
-from common.i18n import tr, load_translations_from_dir, language_selector
-from common.performance_summary import summarize as summarize_perf
-from common.notifier import get_notifiers_from_env
-from common.equity_curve import save_equity_curve
-import os
+import common.ui_patch  # noqa: F401
+from strategies.system5_strategy import System5Strategy
 
 # 翻訳辞書ロード + 言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
 if not st.session_state.get("_integrated_ui", False):
     language_selector()
 
-strategy = System5Strategy()
-notifiers = get_notifiers_from_env()
+strategy: System5Strategy = System5Strategy()
+notifiers: list[Notifier] = get_notifiers_from_env()
 
 
 def display_adx_ranking(
@@ -44,7 +46,9 @@ def display_adx_ranking(
     df["ADX7_Rank"] = df.groupby("Date")["ADX7"].rank(ascending=False, method="first")
     df = df.sort_values(["Date", "ADX7_Rank"], ascending=[True, True])
     df = df.groupby("Date").head(top_n)
-    title = tr("System5 ADX7 ランキング（直近{years}年 / 上位{top_n}銘柄）", years=years, top_n=top_n)
+    title = tr(
+        "System5 ADX7 ランキング（直近{years}年 / 上位{top_n}銘柄）", years=years, top_n=top_n
+    )
     with st.expander(title, expanded=False):
         st.dataframe(
             df.reset_index(drop=True)[["Date", "ADX7_Rank", "symbol", "ADX7"]],
@@ -52,30 +56,39 @@ def display_adx_ranking(
         )
 
 
-def run_tab(ui_manager=None):
+def run_tab(ui_manager: UIManager | None = None) -> None:
     st.header(tr("System5 バックテスト（ロング・ミーンリバージョン＋ADXフィルター）"))
-    ui = ui_manager or UIManager()
+    ui: UIManager = ui_manager or UIManager()
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = "System5_notify_backtest"
-    results_df, _, data_dict, capital, candidates_by_date = run_backtest_app(
-        strategy, system_name="System5", limit_symbols=100, ui_manager=ui
+    _rb = cast(
+        tuple[
+            pd.DataFrame | None,
+            pd.DataFrame | None,
+            dict[str, pd.DataFrame] | None,
+            float,
+            object | None,
+        ],
+        run_backtest_app(strategy, system_name="System5", limit_symbols=100, ui_manager=ui),
     )
+    results_df, _, data_dict, capital, candidates_by_date = _rb
     if results_df is not None and candidates_by_date is not None:
         display_adx_ranking(candidates_by_date)
         summary_df = show_signal_trade_summary(data_dict, results_df, "System5")
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
             save_signal_and_trade_logs(summary_df, results_df, "System5", capital)
-        save_prepared_data_cache(data_dict, "System5")
+        if data_dict is not None:
+            save_prepared_data_cache(data_dict, "System5")
         summary, df2 = summarize_perf(results_df, capital)
         try:
             _max_dd = float(df2["drawdown"].min())
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])) .min() * 100)
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
-        stats = {
+        stats: dict[str, str] = {
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{_max_dd:.2f} ({_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
@@ -100,7 +113,7 @@ def run_tab(ui_manager=None):
             _ = yearly_df
         except Exception:
             pass
-        ranking = (
+        ranking: list[str] = (
             [str(s) for s in results_df["symbol"].head(10)]
             if "symbol" in results_df.columns
             else []
@@ -115,9 +128,13 @@ def run_tab(ui_manager=None):
             sent = False
             for n in notifiers:
                 try:
-                    _mention = "channel" if getattr(n, "platform", None) == "slack" else None
+                    _mention: str | None = (
+                        "channel" if getattr(n, "platform", None) == "slack" else None
+                    )
                     if hasattr(n, "send_backtest_ex"):
-                        n.send_backtest_ex("system5", period, stats, ranking, image_url=_img_url, mention=_mention)
+                        n.send_backtest_ex(
+                            "system5", period, stats, ranking, image_url=_img_url, mention=_mention
+                        )
                     else:
                         n.send_backtest("system5", period, stats, ranking)
                     sent = True
@@ -138,6 +155,7 @@ def run_tab(ui_manager=None):
             _ = show_signal_trade_summary(prev_data, prev_res, "System5")
             try:
                 from common.ui_components import show_results
+
                 show_results(prev_res, prev_cap or 0.0, "System5", key_context="prev")
             except Exception:
                 pass
@@ -145,5 +163,6 @@ def run_tab(ui_manager=None):
 
 if __name__ == "__main__":
     import sys
+
     if "streamlit" not in sys.argv[0]:
         run_tab()

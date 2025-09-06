@@ -1,0 +1,14 @@
+﻿*** Begin Patch
+*** Update File: common/ui_components.py
+@@
+-            dbg = st.session_state.get(key_debug)
+-            if dbg:
+-                with st.expander("保存済み 取引ログ", expanded=False):
+-                    st.text("\n".join(map(str, dbg)))
++            dbg = st.session_state.get(key_debug)
++            if dbg:
++                # Streamlit の制約により Expander 同士の入れ子は不可のため
++                # 内側の expander を通常表示に変更して回避
++                st.markdown("**保存済み 取引ログ**")
++                st.text("\n".join(map(str, dbg)))
+*** End Patch

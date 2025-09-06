@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-import common.ui_patch  # noqa: F401
 from common.cache_utils import save_prepared_data_cache
 from common.equity_curve import save_equity_curve
 from common.i18n import language_selector, load_translations_from_dir, tr
+from common.notifier import Notifier
 from common.performance_summary import summarize as summarize_perf
 from common.ui_components import (
     clean_date_column,
@@ -19,6 +20,7 @@ from common.ui_components import (
     save_signal_and_trade_logs,
     show_signal_trade_summary,
 )
+import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_with_indicators
 from strategies.system1_strategy import System1Strategy
 
@@ -26,6 +28,7 @@ from strategies.system1_strategy import System1Strategy
 try:  # noqa: WPS501
     from common.notifier import get_notifiers_from_env  # type: ignore
 except Exception:  # pragma: no cover
+
     def get_notifiers_from_env():  # type: ignore
         return []
 
@@ -39,11 +42,11 @@ if not st.session_state.get("_integrated_ui", False):
 SYSTEM_NAME = "System1"
 DISPLAY_NAME = "システム1"
 
-strategy = System1Strategy()
-notifiers = get_notifiers_from_env()
+strategy: System1Strategy = System1Strategy()
+notifiers: list[Notifier] = get_notifiers_from_env()
 
 
-def run_tab(spy_df=None, ui_manager=None):
+def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None) -> None:
     st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
@@ -51,13 +54,23 @@ def run_tab(spy_df=None, ui_manager=None):
         st.error(tr("SPYデータの取得に失敗しました。キャッシュを更新してください"))
         return
 
-    results_df, merged_df, data_dict, capital, _ = run_backtest_app(
-        strategy,
-        system_name=SYSTEM_NAME,
-        limit_symbols=10,
-        spy_df=spy_df,
-        ui_manager=ui_manager,
+    _rb = cast(
+        tuple[
+            pd.DataFrame | None,
+            pd.DataFrame | None,
+            dict[str, pd.DataFrame] | None,
+            float,
+            object | None,
+        ],
+        run_backtest_app(
+            strategy,
+            system_name=SYSTEM_NAME,
+            limit_symbols=10,
+            spy_df=spy_df,
+            ui_manager=ui_manager,
+        ),
     )
+    results_df, merged_df, data_dict, capital, _ = _rb
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
@@ -68,16 +81,21 @@ def run_tab(spy_df=None, ui_manager=None):
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
             save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
-        save_prepared_data_cache(data_dict, SYSTEM_NAME)
+        if data_dict is not None:
+            save_prepared_data_cache(data_dict, SYSTEM_NAME)
 
         summary, df2 = summarize_perf(results_df, capital)
         # 統合タブと同じ算出（ピーク資産比の%）で表示
-        max_dd = float(df2["drawdown"].min()) if "drawdown" in df2.columns else float(summary.max_drawdown)
+        max_dd = (
+            float(df2["drawdown"].min())
+            if "drawdown" in df2.columns
+            else float(summary.max_drawdown)
+        )
         try:
-            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])) .min() * 100)
+            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
-        stats = {
+        stats: dict[str, str] = {
             "総リターン": f"{summary.total_return:.2f}",
             "最大DD": f"{max_dd:.2f} ({max_dd_pct:.2f}%)",
             "Sharpe": f"{summary.sharpe:.2f}",
@@ -114,7 +132,7 @@ def run_tab(spy_df=None, ui_manager=None):
         except Exception:
             pass
 
-        ranking = []
+        ranking: list[dict[str, Any] | str] = []
         try:
             last_date = pd.to_datetime(daily_df["Date"]).max()
             cols = {c.lower(): c for c in daily_df.columns}
@@ -124,7 +142,7 @@ def run_tab(spy_df=None, ui_manager=None):
                 today = daily_df[pd.to_datetime(daily_df["Date"]) == last_date]
                 today = today.sort_values(roc_col, ascending=False).head(10)
                 for _, r in today.iterrows():
-                    item = {"symbol": str(r.get("symbol"))}
+                    item: dict[str, Any] = {"symbol": str(r.get("symbol"))}
                     try:
                         item["roc"] = float(r.get(roc_col))
                     except Exception:
@@ -150,7 +168,9 @@ def run_tab(spy_df=None, ui_manager=None):
             sent = False
             for n in notifiers:
                 try:
-                    mention = "channel" if getattr(n, "platform", None) == "slack" else None
+                    mention: str | None = (
+                        "channel" if getattr(n, "platform", None) == "slack" else None
+                    )
                     if hasattr(n, "send_backtest_ex"):
                         n.send_backtest_ex(
                             "system1",
@@ -158,11 +178,18 @@ def run_tab(spy_df=None, ui_manager=None):
                             stats,
                             ranking,
                             image_url=img_url,
-                            image_path=img_path,
                             mention=mention,
                         )
                     else:
-                        n.send_backtest("system1", period, stats, ranking)
+                        ranking_list_str = [
+                            (
+                                x
+                                if isinstance(x, str)
+                                else str(getattr(x, "get", lambda *_: "?")("symbol"))
+                            )
+                            for x in ranking
+                        ]
+                        n.send_backtest("system1", period, stats, ranking_list_str)
                     sent = True
                 except Exception:
                     continue
