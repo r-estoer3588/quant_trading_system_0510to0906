@@ -20,7 +20,11 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
 except Exception:  # pragma: no cover
     TradingClient = None  # type: ignore
     OrderSide = OrderClass = TimeInForce = None  # type: ignore
-    MarketOrderRequest = LimitOrderRequest = TakeProfitRequest = StopLossRequest = TrailingStopOrderRequest = None  # type: ignore
+    MarketOrderRequest = None  # type: ignore
+    LimitOrderRequest = None  # type: ignore
+    TakeProfitRequest = None  # type: ignore
+    StopLossRequest = None  # type: ignore
+    TrailingStopOrderRequest = None  # type: ignore
     TradingStream = None  # type: ignore
 
 
@@ -83,8 +87,14 @@ def submit_order(
     """
     _require_sdk()
 
-    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL  # type: ignore[attr-defined]
-    tif = getattr(TimeInForce, time_in_force.upper()) if hasattr(TimeInForce, time_in_force.upper()) else TimeInForce.GTC  # type: ignore[attr-defined]
+    side_enum = (
+        OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+    )  # type: ignore[attr-defined]
+    tif = (
+        getattr(TimeInForce, time_in_force.upper())
+        if hasattr(TimeInForce, time_in_force.upper())
+        else TimeInForce.GTC
+    )  # type: ignore[attr-defined]
 
     if order_type == "market":
         req = MarketOrderRequest(  # type: ignore[call-arg]
@@ -220,13 +230,24 @@ def log_orders_positions(client) -> Tuple[Any, Any]:
     return orders, positions
 
 
+def cancel_all_orders(client) -> None:
+    """すべての未約定注文をキャンセルする。"""
+    try:
+        client.cancel_orders()
+    except Exception:
+        # SDK のバージョン差異に対応
+        client.cancel_all_orders()
+
+
 def subscribe_order_updates(client, log_callback=None):
     """注文更新の WebSocket を購読して即時実行（ブロッキング）。"""
     _require_sdk()
     if TradingStream is None:
         raise RuntimeError("alpaca-py がインストールされていません。")
 
-    stream = TradingStream(client.api_key, client.secret_key, paper=client.paper)  # type: ignore[attr-defined]
+    stream = TradingStream(
+        client.api_key, client.secret_key, paper=client.paper
+    )  # type: ignore[attr-defined]
     stream_any: Any = stream  # type: ignore
 
     @stream_any.on_order_update
@@ -247,5 +268,6 @@ __all__ = [
     "get_client",
     "submit_order",
     "log_orders_positions",
+    "cancel_all_orders",
     "subscribe_order_updates",
 ]
