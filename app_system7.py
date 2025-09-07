@@ -45,7 +45,12 @@ def run_tab(
     )
     single_mode = st.checkbox(tr("単体モード（資金100%を使用）"), value=False)
 
-    ui: UIManager = ui_manager or UIManager()
+    ui_base: UIManager = (
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
+    )
+    fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
+    ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
+    cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     _rb = cast(
@@ -60,11 +65,14 @@ def run_tab(
             strategy,
             system_name=SYSTEM_NAME,
             limit_symbols=1,
-            ui_manager=ui,
+            ui_manager=ui_base,
             single_mode=single_mode,
         ),
     )
     results_df, _, data_dict, capital, candidates_by_date = _rb
+    fetch_phase.log_area.write(tr("データ取得完了"))
+    ind_phase.log_area.write(tr("インジケーター計算完了"))
+    cand_phase.log_area.write(tr("候補選定完了"))
 
     if results_df is not None and candidates_by_date is not None:
         summary_df = show_signal_trade_summary(
