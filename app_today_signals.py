@@ -181,6 +181,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
         )
 
+    # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除
+    final_df = final_df.reset_index(drop=True)
+    per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
+
     # 処理終了時に総経過時間を表示
     total_elapsed = time.time() - start_time
     st.info(f"総経過時間: {total_elapsed:.1f}秒")
