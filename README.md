@@ -14,6 +14,7 @@ pip install -r requirements.txt
 
 ## 実行例
 - UI: `streamlit run app_integrated.py`
+- Alpaca ダッシュボード: `streamlit run app_alpaca_dashboard.py`
 - 日次キャッシュ: `python scripts/cache_daily_data.py`
 - 簡易スケジューラ: `python -m schedulers.runner`
 
