@@ -64,6 +64,22 @@ class OutputConfig:
 
 
 @dataclass(frozen=True)
+class CacheRollingConfig:
+    base_lookback_days: int = 200
+    buffer_days: int = 40
+    prune_chunk_days: int = 30
+    meta_file: str = "_meta.json"
+
+
+@dataclass(frozen=True)
+class CacheConfig:
+    full_dir: Path = Path("data_cache/full")
+    rolling_dir: Path = Path("data_cache/rolling")
+    file_format: str = "auto"
+    rolling: CacheRollingConfig = CacheRollingConfig()
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     rotation: str = "daily"
@@ -119,6 +135,7 @@ class Settings:
     # 新構成（YAMLセクション）
     risk: RiskConfig
     data: DataConfig
+    cache: CacheConfig
     backtest: BacktestConfig
     outputs: OutputConfig
     logging: LoggingConfig
@@ -239,6 +256,8 @@ def get_settings(create_dirs: bool = False) -> Settings:
     # YAML: セクション取得（なければ空）
     risk_cfg = cfg.get("risk", {}) or {}
     data_cfg = cfg.get("data", {}) or {}
+    cache_cfg = cfg.get("cache", {}) or {}
+    rolling_cfg = cache_cfg.get("rolling", {}) or {}
     backtest_cfg = cfg.get("backtest", {}) or {}
     outputs_cfg = cfg.get("outputs", {}) or {}
     logging_cfg = cfg.get("logging", {}) or {}
@@ -262,6 +281,18 @@ def get_settings(create_dirs: bool = False) -> Settings:
         request_timeout=_env_int("REQUEST_TIMEOUT", int(data_cfg.get("request_timeout", 10))),
         download_retries=_env_int("DOWNLOAD_RETRIES", int(data_cfg.get("download_retries", 3))),
         api_throttle_seconds=_env_float("API_THROTTLE_SECONDS", float(data_cfg.get("api_throttle_seconds", 1.5))),
+    )
+
+    cache = CacheConfig(
+        full_dir=_as_path(root, cache_cfg.get("full_dir", "data_cache/full")),
+        rolling_dir=_as_path(root, cache_cfg.get("rolling_dir", "data_cache/rolling")),
+        file_format=str(cache_cfg.get("file_format", "auto")),
+        rolling=CacheRollingConfig(
+            base_lookback_days=int(rolling_cfg.get("base_lookback_days", 200)),
+            buffer_days=int(rolling_cfg.get("buffer_days", 40)),
+            prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
+            meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
+        ),
     )
 
     backtest = BacktestConfig(
@@ -315,6 +346,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
         MARKET_CAL_TZ=os.getenv("MARKET_CAL_TZ", "America/New_York"),
         risk=risk,
         data=data,
+        cache=cache,
         backtest=backtest,
         outputs=outputs,
         logging=logging,
@@ -345,6 +377,8 @@ __all__ = [
     "Settings",
     "RiskConfig",
     "DataConfig",
+    "CacheConfig",
+    "CacheRollingConfig",
     "BacktestConfig",
     "OutputConfig",
     "LoggingConfig",

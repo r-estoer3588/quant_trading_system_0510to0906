@@ -12,6 +12,7 @@ from common.universe import (
     load_universe_file,
 )
 from common.notifier import create_notifier
+from common.data_loader import load_price
 
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
@@ -162,8 +163,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         max_days = max(indicator_days.values())
         # 銘柄ごとのヒストリカルCSVを最大必要日数分だけロード
         try:
-            data = pd.read_csv(f"data_cache/{symbol}.csv")
-            data = data.tail(max_days)
+            df = load_price(symbol, cache_profile="rolling")
+            data = df.tail(max_days)
         except Exception:
             data = pd.DataFrame()
         return data

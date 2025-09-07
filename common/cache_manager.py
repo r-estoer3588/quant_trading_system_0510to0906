@@ -1,15 +1,174 @@
 from __future__ import annotations
 
+import json
+import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Optional
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 from config.settings import get_settings
 from common.utils import get_cached_data, safe_filename
 
+logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
+
+
+class CacheManager:
+    """
+    二層キャッシュ管理（full / rolling）。
+    - 既存のフォーマット(csv/parquet)は自動検出・踏襲
+    - system5/6スタイルのコメント・進捗ログ粒度を踏襲
+    """
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.full_dir = Path(settings.cache.full_dir)
+        self.rolling_dir = Path(settings.cache.rolling_dir)
+        self.rolling_cfg = settings.cache.rolling
+        self.file_format = getattr(settings.cache, "file_format", "auto")
+        self.rolling_meta_path = self.rolling_dir / self.rolling_cfg.meta_file
+        self.full_dir.mkdir(parents=True, exist_ok=True)
+        self.rolling_dir.mkdir(parents=True, exist_ok=True)
+        self._ui_prefix = "[CacheManager]"
+
+    # ---------- path/format detection ----------
+    def _detect_path(self, base_dir: Path, ticker: str) -> Path:
+        csv_path = base_dir / f"{ticker}.csv"
+        pq_path = base_dir / f"{ticker}.parquet"
+        if csv_path.exists():
+            return csv_path
+        if pq_path.exists():
+            return pq_path
+        return csv_path if self.file_format in ("auto", "csv") else pq_path
+
+    # ---------- IO ----------
+    def read(self, ticker: str, profile: str) -> Optional[pd.DataFrame]:
+        base = self.full_dir if profile == "full" else self.rolling_dir
+        path = self._detect_path(base, ticker)
+        if not path.exists():
+            return None
+        try:
+            if path.suffix == ".parquet":
+                df = pd.read_parquet(path)
+            else:
+                df = pd.read_csv(path, parse_dates=["date"])
+        except Exception as e:  # pragma: no cover - log and continue
+            logger.warning(f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})")
+            return None
+        if "date" in df.columns:
+            df = df.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+        return df
+
+    def write_atomic(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
+        base = self.full_dir if profile == "full" else self.rolling_dir
+        base.mkdir(parents=True, exist_ok=True)
+        path = self._detect_path(base, ticker)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            if path.suffix == ".parquet":
+                df.to_parquet(tmp, index=False)
+            else:
+                df.to_csv(tmp, index=False)
+            shutil.move(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+
+    # ---------- upsert ----------
+    def upsert_both(self, ticker: str, new_rows: pd.DataFrame) -> None:
+        """EODHD更新を①full②rollingに同時反映"""
+        for profile in ("full", "rolling"):
+            self._upsert_one(ticker, new_rows, profile)
+
+    def _upsert_one(self, ticker: str, new_rows: pd.DataFrame, profile: str) -> None:
+        cur = self.read(ticker, profile)
+        if cur is None or cur.empty:
+            merged = new_rows.copy()
+        else:
+            merged = pd.concat([cur, new_rows], ignore_index=True)
+            merged = merged.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+
+        if profile == "rolling":
+            merged = self._enforce_rolling_window(merged)
+
+        self.write_atomic(merged, ticker, profile)
+
+    # ---------- rolling window & prune ----------
+    @property
+    def _rolling_target_len(self) -> int:
+        return int(self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days)
+
+    @property
+    def _prune_chunk(self) -> int:
+        return int(self.rolling_cfg.prune_chunk_days)
+
+    def _enforce_rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
+        if "date" not in df.columns or df.empty:
+            return df
+        target = self._rolling_target_len
+        if len(df) <= target:
+            return df
+        return df.iloc[-target:].reset_index(drop=True)
+
+    def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
+        last_meta = {"anchor_rows_at_prune": 0}
+        if self.rolling_meta_path.exists():
+            try:
+                last_meta = json.loads(self.rolling_meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        anchor_df = self.read(anchor_ticker, "rolling")
+        if anchor_df is None or anchor_df.empty:
+            logger.info(f"{self._ui_prefix} rolling未整備のためpruneスキップ")
+            return {"pruned_files": 0, "dropped_rows_total": 0}
+
+        cur_rows = len(anchor_df)
+        prev_rows = int(last_meta.get("anchor_rows_at_prune", 0))
+        progressed = max(0, cur_rows - prev_rows)
+
+        if progressed < self._prune_chunk:
+            logger.info(f"{self._ui_prefix} 進捗{progressed}営業日 (<{self._prune_chunk}) のためprune不要")
+            return {"pruned_files": 0, "dropped_rows_total": 0}
+
+        logger.info(f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日")
+
+        pruned_files = 0
+        dropped_total = 0
+        for path in self.rolling_dir.glob("*.*"):
+            if path.name.startswith("_"):
+                continue
+            ticker = path.stem
+            df = self.read(ticker, "rolling")
+            if df is None or df.empty:
+                continue
+
+            keep_min = self._rolling_target_len
+            can_drop = max(0, len(df) - keep_min)
+            drop_n = min(self._prune_chunk, can_drop)
+            if drop_n <= 0:
+                continue
+
+            new_df = df.iloc[drop_n:].reset_index(drop=True)
+            self.write_atomic(new_df, ticker, "rolling")
+
+            pruned_files += 1
+            dropped_total += drop_n
+
+        self.rolling_meta_path.write_text(
+            json.dumps({"anchor_rows_at_prune": cur_rows}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}")
+        return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
 
 
 def _base_dir() -> Path:

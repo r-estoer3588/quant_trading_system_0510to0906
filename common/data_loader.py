@@ -50,5 +50,21 @@ def load_symbols(
     return out
 
 
-__all__ = ["load_symbols"]
+def load_price(ticker: str, cache_profile: str = "full") -> pd.DataFrame:
+    """
+    cache_profile: "full" | "rolling"
+    読み出しは CacheManager 経由に統一。既存仕様で常にDataFrameを返す。
+    """
+    from config.settings import get_settings
+    from common.cache_manager import CacheManager
+
+    settings = get_settings(create_dirs=False)
+    cm = CacheManager(settings)
+    df = cm.read(ticker, cache_profile)
+    if df is None:
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+    return df
+
+
+__all__ = ["load_symbols", "load_price"]
 

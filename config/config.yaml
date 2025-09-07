@@ -42,6 +42,16 @@ data:
   download_retries: 3
   api_throttle_seconds: 1.5
 
+cache:
+  full_dir: "data_cache/full"
+  rolling_dir: "data_cache/rolling"
+  file_format: "auto"
+  rolling:
+    base_lookback_days: 200
+    buffer_days: 40
+    prune_chunk_days: 30
+    meta_file: "_meta.json"
+
 backtest:
   start_date: 2018-01-01
   end_date: 2024-12-31
