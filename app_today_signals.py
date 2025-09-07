@@ -7,7 +7,11 @@ import streamlit as st
 
 from common import broker_alpaca as ba
 from common.notifier import create_notifier
-from common.universe import build_universe_from_cache, load_universe_file, save_universe_file
+from common.universe import (
+    build_universe_from_cache,
+    load_universe_file,
+    save_universe_file,
+)
 from config.settings import get_settings
 from scripts.run_all_systems_today import compute_today_signals
 
@@ -90,11 +94,15 @@ with st.sidebar:
         try:
             client = ba.get_client(paper=paper_mode)
             acct = client.get_account()
-            bp = None
-            try:
-                bp = float(getattr(acct, "buying_power", None) or getattr(acct, "cash", None))
-            except Exception:
-                bp = None
+            bp: float | None = None
+            raw_bp = getattr(acct, "buying_power", None)
+            if raw_bp is None:
+                raw_bp = getattr(acct, "cash", None)
+            if raw_bp is not None:
+                try:
+                    bp = float(raw_bp)
+                except (TypeError, ValueError):
+                    bp = None
             if bp is None:
                 st.warning("Alpaca account info: buying_power/cash not available")
             else:
@@ -102,7 +110,9 @@ with st.sidebar:
                 half = round(max(0.0, float(bp)) / 2.0, 2)
                 st.session_state["cap_long_input"] = half
                 st.session_state["cap_short_input"] = half
-                st.success(f"Set Capital Long/Short to {half} each (half of buying_power={bp})")
+                st.success(
+                    f"Set Capital Long/Short to {half} each (half of buying_power={bp})"
+                )
         except Exception as e:
             st.error(f"Alpaca 残高取得エラー: {e}")
 
@@ -243,7 +253,9 @@ if st.button("▶ Run Today Signals", type="primary"):
                     st.info("Polling order status for 10 seconds...")
                     import time
 
-                    order_ids = [r.get("order_id") for r in results if r.get("order_id")]
+                    order_ids = [
+                        r.get("order_id") for r in results if r.get("order_id")
+                    ]
                     end = time.time() + 10
                     last = {}
                     while time.time() < end:
