@@ -7,7 +7,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 
@@ -97,8 +97,8 @@ def _migrate_legacy_failed_if_needed() -> None:
     旧形式: 1列（symbol）
     新形式: 3列（symbol,last_failed_at,count）
     """
+    symbols = []
     if LEGACY_FAILED_LIST.exists() and not FAILED_LIST_PATH.exists():
-        symbols = []
         try:
             with open(LEGACY_FAILED_LIST, "r", encoding="utf-8") as f:
                 for line in f:
@@ -108,16 +108,16 @@ def _migrate_legacy_failed_if_needed() -> None:
         except Exception:
             pass
 
-    now = datetime.now(datetime.UTC).isoformat()
-        FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["symbol", "last_failed_at", "count"])  # header
-                for s in sorted(set(symbols)):
-                    writer.writerow([s, now, 1])
-        except Exception:
-            pass
+    now = datetime.now(timezone.utc).isoformat()
+    FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["symbol", "last_failed_at", "count"])  # header
+            for s in sorted(set(symbols)):
+                writer.writerow([s, now, 1])
+    except Exception:
+        pass
 
 
 def _load_failed_map() -> Dict[str, FailedEntry]:
@@ -181,7 +181,7 @@ def update_failed_symbols(failed: Iterable[str]) -> None:
     if not failed_set:
         return
     m = _load_failed_map()
-    now = datetime.now(datetime.UTC)
+    now = datetime.now(timezone.utc)
     for s in failed_set:
         if s in m:
             e = m[s]
