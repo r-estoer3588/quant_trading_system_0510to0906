@@ -412,9 +412,13 @@ def compute_today_signals(
         if cols and idx <= len(cols):
             try:
                 if df is not None and not df.empty:
-                    cols[idx - 1].success(msg)
+                    col = cols[idx - 1]
+                    if col is not None and hasattr(col, "success"):
+                        col.success(msg)
                 else:
-                    cols[idx - 1].warning(msg)
+                    col = cols[idx - 1]
+                    if col is not None and hasattr(col, "warning"):
+                        col.warning(msg)
             except Exception:
                 pass
         # --- 詳細ログはエクスパンダーで折りたたみ ---

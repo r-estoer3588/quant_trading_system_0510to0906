@@ -92,6 +92,10 @@ with st.sidebar:
     poll_status = st.checkbox("注文状況を10秒ポーリング", value=False)
     do_trade = st.checkbox("Alpacaで自動発注", value=False)
 
+    # 注文状況を10秒ポーリングとは？
+    # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、1秒ごとに取得・表示する機能です。
+    # これにより、注文が約定したかどうかをリアルタイムで確認できます。
+
     # キャッシュクリアボタン
     if st.button("キャッシュクリア"):
         st.cache_data.clear()
