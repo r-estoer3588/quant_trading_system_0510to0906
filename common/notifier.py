@@ -181,6 +181,46 @@ def _notifications_disabled() -> bool:
     return flag2 in {"1", "true", "yes"}
 
 
+def _group_trades_by_side(
+    trades: list[dict[str, Any]]
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Group trades by side and compute notional sums."""
+    impact_date: datetime | None = None
+    include_system = any(t.get("system") for t in trades)
+    groups: dict[str, dict[str, Any]] = {
+        "BUY": {"rows": [], "total": 0.0},
+        "SELL": {"rows": [], "total": 0.0},
+    }
+    for t in trades:
+        sym = str(t.get("symbol"))
+        side = str(t.get("action", t.get("side", ""))).upper()
+        qty = int(t.get("qty", t.get("shares", 0)) or 0)
+        price = float(t.get("price", t.get("entry_price", 0.0) or 0.0) or 0.0)
+        notional = qty * price
+        entry_date = t.get("entry_date")
+        if entry_date:
+            try:
+                d = datetime.fromisoformat(str(entry_date)).replace(tzinfo=_JST)
+                if impact_date is None or d > impact_date:
+                    impact_date = d
+            except Exception:
+                pass
+        row: list[str] = [sym]
+        if include_system:
+            row.append(str(t.get("system", "")))
+        row.extend([str(qty), f"{price:.2f}", f"{notional:.2f}"])
+        g = groups.setdefault(side, {"rows": [], "total": 0.0})
+        g["rows"].append(row)
+        g["total"] += notional
+    headers = ["SYMBOL"] + (["SYSTEM"] if include_system else []) + ["QTY", "PRICE", "AMOUNT"]
+    for g in groups.values():
+        g["headers"] = headers
+    impact_str = (
+        impact_date.date().isoformat() if impact_date else datetime.now(tz=_JST).date().isoformat()
+    )
+    return impact_str, groups
+
+
 class Notifier:
     def __init__(self, platform: str = "auto", webhook_url: str | None = None):
         if platform == "auto":
@@ -464,26 +504,26 @@ class Notifier:
         self.logger.info("backtest %s stats=%s top=%d", system_name, summary, min(len(ranking), 10))
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]]) -> None:
-        title = f"🧾 {system_name} 売買結果 ・ {now_jst_str()}"
-        if not trades:
+        impact, groups = _group_trades_by_side(trades)
+        if not any(g["rows"] for g in groups.values()):
+            title = f"🧾 {system_name} 売買結果 ・ {impact}"
             self.send(title, "本日の売買はありません")
             self.logger.info("trade report %s count=0", system_name)
             return
-        rows = []
-        total = 0.0
-        for t in trades:
-            sym = str(t.get("symbol"))
-            action = str(t.get("action", t.get("side", ""))).upper()
-            qty = t.get("qty", t.get("shares", 0))
-            price = float(t.get("price", t.get("entry_price", 0.0) or 0.0))
-            try:
-                total += float(qty) * float(price)
-            except Exception:
-                pass
-            rows.append([sym, action, f"{qty}", f"@{price:.4f}"])
-        table = format_table(rows, headers=["SYMBOL", "ACTION", "QTY", "PRICE"])
-        self.send(title, table)
-        self.logger.info("trade report %s count=%d notional=%.2f", system_name, len(trades), total)
+        for side in ("BUY", "SELL"):
+            g = groups.get(side)
+            if not g or not g["rows"]:
+                continue
+            title = f"🧾 {system_name} {side} 注文 ・ {impact}"
+            table = format_table(g["rows"], headers=g["headers"])
+            self.send(title, table)
+            self.logger.info(
+                "trade report %s side=%s count=%d notional=%.2f",
+                system_name,
+                side.lower(),
+                len(g["rows"]),
+                g["total"],
+            )
 
     def send_summary(
         self,
@@ -834,22 +874,30 @@ class FallbackNotifier:
             raise RuntimeError("notification failed (slack+discord)")
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]]) -> None:
-        title = f"🧾 {system_name} 売買結果 ・ {now_jst_str()}"
-        if not trades:
-            text = f"{title}\n本日の売買はありません"
-        else:
-            rows = []
-            for t in trades:
-                sym = str(t.get("symbol"))
-                side = str(t.get("action", t.get("side", "")).upper())
-                qty = t.get("qty", t.get("shares", 0))
-                price = t.get("price", t.get("entry_price", 0.0) or 0.0)
-                rows.append(f"{sym} {side} {qty} @{float(price):.4f}")
-            text = f"{title}\n" + "\n".join(rows[:20])
-        if self._slack_send_text(text):
+        impact, groups = _group_trades_by_side(trades)
+        if not any(g["rows"] for g in groups.values()):
+            text = f"🧾 {system_name} 売買結果 ・ {impact}\n本日の売買はありません"
+            if self._slack_send_text(text):
+                return
+            if not self._discord_call("send_trade_report", system_name, []):
+                raise RuntimeError("notification failed (slack+discord)")
             return
-        if not self._discord_call("send_trade_report", system_name, trades):
-            raise RuntimeError("notification failed (slack+discord)")
+        for side in ("BUY", "SELL"):
+            g = groups.get(side)
+            if not g or not g["rows"]:
+                continue
+            title = f"🧾 {system_name} {side} 注文 ・ {impact}"
+            table = format_table(g["rows"], headers=g["headers"])
+            text = f"{title}\n{table}"
+            if self._slack_send_text(text):
+                continue
+            side_trades = [
+                t
+                for t in trades
+                if str(t.get("action", t.get("side", ""))).upper() == side
+            ]
+            if not self._discord_call("send_trade_report", system_name, side_trades):
+                raise RuntimeError("notification failed (slack+discord)")
 
     def send_summary(
         self,
