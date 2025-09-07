@@ -3,6 +3,7 @@ UI互換パッチローダー。
 common.ui_components の関数を共通実装へ委譲するために動的差し替えする。
 アプリ起動時に `import common.ui_patch` するだけで有効。
 """
+
 from __future__ import annotations
 
 try:
@@ -77,28 +78,30 @@ if _ui is not None:
 
 # ダウンロードボタンの一括無効化（自動保存がある場合に隠す）
 try:
-    _settings = get_settings(create_dirs=True) if 'get_settings' in globals() else None
-    if _settings is not None and 'st' in globals() and st is not None:
-        _ui_cfg = getattr(_settings, 'ui', None)
+    _settings = get_settings(create_dirs=True) if "get_settings" in globals() else None
+    if _settings is not None and "st" in globals() and st is not None:
+        _ui_cfg = getattr(_settings, "ui", None)
 
         # 元の download_button を退避
-        if not hasattr(st, '_orig_download_button') and hasattr(st, 'download_button'):
+        if not hasattr(st, "_orig_download_button") and hasattr(st, "download_button"):
             st._orig_download_button = st.download_button  # type: ignore[attr-defined]
 
         def _patched_download_button(*args, **kwargs):  # noqa: D401
             """一部 CSV ダウンロードを非表示にし、その他は設定に従う。"""
-            fname = kwargs.get('file_name')
+            fname = kwargs.get("file_name")
             if fname is None and len(args) >= 3:
                 fname = args[2]
             try:
                 # シグナル/トレードの CSV は常に非表示（自動保存のため）
-                if isinstance(fname, str) and ('_signals_' in fname or '_trades_' in fname):
+                if isinstance(fname, str) and (
+                    "_signals_" in fname or "_trades_" in fname
+                ):
                     return False
             except Exception:
                 pass
 
             # それ以外は設定のフラグに従う
-            if not getattr(_ui_cfg, 'show_download_buttons', True):
+            if not getattr(_ui_cfg, "show_download_buttons", True):
                 return False
             try:
                 return st._orig_download_button(*args, **kwargs)  # type: ignore[attr-defined]
@@ -116,12 +119,15 @@ try:  # noqa: WPS501
     import pandas as _pd  # type: ignore
     import streamlit as _st  # type: ignore
     from common.i18n import tr as _tr  # type: ignore
+
     try:
         import matplotlib.pyplot as _plt  # type: ignore
     except Exception:  # pragma: no cover
         _plt = None  # type: ignore
 
-    def _show_results_patched(results_df, capital, system_name: str = "SystemX", *, key_context: str = "main"):
+    def _show_results_patched(
+        results_df, capital, system_name: str = "SystemX", *, key_context: str = "main"
+    ):
         if results_df is None or getattr(results_df, "empty", True):
             _st.info(_tr("no trades"))
             return
@@ -136,7 +142,9 @@ try:  # noqa: WPS501
         # 最大DD（負値）とピーク資産比の%を計算
         try:
             dd_value = float(df2["drawdown"].min())
-            dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])) .min() * 100)
+            dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             dd_value, dd_pct = 0.0, 0.0
 
@@ -158,7 +166,13 @@ try:  # noqa: WPS501
                 _plt.plot(df2["exit_date"], df2["cumulative_pnl"], label="CumPnL")
                 if "cum_max" in df2.columns:
                     _dd = df2["cumulative_pnl"] - df2["cum_max"]
-                    _plt.plot(df2["exit_date"], _dd, color="red", linewidth=1.2, label="Drawdown")
+                    _plt.plot(
+                        df2["exit_date"],
+                        _dd,
+                        color="red",
+                        linewidth=1.2,
+                        label="Drawdown",
+                    )
                 _st.pyplot(_plt)
         except Exception:
             pass
@@ -171,18 +185,29 @@ try:  # noqa: WPS501
             ys = daily.resample("Y").first()
             ye = daily.resample("Y").last()
             yearly_df = _pd.DataFrame(
-                {"year": ye.index.year, "pnl": (ye - ys).values, "return_pct": ((ye / ys - 1) * 100).values}
+                {
+                    "年": ye.index.year,
+                    "損益": (ye - ys).round(2).values,
+                    "リターン(%)": ((ye / ys - 1) * 100).values,
+                }
             )
             _st.subheader(_tr("yearly summary"))
-            _st.dataframe(yearly_df.style.format({"return_pct": "{:.1f}%"}))
-        except Exception:
-            pass
-
-        # 月次合計PnL（従来どおり）
-        try:
+            _st.dataframe(
+                yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
+            )
+            # 月次サマリー
+            ms = daily.resample("M").first()
+            me = daily.resample("M").last()
+            monthly_df = _pd.DataFrame(
+                {
+                    "月": me.index.strftime("%Y-%m"),
+                    "損益": (me - ms).round(2).values,
+                    "リターン(%)": ((me / ms - 1) * 100).values,
+                }
+            )
             _st.subheader(_tr("monthly summary"))
             _st.dataframe(
-                df2.groupby(_pd.to_datetime(df2["exit_date"]).dt.to_period("M"))["pnl"].sum().reset_index()
+                monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
             )
         except Exception:
             pass

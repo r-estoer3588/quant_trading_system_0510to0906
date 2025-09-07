@@ -46,8 +46,12 @@ strategy: System1Strategy = System1Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
-def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None) -> None:
-    st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
+def run_tab(
+    spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
+) -> None:
+    st.header(
+        tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング")
+    )
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
@@ -74,13 +78,17 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
-        display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング")
+        display_roc200_ranking(
+            daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング"
+        )
 
         signal_summary_df = show_signal_trade_summary(
             merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
-            save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
+            save_signal_and_trade_logs(
+                signal_summary_df, results_df, SYSTEM_NAME, capital
+            )
         if data_dict is not None:
             save_prepared_data_cache(data_dict, SYSTEM_NAME)
 
@@ -92,7 +100,9 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             else float(summary.max_drawdown)
         )
         try:
-            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            max_dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
         stats: dict[str, Any] = {
@@ -119,7 +129,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             yearly_df = pd.DataFrame(
                 {
                     "year": pd.to_datetime(ye.index).year,
-                    "pnl": (ye - ys).values,
+                    "pnl": (ye - ys).round(2).values,
                     "return_pct": ((ye / ys - 1) * 100).values,
                 }
             )
