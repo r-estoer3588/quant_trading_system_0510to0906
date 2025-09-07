@@ -195,6 +195,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             limit_price = None
                     else:
                         limit_price = None
+                    # estimate price for notification purposes
+                    price_val = None
+                    try:
+                        if entry_price_raw is not None and entry_price_raw != "":
+                            price_val = float(entry_price_raw)
+                    except (TypeError, ValueError):
+                        price_val = None
+                    if limit_price is not None:
+                        price_val = limit_price
                     if not sym or qty <= 0:
                         continue
                     try:
@@ -216,6 +225,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 "symbol": sym,
                                 "side": side,
                                 "qty": qty,
+                                "price": price_val,
                                 "order_id": getattr(order, "id", None),
                                 "status": getattr(order, "status", None),
                                 "system": system,
@@ -230,6 +240,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 "symbol": sym,
                                 "side": side,
                                 "qty": qty,
+                                "price": price_val,
                                 "error": str(e),
                                 "system": system,
                                 "order_type": order_type,

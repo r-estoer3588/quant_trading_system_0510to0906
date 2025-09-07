@@ -205,6 +205,8 @@ def _submit_orders(
         sym = str(r.get("symbol"))
         qty = int(r.get("shares") or 0)
         side = "buy" if str(r.get("side")).lower() == "long" else "sell"
+        system = str(r.get("system"))
+        entry_date = r.get("entry_date")
         if not sym or qty <= 0:
             continue
         # safely parse limit price
@@ -216,6 +218,16 @@ def _submit_orders(
                     limit_price = float(val)
             except Exception:
                 limit_price = None
+        # estimate price for notification purposes
+        price_val = None
+        try:
+            val = r.get("entry_price")
+            if val is not None and val != "":
+                price_val = float(val)
+        except Exception:
+            price_val = None
+        if limit_price is not None:
+            price_val = limit_price
         try:
             order = ba.submit_order_with_retry(
                 client,
@@ -235,6 +247,9 @@ def _submit_orders(
                     "symbol": sym,
                     "side": side,
                     "qty": qty,
+                    "price": price_val,
+                    "system": system,
+                    "entry_date": entry_date,
                     "order_id": getattr(order, "id", None),
                     "status": getattr(order, "status", None),
                 }
@@ -245,6 +260,9 @@ def _submit_orders(
                     "symbol": sym,
                     "side": side,
                     "qty": qty,
+                    "price": price_val,
+                    "system": system,
+                    "entry_date": entry_date,
                     "error": str(e),
                 }
             )
