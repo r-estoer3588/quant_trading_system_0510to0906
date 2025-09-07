@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
+import time
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
+from common.logging_utils import log_with_progress
 import common.ui_patch  # noqa: F401
 from strategies.system3_strategy import System3Strategy
 
@@ -39,8 +41,12 @@ def display_drop3d_ranking(
     if not candidates_by_date:
         st.warning(tr("3日下落率ランキングが空です"))
         return
-    rows = []
-    for date, cands in candidates_by_date.items():
+    rows: list[dict[str, Any]] = []
+    total = len(candidates_by_date)
+    progress = st.progress(0)
+    log_area = st.empty()
+    start = time.time()
+    for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
                 {
@@ -49,6 +55,17 @@ def display_drop3d_ranking(
                     "DropRate_3D": c.get("DropRate_3D"),
                 }
             )
+        log_with_progress(
+            i,
+            total,
+            start,
+            prefix="3日下落率ランキング",
+            log_func=log_area.write,
+            progress_func=progress.progress,
+            unit=tr("days"),
+        )
+    progress.empty()
+    log_area.write(tr("3日下落率ランキング完了"))
     df = pd.DataFrame(rows)
     df["Date"] = pd.to_datetime(df["Date"])  # type: ignore[arg-type]
     start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
@@ -79,7 +96,12 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             display_name=DISPLAY_NAME,
         )
     )
-    ui: UIManager = ui_manager or UIManager()
+    ui_base: UIManager = (
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
+    )
+    fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
+    ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
+    cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     _rb = cast(
@@ -94,10 +116,13 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             strategy,
             system_name=SYSTEM_NAME,
             limit_symbols=100,
-            ui_manager=ui,
+            ui_manager=ui_base,
         ),
     )
     results_df, _, data_dict, capital, candidates_by_date = _rb
+    fetch_phase.log_area.write(tr("データ取得完了"))
+    ind_phase.log_area.write(tr("インジケーター計算完了"))
+    cand_phase.log_area.write(tr("候補選定完了"))
     if results_df is not None and candidates_by_date is not None:
         display_drop3d_ranking(candidates_by_date)
         summary_df = show_signal_trade_summary(
