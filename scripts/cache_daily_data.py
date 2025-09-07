@@ -108,17 +108,16 @@ def _migrate_legacy_failed_if_needed() -> None:
         except Exception:
             pass
 
-        now = datetime.utcnow().isoformat()
-            now = datetime.now(datetime.UTC).isoformat()
-            FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["symbol", "last_failed_at", "count"])  # header
-                    for s in sorted(set(symbols)):
-                        writer.writerow([s, now, 1])
-            except Exception:
-                pass
+    now = datetime.now(datetime.UTC).isoformat()
+        FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["symbol", "last_failed_at", "count"])  # header
+                for s in sorted(set(symbols)):
+                    writer.writerow([s, now, 1])
+        except Exception:
+            pass
 
 
 def _load_failed_map() -> Dict[str, FailedEntry]:
@@ -211,6 +210,7 @@ def remove_recovered_symbols(succeeded: Iterable[str]) -> None:
 # -----------------------------
 # データ取得
 # -----------------------------
+
 
 def get_all_symbols() -> List[str]:
     urls = [
@@ -329,7 +329,11 @@ def cache_single(symbol: str, output_dir: Path) -> Tuple[str, bool, bool]:
         return (f"{symbol}: failed to fetch", True, False)
 
 
-def cache_data(symbols: List[str], output_dir: Path | str = DATA_CACHE_DIR, max_workers: int | None = None) -> None:
+def cache_data(
+    symbols: List[str],
+    output_dir: Path | str = DATA_CACHE_DIR,
+    max_workers: int | None = None,
+) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -345,7 +349,10 @@ def cache_data(symbols: List[str], output_dir: Path | str = DATA_CACHE_DIR, max_
 
     results_list: List[Tuple[str, str, bool]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(cache_single, symbol, output_dir): symbol for symbol in symbols_to_fetch}
+        futures = {
+            executor.submit(cache_single, symbol, output_dir): symbol
+            for symbol in symbols_to_fetch
+        }
         for i, future in enumerate(as_completed(futures)):
             msg, used_api, ok = future.result()
             symbol = futures[future]
@@ -376,11 +383,12 @@ def cache_data(symbols: List[str], output_dir: Path | str = DATA_CACHE_DIR, max_
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
-    print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
+    print(
+        f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
+    )
     cache_data(symbols, output_dir=DATA_CACHE_DIR)
     print("データのキャッシュが完了しました。")
 
 
 if __name__ == "__main__":
     _cli_main()
-
