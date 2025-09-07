@@ -36,11 +36,18 @@ with st.sidebar:
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))
 
-    st.header("予算")
-    # Alpacaから取得した資金のみを使う
-    cap_long = 0.0
-    cap_short = 0.0
-    if st.button("🔍 Alpaca残高を取得して予算に反映"):
+    st.header("資産")
+    # Alpacaから取得した資産のみを使う
+    if "today_cap_long" not in st.session_state:
+        st.session_state["today_cap_long"] = 0.0
+    if "today_cap_short" not in st.session_state:
+        st.session_state["today_cap_short"] = 0.0
+
+    # --- 削除: 青いinfo表示（資産の現在値） ---
+    # st.info(f"long資産: {st.session_state['today_cap_long']:.2f} / short資産: {st.session_state['today_cap_short']:.2f}")
+
+    # Alpacaから取得してフォームに反映
+    if st.button("🔍 Alpacaから資産取得してフォームに反映"):
         try:
             client = ba.get_client(paper=True)
             acct = client.get_account()
@@ -49,15 +56,31 @@ with st.sidebar:
                 bp_raw = getattr(acct, "cash", None)
             if bp_raw is not None:
                 bp = float(bp_raw)
-                cap_long = round(bp / 2.0, 2)
-                cap_short = round(bp / 2.0, 2)
+                st.session_state["today_cap_long"] = round(bp / 2.0, 2)
+                st.session_state["today_cap_short"] = round(bp / 2.0, 2)
                 st.success(
-                    f"ロング/ショート資金を{cap_long}ずつに設定（buying_powerの半分={bp}）"
+                    f"long資産/short資産を{st.session_state['today_cap_long']}ずつに設定（buying_powerの半分={bp}）"
                 )
             else:
                 st.warning("Alpaca口座情報: buying_power/cashが取得できません")
         except Exception as e:
-            st.error(f"Alpaca残高取得エラー: {e}")
+            st.error(f"Alpaca資産取得エラー: {e}")
+
+    # 資産入力フォーム
+    st.session_state["today_cap_long"] = st.number_input(
+        "long資産 (USD)",
+        min_value=0.0,
+        step=100.0,
+        value=float(st.session_state["today_cap_long"]),
+        key="today_cap_long_input",
+    )
+    st.session_state["today_cap_short"] = st.number_input(
+        "short資産 (USD)",
+        min_value=0.0,
+        step=100.0,
+        value=float(st.session_state["today_cap_short"]),
+        key="today_cap_short_input",
+    )
 
     st.header("CSV保存")
     save_csv = st.checkbox("CSVをsignals_dirに保存", value=False)
@@ -68,6 +91,11 @@ with st.sidebar:
     delay = st.number_input("遅延（秒）", min_value=0.0, step=0.5, value=0.5)
     poll_status = st.checkbox("注文状況を10秒ポーリング", value=False)
     do_trade = st.checkbox("Alpacaで自動発注", value=False)
+
+    # キャッシュクリアボタン
+    if st.button("キャッシュクリア"):
+        st.cache_data.clear()
+        st.success("キャッシュをクリアしました")
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     # prepare live log display
@@ -86,8 +114,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     with st.spinner("実行中..."):
         final_df, per_system = compute_today_signals(
             syms,
-            capital_long=cap_long,
-            capital_short=cap_short,
+            capital_long=float(st.session_state["today_cap_long"]),
+            capital_short=float(st.session_state["today_cap_short"]),
             save_csv=save_csv,
             log_callback=_ui_log,
         )
@@ -292,6 +320,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     f"{name}のCSVをダウンロード",
                     data=csv2,
                     file_name=f"signals_{name}.csv",
+                    key=f"{name}_download_csv",  # ← ここを追加
                 )
 
                 # Debug: show per-symbol reason text for why it was selected
@@ -304,6 +333,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if "reason" in df.columns:
                     with st.expander(f"{name} - selection reasons", expanded=False):
                         for _, row in df.iterrows():
+                            sym = row.get("symbol")
+                            reason = row.get("reason")
+                            st.markdown(f"- **{sym}**: {reason}")
                             sym = row.get("symbol")
                             reason = row.get("reason")
                             st.markdown(f"- **{sym}**: {reason}")

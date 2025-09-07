@@ -353,6 +353,16 @@ def compute_today_signals(
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
 
+    # --- UI: サマリー表示用のカラムを用意 ---
+    try:
+        import streamlit as st
+
+        st.markdown("### システム別シグナル件数")
+        sys_names = [getattr(s, "SYSTEM_NAME", "") for s in strategy_objs]
+        cols = st.columns(len(sys_names))
+    except Exception:
+        cols = [None] * len(strategy_objs)
+
     # 当日シグナル収集
     per_system: Dict[str, pd.DataFrame] = {}
     total = len(strategies)
@@ -392,7 +402,32 @@ def compute_today_signals(
                 drop=True
             )
         per_system[name] = df
-        _log(f"✅ {name}: {len(df)} 件")
+        msg = (
+            f"✅ {name}: {len(df)} 件"
+            if df is not None and not df.empty
+            else f"❌ {name}: 0 件 🚫"
+        )
+        _log(msg)
+        # --- カラムで横並び表示 ---
+        if cols and idx <= len(cols):
+            try:
+                if df is not None and not df.empty:
+                    cols[idx - 1].success(msg)
+                else:
+                    cols[idx - 1].warning(msg)
+            except Exception:
+                pass
+        # --- 詳細ログはエクスパンダーで折りたたみ ---
+        if log_callback:
+            try:
+                import streamlit as st
+
+                with st.expander(f"{name} 詳細ログ", expanded=False):
+                    st.text(msg)
+                    if df is not None and not df.empty:
+                        st.dataframe(df.head())
+            except Exception:
+                pass
     if progress_callback:
         try:
             progress_callback(total, total, "")
@@ -618,4 +653,5 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
     main()
