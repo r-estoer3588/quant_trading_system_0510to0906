@@ -5,12 +5,11 @@ import time
 import pandas as pd
 import streamlit as st
 
-from config.settings import get_settings
 from common import broker_alpaca as ba
-from scripts.run_all_systems_today import compute_today_signals
-from common.universe import build_universe_from_cache, save_universe_file, load_universe_file
 from common.notifier import create_notifier
-
+from common.universe import build_universe_from_cache, load_universe_file, save_universe_file
+from config.settings import get_settings
+from scripts.run_all_systems_today import compute_today_signals
 
 st.set_page_config(page_title="Today Signals", layout="wide")
 st.title("📈 Today Signals (All Systems)")
@@ -168,7 +167,12 @@ if st.button("▶ Run Today Signals", type="primary"):
 
         st.dataframe(filtered, use_container_width=True)
         csv = filtered.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Final CSV", data=csv, file_name="today_signals_final.csv")
+        st.download_button(
+            "Download Final CSV",
+            data=csv,
+            file_name="today_signals_final.csv",
+            key="download_final_csv",
+        )
 
         # Alpaca 自動発注（任意）
         if do_trade:
@@ -258,7 +262,12 @@ if st.button("▶ Run Today Signals", type="primary"):
                 # show dataframe (includes reason column if available)
                 st.dataframe(df, use_container_width=True)
                 csv2 = df.to_csv(index=False).encode("utf-8")
-                st.download_button(f"Download {name}", data=csv2, file_name=f"signals_{name}.csv")
+                st.download_button(
+                    f"Download {name}",
+                    data=csv2,
+                    file_name=f"signals_{name}.csv",
+                    key=f"download_{name}",
+                )
 
                 # Debug: show per-symbol reason text for why it was selected
                 if "reason" in df.columns:
