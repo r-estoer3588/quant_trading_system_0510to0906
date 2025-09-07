@@ -14,6 +14,7 @@
   },
   "chatgpt.openOnStartup": true,
   "editor.formatOnSave": true,
+  "max_line_length": 88,
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter"
   },
