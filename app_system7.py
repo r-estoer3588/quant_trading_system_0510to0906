@@ -45,7 +45,14 @@ def run_tab(
     )
     single_mode = st.checkbox(tr("単体モード（資金100%を使用）"), value=False)
 
-    ui: UIManager = ui_manager or UIManager()
+    ui_base: UIManager = (
+        ui_manager.system(SYSTEM_NAME)
+        if ui_manager
+        else UIManager().system(SYSTEM_NAME)
+    )
+    fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
+    ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
+    cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     _rb = cast(
@@ -60,11 +67,14 @@ def run_tab(
             strategy,
             system_name=SYSTEM_NAME,
             limit_symbols=1,
-            ui_manager=ui,
+            ui_manager=ui_base,
             single_mode=single_mode,
         ),
     )
     results_df, _, data_dict, capital, candidates_by_date = _rb
+    fetch_phase.log_area.write(tr("データ取得完了"))
+    ind_phase.log_area.write(tr("インジケーター計算完了"))
+    cand_phase.log_area.write(tr("候補選定完了"))
 
     if results_df is not None and candidates_by_date is not None:
         summary_df = show_signal_trade_summary(
@@ -88,7 +98,9 @@ def run_tab(
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            _dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -123,7 +135,9 @@ def run_tab(
         if "exit_date" in df2.columns:
             eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["exit_date"]))
         elif "entry_date" in df2.columns:
-            eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["entry_date"]))
+            eq_series = pd.Series(
+                equity.values, index=pd.to_datetime(df2["entry_date"])
+            )
         else:
             eq_series = pd.Series(equity.values)
         # インデックスをソートして日次にリサンプル（取引の無い日も埋める）
@@ -146,7 +160,11 @@ def run_tab(
         # --- 常時表示: 資産推移の可視化（ラインチャート + 直近テーブル） ---
         try:
             if daily_eq is None or len(daily_eq) == 0:
-                st.info(tr("資産推移データが存在しません。取引記録や累積PnL を確認してください。"))
+                st.info(
+                    tr(
+                        "資産推移データが存在しません。取引記録や累積PnL を確認してください。"
+                    )
+                )
             else:
                 with st.expander(tr("資産推移（直近）"), expanded=False):
                     try:
@@ -154,13 +172,19 @@ def run_tab(
                     except Exception:
                         # line_chartが失敗したらテーブルで代替
                         df_tbl = pd.DataFrame(
-                            {"date": pd.to_datetime(daily_eq.index), "equity": daily_eq.values}
+                            {
+                                "date": pd.to_datetime(daily_eq.index),
+                                "equity": daily_eq.values,
+                            }
                         )
                         st.dataframe(df_tbl.tail(30).sort_values("date"))
                     # 直近30行を表示（表示用）
                     try:
                         df_recent = pd.DataFrame(
-                            {"date": pd.to_datetime(daily_eq.index), "equity": daily_eq.values}
+                            {
+                                "date": pd.to_datetime(daily_eq.index),
+                                "equity": daily_eq.values,
+                            }
                         )
                         st.dataframe(df_recent.tail(30).sort_values("date"))
                     except Exception:
@@ -175,7 +199,9 @@ def run_tab(
             if not zero_days.empty:
                 first_zero_date = pd.to_datetime(zero_days.index[0])
                 zero_count = len(zero_days)
-                stats["資金尽きた日"] = f"{first_zero_date:%Y-%m-%d} (件数: {zero_count})"
+                stats["資金尽きた日"] = (
+                    f"{first_zero_date:%Y-%m-%d} (件数: {zero_count})"
+                )
                 st.error(
                     tr(
                         "バックテスト中に資金が0以下になった日があります: {d} (件数: {n})",
@@ -214,7 +240,9 @@ def run_tab(
             if not low_days.empty:
                 first_low_date = pd.to_datetime(low_days.index[0])
                 low_count = len(low_days)
-                stats["資金10%未満日"] = f"{first_low_date:%Y-%m-%d} (件数: {low_count})"
+                stats["資金10%未満日"] = (
+                    f"{first_low_date:%Y-%m-%d} (件数: {low_count})"
+                )
                 st.warning(
                     tr(
                         "最終資産あるいは途中で初期資金の10%を下回った日があります: {d} (件数: {n})",
@@ -258,7 +286,7 @@ def run_tab(
             yearly_df = pd.DataFrame(
                 {
                     "year": pd.to_datetime(ye.index).year,
-                    "pnl": (ye - ys).values,
+                    "pnl": (ye - ys).round(2).values,
                     "return_pct": ((ye / ys - 1) * 100).values,
                 }
             )

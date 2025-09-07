@@ -1,24 +1,23 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import os
+from pathlib import Path
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 
+from dotenv import load_dotenv
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、直下モジュール `indicators_common.py` を解決可能にする
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
-
 
 # -----------------------------
 # 設定/環境
@@ -89,7 +88,7 @@ def _parse_date(s: str) -> datetime:
         try:
             return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
         except Exception:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
 
 
 def _migrate_legacy_failed_if_needed() -> None:
@@ -97,8 +96,8 @@ def _migrate_legacy_failed_if_needed() -> None:
     旧形式: 1列（symbol）
     新形式: 3列（symbol,last_failed_at,count）
     """
+    symbols = []
     if LEGACY_FAILED_LIST.exists() and not FAILED_LIST_PATH.exists():
-        symbols = []
         try:
             with open(LEGACY_FAILED_LIST, "r", encoding="utf-8") as f:
                 for line in f:
@@ -108,16 +107,16 @@ def _migrate_legacy_failed_if_needed() -> None:
         except Exception:
             pass
 
-        now = datetime.utcnow().isoformat()
-        FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["symbol", "last_failed_at", "count"])  # header
-                for s in sorted(set(symbols)):
-                    writer.writerow([s, now, 1])
-        except Exception:
-            pass
+    now = datetime.now(timezone.utc).isoformat()
+    FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(FAILED_LIST_PATH, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["symbol", "last_failed_at", "count"])  # header
+            for s in sorted(set(symbols)):
+                writer.writerow([s, now, 1])
+    except Exception:
+        pass
 
 
 def _load_failed_map() -> Dict[str, FailedEntry]:
@@ -141,7 +140,7 @@ def _load_failed_map() -> Dict[str, FailedEntry]:
             return entries
         # 旧形式（1列のみ）
         else:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             for s in df.iloc[:, 0].astype(str).str.upper():
                 s = s.strip()
                 if s:
@@ -167,7 +166,7 @@ def _save_failed_map(entries: Dict[str, FailedEntry]) -> None:
 def load_monthly_blacklist() -> Set[str]:
     """当月に失敗した銘柄を集合で返す（同一月はスキップ）。"""
     m = _load_failed_map()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     skip: Set[str] = set()
     for sym, e in m.items():
         if e.last_failed_at.year == now.year and e.last_failed_at.month == now.month:
@@ -181,7 +180,7 @@ def update_failed_symbols(failed: Iterable[str]) -> None:
     if not failed_set:
         return
     m = _load_failed_map()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for s in failed_set:
         if s in m:
             e = m[s]
@@ -210,6 +209,7 @@ def remove_recovered_symbols(succeeded: Iterable[str]) -> None:
 # -----------------------------
 # データ取得
 # -----------------------------
+
 
 def get_all_symbols() -> List[str]:
     urls = [
@@ -328,7 +328,11 @@ def cache_single(symbol: str, output_dir: Path) -> Tuple[str, bool, bool]:
         return (f"{symbol}: failed to fetch", True, False)
 
 
-def cache_data(symbols: List[str], output_dir: Path | str = DATA_CACHE_DIR, max_workers: int | None = None) -> None:
+def cache_data(
+    symbols: List[str],
+    output_dir: Path | str = DATA_CACHE_DIR,
+    max_workers: int | None = None,
+) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -344,7 +348,9 @@ def cache_data(symbols: List[str], output_dir: Path | str = DATA_CACHE_DIR, max_
 
     results_list: List[Tuple[str, str, bool]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(cache_single, symbol, output_dir): symbol for symbol in symbols_to_fetch}
+        futures = {
+            executor.submit(cache_single, symbol, output_dir): symbol for symbol in symbols_to_fetch
+        }
         for i, future in enumerate(as_completed(futures)):
             msg, used_api, ok = future.result()
             symbol = futures[future]
@@ -382,4 +388,3 @@ def _cli_main() -> None:
 
 if __name__ == "__main__":
     _cli_main()
-

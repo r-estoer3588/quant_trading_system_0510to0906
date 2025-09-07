@@ -73,7 +73,9 @@ def _amount_pick(
     chosen_symbols = set()
 
     # システムごとの割当予算
-    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
+    budgets = {
+        name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
+    }
     remaining = budgets.copy()
 
     # システムごとにスコア順で採用
@@ -91,8 +93,16 @@ def _amount_pick(
                 sym = row["symbol"]
                 if sym in chosen_symbols:
                     continue
-                entry = float(row["entry_price"]) if not pd.isna(row.get("entry_price")) else None
-                stop = float(row["stop_price"]) if not pd.isna(row.get("stop_price")) else None
+                entry = (
+                    float(row["entry_price"])
+                    if not pd.isna(row.get("entry_price"))
+                    else None
+                )
+                stop = (
+                    float(row["stop_price"])
+                    if not pd.isna(row.get("stop_price"))
+                    else None
+                )
                 if not entry or not stop or entry <= 0:
                     continue
 
@@ -107,14 +117,24 @@ def _amount_pick(
                                 budgets[name],
                                 entry,
                                 stop,
-                                risk_pct=float(getattr(stg, "config", {}).get("risk_pct", 0.02)),
-                                max_pct=float(getattr(stg, "config", {}).get("max_pct", 0.10)),
+                                risk_pct=float(
+                                    getattr(stg, "config", {}).get("risk_pct", 0.02)
+                                ),
+                                max_pct=float(
+                                    getattr(stg, "config", {}).get("max_pct", 0.10)
+                                ),
                             )
                             if ds is None:
                                 desired_shares = 0
                             else:
                                 try:
-                                    desired_shares = int(float(ds))
+                                    if isinstance(ds, (int, float, str)):
+                                        try:
+                                            desired_shares = int(float(ds))
+                                        except Exception:
+                                            desired_shares = 0
+                                    else:
+                                        desired_shares = 0
                                 except Exception:
                                     desired_shares = 0
                         except Exception:
@@ -140,7 +160,9 @@ def _amount_pick(
                 rec["shares"] = int(shares)
                 rec["position_value"] = float(round(position_value, 2))
                 rec["system_budget"] = float(round(budgets[name], 2))
-                rec["remaining_after"] = float(round(remaining[name] - position_value, 2))
+                rec["remaining_after"] = float(
+                    round(remaining[name] - position_value, 2)
+                )
                 chosen.append(rec)
                 chosen_symbols.add(sym)
                 remaining[name] -= position_value
@@ -237,7 +259,11 @@ def _submit_orders(
 
 
 def _apply_filters(
-    df: pd.DataFrame, *, only_long: bool = False, only_short: bool = False, top_per_system: int = 0
+    df: pd.DataFrame,
+    *,
+    only_long: bool = False,
+    only_short: bool = False,
+    top_per_system: int = 0,
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return df
@@ -249,7 +275,9 @@ def _apply_filters(
             out = out[out["side"].str.lower() == "short"]
     if top_per_system and top_per_system > 0 and "system" in out.columns:
         by = ["system"] + (["side"] if "side" in out.columns else [])
-        out = out.groupby(by, as_index=False, group_keys=False).head(int(top_per_system))
+        out = out.groupby(by, as_index=False, group_keys=False).head(
+            int(top_per_system)
+        )
     return out
 
 
@@ -302,8 +330,7 @@ def compute_today_signals(
         symbols.append("SPY")
 
     _log(
-        f"🎯 対象シンボル数: {len(symbols)}"
-        f"（例: {', '.join(symbols[:10])}{'...' if len(symbols) > 10 else ''}）"
+        f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）"
     )
 
     # データ読み込み
@@ -336,24 +363,34 @@ def compute_today_signals(
             except Exception:
                 pass
         if name == "system4" and spy_df is None:
-            _log("⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。")
+            _log(
+                "⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
+            )
             per_system[name] = pd.DataFrame()
             continue
         base = {"SPY": raw_data.get("SPY")} if name == "system7" else raw_data
         _log(f"🔎 {name}: シグナル抽出を開始")
         # pass through log/progress callbacks so strategy code can report progress
-        df = stg.get_today_signals(
-            base,
-            market_df=spy_df,
-            today=today,
-            progress_callback=None,
-            log_callback=log_callback,
-        )
+        try:
+            df = stg.get_today_signals(
+                base,
+                market_df=spy_df,
+                today=today,
+                progress_callback=None,
+                log_callback=log_callback,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
+            df = pd.DataFrame()
         if not df.empty:
             asc = _asc_by_score_key(
-                df["score_key"].iloc[0] if "score_key" in df.columns and len(df) else None
+                df["score_key"].iloc[0]
+                if "score_key" in df.columns and len(df)
+                else None
             )
-            df = df.sort_values("score", ascending=asc, na_position="last").reset_index(drop=True)
+            df = df.sort_values("score", ascending=asc, na_position="last").reset_index(
+                drop=True
+            )
         per_system[name] = df
         _log(f"✅ {name}: {len(df)} 件")
     if progress_callback:
@@ -415,13 +452,21 @@ def compute_today_signals(
             take = df.head(slot).copy()
             take["alloc_weight"] = long_alloc.get(name) or short_alloc.get(name) or 0.0
             chosen_frames.append(take)
-        final_df = pd.concat(chosen_frames, ignore_index=True) if chosen_frames else pd.DataFrame()
+        final_df = (
+            pd.concat(chosen_frames, ignore_index=True)
+            if chosen_frames
+            else pd.DataFrame()
+        )
     else:
         # 金額配分モード
         if capital_long is None:
-            capital_long = float(get_settings(create_dirs=False).backtest.initial_capital)
+            capital_long = float(
+                get_settings(create_dirs=False).backtest.initial_capital
+            )
         if capital_short is None:
-            capital_short = float(get_settings(create_dirs=False).backtest.initial_capital)
+            capital_short = float(
+                get_settings(create_dirs=False).backtest.initial_capital
+            )
 
         strategies_map = {k: v for k, v in strategies.items()}
         long_df = _amount_pick(
@@ -483,10 +528,16 @@ def main():
         "--symbols", nargs="*", help="対象シンボル。未指定なら設定のauto_tickersを使用"
     )
     parser.add_argument(
-        "--slots-long", type=int, default=None, help="買いサイドの最大採用数（スロット方式）"
+        "--slots-long",
+        type=int,
+        default=None,
+        help="買いサイドの最大採用数（スロット方式）",
     )
     parser.add_argument(
-        "--slots-short", type=int, default=None, help="売りサイドの最大採用数（スロット方式）"
+        "--slots-short",
+        type=int,
+        default=None,
+        help="売りサイドの最大採用数（スロット方式）",
     )
     parser.add_argument(
         "--capital-long",
@@ -510,8 +561,12 @@ def main():
     parser.add_argument(
         "--order-type", choices=["market", "limit"], default="market", help="注文種別"
     )
-    parser.add_argument("--tif", choices=["GTC", "DAY"], default="GTC", help="Time In Force")
-    parser.add_argument("--live", action="store_true", help="ライブ口座で発注（デフォルトはPaper）")
+    parser.add_argument(
+        "--tif", choices=["GTC", "DAY"], default="GTC", help="Time In Force"
+    )
+    parser.add_argument(
+        "--live", action="store_true", help="ライブ口座で発注（デフォルトはPaper）"
+    )
     args = parser.parse_args()
 
     final_df, per_system = compute_today_signals(
@@ -555,7 +610,10 @@ def main():
         merge_signals([signals_for_merge], portfolio_state={}, market_state={})
         if args.alpaca_submit:
             _submit_orders(
-                final_df, paper=(not args.live), order_type=args.order_type, tif=args.tif
+                final_df,
+                paper=(not args.live),
+                order_type=args.order_type,
+                tif=args.tif,
             )
 
 

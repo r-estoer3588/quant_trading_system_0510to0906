@@ -244,7 +244,9 @@ def _load_symbol_cached(
     return symbol, None
 
 
-def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.DataFrame | None]:
+def load_symbol(
+    symbol: str, cache_dir: str = "data_cache"
+) -> tuple[str, pd.DataFrame | None]:
     base_path = str(base_cache_path(symbol))
     raw_path = os.path.join(cache_dir, f"{safe_filename(symbol)}.csv")
     return _load_symbol_cached(
@@ -262,7 +264,9 @@ def fetch_data(
 ) -> Dict[str, pd.DataFrame]: ...
 
 
-def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> Dict[str, pd.DataFrame]:
+def fetch_data(
+    symbols, max_workers: int = 8, ui_manager=None
+) -> Dict[str, pd.DataFrame]:
     data_dict: Dict[str, pd.DataFrame] = {}
     total = len(symbols)
     # UIManagerのフェーズ（fetch）があればそこへ出力
@@ -635,12 +639,15 @@ def run_backtest_app(
     key_debug = f"{system_name}_debug_logs"
 
     has_prev = any(
-        k in st.session_state for k in [key_results, key_cands, f"{system_name}_capital_saved"]
+        k in st.session_state
+        for k in [key_results, key_cands, f"{system_name}_capital_saved"]
     )
     if has_prev:
         with st.expander("前回の結果（リランでも保持）", expanded=False):
             prev_res = st.session_state.get(key_results)
-            prev_cap = st.session_state.get(key_capital_saved, st.session_state.get(key_capital, 0))
+            prev_cap = st.session_state.get(
+                key_capital_saved, st.session_state.get(key_capital, 0)
+            )
             if prev_res is not None and getattr(prev_res, "empty", False) is False:
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
@@ -674,7 +681,9 @@ def run_backtest_app(
         st.session_state[debug_key] = True
     st.checkbox(tr("show debug logs"), key=debug_key)
 
-    use_auto = st.checkbox(tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto")
+    use_auto = st.checkbox(
+        tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto"
+    )
     _init_cap = int(st.session_state.get(key_capital_saved, 1000))
     capital = st.number_input(
         tr("capital (USD)"),
@@ -719,7 +728,15 @@ def run_backtest_app(
         symbols = [s.strip().upper() for s in symbols_input.split(",")]
 
     # System1 専用: 実行ボタンの直前に通知トグルを配置
-    if system_name in ("System1", "System2", "System3", "System4", "System5", "System6", "System7"):
+    if system_name in (
+        "System1",
+        "System2",
+        "System3",
+        "System4",
+        "System5",
+        "System6",
+        "System7",
+    ):
         _notify_key = f"{system_name}_notify_backtest"
         if _notify_key not in st.session_state:
             st.session_state[_notify_key] = True
@@ -735,7 +752,9 @@ def run_backtest_app(
         try:
             import os as _os  # local alias to avoid top imports churn
 
-            if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_WEBHOOK_URL")):
+            if not (
+                _os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_WEBHOOK_URL")
+            ):
                 st.caption(tr("Webhook URL が未設定です（.env を確認）"))
         except Exception:
             pass
@@ -927,12 +946,24 @@ def show_results(
 
     st.subheader(i18n.tr("yearly summary"))
     yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-    yearly["pnl"] = yearly["pnl"].map(lambda v: f"${v:,.1f}")
-    st.dataframe(yearly)
+    yearly["損益"] = yearly["pnl"].round(2)
+    yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
+    yearly = yearly.rename(columns={"exit_date": "年"})
+    st.dataframe(
+        yearly[["年", "損益", "リターン(%)"]].style.format(
+            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+        )
+    )
     st.subheader(i18n.tr("monthly summary"))
     monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-    monthly["pnl"] = monthly["pnl"].map(lambda v: f"${v:,.1f}")
-    st.dataframe(monthly)
+    monthly["損益"] = monthly["pnl"].round(2)
+    monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
+    monthly = monthly.rename(columns={"exit_date": "月"})
+    st.dataframe(
+        monthly[["月", "損益", "リターン(%)"]].style.format(
+            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+        )
+    )
 
     st.subheader(i18n.tr("holdings heatmap (by day)"))
     progress_heatmap = st.progress(0)
@@ -995,14 +1026,20 @@ def show_signal_trade_summary(
             sym: int(df.get("setup", pd.Series(dtype=int)).sum())
             for sym, df in (source_df or {}).items()
         }
-        signal_counts = pd.DataFrame(signal_counts.items(), columns=["symbol", "Signal_Count"])
+        signal_counts = pd.DataFrame(
+            signal_counts.items(), columns=["symbol", "Signal_Count"]
+        )
 
     if trades_df is not None and not trades_df.empty:
-        trade_counts = trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
+        trade_counts = (
+            trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
+        )
     else:
         trade_counts = pd.DataFrame(columns=["symbol", "Trade_Count"])
 
-    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(0)
+    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(
+        0
+    )
     summary_df["Signal_Count"] = summary_df["Signal_Count"].astype(int)
     summary_df["Trade_Count"] = summary_df["Trade_Count"].astype(int)
 
@@ -1022,10 +1059,14 @@ def display_roc200_ranking(
         st.info(tr("ランキングデータがありません"))
         return
     df = ranking_df.copy()
-    df["Date"] = pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
+    df["Date"] = (
+        pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
+    )
     df = df.reset_index(drop=True)
     if "ROC200_Rank" not in df.columns and "ROC200" in df.columns:
-        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(ascending=False, method="first")
+        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(
+            ascending=False, method="first"
+        )
     if years:
         start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
         df = df[df["Date"] >= start_date]
@@ -1061,7 +1102,9 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     os.makedirs(trade_dir, exist_ok=True)
 
     if signal_counts_df is not None and not signal_counts_df.empty:
-        signal_path = os.path.join(sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv")
+        signal_path = os.path.join(
+            sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv"
+        )
         signal_counts_df.to_csv(signal_path, index=False)
         st.write(tr("シグナルを保存しました: {signal_path}", signal_path=signal_path))
         # 即時ダウンロード
@@ -1090,7 +1133,9 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             st.dataframe(trades_df[cols] if cols else trades_df)
         except Exception:
             pass
-        trade_path = os.path.join(trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv")
+        trade_path = os.path.join(
+            trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv"
+        )
         trades_df.to_csv(trade_path, index=False)
         st.write(tr("トレードを保存しました: {trade_path}", trade_path=trade_path))
         # 即時ダウンロード
@@ -1109,7 +1154,9 @@ def save_prepared_data_cache(
 ) -> None: ...
 
 
-def save_prepared_data_cache(data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"):
+def save_prepared_data_cache(
+    data_dict: Dict[str, pd.DataFrame], system_name: str = "SystemX"
+):
     st.info(tr("{system_name} の日次データを保存中...", system_name=system_name))
     if not data_dict:
         st.warning(tr("保存するデータがありません"))

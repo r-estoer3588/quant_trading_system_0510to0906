@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import time
 
-import pandas as pd
 import streamlit as st
 
 from common.equity_curve import save_equity_curve
@@ -80,7 +79,9 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             key="integrated_gross",
         )
     with colB:
-        st.caption(tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%"))
+        st.caption(
+            tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%")
+        )
     colL, colS = st.columns(2)
     with colL:
         long_share = st.slider(
@@ -128,7 +129,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         import pandas as _pd
 
         sig_counts = {
-            s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in states
+            s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
+            for s in states
         }
         st.write(tr("signals per system:"))
         st.dataframe(_pd.DataFrame([sig_counts]))
@@ -165,11 +167,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             summary, df2 = summarize_perf(trades_df, capital_i)
             d = summary.to_dict()
             d.update(
-                {
-                    "実施日時": now_jst_str(),
-                    "銘柄数": len(symbols),
-                    "開始資金": int(capital_i),
-                }
+                銘柄数=len(symbols),
+                開始資金=int(capital_i),
             )
             cols = st.columns(6)
             try:
@@ -189,21 +188,44 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             st.dataframe(df2)
 
             try:
-                equity = capital_i + df2["cumulative_pnl"]
-                equity.index = _pd.to_datetime(df2["exit_date"])
+                import numpy as np
+
+                equity = _pd.Series(
+                    np.array(df2["cumulative_pnl"].values, dtype=float)
+                    + float(capital_i),
+                    index=_pd.to_datetime(df2["exit_date"]),
+                )
                 daily_eq = equity.resample("D").last().ffill()
                 year_start = daily_eq.resample("Y").first()
                 year_end = daily_eq.resample("Y").last()
                 yearly_df = _pd.DataFrame(
                     {
-                        "year": year_end.index.year,
-                        "pnl": (year_end - year_start).values,
-                        "return_pct": ((year_end / year_start - 1) * 100).values,
+                        "年": year_end.index.to_series().dt.year.values,
+                        "損益": (year_end - year_start).round(2).values,
+                        "リターン(%)": ((year_end / year_start - 1) * 100).values,
                     }
                 )
                 st.subheader(tr("yearly summary"))
-                # 百分率として1桁で表示（例: 468.9% / -63.6%）
-                st.dataframe(yearly_df.style.format({"return_pct": "{:.1f}%"}))
+                # 百分率として1桁で表示（例: 468.9% / -63.6%）、pnlは小数第2位
+                st.dataframe(
+                    yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
+                )
+                # 月次サマリー
+                month_start = daily_eq.resample("M").first()
+                month_end = daily_eq.resample("M").last()
+                monthly_df = _pd.DataFrame(
+                    {
+                        "月": month_end.index.to_series().dt.strftime("%Y-%m").values,
+                        "損益": (month_end - month_start).round(2).values,
+                        "リターン(%)": ((month_end / month_start - 1) * 100).values,
+                    }
+                )
+                st.subheader(tr("monthly summary"))
+                st.dataframe(
+                    monthly_df.style.format(
+                        {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+                    )
+                )
             except Exception:
                 pass
 
@@ -297,6 +319,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 step=100,
                 key="batch_cap_short",
             )
+        # Ensure cap_long and cap_short are always defined
+        cap_long = st.session_state.get("batch_cap_long", 2000)
+        cap_short = st.session_state.get("batch_cap_short", 2000)
 
         from common import broker_alpaca as ba
 
@@ -307,7 +332,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 bp = None
                 try:
                     bp = float(
-                        getattr(acct, "buying_power", None) or getattr(acct, "cash", None) or 0.0
+                        getattr(acct, "buying_power", None)
+                        or getattr(acct, "cash", None)
+                        or 0.0
                     )
                 except Exception:
                     bp = None
@@ -326,7 +353,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     )
             except Exception as e:  # noqa: BLE001
                 st.session_state["batch_fetch_msg"] = ("error", f"Alpaca error: {e}")
-            st.experimental_rerun()
+            st.rerun()
 
         st.button(tr("Fetch Alpaca balances"), on_click=_fetch_balances)
 
@@ -385,6 +412,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 except Exception:
                     pass
 
+            # Ensure cap_long and cap_short are always defined before use
+            cap_long = st.session_state.get("batch_cap_long", 2000)
+            cap_short = st.session_state.get("batch_cap_short", 2000)
             with st.spinner(tr("running today signals...")):
                 final_df, per_system = compute_today_signals(
                     symbols,
@@ -398,21 +428,91 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             if final_df is None or final_df.empty:
                 st.info(tr("no results"))
             else:
+                # --- 結論から表示: 発注銘柄リスト ---
+                st.subheader(tr("Order list"))
                 st.dataframe(final_df, use_container_width=True)
-            with st.expander(tr("Per-system details")):
-                for name, df in per_system.items():
-                    st.markdown(f"#### {name}")
-                    if df is None or df.empty:
-                        st.write("(empty)")
-                    else:
-                        st.dataframe(df, use_container_width=True)
-                        # show reason text if available
-                        if "reason" in df.columns:
-                            with st.expander(f"{name} - selection reasons", expanded=False):
-                                for _, row in df.iterrows():
-                                    sym = row.get("symbol")
-                                    reason = row.get("reason")
-                                    st.markdown(f"- **{sym}**: {reason}")
+                csv = final_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label=tr("Download Final CSV"),
+                    data=csv,
+                    file_name="today_signals_final.csv",
+                    mime="text/csv",
+                )
+
+                # --- 内訳表示 ---
+                long_syms = final_df[final_df["side"] == "long"]["symbol"].tolist()
+                short_syms = final_df[final_df["side"] == "short"]["symbol"].tolist()
+                col_ls_1, col_ls_2 = st.columns(2)
+                with col_ls_1:
+                    st.markdown(tr("Long symbols"))
+                    st.write(", ".join(long_syms) if long_syms else "-")
+                with col_ls_2:
+                    st.markdown(tr("Short symbols"))
+                    st.write(", ".join(short_syms) if short_syms else "-")
+
+                st.markdown(tr("Orders by system"))
+                st.dataframe(
+                    final_df.groupby("system")["symbol"].count().rename("count"),
+                    use_container_width=True,
+                )
+
+                # 資金推移
+                import pandas as pd
+
+                cap_long = st.session_state.get("batch_cap_long", 2000)
+                cap_short = st.session_state.get("batch_cap_short", 2000)
+                total_capital = float(cap_long) + float(cap_short)
+                cap_df = final_df.sort_values("entry_date")[
+                    ["entry_date", "symbol", "position_value"]
+                ].copy()
+                cap_df["entry_date"] = pd.to_datetime(cap_df["entry_date"])
+                cap_df["capital_after"] = (
+                    total_capital - cap_df["position_value"].cumsum()
+                )
+                st.markdown(tr("Capital progression"))
+                st.dataframe(cap_df, use_container_width=True)
+
+                # 候補一覧（ロング/ショート）
+                from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+
+                with st.expander(tr("Long system candidates"), expanded=False):
+                    for name, df in per_system.items():
+                        if name.lower() not in LONG_SYSTEMS:
+                            continue
+                        st.markdown(f"#### {name}")
+                        if df is None or df.empty:
+                            st.write("(empty)")
+                        else:
+                            _tmp = df.copy()
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
+                            st.dataframe(_tmp, use_container_width=True)
+
+                with st.expander(tr("Short system candidates"), expanded=False):
+                    for name, df in per_system.items():
+                        if name.lower() not in SHORT_SYSTEMS:
+                            continue
+                        st.markdown(f"#### {name}")
+                        if df is None or df.empty:
+                            st.write("(empty)")
+                        else:
+                            _tmp = df.copy()
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
+                            st.dataframe(_tmp, use_container_width=True)
+
+                # ログのCSV保存ボタン
+                logs = st.session_state.get("batch_today_logs", [])
+                if logs:
+                    log_csv = "\n".join(logs).encode("utf-8")
+                    st.download_button(
+                        label=tr("download log CSV"),
+                        data=log_csv,
+                        file_name="today_logs.csv",
+                        mime="text/csv",
+                    )
         return
 
     log_tail_lines = st.number_input(
@@ -435,12 +535,18 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             # 可能なら保存DFからピーク比のDD%を再計算
             try:
                 _cap = float(saved_capital or 0)
-                dd_pct_saved = (saved_df["drawdown"] / (_cap + saved_df["cum_max"])).min() * 100
+                dd_pct_saved = (
+                    saved_df["drawdown"] / (_cap + saved_df["cum_max"])
+                ).min() * 100
             except Exception:
                 dd_pct_saved = 0.0
             cols[0].metric(tr("trades"), saved_summary.get("trades"))
-            cols[1].metric(tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}")
-            cols[2].metric(tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}")
+            cols[1].metric(
+                tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}"
+            )
+            cols[2].metric(
+                tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}"
+            )
             cols[3].metric("PF", f"{saved_summary.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{saved_summary.get('sharpe', 0):.2f}")
             cols[5].metric(
@@ -459,7 +565,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             mime="text/csv",
             key="download_saved_batch_csv",
         )
-        if st.button(tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"):
+        if st.button(
+            tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"
+        ):
             out_dir = os.path.join("results_csv", "batch")
             os.makedirs(out_dir, exist_ok=True)
             trades_path = os.path.join(
@@ -477,7 +585,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             for k in ["Batch_all_trades_df", "Batch_summary_dict", "Batch_capital"]:
                 if k in st.session_state:
                     del st.session_state[k]
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("---")
     st.subheader(tr("Saved Per-System Logs"))
@@ -503,6 +611,14 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         total_sys = 7
         done_sys = 0
         batch_ui = UIManager()
+
+        # Ensure capital is always defined
+        capital = locals().get("capital", None)
+        if capital is None:
+            # If not defined, try to get from session_state (for Today mode)
+            capital = st.session_state.get("batch_cap_long", 0) + st.session_state.get(
+                "batch_cap_short", 0
+            )
 
         for i in range(1, 8):
             sys_name = f"System{i}"
@@ -546,7 +662,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             st.success(f"{sys_name}: 完了（取引 {len(res)} 件）")
                     except Exception:
                         pass
-                    with sys_ui.container.expander(f"{sys_name} result", expanded=False):
+                    with sys_ui.container.expander(
+                        f"{sys_name} result", expanded=False
+                    ):
                         _show_sys_result(res, capital)  # type: ignore  # noqa: F821
                 else:
                     with sys_ui.container:
@@ -570,24 +688,24 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         st.markdown("---")
         st.subheader(tr("All systems summary"))
         if overall:
+            import pandas as pd
+
             all_df = pd.concat(overall, ignore_index=True)
             summary, all_df2 = summarize_perf(all_df, capital)
             cols = st.columns(6)
             d = summary.to_dict()
-            d.update(
-                {
-                    "実施日時": now_jst_str(),
-                    "銘柄数": len(symbols),
-                    "開始資金": int(capital),
-                }
-            )
+            # d["実施日時"] = now_jst_str()  # Removed to avoid type error
+            d["銘柄数"] = len(symbols)
+            d["開始資金"] = int(capital)
             cols[0].metric(tr("trades"), d.get("trades"))
             cols[1].metric(tr("total pnl"), f"{d.get('total_return', 0):.2f}")
             cols[2].metric(tr("win rate (%)"), f"{d.get('win_rate', 0):.2f}")
             cols[3].metric("PF", f"{d.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{d.get('sharpe', 0):.2f}")
             try:
-                dd_pct_overall = (all_df2["drawdown"] / (capital + all_df2["cum_max"])).min() * 100
+                dd_pct_overall = (
+                    all_df2["drawdown"] / (capital + all_df2["cum_max"])
+                ).min() * 100
             except Exception:
                 dd_pct_overall = 0.0
             cols[5].metric(
@@ -605,13 +723,19 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 mime="text/csv",
                 key="download_batch_csv_current",
             )
-            if st.button(tr("save batch CSV to disk"), key="save_batch_to_disk_current"):
+            if st.button(
+                tr("save batch CSV to disk"), key="save_batch_to_disk_current"
+            ):
                 out_dir = os.path.join("results_csv", "batch")
                 os.makedirs(out_dir, exist_ok=True)
-                trades_path = os.path.join(out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv")
+                trades_path = os.path.join(
+                    out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv"
+                )
                 all_df2.to_csv(trades_path, index=False)
                 sum_df = pd.DataFrame([d])
-                sum_path = os.path.join(out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv")
+                sum_path = os.path.join(
+                    out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv"
+                )
                 sum_df.to_csv(sum_path, index=False)
                 st.success(tr("saved to {out_dir}", out_dir=out_dir))
 
@@ -661,7 +785,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     _plt.legend()
                     _plt.xlabel(tr("date"))
                     _plt.ylabel("Equity (USD)")
-                    st.pyplot(_plt)
+                    st.pyplot(_plt.gcf())
             except Exception:
                 pass
         else:
@@ -678,5 +802,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 with st.expander(f"{sys_name} logs", expanded=False):
                     tail2 = list(map(str, logs))[-int(log_tail_lines) :]
                     st.text("\n".join(tail2))
+        if not any_logs2:
+            st.info(tr("no logs to show"))
         if not any_logs2:
             st.info(tr("no logs to show"))
