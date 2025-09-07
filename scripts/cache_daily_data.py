@@ -1,24 +1,23 @@
 from __future__ import annotations
 
-import csv
-import logging
-import os
-import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
+import os
 from pathlib import Path
+import sys
+import time
 from typing import Dict, Iterable, List, Set, Tuple
 
+from dotenv import load_dotenv
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、直下モジュール `indicators_common.py` を解決可能にする
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
-
 
 # -----------------------------
 # 設定/環境
@@ -89,7 +88,7 @@ def _parse_date(s: str) -> datetime:
         try:
             return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
         except Exception:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
 
 
 def _migrate_legacy_failed_if_needed() -> None:
@@ -141,7 +140,7 @@ def _load_failed_map() -> Dict[str, FailedEntry]:
             return entries
         # 旧形式（1列のみ）
         else:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             for s in df.iloc[:, 0].astype(str).str.upper():
                 s = s.strip()
                 if s:
@@ -167,7 +166,7 @@ def _save_failed_map(entries: Dict[str, FailedEntry]) -> None:
 def load_monthly_blacklist() -> Set[str]:
     """当月に失敗した銘柄を集合で返す（同一月はスキップ）。"""
     m = _load_failed_map()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     skip: Set[str] = set()
     for sym, e in m.items():
         if e.last_failed_at.year == now.year and e.last_failed_at.month == now.month:
@@ -350,8 +349,7 @@ def cache_data(
     results_list: List[Tuple[str, str, bool]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(cache_single, symbol, output_dir): symbol
-            for symbol in symbols_to_fetch
+            executor.submit(cache_single, symbol, output_dir): symbol for symbol in symbols_to_fetch
         }
         for i, future in enumerate(as_completed(futures)):
             msg, used_api, ok = future.result()
@@ -383,9 +381,7 @@ def cache_data(
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
-    print(
-        f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
-    )
+    print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
     cache_data(symbols, output_dir=DATA_CACHE_DIR)
     print("データのキャッシュが完了しました。")
 
