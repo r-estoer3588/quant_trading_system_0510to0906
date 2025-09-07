@@ -41,7 +41,10 @@ def _load_env_once() -> None:
 
 
 def get_client(
-    *, paper: Optional[bool] = None, api_key: Optional[str] = None, secret_key: Optional[str] = None
+    *,
+    paper: Optional[bool] = None,
+    api_key: Optional[str] = None,
+    secret_key: Optional[str] = None,
 ):
     """TradingClient を生成して返す。
 
@@ -52,17 +55,20 @@ def get_client(
     _load_env_once()
 
     if paper is None:
-        paper = os.getenv("ALPACA_PAPER", "true").lower() in ("1", "true", "yes", "y", "on")
+        paper = os.getenv("ALPACA_PAPER", "true").lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+            "on",
+        )
     api_key = api_key or os.getenv("ALPACA_API_KEY")
     secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
-        raise RuntimeError("ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。")
+        raise RuntimeError(
+            "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。"
+        )
 
-    # Prefer explicit base URL from env if provided (e.g. https://paper-api.alpaca.markets)
-    base_url = os.getenv("ALPACA_API_BASE_URL")
-    if base_url:
-        # TradingClient accepts base_url kw; pass it and let SDK handle paper flag if needed
-        return TradingClient(api_key, secret_key, base_url=base_url)  # type: ignore[arg-type]
     return TradingClient(api_key, secret_key, paper=bool(paper))  # type: ignore[arg-type]
 
 
@@ -87,13 +93,17 @@ def submit_order(
     """
     _require_sdk()
 
+    if OrderSide is None:
+        raise RuntimeError("Alpaca SDK is not installed or OrderSide is unavailable.")
     side_enum = (
         OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
     )  # type: ignore[attr-defined]
+    if TimeInForce is None:
+        raise RuntimeError("Alpaca SDK is not installed or TimeInForce is unavailable.")
     tif = (
         getattr(TimeInForce, time_in_force.upper())
         if hasattr(TimeInForce, time_in_force.upper())
-        else TimeInForce.GTC
+        else getattr(TimeInForce, "GTC")
     )  # type: ignore[attr-defined]
 
     if order_type == "market":
@@ -197,7 +207,9 @@ def submit_order_with_retry(
             last_exc = e
             if log_callback:
                 try:
-                    log_callback(f"submit retry {i+1}/{retries}: {symbol} qty={qty} error={e}")
+                    log_callback(
+                        f"submit retry {i+1}/{retries}: {symbol} qty={qty} error={e}"
+                    )
                 except Exception:
                     pass
             if i < retries:
@@ -209,7 +221,7 @@ def submit_order_with_retry(
 
 
 def get_orders_status_map(client, order_ids: Iterable[str]) -> Dict[str, Any]:
-    """order_id -> status の簡易マップを返す。"""
+    """order_id -> status の簡易マップを返す."""
     id_set = {oid for oid in order_ids if oid}
     out: Dict[str, Any] = {}
     if not id_set:
@@ -224,14 +236,14 @@ def get_orders_status_map(client, order_ids: Iterable[str]) -> Dict[str, Any]:
 
 
 def log_orders_positions(client) -> Tuple[Any, Any]:
-    """現在の注文とポジションを取得し、必要ならログ出力。"""
+    """現在の注文とポジションを取得し、必要ならログ出力."""
     orders = client.get_orders(status="all")
     positions = client.get_all_positions()
     return orders, positions
 
 
 def cancel_all_orders(client) -> None:
-    """すべての未約定注文をキャンセルする。"""
+    """すべての未約定注文をキャンセルする."""
     try:
         client.cancel_orders()
     except Exception:
@@ -261,7 +273,6 @@ def subscribe_order_updates(client, log_callback=None):
                 pass
 
     stream.run()
-    return stream
 
 
 __all__ = [

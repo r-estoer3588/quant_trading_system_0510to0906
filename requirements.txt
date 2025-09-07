@@ -17,7 +17,8 @@ pydantic>=2,<3
 slack_sdk>=3.26,<4
 
 # Trading
-alpaca-py>=0.21,<1
+alpaca-py
+alpaca-trade-api
 
 # Dev/Test (optional)
 # pytest>=8,<9

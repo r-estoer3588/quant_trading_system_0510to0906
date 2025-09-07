@@ -14,11 +14,12 @@
   },
   "chatgpt.openOnStartup": true,
   "editor.formatOnSave": true,
-  "max_line_length": 88,
   "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter"
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "python.formatting.blackArgs": ["--line-length", "88"]
   },
   "black-formatter.importStrategy": "fromEnvironment",
-  "files.eol": "\n",
-  "files.autoGuessEncoding": false
+  // "black-formatter.importStrategy": "fromEnvironment",
+  "files.autoGuessEncoding": false,
+  "files.encoding": "utf8"
 }
