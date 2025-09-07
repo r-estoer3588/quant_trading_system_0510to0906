@@ -9,7 +9,6 @@ import pandas as pd
 from config.settings import get_settings
 from common.utils import get_cached_data
 from common.utils_spy import get_spy_with_indicators, get_latest_nyse_trading_day
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common import broker_alpaca as ba
 from common.notifier import Notifier
 
@@ -301,9 +300,9 @@ def compute_today_signals(
     if "SPY" not in symbols:
         symbols.append("SPY")
 
-    _log(
-        f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）"
-    )
+    sample = ", ".join(symbols[:10])
+    more = "..." if len(symbols) > 10 else ""
+    _log(f"🎯 対象シンボル数: {len(symbols)}（例: {sample}{more}）")
 
     # データ読み込み
     raw_data = _load_raw_data(symbols, cache_dir)
@@ -335,13 +334,17 @@ def compute_today_signals(
         base = {"SPY": raw_data.get("SPY")} if name == "system7" else raw_data
         _log(f"🔎 {name}: シグナル抽出を開始")
         # pass through log/progress callbacks so strategy code can report progress
-        df = stg.get_today_signals(
-            base,
-            market_df=spy_df,
-            today=today,
-            progress_callback=None,
-            log_callback=log_callback,
-        )
+        try:
+            df = stg.get_today_signals(
+                base,
+                market_df=spy_df,
+                today=today,
+                progress_callback=None,
+                log_callback=log_callback,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
+            df = pd.DataFrame()
         if not df.empty:
             asc = _asc_by_score_key(
                 df["score_key"].iloc[0] if "score_key" in df.columns and len(df) else None

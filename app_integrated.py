@@ -71,8 +71,9 @@ def main() -> None:
 
     system_tabs = tabs[2:]
     for sys_idx, tab in enumerate(system_tabs, start=1):
+        sys_name = f"System{sys_idx}"
         with tab:
-            sys_name = f"System{sys_idx}"
+            logger.info("%s tab start", sys_name)
             try:
                 app_mod = __import__(f"app_system{sys_idx}")
                 if sys_idx == 1:
@@ -83,6 +84,8 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001
                 logger.exception("%s tab error", sys_name)
                 st.exception(e)
+            finally:
+                logger.info("%s tab done", sys_name)
 
 
 if __name__ == "__main__":
