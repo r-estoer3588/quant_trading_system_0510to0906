@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import OrderSide, QueryOrderStatus
+from alpaca.trading.enums import QueryOrderStatus
 
 # .env を読み込む
 load_dotenv()
@@ -18,10 +18,10 @@ trading_client = TradingClient(API_KEY, API_SECRET, paper=USE_PAPER)
 # アカウント情報を取得
 account = trading_client.get_account()
 
-print("現金残高:", account.cash)
-print("購買力:", account.buying_power)
-print("総資産価値:", account.portfolio_value)
-print("口座ステータス:", account.status)
+print("現金残高:", getattr(account, "cash", "取得不可"))
+print("購買力:", getattr(account, "buying_power", "取得不可"))
+print("総資産価値:", getattr(account, "equity", "取得不可"))
+print("口座ステータス:", getattr(account, "status", "取得不可"))
 
 # 保有ポジションを取得
 positions = trading_client.get_all_positions()
@@ -30,14 +30,42 @@ if not positions:
 else:
     print("保有ポジション:")
     for position in positions:
-        print(
-            f"シンボル: {position.symbol}, 数量: {position.qty}, 現在価格: {position.current_price}, 評価額: {position.market_value}"
-        )
-        print(
-            f"  平均取得価格: {position.avg_entry_price}, 損益: {position.unrealized_pl}, 損益率: {position.unrealized_plpc * 100:.2f}%"
-        )
+        if isinstance(position, dict):
+            print(
+                f"シンボル: {position.get('symbol')}, "
+                f"数量: {position.get('qty')}, "
+                f"現在価格: {position.get('current_price')}, "
+                f"評価額: {position.get('market_value')}"
+            )
+            print(
+                (
+                    f"  平均取得価格: {position.get('avg_entry_price')}, "
+                    f"損益: {position.get('unrealized_pl')}, "
+                    f"損益率: {float(position.get('unrealized_plpc', 0)) * 100:.2f}%"
+                )
+            )
+        elif hasattr(position, "symbol") and not isinstance(position, str):
+            print(
+                (
+                    f"シンボル: {position.symbol}, 数量: {position.qty}, "
+                    f"現在価格: {position.current_price}, 評価額: {position.market_value}"
+                )
+            )
+            unrealized_plpc_percent = (
+                position.unrealized_plpc * 100
+                if position.unrealized_plpc is not None
+                else 0.0
+            )
+            print(
+                f"  平均取得価格: {position.avg_entry_price}, 損益: {position.unrealized_pl}, "
+                f"損益率: {unrealized_plpc_percent:.2f}%"
+            )
+        else:
+            print(f"ポジション情報: {position}")
 # 直近の注文を取得
-request_params = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=5)  # 例: ALL / OPEN / CLOSED
+request_params = GetOrdersRequest(
+    status=QueryOrderStatus.ALL, limit=5
+)  # 例: ALL / OPEN / CLOSED
 
 orders = trading_client.get_orders(filter=request_params)
 
@@ -45,4 +73,13 @@ if not orders:
     print("注文履歴はありません。")
 else:
     for o in orders:
-        print(f"ID: {o.id}, 銘柄: {o.symbol}, 数量: {o.qty}, 状態: {o.status}")
+        if (
+            not isinstance(o, str)
+            and hasattr(o, "id")
+            and hasattr(o, "symbol")
+            and hasattr(o, "qty")
+            and hasattr(o, "status")
+        ):
+            print(f"ID: {o.id}, 銘柄: {o.symbol}, 数量: {o.qty}, 状態: {o.status}")
+        else:
+            print(f"注文情報: {o}")

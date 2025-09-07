@@ -30,7 +30,7 @@ def _inject_css() -> None:
     )
 
 
-def _fetch_account_and_positions() -> tuple[object, list[object]]:
+def _fetch_account_and_positions() -> tuple[object, object]:
     """Retrieve account and open positions using the Alpaca client."""
     client = ba.get_client()
     account = client.get_account()
@@ -38,7 +38,7 @@ def _fetch_account_and_positions() -> tuple[object, list[object]]:
     return account, positions
 
 
-def _positions_to_df(positions: list[object]) -> pd.DataFrame:
+def _positions_to_df(positions) -> pd.DataFrame:
     """Convert list of position objects to ``pandas.DataFrame``."""
     records: list[dict[str, str]] = []
     for pos in positions:

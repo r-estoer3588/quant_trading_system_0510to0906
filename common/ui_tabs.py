@@ -7,7 +7,6 @@ import streamlit as st
 
 from common.equity_curve import save_equity_curve
 from common.i18n import tr
-from common.notifier import now_jst_str
 
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
@@ -353,9 +352,13 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     )
             except Exception as e:  # noqa: BLE001
                 st.session_state["batch_fetch_msg"] = ("error", f"Alpaca error: {e}")
-            st.rerun()
+            st.session_state["batch_should_rerun"] = True  # rerunフラグを立てる
 
         st.button(tr("Fetch Alpaca balances"), on_click=_fetch_balances)
+
+        # rerunフラグが立っていれば rerun
+        if st.session_state.pop("batch_should_rerun", False):
+            st.rerun()
 
         _msg = st.session_state.pop("batch_fetch_msg", None)
         if _msg:
@@ -689,6 +692,11 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         st.subheader(tr("All systems summary"))
         if overall:
             import pandas as pd
+
+            # 各DataFrameにsystem列がなければ追加
+            for idx, df in enumerate(overall):
+                if "system" not in df.columns:
+                    df["system"] = f"System{idx+1}"
 
             all_df = pd.concat(overall, ignore_index=True)
             summary, all_df2 = summarize_perf(all_df, capital)

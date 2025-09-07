@@ -252,7 +252,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     while time.time() < end:
                         status_map = ba.get_orders_status_map(client, order_ids)
                         if status_map != last:
-                            st.write(status_map)
+                            if status_map:  # 空でなければ表示
+                                st.write(status_map)
                             last = status_map
                         time.sleep(1.0)
 
@@ -312,7 +313,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     while time.time() < end:
                         status_map = ba.get_orders_status_map(client, order_ids)
                         if status_map != last:
-                            st.write(status_map)
+                            if status_map:  # 空でなければ表示
+                                st.write(status_map)
                             last = status_map
                         time.sleep(1.0)
 
