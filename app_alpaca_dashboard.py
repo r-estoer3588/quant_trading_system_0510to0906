@@ -98,7 +98,9 @@ def _fetch_account_and_positions() -> tuple[object, object]:
 
 
 def _positions_to_df(positions) -> pd.DataFrame:
-    """Convert list of position objects to ``pandas.DataFrame`` with Japanese columns."""
+    """
+    Convert list of position objects to ``pandas.DataFrame`` with Japanese columns.
+    """
     records: list[dict[str, str]] = []
     for pos in positions:
         records.append(
@@ -117,7 +119,12 @@ def main() -> None:
     """Run the Streamlit dashboard."""
     st.set_page_config(page_title="Alpaca Dashboard", layout="wide")
     st.markdown(
-        "<h1 style='margin-bottom:0.5em; margin-top:0.5em; padding-left:0.2em;'>Alpaca <span style=\"color:#00b894;\">現在状況</span></h1>",
+        (
+            "<h1 style='margin-bottom:0.5em; margin-top:0.5em; padding-left:0.2em;'>"
+            "Alpaca "
+            '<span style="color:#00b894;">現在状況</span>'
+            "</h1>"
+        ),
         unsafe_allow_html=True,
     )
     _inject_css()
@@ -132,17 +139,33 @@ def main() -> None:
     cols = st.columns(3)
     with cols[0]:
         st.markdown(
-            f"<div class='alpaca-metric'><div class='metric-label'>総資産</div><div class='metric-value'>{getattr(account, 'equity', '-')}</div></div>",
+            (
+                f"<div class='alpaca-metric'>"
+                f"<div class='metric-label'>総資産</div>"
+                f"<div class='metric-value'>{getattr(account, 'equity', '-')}</div>"
+                f"</div>"
+            ),
             unsafe_allow_html=True,
         )
     with cols[1]:
         st.markdown(
-            f"<div class='alpaca-metric'><div class='metric-label'>現金</div><div class='metric-value'>{getattr(account, 'cash', '-')}</div></div>",
+            (
+                f"<div class='alpaca-metric'>"
+                f"<div class='metric-label'>現金</div>"
+                f"<div class='metric-value'>{getattr(account, 'cash', '-')}</div>"
+                f"</div>"
+            ),
             unsafe_allow_html=True,
         )
     with cols[2]:
         st.markdown(
-            f"<div class='alpaca-metric'><div class='metric-label'>余力</div><div class='metric-value'>{getattr(account, 'buying_power', '-')}</div></div>",
+            (
+                f"<div class='alpaca-metric'>"
+                f"<div class='metric-label'>余力</div>"
+                f"<div class='metric-value'>"
+                f"{getattr(account, 'buying_power', '-')}</div>"
+                f"</div>"
+            ),
             unsafe_allow_html=True,
         )
     st.markdown("</div>", unsafe_allow_html=True)

@@ -47,12 +47,14 @@ def _log(msg: str):
 def _load_raw_data(symbols: List[str], cache_dir: str) -> Dict[str, pd.DataFrame]:
     data: Dict[str, pd.DataFrame] = {}
     total = len(symbols)
+    # 当日シグナル判定: 1000件以上なら500件ごと、少なければ50件ごと
+    log_step = 500 if total >= 1000 else 50
     for i, sym in enumerate(symbols, 1):
         df = get_cached_data(sym, folder=cache_dir)
         if df is None or df.empty:
             continue
         data[sym] = df
-        if i % 50 == 0 or i == total:
+        if i % log_step == 0 or i == total:
             _log(f"📦 キャッシュ読み込み {i}/{total}件 完了")
     return data
 
@@ -108,8 +110,8 @@ def _amount_pick(
 
                 # 望ましい枚数（全システム割当基準）
                 try:
-                    # stg may be typed as object; call via cast to avoid static type errors
-                    # call calculate_position_size if available
+                    # stg may be typed as object; call via cast to avoid
+                    # static type errors. Call calculate_position_size if available.
                     calc_fn = getattr(stg, "calculate_position_size", None)
                     if callable(calc_fn):
                         try:
@@ -310,6 +312,7 @@ def compute_today_signals(
     notify: bool = True,
     log_callback: Optional[Callable[[str], None]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    symbol_data: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -348,16 +351,88 @@ def compute_today_signals(
         symbols.append("SPY")
 
     _log(
-        f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）"
+        (
+            f"🎯 対象シンボル数: {len(symbols)}"
+            f"（例: {', '.join(symbols[:10])}"
+            f"{'...' if len(symbols) > 10 else ''}）"
+        )
     )
 
     # データ読み込み
-    raw_data = _load_raw_data(symbols, cache_dir)
-    if "SPY" not in raw_data:
-        _log("⚠️ SPY が data_cache に見つかりません。SPY.csv を用意してください。")
-        spy_df = None
+    # --- フィルター条件で銘柄を絞り込み、通過銘柄のみデータロード ---
+    # 1. まずフィルター条件に必要なデータ（株価・売買代金・ATR等）だけ全銘柄分ロード
+    # --- フィルター・データロード関数をローカル関数として定義 ---
+
+    def load_basic_data(symbols, cache_dir):
+        data = {}
+        for sym in symbols:
+            try:
+                df = get_cached_data(sym, folder=cache_dir)
+                if df is not None and not df.empty:
+                    data[sym] = df
+            except Exception:
+                continue
+        return data
+
+    def filter_system1(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            # 株価5ドル以上（直近終値）
+            if df["close"].iloc[-1] < 5:
+                continue
+            # 過去20日平均売買代金5000万ドル以上
+            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 5e7:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system2(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            if df["close"].iloc[-1] < 5:
+                continue
+            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 2.5e7:
+                continue
+            # ATR計算（過去10日）
+            if "high" in df.columns and "low" in df.columns:
+                tr = (df["high"] - df["low"]).tail(10)
+                atr = tr.mean()
+                if atr < df["close"].iloc[-1] * 0.03:
+                    continue
+            result.append(sym)
+        return result
+
+    def load_indicator_data(symbols, cache_dir):
+        data = {}
+        for sym in symbols:
+            try:
+                df = get_cached_data(sym, folder=cache_dir)
+                if df is not None and not df.empty:
+                    data[sym] = df
+            except Exception:
+                continue
+        return data
+
+    # 実行スコープで変数定義
+    # --- フィルター・データロード変数をforループより前に定義 ---
+    basic_data = load_basic_data(symbols, cache_dir)
+    system1_syms = filter_system1(symbols, basic_data)
+    system2_syms = filter_system2(symbols, basic_data)
+    # ...system3_syms, system4_syms, ...
+    raw_data_system1 = load_indicator_data(system1_syms, cache_dir)
+    raw_data_system2 = load_indicator_data(system2_syms, cache_dir)
+    # ...raw_data_system3, ...
+    if "SPY" in basic_data:
+        spy_df = get_spy_with_indicators(basic_data["SPY"])
     else:
-        spy_df = get_spy_with_indicators(raw_data["SPY"])  # type: ignore[arg-type]
+        spy_df = None
+        _log("⚠️ SPY が data_cache に見つかりません。SPY.csv を用意してください。")
 
     # ストラテジ初期化
     strategy_objs = [
@@ -390,13 +465,26 @@ def compute_today_signals(
                 progress_callback(idx - 1, total, name)
             except Exception:
                 pass
+        # 各システムごとに通過銘柄のみデータを渡す
+        if name == "system1":
+            base = raw_data_system1 if "raw_data_system1" in locals() else {}
+        elif name == "system2":
+            base = raw_data_system2 if "raw_data_system2" in locals() else {}
+        # ...system3, system4, ...
+        elif name == "system4":
+            base = {}  # system4 uses SPY indicators, handled via market_df
+        elif name == "system7":
+            base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
+        else:
+            base = {}
+
         if name == "system4" and spy_df is None:
             _log(
                 "⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
             )
             per_system[name] = pd.DataFrame()
             continue
-        base = {"SPY": raw_data.get("SPY")} if name == "system7" else raw_data
+
         _log(f"🔎 {name}: シグナル抽出を開始")
         # pass through log/progress callbacks so strategy code can report progress
         try:

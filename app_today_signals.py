@@ -107,27 +107,83 @@ with st.sidebar:
             st.error(f"注文キャンセルエラー: {e}")
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
-    # prepare live log display
-    if "_today_logs" not in st.session_state:
-        st.session_state["_today_logs"] = []
-    log_box = st.empty()
+
+    import time
+
+    # 指標ごとに必要な日数（＋10%余裕）を定義
+    indicator_days = {
+        "ROC200": int(200 * 1.1),
+        "SMA25": int(25 * 1.1),
+        "ATR20": int(20 * 1.1),
+        "ADX7": int(7 * 1.1),
+        "RETURN6": int(6 * 1.1),
+        "Drop3D": int(3 * 1.1),
+        "Return6D": int(6 * 1.1),
+        # 必要に応じて追加
+    }
+
+    # 必要な最大日数を算出（全システムで使う指標の最大値）
+    max_days = max(indicator_days.values())
+
+    # 開始時刻を記録
+    start_time = time.time()
+    # 進捗表示用の領域（1行上書き）
+    progress_area = st.empty()
 
     def _ui_log(msg: str) -> None:
         try:
-            st.session_state["_today_logs"].append(str(msg))
-            # show as code block for monospaced output
-            log_box.code("\n".join(st.session_state["_today_logs"]))
+            elapsed = time.time() - start_time
+            progress_area.text(f"[{elapsed:6.1f}s] {msg}")
         except Exception:
             pass
 
-    with st.spinner("実行中..."):
+    # 必要な日数分だけデータをロードする関数例
+    def load_minimal_history(symbol: str, days: int) -> pd.DataFrame:
+        # 指標ごとに必要な日数（＋10%余裕）を明示リストで定義
+        indicator_days = {
+            "SMA25": int(25 * 1.1),
+            "SMA50": int(50 * 1.1),
+            "SMA100": int(100 * 1.1),
+            "SMA150": int(150 * 1.1),
+            "SMA200": int(200 * 1.1),
+            "ATR3": int(50 * 1.1),  # 3ATRは最大50日分必要と仮定
+            "ATR1.5": int(40 * 1.1),
+            "ATR1": int(10 * 1.1),
+            "ATR2.5": int(10 * 1.1),
+            "ATR": int(50 * 1.1),  # 最大50日分
+            "ADX7": int(7 * 1.1),
+            "ADX7_High": int(7 * 1.1),
+            "RETURN6": int(6 * 1.1),
+            "Return6D": int(6 * 1.1),
+            "return_pct": int(200 * 1.1),  # 総リターンは最大200日分
+            "Drop3D": int(3 * 1.1),
+        }
+        # 最大必要日数を算出
+        max_days = max(indicator_days.values())
+        # 銘柄ごとのヒストリカルCSVを最大必要日数分だけロード
+        try:
+            data = pd.read_csv(f"data_cache/{symbol}.csv")
+            data = data.tail(max_days)
+        except Exception:
+            data = pd.DataFrame()
+        return data
+
+    # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
+    with st.spinner("実行中... (経過時間表示あり)"):
+        # 必要な日数分だけデータをロードして渡す（例: dictで渡す）
+        symbol_data = {sym: load_minimal_history(sym, max_days) for sym in syms}
         final_df, per_system = compute_today_signals(
             syms,
             capital_long=float(st.session_state["today_cap_long"]),
             capital_short=float(st.session_state["today_cap_short"]),
             save_csv=save_csv,
             log_callback=_ui_log,
+            symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
         )
+
+    # 処理終了時に総経過時間を表示
+    total_elapsed = time.time() - start_time
+    st.info(f"総経過時間: {total_elapsed:.1f}秒")
 
     for name, df in per_system.items():
         syms2 = df["symbol"].tolist() if df is not None and not df.empty else []

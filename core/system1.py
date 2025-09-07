@@ -17,6 +17,10 @@ def prepare_data_vectorized_system1(
     **kwargs,
 ):
     """System1 indicator computation (UI-agnostic)."""
+    import os
+
+    cache_dir = "data_cache/indicators_system1_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     total_symbols = len(raw_data_dict)
     processed = 0
     symbol_buffer = []
@@ -24,19 +28,29 @@ def prepare_data_vectorized_system1(
     result_dict = {}
 
     for sym, df in raw_data_dict.items():
-        required_cols = ["SMA25", "SMA50", "ROC200", "ATR20", "DollarVolume20"]
-
-        if reuse_indicators and all(col in df.columns for col in required_cols):
-            if not df[required_cols].isnull().any().any():
-                result_dict[sym] = df
-                symbol_buffer.append(sym)
-                processed += 1
-                continue
-            else:
-                df = df.copy()
+        # 日付ごとにキャッシュ利用
+        if "Date" in df.columns:
+            date_series = pd.to_datetime(df["Date"]).dt.normalize()
         else:
-            df = df.copy()
+            date_series = pd.to_datetime(df.index).normalize()
+        # 最新営業日
+        latest_date = date_series.max()
+        # キャッシュファイル名
+        cache_path = os.path.join(cache_dir, f"{sym}_{latest_date.date()}.feather")
+        cached = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+            except Exception:
+                cached = None
+        if cached is not None and not cached.isnull().any().any():
+            result_dict[sym] = cached
+            symbol_buffer.append(sym)
+            processed += 1
+            continue
 
+        # 計算（従来通り）
+        df = df.copy()
         df["SMA25"] = df["Close"].rolling(25).mean()
         df["SMA50"] = df["Close"].rolling(50).mean()
         df["ROC200"] = df["Close"].pct_change(200) * 100
@@ -57,6 +71,12 @@ def prepare_data_vectorized_system1(
             & (df["DollarVolume20"] > 50_000_000)
         ).astype(int)
 
+        # 最新営業日分のみ保存
+        latest_df = df[date_series == latest_date]
+        try:
+            latest_df.reset_index(drop=True).to_feather(cache_path)
+        except Exception:
+            pass
         result_dict[sym] = df
         processed += 1
         symbol_buffer.append(sym)
@@ -76,7 +96,8 @@ def prepare_data_vectorized_system1(
             try:
                 log_callback(
                     f"📊 指標計算: {processed}/{total_symbols} 件 完了"
-                    f" | 経過: {elapsed_min}分{elapsed_sec}秒 / 残り: 約 {remain_min}分{remain_sec}秒\n"
+                    f" | 経過: {elapsed_min}分{elapsed_sec}秒 / "
+                    f"残り: 約 {remain_min}分{remain_sec}秒\n"
                     f"銘柄: {joined_syms}"
                 )
             except Exception:
