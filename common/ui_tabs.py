@@ -367,21 +367,91 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             if final_df is None or final_df.empty:
                 st.info(tr("no results"))
             else:
+                # --- 結論から表示: 発注銘柄リスト ---
+                st.subheader(tr("Order list"))
                 st.dataframe(final_df, use_container_width=True)
-            with st.expander(tr("Per-system details")):
-                for name, df in per_system.items():
-                    st.markdown(f"#### {name}")
-                    if df is None or df.empty:
-                        st.write("(empty)")
-                    else:
-                        st.dataframe(df, use_container_width=True)
-                        # show reason text if available
-                        if "reason" in df.columns:
-                            with st.expander(f"{name} - selection reasons", expanded=False):
-                                for _, row in df.iterrows():
-                                    sym = row.get("symbol")
-                                    reason = row.get("reason")
-                                    st.markdown(f"- **{sym}**: {reason}")
+                csv = final_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label=tr("Download Final CSV"),
+                    data=csv,
+                    file_name="today_signals_final.csv",
+                    mime="text/csv",
+                )
+
+                # --- 内訳表示 ---
+                long_syms = final_df[final_df["side"] == "long"]["symbol"].tolist()
+                short_syms = final_df[final_df["side"] == "short"]["symbol"].tolist()
+                col_ls_1, col_ls_2 = st.columns(2)
+                with col_ls_1:
+                    st.markdown(tr("Long symbols"))
+                    st.write(", ".join(long_syms) if long_syms else "-")
+                with col_ls_2:
+                    st.markdown(tr("Short symbols"))
+                    st.write(", ".join(short_syms) if short_syms else "-")
+
+                st.markdown(tr("Orders by system"))
+                st.dataframe(
+                    final_df.groupby("system")["symbol"].count().rename("count"),
+                    use_container_width=True,
+                )
+
+                # 資金推移
+                import pandas as pd
+
+                total_capital = float(cap_long) + float(cap_short)
+                cap_df = final_df.sort_values("entry_date")[
+                    ["entry_date", "symbol", "position_value"]
+                ].copy()
+                cap_df["entry_date"] = pd.to_datetime(cap_df["entry_date"])
+                cap_df["capital_after"] = total_capital - cap_df["position_value"].cumsum()
+                st.markdown(tr("Capital progression"))
+                st.dataframe(cap_df, use_container_width=True)
+
+                # 候補一覧（ロング/ショート）
+                from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+
+                with st.expander(tr("Long system candidates"), expanded=False):
+                    for name, df in per_system.items():
+                        if name.lower() not in LONG_SYSTEMS:
+                            continue
+                        st.markdown(f"#### {name}")
+                        if df is None or df.empty:
+                            st.write("(empty)")
+                        else:
+                            _tmp = df.copy()
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]]
+                                .isna()
+                                .any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
+                            st.dataframe(_tmp, use_container_width=True)
+
+                with st.expander(tr("Short system candidates"), expanded=False):
+                    for name, df in per_system.items():
+                        if name.lower() not in SHORT_SYSTEMS:
+                            continue
+                        st.markdown(f"#### {name}")
+                        if df is None or df.empty:
+                            st.write("(empty)")
+                        else:
+                            _tmp = df.copy()
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]]
+                                .isna()
+                                .any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
+                            st.dataframe(_tmp, use_container_width=True)
+
+                # ログのCSV保存ボタン
+                logs = st.session_state.get("batch_today_logs", [])
+                if logs:
+                    log_csv = "\n".join(logs).encode("utf-8")
+                    st.download_button(
+                        label=tr("download log CSV"),
+                        data=log_csv,
+                        file_name="today_logs.csv",
+                        mime="text/csv",
+                    )
         return
 
     log_tail_lines = st.number_input(
