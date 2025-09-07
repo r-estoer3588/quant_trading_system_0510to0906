@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import io
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -111,12 +112,26 @@ if st.button("▶ Run Today Signals", type="primary"):
     if "_today_logs" not in st.session_state:
         st.session_state["_today_logs"] = []
     log_box = st.empty()
+    prog = st.progress(0)
+    prog_txt = st.empty()
+    start = time.time()
 
     def _ui_log(msg: str) -> None:
         try:
             st.session_state["_today_logs"].append(str(msg))
             # show as code block for monospaced output
             log_box.code("\n".join(st.session_state["_today_logs"]))
+        except Exception:
+            pass
+
+    def _progress(i: int, total: int, name: str) -> None:
+        try:
+            prog.progress(0 if not total else i / total)
+            elapsed = time.time() - start
+            if i < total:
+                prog_txt.text(f"{name} {i}/{total} ({elapsed:.1f}s)")
+            else:
+                prog_txt.text(f"{elapsed:.1f}s: done")
         except Exception:
             pass
 
@@ -127,6 +142,7 @@ if st.button("▶ Run Today Signals", type="primary"):
             capital_short=cap_short,
             save_csv=save_csv,
             log_callback=_ui_log,
+            progress_callback=_progress,
         )
 
     for name, df in per_system.items():

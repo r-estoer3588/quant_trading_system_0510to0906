@@ -9,7 +9,6 @@ import pandas as pd
 from config.settings import get_settings
 from common.utils import get_cached_data
 from common.utils_spy import get_spy_with_indicators, get_latest_nyse_trading_day
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common import broker_alpaca as ba
 from common.notifier import Notifier
 
@@ -264,6 +263,7 @@ def compute_today_signals(
     save_csv: bool = False,
     notify: bool = True,
     log_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -302,7 +302,8 @@ def compute_today_signals(
         symbols.append("SPY")
 
     _log(
-        f"🎯 対象シンボル数: {len(symbols)}（例: {', '.join(symbols[:10])}{'...' if len(symbols)>10 else ''}）"
+        f"🎯 対象シンボル数: {len(symbols)}"
+        f"（例: {', '.join(symbols[:10])}{'...' if len(symbols) > 10 else ''}）"
     )
 
     # データ読み込み
@@ -327,7 +328,13 @@ def compute_today_signals(
 
     # 当日シグナル収集
     per_system: Dict[str, pd.DataFrame] = {}
-    for name, stg in strategies.items():
+    total = len(strategies)
+    for idx, (name, stg) in enumerate(strategies.items(), start=1):
+        if progress_callback:
+            try:
+                progress_callback(idx - 1, total, name)
+            except Exception:
+                pass
         if name == "system4" and spy_df is None:
             _log("⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。")
             per_system[name] = pd.DataFrame()
@@ -349,6 +356,11 @@ def compute_today_signals(
             df = df.sort_values("score", ascending=asc, na_position="last").reset_index(drop=True)
         per_system[name] = df
         _log(f"✅ {name}: {len(df)} 件")
+    if progress_callback:
+        try:
+            progress_callback(total, total, "")
+        except Exception:
+            pass
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     long_alloc = {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}

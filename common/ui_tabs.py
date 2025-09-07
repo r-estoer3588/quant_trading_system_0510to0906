@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import time
 
+import pandas as pd
 import streamlit as st
 
 from common.equity_curve import save_equity_curve
@@ -267,31 +269,14 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         key="batch_mode",
     )
     mode = "Backtest" if _mode_label == _mode_options["Backtest"] else "Today"
-    capital = st.number_input(
-        tr("capital (USD)"),
-        min_value=1000,
-        value=int(settings.ui.default_capital),
-        step=1000,
-    )
-    # 銘柄数と上限/全選択オプション
-    all_tickers = get_all_tickers()
-    max_allowed = len(all_tickers)
-    limit_symbols = st.number_input(
-        tr("symbol limit"),
-        min_value=50,
-        max_value=max_allowed,
-        value=min(500, max_allowed),
-        step=50,
-    )
-    use_all = st.checkbox(tr("use all symbols"), key="batch_all")
-    run_btn = st.button(
-        tr("run batch") if mode == "Backtest" else tr("run today signals"),
-        key="run_batch" if mode == "Backtest" else "run_today",
-    )
-
-    if mode != "Backtest":
-        # Show long/short capital inputs and Alpaca fetch BEFORE the user presses the run button
-        # Ensure session_state keys exist before creating widgets so they can be updated later
+    if mode == "Backtest":
+        capital = st.number_input(
+            tr("capital (USD)"),
+            min_value=1000,
+            value=int(settings.ui.default_capital),
+            step=1000,
+        )
+    else:
         if "batch_cap_long" not in st.session_state:
             st.session_state["batch_cap_long"] = 2000
         if "batch_cap_short" not in st.session_state:
@@ -313,10 +298,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 key="batch_cap_short",
             )
 
-        # Alpaca fetch button (also visible before running)
         from common import broker_alpaca as ba
 
-        if st.button(tr("Fetch Alpaca balances")):
+        def _fetch_balances() -> None:
             try:
                 client = ba.get_client(paper=True)
                 acct = client.get_account()
@@ -331,13 +315,43 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     half = round(float(bp) / 2.0, 2)
                     st.session_state["batch_cap_long"] = half
                     st.session_state["batch_cap_short"] = half
-                    st.success(f"Set long/short to {half} each")
+                    st.session_state["batch_fetch_msg"] = (
+                        "success",
+                        f"Set long/short to {half} each",
+                    )
                 else:
-                    st.warning(tr("could not read buying_power/cash"))
-            except Exception as e:
-                st.error(f"Alpaca error: {e}")
+                    st.session_state["batch_fetch_msg"] = (
+                        "warning",
+                        tr("could not read buying_power/cash"),
+                    )
+            except Exception as e:  # noqa: BLE001
+                st.session_state["batch_fetch_msg"] = ("error", f"Alpaca error: {e}")
+            st.experimental_rerun()
 
-        # If user pressed the run button, perform the computation using the current inputs
+        st.button(tr("Fetch Alpaca balances"), on_click=_fetch_balances)
+
+        _msg = st.session_state.pop("batch_fetch_msg", None)
+        if _msg:
+            lvl, txt = _msg
+            getattr(st, lvl)(txt)
+
+    # 銘柄数と上限/全選択オプション
+    all_tickers = get_all_tickers()
+    max_allowed = len(all_tickers)
+    limit_symbols = st.number_input(
+        tr("symbol limit"),
+        min_value=50,
+        max_value=max_allowed,
+        value=min(500, max_allowed),
+        step=50,
+    )
+    use_all = st.checkbox(tr("use all symbols"), key="batch_all")
+    run_btn = st.button(
+        tr("run batch") if mode == "Backtest" else tr("run today signals"),
+        key="run_batch" if mode == "Backtest" else "run_today",
+    )
+
+    if mode != "Backtest":
         if run_btn:
             from scripts.run_all_systems_today import compute_today_signals
 
@@ -348,10 +362,26 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 st.session_state["batch_today_logs"] = []
             log_box = st.empty()
 
+            # progress表示
+            prog = st.progress(0)
+            prog_txt = st.empty()
+            start = time.time()
+
             def _ui_log(msg: str) -> None:
                 try:
                     st.session_state["batch_today_logs"].append(str(msg))
                     log_box.code("\n".join(st.session_state["batch_today_logs"]))
+                except Exception:
+                    pass
+
+            def _progress(i: int, total: int, name: str) -> None:
+                try:
+                    prog.progress(0 if not total else i / total)
+                    elapsed = time.time() - start
+                    if i < total:
+                        prog_txt.text(f"{name} {i}/{total} ({elapsed:.1f}s)")
+                    else:
+                        prog_txt.text(f"{elapsed:.1f}s: done")
                 except Exception:
                     pass
 
@@ -362,6 +392,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     capital_short=float(cap_short),
                     save_csv=False,
                     log_callback=_ui_log,
+                    progress_callback=_progress,
                 )
 
             if final_df is None or final_df.empty:
@@ -539,8 +570,6 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         st.markdown("---")
         st.subheader(tr("All systems summary"))
         if overall:
-            import pandas as pd
-
             all_df = pd.concat(overall, ignore_index=True)
             summary, all_df2 = summarize_perf(all_df, capital)
             cols = st.columns(6)
