@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import pandas as pd
 import streamlit as st
 
@@ -43,9 +42,6 @@ with st.sidebar:
     if "today_cap_short" not in st.session_state:
         st.session_state["today_cap_short"] = 0.0
 
-    # --- 削除: 青いinfo表示（資産の現在値） ---
-    # st.info(f"long資産: {st.session_state['today_cap_long']:.2f} / short資産: {st.session_state['today_cap_short']:.2f}")
-
     # Alpacaから取得してフォームに反映
     if st.button("🔍 Alpacaから資産取得してフォームに反映"):
         try:
@@ -59,7 +55,8 @@ with st.sidebar:
                 st.session_state["today_cap_long"] = round(bp / 2.0, 2)
                 st.session_state["today_cap_short"] = round(bp / 2.0, 2)
                 st.success(
-                    f"long資産/short資産を{st.session_state['today_cap_long']}ずつに設定（buying_powerの半分={bp}）"
+                    f"long資産/short資産を{st.session_state['today_cap_long']}ずつに設定"
+                    f"（buying_powerの半分={bp}）"
                 )
             else:
                 st.warning("Alpaca口座情報: buying_power/cashが取得できません")
@@ -100,6 +97,14 @@ with st.sidebar:
     if st.button("キャッシュクリア"):
         st.cache_data.clear()
         st.success("キャッシュをクリアしました")
+
+    if st.button("全注文キャンセル"):
+        try:
+            client = ba.get_client(paper=paper_mode)
+            ba.cancel_all_orders(client)
+            st.success("すべての未約定注文をキャンセルしました")
+        except Exception as e:
+            st.error(f"注文キャンセルエラー: {e}")
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     # prepare live log display
