@@ -45,7 +45,7 @@ def _score_from_candidate(
     key_order: List[Tuple[List[str], bool]] = [
         (["ROC200"], False),  # s1: 大きいほど良い
         (["ADX7"], False),  # s2,s5: 大きいほど良い
-        (["DropRate_3D"], False),  # s3: 大きいほど良い（下落率）
+        (["Drop3D"], False),  # s3: 大きいほど良い（下落率）
         (["RSI4"], True),  # s4: 小さいほど良い
         (["Return6D"], False),  # s6: 大きいほど良い
         (["ATR50"], False),  # s7: 参考

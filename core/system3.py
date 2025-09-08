@@ -34,13 +34,13 @@ def prepare_data_vectorized_system3(
             x["ATR10"] = AverageTrueRange(
                 x["High"], x["Low"], x["Close"], window=10
             ).average_true_range()
-            x["DropRate_3D"] = -(x["Close"].pct_change(3))
+            x["Drop3D"] = -(x["Close"].pct_change(3))
             x["AvgVolume50"] = x["Volume"].rolling(50).mean()
             x["ATR_Ratio"] = x["ATR10"] / x["Close"]
 
             x["setup"] = (
                 (x["Close"] > x["SMA150"])
-                & (x["DropRate_3D"] >= 0.125)
+                & (x["Drop3D"] >= 0.125)
                 & (x["Close"] > 1)
                 & (x["AvgVolume50"] >= 1_000_000)
                 & (x["ATR_Ratio"] >= 0.05)
@@ -110,7 +110,7 @@ def generate_candidates_system3(
             setup_df = df[df["setup"] == 1].copy()
             setup_df["symbol"] = sym
             setup_df["entry_date"] = setup_df.index + pd.Timedelta(days=1)
-            setup_df = setup_df[["symbol", "entry_date", "DropRate_3D", "ATR10"]]
+            setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10"]]
             all_signals.append(setup_df)
             buffer.append(sym)
         else:
@@ -156,7 +156,7 @@ def generate_candidates_system3(
     all_df = pd.concat(all_signals)
     candidates_by_date = {}
     for date, group in all_df.groupby("entry_date"):
-        ranked = group.sort_values("DropRate_3D", ascending=False)
+        ranked = group.sort_values("Drop3D", ascending=False)
         candidates_by_date[date] = ranked.head(int(top_n)).to_dict("records")
     return candidates_by_date, None
 
