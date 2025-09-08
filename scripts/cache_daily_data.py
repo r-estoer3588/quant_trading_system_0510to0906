@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from typing import Tuple, List
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
@@ -10,10 +10,15 @@ import os
 from pathlib import Path
 import sys
 import time
-
 from dotenv import load_dotenv
 import pandas as pd
 import requests
+
+
+# _migrate_root_csv_to_full 未定義エラー対応（暫定: ダミー関数定義）
+def _migrate_root_csv_to_full(*args, **kwargs):
+    raise NotImplementedError("_migrate_root_csv_to_full is not implemented.")
+
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
 # 直下モジュール `indicators_common.py` を解決可能にする
@@ -333,6 +338,12 @@ def cache_single(
     safe_symbol = safe_filename(symbol)
     filepath = output_dir / f"{safe_symbol}.csv"
     recentpath = recent_dir / f"{safe_symbol}.csv" if recent_dir else None
+    from pathlib import Path
+
+    if not isinstance(output_dir, Path):
+        output_dir = Path(output_dir)
+    if recent_dir is not None and not isinstance(recent_dir, Path):
+        recent_dir = Path(recent_dir)
     if filepath.exists():
         mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
         if mod_time.date() == datetime.today().date():
@@ -342,7 +353,8 @@ def cache_single(
         df = add_indicators(df)
         df.to_csv(filepath)
         if recentpath:
-            recent_dir.mkdir(parents=True, exist_ok=True)
+            if recent_dir is not None:
+                recent_dir.mkdir(parents=True, exist_ok=True)
             df.tail(recent_days).to_csv(recentpath)
         return (f"{symbol}: saved", True, True)
     else:
