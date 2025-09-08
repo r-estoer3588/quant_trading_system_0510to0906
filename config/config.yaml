@@ -88,6 +88,9 @@ scheduler:
     - name: send_signals
       cron: "30 8 * * 1-5"   # 平日 08:30
       task: notify_signals
+    - name: update_trailing_stops
+      cron: "45 8 * * 1-5"
+      task: update_trailing_stops
 
 ui:
   default_capital: 100000
