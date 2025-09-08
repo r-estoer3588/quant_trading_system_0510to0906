@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Tuple, List
+
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 import time
+
 from dotenv import load_dotenv
 import pandas as pd
 import requests
@@ -80,7 +81,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-_migrate_root_csv_to_full()
+if os.getenv("SKIP_CACHE_MIGRATION") != "1":
+    _migrate_root_csv_to_full()
 
 
 # -----------------------------
@@ -331,7 +333,7 @@ def cache_single(
     output_dir: Path,
     recent_dir: Path | None = None,
     recent_days: int = RECENT_DAYS,
-) -> Tuple[str, bool, bool]:
+) -> tuple[str, bool, bool]:
     """指定シンボルをキャッシュ。
     戻り値: (message, used_api, success)
     """
@@ -347,6 +349,19 @@ def cache_single(
     if filepath.exists():
         mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
         if mod_time.date() == datetime.today().date():
+            if recentpath:
+                if recent_dir is not None:
+                    recent_dir.mkdir(parents=True, exist_ok=True)
+                if not recentpath.exists():
+                    try:
+                        existing_df = pd.read_csv(filepath)
+                        existing_df.tail(recent_days).to_csv(recentpath, index=False)
+                    except Exception as e:  # pragma: no cover - logging only
+                        logging.warning(
+                            "%s: failed to write recent cache from existing data - %s",
+                            symbol,
+                            e,
+                        )
             return (f"{symbol}: already cached", False, True)
     df = get_eodhd_data(symbol)
     if df is not None and not df.empty:
@@ -355,7 +370,7 @@ def cache_single(
         if recentpath:
             if recent_dir is not None:
                 recent_dir.mkdir(parents=True, exist_ok=True)
-            df.tail(recent_days).to_csv(recentpath)
+            df.tail(recent_days).to_csv(recentpath, index=False)
         return (f"{symbol}: saved", True, True)
     else:
         return (f"{symbol}: failed to fetch", True, False)
@@ -375,7 +390,7 @@ def cache_single(
 
 
 def cache_data(
-    symbols: List[str],
+    symbols: list[str],
     output_dir: Path | str = DATA_CACHE_DIR,
     recent_dir: Path | None = DATA_CACHE_RECENT_DIR,
     recent_days: int = RECENT_DAYS,
@@ -401,7 +416,11 @@ def cache_data(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                cache_single, symbol, output_dir, recent_dir, recent_days
+                cache_single,
+                symbol,
+                output_dir,
+                recent_dir,
+                recent_days,
             ): symbol
             for symbol in symbols_to_fetch
         }
@@ -438,9 +457,7 @@ def cache_data(
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
-    print(
-        f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
-    )
+    print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
     cache_data(symbols, output_dir=DATA_CACHE_DIR, recent_dir=DATA_CACHE_RECENT_DIR)
     print("データのキャッシュが完了しました。")
 
