@@ -41,6 +41,7 @@ class DataConfig:
     eodhd_base: str = "https://eodhistoricaldata.com"
     api_key_env: str = "EODHD_API_KEY"
     cache_dir: Path = Path("data_cache")
+    cache_recent_dir: Path = Path("data_cache_recent")
     max_workers: int = 8
     request_timeout: int = 10
     download_retries: int = 3
@@ -102,6 +103,7 @@ class Settings:
 
     # 既存互換（従来フィールド）
     DATA_CACHE_DIR: Path
+    DATA_CACHE_RECENT_DIR: Path
     RESULTS_DIR: Path
     LOGS_DIR: Path
 
@@ -249,19 +251,42 @@ def get_settings(create_dirs: bool = False) -> Settings:
     # YAML -> dataclass 変換 + .env 上書き
     risk = RiskConfig(
         risk_pct=float(os.getenv("RISK_PCT", risk_cfg.get("risk_pct", 0.02))),
-        max_positions=int(os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))),
+        max_positions=int(
+            os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))
+        ),
         max_pct=float(os.getenv("MAX_PCT", risk_cfg.get("max_pct", 0.10))),
     )
 
     data = DataConfig(
         vendor=str(data_cfg.get("vendor", "EODHD")),
-        eodhd_base=str(os.getenv("API_EODHD_BASE", data_cfg.get("eodhd_base", "https://eodhistoricaldata.com"))),
+        eodhd_base=str(
+            os.getenv(
+                "API_EODHD_BASE",
+                data_cfg.get("eodhd_base", "https://eodhistoricaldata.com"),
+            )
+        ),
         api_key_env=str(data_cfg.get("api_key_env", "EODHD_API_KEY")),
-        cache_dir=_as_path(root, os.getenv("DATA_CACHE_DIR", data_cfg.get("cache_dir", "data_cache"))),
+        cache_dir=_as_path(
+            root, os.getenv("DATA_CACHE_DIR", data_cfg.get("cache_dir", "data_cache"))
+        ),
+        cache_recent_dir=_as_path(
+            root,
+            os.getenv(
+                "DATA_CACHE_RECENT_DIR",
+                data_cfg.get("cache_recent_dir", "data_cache_recent"),
+            ),
+        ),
         max_workers=_env_int("THREADS_DEFAULT", int(data_cfg.get("max_workers", 8))),
-        request_timeout=_env_int("REQUEST_TIMEOUT", int(data_cfg.get("request_timeout", 10))),
-        download_retries=_env_int("DOWNLOAD_RETRIES", int(data_cfg.get("download_retries", 3))),
-        api_throttle_seconds=_env_float("API_THROTTLE_SECONDS", float(data_cfg.get("api_throttle_seconds", 1.5))),
+        request_timeout=_env_int(
+            "REQUEST_TIMEOUT", int(data_cfg.get("request_timeout", 10))
+        ),
+        download_retries=_env_int(
+            "DOWNLOAD_RETRIES", int(data_cfg.get("download_retries", 3))
+        ),
+        api_throttle_seconds=_env_float(
+            "API_THROTTLE_SECONDS",
+            float(data_cfg.get("api_throttle_seconds", 1.5)),
+        ),
     )
 
     backtest = BacktestConfig(
@@ -269,13 +294,26 @@ def get_settings(create_dirs: bool = False) -> Settings:
         end_date=str(backtest_cfg.get("end_date", "2024-12-31")),
         max_symbols=int(backtest_cfg.get("max_symbols", 500)),
         top_n_rank=int(backtest_cfg.get("top_n_rank", 50)),
-        initial_capital=int(os.getenv("DEFAULT_CAPITAL", backtest_cfg.get("initial_capital", 100000))),
+        initial_capital=int(
+            os.getenv(
+                "DEFAULT_CAPITAL", backtest_cfg.get("initial_capital", 100000)
+            )
+        ),
     )
 
     outputs = OutputConfig(
-        results_csv_dir=_as_path(root, os.getenv("RESULTS_DIR", outputs_cfg.get("results_csv_dir", "results_csv"))),
-        logs_dir=_as_path(root, os.getenv("LOGS_DIR", outputs_cfg.get("logs_dir", "logs"))),
-        signals_dir=_as_path(root, outputs_cfg.get("signals_dir", "data_cache/signals")),
+        results_csv_dir=_as_path(
+            root,
+            os.getenv(
+                "RESULTS_DIR", outputs_cfg.get("results_csv_dir", "results_csv")
+            ),
+        ),
+        logs_dir=_as_path(
+            root, os.getenv("LOGS_DIR", outputs_cfg.get("logs_dir", "logs"))
+        ),
+        signals_dir=_as_path(
+            root, outputs_cfg.get("signals_dir", "data_cache/signals")
+        ),
     )
 
     logging = LoggingConfig(
@@ -287,14 +325,26 @@ def get_settings(create_dirs: bool = False) -> Settings:
     scheduler = _build_scheduler(scheduler_cfg)
 
     ui = UIConfig(
-        default_capital=int(os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))),
+        default_capital=int(
+            os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))
+        ),
         auto_tickers=tuple(ui_cfg.get("auto_tickers", ()) or ()),
-        debug_mode=bool(os.getenv("DEBUG_MODE", str(ui_cfg.get("debug_mode", False))).lower() in ("1", "true", "yes")),
-        show_download_buttons=bool(os.getenv("SHOW_DOWNLOAD_BUTTONS", str(ui_cfg.get("show_download_buttons", True))).lower() in ("1", "true", "yes")),
+        debug_mode=bool(
+            os.getenv("DEBUG_MODE", str(ui_cfg.get("debug_mode", False))).lower()
+            in ("1", "true", "yes")
+        ),
+        show_download_buttons=bool(
+            os.getenv(
+                "SHOW_DOWNLOAD_BUTTONS",
+                str(ui_cfg.get("show_download_buttons", True)),
+            ).lower()
+            in ("1", "true", "yes")
+        ),
     )
 
     # 既存互換フィールド（Settings 直下）
     data_cache = data.cache_dir
+    data_cache_recent = data.cache_recent_dir
     results_dir = outputs.results_csv_dir
     logs_dir = outputs.logs_dir
 
@@ -304,6 +354,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
     settings = Settings(
         PROJECT_ROOT=root,
         DATA_CACHE_DIR=data_cache,
+        DATA_CACHE_RECENT_DIR=data_cache_recent,
         RESULTS_DIR=results_dir,
         LOGS_DIR=logs_dir,
         API_EODHD_BASE=data.eodhd_base,
@@ -324,7 +375,13 @@ def get_settings(create_dirs: bool = False) -> Settings:
     )
 
     if create_dirs:
-        for p in (settings.DATA_CACHE_DIR, settings.RESULTS_DIR, settings.LOGS_DIR, settings.outputs.signals_dir):
+        for p in (
+            settings.DATA_CACHE_DIR,
+            settings.DATA_CACHE_RECENT_DIR,
+            settings.RESULTS_DIR,
+            settings.LOGS_DIR,
+            settings.outputs.signals_dir,
+        ):
             try:
                 Path(p).mkdir(parents=True, exist_ok=True)
             except Exception:

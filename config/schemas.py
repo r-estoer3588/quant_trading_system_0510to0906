@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Optional
+from typing import List, Mapping
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -15,6 +15,7 @@ class DataModel(BaseModel):
     eodhd_base: str = "https://eodhistoricaldata.com"
     api_key_env: str = "EODHD_API_KEY"
     cache_dir: str = "data_cache"
+    cache_recent_dir: str = "data_cache_recent"
     max_workers: int = Field(8, ge=1)
     request_timeout: int = Field(10, ge=1)
     download_retries: int = Field(3, ge=0)
