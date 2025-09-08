@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Callable
 
 import pandas as pd
 
-from config.settings import get_settings
-from common.utils import get_cached_data
-from common.utils_spy import get_spy_with_indicators, get_latest_nyse_trading_day
 from common import broker_alpaca as ba
+from common.cache_manager import CacheManager
 from common.notifier import Notifier
+from common.signal_merge import Signal, merge_signals
+from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
+from config.settings import get_settings
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -20,8 +21,6 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-from common.signal_merge import Signal, merge_signals
-
 
 _LOG_CALLBACK = None
 
@@ -44,40 +43,27 @@ def _log(msg: str):
         pass
 
 
-def _load_raw_data(symbols: List[str], cache_dir: str) -> Dict[str, pd.DataFrame]:
-    data: Dict[str, pd.DataFrame] = {}
-    total = len(symbols)
-    # 当日シグナル判定: 1000件以上なら500件ごと、少なければ50件ごと
-    log_step = 500 if total >= 1000 else 50
-    for i, sym in enumerate(symbols, 1):
-        df = get_cached_data(sym, folder=cache_dir)
-        if df is None or df.empty:
-            continue
-        data[sym] = df
-        if i % log_step == 0 or i == total:
-            _log(f"📦 キャッシュ読み込み {i}/{total}件 完了")
-    return data
-
-
 def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
 def _amount_pick(
-    per_system: Dict[str, pd.DataFrame],
-    strategies: Dict[str, object],
+    per_system: dict[str, pd.DataFrame],
+    strategies: dict[str, object],
     total_budget: float,
-    weights: Dict[str, float],
+    weights: dict[str, float],
     side: str,
 ) -> pd.DataFrame:
-    """資金配分に基づいて候補を採用。shares と position_value を付与して返す。"""
+    """資金配分に基づいて候補を採用。
+    shares と position_value を付与して返す。
+    """
     chosen = []
     chosen_symbols = set()
 
     # システムごとの割当予算
     budgets = {
         name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
-    }
+    }  # noqa: E501
     remaining = budgets.copy()
 
     # システムごとにスコア順で採用
@@ -91,19 +77,19 @@ def _amount_pick(
                 continue
             stg = strategies[name]
             # 順に探索
-            for idx, row in df.iterrows():
+            for _, row in df.iterrows():
                 sym = row["symbol"]
                 if sym in chosen_symbols:
                     continue
                 entry = (
                     float(row["entry_price"])
                     if not pd.isna(row.get("entry_price"))
-                    else None
+                    else None  # noqa: E501
                 )
                 stop = (
                     float(row["stop_price"])
                     if not pd.isna(row.get("stop_price"))
-                    else None
+                    else None  # noqa: E501
                 )
                 if not entry or not stop or entry <= 0:
                     continue
@@ -121,16 +107,16 @@ def _amount_pick(
                                 stop,
                                 risk_pct=float(
                                     getattr(stg, "config", {}).get("risk_pct", 0.02)
-                                ),
+                                ),  # noqa: E501
                                 max_pct=float(
                                     getattr(stg, "config", {}).get("max_pct", 0.10)
-                                ),
+                                ),  # noqa: E501
                             )
                             if ds is None:
                                 desired_shares = 0
                             else:
                                 try:
-                                    if isinstance(ds, (int, float, str)):
+                                    if isinstance(ds, (int | float | str)):
                                         try:
                                             desired_shares = int(float(ds))
                                         except Exception:
@@ -164,7 +150,7 @@ def _amount_pick(
                 rec["system_budget"] = float(round(budgets[name], 2))
                 rec["remaining_after"] = float(
                     round(remaining[name] - position_value, 2)
-                )
+                )  # noqa: E501
                 chosen.append(rec)
                 chosen_symbols.add(sym)
                 remaining[name] -= position_value
@@ -194,7 +180,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log("(submit) shares 列がありません。資金配分モードで実行してください。")
+        _log("(submit) shares 列がありません。" + "資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -297,12 +283,12 @@ def _apply_filters(
         by = ["system"] + (["side"] if "side" in out.columns else [])
         out = out.groupby(by, as_index=False, group_keys=False).head(
             int(top_per_system)
-        )
+        )  # noqa: E501
     return out
 
 
 def compute_today_signals(
-    symbols: List[str] | None,
+    symbols: list[str] | None,
     *,
     slots_long: int | None = None,
     slots_short: int | None = None,
@@ -310,18 +296,19 @@ def compute_today_signals(
     capital_short: float | None = None,
     save_csv: bool = False,
     notify: bool = True,
-    log_callback: Optional[Callable[[str], None]] = None,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
-    symbol_data: Optional[Dict[str, pd.DataFrame]] = None,
-) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
+    log_callback: Callable[[str], None] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    symbol_data: dict[str, pd.DataFrame] | None = None,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
     戻り値: (final_df, per_system_df_dict)
     """
     settings = get_settings(create_dirs=True)
+    cm = CacheManager(settings)
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = log_callback
-    cache_dir = str(settings.DATA_CACHE_DIR)
+    cache_dir = cm.rolling_dir
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 
@@ -341,7 +328,7 @@ def compute_today_signals(
         symbols = [s.upper() for s in universe]
         if not symbols:
             try:
-                files = list(Path(cache_dir).glob("*.csv"))
+                files = list(cache_dir.glob("*.*"))
                 primaries = [p.stem for p in files if p.stem.upper() == "SPY"]
                 others = sorted({p.stem for p in files if len(p.stem) <= 5})[:200]
                 symbols = list(dict.fromkeys(primaries + others))
@@ -351,23 +338,24 @@ def compute_today_signals(
         symbols.append("SPY")
 
     _log(
-        (
-            f"🎯 対象シンボル数: {len(symbols)}"
-            f"（例: {', '.join(symbols[:10])}"
-            f"{'...' if len(symbols) > 10 else ''}）"
-        )
+        f"🎯 対象シンボル数: {len(symbols)}"
+        f"（例: {', '.join(symbols[:10])}"
+        f"{'...' if len(symbols) > 10 else ''}）"
     )
 
     # データ読み込み
-    # --- フィルター条件で銘柄を絞り込み、通過銘柄のみデータロード ---
-    # 1. まずフィルター条件に必要なデータ（株価・売買代金・ATR等）だけ全銘柄分ロード
-    # --- フィルター・データロード関数をローカル関数として定義 ---
+    # --- フィルター条件で銘柄を絞り込み、
+    #     通過銘柄のみデータロード ---
+    # 1. まずフィルター条件に必要なデータ
+    #    （株価・売買代金・ATR等）を全銘柄分ロード
+    # --- フィルター・データロード関数を
+    #     ローカル関数として定義 ---
 
-    def load_basic_data(symbols, cache_dir):
+    def load_basic_data(symbols):
         data = {}
         for sym in symbols:
             try:
-                df = get_cached_data(sym, folder=cache_dir)
+                df = cm.read(sym, "rolling")
                 if df is not None and not df.empty:
                     data[sym] = df
             except Exception:
@@ -408,11 +396,11 @@ def compute_today_signals(
             result.append(sym)
         return result
 
-    def load_indicator_data(symbols, cache_dir):
+    def load_indicator_data(symbols):
         data = {}
         for sym in symbols:
             try:
-                df = get_cached_data(sym, folder=cache_dir)
+                df = cm.read(sym, "rolling")
                 if df is not None and not df.empty:
                     data[sym] = df
             except Exception:
@@ -420,19 +408,22 @@ def compute_today_signals(
         return data
 
     # 実行スコープで変数定義
-    # --- フィルター・データロード変数をforループより前に定義 ---
-    basic_data = load_basic_data(symbols, cache_dir)
+    # --- フィルター・データロード変数を
+    #     forループより前に定義 ---
+    basic_data = load_basic_data(symbols)
     system1_syms = filter_system1(symbols, basic_data)
     system2_syms = filter_system2(symbols, basic_data)
     # ...system3_syms, system4_syms, ...
-    raw_data_system1 = load_indicator_data(system1_syms, cache_dir)
-    raw_data_system2 = load_indicator_data(system2_syms, cache_dir)
+    raw_data_system1 = load_indicator_data(system1_syms)
+    raw_data_system2 = load_indicator_data(system2_syms)
     # ...raw_data_system3, ...
     if "SPY" in basic_data:
         spy_df = get_spy_with_indicators(basic_data["SPY"])
     else:
         spy_df = None
-        _log("⚠️ SPY が data_cache に見つかりません。SPY.csv を用意してください。")
+        _log(
+            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
+        )
 
     # ストラテジ初期化
     strategy_objs = [
@@ -457,7 +448,7 @@ def compute_today_signals(
         cols = [None] * len(strategy_objs)
 
     # 当日シグナル収集
-    per_system: Dict[str, pd.DataFrame] = {}
+    per_system: dict[str, pd.DataFrame] = {}
     total = len(strategies)
     for idx, (name, stg) in enumerate(strategies.items(), start=1):
         if progress_callback:
@@ -480,7 +471,9 @@ def compute_today_signals(
 
         if name == "system4" and spy_df is None:
             _log(
-                "⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
+                "⚠️ System4 は SPY 指標が必要ですが "
+                + "SPY データがありません。"
+                + "スキップします。"
             )
             per_system[name] = pd.DataFrame()
             continue
@@ -501,17 +494,17 @@ def compute_today_signals(
         if not df.empty:
             asc = _asc_by_score_key(
                 df["score_key"].iloc[0]
-                if "score_key" in df.columns and len(df)
-                else None
+                if ("score_key" in df.columns and len(df))
+                else None  # noqa: E501
             )
             df = df.sort_values("score", ascending=asc, na_position="last").reset_index(
                 drop=True
-            )
+            )  # noqa: E501
         per_system[name] = df
         msg = (
             f"✅ {name}: {len(df)} 件"
             if df is not None and not df.empty
-            else f"❌ {name}: 0 件 🚫"
+            else f"❌ {name}: 0 件 🚫"  # noqa: E501
         )
         _log(msg)
         # --- カラムで横並び表示 ---
@@ -555,8 +548,8 @@ def compute_today_signals(
         slots_short = slots_short if slots_short is not None else max_pos
 
         def _distribute_slots(
-            weights: Dict[str, float], total_slots: int, counts: Dict[str, int]
-        ) -> Dict[str, int]:
+            weights: dict[str, float], total_slots: int, counts: dict[str, int]
+        ) -> dict[str, int]:
             base = {k: int(total_slots * weights.get(k, 0.0)) for k in weights}
             for k in list(base.keys()):
                 if counts.get(k, 0) <= 0:
@@ -589,29 +582,31 @@ def compute_today_signals(
         long_slots = _distribute_slots(long_alloc, slots_long, long_counts)
         short_slots = _distribute_slots(short_alloc, slots_short, short_counts)
 
-        chosen_frames: List[pd.DataFrame] = []
+        chosen_frames: list[pd.DataFrame] = []
         for name, slot in {**long_slots, **short_slots}.items():
             df = per_system.get(name, pd.DataFrame())
             if df is None or df.empty or slot <= 0:
                 continue
             take = df.head(slot).copy()
-            take["alloc_weight"] = long_alloc.get(name) or short_alloc.get(name) or 0.0
+            take["alloc_weight"] = (
+                long_alloc.get(name) or short_alloc.get(name) or 0.0
+            )  # noqa: E501
             chosen_frames.append(take)
         final_df = (
             pd.concat(chosen_frames, ignore_index=True)
             if chosen_frames
-            else pd.DataFrame()
+            else pd.DataFrame()  # noqa: E501
         )
     else:
         # 金額配分モード
         if capital_long is None:
             capital_long = float(
                 get_settings(create_dirs=False).backtest.initial_capital
-            )
+            )  # noqa: E501
         if capital_short is None:
             capital_short = float(
                 get_settings(create_dirs=False).backtest.initial_capital
-            )
+            )  # noqa: E501
 
         strategies_map = {k: v for k, v in strategies.items()}
         long_df = _amount_pick(
@@ -628,8 +623,8 @@ def compute_today_signals(
             short_alloc,
             side="short",
         )
-        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]
-        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
+        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
 
     if not final_df.empty:
         sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]
@@ -670,7 +665,9 @@ def compute_today_signals(
 def main():
     parser = argparse.ArgumentParser(description="全システム当日シグナル抽出・集約")
     parser.add_argument(
-        "--symbols", nargs="*", help="対象シンボル。未指定なら設定のauto_tickersを使用"
+        "--symbols",
+        nargs="*",
+        help="対象シンボル。未指定なら設定のauto_tickersを使用",
     )
     parser.add_argument(
         "--slots-long",
@@ -688,29 +685,41 @@ def main():
         "--capital-long",
         type=float,
         default=None,
-        help="買いサイド予算（ドル）。指定時は金額配分モード",
+        help=("買いサイド予算（ドル）。" + "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help="売りサイド予算（ドル）。指定時は金額配分モード",
+        help=("売りサイド予算（ドル）。" + "指定時は金額配分モード"),
     )
     parser.add_argument(
-        "--save-csv", action="store_true", help="signalsディレクトリにCSVを保存する"
+        "--save-csv",
+        action="store_true",
+        help="signalsディレクトリにCSVを保存する",
     )
     # Alpaca 自動発注オプション
     parser.add_argument(
-        "--alpaca-submit", action="store_true", help="Alpaca に自動発注（shares 必須）"
+        "--alpaca-submit",
+        action="store_true",
+        help="Alpaca に自動発注（shares 必須）",
     )
     parser.add_argument(
-        "--order-type", choices=["market", "limit"], default="market", help="注文種別"
+        "--order-type",
+        choices=["market", "limit"],
+        default="market",
+        help="注文種別",
     )
     parser.add_argument(
-        "--tif", choices=["GTC", "DAY"], default="GTC", help="Time In Force"
+        "--tif",
+        choices=["GTC", "DAY"],
+        default="GTC",
+        help="Time In Force",
     )
     parser.add_argument(
-        "--live", action="store_true", help="ライブ口座で発注（デフォルトはPaper）"
+        "--live",
+        action="store_true",
+        help="ライブ口座で発注（デフォルトはPaper）",
     )
     args = parser.parse_args()
 

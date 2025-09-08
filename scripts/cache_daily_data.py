@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 from dataclasses import dataclass
@@ -9,15 +10,16 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Dict, Iterable, List, Set, Tuple
 
 from dotenv import load_dotenv
 import pandas as pd
 import requests
 
-# 親ディレクトリ（リポジトリ ルート）を import パスに追加して、直下モジュール `indicators_common.py` を解決可能にする
+# 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
+# 直下モジュール `indicators_common.py` を解決可能にする
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
+
 from common.cache_manager import CacheManager  # noqa: E402
 
 # -----------------------------
@@ -101,7 +103,7 @@ def _migrate_legacy_failed_if_needed() -> None:
     symbols = []
     if LEGACY_FAILED_LIST.exists() and not FAILED_LIST_PATH.exists():
         try:
-            with open(LEGACY_FAILED_LIST, "r", encoding="utf-8") as f:
+            with open(LEGACY_FAILED_LIST, encoding="utf-8") as f:
                 for line in f:
                     s = line.strip()
                     if s:
@@ -121,10 +123,10 @@ def _migrate_legacy_failed_if_needed() -> None:
         pass
 
 
-def _load_failed_map() -> Dict[str, FailedEntry]:
+def _load_failed_map() -> dict[str, FailedEntry]:
     """CSV から失敗情報を読み込む。"""
     _migrate_legacy_failed_if_needed()
-    entries: Dict[str, FailedEntry] = {}
+    entries: dict[str, FailedEntry] = {}
     if not FAILED_LIST_PATH.exists():
         return entries
 
@@ -153,7 +155,7 @@ def _load_failed_map() -> Dict[str, FailedEntry]:
         return {}
 
 
-def _save_failed_map(entries: Dict[str, FailedEntry]) -> None:
+def _save_failed_map(entries: dict[str, FailedEntry]) -> None:
     FAILED_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     for e in entries.values():
@@ -165,11 +167,11 @@ def _save_failed_map(entries: Dict[str, FailedEntry]) -> None:
         writer.writerows(rows)
 
 
-def load_monthly_blacklist() -> Set[str]:
+def load_monthly_blacklist() -> set[str]:
     """当月に失敗した銘柄を集合で返す（同一月はスキップ）。"""
     m = _load_failed_map()
     now = datetime.now(timezone.utc)
-    skip: Set[str] = set()
+    skip: set[str] = set()
     for sym, e in m.items():
         if e.last_failed_at.year == now.year and e.last_failed_at.month == now.month:
             skip.add(sym)
@@ -213,12 +215,12 @@ def remove_recovered_symbols(succeeded: Iterable[str]) -> None:
 # -----------------------------
 
 
-def get_all_symbols() -> List[str]:
+def get_all_symbols() -> list[str]:
     urls = [
         "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
         "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
     ]
-    symbols: Set[str] = set()
+    symbols: set[str] = set()
     for url in urls:
         try:
             r = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -278,7 +280,7 @@ def get_eodhd_data(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-def cache_single(symbol: str, output_dir: Path) -> Tuple[str, bool, bool]:
+def cache_single(symbol: str) -> tuple[str, bool, bool]:
     """指定シンボルをキャッシュ。
     戻り値: (message, used_api, success)
     """
@@ -301,13 +303,9 @@ def cache_single(symbol: str, output_dir: Path) -> Tuple[str, bool, bool]:
 
 
 def cache_data(
-    symbols: List[str],
-    output_dir: Path | str = DATA_CACHE_DIR,
+    symbols: list[str],
     max_workers: int | None = None,
 ) -> None:
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     max_workers = int(max_workers or THREADS_DEFAULT)
 
     # 当月ブラックリストに該当する銘柄をスキップ
@@ -315,13 +313,17 @@ def cache_data(
     symbols_to_fetch = [s for s in symbols if s.upper() not in monthly_blacklist]
     skipped_due_to_cooldown = len(symbols) - len(symbols_to_fetch)
 
-    failed: List[str] = []
-    succeeded: List[str] = []
+    failed: list[str] = []
+    succeeded: list[str] = []
 
-    results_list: List[Tuple[str, str, bool]] = []
+    results_list: list[tuple[str, str, bool]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(cache_single, symbol, output_dir): symbol for symbol in symbols_to_fetch
+            executor.submit(
+                cache_single,
+                symbol,
+            ): symbol
+            for symbol in symbols_to_fetch
         }
         for i, future in enumerate(as_completed(futures)):
             msg, used_api, ok = future.result()
@@ -348,7 +350,9 @@ def cache_data(
     cached_count = sum(1 for _, _, used_api in results_list if not used_api)
     api_count = sum(1 for _, _, used_api in results_list if used_api)
     print(
-        f"✅ キャッシュ済み: {cached_count}件, API使用: {api_count}件, 失敗: {len(failed)}件, クールダウン除外: {skipped_due_to_cooldown}件"
+        "✅ キャッシュ済み: "
+        f"{cached_count}件, API使用: {api_count}件, 失敗: {len(failed)}件, "
+        f"クールダウン除外: {skipped_due_to_cooldown}件"
     )
 
 
@@ -356,7 +360,7 @@ def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
     print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
-    cache_data(symbols, output_dir=DATA_CACHE_DIR)
+    cache_data(symbols)
     print("データのキャッシュが完了しました。")
 
 
