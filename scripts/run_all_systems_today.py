@@ -313,6 +313,7 @@ def compute_today_signals(
     log_callback: Optional[Callable[[str], None]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     symbol_data: Optional[Dict[str, pd.DataFrame]] = None,
+    cache_dir: str | Path | None = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -321,7 +322,7 @@ def compute_today_signals(
     settings = get_settings(create_dirs=True)
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = log_callback
-    cache_dir = str(settings.DATA_CACHE_DIR)
+    cache_dir = str(cache_dir or settings.DATA_CACHE_DIR)
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 

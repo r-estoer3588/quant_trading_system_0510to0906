@@ -19,9 +19,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    # ===============================
+    # -------------------------------
     # データ準備（共通コアへ委譲）
-    # ===============================
+    # -------------------------------
     def prepare_data(
         self,
         raw_data_dict,
@@ -42,9 +42,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size=batch_size,
         )
 
-    # ===============================
+    # -------------------------------
     # 候補生成（共通コアへ委譲）
-    # ===============================
+    # -------------------------------
     def generate_candidates(self, prepared_dict, **kwargs):
         try:
             from config.settings import get_settings
@@ -54,9 +54,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             top_n = 10
         return generate_candidates_system2(prepared_dict, top_n=top_n)
 
-    # ===============================
+    # -------------------------------
     # バックテスト実行（共通シミュレーター）
-    # ===============================
+    # -------------------------------
     def run_backtest(
         self, data_dict, candidates_by_date, capital, on_progress=None, on_log=None
     ):
@@ -71,9 +71,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         )
         return trades_df
 
-    # ===============================
+    # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
-    # ===============================
+    # -------------------------------
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         """エントリー価格とストップを返す（ショート）。
         - candidate["entry_date"] の行をもとに、ギャップ条件とATRベースのストップを計算。
@@ -157,4 +157,3 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
 
     def get_total_days(self, data_dict: dict) -> int:
         return get_total_days_system2(data_dict)
-
