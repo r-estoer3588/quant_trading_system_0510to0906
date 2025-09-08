@@ -10,11 +10,31 @@ import pandas as pd
 # ---------------
 # 型と設定
 # ---------------
+from typing import Protocol
+
+
+class StrategyProtocol(Protocol):
+    def compute_pnl(
+        self, entry_price: float, exit_price: float, shares: int
+    ) -> float: ...
+
+    def calculate_position_size(
+        self,
+        bucket_capital: float,
+        entry_price: float,
+        stop_price: float,
+        risk_pct: float,
+        max_pct: float,
+    ) -> int: ...
+    def prepare_data(self, raw_data): ...
+    def generate_candidates(self, prepared_data, market_df=None): ...
+
+
 @dataclass
 class SystemState:
     name: str
     side: str  # "long" | "short"
-    strategy: object
+    strategy: StrategyProtocol
     prepared: Dict[str, pd.DataFrame]
     candidates_by_date: Dict[pd.Timestamp, List[dict]]
 
@@ -69,9 +89,35 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
         entry_price, stop_loss_price = res
     else:
         try:
-            entry_price = float(df.iloc[entry_idx]["Open"])  # next-day open
-            atr = float(df.iloc[max(0, entry_idx - 1)]["ATR20"]) if "ATR20" in df.columns else float(
-                df.iloc[max(0, entry_idx - 1)]["ATR10"]
+            entry_price = float(df.at[df.index[entry_idx], "Open"])  # next-day open
+            # Ensure entry_idx is an integer
+            if not isinstance(entry_idx, int):
+                # slice型は除外
+                if isinstance(entry_idx, slice):
+                    return None
+                # numpy.ndarray型は除外
+                try:
+                    import numpy as np
+
+                    if isinstance(entry_idx, np.ndarray):
+                        return None
+                except ImportError:
+                    pass
+                # numpy scalarならitem()でint化
+                if hasattr(entry_idx, "item"):
+                    entry_idx = entry_idx.item()
+                # bool型は除外
+                if isinstance(entry_idx, bool):
+                    return None
+                # その他はint化を試みる
+                try:
+                    entry_idx = int(entry_idx)
+                except Exception:
+                    return None
+            atr = (
+                float(df.iloc[max(0, entry_idx - 1)]["ATR20"])
+                if "ATR20" in df.columns
+                else float(df.iloc[max(0, entry_idx - 1)]["ATR10"])
             )
             if side == "short":
                 stop_loss_price = entry_price + 5 * atr
@@ -83,7 +129,9 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
     # exit hook or fallback
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
+            exit_price, exit_date = strategy.compute_exit(
+                df, entry_idx, entry_price, stop_loss_price
+            )
         except Exception:
             return None
     else:
@@ -92,6 +140,32 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
         exit_price, exit_date = entry_price, df.index[-1]
         if side == "short":
             low_since_entry = entry_price
+            # Ensure entry_idx is an integer
+            if not isinstance(entry_idx, int):
+                # slice型は除外
+                if isinstance(entry_idx, slice):
+                    return None
+                # numpy.ndarray型は除外
+                try:
+                    import numpy as np
+
+                    if isinstance(entry_idx, np.ndarray):
+                        return None
+                except ImportError:
+                    pass
+                # numpy scalarならitem()でint化
+                if hasattr(entry_idx, "item"):
+                    entry_idx = entry_idx.item()
+                # bool型は除外
+                if isinstance(entry_idx, bool):
+                    return None
+                # その他はint化を試みる
+                try:
+                    entry_idx = int(entry_idx)
+                except Exception:
+                    return None
+            if not isinstance(entry_idx, int):
+                return None
             for j in range(entry_idx + 1, len(df)):
                 low_since_entry = min(low_since_entry, float(df["Low"].iloc[j]))
                 trailing_stop = low_since_entry * (1 + trail_pct)
@@ -103,6 +177,32 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
                     break
         else:
             high_since_entry = entry_price
+            # Ensure entry_idx is an integer
+            if not isinstance(entry_idx, int):
+                # slice型は除外
+                if isinstance(entry_idx, slice):
+                    return None
+                # numpy.ndarray型は除外
+                try:
+                    import numpy as np
+
+                    if isinstance(entry_idx, np.ndarray):
+                        return None
+                except ImportError:
+                    pass
+                # numpy scalarならitem()でint化
+                if hasattr(entry_idx, "item"):
+                    entry_idx = entry_idx.item()
+                # bool型は除外
+                if isinstance(entry_idx, bool):
+                    return None
+                # その他はint化を試みる
+                try:
+                    entry_idx = int(entry_idx)
+                except Exception:
+                    return None
+            if not isinstance(entry_idx, int):
+                return None
             for j in range(entry_idx + 1, len(df)):
                 high_since_entry = max(high_since_entry, float(df["High"].iloc[j]))
                 trailing_stop = high_since_entry * (1 - trail_pct)
@@ -113,7 +213,13 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
                     exit_price, exit_date = trailing_stop, df.index[j]
                     break
 
-    return entry_idx, float(entry_price), float(stop_loss_price), float(exit_price), pd.Timestamp(exit_date)
+    return (
+        entry_idx,
+        float(entry_price),
+        float(stop_loss_price),
+        float(exit_price),
+        pd.Timestamp(exit_date),
+    )
 
 
 def run_integrated_backtest(
@@ -139,7 +245,8 @@ def run_integrated_backtest(
     name_to_state = {s.name: s for s in system_states}
     # シグナル件数
     signal_counts = {
-        s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in system_states
+        s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
+        for s in system_states
     }
 
     # 長短の初期資金
@@ -180,7 +287,9 @@ def run_integrated_backtest(
                 else:
                     long_capital += float(p["pnl"])
         # remove exited
-        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
+        active_positions = [
+            p for p in active_positions if p["exit_date"] > current_date
+        ]
 
         # 2) 当日の各Systemシグナルを順番に処理
         for sys_name in [f"System{k}" for k in range(1, 8)]:
@@ -205,6 +314,8 @@ def run_integrated_backtest(
             for c in cands[:slots]:
                 sym = c.get("symbol")
                 # 統合管理: 同銘柄は重複して持たない
+                if sym is None:
+                    continue
                 if _symbol_open_in_active(active_positions, sym):
                     continue
                 df = stt.prepared.get(sym)
@@ -219,7 +330,9 @@ def run_integrated_backtest(
                 # 既定ポジションサイズ
                 try:
                     # バケット資金を使用
-                    bucket_capital = short_capital if stt.side == "short" else long_capital
+                    bucket_capital = (
+                        short_capital if stt.side == "short" else long_capital
+                    )
                     shares_std = stt.strategy.calculate_position_size(
                         bucket_capital,
                         entry_price,
@@ -243,7 +356,9 @@ def run_integrated_backtest(
                     global_rem = max(0.0, bucket_capital - bucket_used_value[stt.side])
 
                 max_by_alloc = int(alloc_rem // abs(entry_price)) if entry_price else 0
-                max_by_global = int(global_rem // abs(entry_price)) if entry_price else 0
+                max_by_global = (
+                    int(global_rem // abs(entry_price)) if entry_price else 0
+                )
 
                 shares_cap = max(0, min(shares_std, max_by_alloc, max_by_global))
                 if shares_cap <= 0:
@@ -252,7 +367,11 @@ def run_integrated_backtest(
                 # PnL算出（hook優先）
                 if hasattr(stt.strategy, "compute_pnl"):
                     try:
-                        pnl = float(stt.strategy.compute_pnl(entry_price, exit_price, int(shares_cap)))
+                        pnl = float(
+                            stt.strategy.compute_pnl(
+                                entry_price, exit_price, int(shares_cap)
+                            )
+                        )
                     except Exception:
                         pnl = (exit_price - entry_price) * int(shares_cap)
                 else:
@@ -273,7 +392,11 @@ def run_integrated_backtest(
                         "shares": int(shares_cap),
                         "pnl": round(float(pnl), 2),
                         # 参考用：トレード時点のバケット資金に対する比率
-                        "return_%": round((float(pnl) / (bucket_capital if bucket_capital else 1.0)) * 100, 4),
+                        "return_%": round(
+                            (float(pnl) / (bucket_capital if bucket_capital else 1.0))
+                            * 100,
+                            4,
+                        ),
                     }
                 )
 
@@ -314,7 +437,10 @@ def build_system_states(
 
     for i in range(1, 8):
         sys_name = f"System{i}"
-        mod = __import__(f"strategies.system{i}_strategy", fromlist=[f"System{i}Strategy"])  # type: ignore
+        mod = __import__(
+            f"strategies.system{i}_strategy",
+            fromlist=[f"System{i}Strategy"],
+        )  # type: ignore
         cls = getattr(mod, f"System{i}Strategy")
         strat = cls()
 
@@ -328,7 +454,9 @@ def build_system_states(
             raw = fetch_data(syms)
             prepared = strat.prepare_data(raw)
             try:
-                cands, _ = strat.generate_candidates(prepared, market_df=spy_df)  # type: ignore[arg-type]
+                cands, _ = strat.generate_candidates(
+                    prepared, market_df=spy_df
+                )  # type: ignore[arg-type]
             except Exception:
                 cands = strat.generate_candidates(prepared)  # type: ignore[assignment]
         else:
@@ -353,7 +481,9 @@ def build_system_states(
                 side=_get_side(sys_name),
                 strategy=strat,
                 prepared=prepared,
-                candidates_by_date={pd.Timestamp(k): v for k, v in (cands or {}).items()},
+                candidates_by_date={
+                    pd.Timestamp(k): v for k, v in (cands or {}).items()
+                },
             )
         )
 

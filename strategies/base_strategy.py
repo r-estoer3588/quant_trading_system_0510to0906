@@ -29,8 +29,15 @@ class StrategyBase(ABC):
         module = getattr(self.__class__, "__module__", "")
         sys_name = getattr(self, "SYSTEM_NAME", None)
         if not sys_name:
-            parts = module.split('.')
-            cand = next((p for p in parts if p.startswith('system') and any(ch.isdigit() for ch in p)), None)
+            parts = module.split(".")
+            cand = next(
+                (
+                    p
+                    for p in parts
+                    if p.startswith("system") and any(ch.isdigit() for ch in p)
+                ),
+                None,
+            )
             sys_name = cand or ""
 
         system_params = {}
@@ -131,7 +138,8 @@ class StrategyBase(ABC):
         各 strategy の `prepare_data`/`generate_candidates` を流用し、
         最新営業日のみのシグナルを DataFrame で返す。
 
-        戻り値カラム: symbol, system, side, signal_type, entry_date, entry_price, stop_price, score_key, score
+        戻り値カラム: symbol, system, side, signal_type, entry_date, entry_price,
+        stop_price, score_key, score
         """
         from common.today_signals import get_today_signals_for_strategy
 

@@ -178,7 +178,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             save_csv=save_csv,
             log_callback=_ui_log,
             symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
-            cache_dir=settings.DATA_CACHE_RECENT_DIR,
         )
 
     # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除
