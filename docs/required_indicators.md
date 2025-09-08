@@ -47,3 +47,65 @@
 - ADX は「7日」「7日ADX が高い順」「55 以上」などの条件で利用される。
 - RETURN は「6日」「6日D」「総リターン」「return_pct」などの指標を含む。
 - Drop3D は「3日ドロップ」として使用される。
+
+## システム別フィルター
+
+### System1
+- `avg_dollar_volume_20 > 50_000_000`
+- `low >= 5`
+
+### System2
+- `low >= 5`
+- `avg_dollar_volume_20 > 25_000_000`
+- `ATR10 / close > 0.03`
+
+### System3
+- `low >= 1`
+- `avg_volume_50 >= 1_000_000`
+- `ATR10 / close >= 0.05`
+
+### System4
+- `avg_dollar_volume_50 > 100_000_000`
+- `0.10 <= HV20 <= 0.40`
+
+### System5
+- `avg_volume_50 > 500_000`
+- `avg_dollar_volume_50 > 2_500_000`
+- `ATR10 / close > 0.04`
+
+### System6
+- `low >= 5`
+- `avg_dollar_volume_50 > 10_000_000`
+
+### System7
+- フィルターなし
+
+## システム別セットアップ
+
+### System1
+- `SPY_close > SPY_SMA100`
+- `SMA25 > SMA50`
+
+### System2
+- `RSI3 > 90`
+- `close[-1] > close[-2]` かつ `close[-2] > close[-3]`
+
+### System3
+- `close > SMA150`
+- `(close[-3] - close) / close[-3] <= -0.125`
+
+### System4
+- `SPX_close > SPX_SMA200`
+- `close > SMA200`
+
+### System5
+- `close > SMA100 + ATR10`
+- `ADX7 > 55`
+- `RSI3 < 50`
+
+### System6
+- `(close / close[-6]) - 1 >= 0.20`
+- `close[-1] > close[-2]` かつ `close[-2] > close[-3]`
+
+### System7
+- `SPY_low == rolling_min(SPY_low, window=50)`
