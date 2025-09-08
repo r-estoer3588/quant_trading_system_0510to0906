@@ -18,6 +18,7 @@ import requests
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、直下モジュール `indicators_common.py` を解決可能にする
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
+from common.cache_manager import CacheManager  # noqa: E402
 
 # -----------------------------
 # 設定/環境
@@ -30,6 +31,7 @@ try:
     from config.settings import get_settings
 
     _settings = get_settings(create_dirs=True)
+    cm = CacheManager(_settings)
     LOG_DIR = Path(_settings.LOGS_DIR)
     DATA_CACHE_DIR = Path(_settings.DATA_CACHE_DIR)
     THREADS_DEFAULT = int(_settings.THREADS_DEFAULT)
@@ -276,56 +278,26 @@ def get_eodhd_data(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-RESERVED_WORDS = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    "COM1",
-    "COM2",
-    "COM3",
-    "COM4",
-    "COM5",
-    "COM6",
-    "COM7",
-    "COM8",
-    "COM9",
-    "LPT1",
-    "LPT2",
-    "LPT3",
-    "LPT4",
-    "LPT5",
-    "LPT6",
-    "LPT7",
-    "LPT8",
-    "LPT9",
-}
-
-
-def safe_filename(symbol: str) -> str:
-    # Windows 予約語を避ける（大文字小文字無視）
-    if symbol.upper() in RESERVED_WORDS:
-        return symbol + "_RESV"
-    return symbol
-
-
 def cache_single(symbol: str, output_dir: Path) -> Tuple[str, bool, bool]:
     """指定シンボルをキャッシュ。
     戻り値: (message, used_api, success)
     """
-    safe_symbol = safe_filename(symbol)
-    filepath = output_dir / f"{safe_symbol}.csv"
-    if filepath.exists():
-        mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
-        if mod_time.date() == datetime.today().date():
-            return (f"{symbol}: already cached", False, True)
     df = get_eodhd_data(symbol)
-    if df is not None and not df.empty:
-        df = add_indicators(df)
-        df.to_csv(filepath)
-        return (f"{symbol}: saved", True, True)
-    else:
+    if df is None or df.empty:
         return (f"{symbol}: failed to fetch", True, False)
+    df = add_indicators(df)
+    df = df.reset_index().rename(
+        columns={
+            "Date": "date",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+        }
+    )
+    cm.upsert_both(symbol, df)
+    return (f"{symbol}: saved", True, True)
 
 
 def cache_data(
@@ -369,6 +341,8 @@ def cache_data(
         update_failed_symbols(failed)
     if succeeded:
         remove_recovered_symbols(succeeded)
+
+    cm.prune_rolling_if_needed(anchor_ticker="SPY")
 
     # 統計の出力
     cached_count = sum(1 for _, _, used_api in results_list if not used_api)
