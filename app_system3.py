@@ -52,7 +52,7 @@ def display_drop3d_ranking(
                 {
                     "Date": date,
                     "symbol": c.get("symbol"),
-                    "DropRate_3D": c.get("DropRate_3D"),
+                    "Drop3D": c.get("Drop3D"),
                 }
             )
         log_with_progress(
@@ -70,11 +70,11 @@ def display_drop3d_ranking(
     df["Date"] = pd.to_datetime(df["Date"])  # type: ignore[arg-type]
     start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
     df = df[df["Date"] >= start_date]
-    df["DropRate_3D_Rank"] = df.groupby("Date")["DropRate_3D"].rank(
+    df["Drop3D_Rank"] = df.groupby("Date")["Drop3D"].rank(
         ascending=False,
         method="first",
     )
-    df = df.sort_values(["Date", "DropRate_3D_Rank"], ascending=[True, True])
+    df = df.sort_values(["Date", "Drop3D_Rank"], ascending=[True, True])
     df = df.groupby("Date").head(top_n)
     title = tr(
         "{display_name} 日別 3日下落率 ランキング（直近{years}年 / 上位{top_n}銘柄）",
@@ -84,9 +84,7 @@ def display_drop3d_ranking(
     )
     with st.expander(title, expanded=False):
         st.dataframe(
-            df.reset_index(drop=True)[
-                ["Date", "DropRate_3D_Rank", "symbol", "DropRate_3D"]
-            ],
+            df.reset_index(drop=True)[["Date", "Drop3D_Rank", "symbol", "Drop3D"]],
             hide_index=False,
         )
 
@@ -99,9 +97,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         )
     )
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -150,9 +146,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {

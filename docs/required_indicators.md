@@ -13,12 +13,10 @@
 9. **ATR2.5**：2.5ATR。過去10日などで使用
 10. **ATR**：過去10日、過去50日、過去40日、4%ATR など複数期間で使用
 11. **ADX7**：7日ADX
-12. **ADX7_High**：7日ADX が高い順のランキング（55 以上など）
-13. **RETURN6**：6日リターン
-14. **Return6D**：6日リターン（Return6D ランキング・バッテスト）
-15. **return_pct**：総リターン
-16. **Drop3D**：3日ドロップ
-17. **HV50**：50日ヒストリカルボラティリティ（年率換算）
+12. **Return6D（旧称 RETURN6）**：6日リターン
+13. **return_pct**：総リターン
+14. **Drop3D**：3日ドロップ
+15. **HV50**：50日ヒストリカルボラティリティ（年率換算）
 
 ## 指標と使用システム対応表
 
@@ -35,19 +33,17 @@
 | ATR2.5 | System3 | 未実装（`ATR`列の2.5倍で計算） |
 | ATR（10日・20日・40日・50日など） | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`ATR10` 等) |
 | ADX7 | System2, System5 | 列として実装済 (`ADX7`) |
-| ADX7_High | System5 | 未実装（`ADX7`ランキングで判定） |
-| RETURN6 | System6 | 未実装（`Return6D`で代替） |
-| Return6D | System6 | 列として実装済 (`Return6D`) |
+| Return6D（旧称 RETURN6） | System6 | 列として実装済 (`Return6D`) |
 | return_pct | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`return_pct`) |
-| Drop3D | System3 | 列として実装済 (`DropRate_3D`) |
+| Drop3D | System3 | 列として実装済 (`Drop3D`) |
 | HV50 | System4 | 列として実装済 (`HV50`) |
 
 ## 補足
 
 - ATR は「過去10日」「過去40日」「過去50日」「3ATR」「1.5ATR」「2.5ATR」「1ATR」「4%ATR」など複数パターンが存在する。
 - SMA は「25日」「50日」「100日」「150日」「200日」など複数の期間を参照する。
-- ADX は「7日」「7日ADX が高い順」「55 以上」などの条件で利用される。
-- RETURN は「6日」「6日D」「総リターン」「return_pct」などの指標を含む。
+- ADX は 7 日値を使用し、必要に応じて高い順ランキング（`ADX7_High`）や 55 以上の閾値判定を行う。
+- Return 系指標は「Return6D（旧称 RETURN6）」「return_pct」などを含む。
 - Drop3D は「3日ドロップ」として使用される。
 
 ## システム別フィルター
