@@ -422,7 +422,8 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
+            "⚠️ SPY が data_cache に見つかりません。"
+            + "SPY.csv を用意してください。"  # noqa: E501
         )
 
     # ストラテジ初期化
@@ -623,8 +624,12 @@ def compute_today_signals(
             short_alloc,
             side="short",
         )
-        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
-        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
+        parts = [
+            df for df in [long_df, short_df] if df is not None and not df.empty
+        ]  # noqa: E501
+        final_df = (
+            pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        )  # noqa: E501
 
     if not final_df.empty:
         sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]

@@ -19,9 +19,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    # ===============================
+    # -------------------------------
     # データ準備（共通コアへ委譲）
-    # ===============================
+    # -------------------------------
     def prepare_data(
         self,
         raw_data_dict,
@@ -42,9 +42,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size=batch_size,
         )
 
-    # ===============================
+    # -------------------------------
     # 候補生成（共通コアへ委譲）
-    # ===============================
+    # -------------------------------
     def generate_candidates(self, prepared_dict, **kwargs):
         try:
             from config.settings import get_settings
@@ -54,9 +54,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             top_n = 10
         return generate_candidates_system2(prepared_dict, top_n=top_n)
 
-    # ===============================
+    # -------------------------------
     # バックテスト実行（共通シミュレーター）
-    # ===============================
+    # -------------------------------
     def run_backtest(
         self, data_dict, candidates_by_date, capital, on_progress=None, on_log=None
     ):
@@ -71,9 +71,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         )
         return trades_df
 
-    # ===============================
+    # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
-    # ===============================
+    # -------------------------------
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         """エントリー価格とストップを返す（ショート）。
         - candidate["entry_date"] の行をもとに、ギャップ条件とATRベースのストップを計算。
@@ -103,39 +103,29 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     ):
         """利確/損切りロジック。
         - ストップ到達: その日の高値>=stop で当日決済
-        - 利確到達: 翌日寄りで決済（前日終値で利確条件判定）
-        - 未達: 指定日数後の翌日寄りで撤退
+        - 利確到達: 前日終値で判定し、翌日大引けで決済
+        - 未達: 2営業日待っても利確に届かない場合は3日目の大引けで決済
         返り値: (exit_price, exit_date)
         """
-        exit_date, exit_price = None, None
         profit_take_pct = float(self.config.get("profit_take_pct", 0.04))
-        max_days = int(self.config.get("profit_take_max_days", 3))
+        max_hold_days = int(self.config.get("max_hold_days", 3))
 
-        for offset in range(1, max_days + 1):
-            idx2 = entry_idx + offset
-            if idx2 >= len(df):
+        for offset in range(max_hold_days):
+            idx = entry_idx + offset
+            if idx >= len(df):
                 break
-            row = df.iloc[idx2]
+            row = df.iloc[idx]
             # ストップ到達（ショート）
             if float(row["High"]) >= stop_price:
-                exit_date = df.index[idx2]
-                exit_price = stop_price
-                break
+                return stop_price, df.index[idx]
             # 利確判定（ショートの含み益）
             gain = (entry_price - float(row["Close"])) / entry_price
             if gain >= profit_take_pct:
-                next_idx = min(idx2 + 1, len(df) - 1)
-                exit_date = df.index[next_idx]
-                exit_price = float(df.iloc[next_idx]["Open"])
-                break
+                exit_idx = min(idx + 1, len(df) - 1)
+                return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
-        if exit_price is None:
-            fallback_days = int(self.config.get("fallback_exit_after_days", 2))
-            idx2 = min(entry_idx + fallback_days, len(df) - 1)
-            next_idx = min(idx2 + 1, len(df) - 1)
-            exit_date = df.index[next_idx]
-            exit_price = float(df.iloc[next_idx]["Open"])
-        return exit_price, exit_date
+        exit_idx = min(entry_idx + max_hold_days, len(df) - 1)
+        return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
         """ショートのPnL。"""
@@ -157,4 +147,3 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
 
     def get_total_days(self, data_dict: dict) -> int:
         return get_total_days_system2(data_dict)
-

@@ -1,7 +1,6 @@
 """Simple scheduler runner using YAML scheduler config.
 
-Supports a minimal subset of cron: "m h * * d" where d is 0-6 (Mon=1 .. Sun=0/7 accepted).
-Runs a polling loop and triggers tasks when minute/hour/dow match.
+Supports a minimal subset of cron: "m h * * d".
 """
 
 from __future__ import annotations
@@ -104,6 +103,15 @@ def task_update_tickers():
         logging.exception("update_tickers タスクが失敗しました")
 
 
+def task_update_trailing_stops():
+    try:
+        from scripts.update_trailing_stops import update_trailing_stops
+
+        update_trailing_stops()
+    except Exception:
+        logging.exception("update_trailing_stops タスクが失敗しました")
+
+
 TASKS: Dict[str, Callable[[], None]] = {
     "cache_daily_data": task_cache_daily_data,
     "warm_cache": task_cache_daily_data,
@@ -111,13 +119,14 @@ TASKS: Dict[str, Callable[[], None]] = {
     "run_today_signals": task_run_today_signals,
     "bulk_last_day": task_bulk_last_day,
     "update_tickers": task_update_tickers,
+    "update_trailing_stops": task_update_trailing_stops,
 }
 
 
 def main():
     settings = get_settings(create_dirs=True)
     setup_logging(settings)
-    tz_name = settings.scheduler.timezone
+    _ = settings.scheduler.timezone
     jobs = settings.scheduler.jobs
     if not jobs:
         logging.warning("scheduler.jobs が空です。config/config.yaml を確認してください。")
@@ -161,4 +170,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -38,13 +38,14 @@ def prepare_data_vectorized_system3(
             x["AvgVolume50"] = x["Volume"].rolling(50).mean()
             x["ATR_Ratio"] = x["ATR10"] / x["Close"]
 
-            x["setup"] = (
-                (x["Close"] > x["SMA150"])
-                & (x["DropRate_3D"] >= 0.125)
-                & (x["Close"] > 1)
-                & (x["AvgVolume50"] >= 1_000_000)
-                & (x["ATR_Ratio"] >= 0.05)
-            ).astype(int)
+            cond_price = x["Low"] >= 1
+            cond_volume = x["AvgVolume50"] >= 1_000_000
+            cond_atr = x["ATR_Ratio"] >= 0.05
+            x["filter"] = cond_price & cond_volume & cond_atr
+            cond_close = x["Close"] > x["SMA150"]
+            cond_drop = x["DropRate_3D"] >= 0.125
+            cond_setup = x["filter"] & cond_close & cond_drop
+            x["setup"] = cond_setup.astype(int)
 
             result_dict[sym] = x
         except Exception:
@@ -106,15 +107,15 @@ def generate_candidates_system3(
 
     for sym, df in prepared_dict.items():
         processed += 1
-        if "setup" in df.columns and df["setup"].any():
-            setup_df = df[df["setup"] == 1].copy()
-            setup_df["symbol"] = sym
-            setup_df["entry_date"] = setup_df.index + pd.Timedelta(days=1)
-            setup_df = setup_df[["symbol", "entry_date", "DropRate_3D", "ATR10"]]
-            all_signals.append(setup_df)
-            buffer.append(sym)
-        else:
+        if "setup" not in df.columns or not df["setup"].any():
             skipped += 1
+            continue
+        setup_df = df[df["setup"] == 1].copy()
+        setup_df["symbol"] = sym
+        setup_df["entry_date"] = setup_df.index + pd.Timedelta(days=1)
+        setup_df = setup_df[["symbol", "entry_date", "DropRate_3D", "ATR10"]]
+        all_signals.append(setup_df)
+        buffer.append(sym)
 
         if progress_callback:
             try:

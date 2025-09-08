@@ -1,22 +1,23 @@
 """System5 core logic (Long mean-reversion with high ADX)."""
 
-from typing import Dict, Tuple
 import time
+
 import pandas as pd
-from ta.trend import SMAIndicator, ADXIndicator
 from ta.momentum import RSIIndicator
+from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
+
 from common.i18n import tr
 
 
 def prepare_data_vectorized_system5(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
     progress_callback=None,
     log_callback=None,
     batch_size: int = 50,
-) -> Dict[str, pd.DataFrame]:
-    result_dict: Dict[str, pd.DataFrame] = {}
+) -> dict[str, pd.DataFrame]:
+    result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
     processed, skipped = 0, 0
     buffer: list[str] = []
@@ -30,17 +31,25 @@ def prepare_data_vectorized_system5(
             continue
         try:
             x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-            x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
+            x["ATR10"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=10
+            ).average_true_range()
             x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
             x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
             x["AvgVolume50"] = x["Volume"].rolling(50).mean()
             x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
             x["ATR_Pct"] = x["ATR10"] / x["Close"]
 
+            x["filter"] = (
+                (x["AvgVolume50"] > 500_000)
+                & (x["DollarVolume50"] > 2_500_000)
+                & (x["ATR_Pct"] > 0.04)
+            )
             x["setup"] = (
-                (x["Close"] > x["SMA100"] + x["ATR10"]) & (x["ADX7"] > 55)
-                & (x["RSI3"] < 50) & (x["AvgVolume50"] > 500_000)
-                & (x["DollarVolume50"] > 2_500_000) & (x["ATR_Pct"] > 0.04)
+                x["filter"]
+                & (x["Close"] > x["SMA100"] + x["ATR10"])
+                & (x["ADX7"] > 55)
+                & (x["RSI3"] < 50)
             ).astype(int)
 
             result_dict[sym] = x
@@ -60,7 +69,8 @@ def prepare_data_vectorized_system5(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
+                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                "remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,
@@ -85,14 +95,14 @@ def prepare_data_vectorized_system5(
 
 
 def generate_candidates_system5(
-    prepared_dict: Dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int = 10,
     progress_callback=None,
     log_callback=None,
     batch_size: int = 50,
-) -> Tuple[dict, pd.DataFrame | None]:
-    candidates_by_date: Dict[pd.Timestamp, list] = {}
+) -> tuple[dict, pd.DataFrame | None]:
+    candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
     processed, skipped = 0, 0
     buffer: list[str] = []
@@ -100,7 +110,13 @@ def generate_candidates_system5(
 
     for sym, df in prepared_dict.items():
         try:
+            if "setup" not in df.columns or not df["setup"].any():
+                skipped += 1
+                continue
             setup_days = df[df["setup"] == 1]
+            if setup_days.empty:
+                skipped += 1
+                continue
             for date, row in setup_days.iterrows():
                 entry_date = date + pd.Timedelta(days=1)
                 if entry_date not in df.index:
@@ -128,7 +144,8 @@ def generate_candidates_system5(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
+                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
+                "remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,
@@ -156,7 +173,7 @@ def generate_candidates_system5(
     return candidates_by_date, None
 
 
-def get_total_days_system5(data_dict: Dict[str, pd.DataFrame]) -> int:
+def get_total_days_system5(data_dict: dict[str, pd.DataFrame]) -> int:
     all_dates = set()
     for df in data_dict.values():
         if df is None or df.empty:

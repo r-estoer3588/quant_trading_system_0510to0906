@@ -70,9 +70,9 @@ class StrategyBase(ABC):
         """仕掛け候補に基づくバックテストを実施"""
         pass
 
-    # ============================================================
+    # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
-    # ============================================================
+    # ----------------------------
     def update_capital_with_exits(
         self, capital: float, active_positions: list, current_date
     ):
@@ -115,9 +115,9 @@ class StrategyBase(ABC):
         shares = min(risk_per_trade / risk_per_share, max_position_value / entry_price)
         return int(shares)
 
-    # ============================================================
+    # ----------------------------
     # 当日シグナル抽出（共通関数）
-    # ============================================================
+    # ----------------------------
     def get_today_signals(
         self,
         raw_data_dict: dict,

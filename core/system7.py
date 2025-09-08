@@ -4,23 +4,24 @@ System7 は SPY 専用のため、prepare_data/generate_candidates のみ共通�
 run_backtest は strategy 側にカスタム実装が残る。
 """
 
-from typing import Dict, Tuple
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
 
 def prepare_data_vectorized_system7(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
-) -> Dict[str, pd.DataFrame]:
-    prepared_dict: Dict[str, pd.DataFrame] = {}
+) -> dict[str, pd.DataFrame]:
+    prepared_dict: dict[str, pd.DataFrame] = {}
     try:
         df = raw_data_dict.get("SPY").copy()
-        df["ATR50"] = AverageTrueRange(df["High"], df["Low"], df["Close"], window=50).average_true_range()
-        df["min_50"] = df["Close"].rolling(window=50).min().round(4)
+        df["ATR50"] = AverageTrueRange(
+            df["High"], df["Low"], df["Close"], window=50
+        ).average_true_range()
+        df["min_50"] = df["Low"].rolling(window=50).min().round(4)
         df["setup"] = (df["Low"] <= df["min_50"]).astype(int)
         df["max_70"] = df["Close"].rolling(window=70).max()
         prepared_dict["SPY"] = df
@@ -44,12 +45,12 @@ def prepare_data_vectorized_system7(
 
 
 def generate_candidates_system7(
-    prepared_dict: Dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame],
     *,
     progress_callback=None,
     log_callback=None,
-) -> Tuple[dict, pd.DataFrame | None]:
-    candidates_by_date: Dict[pd.Timestamp, list] = {}
+) -> tuple[dict, pd.DataFrame | None]:
+    candidates_by_date: dict[pd.Timestamp, list] = {}
     if "SPY" not in prepared_dict:
         return {}, None
     df = prepared_dict["SPY"]
@@ -74,7 +75,7 @@ def generate_candidates_system7(
     return candidates_by_date, None
 
 
-def get_total_days_system7(data_dict: Dict[str, pd.DataFrame]) -> int:
+def get_total_days_system7(data_dict: dict[str, pd.DataFrame]) -> int:
     all_dates = set()
     for df in data_dict.values():
         if df is None or df.empty:

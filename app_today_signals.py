@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+import time
 
 from config.settings import get_settings
 from common import broker_alpaca as ba
@@ -108,9 +109,6 @@ with st.sidebar:
             st.error(f"注文キャンセルエラー: {e}")
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
-
-    import time
-
     # 指標ごとに必要な日数（＋10%余裕）を定義
     indicator_days = {
         "ROC200": int(200 * 1.1),
@@ -180,6 +178,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             save_csv=save_csv,
             log_callback=_ui_log,
             symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
+            cache_dir=settings.DATA_CACHE_RECENT_DIR,
         )
 
     # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除
@@ -314,7 +313,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 notifier.send_trade_report("integrated", results)
                 if poll_status and any(r.get("order_id") for r in results):
                     st.info("注文状況を10秒間ポーリングします...")
-                    import time
 
                     order_ids = [
                         r.get("order_id") for r in results if r.get("order_id")
@@ -328,68 +326,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 st.write(status_map)
                             last = status_map
                         time.sleep(1.0)
-
-    with st.expander("システム別詳細"):
-        # Ensure results is always defined
-        results = []
-        # Ensure client is defined for polling order status
-        try:
-            client = ba.get_client(paper=paper_mode)
-        except Exception as e:
-            st.error(f"Alpaca接続エラー: {e}")
-            client = None
-        for name, df in per_system.items():
-            st.markdown(f"#### {name}")
-            if df is None or df.empty:
-                st.write("(空)")
-            else:
-                st.dataframe(df, use_container_width=True)
-                csv2 = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    f"{name}のCSVをダウンロード",
-                    data=csv2,
-                    file_name=f"signals_{name}.csv",
-                )
-
-                # Debug: show per-symbol reason text for why it was selected
-                if "reason" in df.columns:
-                    with st.expander(f"{name} - 選定理由", expanded=False):
-                        for _, row in df.iterrows():
-                            sym = row.get("symbol")
-                            reason = row.get("reason")
-                            st.markdown(f"- **{sym}**: {reason}")
-                if "reason" in df.columns:
-                    with st.expander(f"{name} - selection reasons", expanded=False):
-                        for _, row in df.iterrows():
-                            sym = row.get("symbol")
-                            reason = row.get("reason")
-                            st.markdown(f"- **{sym}**: {reason}")
-                st.dataframe(pd.DataFrame(results), use_container_width=True)
-                notifier.send_trade_report("integrated", results)
-                if (
-                    poll_status
-                    and any(r.get("order_id") for r in results)
-                    and client is not None
-                ):
-                    st.info("注文状況を10秒間ポーリングします...")
-                    import time
-
-                    order_ids = [
-                        r.get("order_id") for r in results if r.get("order_id")
-                    ]
-                    order_ids = [
-                        r.get("order_id") for r in results if r.get("order_id")
-                    ]
-                    end = time.time() + 10
-                    last = {}
-                    while time.time() < end:
-                        status_map = ba.get_orders_status_map(client, order_ids)
-                        if status_map != last:
-                            if status_map:  # 空でなければ表示
-                                st.write(status_map)
-                            last = status_map
-                        time.sleep(1.0)
-
     with st.expander("システム別詳細"):
         for name, df in per_system.items():
             st.markdown(f"#### {name}")
@@ -403,7 +339,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     f"{name}のCSVをダウンロード",
                     data=csv2,
                     file_name=f"signals_{name}.csv",
-                    key=f"{name}_download_csv",  # ← ここを追加
+                    key=f"{name}_download_csv",
                 )
 
                 # Debug: show per-symbol reason text for why it was selected
@@ -413,12 +349,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             sym = row.get("symbol")
                             reason = row.get("reason")
                             st.markdown(f"- **{sym}**: {reason}")
-                if "reason" in df.columns:
                     with st.expander(f"{name} - selection reasons", expanded=False):
                         for _, row in df.iterrows():
-                            sym = row.get("symbol")
-                            reason = row.get("reason")
-                            st.markdown(f"- **{sym}**: {reason}")
                             sym = row.get("symbol")
                             reason = row.get("reason")
                             st.markdown(f"- **{sym}**: {reason}")

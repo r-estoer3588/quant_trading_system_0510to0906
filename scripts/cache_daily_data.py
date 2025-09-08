@@ -36,6 +36,7 @@ try:
     cm = CacheManager(_settings)
     LOG_DIR = Path(_settings.LOGS_DIR)
     DATA_CACHE_DIR = Path(_settings.DATA_CACHE_DIR)
+    DATA_CACHE_RECENT_DIR = Path(_settings.DATA_CACHE_RECENT_DIR)
     THREADS_DEFAULT = int(_settings.THREADS_DEFAULT)
     REQUEST_TIMEOUT = int(_settings.REQUEST_TIMEOUT)
     DOWNLOAD_RETRIES = int(_settings.DOWNLOAD_RETRIES)
@@ -46,6 +47,7 @@ except Exception:
     # フォールバック（settings が読めない場合）
     LOG_DIR = Path(os.path.dirname(__file__)) / "logs"
     DATA_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache"
+    DATA_CACHE_RECENT_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache_recent"
     THREADS_DEFAULT = int(os.getenv("THREADS_DEFAULT", 8))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 10))
     DOWNLOAD_RETRIES = int(os.getenv("DOWNLOAD_RETRIES", 3))
@@ -56,6 +58,10 @@ except Exception:
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_CACHE_DIR = DATA_CACHE_DIR.resolve()
 DATA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+DATA_CACHE_RECENT_DIR = DATA_CACHE_RECENT_DIR.resolve()
+DATA_CACHE_RECENT_DIR.mkdir(parents=True, exist_ok=True)
+
+RECENT_DAYS = 240
 
 
 # -----------------------------
@@ -68,6 +74,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+_migrate_root_csv_to_full()
 
 
 # -----------------------------
@@ -280,12 +288,64 @@ def get_eodhd_data(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-def cache_single(symbol: str) -> tuple[str, bool, bool]:
+RESERVED_WORDS = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
+
+
+def safe_filename(symbol: str) -> str:
+    # Windows 予約語を避ける（大文字小文字無視）
+    if symbol.upper() in RESERVED_WORDS:
+        return symbol + "_RESV"
+    return symbol
+
+
+def cache_single(
+    symbol: str,
+    output_dir: Path,
+    recent_dir: Path | None = None,
+    recent_days: int = RECENT_DAYS,
+) -> Tuple[str, bool, bool]:
     """指定シンボルをキャッシュ。
     戻り値: (message, used_api, success)
     """
+    safe_symbol = safe_filename(symbol)
+    filepath = output_dir / f"{safe_symbol}.csv"
+    recentpath = recent_dir / f"{safe_symbol}.csv" if recent_dir else None
+    if filepath.exists():
+        mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
+        if mod_time.date() == datetime.today().date():
+            return (f"{symbol}: already cached", False, True)
     df = get_eodhd_data(symbol)
-    if df is None or df.empty:
+    if df is not None and not df.empty:
+        df = add_indicators(df)
+        df.to_csv(filepath)
+        if recentpath:
+            recent_dir.mkdir(parents=True, exist_ok=True)
+            df.tail(recent_days).to_csv(recentpath)
+        return (f"{symbol}: saved", True, True)
+    else:
         return (f"{symbol}: failed to fetch", True, False)
     df = add_indicators(df)
     df = df.reset_index().rename(
@@ -303,9 +363,18 @@ def cache_single(symbol: str) -> tuple[str, bool, bool]:
 
 
 def cache_data(
-    symbols: list[str],
+    symbols: List[str],
+    output_dir: Path | str = DATA_CACHE_DIR,
+    recent_dir: Path | None = DATA_CACHE_RECENT_DIR,
+    recent_days: int = RECENT_DAYS,
     max_workers: int | None = None,
 ) -> None:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if recent_dir is not None:
+        recent_dir = Path(recent_dir)
+        recent_dir.mkdir(parents=True, exist_ok=True)
+
     max_workers = int(max_workers or THREADS_DEFAULT)
 
     # 当月ブラックリストに該当する銘柄をスキップ
@@ -320,8 +389,7 @@ def cache_data(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                cache_single,
-                symbol,
+                cache_single, symbol, output_dir, recent_dir, recent_days
             ): symbol
             for symbol in symbols_to_fetch
         }
@@ -350,17 +418,18 @@ def cache_data(
     cached_count = sum(1 for _, _, used_api in results_list if not used_api)
     api_count = sum(1 for _, _, used_api in results_list if used_api)
     print(
-        "✅ キャッシュ済み: "
-        f"{cached_count}件, API使用: {api_count}件, 失敗: {len(failed)}件, "
-        f"クールダウン除外: {skipped_due_to_cooldown}件"
+        f"✅ キャッシュ済み: {cached_count}件, API使用: {api_count}件, "
+        f"失敗: {len(failed)}件, クールダウン除外: {skipped_due_to_cooldown}件"
     )
 
 
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
-    print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
-    cache_data(symbols)
+    print(
+        f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
+    )
+    cache_data(symbols, output_dir=DATA_CACHE_DIR, recent_dir=DATA_CACHE_RECENT_DIR)
     print("データのキャッシュが完了しました。")
 
 

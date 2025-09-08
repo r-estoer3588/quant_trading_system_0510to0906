@@ -65,11 +65,8 @@ def prepare_data_vectorized_system1(
         df["ATR20"] = tr.rolling(20).mean()
         df["DollarVolume20"] = (df["Close"] * df["Volume"]).rolling(20).mean()
 
-        df["signal"] = (
-            (df["SMA25"] > df["SMA50"])
-            & (df["Close"] > 5)
-            & (df["DollarVolume20"] > 50_000_000)
-        ).astype(int)
+        df["filter"] = (df["Low"] >= 5) & (df["DollarVolume20"] > 50_000_000)
+        df["setup"] = df["filter"] & (df["SMA25"] > df["SMA50"])
 
         # 最新営業日分のみ保存
         latest_df = df[date_series == latest_date]
@@ -126,9 +123,9 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
     """Generate daily ROC200 ranking filtered by SPY trend."""
     all_signals = []
     for symbol, df in data_dict.items():
-        if "signal" not in df.columns or df["signal"].sum() == 0:
+        if "setup" not in df.columns or df["setup"].sum() == 0:
             continue
-        sig_df = df[df["signal"] == 1][["ROC200", "ATR20", "Open"]].copy()
+        sig_df = df[df["setup"]][["ROC200", "ATR20", "Open"]].copy()
         sig_df["symbol"] = symbol
         sig_df["entry_date"] = sig_df.index + pd.Timedelta(days=1)
         all_signals.append(sig_df.reset_index())

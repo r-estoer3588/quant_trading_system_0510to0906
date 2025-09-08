@@ -7,9 +7,9 @@ from typing import Dict, List, Tuple, Optional, Callable
 import pandas as pd
 
 
-# ===============
+# ---------------
 # 型と設定
-# ===============
+# ---------------
 @dataclass
 class SystemState:
     name: str
@@ -168,7 +168,6 @@ def run_integrated_backtest(
         # 1) 当日決済を反映
         realized = [p for p in active_positions if p["exit_date"] == current_date]
         if realized:
-            pnl_sum = float(sum(p["pnl"] for p in realized))
             # バケットごとに資金へ反映
             for p in realized:
                 sysname = p["system"]

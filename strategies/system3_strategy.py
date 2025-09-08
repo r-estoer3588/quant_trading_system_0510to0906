@@ -96,23 +96,28 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
+        """利確/損切りロジック。
+        - 終値ベースで4%以上の利益なら翌日大引けで決済
+        - 損切り価格到達時は当日決済
+        - 3日経過しても未達なら4日目の大引けで決済
+        """
         profit_take_pct = float(self.config.get("profit_take_pct", 0.04))
-        max_days = int(self.config.get("profit_take_max_days", 3))
-        for offset in range(1, max_days + 1):
-            idx2 = entry_idx + offset
-            if idx2 >= len(df):
+        max_hold_days = int(self.config.get("max_hold_days", 3))
+
+        for offset in range(max_hold_days + 1):
+            idx = entry_idx + offset
+            if idx >= len(df):
                 break
-            future_close = float(df.iloc[idx2]["Close"])
-            gain = (future_close - entry_price) / entry_price
+            row = df.iloc[idx]
+            if float(row["Low"]) <= stop_price:
+                return stop_price, df.index[idx]
+            gain = (float(row["Close"]) - entry_price) / entry_price
             if gain >= profit_take_pct:
-                exit_idx = min(idx2 + 1, len(df) - 1)
-                exit_date = df.index[exit_idx]
-                exit_price = float(df.iloc[exit_idx]["Close"])
-                return exit_price, exit_date
-        idx2 = min(entry_idx + max_days, len(df) - 1)
-        exit_date = df.index[idx2]
-        exit_price = float(df.iloc[idx2]["Close"])
-        return exit_price, exit_date
+                exit_idx = min(idx + 1, len(df) - 1)
+                return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
+
+        exit_idx = min(entry_idx + max_hold_days + 1, len(df) - 1)
+        return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
         return (exit_price - entry_price) * shares

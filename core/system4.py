@@ -1,23 +1,24 @@
 """System4 core logic (Long trend low-vol pullback)."""
 
-from typing import Dict, Tuple
 import time
+
 import numpy as np
 import pandas as pd
+from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
+
 from common.i18n import tr
 
 
 def prepare_data_vectorized_system4(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
     progress_callback=None,
     log_callback=None,
     batch_size: int = 50,
-) -> Dict[str, pd.DataFrame]:
-    result_dict: Dict[str, pd.DataFrame] = {}
+) -> dict[str, pd.DataFrame]:
+    result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
     start_time = time.time()
     processed, skipped = 0, 0
@@ -34,9 +35,8 @@ def prepare_data_vectorized_system4(
             x["ATR40"] = AverageTrueRange(
                 x["High"], x["Low"], x["Close"], window=40
             ).average_true_range()
-            x["HV50"] = (
-                np.log(x["Close"] / x["Close"].shift(1)).rolling(50).std() * np.sqrt(252) * 100
-            )
+            log_ret = np.log(x["Close"] / x["Close"].shift(1))
+            x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
             x["RSI4"] = RSIIndicator(x["Close"], window=4).rsi()
             x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
             result_dict[sym] = x
@@ -55,7 +55,8 @@ def prepare_data_vectorized_system4(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
+                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                "remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,
@@ -80,15 +81,15 @@ def prepare_data_vectorized_system4(
 
 
 def generate_candidates_system4(
-    prepared_dict: Dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame],
     market_df: pd.DataFrame,
     *,
     top_n: int = 10,
     progress_callback=None,
     log_callback=None,
     batch_size: int = 50,
-) -> Tuple[dict, pd.DataFrame | None]:
-    candidates_by_date: Dict[pd.Timestamp, list] = {}
+) -> tuple[dict, pd.DataFrame | None]:
+    candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
     start_time = time.time()
     processed, skipped = 0, 0
@@ -101,13 +102,14 @@ def generate_candidates_system4(
     for sym, df in prepared_dict.items():
         try:
             x = df.copy()
-            x["setup"] = (
-                (x["DollarVolume50"] > 100_000_000)
-                & (x["HV50"].between(10, 40))
-                & (x["Close"] > x["SMA200"])
-            ).astype(int)
+            cond_dv = x["DollarVolume50"] > 100_000_000
+            cond_hv = x["HV50"].between(10, 40)
+            x["filter"] = cond_dv & cond_hv
+            x["setup"] = x["filter"] & (x["Close"] > x["SMA200"])
 
-            setup_days = x[x["setup"] == 1]
+            setup_days = x[x["setup"]]
+            if setup_days.empty:
+                continue
             for date, row in setup_days.iterrows():
                 if date not in spy_df.index:
                     continue
@@ -133,27 +135,28 @@ def generate_candidates_system4(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            try:
-                log_callback(msg)
-            except Exception:
-                pass
-            buffer.clear()
+            if (processed % batch_size == 0 or processed == total) and log_callback:
+                elapsed = time.time() - start_time
+                remain = (elapsed / processed) * (total - processed) if processed else 0
+                em, es = divmod(int(elapsed), 60)
+                rm, rs = divmod(int(remain), 60)
+                msg = tr(
+                    "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
+                    "remain: ~{rm}m{rs}s",
+                    done=processed,
+                    total=total,
+                    em=em,
+                    es=es,
+                    rm=rm,
+                    rs=rs,
+                )
+                if buffer:
+                    msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+                buffer.clear()
 
     # rank by RSI4 ascending
     for date in list(candidates_by_date.keys()):
@@ -168,7 +171,7 @@ def generate_candidates_system4(
     return candidates_by_date, None
 
 
-def get_total_days_system4(data_dict: Dict[str, pd.DataFrame]) -> int:
+def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:
     all_dates = set()
     for df in data_dict.values():
         if df is None or df.empty:
