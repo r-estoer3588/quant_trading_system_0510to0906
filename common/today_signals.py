@@ -45,7 +45,7 @@ def _score_from_candidate(
     key_order: List[Tuple[List[str], bool]] = [
         (["ROC200"], False),  # s1: 大きいほど良い
         (["ADX7"], False),  # s2,s5: 大きいほど良い
-        (["DropRate_3D"], False),  # s3: 大きいほど良い（下落率）
+        (["Drop3D"], False),  # s3: 大きいほど良い（下落率）
         (["RSI4"], True),  # s4: 小さいほど良い
         (["Return6D"], False),  # s6: 大きいほど良い
         (["ATR50"], False),  # s7: 参考
@@ -131,7 +131,9 @@ def get_today_signals_for_strategy(
     最新営業日の候補のみを DataFrame で返す。
 
     戻り値カラム:
-      - symbol, system, side, signal_type, entry_date, entry_price, stop_price, score_key, score
+        - symbol, system, side, signal_type,
+          entry_date, entry_price, stop_price,
+          score_key, score
     """
     from common.utils_spy import get_latest_nyse_trading_day
 
@@ -223,7 +225,6 @@ def get_today_signals_for_strategy(
                 for psym, pdf in prepared.items():
                     # try to get the score value at the same entry date
                     try:
-                        # if Date column exists
                         if "Date" in pdf.columns:
                             row = pdf[pd.to_datetime(pdf["Date"]).dt.normalize() == entry_date_norm]
                         else:
@@ -249,7 +250,7 @@ def get_today_signals_for_strategy(
                         try:
                             rank = sorted_vals.index(candidate_val) + 1
                         except ValueError:
-                            # candidate_val might not exactly match due to float precision
+                            # candidate_val might not match exactly due to float precision
                             # approximate by finding nearest
                             diffs = [abs(candidate_val - x) for x in sorted_vals]
                             rank = diffs.index(min(diffs)) + 1
