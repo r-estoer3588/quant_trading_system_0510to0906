@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from strategies.system1_strategy import System1Strategy
 
 
@@ -48,3 +49,16 @@ def test_placeholder_run(dummy_data):
     trades = strategy.run_backtest(prepared, candidates, capital=10_000)
     assert not trades.empty
     assert "pnl" in trades.columns
+
+
+def test_compute_entry_basic(dummy_data):
+    strategy = System1Strategy()
+    df = dummy_data["DUMMY"].copy()
+    df["ATR20"] = 2.0
+    entry_date = df.index[1]
+    candidate = {"symbol": "DUMMY", "entry_date": entry_date}
+    res = strategy.compute_entry(df, candidate, 10_000)
+    assert res is not None
+    entry_price, stop_price = res
+    assert entry_price == pytest.approx(float(df.loc[entry_date, "Open"]))
+    assert stop_price == pytest.approx(entry_price - 10.0)

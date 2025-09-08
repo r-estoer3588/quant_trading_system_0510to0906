@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from strategies.system7_strategy import System7Strategy
 
 
@@ -46,3 +47,21 @@ def test_placeholder_run(dummy_data):
     trades = strategy.run_backtest(prepared, candidates, capital=10_000)
     assert not trades.empty
     assert "pnl" in trades.columns
+
+
+def test_entry_rule_market_short():
+    strategy = System7Strategy()
+    dates = pd.date_range("2024-01-01", periods=2, freq="B")
+    df = pd.DataFrame(
+        {
+            "Open": [100, 100],
+            "High": [101, 101],
+            "Low": [99, 99],
+            "Close": [100, 100],
+            "ATR50": [1, 1],
+        },
+        index=dates,
+    )
+    candidate = {"symbol": "SPY", "entry_date": dates[1]}
+    entry = strategy.compute_entry(df, candidate, current_capital=10_000)
+    assert entry == (100.0, 103.0)
