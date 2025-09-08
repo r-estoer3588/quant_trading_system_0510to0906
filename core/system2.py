@@ -31,7 +31,9 @@ def prepare_data_vectorized_system2(
         # メモリ節約のため、必要最小限の列のみをコピーする
         # （広いDataFrameの深いコピーでブロック統合が走り、
         #  環境によっては不要な大規模アロケーションが発生するのを防ぐ）
-        base_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+        base_cols = [
+            c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns
+        ]
         if base_cols:
             x = df[base_cols].copy()
         else:
@@ -48,7 +50,9 @@ def prepare_data_vectorized_system2(
         try:
             x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
             x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-            x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
+            x["ATR10"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=10
+            ).average_true_range()
         except Exception:
             skipped_count += 1
             processed += 1
@@ -60,15 +64,17 @@ def prepare_data_vectorized_system2(
         else:
             x["DollarVolume20"] = pd.Series(index=x.index, dtype=float)
         x["ATR_Ratio"] = x["ATR10"] / x["Close"]
-        x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
+        x["TwoDayUp"] = (
+            (x["Close"] > x["Close"].shift(1))
+            & (x["Close"].shift(1) > x["Close"].shift(2))
+        )
 
-        x["setup"] = (
-            (x["Close"] > 5)
+        x["filter"] = (
+            (x["Low"] >= 5)
             & (x["DollarVolume20"] > 25_000_000)
             & (x["ATR_Ratio"] > 0.03)
-            & (x["RSI3"] > 90)
-            & (x["TwoDayUp"])
         )
+        x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
 
         result_dict[sym] = x
         processed += 1

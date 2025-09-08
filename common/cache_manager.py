@@ -3,15 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
-from typing import Optional
+import shutil
 
 import numpy as np
 import pandas as pd
 
-from config.settings import get_settings
 from common.utils import get_cached_data, safe_filename
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class CacheManager:
         return csv_path if self.file_format in ("auto", "csv") else pq_path
 
     # ---------- IO ----------
-    def read(self, ticker: str, profile: str) -> Optional[pd.DataFrame]:
+    def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
         base = self.full_dir if profile == "full" else self.rolling_dir
         path = self._detect_path(base, ticker)
         if not path.exists():
@@ -94,7 +93,11 @@ class CacheManager:
             merged = new_rows.copy()
         else:
             merged = pd.concat([cur, new_rows], ignore_index=True)
-            merged = merged.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+            merged = (
+                merged.sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)  # noqa: E501
+            )
 
         if profile == "rolling":
             merged = self._enforce_rolling_window(merged)
@@ -122,7 +125,9 @@ class CacheManager:
         last_meta = {"anchor_rows_at_prune": 0}
         if self.rolling_meta_path.exists():
             try:
-                last_meta = json.loads(self.rolling_meta_path.read_text(encoding="utf-8"))
+                last_meta = json.loads(
+                    self.rolling_meta_path.read_text(encoding="utf-8")
+                )  # noqa: E501
             except Exception:
                 pass
 
@@ -136,10 +141,14 @@ class CacheManager:
         progressed = max(0, cur_rows - prev_rows)
 
         if progressed < self._prune_chunk:
-            logger.info(f"{self._ui_prefix} 進捗{progressed}営業日 (<{self._prune_chunk}) のためprune不要")
+            logger.info(
+                f"{self._ui_prefix} 進捗{progressed}営業日 (<{self._prune_chunk}) のためprune不要"
+            )
             return {"pruned_files": 0, "dropped_rows_total": 0}
 
-        logger.info(f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日")
+        logger.info(
+            f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日"
+        )
 
         pruned_files = 0
         dropped_total = 0
@@ -164,10 +173,17 @@ class CacheManager:
             dropped_total += drop_n
 
         self.rolling_meta_path.write_text(
-            json.dumps({"anchor_rows_at_prune": cur_rows}, ensure_ascii=False, indent=2),
+            json.dumps(
+                {"anchor_rows_at_prune": cur_rows},
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
-        logger.info(f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}")
+        logger.info(
+            f"{self._ui_prefix} ✅ prune完了: files={pruned_files},"
+            f" dropped_rows={dropped_total}"
+        )
         return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
 
 
@@ -182,7 +198,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """OHLCVのDataFrameに共通ベース指標を付加して返す。
     必要列: Open, High, Low, Close, Volume
     出力列:
-      SMA25/100/150/200, EMA20/50, ATR10/14/40/50, RSI3/14, ROC200, HV20
+      SMA25/100/150/200, EMA20/50, ATR10/14/40/50, RSI3/14, ROC200, HV50
     """
     if df is None or df.empty:
         return df
@@ -205,11 +221,14 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     x["EMA50"] = close.ewm(span=50, adjust=False).mean()
 
     # True Range / ATR
-    tr = pd.concat([
-        (high - low),
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            (high - low),
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     x["ATR10"] = tr.rolling(10).mean()
     x["ATR14"] = tr.rolling(14).mean()
     x["ATR40"] = tr.rolling(40).mean()
@@ -229,9 +248,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # ROC200 (%)
     x["ROC200"] = close.pct_change(200) * 100.0
 
-    # HV20 (% 年率)
+    # HV50 (% 年率)
     ret = np.log(close / close.shift(1))
-    x["HV20"] = ret.rolling(20).std() * np.sqrt(252) * 100
+    x["HV50"] = ret.rolling(50).std() * np.sqrt(252) * 100
 
     # 補助: 流動性系
     if vol is not None:
@@ -253,7 +272,9 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
     return path
 
 
-def load_base_cache(symbol: str, *, rebuild_if_missing: bool = True) -> Optional[pd.DataFrame]:
+def load_base_cache(
+    symbol: str, *, rebuild_if_missing: bool = True
+) -> pd.DataFrame | None:  # noqa: E501
     """data_cache/base/{symbol}.csv を優先的に読み込む。
     無ければ旧 `data_cache/{symbol}.csv` から構築・保存して返す（rebuild_if_missing=True）。
     いずれも無ければ None。
@@ -278,4 +299,3 @@ def load_base_cache(symbol: str, *, rebuild_if_missing: bool = True) -> Optional
     out = compute_base_indicators(raw)
     save_base_cache(symbol, out)
     return out
-

@@ -18,6 +18,7 @@
 14. **Return6D**：6日リターン（Return6D ランキング・バッテスト）
 15. **return_pct**：総リターン
 16. **Drop3D**：3日ドロップ
+17. **HV50**：50日ヒストリカルボラティリティ（年率換算）
 
 ## 指標と使用システム対応表
 
@@ -39,6 +40,7 @@
 | Return6D | System6 | 列として実装済 (`Return6D`) |
 | return_pct | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`return_pct`) |
 | Drop3D | System3 | 列として実装済 (`DropRate_3D`) |
+| HV50 | System4 | 列として実装済 (`HV50`) |
 
 ## 補足
 
@@ -47,3 +49,65 @@
 - ADX は「7日」「7日ADX が高い順」「55 以上」などの条件で利用される。
 - RETURN は「6日」「6日D」「総リターン」「return_pct」などの指標を含む。
 - Drop3D は「3日ドロップ」として使用される。
+
+## システム別フィルター
+
+### System1
+- `avg_dollar_volume_20 > 50_000_000`
+- `low >= 5`
+
+### System2
+- `low >= 5`
+- `avg_dollar_volume_20 > 25_000_000`
+- `ATR10 / close > 0.03`
+
+### System3
+- `low >= 1`
+- `avg_volume_50 >= 1_000_000`
+- `ATR10 / close >= 0.05`
+
+### System4
+- `avg_dollar_volume_50 > 100_000_000`
+- `0.10 <= HV50 <= 0.40`
+
+### System5
+- `avg_volume_50 > 500_000`
+- `avg_dollar_volume_50 > 2_500_000`
+- `ATR10 / close > 0.04`
+
+### System6
+- `low >= 5`
+- `avg_dollar_volume_50 > 10_000_000`
+
+### System7
+- フィルターなし
+
+## システム別セットアップ
+
+### System1
+- `SPY_close > SPY_SMA100`
+- `SMA25 > SMA50`
+
+### System2
+- `RSI3 > 90`
+- `close[-1] > close[-2]` かつ `close[-2] > close[-3]`
+
+### System3
+- `close > SMA150`
+- `(close[-3] - close) / close[-3] <= -0.125`
+
+### System4
+- `SPX_close > SPX_SMA200`
+- `close > SMA200`
+
+### System5
+- `close > SMA100 + ATR10`
+- `ADX7 > 55`
+- `RSI3 < 50`
+
+### System6
+- `(close / close[-6]) - 1 >= 0.20`
+- `close[-1] > close[-2]` かつ `close[-2] > close[-3]`
+
+### System7
+- `SPY_low == rolling_min(SPY_low, window=50)`
