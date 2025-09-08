@@ -1,16 +1,18 @@
 # strategies/system7_strategy.py
 from __future__ import annotations
 
-import pandas as pd
 import time
 
-from .base_strategy import StrategyBase
+import pandas as pd
+
 from common.alpaca_order import AlpacaOrderMixin
 from core.system7 import (
-    prepare_data_vectorized_system7,
     generate_candidates_system7,
     get_total_days_system7,
+    prepare_data_vectorized_system7,
 )
+
+from .base_strategy import StrategyBase
 
 
 class System7Strategy(AlpacaOrderMixin, StrategyBase):
@@ -26,15 +28,16 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    def prepare_data(self, raw_data_dict: dict[str, "pd.DataFrame"], *args, **kwargs):
+    def prepare_data(self, raw_data_dict: dict[str, pd.DataFrame], *args, **kwargs):
         # UIから渡される unknown なキーワード（例: single_mode）を吸収して下流関数へ渡さない
         # これにより prepare_data_vectorized_system7 のシグネチャを変更せずに互換性を保ちます。
         kwargs.pop("single_mode", None)
         return prepare_data_vectorized_system7(raw_data_dict, **kwargs)
 
     def generate_candidates(self, *args, **kwargs):
-        # 柔軟に引数を受け取り、UI などから渡される unknown なキーワード（例: single_mode）を吸収して
-        # 下流の generate_candidates_system7 に渡さないようにします。
+        # 柔軟に引数を受け取り、UI などから渡される unknown なキーワード
+        # （例: single_mode）を吸収して下流の generate_candidates_system7 に
+        # 渡さないようにします。
         prepared_dict = kwargs.pop("prepared_dict", None)
         if prepared_dict is None and len(args) > 0:
             prepared_dict = args[0]
@@ -69,7 +72,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
         stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
 
-        for i, (entry_date, candidates) in enumerate(sorted(candidates_by_date.items()), 1):
+        for i, (entry_date, candidates) in enumerate(
+            sorted(candidates_by_date.items()),
+            1,
+        ):
             if position_open and entry_date >= current_exit_date:
                 position_open = False
                 current_exit_date = None
@@ -96,7 +102,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = capital_current if single_mode else capital_current * max_pct
+                if single_mode:
+                    max_position_value = capital_current
+                else:
+                    max_position_value = capital_current * max_pct
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -149,6 +158,31 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     on_log(f"💹 バックテスト: {int(i)}/{int(total_days)} 日")
 
         return pd.DataFrame(results)
+
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+        try:
+            entry_idx = df.index.get_loc(candidate["entry_date"])
+        except Exception:
+            return None
+        if entry_idx <= 0 or entry_idx >= len(df):
+            return None
+        entry_price = float(df.iloc[entry_idx]["Open"])
+        atr_val = None
+        try:
+            atr_val = candidate.get("ATR50") if isinstance(candidate, dict) else None
+        except Exception:
+            atr_val = None
+        if atr_val is None:
+            try:
+                atr_val = df.iloc[entry_idx - 1]["ATR50"]
+            except Exception:
+                return None
+        atr = float(atr_val)
+        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_price = entry_price + stop_mult * atr
+        if stop_price - entry_price <= 0:
+            return None
+        return entry_price, stop_price
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}

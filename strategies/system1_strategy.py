@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base_strategy import StrategyBase
-from core.system1 import (
-    prepare_data_vectorized_system1,
-    generate_roc200_ranking_system1,
-    get_total_days_system1,
-)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
+from core.system1 import (
+    generate_roc200_ranking_system1,
+    get_total_days_system1,
+    prepare_data_vectorized_system1,
+)
+
+from .base_strategy import StrategyBase
 
 
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
@@ -49,7 +50,10 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             if market_df is None:
                 raise ValueError("SPY data not found in prepared_dict.")
         return generate_roc200_ranking_system1(
-            prepared_dict, market_df, top_n=top_n, **kwargs
+            prepared_dict,
+            market_df,
+            top_n=top_n,
+            **kwargs,
         )
 
     def run_backtest(
@@ -64,6 +68,25 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             on_log=on_log,
         )
         return trades_df
+
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+        """翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定"""
+        try:
+            entry_idx = df.index.get_loc(candidate["entry_date"])
+        except Exception:
+            return None
+        if entry_idx <= 0 or entry_idx >= len(df):
+            return None
+        entry_price = float(df.iloc[entry_idx]["Open"])
+        try:
+            atr = float(df.iloc[entry_idx - 1]["ATR20"])
+        except Exception:
+            return None
+        stop_mult = float(self.config.get("stop_atr_multiple", 5.0))
+        stop_price = entry_price - stop_mult * atr
+        if entry_price - stop_price <= 0:
+            return None
+        return entry_price, stop_price
 
     def get_total_days(self, data_dict: dict) -> int:
         return get_total_days_system1(data_dict)
