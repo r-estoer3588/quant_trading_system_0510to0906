@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from common.notifier import create_notifier
+from common.price_chart import save_price_chart
 from config.settings import get_settings
 
 
@@ -58,6 +59,19 @@ def _send_via_notifier(symbols: list[str]) -> None:
     try:
         # Use a neutral system name for aggregated signals
         n.send_signals("integrated", symbols)
+        for sym in symbols:
+            try:
+                img_path, img_url = save_price_chart(sym)
+                if img_path:
+                    n.send_with_mention(
+                        f"📈 {sym} 日足チャート",
+                        "",
+                        image_url=img_url,
+                        mention=False,
+                        image_path=img_path,
+                    )
+            except Exception:
+                logging.exception("failed to send chart for %s", sym)
     except Exception:
         logging.exception("signal notification failed (slack+discord)")
 
