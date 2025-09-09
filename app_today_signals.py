@@ -1,23 +1,41 @@
 from __future__ import annotations
 
-import pandas as pd
-import streamlit as st
 import time
 
-from config.settings import get_settings
-from common import broker_alpaca as ba
-from scripts.run_all_systems_today import compute_today_signals
-from common.universe import (
-    build_universe_from_cache,
-    save_universe_file,
-    load_universe_file,
-)
-from common.notifier import create_notifier
-from common.data_loader import load_price
+import pandas as pd
+import streamlit as st
 
+from common import broker_alpaca as ba
+from common.data_loader import load_price
+from common.notifier import create_notifier
+from common.profit_protection import evaluate_positions
+from config.settings import get_settings
+from scripts.run_all_systems_today import compute_today_signals
+
+from common.universe import (  # isort:skip
+    build_universe_from_cache,
+    load_universe_file,
+    save_universe_file,
+)
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
+
+st.subheader("保有ポジションと利食い判定")
+if st.button("🔄 判定更新"):
+    try:
+        client = ba.get_client(paper=True)
+        pos = client.get_all_positions()
+        st.session_state["profit_judgement"] = evaluate_positions(pos)
+        st.success("判定を更新しました")
+    except Exception as e:
+        st.error(f"判定処理エラー: {e}")
+
+df_judge = st.session_state.get("profit_judgement")
+if df_judge is not None and not df_judge.empty:
+    st.dataframe(df_judge, use_container_width=True)
+else:
+    st.info("判定結果はありません。ボタンで更新してください。")
 
 settings = get_settings(create_dirs=True)
 notifier = create_notifier(platform="slack", fallback=True)
@@ -92,7 +110,8 @@ with st.sidebar:
     do_trade = st.checkbox("Alpacaで自動発注", value=False)
 
     # 注文状況を10秒ポーリングとは？
-    # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、1秒ごとに取得・表示する機能です。
+    # → Alpacaに注文を送信した後、注文IDのステータス
+    #    (filled, canceled 等) を10秒間、1秒ごとに取得・表示する機能です。
     # これにより、注文が約定したかどうかをリアルタイムで確認できます。
 
     # キャッシュクリアボタン
@@ -178,6 +197,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             save_csv=save_csv,
             log_callback=_ui_log,
             symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
+            cache_dir=settings.DATA_CACHE_RECENT_DIR,
         )
 
     # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除
@@ -199,7 +219,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         st.dataframe(final_df, use_container_width=True)
         csv = final_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "最終CSVをダウンロード", data=csv, file_name="today_signals_final.csv"
+            "最終CSVをダウンロード",
+            data=csv,
+            file_name="today_signals_final.csv",
         )
 
         # Alpaca 自動発注（任意）
@@ -236,7 +258,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         continue
                     unique_orders[key] = r
 
-                for key, r in unique_orders.items():
+                for _key, r in unique_orders.items():
                     sym = str(r.get("symbol"))
                     qty = int(r.get("shares") or 0)
                     side = "buy" if str(r.get("side")).lower() == "long" else "sell"
@@ -313,9 +335,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if poll_status and any(r.get("order_id") for r in results):
                     st.info("注文状況を10秒間ポーリングします...")
 
+                    # fmt: off
                     order_ids = [
-                        r.get("order_id") for r in results if r.get("order_id")
+                        r.get("order_id")
+                        for r in results
+                        if r.get("order_id")
                     ]
+                    # fmt: on
                     end = time.time() + 10
                     last = {}
                     while time.time() < end:

@@ -299,6 +299,7 @@ def compute_today_signals(
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
+    cache_dir: str | Path | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -308,7 +309,7 @@ def compute_today_signals(
     cm = CacheManager(settings)
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = log_callback
-    cache_dir = cm.rolling_dir
+    cache_dir = Path(cache_dir) if cache_dir else cm.rolling_dir
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 
@@ -422,8 +423,7 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。"
-            + "SPY.csv を用意してください。"  # noqa: E501
+            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
         )
 
     # ストラテジ初期化
@@ -624,12 +624,8 @@ def compute_today_signals(
             short_alloc,
             side="short",
         )
-        parts = [
-            df for df in [long_df, short_df] if df is not None and not df.empty
-        ]  # noqa: E501
-        final_df = (
-            pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-        )  # noqa: E501
+        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
+        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
 
     if not final_df.empty:
         sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]
