@@ -376,6 +376,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         step=50,
     )
     use_all = st.checkbox(tr("use all symbols"), key="batch_all")
+    use_parallel = st.checkbox(tr("use parallel processing"), key="batch_parallel")
     run_btn = st.button(
         tr("run batch") if mode == "Backtest" else tr("run today signals"),
         key="run_batch" if mode == "Backtest" else "run_today",
@@ -426,6 +427,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     save_csv=False,
                     log_callback=_ui_log,
                     progress_callback=_progress,
+                    parallel=use_parallel,
                 )
 
             if final_df is None or final_df.empty:
@@ -775,7 +777,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 for df_sys in overall:
                     try:
                         df_tmp = df_sys.copy()
-                        df_tmp["exit_date"] = pd.to_datetime(df_tmp["exit_date"])  # type: ignore
+                        df_tmp["exit_date"] = pd.to_datetime(
+                            df_tmp["exit_date"]
+                        )  # type: ignore[arg-type]
                         df_tmp = df_tmp.sort_values("exit_date")
                         equity = float(capital) + df_tmp["pnl"].cumsum()
                         daily = equity.rename(df_tmp["system"].iloc[0]).copy()
