@@ -7,6 +7,10 @@ the layout clean and easy to read.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -115,6 +119,24 @@ def _positions_to_df(positions) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def _group_by_system(
+    df: pd.DataFrame,
+    symbol_map: dict[str, str],
+) -> dict[str, pd.DataFrame]:
+    """銘柄をシステムにマッピングして資金配分を計算する."""
+    if df.empty:
+        return {}
+
+    work = df.copy()
+    work["評価額"] = work["数量"].astype(float) * work["現在値"].astype(float)
+    work["system"] = work["銘柄"].map(symbol_map).fillna("unknown")
+
+    grouped: dict[str, pd.DataFrame] = {}
+    for system, g in work.groupby("system"):
+        grouped[system] = g[["銘柄", "評価額"]]
+    return grouped
+
+
 def main() -> None:
     """Run the Streamlit dashboard."""
     st.set_page_config(page_title="Alpaca Dashboard", layout="wide")
@@ -170,9 +192,7 @@ def main() -> None:
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown(
-        "<h2 style='margin-top:2em;'>保有ポジション</h2>", unsafe_allow_html=True
-    )
+    st.markdown("<h2 style='margin-top:2em;'>保有ポジション</h2>", unsafe_allow_html=True)
     st.markdown("<div class='alpaca-card'>", unsafe_allow_html=True)
     pos_df = _positions_to_df(positions)
     if pos_df.empty:
@@ -180,6 +200,26 @@ def main() -> None:
     else:
         st.dataframe(pos_df, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- system ごとの円グラフ表示 ---
+    mapping_path = Path("data/symbol_system_map.json")
+    if not pos_df.empty and mapping_path.exists():
+        try:
+            symbol_map = json.loads(mapping_path.read_text())
+        except Exception:
+            st.info("symbol_system_map.json の読み込みに失敗しました。")
+        else:
+            grouped = _group_by_system(pos_df, symbol_map)
+            for system, g in grouped.items():
+                st.markdown(f"<h3>{system} 資金配分</h3>", unsafe_allow_html=True)
+                fig, ax = plt.subplots()
+                ax.pie(g["評価額"], labels=g["銘柄"], autopct="%1.1f%%")
+                ax.set_aspect("equal")
+                st.pyplot(fig)
+    elif mapping_path.exists():
+        st.info("ポジションがないため円グラフを表示できません。")
+    else:
+        st.info("data/symbol_system_map.json が見つかりません。")
 
 
 if __name__ == "__main__":  # pragma: no cover - UI entry point
