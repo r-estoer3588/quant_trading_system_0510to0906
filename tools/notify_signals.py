@@ -9,16 +9,14 @@ webhooks. Discord webhooks are also supported via ``DISCORD_WEBHOOK_URL``.
 
 from __future__ import annotations
 
-import logging
-import os
 from datetime import datetime
+import logging
 from pathlib import Path
 
 import pandas as pd
-import requests
 
-from config.settings import get_settings
 from common.notifier import create_notifier
+from config.settings import get_settings
 
 
 def notify_signals():
@@ -54,11 +52,8 @@ def notify_signals():
             logging.exception("signal notification failed")
 
 
-def _send_via_notifier(text: str, symbols: list[str]) -> None:
-    """Send notification using Slack (fallback to Discord) via Notifier.
-
-    Uses create_notifier(fallback=True) and Notifier.send_signals for formatting.
-    """
+def _send_via_notifier(symbols: list[str]) -> None:
+    """Send notification using Slack (fallback to Discord) via Notifier."""
     n = create_notifier(platform="slack", fallback=True)
     try:
         # Use a neutral system name for aggregated signals
@@ -71,11 +66,9 @@ def send_signal_notification(df: pd.DataFrame) -> None:
     """Send a brief notification for the given signals DataFrame."""
     if df is None or df.empty:
         return
-    syms = ", ".join(df["symbol"].astype(str).head(10))
-    text = f"Today signals: {len(df)} picks\n{syms}"
-    _send_via_notifier(text, df["symbol"].astype(str).tolist())
+    logging.info("Today signals: %d picks", len(df))
+    _send_via_notifier(df["symbol"].astype(str).tolist())
 
 
 if __name__ == "__main__":
     notify_signals()
-
