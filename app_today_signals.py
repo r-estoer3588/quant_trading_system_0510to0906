@@ -14,10 +14,27 @@ from common.universe import (
 )
 from common.notifier import create_notifier
 from common.data_loader import load_price
+from common.profit_protection import evaluate_positions
 
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
+
+st.subheader("保有ポジションと利食い判定")
+if st.button("🔄 判定更新"):
+    try:
+        client = ba.get_client(paper=True)
+        pos = client.get_all_positions()
+        st.session_state["profit_judgement"] = evaluate_positions(pos)
+        st.success("判定を更新しました")
+    except Exception as e:
+        st.error(f"判定処理エラー: {e}")
+
+df_judge = st.session_state.get("profit_judgement")
+if df_judge is not None and not df_judge.empty:
+    st.dataframe(df_judge, use_container_width=True)
+else:
+    st.info("判定結果はありません。ボタンで更新してください。")
 
 settings = get_settings(create_dirs=True)
 notifier = create_notifier(platform="slack", fallback=True)
