@@ -181,9 +181,7 @@ def _notifications_disabled() -> bool:
     return flag2 in {"1", "true", "yes"}
 
 
-def _group_trades_by_side(
-    trades: list[dict[str, Any]]
-) -> tuple[str, dict[str, dict[str, Any]]]:
+def _group_trades_by_side(trades: list[dict[str, Any]]) -> tuple[str, dict[str, dict[str, Any]]]:
     """Group trades by side and compute notional sums."""
     impact_date: datetime | None = None
     include_system = any(t.get("system") for t in trades)
@@ -482,7 +480,13 @@ class Notifier:
         emoji = "🟢" if direction == "long" else ("🔴" if direction == "short" else "")
         items = [f"{emoji} {s}" if emoji else s for s in signals]
         fields = chunk_fields("銘柄", items, inline=False)
-        self.send(title, "", fields=fields, color=color, channel=ch)
+        preview = ", ".join(signals[:10])
+        if len(signals) > 10:
+            preview += " ..."
+        summary = (
+            f"シグナル数: {len(signals)}\n{preview}" if preview else f"シグナル数: {len(signals)}"
+        )
+        self.send(title, summary, fields=fields, color=color, channel=ch)
         self.logger.info(
             "signals %s direction=%s count=%d", system_name, direction or "none", len(signals)
         )
@@ -892,9 +896,7 @@ class FallbackNotifier:
             if self._slack_send_text(text):
                 continue
             side_trades = [
-                t
-                for t in trades
-                if str(t.get("action", t.get("side", ""))).upper() == side
+                t for t in trades if str(t.get("action", t.get("side", ""))).upper() == side
             ]
             if not self._discord_call("send_trade_report", system_name, side_trades):
                 raise RuntimeError("notification failed (slack+discord)")
