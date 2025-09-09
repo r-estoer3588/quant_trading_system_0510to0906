@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
@@ -299,8 +300,13 @@ def compute_today_signals(
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
+    parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
+
+    Args:
+        symbols: 対象シンボルリスト。
+        parallel: True の場合はシステムごとのシグナル抽出を並行実行する。
 
     戻り値: (final_df, per_system_df_dict)
     """
@@ -445,98 +451,159 @@ def compute_today_signals(
         st.markdown("### システム別シグナル件数")
         sys_names = [getattr(s, "SYSTEM_NAME", "") for s in strategy_objs]
         cols = st.columns(len(sys_names))
+        name_to_idx = {n.lower(): i for i, n in enumerate(sys_names)}
     except Exception:
         cols = [None] * len(strategy_objs)
+        name_to_idx = {}
 
-    # 当日シグナル収集
-    per_system: dict[str, pd.DataFrame] = {}
-    total = len(strategies)
-    for idx, (name, stg) in enumerate(strategies.items(), start=1):
-        if progress_callback:
+    def _run_strategy(
+        name: str, stg
+    ) -> tuple[str, pd.DataFrame, str, list[str]]:
+        logs: list[str] = []
+
+        def _local_log(message: str) -> None:
+            logs.append(str(message))
             try:
-                progress_callback(idx - 1, total, name)
+                print(message, flush=True)
             except Exception:
                 pass
-        # 各システムごとに通過銘柄のみデータを渡す
+
         if name == "system1":
             base = raw_data_system1 if "raw_data_system1" in locals() else {}
         elif name == "system2":
             base = raw_data_system2 if "raw_data_system2" in locals() else {}
-        # ...system3, system4, ...
         elif name == "system4":
-            base = {}  # system4 uses SPY indicators, handled via market_df
+            base = {}
         elif name == "system7":
             base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
         else:
             base = {}
-
         if name == "system4" and spy_df is None:
-            _log(
+            _local_log(
                 "⚠️ System4 は SPY 指標が必要ですが "
                 + "SPY データがありません。"
                 + "スキップします。"
             )
-            per_system[name] = pd.DataFrame()
-            continue
-
-        _log(f"🔎 {name}: シグナル抽出を開始")
-        # pass through log/progress callbacks so strategy code can report progress
+            return name, pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
+        _local_log(f"🔎 {name}: シグナル抽出を開始")
         try:
             df = stg.get_today_signals(
                 base,
                 market_df=spy_df,
                 today=today,
                 progress_callback=None,
-                log_callback=log_callback,
+                log_callback=_local_log,
             )
         except Exception as e:  # noqa: BLE001
-            _log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
+            _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
             df = pd.DataFrame()
         if not df.empty:
             asc = _asc_by_score_key(
                 df["score_key"].iloc[0]
                 if ("score_key" in df.columns and len(df))
-                else None  # noqa: E501
+                else None
             )
             df = df.sort_values("score", ascending=asc, na_position="last").reset_index(
                 drop=True
-            )  # noqa: E501
-        per_system[name] = df
+            )
         msg = (
             f"✅ {name}: {len(df)} 件"
             if df is not None and not df.empty
-            else f"❌ {name}: 0 件 🚫"  # noqa: E501
+            else f"❌ {name}: 0 件 🚫"
         )
-        _log(msg)
-        # --- カラムで横並び表示 ---
-        if cols and idx <= len(cols):
-            try:
-                if df is not None and not df.empty:
-                    col = cols[idx - 1]
-                    if col is not None and hasattr(col, "success"):
-                        col.success(msg)
-                else:
-                    col = cols[idx - 1]
-                    if col is not None and hasattr(col, "warning"):
-                        col.warning(msg)
-            except Exception:
-                pass
-        # --- 詳細ログはエクスパンダーで折りたたみ ---
-        if log_callback:
-            try:
-                import streamlit as st
+        _local_log(msg)
+        return name, df, msg, logs
 
-                with st.expander(f"{name} 詳細ログ", expanded=False):
-                    st.text(msg)
-                    if df is not None and not df.empty:
-                        st.dataframe(df.head())
+    per_system: dict[str, pd.DataFrame] = {}
+    total = len(strategies)
+    if parallel:
+        if progress_callback:
+            try:
+                progress_callback(0, total, "")
             except Exception:
                 pass
-    if progress_callback:
-        try:
-            progress_callback(total, total, "")
-        except Exception:
-            pass
+        with ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(_run_strategy, name, stg): name
+                for name, stg in strategies.items()
+            }
+            for idx, fut in enumerate(as_completed(futures), start=1):
+                name, df, msg, logs = fut.result()
+                per_system[name] = df
+                col_idx = name_to_idx.get(name)
+                if cols and col_idx is not None and col_idx < len(cols):
+                    try:
+                        if df is not None and not df.empty:
+                            col = cols[col_idx]
+                            if col is not None and hasattr(col, "success"):
+                                col.success(msg)
+                        else:
+                            col = cols[col_idx]
+                            if col is not None and hasattr(col, "warning"):
+                                col.warning(msg)
+                    except Exception:
+                        pass
+                if log_callback:
+                    try:
+                        for line in logs:
+                            log_callback(line)
+                        import streamlit as st
+
+                        with st.expander(f"{name} 詳細ログ", expanded=False):
+                            st.text(msg)
+                            if df is not None and not df.empty:
+                                st.dataframe(df.head())
+                    except Exception:
+                        pass
+                if progress_callback:
+                    try:
+                        progress_callback(idx, total, name)
+                    except Exception:
+                        pass
+        if progress_callback:
+            try:
+                progress_callback(total, total, "")
+            except Exception:
+                pass
+    else:
+        for idx, (name, stg) in enumerate(strategies.items(), start=1):
+            if progress_callback:
+                try:
+                    progress_callback(idx - 1, total, name)
+                except Exception:
+                    pass
+            name, df, msg, logs = _run_strategy(name, stg)
+            per_system[name] = df
+            col_idx = name_to_idx.get(name)
+            if cols and col_idx is not None and col_idx < len(cols):
+                try:
+                    if df is not None and not df.empty:
+                        col = cols[col_idx]
+                        if col is not None and hasattr(col, "success"):
+                            col.success(msg)
+                    else:
+                        col = cols[col_idx]
+                        if col is not None and hasattr(col, "warning"):
+                            col.warning(msg)
+                except Exception:
+                    pass
+            if log_callback:
+                try:
+                    for line in logs:
+                        log_callback(line)
+                    import streamlit as st
+
+                    with st.expander(f"{name} 詳細ログ", expanded=False):
+                        st.text(msg)
+                        if df is not None and not df.empty:
+                            st.dataframe(df.head())
+                except Exception:
+                    pass
+        if progress_callback:
+            try:
+                progress_callback(total, total, "")
+            except Exception:
+                pass
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     long_alloc = {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
