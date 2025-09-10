@@ -29,11 +29,17 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    def prepare_data(self, raw_data_dict: dict[str, pd.DataFrame], *args, **kwargs):
+    def prepare_data(self, raw_data_or_symbols, *args, **kwargs):
         # UIから渡される unknown なキーワード（例: single_mode）を吸収して下流関数へ渡さない
-        # これにより prepare_data_vectorized_system7 のシグネチャを変更せずに互換性を保ちます。
         kwargs.pop("single_mode", None)
-        return prepare_data_vectorized_system7(raw_data_dict, **kwargs)
+        use_process_pool = kwargs.pop("use_process_pool", False)
+        if isinstance(raw_data_or_symbols, dict):
+            raw_dict = None if use_process_pool else raw_data_or_symbols
+        else:
+            raw_dict = None
+        return prepare_data_vectorized_system7(
+            raw_dict, use_process_pool=use_process_pool, **kwargs
+        )
 
     def generate_candidates(self, *args, **kwargs):
         # 柔軟に引数を受け取り、UI などから渡される unknown なキーワード

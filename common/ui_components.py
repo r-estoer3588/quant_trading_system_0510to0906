@@ -61,6 +61,7 @@ def prepare_backtest_data(
     system_name: str = "SystemX",
     spy_df: pd.DataFrame | None = None,
     ui_manager: object | None = None,
+    use_process_pool: bool = False,
     **kwargs: Any,
 ) -> tuple[dict[str, pd.DataFrame] | None, Any | None, pd.DataFrame | None]: ...
 
@@ -362,13 +363,17 @@ def prepare_backtest_data(
     system_name: str = "SystemX",
     spy_df: pd.DataFrame | None = None,
     ui_manager=None,
+    use_process_pool: bool = False,
     **kwargs,
 ):
     # 1) fetch
-    data_dict = fetch_data(symbols, ui_manager=ui_manager)
-    if not data_dict:
-        st.error(tr("no valid data"))
-        return None, None, None
+    if use_process_pool:
+        data_dict = None
+    else:
+        data_dict = fetch_data(symbols, ui_manager=ui_manager)
+        if not data_dict:
+            st.error(tr("no valid data"))
+            return None, None, None
 
     # 2) indicators (delegated to strategy)
     # indicators フェーズ
@@ -385,26 +390,25 @@ def prepare_backtest_data(
         ind_progress = st.progress(0)
         ind_log = st.empty()
     start_time = time.time()
+    call_input = data_dict if not use_process_pool else symbols
+    call_kwargs = dict(
+        progress_callback=lambda done, total: ind_progress.progress(
+            0 if total == 0 else done / total
+        ),
+        log_callback=lambda msg: ind_log.text(str(msg)),
+        skip_callback=lambda msg: ind_log.text(str(msg)),
+        **kwargs,
+    )
+    if use_process_pool:
+        call_kwargs["use_process_pool"] = True
+
     try:
-        prepared_dict = strategy.prepare_data(
-            data_dict,
-            progress_callback=lambda done, total: ind_progress.progress(
-                0 if total == 0 else done / total
-            ),
-            log_callback=lambda msg: ind_log.text(str(msg)),
-            skip_callback=lambda msg: ind_log.text(str(msg)),
-            **kwargs,
-        )
+        prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     except TypeError:
-        # 古い戦略実装との後方互換: skip_callback 未対応の戦略に再試行
-        prepared_dict = strategy.prepare_data(
-            data_dict,
-            progress_callback=lambda done, total: ind_progress.progress(
-                0 if total == 0 else done / total
-            ),
-            log_callback=lambda msg: ind_log.text(str(msg)),
-            **kwargs,
-        )
+        # 古い戦略実装との後方互換: skip_callback/use_process_pool 未対応の戦略に再試行
+        call_kwargs.pop("skip_callback", None)
+        call_kwargs.pop("use_process_pool", None)
+        prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     try:
         ind_progress.empty()
     except Exception:

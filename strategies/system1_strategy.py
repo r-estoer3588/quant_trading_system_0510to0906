@@ -25,16 +25,26 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
 
-    def prepare_data(self, raw_data_dict, **kwargs):
+    def prepare_data(self, raw_data_or_symbols, **kwargs):
         progress_callback = kwargs.pop("progress_callback", None)
         log_callback = kwargs.pop("log_callback", None)
         skip_callback = kwargs.pop("skip_callback", None)
+        use_process_pool = kwargs.pop("use_process_pool", False)
+
+        if isinstance(raw_data_or_symbols, dict):
+            symbols = list(raw_data_or_symbols.keys())
+            raw_dict = None if use_process_pool else raw_data_or_symbols
+        else:
+            symbols = list(raw_data_or_symbols)
+            raw_dict = None
 
         return prepare_data_vectorized_system1(
-            raw_data_dict,
+            raw_dict,
             progress_callback=progress_callback,
             log_callback=log_callback,
             skip_callback=skip_callback,
+            use_process_pool=use_process_pool,
+            symbols=symbols,
             **kwargs,
         )
 

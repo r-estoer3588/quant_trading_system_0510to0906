@@ -3,23 +3,102 @@
 import time
 
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import resolve_batch_size
+from common.utils import get_cached_data, resolve_batch_size
+
+
+def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    df = get_cached_data(symbol)
+    if df is None or df.empty:
+        return symbol, None
+    x = df.copy()
+    if len(x) < 200:
+        return symbol, None
+    try:
+        x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
+        x["ATR40"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=40
+        ).average_true_range()
+        log_ret = np.log(x["Close"] / x["Close"].shift(1))
+        x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
+        x["RSI4"] = RSIIndicator(x["Close"], window=4).rsi()
+        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+    except Exception:
+        return symbol, None
+    return symbol, x
 
 
 def prepare_data_vectorized_system4(
-    raw_data_dict: dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    symbols: list[str] | None = None,
+    use_process_pool: bool = False,
+    max_workers: int | None = None,
+    skip_callback=None,
+    **kwargs,
 ) -> dict[str, pd.DataFrame]:
     result_dict: dict[str, pd.DataFrame] = {}
+    raw_data_dict = raw_data_dict or {}
+    if use_process_pool:
+        if symbols is None:
+            symbols = list(raw_data_dict.keys())
+        total = len(symbols)
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(total, batch_size)
+        buffer: list[str] = []
+        start_time = time.time()
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_compute_indicators, s): s for s in symbols}
+            for i, fut in enumerate(as_completed(futures), 1):
+                sym, df = fut.result()
+                if df is not None:
+                    result_dict[sym] = df
+                    buffer.append(sym)
+                if progress_callback:
+                    try:
+                        progress_callback(i, total)
+                    except Exception:
+                        pass
+                if (i % batch_size == 0 or i == total) and log_callback:
+                    elapsed = time.time() - start_time
+                    remain = (elapsed / i) * (total - i) if i else 0
+                    em, es = divmod(int(elapsed), 60)
+                    rm, rs = divmod(int(remain), 60)
+                    msg = tr(
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                        "remain: ~{rm}m{rs}s",
+                        done=i,
+                        total=total,
+                        em=em,
+                        es=es,
+                        rm=rm,
+                        rs=rs,
+                    )
+                    if buffer:
+                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                    try:
+                        log_callback(msg)
+                    except Exception:
+                        pass
+                    buffer.clear()
+        return result_dict
+
     total = len(raw_data_dict)
     if batch_size is None:
         try:

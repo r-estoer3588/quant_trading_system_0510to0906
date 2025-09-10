@@ -9,13 +9,17 @@ from ta.volatility import AverageTrueRange
 
 
 def prepare_data_vectorized_system7(
-    raw_data_dict: dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
+    symbols: list[str] | None = None,
+    use_process_pool: bool = False,
+    **kwargs,
 ) -> dict[str, pd.DataFrame]:
     prepared_dict: dict[str, pd.DataFrame] = {}
+    raw_data_dict = raw_data_dict or {}
     try:
         df = raw_data_dict.get("SPY").copy()
         df["ATR50"] = AverageTrueRange(
@@ -23,12 +27,12 @@ def prepare_data_vectorized_system7(
         ).average_true_range()
         df["min_50"] = df["Low"].rolling(window=50).min().round(4)
         df["setup"] = (df["Low"] <= df["min_50"]).astype(int)
-        
+
         # Check if max_70 already exists (from cached data with indicators)
         # Only calculate if not present to avoid redundant computation
         if "max_70" not in df.columns:
             df["max_70"] = df["Close"].rolling(window=70).max()
-        
+
         prepared_dict["SPY"] = df
     except Exception as e:
         if skip_callback:

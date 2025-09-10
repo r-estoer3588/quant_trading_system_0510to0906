@@ -7,21 +7,121 @@
 
 from typing import Dict, Tuple
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
-from common.utils import resolve_batch_size
+from common.utils import get_cached_data, resolve_batch_size
+
+
+def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    """Worker-side indicator calculation for a single symbol."""
+    df = get_cached_data(symbol)
+    if df is None or df.empty:
+        return symbol, None
+
+    base_cols = [
+        c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns
+    ]
+    if base_cols:
+        x = df[base_cols].copy()
+    else:
+        needed = [c for c in ["Close", "Open", "High", "Low"] if c in df.columns]
+        x = df[needed].copy() if needed else df.copy(deep=False)
+
+    if len(x) < 20:
+        return symbol, None
+
+    try:
+        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+        x["ATR10"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=10
+        ).average_true_range()
+    except Exception:
+        return symbol, None
+
+    if "Volume" in x.columns:
+        x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(window=20).mean()
+    else:
+        x["DollarVolume20"] = pd.Series(index=x.index, dtype=float)
+    x["ATR_Ratio"] = x["ATR10"] / x["Close"]
+    x["TwoDayUp"] = (
+        (x["Close"] > x["Close"].shift(1))
+        & (x["Close"].shift(1) > x["Close"].shift(2))
+    )
+    x["filter"] = (
+        (x["Low"] >= 5)
+        & (x["DollarVolume20"] > 25_000_000)
+        & (x["ATR_Ratio"] > 0.03)
+    )
+    x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
+    return symbol, x
 
 
 def prepare_data_vectorized_system2(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: Dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    symbols: list[str] | None = None,
+    use_process_pool: bool = False,
+    max_workers: int | None = None,
+    skip_callback=None,
+    **kwargs,
 ) -> Dict[str, pd.DataFrame]:
+    raw_data_dict = raw_data_dict or {}
+    if use_process_pool:
+        if symbols is None:
+            symbols = list(raw_data_dict.keys())
+        total = len(symbols)
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(total, batch_size)
+        result_dict: Dict[str, pd.DataFrame] = {}
+        buffer: list[str] = []
+        start_time = time.time()
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_compute_indicators, sym): sym for sym in symbols
+            }
+            for i, fut in enumerate(as_completed(futures), 1):
+                sym, df = fut.result()
+                if df is not None:
+                    result_dict[sym] = df
+                    buffer.append(sym)
+                if progress_callback:
+                    try:
+                        progress_callback(i, total)
+                    except Exception:
+                        pass
+                if (i % batch_size == 0 or i == total) and log_callback:
+                    elapsed = time.time() - start_time
+                    remain = (elapsed / i) * (total - i) if i else 0
+                    em, es = divmod(int(elapsed), 60)
+                    rm, rs = divmod(int(remain), 60)
+                    msg = (
+                        f"📊 インジケーター計算 {i}/{total} 件 完了 | "
+                        f"経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒\n"
+                    )
+                    if buffer:
+                        msg += f"銘柄: {', '.join(buffer)}"
+                    try:
+                        log_callback(msg)
+                    except Exception:
+                        pass
+                    buffer.clear()
+        return result_dict
+
     total = len(raw_data_dict)
     if batch_size is None:
         try:
