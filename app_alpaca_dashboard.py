@@ -102,8 +102,10 @@ def _fetch_account_and_positions() -> tuple[object, object]:
 
 
 def _positions_to_df(positions) -> pd.DataFrame:
-    """
-    Convert list of position objects to ``pandas.DataFrame`` with Japanese columns.
+    """Alpacaポジションを日本語カラムの ``DataFrame`` へ変換する。
+
+    Alpacaの ``Position`` オブジェクトには ``entry_date`` が存在しないため、
+    保有日数に基づく利益保護などの日数ベース判定はここでは行わない。
     """
     records: list[dict[str, str]] = []
     for pos in positions:

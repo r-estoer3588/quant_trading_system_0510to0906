@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-from app_alpaca_dashboard import _group_by_system, _positions_to_df
 import pandas as pd
+
+from app_alpaca_dashboard import _group_by_system, _positions_to_df
 
 
 def test_positions_to_df():
