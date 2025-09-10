@@ -17,6 +17,16 @@ from core.system2 import (
     get_total_days_system2,
 )
 
+# ビジネスルール定数（System2: ショート戦略）
+# 利益確定閾値: ショートポジションでの含み益4%で利確
+DEFAULT_PROFIT_TAKE_PCT = 0.04
+
+# 最大保有期間: 2営業日待っても利確に届かない場合は3日目で決済
+DEFAULT_MAX_HOLD_DAYS = 3
+
+# エントリー最小ギャップ: 前日終値比+4%以上の上窓が必要
+DEFAULT_ENTRY_MIN_GAP_PCT = 0.04
+
 
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system2"

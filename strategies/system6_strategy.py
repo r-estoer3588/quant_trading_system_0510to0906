@@ -15,6 +15,13 @@ from core.system6 import (
     get_total_days_system6,
 )
 
+# ビジネスルール定数（System6: ショート戦略）
+# 利益確定閾値: ショートポジションでの含み益5%で利確
+DEFAULT_PROFIT_TAKE_PCT = 0.05
+
+# 利益確定最大日数: 3日間まで利確を待つ
+DEFAULT_PROFIT_TAKE_MAX_DAYS = 3
+
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"

@@ -16,6 +16,13 @@ from core.system3 import (
     get_total_days_system3,
 )
 
+# ビジネスルール定数（System3: ロング・ミーンリバージョン戦略）
+# 利益確定閾値: ロングポジションでの含み益4%で利確
+DEFAULT_PROFIT_TAKE_PCT = 0.04
+
+# 最大保有期間: 3日経過しても未達なら4日目の大引けで決済
+DEFAULT_MAX_HOLD_DAYS = 3
+
 
 class System3Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system3"
