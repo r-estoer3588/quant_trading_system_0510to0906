@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 
@@ -16,9 +17,47 @@ import pandas as pd
 import requests
 
 
-# _migrate_root_csv_to_full 未定義エラー対応（暫定: ダミー関数定義）
-def _migrate_root_csv_to_full(*args, **kwargs):
-    raise NotImplementedError("_migrate_root_csv_to_full is not implemented.")
+def _migrate_root_csv_to_full() -> None:
+    """旧構成のキャッシュ(csv)を CacheManager 配下に移行する。"""
+    global DATA_CACHE_DIR, DATA_CACHE_RECENT_DIR
+
+    try:
+        full_dir = cm.full_dir
+        rolling_dir = cm.rolling_dir
+    except Exception:
+        return
+
+    # data_cache/*.csv -> data_cache/full/
+    if DATA_CACHE_DIR != full_dir:
+        full_dir.mkdir(parents=True, exist_ok=True)
+        for src in Path(DATA_CACHE_DIR).glob("*.csv"):
+            dest = full_dir / src.name
+            if dest.exists():
+                continue
+            try:
+                src.rename(dest)
+            except Exception:
+                try:
+                    shutil.move(str(src), str(dest))
+                except Exception as e:  # pragma: no cover - logging only
+                    logging.warning("移行失敗: %s -> %s (%s)", src, dest, e)
+        DATA_CACHE_DIR = full_dir
+
+    # data_cache_recent/*.csv -> data_cache/rolling/
+    if DATA_CACHE_RECENT_DIR != rolling_dir:
+        rolling_dir.mkdir(parents=True, exist_ok=True)
+        for src in Path(DATA_CACHE_RECENT_DIR).glob("*.csv"):
+            dest = rolling_dir / src.name
+            if dest.exists():
+                continue
+            try:
+                src.rename(dest)
+            except Exception:
+                try:
+                    shutil.move(str(src), str(dest))
+                except Exception as e:  # pragma: no cover - logging only
+                    logging.warning("移行失敗: %s -> %s (%s)", src, dest, e)
+        DATA_CACHE_RECENT_DIR = rolling_dir
 
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
