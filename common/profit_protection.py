@@ -25,7 +25,7 @@ def _days_held(entry_date: Any) -> int | None:
         entry = pd.to_datetime(entry_date)
         today = pd.Timestamp.utcnow().normalize()
         return int((today - entry.normalize()).days)
-    except Exception:
+    except (ValueError, TypeError, pd.errors.OutOfBoundsDatetime):
         return None
 
 
