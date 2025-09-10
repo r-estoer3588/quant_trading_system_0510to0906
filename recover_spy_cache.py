@@ -33,12 +33,45 @@ def resolve_cache_dir() -> str:
     return os.path.join(os.path.dirname(__file__), "data_cache")
 
 
-def fetch_and_cache_spy_from_eodhd(folder=None):
+def resolve_cache_group(root: str) -> str:
+    """保存グループ(base/full)を解決する。既定は base。
+    環境変数(QUANT_CACHE_GROUP/CACHE_GROUP/DATA_CACHE_GROUP) > 既存ディレクトリ検出(base>full) > base
+    """
+    for key in ("QUANT_CACHE_GROUP", "CACHE_GROUP", "DATA_CACHE_GROUP"):
+        v = os.getenv(key)
+        if v and v.lower() in ("base", "full"):
+            return v.lower()
+    if os.path.isdir(os.path.join(root, "base")):
+        return "base"
+    if os.path.isdir(os.path.join(root, "full")):
+        return "full"
+    return "base"
+
+
+def append_group(folder: str, group: str) -> str:
+    tail = os.path.basename(os.path.normpath(folder)).lower()
+    if tail in ("base", "full"):
+        return folder
+    return os.path.join(folder, group)
+
+
+def resolve_target_dirs(folder: str) -> list[str]:
+    """与えられたフォルダから base と full の両方の保存先パスを返す。
+    folder が base/full を末尾に含む場合は親をルートとして両方を組み立てる。
+    """
+    norm = os.path.normpath(folder)
+    tail = os.path.basename(norm).lower()
+    root = os.path.dirname(norm) if tail in ("base", "full") else norm
+    return [os.path.join(root, "base"), os.path.join(root, "full")]
+
+
+def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
     symbol = "SPY"
     if folder is None:
         folder = resolve_cache_dir()
+    # 常に base と full の両方へ保存する
+    target_dirs = resolve_target_dirs(folder)
     url = f"https://eodhistoricaldata.com/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
-    path = os.path.join(folder, f"{symbol}.csv")
 
     try:
         print(f"[INFO] Fetching URL: {url}")
@@ -56,7 +89,7 @@ def fetch_and_cache_spy_from_eodhd(folder=None):
         df["date"] = pd.to_datetime(df["date"])  # 小文字のままにする
         df = df.rename(
             columns={
-                "date": "date",  # ローダ互換: parse_dates=['date']
+                "date": "date",
                 "open": "Open",
                 "high": "High",
                 "low": "Low",
@@ -66,10 +99,11 @@ def fetch_and_cache_spy_from_eodhd(folder=None):
             }
         )
 
-        os.makedirs(folder, exist_ok=True)
-        df.to_csv(path, index=False)
-
-        print(f"✅ SPY.csv を保存しました: {path}")
+        for d in target_dirs:
+            os.makedirs(d, exist_ok=True)
+            path = os.path.join(d, f"{symbol}.csv")
+            df.to_csv(path, index=False)
+            print(f"✅ SPY.csv を保存しました: {path}")
 
     except Exception as e:
         msg = f"❌ 例外が発生しました: {e}"
@@ -79,7 +113,13 @@ def fetch_and_cache_spy_from_eodhd(folder=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SPY の日足を取得しキャッシュへ保存")
     parser.add_argument(
-        "--out", dest="out", default=None, help="保存ディレクトリ(未指定時は自動解決)"
+        "--out", dest="out", default=None, help="保存ルートディレクトリ(未指定時は自動解決)"
+    )
+    parser.add_argument(
+        "--group",
+        choices=["base", "full"],
+        default=None,
+        help="保存グループ(base/full)。未指定時は自動検出/既定base",
     )
     args = parser.parse_args()
-    fetch_and_cache_spy_from_eodhd(folder=args.out)
+    fetch_and_cache_spy_from_eodhd(folder=args.out, group=args.group)
