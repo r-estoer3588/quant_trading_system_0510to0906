@@ -1,20 +1,18 @@
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import pandas as pd
 import streamlit as st
-import time
 
-from config.settings import get_settings
 from common import broker_alpaca as ba
-from scripts.run_all_systems_today import compute_today_signals
-from common.universe import (
-    build_universe_from_cache,
-    save_universe_file,
-    load_universe_file,
-)
-from common.notifier import create_notifier
+from common import universe as univ
 from common.data_loader import load_price
-
+from common.notifier import create_notifier
+from common.profit_protection import evaluate_positions
+from config.settings import get_settings
+from scripts.run_all_systems_today import compute_today_signals
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -24,10 +22,10 @@ notifier = create_notifier(platform="slack", fallback=True)
 
 with st.sidebar:
     st.header("ユニバース")
-    universe = load_universe_file()
+    universe = univ.load_universe_file()
     if not universe:
-        universe = build_universe_from_cache(limit=None)
-        save_universe_file(universe)
+        universe = univ.build_universe_from_cache(limit=None)
+        univ.save_universe_file(universe)
     all_syms = universe
 
     # テスト用10銘柄 or 全銘柄選択
@@ -92,7 +90,8 @@ with st.sidebar:
     do_trade = st.checkbox("Alpacaで自動発注", value=False)
 
     # 注文状況を10秒ポーリングとは？
-    # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、1秒ごとに取得・表示する機能です。
+    # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、
+    #    1秒ごとに取得・表示する機能です。
     # これにより、注文が約定したかどうかをリアルタイムで確認できます。
 
     # キャッシュクリアボタン
@@ -107,6 +106,23 @@ with st.sidebar:
             st.success("すべての未約定注文をキャンセルしました")
         except Exception as e:
             st.error(f"注文キャンセルエラー: {e}")
+
+st.subheader("保有ポジションと利益保護判定")
+if st.button("🔍 Alpacaから保有ポジション取得"):
+    try:
+        client = ba.get_client(paper=paper_mode)
+        positions = client.get_all_positions()
+        st.session_state["positions_df"] = evaluate_positions(positions)
+        st.success("ポジションを取得しました")
+    except Exception as e:
+        st.error(f"ポジション取得エラー: {e}")
+
+if "positions_df" in st.session_state:
+    df_pos = st.session_state["positions_df"]
+    if df_pos.empty:
+        st.info("保有ポジションはありません。")
+    else:
+        st.dataframe(df_pos, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     # 指標ごとに必要な日数（＋10%余裕）を定義
@@ -199,7 +215,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         st.dataframe(final_df, use_container_width=True)
         csv = final_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "最終CSVをダウンロード", data=csv, file_name="today_signals_final.csv"
+            "最終CSVをダウンロード",
+            data=csv,
+            file_name="today_signals_final.csv",
         )
 
         # Alpaca 自動発注（任意）
@@ -236,7 +254,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         continue
                     unique_orders[key] = r
 
-                for key, r in unique_orders.items():
+                for _key, r in unique_orders.items():
                     sym = str(r.get("symbol"))
                     qty = int(r.get("shares") or 0)
                     side = "buy" if str(r.get("side")).lower() == "long" else "sell"
@@ -313,9 +331,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if poll_status and any(r.get("order_id") for r in results):
                     st.info("注文状況を10秒間ポーリングします...")
 
-                    order_ids = [r.get("order_id") for r in results if r.get("order_id")]
+                    order_ids: list[str] = []
+                    for r in results:
+                        oid = r.get("order_id")
+                        if oid:
+                            order_ids.append(oid)
                     end = time.time() + 10
-                    last = {}
+                    last: dict[str, Any] = {}
                     while time.time() < end:
                         status_map = ba.get_orders_status_map(client, order_ids)
                         if status_map != last:

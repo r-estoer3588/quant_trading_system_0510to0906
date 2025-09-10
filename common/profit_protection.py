@@ -40,7 +40,8 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        DataFrame containing symbol, quantity, current price and judgement text.
+        DataFrame containing symbol, side, quantity, current price and judgement
+        text.
     """
 
     records: list[dict[str, str]] = []
@@ -82,6 +83,7 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         records.append(
             {
                 "symbol": symbol,
+                "side": side,
                 "qty": qty,
                 "current_price": current,
                 "judgement": judgement,
