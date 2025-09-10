@@ -12,6 +12,7 @@ from .constants import (
 )
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
+from common.utils import resolve_batch_size
 from core.system2 import (
     prepare_data_vectorized_system2,
     generate_candidates_system2,
@@ -33,7 +34,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         raw_data_dict,
         progress_callback=None,
         log_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
         **kwargs,
     ):
         """インジケーター計算をコア関数へ委譲。
@@ -41,6 +42,14 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         UI 側から渡される追加キーワード（例: `limit_symbols`, `skip_callback` など）が
         混在してもここで受け止めて無視することで、予期しない TypeError を回避する。
         """
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(raw_data_dict), batch_size)
         return prepare_data_vectorized_system2(
             raw_data_dict,
             progress_callback=progress_callback,

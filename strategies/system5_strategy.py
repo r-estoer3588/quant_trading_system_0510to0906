@@ -6,6 +6,7 @@ from .base_strategy import StrategyBase
 from .constants import STOP_ATR_MULTIPLE_DEFAULT, FALLBACK_EXIT_DAYS_DEFAULT
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
+from common.utils import resolve_batch_size
 from core.system5 import (
     prepare_data_vectorized_system5,
     generate_candidates_system5,
@@ -25,8 +26,16 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
     ):
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(raw_data_dict), batch_size)
         return prepare_data_vectorized_system5(
             raw_data_dict,
             progress_callback=progress_callback,
@@ -35,7 +44,11 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         )
 
     def generate_candidates(
-        self, prepared_dict, progress_callback=None, log_callback=None, batch_size=50
+        self,
+        prepared_dict,
+        progress_callback=None,
+        log_callback=None,
+        batch_size: int | None = None,
     ):
         try:
             from config.settings import get_settings
@@ -43,6 +56,14 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
         except Exception:
             top_n = 10
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system5(
             prepared_dict,
             top_n=top_n,

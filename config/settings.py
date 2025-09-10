@@ -43,6 +43,7 @@ class DataConfig:
     cache_dir: Path = Path("data_cache")
     cache_recent_dir: Path = Path("data_cache_recent")
     max_workers: int = 8
+    batch_size: int = 100
     request_timeout: int = 10
     download_retries: int = 3
     api_throttle_seconds: float = 1.5
@@ -296,6 +297,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             ),
         ),
         max_workers=_env_int("THREADS_DEFAULT", int(data_cfg.get("max_workers", 8))),
+        batch_size=_env_int("BATCH_SIZE", int(data_cfg.get("batch_size", 100))),
         request_timeout=_env_int(
             "REQUEST_TIMEOUT", int(data_cfg.get("request_timeout", 10))
         ),

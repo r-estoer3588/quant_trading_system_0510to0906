@@ -6,6 +6,7 @@ import pandas as pd
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
+from common.utils import resolve_batch_size
 
 
 def prepare_data_vectorized_system6(
@@ -14,10 +15,18 @@ def prepare_data_vectorized_system6(
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []
@@ -93,10 +102,18 @@ def generate_candidates_system6(
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []

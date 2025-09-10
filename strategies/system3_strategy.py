@@ -11,6 +11,7 @@ from .constants import (
 )
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
+from common.utils import resolve_batch_size
 from core.system3 import (
     prepare_data_vectorized_system3,
     generate_candidates_system3,
@@ -31,8 +32,16 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
     ):
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(raw_data_dict), batch_size)
         return prepare_data_vectorized_system3(
             raw_data_dict,
             progress_callback=progress_callback,
@@ -46,7 +55,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         prepared_dict,
         progress_callback=None,
         log_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
         **kwargs,
     ):
         try:
@@ -55,6 +64,14 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
         except Exception:
             top_n = 10
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system3(
             prepared_dict,
             top_n=top_n,

@@ -1,7 +1,6 @@
 # common/utils.py
 import os
 import pandas as pd
-from datetime import datetime
 
 # Windows予約語（safe_filename用）
 RESERVED_WORDS = {
@@ -82,3 +81,14 @@ def clamp01(value: float) -> float:
         return max(0.0, min(1.0, float(value)))
     except Exception:
         return 0.0
+
+
+def resolve_batch_size(total_symbols: int, configured: int) -> int:
+    """Return effective batch size.
+
+    If `total_symbols` is 500 以下, バッチサイズを総銘柄数の10% (切り捨て) とし、
+    最低でも10件になるよう調整する。それ以外は `configured` をそのまま返す。
+    """
+    if total_symbols <= 500:
+        return max(total_symbols // 10, 10)
+    return configured

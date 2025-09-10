@@ -38,6 +38,8 @@ data:
   api_key_env: EODHD_API_KEY
   cache_dir: data_cache
   max_workers: 8
+  # バッチ処理で一度に扱う銘柄数（調整可能）
+  batch_size: 100
   request_timeout: 10
   download_retries: 3
   api_throttle_seconds: 1.5

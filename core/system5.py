@@ -8,6 +8,7 @@ from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
+from common.utils import resolve_batch_size
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
@@ -18,10 +19,18 @@ def prepare_data_vectorized_system5(
     *,
     progress_callback=None,
     log_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     processed, skipped = 0, 0
     buffer: list[str] = []
     start_time = time.time()
@@ -103,10 +112,18 @@ def generate_candidates_system5(
     top_n: int = 10,
     progress_callback=None,
     log_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     processed, skipped = 0, 0
     buffer: list[str] = []
     start_time = time.time()
