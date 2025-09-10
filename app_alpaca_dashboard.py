@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from common import broker_alpaca as ba
-from common.position_age import days_held, load_entry_dates
 
 
 def _inject_css() -> None:
@@ -94,25 +94,66 @@ def _inject_css() -> None:
     )
 
 
-def _fetch_account_and_positions() -> tuple[object, object]:
-    """Retrieve account and open positions using the Alpaca client."""
+def _fetch_account_and_positions() -> tuple[object, object, object]:
+    """Retrieve client, account and open positions using the Alpaca client."""
     client = ba.get_client()
     account = client.get_account()
     positions = client.get_all_positions()
-    return account, positions
+    return client, account, positions
 
 
-def _positions_to_df(positions) -> pd.DataFrame:
-    """Convert list of position objects to ``pandas.DataFrame``.
+def _days_held(entry_dt: object | None) -> int | None:
+    """Calculate holding days from entry date."""
+    if entry_dt is None:
+        return None
+    try:
+        dt = pd.to_datetime(entry_dt)
+    except Exception:
+        return None
+    today = pd.Timestamp(datetime.utcnow()).normalize()
+    return int((today - dt.normalize()).days)
 
-    Alpaca's position object lacks the entry date, so we read our persistent
-    mapping and compute the number of days each position has been held.
-    """
-    entry_map = load_entry_dates()
+
+def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
+    """Fetch entry dates for symbols via account activities."""
+    out: dict[str, pd.Timestamp] = {}
+    for sym in symbols:
+        try:
+            acts = client.get_activities(symbol=sym, activity_types="FILL")
+        except Exception:
+            continue
+        for act in sorted(acts, key=lambda a: getattr(a, "transaction_time", None)):
+            t = getattr(act, "transaction_time", None)
+            if t:
+                out[sym] = pd.Timestamp(t)
+                break
+    return out
+
+
+def _positions_to_df(positions, client) -> pd.DataFrame:
+    """Convert positions to DataFrame and append holding days and exit hints."""
+    symbols = [getattr(p, "symbol", "") for p in positions]
+    entry_map = _fetch_entry_dates(client, symbols)
+
+    mapping_path = Path("data/symbol_system_map.json")
+    symbol_map: dict[str, str] = {}
+    if mapping_path.exists():
+        try:
+            symbol_map = json.loads(mapping_path.read_text())
+        except Exception:
+            symbol_map = {}
+
+    hold_limits = {"system2": 2, "system3": 3, "system5": 6, "system6": 3}
+
     records: list[dict[str, object]] = []
     for pos in positions:
         sym = getattr(pos, "symbol", "")
-        held = days_held(entry_map.get(sym))
+        held = _days_held(entry_map.get(sym))
+        system = symbol_map.get(sym, "unknown").lower()
+        limit = hold_limits.get(system)
+        exit_hint = (
+            f"{limit}日経過で手仕舞い" if held is not None and limit and held >= limit else ""
+        )
         records.append(
             {
                 "銘柄": sym,
@@ -120,7 +161,8 @@ def _positions_to_df(positions) -> pd.DataFrame:
                 "平均取得単価": getattr(pos, "avg_entry_price", ""),
                 "現在値": getattr(pos, "current_price", ""),
                 "含み損益": getattr(pos, "unrealized_pl", ""),
-                "保有日数": held,
+                "保有日数": held if held is not None else "-",
+                "経過日手仕舞い": exit_hint,
             }
         )
     return pd.DataFrame(records)
@@ -159,7 +201,7 @@ def main() -> None:
     _inject_css()
 
     try:
-        account, positions = _fetch_account_and_positions()
+        client, account, positions = _fetch_account_and_positions()
     except Exception as exc:  # pragma: no cover - network or credential errors
         st.error(f"データ取得に失敗しました: {exc}")
         return
@@ -201,7 +243,7 @@ def main() -> None:
 
     st.markdown("<h2 style='margin-top:2em;'>保有ポジション</h2>", unsafe_allow_html=True)
     st.markdown("<div class='alpaca-card'>", unsafe_allow_html=True)
-    pos_df = _positions_to_df(positions)
+    pos_df = _positions_to_df(positions, client)
     if pos_df.empty:
         st.info("ポジションはありません。")
     else:
