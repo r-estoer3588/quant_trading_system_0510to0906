@@ -400,12 +400,12 @@ def cache_single(
     df = get_eodhd_data(symbol)
     if df is not None and not df.empty:
         df = add_indicators(df)
-        df.to_csv(filepath)
+        df_reset = df.reset_index().rename(columns=str.lower)
+        df_reset.to_csv(filepath, index=False)
         if recentpath:
             if recent_dir is not None:
                 recent_dir.mkdir(parents=True, exist_ok=True)
-            # Date 列を欠落させないように index を列へ戻してから保存
-            df.reset_index().tail(recent_days).to_csv(recentpath, index=False)
+            df_reset.tail(recent_days).to_csv(recentpath, index=False)
         return (f"{symbol}: saved", True, True)
     else:
         return (f"{symbol}: failed to fetch", True, False)
