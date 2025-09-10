@@ -16,9 +16,55 @@ import pandas as pd
 import requests
 
 
-# _migrate_root_csv_to_full 未定義エラー対応（暫定: ダミー関数定義）
-def _migrate_root_csv_to_full(*args, **kwargs):
-    raise NotImplementedError("_migrate_root_csv_to_full is not implemented.")
+def _migrate_root_csv_to_full() -> None:
+    """レガシーな CSV キャッシュを ``CacheManager`` の構成へ移行する。
+
+    旧バージョンでは ``data_cache/`` や ``data_cache_recent/`` 直下に
+    シンボルごとの CSV を配置していた。現在は ``CacheManager`` により
+    ``data_cache/full/`` と ``data_cache/rolling/`` に整理されているため、
+    既存ファイルがあればこの関数で移動する。移行に失敗してもログを
+    出力するのみで処理を継続する。
+    """
+
+    global DATA_CACHE_DIR, DATA_CACHE_RECENT_DIR
+
+    try:
+        full_dir = cm.full_dir
+        rolling_dir = cm.rolling_dir
+    except Exception:  # pragma: no cover - セットアップ失敗時は移行不要
+        return
+
+    # data_cache/*.csv -> data_cache/full/
+    if DATA_CACHE_DIR != full_dir:
+        full_dir.mkdir(parents=True, exist_ok=True)
+        for src in DATA_CACHE_DIR.glob("*.csv"):
+            dest = full_dir / src.name
+            if dest.exists():
+                continue
+            try:
+                src.rename(dest)
+            except Exception:  # pragma: no cover - Windows などで rename 失敗
+                try:
+                    shutil.move(str(src), str(dest))
+                except Exception as e:  # pragma: no cover - logging only
+                    logging.warning("移行失敗: %s -> %s (%s)", src, dest, e)
+        DATA_CACHE_DIR = full_dir
+
+    # data_cache_recent/*.csv -> data_cache/rolling/
+    if DATA_CACHE_RECENT_DIR != rolling_dir:
+        rolling_dir.mkdir(parents=True, exist_ok=True)
+        for src in DATA_CACHE_RECENT_DIR.glob("*.csv"):
+            dest = rolling_dir / src.name
+            if dest.exists():
+                continue
+            try:
+                src.rename(dest)
+            except Exception:  # pragma: no cover - Windows などで rename 失敗
+                try:
+                    shutil.move(str(src), str(dest))
+                except Exception as e:  # pragma: no cover - logging only
+                    logging.warning("移行失敗: %s -> %s (%s)", src, dest, e)
+        DATA_CACHE_RECENT_DIR = rolling_dir
 
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
