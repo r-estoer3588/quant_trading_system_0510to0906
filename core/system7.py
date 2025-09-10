@@ -4,6 +4,8 @@ System7 は SPY 専用のため、prepare_data/generate_candidates のみ共通�
 run_backtest は strategy 側にカスタム実装が残る。
 """
 
+import os
+
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
@@ -14,22 +16,64 @@ def prepare_data_vectorized_system7(
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
+    reuse_indicators: bool = True,
 ) -> dict[str, pd.DataFrame]:
+    cache_dir = "data_cache/indicators_system7_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     prepared_dict: dict[str, pd.DataFrame] = {}
     try:
-        df = raw_data_dict.get("SPY").copy()
-        df["ATR50"] = AverageTrueRange(
-            df["High"], df["Low"], df["Close"], window=50
-        ).average_true_range()
-        df["min_50"] = df["Low"].rolling(window=50).min().round(4)
-        df["setup"] = (df["Low"] <= df["min_50"]).astype(int)
-        
-        # Check if max_70 already exists (from cached data with indicators)
-        # Only calculate if not present to avoid redundant computation
-        if "max_70" not in df.columns:
-            df["max_70"] = df["Close"].rolling(window=70).max()
-        
-        prepared_dict["SPY"] = df
+        df_raw = raw_data_dict.get("SPY")
+        if df_raw is None:
+            raise ValueError("SPY data missing")
+        if "Date" in df_raw.columns:
+            df = df_raw.copy()
+            df.index = pd.to_datetime(df["Date"]).dt.normalize()
+        else:
+            df = df_raw.copy()
+            df.index = pd.to_datetime(df.index).normalize()
+
+        cache_path = os.path.join(cache_dir, "SPY.feather")
+        cached: pd.DataFrame | None = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
+            except Exception:
+                cached = None
+
+        def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+            x = src.copy()
+            x["ATR50"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=50
+            ).average_true_range()
+            x["min_50"] = x["Low"].rolling(50).min().round(4)
+            x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
+            x["max_70"] = x["Close"].rolling(70).max()
+            return x
+
+        if cached is not None and not cached.empty:
+            last_date = cached.index.max()
+            new_rows = df[df.index > last_date]
+            if new_rows.empty:
+                result_df = cached
+            else:
+                context_start = last_date - pd.Timedelta(days=70)
+                recompute_src = df[df.index >= context_start]
+                recomputed = _calc_indicators(recompute_src)
+                recomputed = recomputed[recomputed.index > last_date]
+                result_df = pd.concat([cached, recomputed])
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+        else:
+            result_df = _calc_indicators(df)
+            try:
+                result_df.reset_index().to_feather(cache_path)
+            except Exception:
+                pass
+        prepared_dict["SPY"] = result_df
     except Exception as e:
         if skip_callback:
             try:
