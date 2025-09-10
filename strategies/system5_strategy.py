@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
+from .constants import STOP_ATR_MULTIPLE_DEFAULT, FALLBACK_EXIT_DAYS_DEFAULT
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system5 import (
@@ -77,7 +78,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 3.0))
+        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None
@@ -95,7 +96,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                 atr = 0.0
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
         target_price = entry_price + target_mult * atr
-        fallback_days = int(getattr(self, "config", {}).get("fallback_exit_after_days", 6))
+        fallback_days = int(getattr(self, "config", {}).get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT))
 
         offset = 1
         while offset <= fallback_days and entry_idx + offset < len(df):
@@ -111,7 +112,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                     ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
                     entry_price = round(prev_close2 * ratio, 2)
                     atr2 = float(df.iloc[entry_idx + offset]["ATR10"])
-                    stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 3.0))
+                    stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
                     stop_price = entry_price - stop_mult * atr2
                     target_price = entry_price + target_mult * atr2
                     entry_idx = entry_idx + offset

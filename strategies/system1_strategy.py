@@ -19,6 +19,7 @@ from core.system1 import (
 )
 
 from .base_strategy import StrategyBase
+from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 
 
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
@@ -82,7 +83,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR20"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 5.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None

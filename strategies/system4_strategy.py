@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
+from .constants import STOP_ATR_MULTIPLE_SYSTEM4
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system4 import (
@@ -91,7 +92,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             atr40 = float(df.iloc[entry_idx - 1]["ATR40"])
         except Exception:
             return None
-        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 1.5))
+        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4))
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None

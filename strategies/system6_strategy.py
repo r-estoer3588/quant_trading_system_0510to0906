@@ -3,6 +3,11 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
+from .constants import (
+    PROFIT_TAKE_PCT_DEFAULT_5,
+    MAX_HOLD_DAYS_DEFAULT,
+    STOP_ATR_MULTIPLE_DEFAULT,
+)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system6 import (
@@ -86,7 +91,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
@@ -95,8 +100,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
-        profit_take_pct = float(self.config.get("profit_take_pct", 0.05))
-        max_days = int(self.config.get("profit_take_max_days", 3))
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
+        max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         offset = 1
         while offset <= max_days and entry_idx + offset < len(df):
             row = df.iloc[entry_idx + offset]
@@ -112,7 +117,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                     ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 1.05))
                     entry_price = round(prev_close2 * ratio, 2)
                     atr2 = float(df.iloc[entry_idx + offset]["ATR10"])
-                    stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+                    stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
                     stop_price = entry_price + stop_mult * atr2
                     entry_idx = entry_idx + offset + 1
                     offset = 0

@@ -13,6 +13,7 @@ from core.system7 import (
 )
 
 from .base_strategy import StrategyBase
+from .constants import STOP_ATR_MULTIPLE_DEFAULT
 
 
 class System7Strategy(AlpacaOrderMixin, StrategyBase):
@@ -70,7 +71,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         if "single_mode" in self.config:
             single_mode = bool(self.config.get("single_mode", False))
 
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -178,7 +179,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 return None
         atr = float(atr_val)
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
