@@ -830,7 +830,7 @@ def main():
                 system_id=int(str(r.get("system")).replace("system", "") or 0),
                 symbol=str(r.get("symbol")),
                 side="BUY" if str(r.get("side")).lower() == "long" else "SELL",
-                strength=float(r.get("score") or 0.0),
+                strength=float(r.get("score", 0.0)),
                 meta={},
             )
             for _, r in final_df.iterrows()

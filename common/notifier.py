@@ -192,8 +192,8 @@ def _group_trades_by_side(trades: list[dict[str, Any]]) -> tuple[str, dict[str, 
     for t in trades:
         sym = str(t.get("symbol"))
         side = str(t.get("action", t.get("side", ""))).upper()
-        qty = int(t.get("qty", t.get("shares", 0)) or 0)
-        price = float(t.get("price", t.get("entry_price", 0.0) or 0.0) or 0.0)
+        qty = int(t.get("qty", t.get("shares", 0)))
+        price = float(t.get("price", t.get("entry_price", 0.0)))
         notional = qty * price
         entry_date = t.get("entry_date")
         if entry_date:
