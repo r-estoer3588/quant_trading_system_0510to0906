@@ -25,6 +25,7 @@ def test_positions_to_df():
     assert isinstance(df, pd.DataFrame)
     assert list(df["銘柄"]) == ["AAPL", "MSFT"]
     assert list(df["数量"]) == ["10", "5"]
+    assert "保有日数" in df.columns
 
 
 def test_group_by_system():
