@@ -55,10 +55,22 @@ class CacheManager:
             if path.suffix == ".parquet":
                 df = pd.read_parquet(path)
             else:
-                df = pd.read_csv(path, parse_dates=["date"])
+                try:
+                    df = pd.read_csv(path, parse_dates=["date"])
+                except ValueError as e:
+                    if "Missing column provided to 'parse_dates': 'date'" in str(e):
+                        df = pd.read_csv(path)
+                        if "Date" in df.columns:
+                            df = df.rename(columns={"Date": "date"})
+                            df["date"] = pd.to_datetime(df["date"])
+                        else:
+                            raise
+                    else:
+                        raise
         except Exception as e:  # pragma: no cover - log and continue
             logger.warning(f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})")
             return None
+        df.columns = [c.lower() for c in df.columns]
         if "date" in df.columns:
             df = df.sort_values("date").drop_duplicates("date").reset_index(drop=True)
         return df
