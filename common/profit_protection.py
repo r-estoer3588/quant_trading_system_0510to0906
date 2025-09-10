@@ -60,7 +60,7 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
                 latest = df.iloc[-1]
                 if float(latest["High"]) >= float(latest["max_70"]):
                     judgement = "70日高値更新→翌日寄りで手仕舞い"
-            except Exception:
+            except (KeyError, ValueError, IndexError):
                 judgement = "判定失敗"
         elif side.lower() == "short":  # System2/6
             if plpc >= 0.05:
