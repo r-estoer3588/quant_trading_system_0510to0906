@@ -314,9 +314,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if poll_status and any(r.get("order_id") for r in results):
                     st.info("注文状況を10秒間ポーリングします...")
 
-                    order_ids = [
-                        r.get("order_id") for r in results if r.get("order_id")
-                    ]
+                    order_ids = [r.get("order_id") for r in results if r.get("order_id")]
                     end = time.time() + 10
                     last = {}
                     while time.time() < end:
