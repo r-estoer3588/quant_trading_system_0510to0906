@@ -1,5 +1,6 @@
 """System3 core logic (Long mean-reversion)."""
 
+import os
 import time
 
 import pandas as pd
@@ -19,7 +20,10 @@ def prepare_data_vectorized_system3(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    reuse_indicators: bool = True,
 ) -> dict[str, pd.DataFrame]:
+    cache_dir = "data_cache/indicators_system3_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
     if batch_size is None:
@@ -34,37 +38,74 @@ def prepare_data_vectorized_system3(
     processed, skipped = 0, 0
     buffer = []
 
-    for sym, df in raw_data_dict.items():
-        x = df.copy()
+    def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+        x = src.copy()
         if len(x) < 150:
-            skipped += 1
-            processed += 1
-            continue
+            raise ValueError("insufficient rows")
+        x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
+        x["ATR10"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=10
+        ).average_true_range()
+        x["Drop3D"] = -(x["Close"].pct_change(3))
+        x["AvgVolume50"] = x["Volume"].rolling(50).mean()
+        x["ATR_Ratio"] = x["ATR10"] / x["Close"]
+
+        cond_price = x["Low"] >= 1
+        cond_volume = x["AvgVolume50"] >= 1_000_000
+        cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
+        x["filter"] = cond_price & cond_volume & cond_atr
+        cond_close = x["Close"] > x["SMA150"]
+        cond_drop = x["Drop3D"] >= 0.125
+        cond_setup = x["filter"] & cond_close & cond_drop
+        x["setup"] = cond_setup.astype(int)
+        return x
+
+    for sym, df in raw_data_dict.items():
+        if "Date" in df.columns:
+            df = df.copy()
+            df.index = pd.to_datetime(df["Date"]).dt.normalize()
+        else:
+            df = df.copy()
+            df.index = pd.to_datetime(df.index).normalize()
+
+        cache_path = os.path.join(cache_dir, f"{sym}.feather")
+        cached: pd.DataFrame | None = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
+            except Exception:
+                cached = None
 
         try:
-            x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
-            x["ATR10"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=10
-            ).average_true_range()
-            x["Drop3D"] = -(x["Close"].pct_change(3))
-            x["AvgVolume50"] = x["Volume"].rolling(50).mean()
-            x["ATR_Ratio"] = x["ATR10"] / x["Close"]
-
-            cond_price = x["Low"] >= 1
-            cond_volume = x["AvgVolume50"] >= 1_000_000
-            cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
-            x["filter"] = cond_price & cond_volume & cond_atr
-            cond_close = x["Close"] > x["SMA150"]
-            cond_drop = x["Drop3D"] >= 0.125
-            cond_setup = x["filter"] & cond_close & cond_drop
-            x["setup"] = cond_setup.astype(int)
-
-            result_dict[sym] = x
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = df[df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=150)
+                    recompute_src = df[df.index >= context_start]
+                    recomputed = _calc_indicators(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
+            else:
+                result_df = _calc_indicators(df)
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+            result_dict[sym] = result_df
+            buffer.append(sym)
         except Exception:
             skipped += 1
 
         processed += 1
-        buffer.append(sym)
 
         if progress_callback:
             try:

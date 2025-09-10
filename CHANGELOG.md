@@ -8,6 +8,7 @@
 - ドキュメント整備（AGENTS.md, .env.example）
 - Slack通知が送信されない問題を修正（textフィールドを追加）
 - バッチタブに当日シグナル実行を追加
+- System1〜7 指標計算を差分更新し Feather に累積キャッシュ
 - `app_today_signals.py` を削除（機能をバッチタブに統合）
 - Alpaca ステータスダッシュボードを追加
 - 売買通知をBUY/SELLで集約し、数量と金額を含めて表示
