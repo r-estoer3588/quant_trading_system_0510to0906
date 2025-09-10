@@ -9,6 +9,9 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 
+# Trading thresholds - Default values for business rules
+DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
+
 
 def prepare_data_vectorized_system5(
     raw_data_dict: dict[str, pd.DataFrame],
@@ -43,7 +46,7 @@ def prepare_data_vectorized_system5(
             x["filter"] = (
                 (x["AvgVolume50"] > 500_000)
                 & (x["DollarVolume50"] > 2_500_000)
-                & (x["ATR_Pct"] > 0.04)
+                & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
             )
             x["setup"] = (
                 x["filter"]

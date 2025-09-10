@@ -8,6 +8,9 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 
+# Trading thresholds - Default values for business rules
+DEFAULT_ATR_RATIO_THRESHOLD = 0.05  # 5% ATR ratio threshold for filtering
+
 
 def prepare_data_vectorized_system3(
     raw_data_dict: dict[str, pd.DataFrame],
@@ -40,7 +43,7 @@ def prepare_data_vectorized_system3(
 
             cond_price = x["Low"] >= 1
             cond_volume = x["AvgVolume50"] >= 1_000_000
-            cond_atr = x["ATR_Ratio"] >= 0.05
+            cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
             x["filter"] = cond_price & cond_volume & cond_atr
             cond_close = x["Close"] > x["SMA150"]
             cond_drop = x["Drop3D"] >= 0.125
