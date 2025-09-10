@@ -12,6 +12,13 @@ from core.system4 import (
     get_total_days_system4,
 )
 
+# ビジネスルール定数（System4: ロング・トレンドフォロー戦略）
+# ATR損切り倍率: エントリー価格-ATR40×1.5倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 1.5
+
+# トレイリング損切り率: 最高値からの下落率20%でトレイリング決済
+DEFAULT_TRAILING_PCT = 0.20
+
 
 class System4Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system4"
@@ -91,7 +98,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             atr40 = float(df.iloc[entry_idx - 1]["ATR40"])
         except Exception:
             return None
-        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 1.5))
+        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None
@@ -100,7 +107,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
-        trail_pct = float(getattr(self, "config", {}).get("trailing_pct", 0.20))
+        trail_pct = float(getattr(self, "config", {}).get("trailing_pct", DEFAULT_TRAILING_PCT))
         highest = entry_price
         for idx2 in range(entry_idx + 1, len(df)):
             close = float(df.iloc[idx2]["Close"])

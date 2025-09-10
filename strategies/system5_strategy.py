@@ -18,6 +18,12 @@ DEFAULT_TARGET_ATR_MULTIPLE = 1.0
 # フォールバック決済日数: 6日経過後に強制決済
 DEFAULT_FALLBACK_EXIT_AFTER_DAYS = 6
 
+# エントリー価格比率: 前日終値×0.97で指値エントリー
+DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE = 0.97
+
+# ATR損切り倍率: エントリー価格-ATR10×3倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 3.0
+
 
 class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
@@ -78,13 +84,13 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
+        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE))
         entry_price = round(prev_close * ratio, 2)
         try:
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 3.0))
+        stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None
@@ -115,10 +121,10 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             if float(row["Low"]) <= stop_price:
                 if entry_idx + offset < len(df) - 1:
                     prev_close2 = float(df.iloc[entry_idx + offset]["Close"])
-                    ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
+                    ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE))
                     entry_price = round(prev_close2 * ratio, 2)
                     atr2 = float(df.iloc[entry_idx + offset]["ATR10"])
-                    stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", 3.0))
+                    stop_mult = float(getattr(self, "config", {}).get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
                     stop_price = entry_price - stop_mult * atr2
                     target_price = entry_price + target_mult * atr2
                     entry_idx = entry_idx + offset

@@ -19,6 +19,12 @@ DEFAULT_PROFIT_TAKE_PCT = 0.04
 # 最大保有期間: 3日経過しても未達なら4日目の大引けで決済
 DEFAULT_MAX_HOLD_DAYS = 3
 
+# エントリー価格比率: 前日終値×0.93で指値エントリー
+DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE = 0.93
+
+# ATR損切り倍率: エントリー価格-ATR10×2.5倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 2.5
+
 
 class System3Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system3"
@@ -88,13 +94,13 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 0.93))
+        ratio = float(self.config.get("entry_price_ratio_vs_prev_close", DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE))
         entry_price = round(prev_close * ratio, 2)
         try:
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 2.5))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None

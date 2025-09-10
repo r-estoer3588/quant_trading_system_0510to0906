@@ -20,6 +20,10 @@ from core.system1 import (
 
 from .base_strategy import StrategyBase
 
+# ビジネスルール定数（System1: ロング・モメンタム戦略）
+# ATR損切り倍率: ATR20×5倍で損切りライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 5.0
+
 
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
@@ -82,7 +86,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR20"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 5.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None

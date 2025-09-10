@@ -14,6 +14,16 @@ from core.system7 import (
 
 from .base_strategy import StrategyBase
 
+# ビジネスルール定数（System7: SPY専用ショート・カタストロフィー・ヘッジ）
+# リスクパーセンテージ: 資本の2%をリスクとして設定
+DEFAULT_RISK_PCT = 0.02
+
+# 最大ポジション率: 資本の20%を最大ポジション値として設定
+DEFAULT_MAX_PCT = 0.20
+
+# ATR損切り倍率: エントリー価格+ATR50×3倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 3.0
+
 
 class System7Strategy(AlpacaOrderMixin, StrategyBase):
     """
@@ -65,12 +75,12 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         position_open = False
         current_exit_date = None
 
-        risk_pct = float(self.config.get("risk_pct", 0.02))
-        max_pct = float(self.config.get("max_pct", 0.20))
+        risk_pct = float(self.config.get("risk_pct", DEFAULT_RISK_PCT))
+        max_pct = float(self.config.get("max_pct", DEFAULT_MAX_PCT))
         if "single_mode" in self.config:
             single_mode = bool(self.config.get("single_mode", False))
 
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -178,7 +188,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 return None
         atr = float(atr_val)
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None

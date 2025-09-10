@@ -22,6 +22,9 @@ DEFAULT_MAX_HOLD_DAYS = 3
 # エントリー最小ギャップ: 前日終値比+4%以上の上窓が必要
 DEFAULT_ENTRY_MIN_GAP_PCT = 0.04
 
+# ATR損切り倍率: エントリー価格+ATR10×3倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 3.0
+
 
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system2"
@@ -104,7 +107,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 

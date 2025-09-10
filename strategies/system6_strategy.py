@@ -18,6 +18,12 @@ DEFAULT_PROFIT_TAKE_PCT = 0.05
 # 利益確定最大日数: 3日間まで利確を待つ
 DEFAULT_PROFIT_TAKE_MAX_DAYS = 3
 
+# エントリー価格比率: 前日終値×1.05で指値エントリー
+DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE = 1.05
+
+# ATR損切り倍率: エントリー価格+ATR10×3倍でストップライン設定
+DEFAULT_STOP_ATR_MULTIPLE = 3.0
+
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
@@ -87,13 +93,13 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 1.05))
+        ratio = float(self.config.get("entry_price_ratio_vs_prev_close", DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE))
         entry_price = round(prev_close * ratio, 2)
         try:
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
@@ -116,10 +122,10 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             if float(row["High"]) >= stop_price:
                 if entry_idx + offset < len(df) - 1:
                     prev_close2 = float(df.iloc[entry_idx + offset]["Close"])
-                    ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 1.05))
+                    ratio = float(self.config.get("entry_price_ratio_vs_prev_close", DEFAULT_ENTRY_PRICE_RATIO_VS_PREV_CLOSE))
                     entry_price = round(prev_close2 * ratio, 2)
                     atr2 = float(df.iloc[entry_idx + offset]["ATR10"])
-                    stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+                    stop_mult = float(self.config.get("stop_atr_multiple", DEFAULT_STOP_ATR_MULTIPLE))
                     stop_price = entry_price + stop_mult * atr2
                     entry_idx = entry_idx + offset + 1
                     offset = 0
