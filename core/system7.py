@@ -23,7 +23,12 @@ def prepare_data_vectorized_system7(
         ).average_true_range()
         df["min_50"] = df["Low"].rolling(window=50).min().round(4)
         df["setup"] = (df["Low"] <= df["min_50"]).astype(int)
-        df["max_70"] = df["Close"].rolling(window=70).max()
+        
+        # Check if max_70 already exists (from cached data with indicators)
+        # Only calculate if not present to avoid redundant computation
+        if "max_70" not in df.columns:
+            df["max_70"] = df["Close"].rolling(window=70).max()
+        
         prepared_dict["SPY"] = df
     except Exception as e:
         if skip_callback:
