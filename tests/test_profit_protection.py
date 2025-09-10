@@ -45,7 +45,7 @@ def test_evaluate_positions(monkeypatch):
     ]
 
     df = evaluate_positions(positions)
-    judge = dict(zip(df["symbol"], df["judgement"], strict=False))
+    judge = dict(zip(df["symbol"], df["judgement"], strict=True))
 
     assert judge["SPY"].startswith("70日高値更新")
     assert judge["AAA"] == "4%利益→翌日大引けで手仕舞い"
