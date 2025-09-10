@@ -295,9 +295,9 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
             elapsed = time.time() - start_time
             remain = elapsed / i * (total_days - i)
             on_log(
-                f"📊 ROC200ランキング: {i}/{total_days} 日処理完了",
-                f" | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒",
-                f" / 残り: 約 {int(remain // 60)}分{int(remain % 60)}秒",
+                f"📊 ROC200ランキング: {i}/{total_days} 日処理完了"
+                f" | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒"
+                f" / 残り: 約 {int(remain // 60)}分{int(remain % 60)}秒"
             )
 
     return candidates_by_date, merged
