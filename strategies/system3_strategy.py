@@ -4,10 +4,11 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
-
-# Trading thresholds - Default values for business rules
-DEFAULT_PROFIT_TAKE_PCT = 0.04  # 4% profit take threshold
-DEFAULT_MAX_HOLD_DAYS = 3       # Maximum holding period in days
+from .constants import (
+    PROFIT_TAKE_PCT_DEFAULT_4,
+    MAX_HOLD_DAYS_DEFAULT,
+    STOP_ATR_MULTIPLE_SYSTEM3,
+)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system3 import (
@@ -15,13 +16,6 @@ from core.system3 import (
     generate_candidates_system3,
     get_total_days_system3,
 )
-
-# ビジネスルール定数（System3: ロング・ミーンリバージョン戦略）
-# 利益確定閾値: ロングポジションでの含み益4%で利確
-DEFAULT_PROFIT_TAKE_PCT = 0.04
-
-# 最大保有期間: 3日経過しても未達なら4日目の大引けで決済
-DEFAULT_MAX_HOLD_DAYS = 3
 
 
 class System3Strategy(AlpacaOrderMixin, StrategyBase):
@@ -98,7 +92,9 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 2.5))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM3)
+        )
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None
@@ -112,8 +108,12 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         - 損切り価格到達時は当日決済
         - 3日経過しても未達なら4日目の大引けで決済
         """
-        profit_take_pct = float(self.config.get("profit_take_pct", DEFAULT_PROFIT_TAKE_PCT))
-        max_hold_days = int(self.config.get("max_hold_days", DEFAULT_MAX_HOLD_DAYS))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
+        )
+        max_hold_days = int(
+            self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT)
+        )
 
         for offset in range(max_hold_days + 1):
             idx = entry_idx + offset
