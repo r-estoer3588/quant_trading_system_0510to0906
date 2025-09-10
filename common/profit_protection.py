@@ -19,7 +19,7 @@ from common.data_loader import load_price
 def _days_held(entry_date: Any) -> int | None:
     """Compute days held from entry_date to today."""
 
-    if not entry_date:
+    if entry_date is None:
         return None
     try:
         entry = pd.to_datetime(entry_date)
