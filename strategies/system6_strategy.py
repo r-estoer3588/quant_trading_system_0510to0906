@@ -3,6 +3,10 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
+
+# Trading thresholds - Default values for business rules  
+DEFAULT_PROFIT_TAKE_PCT = 0.05  # 5% profit take threshold for System6
+DEFAULT_PROFIT_TAKE_MAX_DAYS = 3  # Maximum days to wait for profit target
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system6 import (
@@ -95,8 +99,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
-        profit_take_pct = float(self.config.get("profit_take_pct", 0.05))
-        max_days = int(self.config.get("profit_take_max_days", 3))
+        profit_take_pct = float(self.config.get("profit_take_pct", DEFAULT_PROFIT_TAKE_PCT))
+        max_days = int(self.config.get("profit_take_max_days", DEFAULT_PROFIT_TAKE_MAX_DAYS))
         offset = 1
         while offset <= max_days and entry_idx + offset < len(df):
             row = df.iloc[entry_idx + offset]

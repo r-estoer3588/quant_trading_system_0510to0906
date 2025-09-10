@@ -4,6 +4,10 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
+
+# Trading thresholds - Default values for business rules
+DEFAULT_PROFIT_TAKE_PCT = 0.04  # 4% profit take threshold
+DEFAULT_MAX_HOLD_DAYS = 3       # Maximum holding period in days
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system3 import (
@@ -101,8 +105,8 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         - 損切り価格到達時は当日決済
         - 3日経過しても未達なら4日目の大引けで決済
         """
-        profit_take_pct = float(self.config.get("profit_take_pct", 0.04))
-        max_hold_days = int(self.config.get("max_hold_days", 3))
+        profit_take_pct = float(self.config.get("profit_take_pct", DEFAULT_PROFIT_TAKE_PCT))
+        max_hold_days = int(self.config.get("max_hold_days", DEFAULT_MAX_HOLD_DAYS))
 
         for offset in range(max_hold_days + 1):
             idx = entry_idx + offset
