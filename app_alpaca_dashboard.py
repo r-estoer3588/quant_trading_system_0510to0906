@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from common import broker_alpaca as ba
+from common.position_age import days_held, load_entry_dates
 
 
 def _inject_css() -> None:
@@ -102,18 +103,24 @@ def _fetch_account_and_positions() -> tuple[object, object]:
 
 
 def _positions_to_df(positions) -> pd.DataFrame:
+    """Convert list of position objects to ``pandas.DataFrame``.
+
+    Alpaca's position object lacks the entry date, so we read our persistent
+    mapping and compute the number of days each position has been held.
     """
-    Convert list of position objects to ``pandas.DataFrame`` with Japanese columns.
-    """
-    records: list[dict[str, str]] = []
+    entry_map = load_entry_dates()
+    records: list[dict[str, object]] = []
     for pos in positions:
+        sym = getattr(pos, "symbol", "")
+        held = days_held(entry_map.get(sym))
         records.append(
             {
-                "銘柄": getattr(pos, "symbol", ""),
+                "銘柄": sym,
                 "数量": getattr(pos, "qty", ""),
                 "平均取得単価": getattr(pos, "avg_entry_price", ""),
                 "現在値": getattr(pos, "current_price", ""),
                 "含み損益": getattr(pos, "unrealized_pl", ""),
+                "保有日数": held,
             }
         )
     return pd.DataFrame(records)

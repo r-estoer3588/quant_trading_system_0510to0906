@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import pandas as pd
 
 from common import broker_alpaca as ba
 from common.cache_manager import CacheManager
 from common.notifier import Notifier
+from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
 from config.settings import get_settings
@@ -259,6 +260,16 @@ def _submit_orders(
         out = pd.DataFrame(results)
         _log("\n=== Alpaca submission results ===")
         _log(out.to_string(index=False))
+        # record entry dates for future day-based rules
+        entry_map = load_entry_dates()
+        for _, row in out.iterrows():
+            sym = str(row.get("symbol"))
+            side_val = str(row.get("side", "")).lower()
+            if side_val == "buy" and row.get("entry_date"):
+                entry_map[sym] = str(row["entry_date"])
+            elif side_val == "sell":
+                entry_map.pop(sym, None)
+        save_entry_dates(entry_map)
         notifier = Notifier(platform="auto")
         notifier.send_trade_report("integrated", results)
         return out
@@ -428,8 +439,7 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。"
-            + "SPY.csv を用意してください。"  # noqa: E501
+            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
         )
 
     # ストラテジ初期化
@@ -456,9 +466,7 @@ def compute_today_signals(
         cols = [None] * len(strategy_objs)
         name_to_idx = {}
 
-    def _run_strategy(
-        name: str, stg
-    ) -> tuple[str, pd.DataFrame, str, list[str]]:
+    def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
         logs: list[str] = []
 
         def _local_log(message: str) -> None:
@@ -498,19 +506,17 @@ def compute_today_signals(
             _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
             df = pd.DataFrame()
         if not df.empty:
-            asc = _asc_by_score_key(
-                df["score_key"].iloc[0]
-                if ("score_key" in df.columns and len(df))
-                else None
-            )
-            df = df.sort_values("score", ascending=asc, na_position="last").reset_index(
-                drop=True
-            )
-        msg = (
-            f"✅ {name}: {len(df)} 件"
-            if df is not None and not df.empty
-            else f"❌ {name}: 0 件 🚫"
-        )
+            if "score_key" in df.columns and len(df):
+                first_key = df["score_key"].iloc[0]
+            else:
+                first_key = None
+            asc = _asc_by_score_key(first_key)
+            df = df.sort_values("score", ascending=asc, na_position="last")
+            df = df.reset_index(drop=True)
+        if df is not None and not df.empty:
+            msg = f"✅ {name}: {len(df)} 件"
+        else:
+            msg = f"❌ {name}: 0 件 🚫"
         _local_log(msg)
         return name, df, msg, logs
 
@@ -522,27 +528,27 @@ def compute_today_signals(
                 progress_callback(0, total, "")
             except Exception:
                 pass
-        with ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(_run_strategy, name, stg): name
-                for name, stg in strategies.items()
-            }
-            for idx, fut in enumerate(as_completed(futures), start=1):
-                name, df, msg, logs = fut.result()
-                per_system[name] = df
-                col_idx = name_to_idx.get(name)
-                if cols and col_idx is not None and col_idx < len(cols):
-                    try:
-                        if df is not None and not df.empty:
-                            col = cols[col_idx]
-                            if col is not None and hasattr(col, "success"):
-                                col.success(msg)
-                        else:
-                            col = cols[col_idx]
-                            if col is not None and hasattr(col, "warning"):
-                                col.warning(msg)
-                    except Exception:
-                        pass
+            with ThreadPoolExecutor() as executor:
+                futures: dict[object, str] = {}
+                for name, stg in strategies.items():
+                    fut = executor.submit(_run_strategy, name, stg)
+                    futures[fut] = name
+                for _idx, fut in enumerate(as_completed(futures), start=1):
+                    name, df, msg, logs = fut.result()
+                    per_system[name] = df
+                    col_idx = name_to_idx.get(name)
+                    if cols and col_idx is not None and col_idx < len(cols):
+                        try:
+                            if df is not None and not df.empty:
+                                col = cols[col_idx]
+                                if col is not None and hasattr(col, "success"):
+                                    col.success(msg)
+                            else:
+                                col = cols[col_idx]
+                                if col is not None and hasattr(col, "warning"):
+                                    col.warning(msg)
+                        except Exception:
+                            pass
                 if log_callback:
                     try:
                         for line in logs:
@@ -557,7 +563,7 @@ def compute_today_signals(
                         pass
                 if progress_callback:
                     try:
-                        progress_callback(idx, total, name)
+                        progress_callback(_idx, total, name)
                     except Exception:
                         pass
         if progress_callback:
@@ -691,12 +697,8 @@ def compute_today_signals(
             short_alloc,
             side="short",
         )
-        parts = [
-            df for df in [long_df, short_df] if df is not None and not df.empty
-        ]  # noqa: E501
-        final_df = (
-            pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-        )  # noqa: E501
+        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
+        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
 
     if not final_df.empty:
         sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]
