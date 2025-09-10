@@ -24,25 +24,37 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     # インジケータ計算（コア委譲）
     def prepare_data(
         self,
-        raw_data_dict,
+        raw_data_or_symbols,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
         batch_size: int | None = None,
+        use_process_pool: bool = False,
+        **kwargs,
     ):
-        if batch_size is None:
+        if isinstance(raw_data_or_symbols, dict):
+            symbols = list(raw_data_or_symbols.keys())
+            raw_dict = None if use_process_pool else raw_data_or_symbols
+        else:
+            symbols = list(raw_data_or_symbols)
+            raw_dict = None
+
+        if batch_size is None and not use_process_pool and raw_dict is not None:
             try:
                 from config.settings import get_settings
 
                 batch_size = get_settings(create_dirs=False).data.batch_size
             except Exception:
                 batch_size = 100
-            batch_size = resolve_batch_size(len(raw_data_dict), batch_size)
+            batch_size = resolve_batch_size(len(raw_dict), batch_size)
         return prepare_data_vectorized_system4(
-            raw_data_dict,
+            raw_dict,
             progress_callback=progress_callback,
             log_callback=log_callback,
             batch_size=batch_size,
+            symbols=symbols,
+            use_process_pool=use_process_pool,
+            skip_callback=skip_callback,
         )
 
     # 候補抽出（SPYフィルタ適用。market_df 後方互換あり）

@@ -11,26 +11,30 @@ from ta.volatility import AverageTrueRange
 
 
 def prepare_data_vectorized_system7(
-    raw_data_dict: dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
     reuse_indicators: bool = True,
+    symbols: list[str] | None = None,
+    use_process_pool: bool = False,
+    **kwargs,
 ) -> dict[str, pd.DataFrame]:
     cache_dir = "data_cache/indicators_system7_cache"
     os.makedirs(cache_dir, exist_ok=True)
     prepared_dict: dict[str, pd.DataFrame] = {}
+    raw_data_dict = raw_data_dict or {}
     try:
         df_raw = raw_data_dict.get("SPY")
         if df_raw is None:
             raise ValueError("SPY data missing")
         if "Date" in df_raw.columns:
             df = df_raw.copy()
-            df.index = pd.to_datetime(df["Date"]).dt.normalize()
+            df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
         else:
             df = df_raw.copy()
-            df.index = pd.to_datetime(df.index).normalize()
+            df.index = pd.Index(pd.to_datetime(df.index).normalize()
 
         cache_path = os.path.join(cache_dir, "SPY.feather")
         cached: pd.DataFrame | None = None
@@ -105,7 +109,7 @@ def generate_candidates_system7(
     df = prepared_dict["SPY"]
     setup_days = df[df["setup"] == 1]
     for date, row in setup_days.iterrows():
-        entry_idx = df.index.get_loc(date)
+        entry_idx = int(df.index.get_loc(date))
         if entry_idx + 1 >= len(df):
             continue
         entry_date = df.index[entry_idx + 1]
