@@ -7,6 +7,7 @@ from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
+from common.utils import resolve_batch_size
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_RATIO_THRESHOLD = 0.05  # 5% ATR ratio threshold for filtering
@@ -17,10 +18,18 @@ def prepare_data_vectorized_system3(
     *,
     progress_callback=None,
     log_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     processed, skipped = 0, 0
     buffer = []
@@ -100,10 +109,18 @@ def generate_candidates_system3(
     top_n: int = 10,
     progress_callback=None,
     log_callback=None,
-    batch_size: int = 50,
+    batch_size: int | None = None,
 ) -> tuple[dict, pd.DataFrame | None]:
     all_signals = []
     total = len(prepared_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total, batch_size)
     processed, skipped = 0, 0
     buffer = []
     start_time = time.time()

@@ -6,13 +6,15 @@ Provides data preparation, ROC200 ranking, and total-days helpers.
 import time
 import pandas as pd
 
+from common.utils import resolve_batch_size
+
 
 def prepare_data_vectorized_system1(
     raw_data_dict,
     progress_callback=None,
     log_callback=None,
     skip_callback=None,
-    batch_size=50,
+    batch_size: int | None = None,
     reuse_indicators=True,
     **kwargs,
 ):
@@ -22,6 +24,14 @@ def prepare_data_vectorized_system1(
     cache_dir = "data_cache/indicators_system1_cache"
     os.makedirs(cache_dir, exist_ok=True)
     total_symbols = len(raw_data_dict)
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+        batch_size = resolve_batch_size(total_symbols, batch_size)
     processed = 0
     symbol_buffer = []
     start_time = time.time()

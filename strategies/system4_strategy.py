@@ -7,6 +7,7 @@ from .base_strategy import StrategyBase
 from .constants import STOP_ATR_MULTIPLE_SYSTEM4
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
+from common.utils import resolve_batch_size
 from core.system4 import (
     prepare_data_vectorized_system4,
     generate_candidates_system4,
@@ -27,8 +28,16 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
     ):
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(raw_data_dict), batch_size)
         return prepare_data_vectorized_system4(
             raw_data_dict,
             progress_callback=progress_callback,
@@ -43,7 +52,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         market_df=None,
         progress_callback=None,
         log_callback=None,
-        batch_size=50,
+        batch_size: int | None = None,
     ):
         # market_df 未指定時は prepared_dict から SPY を使用（後方互換）
         if market_df is None:
@@ -56,6 +65,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
         except Exception:
             top_n = 10
+        if batch_size is None:
+            try:
+                from config.settings import get_settings
+
+                batch_size = get_settings(create_dirs=False).data.batch_size
+            except Exception:
+                batch_size = 100
+            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system4(
             prepared_dict,
             market_df,
