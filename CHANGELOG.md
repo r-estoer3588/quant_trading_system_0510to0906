@@ -16,3 +16,4 @@
 - シグナル計算で必要日数分の履歴をUIで読み込み `symbol_data` として渡すよう調整
 - シグナル通知に推奨銘柄の日足チャート画像を添付
 - `run_all_systems_today.py` の文字列連結を改善
+- `app_today_signals.py` に保有ポジションと利益保護判定を表示
