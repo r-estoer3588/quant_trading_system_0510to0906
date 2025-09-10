@@ -4,11 +4,12 @@ from __future__ import annotations
 import pandas as pd
 
 from .base_strategy import StrategyBase
-
-# Trading thresholds - Default values for business rules
-DEFAULT_ENTRY_MIN_GAP_PCT = 0.04  # 4% minimum gap for short entry
-DEFAULT_PROFIT_TAKE_PCT = 0.04    # 4% profit take threshold
-DEFAULT_MAX_HOLD_DAYS = 3         # Maximum holding period in days
+from .constants import (
+    PROFIT_TAKE_PCT_DEFAULT_4,
+    MAX_HOLD_DAYS_DEFAULT,
+    STOP_ATR_MULTIPLE_DEFAULT,
+    ENTRY_MIN_GAP_PCT_DEFAULT,
+)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system2 import (
@@ -16,16 +17,6 @@ from core.system2 import (
     generate_candidates_system2,
     get_total_days_system2,
 )
-
-# ビジネスルール定数（System2: ショート戦略）
-# 利益確定閾値: ショートポジションでの含み益4%で利確
-DEFAULT_PROFIT_TAKE_PCT = 0.04
-
-# 最大保有期間: 2営業日待っても利確に届かない場合は3日目で決済
-DEFAULT_MAX_HOLD_DAYS = 3
-
-# エントリー最小ギャップ: 前日終値比+4%以上の上窓が必要
-DEFAULT_ENTRY_MIN_GAP_PCT = 0.04
 
 
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
@@ -101,7 +92,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         prior_close = float(df.iloc[entry_idx - 1]["Close"])
         entry_price = float(df.iloc[entry_idx]["Open"])
-        min_gap = float(self.config.get("entry_min_gap_pct", DEFAULT_ENTRY_MIN_GAP_PCT))
+        min_gap = float(
+            self.config.get("entry_min_gap_pct", ENTRY_MIN_GAP_PCT_DEFAULT)
+        )
         # 上窓（前日終値比+4%）未満なら見送り（ショート前提）
         if entry_price < prior_close * (1 + min_gap):
             return None
@@ -109,7 +102,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", 3.0))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 
@@ -122,8 +117,12 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         - 未達: 2営業日待っても利確に届かない場合は3日目の大引けで決済
         返り値: (exit_price, exit_date)
         """
-        profit_take_pct = float(self.config.get("profit_take_pct", DEFAULT_PROFIT_TAKE_PCT))
-        max_hold_days = int(self.config.get("max_hold_days", DEFAULT_MAX_HOLD_DAYS))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
+        )
+        max_hold_days = int(
+            self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT)
+        )
 
         for offset in range(max_hold_days):
             idx = entry_idx + offset
