@@ -5,6 +5,7 @@
 - 候補生成: ADX7 降順で top_n を日別抽出
 """
 
+import os
 from typing import Dict, Tuple
 import time
 import pandas as pd
@@ -21,7 +22,10 @@ def prepare_data_vectorized_system2(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    reuse_indicators: bool = True,
 ) -> Dict[str, pd.DataFrame]:
+    cache_dir = "data_cache/indicators_system2_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     total = len(raw_data_dict)
     if batch_size is None:
         try:
@@ -39,40 +43,24 @@ def prepare_data_vectorized_system2(
     result_dict: Dict[str, pd.DataFrame] = {}
     skipped_count = 0
 
-    for sym, df in raw_data_dict.items():
-        # メモリ節約のため、必要最小限の列のみをコピーする
-        # （広いDataFrameの深いコピーでブロック統合が走り、
-        #  環境によっては不要な大規模アロケーションが発生するのを防ぐ）
+    def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
         base_cols = [
-            c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns
+            c for c in ["Open", "High", "Low", "Close", "Volume"] if c in src.columns
         ]
         if base_cols:
-            x = df[base_cols].copy()
+            x = src[base_cols].copy()
         else:
-            # フォールバック（最低限 Close は必要）
-            needed = [c for c in ["Close", "Open", "High", "Low"] if c in df.columns]
-            x = df[needed].copy() if needed else df.copy(deep=False)
-
-        # データ行不足
+            needed = [c for c in ["Close", "Open", "High", "Low"] if c in src.columns]
+            x = src[needed].copy() if needed else src.copy(deep=False)
         if len(x) < 20:
-            skipped_count += 1
-            processed += 1
-            continue
-
-        try:
-            x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-            x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-            x["ATR10"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=10
-            ).average_true_range()
-        except Exception:
-            skipped_count += 1
-            processed += 1
-            continue
-
-        # Volume が無い場合は NaN で埋める（後段のフィルタで自然に落ちる）
+            raise ValueError("insufficient rows")
+        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+        x["ATR10"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=10
+        ).average_true_range()
         if "Volume" in x.columns:
-            x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(window=20).mean()
+            x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(20).mean()
         else:
             x["DollarVolume20"] = pd.Series(index=x.index, dtype=float)
         x["ATR_Ratio"] = x["ATR10"] / x["Close"]
@@ -80,17 +68,60 @@ def prepare_data_vectorized_system2(
             (x["Close"] > x["Close"].shift(1))
             & (x["Close"].shift(1) > x["Close"].shift(2))
         )
-
         x["filter"] = (
             (x["Low"] >= 5)
             & (x["DollarVolume20"] > 25_000_000)
             & (x["ATR_Ratio"] > 0.03)
         )
         x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
+        return x
 
-        result_dict[sym] = x
+    for sym, df in raw_data_dict.items():
+        if "Date" in df.columns:
+            df = df.copy()
+            df.index = pd.to_datetime(df["Date"]).dt.normalize()
+        else:
+            df = df.copy()
+            df.index = pd.to_datetime(df.index).normalize()
+
+        cache_path = os.path.join(cache_dir, f"{sym}.feather")
+        cached: pd.DataFrame | None = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
+            except Exception:
+                cached = None
+
+        try:
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = df[df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=20)
+                    recompute_src = df[df.index >= context_start]
+                    recomputed = _calc_indicators(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
+            else:
+                result_df = _calc_indicators(df)
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+            result_dict[sym] = result_df
+            buffer.append(sym)
+        except Exception:
+            skipped_count += 1
+
         processed += 1
-        buffer.append(sym)
 
         if progress_callback:
             try:

@@ -40,53 +40,65 @@ def prepare_data_vectorized_system1(
     result_dict = {}
 
     for sym, df in raw_data_dict.items():
-        # 日付ごとにキャッシュ利用
         if "Date" in df.columns:
-            date_series = pd.to_datetime(df["Date"]).dt.normalize()
+            df = df.copy()
+            df.index = pd.to_datetime(df["Date"]).dt.normalize()
         else:
-            date_series = pd.to_datetime(df.index).normalize()
-        # 最新営業日
-        latest_date = date_series.max()
-        # キャッシュファイル名
-        cache_path = os.path.join(cache_dir, f"{sym}_{latest_date.date()}.feather")
-        cached = None
+            df = df.copy()
+            df.index = pd.to_datetime(df.index).normalize()
+
+        cache_path = os.path.join(cache_dir, f"{sym}.feather")
+        cached: pd.DataFrame | None = None
         if reuse_indicators and os.path.exists(cache_path):
             try:
                 cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
             except Exception:
                 cached = None
-        if cached is not None and not cached.isnull().any().any():
-            result_dict[sym] = cached
-            symbol_buffer.append(sym)
-            processed += 1
-            continue
 
-        # 計算（従来通り）
-        df = df.copy()
-        df["SMA25"] = df["Close"].rolling(25).mean()
-        df["SMA50"] = df["Close"].rolling(50).mean()
-        df["ROC200"] = df["Close"].pct_change(200) * 100
-        tr = pd.concat(
-            [
-                df["High"] - df["Low"],
-                (df["High"] - df["Close"].shift()).abs(),
-                (df["Low"] - df["Close"].shift()).abs(),
-            ],
-            axis=1,
-        ).max(axis=1)
-        df["ATR20"] = tr.rolling(20).mean()
-        df["DollarVolume20"] = (df["Close"] * df["Volume"]).rolling(20).mean()
+        def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+            dst = src.copy()
+            dst["SMA25"] = dst["Close"].rolling(25).mean()
+            dst["SMA50"] = dst["Close"].rolling(50).mean()
+            dst["ROC200"] = dst["Close"].pct_change(200) * 100
+            tr = pd.concat(
+                [
+                    dst["High"] - dst["Low"],
+                    (dst["High"] - dst["Close"].shift()).abs(),
+                    (dst["Low"] - dst["Close"].shift()).abs(),
+                ],
+                axis=1,
+            ).max(axis=1)
+            dst["ATR20"] = tr.rolling(20).mean()
+            dst["DollarVolume20"] = (dst["Close"] * dst["Volume"]).rolling(20).mean()
+            dst["filter"] = (dst["Low"] >= 5) & (dst["DollarVolume20"] > 50_000_000)
+            dst["setup"] = dst["filter"] & (dst["SMA25"] > dst["SMA50"])
+            return dst
 
-        df["filter"] = (df["Low"] >= 5) & (df["DollarVolume20"] > 50_000_000)
-        df["setup"] = df["filter"] & (df["SMA25"] > df["SMA50"])
+        if cached is not None and not cached.empty:
+            last_date = cached.index.max()
+            new_rows = df[df.index > last_date]
+            if new_rows.empty:
+                result_df = cached
+            else:
+                context_start = last_date - pd.Timedelta(days=200)
+                recompute_src = df[df.index >= context_start]
+                recomputed = _calc_indicators(recompute_src)
+                recomputed = recomputed[recomputed.index > last_date]
+                result_df = pd.concat([cached, recomputed])
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+        else:
+            result_df = _calc_indicators(df)
+            try:
+                result_df.reset_index().to_feather(cache_path)
+            except Exception:
+                pass
 
-        # 最新営業日分のみ保存
-        latest_df = df[date_series == latest_date]
-        try:
-            latest_df.reset_index(drop=True).to_feather(cache_path)
-        except Exception:
-            pass
-        result_dict[sym] = df
+        result_dict[sym] = result_df
         processed += 1
         symbol_buffer.append(sym)
 

@@ -1,5 +1,6 @@
 """System5 core logic (Long mean-reversion with high ADX)."""
 
+import os
 import time
 
 import pandas as pd
@@ -20,7 +21,10 @@ def prepare_data_vectorized_system5(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    reuse_indicators: bool = True,
 ) -> dict[str, pd.DataFrame]:
+    cache_dir = "data_cache/indicators_system5_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     result_dict: dict[str, pd.DataFrame] = {}
     total = len(raw_data_dict)
     if batch_size is None:
@@ -37,41 +41,78 @@ def prepare_data_vectorized_system5(
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
 
-    for sym, df in raw_data_dict.items():
-        x = df.copy()
+    def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+        x = src.copy()
         if len(x) < 100:
-            skipped += 1
-            processed += 1
-            continue
+            raise ValueError("insufficient rows")
+        x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
+        x["ATR10"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=10
+        ).average_true_range()
+        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+        x["AvgVolume50"] = x["Volume"].rolling(50).mean()
+        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+        x["ATR_Pct"] = x["ATR10"] / x["Close"]
+        x["filter"] = (
+            (x["AvgVolume50"] > 500_000)
+            & (x["DollarVolume50"] > 2_500_000)
+            & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+        )
+        x["setup"] = (
+            x["filter"]
+            & (x["Close"] > x["SMA100"] + x["ATR10"])
+            & (x["ADX7"] > 55)
+            & (x["RSI3"] < 50)
+        ).astype(int)
+        return x
+
+    for sym, df in raw_data_dict.items():
+        if "Date" in df.columns:
+            df = df.copy()
+            df.index = pd.to_datetime(df["Date"]).dt.normalize()
+        else:
+            df = df.copy()
+            df.index = pd.to_datetime(df.index).normalize()
+
+        cache_path = os.path.join(cache_dir, f"{sym}.feather")
+        cached: pd.DataFrame | None = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
+            except Exception:
+                cached = None
+
         try:
-            x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-            x["ATR10"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=10
-            ).average_true_range()
-            x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-            x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-            x["AvgVolume50"] = x["Volume"].rolling(50).mean()
-            x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-            x["ATR_Pct"] = x["ATR10"] / x["Close"]
-
-            x["filter"] = (
-                (x["AvgVolume50"] > 500_000)
-                & (x["DollarVolume50"] > 2_500_000)
-                & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-            )
-            x["setup"] = (
-                x["filter"]
-                & (x["Close"] > x["SMA100"] + x["ATR10"])
-                & (x["ADX7"] > 55)
-                & (x["RSI3"] < 50)
-            ).astype(int)
-
-            result_dict[sym] = x
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = df[df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=100)
+                    recompute_src = df[df.index >= context_start]
+                    recomputed = _calc_indicators(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
+            else:
+                result_df = _calc_indicators(df)
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+            result_dict[sym] = result_df
+            buffer.append(sym)
         except Exception:
             skipped += 1
 
         processed += 1
-        buffer.append(sym)
         if progress_callback:
             try:
                 progress_callback(processed, total)
