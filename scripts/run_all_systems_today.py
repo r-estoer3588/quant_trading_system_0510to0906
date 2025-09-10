@@ -180,7 +180,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log("(submit) shares 列がありません。" + "資金配分モードで実行してください。")
+        _log("(submit) shares 列がありません。" "資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -423,7 +423,7 @@ def compute_today_signals(
         spy_df = None
         _log(
             "⚠️ SPY が data_cache に見つかりません。"
-            + "SPY.csv を用意してください。"  # noqa: E501
+            "SPY.csv を用意してください。"
         )
 
     # ストラテジ初期化
@@ -690,13 +690,13 @@ def main():
         "--capital-long",
         type=float,
         default=None,
-        help=("買いサイド予算（ドル）。" + "指定時は金額配分モード"),
+        help=("買いサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help=("売りサイド予算（ドル）。" + "指定時は金額配分モード"),
+        help=("売りサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--save-csv",
