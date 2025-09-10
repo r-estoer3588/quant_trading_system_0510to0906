@@ -8,7 +8,7 @@ from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import resolve_batch_size
+from common.utils import BatchSizeMonitor, resolve_batch_size
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
@@ -34,6 +34,8 @@ def prepare_data_vectorized_system5(
     processed, skipped = 0, 0
     buffer: list[str] = []
     start_time = time.time()
+    batch_monitor = BatchSizeMonitor(batch_size)
+    batch_start = time.time()
 
     for sym, df in raw_data_dict.items():
         x = df.copy()
@@ -92,8 +94,18 @@ def prepare_data_vectorized_system5(
             )
             if buffer:
                 msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
             try:
                 log_callback(msg)
+                log_callback(
+                    tr(
+                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                        sec=batch_duration,
+                        size=batch_size,
+                    )
+                )
             except Exception:
                 pass
             buffer.clear()

@@ -6,7 +6,7 @@ Provides data preparation, ROC200 ranking, and total-days helpers.
 import time
 import pandas as pd
 
-from common.utils import resolve_batch_size
+from common.utils import BatchSizeMonitor, resolve_batch_size
 
 
 def prepare_data_vectorized_system1(
@@ -32,9 +32,11 @@ def prepare_data_vectorized_system1(
         except Exception:
             batch_size = 100
         batch_size = resolve_batch_size(total_symbols, batch_size)
+    batch_monitor = BatchSizeMonitor(batch_size)
     processed = 0
     symbol_buffer = []
     start_time = time.time()
+    batch_start = time.time()
     result_dict = {}
 
     for sym, df in raw_data_dict.items():
@@ -94,22 +96,30 @@ def prepare_data_vectorized_system1(
             except Exception:
                 pass
 
-        if (processed % batch_size == 0 or processed == total_symbols) and log_callback:
-            elapsed = time.time() - start_time
-            remaining = (elapsed / processed) * (total_symbols - processed)
-            elapsed_min, elapsed_sec = divmod(int(elapsed), 60)
-            remain_min, remain_sec = divmod(int(remaining), 60)
-            joined_syms = ", ".join(symbol_buffer)
-            try:
-                log_callback(
-                    f"📊 指標計算: {processed}/{total_symbols} 件 完了"
-                    f" | 経過: {elapsed_min}分{elapsed_sec}秒 / "
-                    f"残り: 約 {remain_min}分{remain_sec}秒\n"
-                    f"銘柄: {joined_syms}"
-                )
-            except Exception:
-                pass
-            symbol_buffer.clear()
+        if processed % batch_size == 0 or processed == total_symbols:
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
+
+            if log_callback:
+                elapsed = time.time() - start_time
+                remaining = (elapsed / processed) * (total_symbols - processed)
+                elapsed_min, elapsed_sec = divmod(int(elapsed), 60)
+                remain_min, remain_sec = divmod(int(remaining), 60)
+                joined_syms = ", ".join(symbol_buffer)
+                try:
+                    log_callback(
+                        f"📊 指標計算: {processed}/{total_symbols} 件 完了",
+                        f" | 経過: {elapsed_min}分{elapsed_sec}秒 / ",
+                        f"残り: 約 {remain_min}分{remain_sec}秒\n",
+                        f"銘柄: {joined_syms}"
+                    )
+                    log_callback(
+                        f"⏱️ バッチ時間: {batch_duration:.2f}秒 | 次バッチサイズ: {batch_size}"
+                    )
+                except Exception:
+                    pass
+                symbol_buffer.clear()
 
     return result_dict
 

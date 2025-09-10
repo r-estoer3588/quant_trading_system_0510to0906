@@ -1,5 +1,7 @@
 # common/utils.py
+import logging
 import os
+
 import pandas as pd
 
 # Windows予約語（safe_filename用）
@@ -92,3 +94,70 @@ def resolve_batch_size(total_symbols: int, configured: int) -> int:
     if total_symbols <= 500:
         return max(total_symbols // 10, 10)
     return configured
+
+
+class BatchSizeMonitor:
+    """Monitor batch durations and auto-tune the batch size.
+
+    Parameters
+    ----------
+    initial : int
+        Initial batch size.
+    target_time : float, default 60.0
+        Desired duration (seconds) for a single batch.
+    patience : int, default 3
+        Number of consecutive batches to observe before adjusting.
+    min_batch_size : int, default 10
+        Lower bound for the batch size.
+    max_batch_size : int, default 1000
+        Upper bound for the batch size.
+    """
+
+    def __init__(
+        self,
+        initial: int,
+        target_time: float = 60.0,
+        patience: int = 3,
+        min_batch_size: int = 10,
+        max_batch_size: int = 1000,
+    ) -> None:
+        self.batch_size = initial
+        self.target_time = target_time
+        self.patience = patience
+        self.min_batch_size = min_batch_size
+        self.max_batch_size = max_batch_size
+        self._history: list[float] = []
+        self.logger = logging.getLogger(__name__)
+
+    def update(self, duration: float) -> int:
+        """Record batch duration and adjust the size if needed."""
+        self._history.append(duration)
+        if len(self._history) < self.patience:
+            return self.batch_size
+
+        long = all(t > self.target_time for t in self._history)
+        short = all(t < self.target_time / 2 for t in self._history)
+
+        if long:
+            new_size = max(self.min_batch_size, self.batch_size // 2)
+            if new_size != self.batch_size:
+                self.logger.info(
+                    "Batch too slow: %.2fs avg, reducing size %s -> %s",
+                    sum(self._history) / len(self._history),
+                    self.batch_size,
+                    new_size,
+                )
+                self.batch_size = new_size
+        elif short:
+            new_size = min(self.max_batch_size, self.batch_size * 2)
+            if new_size != self.batch_size:
+                self.logger.info(
+                    "Batch fast: %.2fs avg, increasing size %s -> %s",
+                    sum(self._history) / len(self._history),
+                    self.batch_size,
+                    new_size,
+                )
+                self.batch_size = new_size
+
+        self._history.clear()
+        return self.batch_size

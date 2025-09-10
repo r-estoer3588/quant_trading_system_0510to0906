@@ -6,7 +6,7 @@ import pandas as pd
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import resolve_batch_size
+from common.utils import BatchSizeMonitor, resolve_batch_size
 
 
 def prepare_data_vectorized_system6(
@@ -28,6 +28,8 @@ def prepare_data_vectorized_system6(
             batch_size = 100
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
+    batch_monitor = BatchSizeMonitor(batch_size)
+    batch_start = time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []
 
@@ -76,8 +78,18 @@ def prepare_data_vectorized_system6(
             )
             if buffer:
                 msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
             try:
                 log_callback(msg)
+                log_callback(
+                    tr(
+                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                        sec=batch_duration,
+                        size=batch_size,
+                    )
+                )
             except Exception:
                 pass
             buffer.clear()
