@@ -12,7 +12,7 @@ from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import get_cached_data, resolve_batch_size
+from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -115,6 +115,8 @@ def prepare_data_vectorized_system4(
             batch_size = 100
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
+    batch_monitor = BatchSizeMonitor(batch_size)
+    batch_start = time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []
 
@@ -202,8 +204,18 @@ def prepare_data_vectorized_system4(
             )
             if buffer:
                 msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
             try:
                 log_callback(msg)
+                log_callback(
+                    tr(
+                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                        sec=batch_duration,
+                        size=batch_size,
+                    )
+                )
             except Exception:
                 pass
             buffer.clear()
@@ -255,7 +267,7 @@ def generate_candidates_system4(
             if setup_days.empty:
                 continue
             for date, row in setup_days.iterrows():
-                ts = pd.Timestamp(date)
+                ts = pd.to_datetime(pd.Index([date]))[0]
                 if ts not in spy_df.index:
                     continue
                 if int(spy_df.at[ts, "spy_filter"]) == 0:

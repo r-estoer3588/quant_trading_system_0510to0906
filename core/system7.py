@@ -6,8 +6,11 @@ run_backtest は strategy 側にカスタム実装が残る。
 
 import os
 
+import time
 import pandas as pd
 from ta.volatility import AverageTrueRange
+
+from common.utils import BatchSizeMonitor, resolve_batch_size
 
 
 def prepare_data_vectorized_system7(
@@ -34,7 +37,7 @@ def prepare_data_vectorized_system7(
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
         else:
             df = df_raw.copy()
-            df.index = pd.Index(pd.to_datetime(df.index).normalize()
+            df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, "SPY.feather")
         cached: pd.DataFrame | None = None

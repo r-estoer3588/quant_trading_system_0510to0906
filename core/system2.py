@@ -15,7 +15,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
-from common.utils import get_cached_data, resolve_batch_size
+from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -126,6 +126,8 @@ def prepare_data_vectorized_system2(
         batch_size = resolve_batch_size(total, batch_size)
     processed = 0
     start_time = time.time()
+    batch_monitor = BatchSizeMonitor(batch_size)
+    batch_start = time.time()
     buffer = []
     result_dict: Dict[str, pd.DataFrame] = {}
     skipped_count = 0
@@ -219,8 +221,12 @@ def prepare_data_vectorized_system2(
             )
             if buffer:
                 msg += f"銘柄: {', '.join(buffer)}"
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
             try:
                 log_callback(msg)
+                log_callback(f"⏱️ バッチ時間: {batch_duration:.2f}秒 | 次バッチサイズ: {batch_size}")
             except Exception:
                 pass
             buffer.clear()
