@@ -216,9 +216,9 @@ def prepare_data_vectorized_system1(
             joined_syms = ", ".join(symbol_buffer)
             try:
                 log_callback(
-                    f"📊 指標計算: {processed}/{total_symbols} 件 完了",
-                    f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒\n",
-                    f"銘柄: {joined_syms}",
+                    f"📊 指標計算: {processed}/{total_symbols} 件 完了"
+                    f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒\n"
+                    f"銘柄: {joined_syms}"
                 )
             except Exception:
                 pass
