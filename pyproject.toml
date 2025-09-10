@@ -27,5 +27,10 @@ lint.ignore = [
   "N806",
 ]
 
+# Custom lint rules for safety
+[tool.ruff.lint.flake8-bugbear]
+# Enforce strict=True for zip() calls to prevent silent data corruption
+extend-immutable-calls = ["zip"]
+
 [tool.pytest.ini_options]
 addopts = "--cov=./ --cov-report=term-missing"

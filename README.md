@@ -23,6 +23,20 @@ pip install -r requirements.txt
 pytest -q
 ```
 
+## コード安全性
+### zip() 関数の使用について
+Python 3.10+ では、`zip()` 関数を使用する際は必ず `strict=True` パラメータを指定してください：
+
+```python
+# ❌ 危険: 長さが異なる場合に無音でデータが失われる
+result = zip(list1, list2)
+
+# ✅ 安全: 長さが異なる場合に ValueError が発生
+result = zip(list1, list2, strict=True)
+```
+
+これにより、イテレータの長さが異なる場合に無音のデータ破損を防ぐことができます。プリコミットフックが自動的にこのルールをチェックします。
+
 ## 設定
 優先順位は **JSON > YAML > .env**（`config/settings.py` 実装に準拠）。
 推奨: `config.yaml` をベースに、秘匿値は `.env`、上書きは JSON で。

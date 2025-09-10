@@ -35,3 +35,10 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: check-zip-safety
+        name: Check zip() calls use strict=True for safety
+        entry: python tools/check_zip_safety.py
+        language: system
+        files: \.py$
+        stages: [pre-commit]
+
