@@ -7,6 +7,7 @@ import sys
 from dotenv import load_dotenv
 import pandas as pd
 import requests
+import argparse
 
 import common  # noqa: F401
 
@@ -15,8 +16,27 @@ load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
 
 
-def fetch_and_cache_spy_from_eodhd(folder="data_cache"):
+def resolve_cache_dir() -> str:
+    """キャッシュ保存先を解決する。
+    優先順位: 環境変数(QUANT_CACHE_DIR/CACHE_DIR/DATA_CACHE_DIR) > common.cache_manager.CACHE_DIR > このリポジトリ配下のdata_cache
+    """
+    for key in ("QUANT_CACHE_DIR", "CACHE_DIR", "DATA_CACHE_DIR"):
+        v = os.getenv(key)
+        if v:
+            return v
+    try:
+        from common.cache_manager import CACHE_DIR as CM_CACHE_DIR  # type: ignore
+
+        return CM_CACHE_DIR
+    except Exception:
+        pass
+    return os.path.join(os.path.dirname(__file__), "data_cache")
+
+
+def fetch_and_cache_spy_from_eodhd(folder=None):
     symbol = "SPY"
+    if folder is None:
+        folder = resolve_cache_dir()
     url = f"https://eodhistoricaldata.com/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
     path = os.path.join(folder, f"{symbol}.csv")
 
@@ -33,10 +53,10 @@ def fetch_and_cache_spy_from_eodhd(folder="data_cache"):
         df = pd.DataFrame(data)
         print(f"[INFO] 取得件数: {len(df)}")
 
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"])  # 小文字のままにする
         df = df.rename(
             columns={
-                "date": "Date",
+                "date": "date",  # ローダ互換: parse_dates=['date']
                 "open": "Open",
                 "high": "High",
                 "low": "Low",
@@ -57,4 +77,9 @@ def fetch_and_cache_spy_from_eodhd(folder="data_cache"):
 
 
 if __name__ == "__main__":
-    fetch_and_cache_spy_from_eodhd()
+    parser = argparse.ArgumentParser(description="SPY の日足を取得しキャッシュへ保存")
+    parser.add_argument(
+        "--out", dest="out", default=None, help="保存ディレクトリ(未指定時は自動解決)"
+    )
+    args = parser.parse_args()
+    fetch_and_cache_spy_from_eodhd(folder=args.out)
