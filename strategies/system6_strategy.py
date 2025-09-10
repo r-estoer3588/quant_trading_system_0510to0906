@@ -11,6 +11,13 @@ from core.system6 import (
     get_total_days_system6,
 )
 
+# ビジネスルール定数（System6: ショート戦略）
+# 利益確定閾値: ショートポジションでの含み益5%で利確
+DEFAULT_PROFIT_TAKE_PCT = 0.05
+
+# 利益確定最大日数: 3日間まで利確を待つ
+DEFAULT_PROFIT_TAKE_MAX_DAYS = 3
+
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
@@ -95,8 +102,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
-        profit_take_pct = float(self.config.get("profit_take_pct", 0.05))
-        max_days = int(self.config.get("profit_take_max_days", 3))
+        profit_take_pct = float(self.config.get("profit_take_pct", DEFAULT_PROFIT_TAKE_PCT))
+        max_days = int(self.config.get("profit_take_max_days", DEFAULT_PROFIT_TAKE_MAX_DAYS))
         offset = 1
         while offset <= max_days and entry_idx + offset < len(df):
             row = df.iloc[entry_idx + offset]

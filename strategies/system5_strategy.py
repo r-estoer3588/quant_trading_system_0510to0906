@@ -11,6 +11,13 @@ from core.system5 import (
     get_total_days_system5,
 )
 
+# ビジネスルール定数（System5: ロング戦略）
+# 利確ターゲット倍率: ATR×1.0倍で利確を狙う
+DEFAULT_TARGET_ATR_MULTIPLE = 1.0
+
+# フォールバック決済日数: 6日経過後に強制決済
+DEFAULT_FALLBACK_EXIT_AFTER_DAYS = 6
+
 
 class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
@@ -93,9 +100,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                 atr = float(df.iloc[entry_idx - 1]["ATR10"])
             except Exception:
                 atr = 0.0
-        target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
+        target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", DEFAULT_TARGET_ATR_MULTIPLE))
         target_price = entry_price + target_mult * atr
-        fallback_days = int(getattr(self, "config", {}).get("fallback_exit_after_days", 6))
+        fallback_days = int(getattr(self, "config", {}).get("fallback_exit_after_days", DEFAULT_FALLBACK_EXIT_AFTER_DAYS))
 
         offset = 1
         while offset <= fallback_days and entry_idx + offset < len(df):
