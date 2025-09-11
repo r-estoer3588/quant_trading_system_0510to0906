@@ -6,6 +6,7 @@ import time
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.utils import get_cached_data
 from core.system7 import (
     generate_candidates_system7,
     get_total_days_system7,
@@ -29,16 +30,26 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self):
         super().__init__()
 
-    def prepare_data(self, raw_data_or_symbols, *args, **kwargs):
+    def prepare_data(
+        self,
+        raw_data_or_symbols,
+        progress_callback=None,
+        log_callback=None,
+        skip_callback=None,
+        **kwargs,
+    ):
+        """インジケーター計算をコア関数へ委譲。"""
         # UIから渡される unknown なキーワード（例: single_mode）を吸収して下流関数へ渡さない
         kwargs.pop("single_mode", None)
-        use_process_pool = kwargs.pop("use_process_pool", False)
         if isinstance(raw_data_or_symbols, dict):
-            raw_dict = None if use_process_pool else raw_data_or_symbols
+            raw_dict = raw_data_or_symbols
         else:
-            raw_dict = None
+            raw_dict = {s: get_cached_data(s) for s in raw_data_or_symbols}
         return prepare_data_vectorized_system7(
-            raw_dict, use_process_pool=use_process_pool, **kwargs
+            raw_dict,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
+            skip_callback=skip_callback,
         )
 
     def generate_candidates(self, *args, **kwargs):

@@ -6,11 +6,8 @@ run_backtest は strategy 側にカスタム実装が残る。
 
 import os
 
-import time
 import pandas as pd
 from ta.volatility import AverageTrueRange
-
-from common.utils import BatchSizeMonitor, resolve_batch_size
 
 
 def prepare_data_vectorized_system7(
@@ -20,10 +17,9 @@ def prepare_data_vectorized_system7(
     log_callback=None,
     skip_callback=None,
     reuse_indicators: bool = True,
-    symbols: list[str] | None = None,
-    use_process_pool: bool = False,
     **kwargs,
 ) -> dict[str, pd.DataFrame]:
+    """Compute indicators for SPY and cache the result."""
     cache_dir = "data_cache/indicators_system7_cache"
     os.makedirs(cache_dir, exist_ok=True)
     prepared_dict: dict[str, pd.DataFrame] = {}
@@ -87,6 +83,7 @@ def prepare_data_vectorized_system7(
                 skip_callback(f"SPY の処理をスキップしました: {e}")
             except Exception:
                 pass
+
     if log_callback:
         try:
             log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup)")
