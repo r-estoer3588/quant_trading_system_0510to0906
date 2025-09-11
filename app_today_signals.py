@@ -329,7 +329,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
                     order_ids = list(
                         r.get("order_id") for r in results if r.get("order_id")
-                    )  # noqa: E501
+                    )
                     end = time.time() + 10
                     last = {}
                     while time.time() < end:
