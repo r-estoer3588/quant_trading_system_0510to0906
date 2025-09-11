@@ -182,7 +182,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log("(submit) shares 列がありません。" "資金配分モードで実行してください。")
+        _log("(submit) shares 列がありません。資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
