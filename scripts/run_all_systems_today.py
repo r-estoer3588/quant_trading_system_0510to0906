@@ -769,7 +769,7 @@ def main():
         "--capital-short",
         type=float,
         default=None,
-        help=("売りサイド予算（ドル）。" "指定時は金額配分モード"),
+        help=("売りサイド予算（ドル）。" + "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--save-csv",
