@@ -8,7 +8,7 @@ from common import broker_alpaca as ba
 from common.data_loader import load_price
 from common.notifier import create_notifier
 from common.profit_protection import evaluate_positions
-from common.universe import (  # noqa: E501
+from common.universe import (
     build_universe_from_cache,
     load_universe_file,
     save_universe_file,
