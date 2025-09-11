@@ -29,6 +29,34 @@ def _days_held(entry_date: Any) -> int | None:
         return None
 
 
+def is_spy_70_day_high(df: pd.DataFrame | None = None) -> bool | None:
+    """Return True if SPY's latest high equals or exceeds its 70-day high.
+
+    Parameters
+    ----------
+    df : pd.DataFrame | None
+        Optional price data containing a ``High`` column. If ``None``,
+        prices are loaded from the rolling cache.
+
+    Returns
+    -------
+    bool | None
+        ``True`` if SPY updated its 70-day high, ``False`` if not, and
+        ``None`` when the judgement could not be made (e.g., missing
+        data).
+    """
+
+    try:
+        if df is None:
+            df = load_price("SPY", cache_profile="rolling")
+        df = df.copy()
+        df["max_70"] = df["High"].rolling(window=70).max()
+        latest = df.iloc[-1]
+        return float(latest["High"]) >= float(latest["max_70"])
+    except Exception:
+        return None
+
+
 def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
     """Evaluate profit protection rules for given positions.
 
@@ -54,13 +82,10 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         judgement = "継続"
 
         if symbol.upper() == "SPY" and side.lower() == "short":
-            try:
-                df = load_price("SPY", cache_profile="rolling")
-                df["max_70"] = df["High"].rolling(window=70).max()
-                latest = df.iloc[-1]
-                if float(latest["High"]) >= float(latest["max_70"]):
-                    judgement = "70日高値更新→翌日寄りで手仕舞い"
-            except Exception:
+            spy_high = is_spy_70_day_high()
+            if spy_high is True:
+                judgement = "70日高値更新→翌日寄りで手仕舞い"
+            elif spy_high is None:
                 judgement = "判定失敗"
         elif side.lower() == "short":  # System2/6
             if plpc >= 0.05:

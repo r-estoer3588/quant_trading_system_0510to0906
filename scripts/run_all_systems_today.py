@@ -182,10 +182,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log(
-            "(submit) shares 列がありません。"
-            "資金配分モードで実行してください。"
-        )
+        _log("(submit) shares 列がありません。" "資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -314,6 +311,7 @@ def compute_today_signals(
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
+    cache_dir: str | Path | None = None,
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
@@ -328,7 +326,7 @@ def compute_today_signals(
     cm = CacheManager(settings)
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = log_callback
-    cache_dir = cm.rolling_dir
+    cache_dir = Path(cache_dir) if cache_dir else cm.rolling_dir
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 
@@ -442,8 +440,7 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。"
-            "SPY.csv を用意してください。"
+            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
         )
 
     # ストラテジ初期化
@@ -763,19 +760,13 @@ def main():
         "--capital-long",
         type=float,
         default=None,
-        help=(
-            "買いサイド予算（ドル）。"
-            "指定時は金額配分モード"
-        ),
+        help=("買いサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help=(
-            "売りサイド予算（ドル）。"
-            "指定時は金額配分モード"
-        ),
+        help=("売りサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--save-csv",

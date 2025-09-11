@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from common.profit_protection import evaluate_positions
+from common.profit_protection import evaluate_positions, is_spy_70_day_high
 
 
 class DummyPos:
@@ -45,7 +45,7 @@ def test_evaluate_positions(monkeypatch):
     ]
 
     df = evaluate_positions(positions)
-    judge = dict(zip(df["symbol"], df["judgement"], strict=True))
+    judge = dict(zip(df["symbol"], df["judgement"], strict=False))
 
     assert judge["SPY"].startswith("70日高値更新")
     assert judge["AAA"] == "4%利益→翌日大引けで手仕舞い"
@@ -55,3 +55,28 @@ def test_evaluate_positions(monkeypatch):
     assert judge["EEE"] == "5%利益→翌日大引けで手仕舞い"
     assert judge["FFF"] == "3日経過→大引けで手仕舞い"
     assert judge["GGG"] == "2日経過→大引けで手仕舞い"
+
+
+def test_is_spy_70_day_high(monkeypatch):
+    idx = pd.date_range("2023-01-01", periods=70)
+    df_true = pd.DataFrame({"High": list(range(1, 70)) + [100]}, index=idx)
+    assert is_spy_70_day_high(df_true) is True
+
+    df_false = pd.DataFrame({"High": list(range(1, 70)) + [50]}, index=idx)
+    assert is_spy_70_day_high(df_false) is False
+
+    def bad_loader(symbol: str, cache_profile: str = "rolling") -> pd.DataFrame:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("common.profit_protection.load_price", bad_loader)
+    assert is_spy_70_day_high() is None
+
+
+def test_evaluate_positions_spy_error(monkeypatch):
+    monkeypatch.setattr(
+        "common.profit_protection.is_spy_70_day_high",
+        lambda df=None: None,
+    )
+    pos = [DummyPos("SPY", side="short")]
+    df = evaluate_positions(pos)
+    assert df.loc[0, "judgement"] == "判定失敗"
