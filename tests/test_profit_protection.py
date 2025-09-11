@@ -55,3 +55,18 @@ def test_evaluate_positions(monkeypatch):
     assert judge["EEE"] == "5%利益→翌日大引けで手仕舞い"
     assert judge["FFF"] == "3日経過→大引けで手仕舞い"
     assert judge["GGG"] == "2日経過→大引けで手仕舞い"
+
+
+def test_evaluate_positions_load_failure(monkeypatch):
+    """Data load failure should result in judgement failure."""
+
+    def raise_load_price(symbol: str, cache_profile: str = "rolling") -> pd.DataFrame:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("common.profit_protection.load_price", raise_load_price)
+
+    positions = [DummyPos("SPY", side="short")]
+
+    df = evaluate_positions(positions)
+    judge = dict(zip(df["symbol"], df["judgement"], strict=True))
+    assert judge["SPY"] == "判定失敗"
