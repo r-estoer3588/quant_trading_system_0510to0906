@@ -52,7 +52,8 @@ def prepare_data_vectorized_system7(
             ).average_true_range()
             x["min_50"] = x["Low"].rolling(50).min().round(4)
             x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
-            x["max_70"] = x["Close"].rolling(70).max()
+            if "max_70" not in x.columns or not x["max_70"].notna().all():
+                x["max_70"] = x["Close"].rolling(70).max()
             return x
 
         if cached is not None and not cached.empty:

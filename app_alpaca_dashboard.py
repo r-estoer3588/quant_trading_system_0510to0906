@@ -130,10 +130,13 @@ def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
     return out
 
 
-def _positions_to_df(positions, client) -> pd.DataFrame:
-    """Convert positions to DataFrame and append holding days and exit hints."""
+def _positions_to_df(positions, client=None) -> pd.DataFrame:
+    """Convert positions to DataFrame and append holding days and exit hints.
+
+    client が指定されない場合はエントリー日の取得をスキップする。
+    """
     symbols = [getattr(p, "symbol", "") for p in positions]
-    entry_map = _fetch_entry_dates(client, symbols)
+    entry_map = _fetch_entry_dates(client, symbols) if client else {}
 
     mapping_path = Path("data/symbol_system_map.json")
     symbol_map: dict[str, str] = {}

@@ -67,17 +67,6 @@ def prepare_backtest_data(
 
 
 @overload
-def run_backtest_with_logging(
-    strategy: Any,
-    prepared_dict: dict[str, pd.DataFrame] | None,
-    candidates_by_date: Any,
-    capital: float,
-    system_name: str = "SystemX",
-    ui_manager: object | None = None,
-) -> pd.DataFrame: ...
-
-
-@overload
 def run_backtest_app(
     strategy: Any,
     system_name: str = "SystemX",
@@ -500,17 +489,6 @@ def prepare_backtest_data(
 # ------------------------------
 # Backtest execution (common wrapper)
 # ------------------------------
-@overload
-def run_backtest_with_logging(
-    strategy: Any,
-    prepared_dict: dict[str, pd.DataFrame] | None,
-    candidates_by_date: Any,
-    capital: float,
-    system_name: str = "SystemX",
-    ui_manager: object | None = None,
-) -> pd.DataFrame: ...
-
-
 def run_backtest_with_logging(
     strategy,
     prepared_dict,
