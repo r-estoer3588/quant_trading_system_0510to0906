@@ -16,6 +16,36 @@ import pandas as pd
 from common.data_loader import load_price
 
 
+def is_new_70day_high(symbol: str = "SPY") -> bool | None:
+    """Return whether ``symbol`` made a new 70-day high.
+
+    Parameters
+    ----------
+    symbol : str, default "SPY"
+        Ticker symbol to check.
+
+    Returns
+    -------
+    bool | None
+        ``True`` if the latest ``High`` is greater than or equal to the
+        rolling 70-day maximum, ``False`` if not. ``None`` is returned when
+        price data could not be loaded, allowing callers to treat the
+        judgement as indeterminate instead of mistakenly continuing the
+        position.
+    """
+
+    try:
+        df = load_price(symbol, cache_profile="rolling")
+    except Exception:
+        return None
+    try:
+        df["max_70"] = df["High"].rolling(window=70).max()
+        latest = df.iloc[-1]
+        return float(latest["High"]) >= float(latest["max_70"])
+    except Exception:
+        return None
+
+
 def _days_held(entry_date: Any) -> int | None:
     """Compute days held from entry_date to today."""
 
@@ -55,13 +85,10 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         judgement = "継続"
 
         if symbol.upper() == "SPY" and side.lower() == "short":
-            try:
-                df = load_price("SPY", cache_profile="rolling")
-                df["max_70"] = df["High"].rolling(window=70).max()
-                latest = df.iloc[-1]
-                if float(latest["High"]) >= float(latest["max_70"]):
-                    judgement = "70日高値更新→翌日寄りで手仕舞い"
-            except Exception:
+            high_check = is_new_70day_high(symbol)
+            if high_check is True:
+                judgement = "70日高値更新→翌日寄りで手仕舞い"
+            elif high_check is None:
                 judgement = "判定失敗"
         elif side.lower() == "short":  # System2/6
             if plpc >= 0.05:
