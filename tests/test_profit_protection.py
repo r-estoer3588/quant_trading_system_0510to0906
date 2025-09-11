@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from common.profit_protection import evaluate_positions
+from common.profit_protection import evaluate_positions, is_new_70day_high
 
 
 class DummyPos:
@@ -55,3 +55,28 @@ def test_evaluate_positions(monkeypatch):
     assert judge["EEE"] == "5%利益→翌日大引けで手仕舞い"
     assert judge["FFF"] == "3日経過→大引けで手仕舞い"
     assert judge["GGG"] == "2日経過→大引けで手仕舞い"
+
+
+def test_is_new_70day_high(monkeypatch):
+    idx = pd.date_range("2023-01-01", periods=70)
+
+    def _df(highs: list[int]) -> pd.DataFrame:
+        return pd.DataFrame({"High": highs}, index=idx[: len(highs)])
+
+    monkeypatch.setattr(
+        "common.profit_protection.load_price",
+        lambda symbol, cache_profile="rolling": _df(list(range(1, 71))),
+    )
+    assert is_new_70day_high("SPY") is True
+
+    monkeypatch.setattr(
+        "common.profit_protection.load_price",
+        lambda symbol, cache_profile="rolling": _df(list(range(1, 70)) + [60]),
+    )
+    assert is_new_70day_high("SPY") is False
+
+    monkeypatch.setattr(
+        "common.profit_protection.load_price",
+        lambda symbol, cache_profile="rolling": _df(list(range(1, 60))),
+    )
+    assert is_new_70day_high("SPY") is False

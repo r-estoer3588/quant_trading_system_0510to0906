@@ -16,6 +16,34 @@ import pandas as pd
 from common.data_loader import load_price
 
 
+def is_new_70day_high(symbol: str) -> bool:
+    """Return True if the latest high is a new 70-day high for *symbol*.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol to evaluate.
+
+    Returns
+    -------
+    bool
+        ``True`` when the most recent high price is greater than or equal to
+        the highest high over the last 70 trading days.  ``False`` is returned
+        if the price data cannot be loaded or the condition is not met.
+    """
+
+    try:
+        df = load_price(symbol, cache_profile="rolling")
+        if len(df) < 70:
+            return False
+        highs = df["High"]
+        max_70 = float(highs.tail(70).max())
+        latest_high = float(highs.iloc[-1])
+        return latest_high >= max_70
+    except Exception:
+        return False
+
+
 def _days_held(entry_date: Any) -> int | None:
     """Compute days held from entry_date to today."""
 
@@ -54,14 +82,10 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         judgement = "継続"
 
         if symbol.upper() == "SPY" and side.lower() == "short":
-            try:
-                df = load_price("SPY", cache_profile="rolling")
-                df["max_70"] = df["High"].rolling(window=70).max()
-                latest = df.iloc[-1]
-                if float(latest["High"]) >= float(latest["max_70"]):
-                    judgement = "70日高値更新→翌日寄りで手仕舞い"
-            except Exception:
-                judgement = "判定失敗"
+            if is_new_70day_high("SPY"):
+                judgement = "70日高値更新→翌日寄りで手仕舞い"
+            else:
+                judgement = "継続"
         elif side.lower() == "short":  # System2/6
             if plpc >= 0.05:
                 judgement = "5%利益→翌日大引けで手仕舞い"
