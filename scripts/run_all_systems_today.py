@@ -440,7 +440,10 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。" + "SPY.csv を用意してください。"  # noqa: E501
+            (
+                "⚠️ SPY が data_cache に見つかりません。"
+                "SPY.csv を用意してください。"
+            )  # noqa: E501
         )
 
     # ストラテジ初期化
