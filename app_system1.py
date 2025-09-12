@@ -56,55 +56,6 @@ def _resolve_spy_csv_path() -> Path:
     return p / "SPY.csv"
 
 
-def _download_spy_data(save_path: Path, years: int = 15) -> pd.DataFrame | None:
-    """EODHD API を利用して SPY 日足データを取得し CSV 保存する。
-    years: 取得年数（過去 n 年分）
-    戻り値: 成功時 DataFrame / 失敗時 None
-    """
-    try:
-        settings = get_settings()  # type: ignore
-        api_key = getattr(settings, "eodhd_api_key", None) or os.getenv("EODHD_API_KEY")  # type: ignore
-    except Exception:
-        api_key = os.getenv("EODHD_API_KEY")  # type: ignore
-    if not api_key:
-        return None
-
-    try:
-        end = pd.Timestamp.utcnow().normalize()
-        start = end - pd.DateOffset(years=years)
-        url = (
-            "https://eodhd.com/api/eod/SPY.US"
-            f"?from={start:%Y-%m-%d}&to={end:%Y-%m-%d}&period=d&fmt=json&api_token={api_key}"
-        )
-        resp = requests.get(url, timeout=30)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        if not data:
-            return None
-        df = pd.DataFrame(data)
-        # 想定フィールド: date, open, high, low, close, adjusted_close, volume
-        # 列存在チェックしつつリネーム
-        rename_map = {
-            "date": "Date",
-            "open": "Open",
-            "high": "High",
-            "low": "Low",
-            "close": "Close",
-            "adjusted_close": "Adj Close",
-            "volume": "Volume",
-        }
-        # 欠損列はスキップ
-        df = df[[c for c in rename_map if c in df.columns]].rename(columns=rename_map)
-        if "Date" not in df.columns or df.empty:
-            return None
-        df.sort_values("Date", inplace=True)
-        df.to_csv(save_path, index=False)
-        return df
-    except Exception:
-        return None
-
-
 # ---------------------------------------------------------------------------
 
 
@@ -114,32 +65,11 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
         st.error(tr("SPYデータの取得に失敗しました。キャッシュを更新してください"))
-        with st.expander("SPYデータ自動ダウンロード (EODHD API 利用)", expanded=True):
-            st.write(
-                "SPY.csv が存在しないためバックテストを実行できません。"
-                " 以下のボタンで EODHD API から最新データを取得して再読み込みします。"
-            )
-            col1, col2 = st.columns(2)
-            with col1:
-                years = st.number_input("取得年数", 5, 30, 15, 1)
-            with col2:
-                do_dl = st.button("SPYデータをダウンロード / 更新", type="primary")
-            if do_dl:
-                path = _resolve_spy_csv_path()
-                with st.spinner("SPYデータ取得中 (EODHD)..."):
-                    raw = _download_spy_data(path, years=years)
-                if raw is None or raw.empty:
-                    st.warning("ダウンロードに失敗しました (APIキー未設定/通信失敗/レスポンス空)")
-                    return
-                st.success(f"保存しました: {path}")
-                # 取得後に再トライ
-                new_df = get_spy_with_indicators()
-                if new_df is None or getattr(new_df, "empty", True):
-                    st.warning("再読み込みに失敗しました。必要ならアプリを再起動してください。")
-                    return
-                spy_df = new_df
-            else:
-                return
+        new_df = get_spy_with_indicators()
+        if new_df is None or getattr(new_df, "empty", True):
+            st.warning("再読み込みに失敗しました。必要ならアプリを再起動してください。")
+            return
+        spy_df = new_df
     _rb = cast(
         tuple[
             pd.DataFrame | None,
