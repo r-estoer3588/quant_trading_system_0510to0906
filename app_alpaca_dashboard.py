@@ -191,8 +191,10 @@ def _group_by_system(
     work["system"] = work["銘柄"].map(symbol_map).fillna("unknown")
 
     grouped: dict[str, pd.DataFrame] = {}
-    for system, g in work.groupby("system"):
-        grouped[system] = g[["銘柄", "評価額"]]
+    for system_value, g in work.groupby("system"):
+        # pandas の groupby キーは Scalar 型 (Hashable) になりうるため mypy で str との不一致を避ける目的で明示的に文字列化
+        system_str = str(system_value)
+        grouped[system_str] = g[["銘柄", "評価額"]]
     return grouped
 
 

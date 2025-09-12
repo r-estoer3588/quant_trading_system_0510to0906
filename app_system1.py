@@ -7,6 +7,8 @@ from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
+import requests
+from config.settings import get_settings
 
 from common.cache_utils import save_prepared_data_cache
 from common.equity_curve import save_equity_curve
@@ -46,18 +48,98 @@ strategy: System1Strategy = System1Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
-def run_tab(
-    spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
-) -> None:
-    st.header(
-        tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング")
-    )
+# --- 追加: SPY データ救済用ユーティリティ ---------------------------------
+def _resolve_spy_csv_path() -> Path:
+    """SPY.csv の保存先（既定: data/SPY.csv）を返す。"""
+    p = Path("data")
+    p.mkdir(exist_ok=True)
+    return p / "SPY.csv"
+
+
+def _download_spy_data(save_path: Path, years: int = 15) -> pd.DataFrame | None:
+    """EODHD API を利用して SPY 日足データを取得し CSV 保存する。
+    years: 取得年数（過去 n 年分）
+    戻り値: 成功時 DataFrame / 失敗時 None
+    """
+    try:
+        settings = get_settings()  # type: ignore
+        api_key = getattr(settings, "eodhd_api_key", None) or os.getenv("EODHD_API_KEY")  # type: ignore
+    except Exception:
+        api_key = os.getenv("EODHD_API_KEY")  # type: ignore
+    if not api_key:
+        return None
+
+    try:
+        end = pd.Timestamp.utcnow().normalize()
+        start = end - pd.DateOffset(years=years)
+        url = (
+            "https://eodhd.com/api/eod/SPY.US"
+            f"?from={start:%Y-%m-%d}&to={end:%Y-%m-%d}&period=d&fmt=json&api_token={api_key}"
+        )
+        resp = requests.get(url, timeout=30)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if not data:
+            return None
+        df = pd.DataFrame(data)
+        # 想定フィールド: date, open, high, low, close, adjusted_close, volume
+        # 列存在チェックしつつリネーム
+        rename_map = {
+            "date": "Date",
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "adjusted_close": "Adj Close",
+            "volume": "Volume",
+        }
+        # 欠損列はスキップ
+        df = df[[c for c in rename_map if c in df.columns]].rename(columns=rename_map)
+        if "Date" not in df.columns or df.empty:
+            return None
+        df.sort_values("Date", inplace=True)
+        df.to_csv(save_path, index=False)
+        return df
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+
+
+def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None) -> None:
+    st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
         st.error(tr("SPYデータの取得に失敗しました。キャッシュを更新してください"))
-        return
-
+        with st.expander("SPYデータ自動ダウンロード (EODHD API 利用)", expanded=True):
+            st.write(
+                "SPY.csv が存在しないためバックテストを実行できません。"
+                " 以下のボタンで EODHD API から最新データを取得して再読み込みします。"
+            )
+            col1, col2 = st.columns(2)
+            with col1:
+                years = st.number_input("取得年数", 5, 30, 15, 1)
+            with col2:
+                do_dl = st.button("SPYデータをダウンロード / 更新", type="primary")
+            if do_dl:
+                path = _resolve_spy_csv_path()
+                with st.spinner("SPYデータ取得中 (EODHD)..."):
+                    raw = _download_spy_data(path, years=years)
+                if raw is None or raw.empty:
+                    st.warning("ダウンロードに失敗しました (APIキー未設定/通信失敗/レスポンス空)")
+                    return
+                st.success(f"保存しました: {path}")
+                # 取得後に再トライ
+                new_df = get_spy_with_indicators()
+                if new_df is None or getattr(new_df, "empty", True):
+                    st.warning("再読み込みに失敗しました。必要ならアプリを再起動してください。")
+                    return
+                spy_df = new_df
+            else:
+                return
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -78,17 +160,13 @@ def run_tab(
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
-        display_roc200_ranking(
-            daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング"
-        )
+        display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング")
 
         signal_summary_df = show_signal_trade_summary(
             merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
-            save_signal_and_trade_logs(
-                signal_summary_df, results_df, SYSTEM_NAME, capital
-            )
+            save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
         if data_dict is not None:
             save_prepared_data_cache(data_dict, SYSTEM_NAME)
 
@@ -100,9 +178,7 @@ def run_tab(
             else float(summary.max_drawdown)
         )
         try:
-            max_dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
         stats: dict[str, Any] = {
