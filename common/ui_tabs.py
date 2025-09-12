@@ -112,6 +112,16 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
 
     if run_btn_i:
         symbols = all_tickers if use_all else all_tickers[: int(limit_i)]
+        try:
+            import logging as _logging
+
+            _logging.getLogger(__name__).info(
+                "[integrated] target symbols: %d (e.g., %s)",
+                len(symbols),
+                ", ".join(symbols[:10]) + ("..." if len(symbols) > 10 else ""),
+            )
+        except Exception:
+            pass
         spy_base = get_spy_with_indicators(get_spy_data_cached())
 
         ui = UIManager().system("Integrated", title=tr("Integrated"))
@@ -133,6 +143,15 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         }
         st.write(tr("signals per system:"))
         st.dataframe(_pd.DataFrame([sig_counts]))
+        try:
+            import logging as _logging
+
+            _logging.getLogger(__name__).info(
+                "[integrated] signals per system: %s",
+                {k: int(v) for k, v in sig_counts.items()},
+            )
+        except Exception:
+            pass
 
         sim = ui.phase("simulate", title=tr("simulate integrated"))
         sim.info(tr("running integrated engine..."))
@@ -153,6 +172,13 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             allow_gross_leverage=allow_gross,
             on_progress=_on_progress,
         )
+        try:
+            import logging as _logging
+            _logging.getLogger(__name__).info(
+                "[integrated] result trades=%d", 0 if trades_df is None else len(trades_df)
+            )
+        except Exception:
+            pass
 
         # 終了時にプログレスバーを消す
         try:

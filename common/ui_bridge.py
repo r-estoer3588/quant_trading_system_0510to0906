@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 import os
 import time
 
@@ -79,6 +80,7 @@ def _fetch_data_ui(symbols, ui_manager=None, max_workers: int = 8) -> dict[str, 
     log_area = phase.log_area if phase else st.empty()
     buffer, start = [], time.time()
 
+    logging.getLogger("fetch").info(tr("fetch: start | {total} symbols", total=total))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_load_symbol, s): s for s in symbols}
         for i, fut in enumerate(as_completed(futures), 1):
@@ -98,12 +100,14 @@ def _fetch_data_ui(symbols, ui_manager=None, max_workers: int = 8) -> dict[str, 
                 if buffer:
                     msg += "\n" + ", ".join(buffer)
                 log_area.text(msg)
+                logging.getLogger("fetch").info(msg)
                 progress.progress(i / total)
                 buffer.clear()
     try:
         progress.empty()
     except Exception:
         pass
+    logging.getLogger("fetch").info(tr("fetch: done | {n} valid items", n=len(data)))
     return data
 
 
@@ -139,6 +143,10 @@ def prepare_backtest_data_ui(
     # 2) インジケーター計算
     ind = _phase(ui_manager, "indicators")
     ind.info(tr("indicators: computing..."))
+    try:
+        logging.getLogger("indicators").info("indicators: computing...")
+    except Exception:
+        pass
     prepared = strategy.prepare_data(
         raw,
         progress_callback=lambda done, total: ind.progress_bar.progress(done / total),
@@ -151,6 +159,10 @@ def prepare_backtest_data_ui(
         pass
     try:
         ind.log_area.text(tr("indicators: done"))
+    except Exception:
+        pass
+    try:
+        logging.getLogger("indicators").info("indicators: done")
     except Exception:
         pass
     # 3) 候補抽出
@@ -176,6 +188,10 @@ def prepare_backtest_data_ui(
         cand.info(tr("candidates: extracting..."))
     except Exception:
         pass
+    try:
+        logging.getLogger("candidates").info("candidates: extracting...")
+    except Exception:
+        pass
     # cand.info removed (duplicate)
     try:
         candidates_by_date, merged_df = strategy.generate_candidates(
@@ -197,6 +213,10 @@ def prepare_backtest_data_ui(
         pass
     try:
         cand.log_area.text(tr("candidates: done"))
+    except Exception:
+        pass
+    try:
+        logging.getLogger("candidates").info("candidates: done")
     except Exception:
         pass
 

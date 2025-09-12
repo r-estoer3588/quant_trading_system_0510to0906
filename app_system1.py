@@ -48,17 +48,6 @@ strategy: System1Strategy = System1Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
-# --- 追加: SPY データ救済用ユーティリティ ---------------------------------
-def _resolve_spy_csv_path() -> Path:
-    """SPY.csv の保存先（既定: data/SPY.csv）を返す。"""
-    p = Path("data")
-    p.mkdir(exist_ok=True)
-    return p / "SPY.csv"
-
-
-# ---------------------------------------------------------------------------
-
-
 def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None) -> None:
     st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
 

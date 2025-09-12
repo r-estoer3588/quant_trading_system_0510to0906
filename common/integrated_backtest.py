@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+import logging
 from typing import Dict, List, Tuple, Optional, Callable
 
 import pandas as pd
@@ -242,6 +243,13 @@ def run_integrated_backtest(
     戻り値: (trades_df, signal_counts_by_system)
     """
     allocations = dict(allocations or DEFAULT_ALLOCATIONS)
+    logging.getLogger(__name__).info(
+        "[integrated] start | states=%d, long_share=%.2f, short_share=%.2f, gross=%s",
+        len(system_states),
+        float(long_share),
+        float(short_share),
+        bool(allow_gross_leverage),
+    )
     name_to_state = {s.name: s for s in system_states}
     # シグナル件数
     signal_counts = {
@@ -263,9 +271,11 @@ def run_integrated_backtest(
 
     # 全営業日の集合（シグナルのある日ベース）
     all_dates = _union_signal_dates(system_states)
+    logging.getLogger(__name__).info("[integrated] trading days: %d", len(all_dates))
 
     start_time = time.time()
     for i, current_date in enumerate(all_dates, 1):
+        day_new_positions = 0
         # UI側のプログレスバー更新（あれば）
         try:
             if on_progress is not None:
@@ -435,6 +445,7 @@ def build_system_states(
     """
     states: List[SystemState] = []
 
+    logging.getLogger(__name__).info("[integrated] preparing per-system data...")
     for i in range(1, 8):
         sys_name = f"System{i}"
         mod = __import__(
@@ -446,6 +457,12 @@ def build_system_states(
 
         # System7 は SPY のみ
         syms = ["SPY"] if sys_name == "System7" else symbols
+        try:
+            logging.getLogger(__name__).info(
+                "[prepare] %s | symbols=%d", sys_name, len(syms)
+            )
+        except Exception:
+            pass
 
         if ui_bridge_prepare is None:
             # UI非依存のフォールバック読み込み
@@ -474,6 +491,21 @@ def build_system_states(
             prepared = {}
         if not cands:
             cands = {}
+
+        # サマリーをCLIに出力
+        try:
+            total_prepared = len(prepared or {})
+            total_cand_dates = len((cands or {}))
+            total_cands = int(sum(len(v) for v in (cands or {}).values()))
+            logging.getLogger(__name__).info(
+                "[prepare.done] %s | prepared=%d | cand_dates=%d | candidates=%d",
+                sys_name,
+                total_prepared,
+                total_cand_dates,
+                total_cands,
+            )
+        except Exception:
+            pass
 
         states.append(
             SystemState(
