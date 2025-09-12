@@ -1,8 +1,10 @@
-"""Simple Streamlit dashboard to display current Alpaca account status.
+"""Alpaca ダッシュボード（UI リフレッシュ＋演出強化）
 
-The page fetches the account and open positions from the Alpaca API via
-``common.broker_alpaca``.  Styling is applied with a small CSS snippet to keep
-the layout clean and easy to read.
+- アカウント残高/現金/余力をカード表示（前日比、余力ゲージ）
+- ポジション一覧は行スタイル（損益で淡い緑/赤）＋スパークライン
+- システム別フィルタ（symbol_system_map.json があれば使用）
+- 統計チップ（勝ち/負け、平均損益率、最大/合計/中央値の含み損益）
+- タイトル直下のスティッキーツールバーに「🔄 手動更新」と最終更新時刻を横並び配置
 """
 
 from __future__ import annotations
@@ -19,83 +21,87 @@ from common import broker_alpaca as ba
 
 
 def _inject_css() -> None:
-    """Inject modern CSS for a stylish dashboard."""
     st.markdown(
         """
         <style>
-        body, .stApp {
-            background: #181c24 !important;
-            color: #f5f6fa !important;
-            font-family: 'Segoe UI', 'Meiryo', 'sans-serif';
+        :root {
+          --bg: #0f1420; --panel: #171c2a; --panel-alt: #1c2335;
+          --text: #f5f7fa; --muted: #9aa4b2; --accent: #00e6a8;
+          --danger: #ff6b6b; --warn: #ffd166;
         }
-        .main {
-            background: #181c24 !important;
-        }
-        h1, h2, h3, h4 {
-            color: #f5f6fa !important;
-            font-weight: 700;
-            letter-spacing: 1px;
-        }
-        h1 {
-            font-size: 2.6rem !important;
-            margin-top: 0.5em !important;
-            margin-bottom: 0.5em !important;
-            padding-left: 0.2em !important;
-        }
-        .alpaca-card {
-            background: #23283a;
-            border-radius: 1rem;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.12);
-            padding: 1.2rem 1.2rem 1.2rem 1.2rem;
-            margin-bottom: 1.5rem;
-        }
-        .alpaca-metric {
-            background: #23283a;
-            border-radius: 1rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.10);
-            padding: 1.2rem 1rem;
-            margin: 0.5rem;
-            text-align: center;
-        }
-        .alpaca-metric .metric-label {
-            font-size: 1.1rem;
-            color: #a5b1c2;
-            margin-bottom: 0.5rem;
-        }
-        .alpaca-metric .metric-value {
-            font-size: 2.6rem;
-            font-weight: 700;
-            color: #f5f6fa;
-        }
-        .stDataFrame {
-            background: #23283a !important;
-            border-radius: 1rem !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.10) !important;
-            padding: 0.5rem !important;
-            margin-top: 0 !important;
-        }
-        .stInfo {
-            background: #23283a !important;
-            color: #a5b1c2 !important;
-            border-radius: 1rem;
-            padding: 1rem;
-        }
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-        }
-        /* 不要なバーを消す */
-        .css-1dp5vir.e1fqkh3o3 {
-            display: none !important;
-        }
+        body, .stApp { background: var(--bg) !important; color: var(--text) !important; }
+        .main { background: var(--bg) !important; }
+        .block-container { padding-top: 1.6rem !important; }
+
+        .ap-title { font-size: 2.2rem; font-weight: 800; letter-spacing: .4px; margin: .6rem 0 1rem; }
+        .ap-title .accent { background: linear-gradient(90deg, var(--accent), #12b886); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .ap-section { font-size: 1.2rem; font-weight: 700; margin: 1rem 0 .6rem; color: var(--text); }
+
+        .ap-card { background: var(--panel); border-radius: 16px; padding: 1.0rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+        .ap-card + .ap-card { margin-top: 1rem; }
+
+        .ap-metric { background: linear-gradient(var(--panel-alt), var(--panel-alt)) padding-box,
+                                 linear-gradient(135deg, rgba(0,230,168,.45), rgba(18,184,134,.25)) border-box;
+                      border: 1px solid transparent; border-radius: 16px; padding: 1rem; text-align: center;
+                      box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: transform .08s ease-out; }
+        .ap-metric:hover { transform: translateY(-1px); }
+        .ap-metric .label { color: var(--muted); font-size: .95rem; margin-bottom: .3rem; }
+        .ap-metric .value { font-size: 2.0rem; font-weight: 800; letter-spacing: .5px; }
+        .ap-metric .delta-pos { color: var(--accent); font-size: .9rem; font-weight: 700; }
+        .ap-metric .delta-neg { color: var(--danger); font-size: .9rem; font-weight: 700; }
+
+        .ap-badge { display: inline-block; padding: .25rem .6rem; border-radius: 999px; background: #0b1625; color: var(--muted); font-size: .78rem; margin-right: .4rem; border: 1px solid rgba(255,255,255,.08); }
+        .ap-badge.good { color: var(--accent); border-color: rgba(0,230,168,.4); }
+        .ap-badge.warn { color: var(--warn); border-color: rgba(255,209,102,.35); }
+        .ap-badge.danger { color: var(--danger); border-color: rgba(255,107,107,.35); }
+        .ap-badge.stat { background: rgba(255,255,255,.06); color: var(--text); margin-top: .25rem; }
+        .ap-badges { display:flex; flex-wrap: wrap; gap:.4rem; align-items:center; }
+        .ap-badges .ap-badge { margin-right: 0; }
+
+        .stDataFrame { background: var(--panel) !important; border-radius: 14px !important; box-shadow: 0 6px 18px rgba(0,0,0,.25) !important; }
+        .stDataFrame [data-testid="StyledFullRow"] { background: transparent !important; }
+
+        .ap-toolbar { position: sticky; top: .5rem; z-index: 20; backdrop-filter: blur(6px); background: rgba(23,28,42,.6); border-radius: 12px; padding: .4rem .6rem; border: 1px solid rgba(255,255,255,.06); }
+        .ap-caption { white-space: nowrap; }
+
+        .ap-ring { --size: 92px; --track: #0b1625; --val: 0.0; width: var(--size); height: var(--size); border-radius: 50%;
+                   background: conic-gradient(var(--accent) calc(var(--val) * 1%), rgba(255,255,255,.08) 0), var(--track); display: grid; place-items: center; margin: .25rem auto; }
+        .ap-ring > span { font-weight: 800; font-size: 1.0rem; }
+
+        @keyframes apFadeUp { from { opacity: 0; transform: translateY(6px);} to { opacity:1; transform:none; } }
+        .ap-fade { animation: apFadeUp .28s ease-out; }
+        .ap-card, .ap-metric, .stDataFrame, .stTabs { animation: apFadeUp .28s ease-out; }
+
+        .ap-toolbar .stButton>button { width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+                                       background: linear-gradient(135deg, rgba(0,230,168,.22), rgba(18,184,134,.14));
+                                       color: var(--text); font-weight: 700; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
+def _fmt_money(x: object, prefix: str = "$") -> str:
+    try:
+        v = float(x) if x is not None else 0.0
+        if abs(v) >= 1000:
+            return f"{prefix}{v:,.0f}"
+        return f"{prefix}{v:,.2f}"
+    except Exception:
+        return str(x)
+
+
+def _fmt_number(x: object) -> str:
+    try:
+        v = float(x)
+        if abs(v) >= 1000:
+            return f"{v:,.0f}"
+        return f"{v:,.2f}"
+    except Exception:
+        return str(x)
+
+
 def _fetch_account_and_positions() -> tuple[object, object, object]:
-    """Retrieve client, account and open positions using the Alpaca client."""
     client = ba.get_client()
     account = client.get_account()
     positions = client.get_all_positions()
@@ -103,10 +109,8 @@ def _fetch_account_and_positions() -> tuple[object, object, object]:
 
 
 def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
-    """Calculate holding days from entry date."""
     if entry_dt is None:
         return None
-    # 既に pandas.Timestamp の場合はそのまま使用し、そうでなければパースを試みる
     if isinstance(entry_dt, pd.Timestamp):
         dt = entry_dt
     else:
@@ -121,14 +125,12 @@ def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
 
 
 def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
-    """Fetch entry dates for symbols via account activities."""
     out: dict[str, pd.Timestamp] = {}
     for sym in symbols:
         try:
             acts = client.get_activities(symbol=sym, activity_types="FILL")
         except Exception:
             continue
-        # key が None を返すと型チェックでエラーになるため空文字列をデフォルトにする
         for act in sorted(acts, key=lambda a: getattr(a, "transaction_time", "")):
             t = getattr(act, "transaction_time", None)
             if t:
@@ -137,11 +139,27 @@ def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
     return out
 
 
-def _positions_to_df(positions, client=None) -> pd.DataFrame:
-    """Convert positions to DataFrame and append holding days and exit hints.
+def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None:
+    candidates = [
+        Path("data_cache_recent") / f"{symbol}.csv",
+        Path("data_cache") / f"{symbol}.csv",
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                df = pd.read_csv(p)
+                cols = {c.lower(): c for c in df.columns}
+                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
+                if close_col is None:
+                    continue
+                s = df[close_col].astype(float).tail(max_points)
+                return list(s.values)
+            except Exception:
+                continue
+    return None
 
-    client が指定されない場合はエントリー日の取得をスキップする。
-    """
+
+def _positions_to_df(positions, client=None) -> pd.DataFrame:
     symbols = [getattr(p, "symbol", "") for p in positions]
     entry_map = _fetch_entry_dates(client, symbols) if client else {}
 
@@ -162,7 +180,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         system = symbol_map.get(sym, "unknown").lower()
         limit = hold_limits.get(system)
         exit_hint = (
-            f"{limit}日経過で手仕舞い" if held is not None and limit and held >= limit else ""
+            f"{limit}日経過で手仕切り検討" if held is not None and limit and held >= limit else ""
         )
         records.append(
             {
@@ -172,116 +190,271 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
                 "現在値": getattr(pos, "current_price", ""),
                 "含み損益": getattr(pos, "unrealized_pl", ""),
                 "保有日数": held if held is not None else "-",
-                "経過日手仕舞い": exit_hint,
+                "経過日手仕切り": exit_hint,
+                "システム": symbol_map.get(sym, "unknown"),
             }
         )
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    if not df.empty:
+        try:
+            # ポジション数が多いときは点数を抑えて軽量化
+            n_points = 20 if len(df) > 15 else 45
+            df["価格ミニ"] = [(_load_recent_prices(sym, max_points=n_points) or []) for sym in df["銘柄"].astype(str)]
+        except Exception:
+            pass
+    return df
 
 
 def _group_by_system(
     df: pd.DataFrame,
     symbol_map: dict[str, str],
 ) -> dict[str, pd.DataFrame]:
-    """銘柄をシステムにマッピングして資金配分を計算する."""
     if df.empty:
         return {}
 
     work = df.copy()
-    work["評価額"] = work["数量"].astype(float) * work["現在値"].astype(float)
+    try:
+        work["評価額"] = work["数量"].astype(float) * work["現在値"].astype(float)
+    except Exception:
+        return {}
     work["system"] = work["銘柄"].map(symbol_map).fillna("unknown")
 
     grouped: dict[str, pd.DataFrame] = {}
     for system_value, g in work.groupby("system"):
-        # pandas の groupby キーは Scalar 型 (Hashable) になりうるため mypy で str との不一致を避ける目的で明示的に文字列化
-        system_str = str(system_value)
-        grouped[system_str] = g[["銘柄", "評価額"]]
+        grouped[str(system_value)] = g[["銘柄", "評価額"]]
     return grouped
 
 
 def main() -> None:
-    """Run the Streamlit dashboard."""
     st.set_page_config(page_title="Alpaca Dashboard", layout="wide")
-    st.markdown(
-        (
-            "<h1 style='margin-bottom:0.5em; margin-top:0.5em; padding-left:0.2em;'>"
-            "Alpaca "
-            '<span style="color:#00b894;">現在状況</span>'
-            "</h1>"
-        ),
-        unsafe_allow_html=True,
-    )
     _inject_css()
+
+    # タイトル＋ツールバー（右端に 手動更新 と 最終更新 を横並び）
+    st.markdown("<div class='ap-title'>Alpaca <span class='accent'>現在状況</span></div>", unsafe_allow_html=True)
+    st.markdown("<div class='ap-toolbar ap-fade'>", unsafe_allow_html=True)
+    spacer, right = st.columns([7, 3])
+    with right:
+        bcol, tcol = st.columns([1.2, 1.8])
+        with bcol:
+            if st.button("🔄 手動更新", use_container_width=True):
+                st.rerun()
+        with tcol:
+            st.caption(f"最終更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     try:
         client, account, positions = _fetch_account_and_positions()
-    except Exception as exc:  # pragma: no cover - network or credential errors
+    except Exception as exc:  # pragma: no cover
         st.error(f"データ取得に失敗しました: {exc}")
         return
 
-    st.markdown("<div class='alpaca-card'>", unsafe_allow_html=True)
-    cols = st.columns(3)
-    with cols[0]:
-        st.markdown(
-            (
-                f"<div class='alpaca-metric'>"
-                f"<div class='metric-label'>総資産</div>"
-                f"<div class='metric-value'>{getattr(account, 'equity', '-')}</div>"
-                f"</div>"
-            ),
-            unsafe_allow_html=True,
-        )
-    with cols[1]:
-        st.markdown(
-            (
-                f"<div class='alpaca-metric'>"
-                f"<div class='metric-label'>現金</div>"
-                f"<div class='metric-value'>{getattr(account, 'cash', '-')}</div>"
-                f"</div>"
-            ),
-            unsafe_allow_html=True,
-        )
-    with cols[2]:
-        st.markdown(
-            (
-                f"<div class='alpaca-metric'>"
-                f"<div class='metric-label'>余力</div>"
-                f"<div class='metric-value'>"
-                f"{getattr(account, 'buying_power', '-')}</div>"
-                f"</div>"
-            ),
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+    # メトリクス行
+    st.markdown("<div class='ap-card ap-fade'>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    equity = getattr(account, "equity", "-")
+    cash = getattr(account, "cash", "-")
+    buying_power = getattr(account, "buying_power", "-")
+    last_equity = getattr(account, "last_equity", None)
+    delta = None
+    try:
+        if last_equity is not None:
+            delta = float(equity) - float(last_equity)
+    except Exception:
+        delta = None
 
-    st.markdown("<h2 style='margin-top:2em;'>保有ポジション</h2>", unsafe_allow_html=True)
-    st.markdown("<div class='alpaca-card'>", unsafe_allow_html=True)
-    pos_df = _positions_to_df(positions, client)
-    if pos_df.empty:
-        st.info("ポジションはありません。")
-    else:
-        st.dataframe(pos_df, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    def _metric_html(label: str, value: str, delta_val: float | None = None) -> str:
+        d = ""
+        if delta_val is not None:
+            klass = "delta-pos" if delta_val >= 0 else "delta-neg"
+            arrow = "▲" if delta_val >= 0 else "▼"
+            d = f"<div class='{klass}'>{arrow} {_fmt_money(delta_val)}</div>"
+        return (
+            "<div class='ap-metric'>"
+            f"<div class='label'>{label}</div>"
+            f"<div class='value'>{value}</div>"
+            f"{d}"
+            "</div>"
+        )
 
-    # --- system ごとの円グラフ表示 ---
-    mapping_path = Path("data/symbol_system_map.json")
-    if not pos_df.empty and mapping_path.exists():
+    with c1:
+        st.markdown(_metric_html("総資産", _fmt_money(equity), delta), unsafe_allow_html=True)
+    with c2:
+        st.markdown(_metric_html("現金", _fmt_money(cash)), unsafe_allow_html=True)
+    with c3:
+        st.markdown(_metric_html("余力", _fmt_money(buying_power)), unsafe_allow_html=True)
+    with c4:
         try:
-            symbol_map = json.loads(mapping_path.read_text())
+            ratio = min(max(float(buying_power) / float(equity), 0.0), 1.0)
+            ring = f"<div class='ap-ring' style='--val:{ratio*100:.1f};'><span>{ratio*100:.0f}%</span></div>"
+            st.markdown(ring, unsafe_allow_html=True)
+            st.caption("余力比率")
         except Exception:
-            st.info("symbol_system_map.json の読み込みに失敗しました。")
+            st.caption("余力比率: -")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # 口座状態バッジ
+    flags = []
+    try:
+        if getattr(account, "trading_blocked", False):
+            flags.append(("取引停止", "danger"))
+        if getattr(account, "pattern_day_trader", False):
+            flags.append(("PDT", "warn"))
+        if not flags:
+            flags.append(("正常", "good"))
+    except Exception:
+        pass
+    st.markdown(" ".join([f"<span class='ap-badge {k}'>{t}</span>" for t, k in flags]), unsafe_allow_html=True)
+
+    # タブ
+    tab_summary, tab_pos, tab_alloc = st.tabs(["サマリー", "ポジション", "配分グラフ"])
+
+    with tab_pos:
+        st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
+        pos_df = _positions_to_df(positions, client)
+        if pos_df.empty:
+            st.info("ポジションはありません。")
         else:
-            grouped = _group_by_system(pos_df, symbol_map)
-            for system, g in grouped.items():
-                st.markdown(f"<h3>{system} 資金配分</h3>", unsafe_allow_html=True)
-                fig, ax = plt.subplots()
-                ax.pie(g["評価額"], labels=g["銘柄"], autopct="%1.1f%%")
-                ax.set_aspect("equal")
-                st.pyplot(fig)
-    elif mapping_path.exists():
-        st.info("ポジションがないため円グラフを表示できません。")
-    else:
-        st.info("data/symbol_system_map.json が見つかりません。")
+            # システム絞り込み
+            if "システム" in pos_df.columns:
+                systems = sorted([str(s) for s in pos_df["システム"].fillna("unknown").unique()])
+                selected = st.multiselect("システム絞り込み", systems, default=systems)
+                pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
+
+            # 派生列: 損益率(%)
+            try:
+                def _pnl_ratio(r):
+                    try:
+                        p = float(r.get("現在値", 0))
+                        a = float(r.get("平均取得単価", 0))
+                        return (p / a - 1) * 100 if a else 0.0
+                    except Exception:
+                        return 0.0
+                pos_df["損益率(%)"] = pos_df.apply(_pnl_ratio, axis=1)
+            except Exception:
+                pass
+
+            # 並び替え
+            sort_key = st.selectbox("並び替え", ["含み損益", "損益率(%)", "保有日数", "銘柄"], index=0, key="pos_sort")
+            ascending = st.toggle("昇順", value=False, key="pos_asc")
+            try:
+                pos_df = pos_df.sort_values(sort_key, ascending=ascending)
+            except Exception:
+                pass
+
+            # 行スタイル（損益で淡い緑/赤, 透明度 0.14）
+            def _row_style(row):
+                try:
+                    pl = float(row.get("含み損益", 0))
+                except Exception:
+                    pl = 0.0
+                bg = "rgba(0,230,168,.14)" if pl > 0 else ("rgba(255,107,107,.14)" if pl < 0 else "transparent")
+                return [f"background-color: {bg}"] * len(row)
+
+            styler = pos_df.style.apply(_row_style, axis=1)
+
+            # 表示（スパークライン列は LineChartColumn）
+            try:
+                st.dataframe(
+                    styler,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "数量": st.column_config.NumberColumn(format=",.0f"),
+                        "平均取得単価": st.column_config.NumberColumn(format=",.2f"),
+                        "現在値": st.column_config.NumberColumn(format=",.2f"),
+                        "含み損益": st.column_config.NumberColumn(format=",.2f"),
+                        "損益率(%)": st.column_config.ProgressColumn(min_value=-20, max_value=20, format="%.1f%%"),
+                        "価格ミニ": st.column_config.LineChartColumn(width="small"),
+                    },
+                )
+            except Exception:
+                st.dataframe(pos_df, use_container_width=True, hide_index=True)
+
+            # CSV ダウンロード
+            try:
+                csv = pos_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
+            except Exception:
+                pass
+
+    with tab_summary:
+        st.markdown("<div class='ap-section'>指標</div>", unsafe_allow_html=True)
+        try:
+            total_positions = len(positions)
+        except Exception:
+            total_positions = 0
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            st.markdown(_metric_html("保有銘柄数", _fmt_number(total_positions)), unsafe_allow_html=True)
+        with s2:
+            try:
+                long_bp_ratio = min(max(float(buying_power) / float(equity), 0.0), 1.0)
+                st.markdown(_metric_html("余力比率", f"{long_bp_ratio*100:.1f}%"), unsafe_allow_html=True)
+            except Exception:
+                st.markdown(_metric_html("余力比率", "-"), unsafe_allow_html=True)
+        with s3:
+            if delta is not None:
+                st.markdown(_metric_html("前日比", _fmt_money(delta)), unsafe_allow_html=True)
+            else:
+                st.markdown(_metric_html("前日比", "-"), unsafe_allow_html=True)
+
+        # 統計チップ
+        try:
+            winners = int((pos_df["損益率(%)"] > 0).sum()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0
+            losers = int((pos_df["損益率(%)"] <= 0).sum()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0
+            avg_ret = float(pos_df["損益率(%)"].mean()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0.0
+            try:
+                pl_series = pos_df["含み損益"].astype(float) if "含み損益" in pos_df.columns else pd.Series(dtype=float)
+                max_pl = float(pl_series.max()) if not pl_series.empty else 0.0
+                sum_pl = float(pl_series.sum()) if not pl_series.empty else 0.0
+                med_pl = float(pl_series.median()) if not pl_series.empty else 0.0
+            except Exception:
+                max_pl = sum_pl = med_pl = 0.0
+            chips = [
+                f"<div class='ap-badge stat'>勝ち銘柄: {winners}</div>",
+                f"<div class='ap-badge stat'>負け銘柄: {losers}</div>",
+                f"<div class='ap-badge stat'>平均損益率: {avg_ret:.2f}%</div>",
+                f"<div class='ap-badge stat'>最大含み損益: {_fmt_money(max_pl)}</div>",
+                f"<div class='ap-badge stat'>合計含み損益: {_fmt_money(sum_pl)}</div>",
+                f"<div class='ap-badge stat'>含み損益中央値: {_fmt_money(med_pl)}</div>",
+            ]
+            st.markdown("<div class='ap-badges'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
+        except Exception:
+            pass
+
+    with tab_alloc:
+        st.markdown("<div class='ap-section'>システム別 配分</div>", unsafe_allow_html=True)
+        mapping_path = Path("data/symbol_system_map.json")
+        pos_df = _positions_to_df(positions, client)
+        if not pos_df.empty and mapping_path.exists():
+            try:
+                symbol_map = json.loads(mapping_path.read_text())
+            except Exception:
+                st.info("symbol_system_map.json の読み込みに失敗しました。")
+            else:
+                grouped = _group_by_system(pos_df, symbol_map)
+                if not grouped:
+                    st.info("マッピングに該当がありません。")
+                else:
+                    cols = st.columns(max(1, min(3, len(grouped))))
+                    i = 0
+                    for system, g in grouped.items():
+                        with cols[i % len(cols)]:
+                            st.caption(f"{system} の配分")
+                            fig, ax = plt.subplots()
+                            try:
+                                ax.pie(g["評価額"], labels=g["銘柄"], autopct="%1.1f%%", textprops={"color": "#ffffff"})
+                                ax.set_aspect("equal")
+                                st.pyplot(fig)
+                            finally:
+                                plt.close(fig)
+                        i += 1
+        elif mapping_path.exists():
+            st.info("ポジションがないため、グラフを表示できません。")
+        else:
+            st.info("data/symbol_system_map.json が見つかりません。")
 
 
 if __name__ == "__main__":  # pragma: no cover - UI entry point
     main()
+

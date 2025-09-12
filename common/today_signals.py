@@ -148,15 +148,38 @@ def get_today_signals_for_strategy(
         today = today.normalize()
 
     # 準備
+    if log_callback:
+        try:
+            log_callback("🧪 フィルターチェック開始")
+        except Exception:
+            pass
     prepared = strategy.prepare_data(
         raw_data_dict,
         progress_callback=progress_callback,
         log_callback=log_callback,
     )
+    # 簡易フィルター通過件数（列がある場合のみカウント）
+    try:
+        filter_pass = sum(
+            int(bool(getattr(df, "empty", True) is False and "filter" in df.columns and bool(pd.Series(df["filter"]).tail(1).iloc[0])))
+            for df in prepared.values()
+        )
+    except Exception:
+        filter_pass = 0
+    if log_callback:
+        try:
+            log_callback(f"✅ フィルター通過銘柄: {filter_pass} 件")
+        except Exception:
+            pass
 
     # 候補生成（market_df を必要とする実装に配慮）
     gen_fn = getattr(strategy, "generate_candidates")
     params = inspect.signature(gen_fn).parameters
+    if log_callback:
+        try:
+            log_callback("🧩 セットアップチェック開始")
+        except Exception:
+            pass
     if "market_df" in params and market_df is not None:
         candidates_by_date, _ = gen_fn(
             prepared,
@@ -170,6 +193,29 @@ def get_today_signals_for_strategy(
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+
+    # セットアップ通過件数（列がある場合のみカウント）
+    try:
+        setup_pass = sum(
+            1
+            for df in prepared.values()
+            if getattr(df, "empty", True) is False
+            and "setup" in df.columns
+            and bool(pd.Series(df["setup"]).tail(1).iloc[0])
+        )
+    except Exception:
+        setup_pass = 0
+    # トレード候補全体件数
+    try:
+        total_candidates = sum(len(v or []) for v in (candidates_by_date or {}).values())
+    except Exception:
+        total_candidates = 0
+    if log_callback:
+        try:
+            log_callback(f"✅ セットアップクリア銘柄: {setup_pass} 件")
+            log_callback("🧮 トレード候補選定完了")
+        except Exception:
+            pass
 
     if not candidates_by_date:
         return pd.DataFrame(
@@ -214,16 +260,38 @@ def get_today_signals_for_strategy(
             continue
         entry, stop = comp
         skey, sval, _asc = _score_from_candidate(system_name, c)
-        # build human-readable reason
+        # build human-readable reason（score のフォールバック補完を実施）
         reason_parts: List[str] = []
+        # 欠損・NaN の場合は prepared 側から採取（同一シグナル日の値）
+        if skey is not None and (sval is None or (isinstance(sval, float) and pd.isna(sval))):
+            try:
+                # signal day は entry_date の前営業日
+                signal_date = pd.Timestamp(c.get("Date", None))
+                if signal_date is None or pd.isna(signal_date):
+                    signal_date = pd.Timestamp(c.get("entry_date")).normalize() - pd.Timedelta(days=1)
+                if "Date" in df.columns:
+                    row = df[pd.to_datetime(df["Date"]).dt.normalize() == pd.to_datetime(signal_date).normalize()]
+                else:
+                    row = df[pd.to_datetime(df.index).normalize() == pd.to_datetime(signal_date).normalize()]
+                if not row.empty and skey in row.columns:
+                    _v = row.iloc[0][skey]
+                    if _v is not None and not pd.isna(_v):
+                        sval = float(_v)
+            except Exception:
+                pass
+
         if skey is not None:
-            reason_parts.append(f"{skey}={sval}")
-            # attempt to compute rank among prepared universe for the same entry_date
+            # 一旦数値を整形
+            try:
+                sval_disp = f"{float(sval):.2f}" if sval is not None and not pd.isna(sval) else "nan"
+            except Exception:
+                sval_disp = str(sval)
+            reason_parts.append(f"{skey}={sval_disp}")
+            # 同一エントリー日における順位（上位10位なら自然文表記に）
             try:
                 entry_date_norm = pd.Timestamp(c.get("entry_date")).normalize()
-                vals = []
+                vals: List[float] = []
                 for psym, pdf in prepared.items():
-                    # try to get the score value at the same entry date
                     try:
                         if "Date" in pdf.columns:
                             row = pdf[pd.to_datetime(pdf["Date"]).dt.normalize() == entry_date_norm]
@@ -235,27 +303,26 @@ def get_today_signals_for_strategy(
                                 vals.append(float(v))
                     except Exception:
                         continue
-                if vals:
-                    # compute rank
-                    total = len(vals)
-                    # include candidate value
+                rank = None
+                total = len(vals)
+                if total:
+                    # 値が未設定なら候補値を使う
                     try:
                         candidate_val = float(sval) if sval is not None else None
                     except Exception:
                         candidate_val = None
-                    rank = None
                     if candidate_val is not None:
                         sorted_vals = sorted(vals, reverse=not _asc)
-                        # 1-based rank
                         try:
                             rank = sorted_vals.index(candidate_val) + 1
                         except ValueError:
-                            # candidate_val might not match exactly due to float precision
-                            # approximate by finding nearest
                             diffs = [abs(candidate_val - x) for x in sorted_vals]
                             rank = diffs.index(min(diffs)) + 1
-                    if rank is not None:
-                        reason_parts.append(f"rank={rank}/{total}")
+                # rank に応じて自然文へ
+                if rank is not None and rank <= 10:
+                    reason_parts = [f"{skey}が{rank}位のため"]
+                elif rank is not None and total:
+                    reason_parts.append(f"rank={rank}/{total}")
             except Exception:
                 pass
 

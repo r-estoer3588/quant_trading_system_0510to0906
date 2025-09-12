@@ -1,10 +1,12 @@
 import os
 import time
-import streamlit as st
-import pandas as pd
 from typing import Dict
-from common.utils import safe_filename
+
+import pandas as pd
+import streamlit as st
+
 import common.i18n as i18n
+from common.utils import safe_filename
 
 
 def save_prepared_data_cache(
@@ -14,18 +16,19 @@ def save_prepared_data_cache(
     batch: int = 50,
 ) -> None:
     """
-    Save prepared per-symbol DataFrames to `data_cache/<system_name>/` with progress UI.
+    Save prepared per-symbol DataFrames under `data_cache/` with Streamlit progress.
 
-    - data_dict: mapping of symbol -> prepared DataFrame (index=Date or has Date column)
+    差分保存: 既存CSVの最終日が新規DataFrameの最終日以上ならスキップします。
+
+    - data_dict: symbol -> prepared DataFrame (index=Date or has Date column)
     - system_name: e.g., "System1".."System7"
-    - base_dir: top-level cache directory
+    - base_dir: cache directory
     - batch: progress/log update cadence
     """
     if not data_dict:
-        st.warning(i18n.tr("⚠️ 保存対象のデータがありません"))
+        st.warning(i18n.tr("⚠ 保存対象のデータがありません"))
         return
 
-    # Save flat under base_dir (no per-system subfolder)
     dest_dir = base_dir
     os.makedirs(dest_dir, exist_ok=True)
 
@@ -35,13 +38,66 @@ def save_prepared_data_cache(
     log_area = st.empty()
     start_time = time.time()
 
-    buffer = []
+    def _latest_date_from_df(x: pd.DataFrame):
+        try:
+            if "Date" in x.columns:
+                d = pd.to_datetime(x["Date"], errors="coerce").dropna()
+                if len(d):
+                    return d.max().normalize()
+        except Exception:
+            pass
+        try:
+            idx = pd.to_datetime(x.index, errors="coerce").dropna()
+            if len(idx):
+                return idx.max().normalize()
+        except Exception:
+            pass
+        return None
+
+    def _latest_date_in_csv(path: str):
+        if not os.path.exists(path):
+            return None
+        try:
+            try:
+                s = pd.read_csv(path, usecols=["Date"], parse_dates=["Date"])  # type: ignore[arg-type]
+                col = "Date"
+            except Exception:
+                s = pd.read_csv(path, usecols=["date"], parse_dates=["date"])  # type: ignore[arg-type]
+                s = s.rename(columns={"date": "Date"})
+                col = "Date"
+            if s is None or s.empty or col not in s.columns:
+                return None
+            d = pd.to_datetime(s[col], errors="coerce").dropna()
+            if len(d) == 0:
+                return None
+            return d.max().normalize()
+        except Exception:
+            return None
+
+    saved = 0
+    skipped = 0
+    buffer: list[str] = []
     for i, (sym, df) in enumerate(data_dict.items(), 1):
         path = os.path.join(dest_dir, f"{safe_filename(sym)}.csv")
+
         try:
-            df.to_csv(path)
-        except Exception as e:
-            log_area.error(f"❌ {sym}: 保存に失敗しました - {e}")
+            new_latest = _latest_date_from_df(df)
+            old_latest = _latest_date_in_csv(path)
+            should_skip = (
+                old_latest is not None and new_latest is not None and old_latest >= new_latest
+            )
+        except Exception:
+            should_skip = False
+
+        if should_skip:
+            skipped += 1
+        else:
+            try:
+                df.to_csv(path)
+                saved += 1
+            except Exception as e:
+                log_area.error(f"❌ {sym}: 保存に失敗しました - {e}")
+
         buffer.append(sym)
         progress_bar.progress(i / total)
 
@@ -52,7 +108,8 @@ def save_prepared_data_cache(
             rm, rs = divmod(int(remain), 60)
             extra = f"銘柄: {', '.join(buffer)}" if buffer else None
             msg = (
-                f"📦 保存: {i}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒"
+                f"📦 保存: {saved}/{i} 件 完了 | スキップ: {skipped}"
+                f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒"
             )
             if extra:
                 msg += f"\n{extra}"
@@ -60,4 +117,14 @@ def save_prepared_data_cache(
             buffer.clear()
 
     progress_bar.empty()
-    st.success(i18n.tr("✅ {system_name} キャッシュ保存完了: {dest_dir} ({total} 件)", system_name=system_name, dest_dir=dest_dir, total=total))
+    st.success(
+        i18n.tr(
+            "✅ {system_name} キャッシュ保存完了: 保存 {saved} 件 / スキップ {skipped} 件 (合計 {total} 件) → {dest_dir}",
+            system_name=system_name,
+            saved=saved,
+            skipped=skipped,
+            total=total,
+            dest_dir=dest_dir,
+        )
+    )
+
