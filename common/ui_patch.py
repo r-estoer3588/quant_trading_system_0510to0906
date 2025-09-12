@@ -5,6 +5,7 @@ common.ui_components の関数を共通実装へ委譲するために動的差�
 """
 
 from __future__ import annotations
+import logging
 
 try:
     from common.logging_utils import log_with_progress as _core_log_with_progress
@@ -62,6 +63,21 @@ def _patched_log_with_progress(
         extra_msg=extra_msg,
         unit=unit,
     )
+    # 追加: コンソール(標準出力)にも常に進捗を出す
+    try:
+        if i % batch == 0 or i == total:
+            elapsed = __import__("time").time() - start_time
+            remain = (elapsed / i) * (total - i) if i > 0 else 0
+            msg = (
+                f"{prefix}: {i}/{total} {unit} 完了 | "
+                f"経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒 / "
+                f"残り: 約{int(remain // 60)}分{int(remain % 60)}秒"
+            )
+            if extra_msg:
+                msg += f"\n{extra_msg}"
+            logging.getLogger().info(msg)
+    except Exception:
+        pass
 
 
 def _patched_summarize_results(results_df, capital):

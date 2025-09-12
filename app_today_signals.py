@@ -6,6 +6,28 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+# Streamlit checkbox の重複ID対策（key未指定時に自動で一意キーを付与）
+try:
+    if not hasattr(st, "_orig_checkbox"):
+        st._orig_checkbox = st.checkbox  # type: ignore[attr-defined]
+
+        def _unique_checkbox(label, *args, **kwargs):
+            if "key" not in kwargs:
+                base = f"auto_cb_{abs(hash(str(label))) % 10**8}"
+                count_key = f"_{base}_cnt"
+                try:
+                    cnt = int(st.session_state.get(count_key, 0)) + 1
+                except Exception:
+                    cnt = 1
+                st.session_state[count_key] = cnt
+                kwargs["key"] = f"{base}_{cnt}"
+            return st._orig_checkbox(label, *args, **kwargs)  # type: ignore[attr-defined]
+
+        st.checkbox = _unique_checkbox  # type: ignore[attr-defined]
+except Exception:
+    # 失敗しても従来動作のまま進める
+    pass
+
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.data_loader import load_price
@@ -31,6 +53,16 @@ with st.sidebar:
     # テスト用10銘柄 or 全銘柄選択
     test_mode = st.checkbox("テスト用（10銘柄のみ）", value=False)
     syms = all_syms[:10] if test_mode else all_syms
+    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
+    # テスト用: 任意の件数で制限できるオプション（新）
+    # 既存の test_mode より後に評価され、指定があればこちらで上書きします
+    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
+    if test_limit_on:
+        limit_max = max(1, len(all_syms))
+        test_limit = st.number_input(
+            "テスト用の銘柄数", min_value=1, max_value=limit_max, value=min(10, limit_max), step=1
+        )
+        syms = all_syms[: int(test_limit)]
 
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))

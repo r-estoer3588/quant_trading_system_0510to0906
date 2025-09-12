@@ -159,12 +159,39 @@ def prepare_data_vectorized_system1(
     result_dict: dict[str, pd.DataFrame] = {}
 
     for sym, df in raw_data_dict.items():
+        # 正規化: 列名の大小文字差や date 列/インデックス差を吸収
+        df = df.copy()
+        # 1) まず OHLCV の列名を大文字に寄せる（lower な場合をケア）
+        rename_map = {}
+        for low, up in (
+            ("open", "Open"),
+            ("high", "High"),
+            ("low", "Low"),
+            ("close", "Close"),
+            ("volume", "Volume"),
+        ):
+            if low in df.columns and up not in df.columns:
+                rename_map[low] = up
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
+        # 2) インデックス（日付）を決定
+        idx = None
         if "Date" in df.columns:
-            df = df.copy()
-            df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
+            idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+        elif "date" in df.columns:
+            idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
         else:
-            df = df.copy()
-            df.index = pd.Index(pd.to_datetime(df.index).normalize())
+            # 既存 index が日時ならそれを利用
+            try:
+                idx = pd.to_datetime(df.index, errors="coerce").normalize()
+            except Exception:
+                idx = None
+        if idx is None or getattr(idx, "isnull", lambda: False)().all():
+            # 日付が取れないデータはスキップ
+            continue
+        df.index = pd.Index(idx)
+        df.index.name = "Date"
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -286,17 +313,45 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
 
     all_signals_df = pd.concat(all_signals, ignore_index=True)
 
+    # SPY 側の列を整備（大小文字・date 列を堅牢化）
     if "SMA100" not in spy_df.columns:
         try:
             spy_df = spy_df.copy()
+            # Close 列が lower な場合の補正
+            if "Close" not in spy_df.columns and "close" in spy_df.columns:
+                spy_df["Close"] = spy_df["close"]
             spy_df["SMA100"] = spy_df["Close"].rolling(100).mean()
         except Exception:
             pass
-    spy_df = spy_df[["Close", "SMA100"]].reset_index().rename(columns={"Date": "date"})
+
+    spy = spy_df.copy()
+    # date 列の生成
+    date_col = None
+    if "Date" in spy.columns:
+        spy["date"] = pd.to_datetime(spy["Date"], errors="coerce")
+        date_col = "date"
+    elif "date" in spy.columns:
+        spy["date"] = pd.to_datetime(spy["date"], errors="coerce")
+        date_col = "date"
+    else:
+        # index が日時の場吁E
+        try:
+            idx = pd.to_datetime(spy.index, errors="coerce")
+            if getattr(idx, "notna", lambda: False)().any():
+                spy = spy.reset_index().rename(columns={spy.index.name or "index": "date"})
+                spy["date"] = pd.to_datetime(spy["date"], errors="coerce")
+                date_col = "date"
+        except Exception:
+            pass
+    # 必要列に絞ってソート
+    if date_col is None:
+        # date が無空Eならマージ不能なので空返却
+        return {}, pd.DataFrame()
+    spy = spy[["date", "Close", "SMA100"]].sort_values("date")
 
     merged = pd.merge_asof(
         all_signals_df.sort_values("Date"),
-        spy_df.rename(columns={"Close": "Close_SPY", "SMA100": "SMA100_SPY"}).sort_values("date"),
+        spy.rename(columns={"Close": "Close_SPY", "SMA100": "SMA100_SPY"}),
         left_on="Date",
         right_on="date",
     )

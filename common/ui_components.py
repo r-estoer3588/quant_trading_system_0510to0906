@@ -680,12 +680,13 @@ def run_backtest_app(
     default_value = min(10, max_allowed)
 
     if system_name != "System7":
+        # テスト用でも使いやすいように最小値を1に、刻み幅を1に変更
         limit_symbols = st.number_input(
             tr("symbol limit"),
-            min_value=10,
+            min_value=1,
             max_value=max_allowed,
             value=default_value,
-            step=100,
+            step=1,
             key=f"{system_name}_limit",
         )
         if st.checkbox(tr("use all symbols"), key=f"{system_name}_all"):
