@@ -102,14 +102,20 @@ def _fetch_account_and_positions() -> tuple[object, object, object]:
     return client, account, positions
 
 
-def _days_held(entry_dt: object | None) -> int | None:
+def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
     """Calculate holding days from entry date."""
     if entry_dt is None:
         return None
-    try:
-        dt = pd.to_datetime(entry_dt)
-    except Exception:
-        return None
+    # 既に pandas.Timestamp の場合はそのまま使用し、そうでなければパースを試みる
+    if isinstance(entry_dt, pd.Timestamp):
+        dt = entry_dt
+    else:
+        try:
+            dt = pd.to_datetime(entry_dt, errors="coerce")
+            if pd.isna(dt):
+                return None
+        except Exception:
+            return None
     today = pd.Timestamp(datetime.utcnow()).normalize()
     return int((today - dt.normalize()).days)
 
@@ -122,7 +128,8 @@ def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
             acts = client.get_activities(symbol=sym, activity_types="FILL")
         except Exception:
             continue
-        for act in sorted(acts, key=lambda a: getattr(a, "transaction_time", None)):
+        # key が None を返すと型チェックでエラーになるため空文字列をデフォルトにする
+        for act in sorted(acts, key=lambda a: getattr(a, "transaction_time", "")):
             t = getattr(act, "transaction_time", None)
             if t:
                 out[sym] = pd.Timestamp(t)
