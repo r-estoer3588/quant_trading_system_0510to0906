@@ -21,9 +21,7 @@ try:
                     cnt = 1
                 st.session_state[count_key] = cnt
                 kwargs["key"] = f"{base}_{cnt}"
-            # _orig_checkbox は動的に追加した属性のため、直接参照せず getattr で取得して型チェックエラーを回避
-            orig_cb = getattr(st, "_orig_checkbox", st.checkbox)
-            return orig_cb(
+            return st._orig_checkbox(  # type: ignore[attr-defined]
                 label,
                 *args,
                 **kwargs,
@@ -56,22 +54,16 @@ with st.sidebar:
         univ.save_universe_file(universe)
     all_syms = universe
 
-    # テスト用10銘柄 or 全銘柄選択
-    test_mode = st.checkbox("テスト用（10銘柄のみ）", value=False)
-    syms = all_syms[:10] if test_mode else all_syms
-    # テスト用: 任意の件数で制限できるオプション（新）
-    # 既存の test_mode より後に評価され、指定があればこちらで上書きします
-    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
-    if test_limit_on:
-        limit_max = max(1, len(all_syms))
-        test_limit = st.number_input(
-            "テスト用の銘柄数",
-            min_value=1,
-            max_value=limit_max,
-            value=min(10, limit_max),
-            step=1,
-        )
-        syms = all_syms[: int(test_limit)]
+    # 任意の件数でユニバースを制限するテスト用オプション
+    limit_max = max(1, len(all_syms))
+    test_limit = st.number_input(
+        "銘柄数 (0は全銘柄)",
+        min_value=0,
+        max_value=limit_max,
+        value=0,
+        step=1,
+    )
+    syms = all_syms[: int(test_limit)] if test_limit else all_syms
 
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))
