@@ -169,13 +169,28 @@ def _amount_pick(
     # システム名の順序を固定（system1..system7）
     sys_order = [f"system{i}" for i in range(1, 8)]
     ordered_names = [n for n in sys_order if n in weights]
+    # 各システムの最大ポジション上限（設定 max_positions、既定10）と採用カウンタ
+    max_pos_by_system: dict[str, int] = {}
+    for _n in ordered_names:
+        try:
+            _stg = strategies.get(_n)
+            _lim = int(getattr(_stg, "config", {}).get("max_positions", 10))
+        except Exception:
+            _lim = 10
+        max_pos_by_system[_n] = max(0, _lim)
+    count_by_system: dict[str, int] = {k: 0 for k in ordered_names}
     # システムごとにスコア順で採用。複数周回して1件ずつ拾う（偏りを軽減）
     still = True
     while still:
         still = False
         for name in ordered_names:
             df = per_system.get(name, pd.DataFrame())
-            if df is None or df.empty or remaining.get(name, 0.0) <= 0.0:
+            if (
+                df is None
+                or df.empty
+                or remaining.get(name, 0.0) <= 0.0
+                or count_by_system.get(name, 0) >= max_pos_by_system.get(name, 0)
+            ):
                 continue
             stg = strategies[name]
             # 順に探索
@@ -255,6 +270,7 @@ def _amount_pick(
                 chosen.append(rec)
                 chosen_symbols.add(sym)
                 remaining[name] -= position_value
+                count_by_system[name] = count_by_system.get(name, 0) + 1
                 still = True
                 break  # 1件ずつ拾って次のシステムへ
 
@@ -409,6 +425,9 @@ def compute_today_signals(
     notify: bool = True,
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    # 追加: 並列実行時などに system ごとの開始/完了を通知する軽量コールバック
+    # phase は "start" | "done" を想定
+    per_system_progress: Callable[[str, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
@@ -973,12 +992,25 @@ def compute_today_signals(
             return name, pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
         _local_log(f"🔎 {name}: シグナル抽出を開始")
         try:
+            # 段階進捗: 0/25/50/75/100 を UI 側に橋渡し
+            def _stage(v: int) -> None:
+                try:
+                    cb2 = globals().get("_PER_SYSTEM_STAGE")
+                except Exception:
+                    cb2 = None
+                if cb2 and callable(cb2):
+                    try:
+                        cb2(name, max(0, min(100, int(v))))
+                    except Exception:
+                        pass
+
             df = stg.get_today_signals(
                 base,
                 market_df=spy_df,
                 today=today,
                 progress_callback=None,
                 log_callback=_local_log,
+                stage_progress=_stage,
             )
         except Exception as e:  # noqa: BLE001
             _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
@@ -991,6 +1023,12 @@ def compute_today_signals(
             asc = _asc_by_score_key(first_key)
             df = df.sort_values("score", ascending=asc, na_position="last")
             df = df.reset_index(drop=True)
+            # System1 の理由欄は ROC ランキングの順位（1始まり）に統一
+            if name == "system1":
+                try:
+                    df["reason"] = pd.Series(range(1, len(df) + 1), index=df.index).astype(str)
+                except Exception:
+                    pass
         if df is not None and not df.empty:
             msg = f"✅ {name}: {len(df)} 件"
         else:
@@ -1007,21 +1045,33 @@ def compute_today_signals(
                 progress_callback(5, 8, "run_strategies")
             except Exception:
                 pass
-            with ThreadPoolExecutor() as executor:
-                futures: dict[Future, str] = {}
-                for name, stg in strategies.items():
-                    fut = executor.submit(_run_strategy, name, stg)
-                    futures[fut] = name
-                for _idx, fut in enumerate(as_completed(futures), start=1):
-                    name, df, msg, logs = fut.result()
-                    per_system[name] = df
-                    msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
-                    _log(f"🧾 {msg_prev}")
-                    if progress_callback:
-                        try:
-                            progress_callback(5 + min(_idx, 1), 8, name)
-                        except Exception:
-                            pass
+        with ThreadPoolExecutor() as executor:
+            futures: dict[Future, str] = {}
+            for name, stg in strategies.items():
+                # systemごとの開始を通知
+                if per_system_progress:
+                    try:
+                        per_system_progress(name, "start")
+                    except Exception:
+                        pass
+                fut = executor.submit(_run_strategy, name, stg)
+                futures[fut] = name
+            for _idx, fut in enumerate(as_completed(futures), start=1):
+                name, df, msg, logs = fut.result()
+                per_system[name] = df
+                # 完了通知
+                if per_system_progress:
+                    try:
+                        per_system_progress(name, "done")
+                    except Exception:
+                        pass
+                msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
+                _log(f"🧾 {msg_prev}")
+                if progress_callback:
+                    try:
+                        progress_callback(5 + min(_idx, 1), 8, name)
+                    except Exception:
+                        pass
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")
@@ -1034,8 +1084,19 @@ def compute_today_signals(
                     progress_callback(5, 8, name)
                 except Exception:
                     pass
+            # 順次実行時も開始を通知
+            if per_system_progress:
+                try:
+                    per_system_progress(name, "start")
+                except Exception:
+                    pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
+            if per_system_progress:
+                try:
+                    per_system_progress(name, "done")
+                except Exception:
+                    pass
             msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
             _log(f"🧾 {msg_prev}")
         if progress_callback:
@@ -1043,6 +1104,10 @@ def compute_today_signals(
                 progress_callback(6, 8, "strategies_done")
             except Exception:
                 pass
+
+    # システム別の順序を明示（1..7）に固定
+    order_1_7 = [f"system{i}" for i in range(1, 8)]
+    per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
@@ -1204,7 +1269,7 @@ def compute_today_signals(
             )
 
     if not final_df.empty:
-        # 並びは side → system番号 → score（安定ソート）
+        # 並びは side → system番号 → 各systemのスコア方向（RSI系のみ昇順、それ以外は降順）
         tmp = final_df.copy()
         if "system" in tmp.columns:
             try:
@@ -1213,10 +1278,28 @@ def compute_today_signals(
                 )
             except Exception:
                 tmp["_system_no"] = 0
-        sort_cols = [c for c in ["side", "_system_no", "score"] if c in tmp.columns]
-        tmp = tmp.sort_values(sort_cols, kind="stable").drop(
-            columns=["_system_no"], errors="ignore"
+        # 一旦 side, system 番号で安定ソート
+        tmp = tmp.sort_values(
+            [c for c in ["side", "_system_no"] if c in tmp.columns], kind="stable"
         )
+        # system ごとに score を方向指定で並べ替え
+        try:
+            parts2: list[pd.DataFrame] = []
+            for sys_name, g in tmp.groupby("system", sort=False):
+                if "score" in g.columns:
+                    asc = False
+                    try:
+                        # system4（RSI系）はスコア小さいほど良い
+                        if isinstance(sys_name, str) and sys_name.lower() == "system4":
+                            asc = True
+                    except Exception:
+                        asc = False
+                    g = g.sort_values("score", ascending=asc, na_position="last", kind="stable")
+                parts2.append(g)
+            tmp = pd.concat(parts2, ignore_index=True)
+        except Exception:
+            pass
+        tmp = tmp.drop(columns=["_system_no"], errors="ignore")
         final_df = tmp.reset_index(drop=True)
         # 先頭に連番（1始まり）を付与
         try:

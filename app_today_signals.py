@@ -295,6 +295,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # プログレスバー
     prog = st.progress(0)
     prog_txt = st.empty()
+    # システムごとのプログレスバー（並行時に可視化）
+    sys_cols = st.columns(7)
+    sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
+    sys_states = {k: 0 for k in sys_bars.keys()}
     # 追加: 全ログを蓄積（UIで折り畳み表示用）
     log_lines: list[str] = []
 
@@ -317,6 +321,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     "候補抽出",
                     "候補日数",
                     "銘柄:",
+                    "📊 インジケーター計算",
+                    "📊 候補抽出",
+                    "⏱️ バッチ時間",
                 )
                 if not any(k in _msg for k in skip_keywords):
                     progress_area.text(line)
@@ -341,6 +348,34 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             pass
 
+    def _per_system_progress(name: str, phase: str) -> None:
+        try:
+            n = str(name).lower()
+            bar = sys_bars.get(n)
+            if not bar:
+                return
+            if phase == "start":
+                sys_states[n] = 50
+                bar.progress(50)
+            elif phase == "done":
+                sys_states[n] = 100
+                bar.progress(100)
+        except Exception:
+            pass
+
+    # 段階進捗（0/25/50/75/100）
+    def _per_system_stage(name: str, v: int) -> None:
+        try:
+            n = str(name).lower()
+            bar = sys_bars.get(n)
+            if not bar:
+                return
+            vv = max(0, min(100, int(v)))
+            bar.progress(vv)
+            sys_states[n] = vv
+        except Exception:
+            pass
+
     # ボタン押下直後の開始ログをUIにも出力（ファイルにも出力されます）
     _ui_log("▶ 本日のシグナル: シグナル検出処理開始")
 
@@ -353,9 +388,17 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             save_csv=save_csv,
             log_callback=_ui_log,
             progress_callback=_ui_progress,
+            per_system_progress=_per_system_progress,
             # 事前ロードは行わず、内部ローダに任せる
             parallel=bool(run_parallel),
         )
+        # stage update 受け口をグローバルに登録（スレッドから参照）
+        import builtins as _bi
+
+        try:
+            globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
+        except Exception:
+            pass
 
     # DataFrameのインデックスをリセットして疑似インデックスを排除
     final_df = final_df.reset_index(drop=True)
@@ -525,10 +568,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     key=f"{name}_download_csv",
                 )
 
-                # 選定理由（日本語のみ）: 英語タブは削除
-                if "reason" in df.columns:
-                    st.markdown("**選定理由**")
-                    for _, row in df.iterrows():
-                        sym = row.get("symbol")
-                        reason = row.get("reason")
-                        st.markdown(f"- **{sym}**: {reason}")
+    # ④ 前回結果を別出し（既に run_all_systems_today が出力しているログをサマリ化）
+    prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
+    if prev_msgs:
+        with st.expander("前回結果（system別）", expanded=False):
+            st.text("\n".join(prev_msgs[-100:]))

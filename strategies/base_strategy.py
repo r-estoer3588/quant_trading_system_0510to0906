@@ -31,11 +31,7 @@ class StrategyBase(ABC):
         if not sys_name:
             parts = module.split(".")
             cand = next(
-                (
-                    p
-                    for p in parts
-                    if p.startswith("system") and any(ch.isdigit() for ch in p)
-                ),
+                (p for p in parts if p.startswith("system") and any(ch.isdigit() for ch in p)),
                 None,
             )
             sys_name = cand or ""
@@ -80,20 +76,14 @@ class StrategyBase(ABC):
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
     # ----------------------------
-    def update_capital_with_exits(
-        self, capital: float, active_positions: list, current_date
-    ):
+    def update_capital_with_exits(self, capital: float, active_positions: list, current_date):
         """
         exit_date == current_date のポジションを決済して損益を反映。
         戻り値: (更新後capital, 未決済active_positions)
         """
-        realized_pnl = sum(
-            p["pnl"] for p in active_positions if p["exit_date"] == current_date
-        )
+        realized_pnl = sum(p["pnl"] for p in active_positions if p["exit_date"] == current_date)
         capital += realized_pnl
-        active_positions = [
-            p for p in active_positions if p["exit_date"] > current_date
-        ]
+        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
         return capital, active_positions
 
     def calculate_position_size(
@@ -133,6 +123,7 @@ class StrategyBase(ABC):
         today: pd.Timestamp | None = None,
         progress_callback=None,
         log_callback=None,
+        stage_progress=None,
     ) -> pd.DataFrame:
         """
         各 strategy の `prepare_data`/`generate_candidates` を流用し、
@@ -150,4 +141,5 @@ class StrategyBase(ABC):
             today=today,
             progress_callback=progress_callback,
             log_callback=log_callback,
+            stage_progress=stage_progress,
         )

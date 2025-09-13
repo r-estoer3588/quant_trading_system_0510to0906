@@ -138,6 +138,7 @@ def get_today_signals_for_strategy(
     today: Optional[pd.Timestamp] = None,
     progress_callback: Optional[Callable[..., None]] = None,
     log_callback: Optional[Callable[[str], None]] = None,
+    stage_progress: Optional[Callable[[int], None]] = None,
 ) -> pd.DataFrame:
     """
     各 Strategy の prepare_data / generate_candidates を流用し、
@@ -167,11 +168,22 @@ def get_today_signals_for_strategy(
             log_callback(f"🧪 フィルターチェック開始：{total_symbols} 銘柄")
         except Exception:
             pass
+    # 0% -> 25%
+    try:
+        if stage_progress:
+            stage_progress(0)
+    except Exception:
+        pass
     prepared = strategy.prepare_data(
         raw_data_dict,
         progress_callback=progress_callback,
         log_callback=log_callback,
     )
+    try:
+        if stage_progress:
+            stage_progress(25)
+    except Exception:
+        pass
     # フィルター通過件数（前営業日を優先。無い場合は最終行）。
     try:
         # 前営業日（当日エントリーのシグナルは前日の終値で判定）
@@ -227,6 +239,11 @@ def get_today_signals_for_strategy(
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+    try:
+        if stage_progress:
+            stage_progress(50)
+    except Exception:
+        pass
 
     # セットアップ通過件数（前営業日を優先。無ければ最終行）
     try:
@@ -513,6 +530,11 @@ def get_today_signals_for_strategy(
         )
 
     out = pd.DataFrame([r.__dict__ for r in rows])
+    try:
+        if stage_progress:
+            stage_progress(100)
+    except Exception:
+        pass
     return out
 
 
