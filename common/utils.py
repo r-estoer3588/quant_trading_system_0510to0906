@@ -57,15 +57,64 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame:
     """
     safe_symbol = safe_filename(symbol)
     path = os.path.join(folder, f"{safe_symbol}.csv")
-    if not os.path.exists(path):
-        return None
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path, parse_dates=["Date"])
+            df.set_index("Date", inplace=True)
+            df = df.sort_index()
+            return df
+        except Exception as e:
+            print(f"{symbol}: 読み込み失敗 - {e}")
+            return None
+
+    # フォールバック: CacheManager の full キャッシュから読み込む
     try:
-        df = pd.read_csv(path, parse_dates=["Date"])
-        df.set_index("Date", inplace=True)
-        df = df.sort_index()
-        return df
+        from common.cache_manager import CacheManager  # 遅延importで循環回避
+        from config.settings import get_settings
+
+        cm = CacheManager(get_settings(create_dirs=False))
+        df2 = cm.read(symbol, "full")
+        if df2 is None or df2.empty:
+            return None
+        # 従来呼び出し互換: 列を大文字・Date index に正規化
+        x = df2.copy()
+        cols = {c.lower(): c for c in x.columns}
+        # date 列の正規化
+        if "date" in cols:
+            x["Date"] = pd.to_datetime(x["date"])
+        elif "Date" in x.columns:
+            x["Date"] = pd.to_datetime(x["Date"])
+        else:
+            return None
+        x = x.sort_values("Date").set_index("Date")
+
+        # 価格系列の正規化（存在するもののみ変換）
+        rename_map = {}
+        if "open" in cols:
+            rename_map["open"] = "Open"
+        if "high" in cols:
+            rename_map["high"] = "High"
+        if "low" in cols:
+            rename_map["low"] = "Low"
+        if "close" in cols:
+            rename_map["close"] = "Close"
+        if "adjusted_close" in cols:
+            rename_map["adjusted_close"] = "AdjClose"
+        if "adjclose" in cols:
+            rename_map["adjclose"] = "AdjClose"
+        if "volume" in cols:
+            rename_map["volume"] = "Volume"
+
+        # 小文字→大文字へ（存在する列のみ）
+        for k, v in list(rename_map.items()):
+            if k in x.columns:
+                x.rename(columns={k: v}, inplace=True)
+
+        return x
     except Exception as e:
-        print(f"{symbol}: 読み込み失敗 - {e}")
+        logging.getLogger(__name__).warning(
+            "CacheManager フォールバック読込に失敗: %s (%s)", symbol, e
+        )
         return None
 
 

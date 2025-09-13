@@ -1,9 +1,11 @@
 import os
-import time
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 from datetime import datetime
+
+from config.settings import get_settings
+from common.cache_manager import CacheManager
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -18,43 +20,59 @@ def fetch_bulk_last_day():
     return pd.DataFrame(r.json())
 
 
-def append_to_cache(df, output_dir="data_cache"):
-    count = 0
+def append_to_cache(df: pd.DataFrame, cm: CacheManager) -> tuple[int, int]:
+    """
+    取得した1日分のデータを CacheManager の full/rolling にインクリメンタル反映する。
+    戻り値: (対象銘柄数, upsert 成功数)
+    """
+    if df is None or df.empty:
+        return 0, 0
+    # 必要列を小文字に統一し、'date' を datetime 化
+    cols_map = {
+        "code": "code",
+        "date": "date",
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "adjusted_close": "adjusted_close",
+        "volume": "volume",
+    }
+    df = df.rename(columns={k: v for k, v in cols_map.items() if k in df.columns}).copy()
     df["date"] = pd.to_datetime(df["date"])
-    for _, row in df.iterrows():
-        symbol = row["code"]
-        path = os.path.join(output_dir, f"{symbol}.csv")
-        new_row = {
-            "Date": row["date"],
-            "Open": row["open"],
-            "High": row["high"],
-            "Low": row["low"],
-            "Close": row["close"],
-            "AdjClose": row["adjusted_close"],
-            "Volume": row["volume"],
-        }
-        new_df = pd.DataFrame([new_row]).set_index("Date")
-        if os.path.exists(path):
-            try:
-                existing = pd.read_csv(path, parse_dates=["Date"]).set_index("Date")
-                if new_row["Date"] not in existing.index:
-                    updated = pd.concat([existing, new_df]).sort_index()
-                    updated.to_csv(path)
-                    count += 1
-            except Exception as e:
-                print(f"{symbol}: error appending - {e}")
-        else:
-            new_df.to_csv(path)
-            count += 1
-    print(f"✅ {count} files updated.")
+    total = 0
+    updated = 0
+    for sym, g in df.groupby("code"):
+        total += 1
+        # 1日分（複数行が来てもそのまま渡せる）
+        rows = g[["date", "open", "high", "low", "close", "adjusted_close", "volume"]].copy()
+        try:
+            cm.upsert_both(str(sym), rows)
+            updated += 1
+        except Exception as e:
+            print(f"{sym}: upsert error - {e}")
+    # rolling のメンテナンス
+    try:
+        cm.prune_rolling_if_needed(anchor_ticker="SPY")
+    except Exception:
+        pass
+    return total, updated
 
 
 def main():
-    df = fetch_bulk_last_day()
-    if df is None or df.empty:
+    if not API_KEY:
+        print("EODHD_API_KEY が未設定です (.env を確認)")
+        return
+    data = fetch_bulk_last_day()
+    if data is None or data.empty:
         print("No data to update.")
         return
-    append_to_cache(df)
+
+    settings = get_settings(create_dirs=True)
+    cm = CacheManager(settings)
+    total, updated = append_to_cache(data, cm)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"✅ {now} | 対象: {total} 銘柄 / 更新: {updated} 銘柄（full/rolling へ反映）")
 
 
 if __name__ == "__main__":
