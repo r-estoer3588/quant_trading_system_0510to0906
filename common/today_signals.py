@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -161,9 +161,10 @@ def get_today_signals_for_strategy(
         today = today.normalize()
 
     # 準備
+    total_symbols = len(raw_data_dict)
     if log_callback:
         try:
-            log_callback("🧪 フィルターチェック開始")
+            log_callback(f"🧪 フィルターチェック開始：{total_symbols} 銘柄")
         except Exception:
             pass
     prepared = strategy.prepare_data(
@@ -187,7 +188,7 @@ def get_today_signals_for_strategy(
         filter_pass = 0
     if log_callback:
         try:
-            log_callback(f"✅ フィルター通過銘柄: {filter_pass} 件")
+            log_callback(f"🧪 フィルターチェック完了：{filter_pass} 銘柄")
         except Exception:
             pass
 
@@ -196,7 +197,7 @@ def get_today_signals_for_strategy(
     params = inspect.signature(gen_fn).parameters
     if log_callback:
         try:
-            log_callback("🧩 セットアップチェック開始")
+            log_callback(f"🧩 セットアップチェック開始：{filter_pass} 銘柄")
         except Exception:
             pass
     if "market_df" in params and market_df is not None:
@@ -233,8 +234,9 @@ def get_today_signals_for_strategy(
         total_candidates = 0
     if log_callback:
         try:
-            log_callback(f"✅ セットアップクリア銘柄: {setup_pass} 件")
-            log_callback("🧮 トレード候補選定完了")
+            log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
+            log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
+            log_callback(f"🧮 トレード候補選定完了：{total_candidates} 銘柄")
         except Exception:
             pass
 
@@ -254,7 +256,9 @@ def get_today_signals_for_strategy(
         )
 
     # 当日分のみ抽出
-    today_candidates: List[dict] = candidates_by_date.get(today, [])  # type: ignore[index]
+    today_candidates: List[dict] = candidates_by_date.get(
+        today, []
+    )  # type: ignore[index]
     if not today_candidates:
         return pd.DataFrame(
             columns=[
@@ -417,7 +421,9 @@ def get_today_signals_for_strategy(
                 system=system_name,
                 side=side,
                 signal_type=signal_type,
-                entry_date=pd.Timestamp(c.get("entry_date")).normalize(),  # type: ignore[arg-type]
+                entry_date=pd.Timestamp(
+                    c.get("entry_date")
+                ).normalize(),  # type: ignore[arg-type]
                 entry_price=float(entry),
                 stop_price=float(stop),
                 score_key=skey,

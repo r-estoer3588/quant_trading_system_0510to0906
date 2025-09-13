@@ -54,9 +54,9 @@ def _get_today_logger() -> logging.Logger:
     has_handler = False
     for h in list(logger.handlers):
         try:
-            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
-                log_path
-            ):
+            if isinstance(h, logging.FileHandler) and getattr(
+                h, "baseFilename", ""
+            ) == str(log_path):
                 has_handler = True
                 break
         except Exception:
@@ -64,7 +64,9 @@ def _get_today_logger() -> logging.Logger:
     if not has_handler:
         try:
             fh = logging.FileHandler(log_path, encoding="utf-8")
-            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+            fmt = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
+            )
             fh.setFormatter(fmt)
             logger.addHandler(fh)
         except Exception:
@@ -807,14 +809,16 @@ def compute_today_signals(
     raw_data_system1 = {
         s: basic_data.get(s)
         for s in (system1_syms or [])
-        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
+        if basic_data.get(s) is not None
+        and not basic_data.get(s).empty  # type: ignore[union-attr]
     }
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
     _log("🧮 指標計算用データロード中 (system2)…")
     raw_data_system2 = {
         s: basic_data.get(s)
         for s in (system2_syms or [])
-        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
+        if basic_data.get(s) is not None
+        and not basic_data.get(s).empty  # type: ignore[union-attr]
     }
     _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
     if progress_callback:
@@ -922,7 +926,8 @@ def compute_today_signals(
                 for _idx, fut in enumerate(as_completed(futures), start=1):
                     name, df, msg, logs = fut.result()
                     per_system[name] = df
-                    _log(f"🧾 {msg}")
+                    msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
+                    _log(f"🧾 {msg_prev}")
                     if log_callback:
                         try:
                             for line in _filter_ui_logs(logs):
@@ -948,7 +953,8 @@ def compute_today_signals(
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
-            _log(f"🧾 {msg}")
+            msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
+            _log(f"🧾 {msg_prev}")
             if log_callback:
                 try:
                     for line in _filter_ui_logs(logs):
@@ -962,7 +968,9 @@ def compute_today_signals(
                 pass
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
-    def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
+    def _normalize_alloc(
+        d: dict[str, float], default_map: dict[str, float]
+    ) -> dict[str, float]:
         try:
             filtered = {k: float(v) for k, v in d.items() if float(v) > 0}
             s = sum(filtered.values())
@@ -1025,9 +1033,9 @@ def compute_today_signals(
         short_counts = {k: len(per_system.get(k, pd.DataFrame())) for k in short_alloc}
         _log(
             "🧮 枠配分: "
-            + ", ".join([f"{k}={long_counts.get(k,0)}" for k in long_alloc])
+            + ", ".join([f"{k}={long_counts.get(k, 0)}" for k in long_alloc])
             + " | "
-            + ", ".join([f"{k}={short_counts.get(k,0)}" for k in short_alloc])
+            + ", ".join([f"{k}={short_counts.get(k, 0)}" for k in short_alloc])
         )
         long_slots = _distribute_slots(long_alloc, slots_long, long_counts)
         short_slots = _distribute_slots(short_alloc, slots_short, short_counts)
@@ -1053,8 +1061,16 @@ def compute_today_signals(
         _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
         _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
 
-        _cl = None if (capital_long is None or float(capital_long) <= 0) else float(capital_long)
-        _cs = None if (capital_short is None or float(capital_short) <= 0) else float(capital_short)
+        _cl = (
+            None
+            if (capital_long is None or float(capital_long) <= 0)
+            else float(capital_long)
+        )
+        _cs = (
+            None
+            if (capital_short is None or float(capital_short) <= 0)
+            else float(capital_short)
+        )
 
         if _cl is None and _cs is None:
             total = _default_cap
