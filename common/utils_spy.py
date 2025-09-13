@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from datetime import time as dtime
 from pathlib import Path
 from typing import Iterable
@@ -66,10 +65,9 @@ def _read_daily_csv_any_datecol(path: Path) -> pd.DataFrame:
 
 def get_spy_data_cached_v2(folder: str = "data_cache"):
     """
-    SPY.csv をキャッシュから読み込み、古ければ recover_spy_cache.py を呼んで更新。
-    - 直近のNYSE営業日とキャッシュ最終日を比較
-    - 米東部時間 18:00 以降かつキャッシュが古い場合のみ自動更新
+    SPY.csv をキャッシュから読み込む。
     - 探索は data_cache/base, data_cache/full, data_cache/rolling, data_cache の順
+    - キャッシュが見つからない場合はエラーを返す
     """
     try:
         settings = get_settings(create_dirs=True)
@@ -107,7 +105,10 @@ def get_spy_data_cached_v2(folder: str = "data_cache"):
         # 1つ前の営業日（当日営業時間帯の影響を避ける）
         try:
             nyse = mcal.get_calendar("NYSE")
-            sched = nyse.schedule(start_date=today - pd.Timedelta(days=7), end_date=today)
+            sched = nyse.schedule(
+                start_date=today - pd.Timedelta(days=7),
+                end_date=today,
+            )
             valid = sched.index.normalize()
             prev_trading_day = valid[-2] if len(valid) >= 2 else latest_trading_day
         except Exception:
@@ -119,49 +120,12 @@ def get_spy_data_cached_v2(folder: str = "data_cache"):
         except Exception:
             ny_time = dtime(18, 0)
 
-        # 古い場合は自動更新（米東部18:00以降）
+        # 古い場合は警告のみ表示
         if df.index[-1].normalize() < prev_trading_day and ny_time >= dtime(18, 0):
             try:
-                st.warning(tr("⚠ SPYキャッシュが古いため自動更新します.."))
+                st.warning(tr("⚠ SPYキャッシュが古い可能性があります"))
             except Exception:
                 pass
-            try:
-                result = subprocess.run(
-                    ["python", "recover_spy_cache.py"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if result.stdout:
-                    try:
-                        st.text(result.stdout)
-                    except Exception:
-                        pass
-                if result.stderr:
-                    try:
-                        st.error(result.stderr)
-                    except Exception:
-                        pass
-            except Exception as e:
-                st.error(tr("SPY自動更新失敗: {e}", e=str(e)))
-                return None
-
-            # 更新後に読み込み（保存先は base/full のため候補を再解決）
-            new_candidates = _candidate_spy_paths(root)
-            path2 = new_candidates[0] if new_candidates else path
-            if path2.exists():
-                try:
-                    df = _read_daily_csv_any_datecol(Path(path2))
-                    try:
-                        st.success(tr("✅ SPYキャッシュ更新済: {d}", d=str(df.index[-1].date())))
-                    except Exception:
-                        pass
-                except Exception as e:
-                    st.error(tr("❌ SPY更新後の読み込みに失敗: {e}", e=str(e)))
-                    return None
-            else:
-                st.error(tr("❌ 更新後もSPY.csvが存在しません"))
-                return None
         else:
             try:
                 st.write(tr("✅ SPYキャッシュは有効"))
@@ -189,10 +153,10 @@ def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timesta
 
 def get_spy_data_cached(folder: str = "data_cache"):
     """
-    SPY.csv をキャッシュから読み込み、古ければ recover_spy_cache.py を呼んで更新。
+    旧バージョンの SPY キャッシュ読み込み関数。
     - Streamlit UI で最小限のメッセージを表示
     - 直近のNYSE営業日とキャッシュ最終日を比較
-    - 米東部時間 18:00 以降かつキャッシュが古い場合のみ自動更新
+    - 古い場合は警告を出すのみ
     """
     path = os.path.join(folder, "SPY.csv")
     if not os.path.exists(path):
@@ -224,7 +188,10 @@ def get_spy_data_cached(folder: str = "data_cache"):
         # 1つ前の営業日（当日営業時間帯の影響を避ける）
         try:
             nyse = mcal.get_calendar("NYSE")
-            sched = nyse.schedule(start_date=today - pd.Timedelta(days=7), end_date=today)
+            sched = nyse.schedule(
+                start_date=today - pd.Timedelta(days=7),
+                end_date=today,
+            )
             valid = sched.index.normalize()
             prev_trading_day = valid[-2] if len(valid) >= 2 else latest_trading_day
         except Exception:
@@ -236,49 +203,12 @@ def get_spy_data_cached(folder: str = "data_cache"):
         except Exception:
             ny_time = dtime(18, 0)
 
-        # 古い場合は自動更新（米東部18:00以降）
+        # 古い場合は警告のみ表示
         if df.index[-1].normalize() < prev_trading_day and ny_time >= dtime(18, 0):
             try:
-                st.warning(tr("⚠ SPYキャッシュが古いため自動更新します..."))
+                st.warning(tr("⚠ SPYキャッシュが古い可能性があります"))
             except Exception:
                 pass
-            try:
-                result = subprocess.run(
-                    ["python", "recover_spy_cache.py"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if result.stdout:
-                    try:
-                        st.text(result.stdout)
-                    except Exception:
-                        pass
-                if result.stderr:
-                    try:
-                        st.error(result.stderr)
-                    except Exception:
-                        pass
-            except Exception as e:
-                st.error(tr("SPY自動更新失敗: {e}", e=str(e)))
-                return None
-
-            # 更新後再読み込み
-            if os.path.exists(path):
-                try:
-                    df = pd.read_csv(path, parse_dates=["Date"])
-                    df.set_index("Date", inplace=True)
-                    df = df.sort_index()
-                    try:
-                        st.success(tr("✅ SPYキャッシュ更新後: {d}", d=str(df.index[-1].date())))
-                    except Exception:
-                        pass
-                except Exception as e:
-                    st.error(tr("❌ SPY更新後の読み込みに失敗: {e}", e=str(e)))
-                    return None
-            else:
-                st.error(tr("❌ 更新後もSPY.csvが存在しません"))
-                return None
         else:
             try:
                 st.write(tr("✅ SPYキャッシュは有効"))
@@ -312,12 +242,22 @@ def get_spy_with_indicators(spy_df=None):
                 spy_df["Close"] = spy_df["adjusted_close"]
             else:
                 try:
-                    st.warning(tr("❗SPYの終値列が見つかりません: {cols}", cols=str(list(spy_df.columns))))
+                    st.warning(
+                        tr(
+                            "❗SPYの終値列が見つかりません: {cols}",
+                            cols=str(list(spy_df.columns)),
+                        )
+                    )
                 except Exception:
                     pass
                 return spy_df
 
-        spy_df["SMA100"] = SMAIndicator(pd.to_numeric(spy_df["Close"], errors="coerce"), window=100).sma_indicator()
-        spy_df["SMA200"] = SMAIndicator(pd.to_numeric(spy_df["Close"], errors="coerce"), window=200).sma_indicator()
+        spy_df["SMA100"] = SMAIndicator(
+            pd.to_numeric(spy_df["Close"], errors="coerce"),
+            window=100,
+        ).sma_indicator()
+        spy_df["SMA200"] = SMAIndicator(
+            pd.to_numeric(spy_df["Close"], errors="coerce"),
+            window=200,
+        ).sma_indicator()
     return spy_df
-
