@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from common.cache_utils import save_prepared_data_cache
-from common.equity_curve import save_equity_curve
+from common.price_chart import save_price_chart
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
 from common.performance_summary import summarize as summarize_perf
@@ -107,6 +107,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
     cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
+    run_start = time.time()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -122,6 +123,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             ui_manager=ui_base,
         ),
     )
+    elapsed = time.time() - run_start
     results_df, _, data_dict, capital, candidates_by_date = _rb
     fetch_phase.log_area.write(tr("データ取得完了"))
     ind_phase.log_area.write(tr("インジケーター計算完了"))
@@ -161,6 +163,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             "実施日時": now_jst_str(),
             "銘柄数": len(data_dict) if data_dict else 0,
             "開始資金": int(capital),
+            "処理時間": f"{elapsed:.2f}s",
         }
         # メトリクスは共通 show_results で統一表示
         pass
@@ -192,11 +195,15 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             start = pd.to_datetime(results_df["entry_date"]).min()
             end = pd.to_datetime(results_df["exit_date"]).max()
             period = f"{start:%Y-%m-%d}〜{end:%Y-%m-%d}"
-        _img_path, _img_url = save_equity_curve(
-            results_df,
-            capital,
-            SYSTEM_NAME,
-        )
+        chart_url = None
+        if not results_df.empty and "symbol" in results_df.columns:
+            try:
+                top_sym = (
+                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                )
+                _, chart_url = save_price_chart(str(top_sym), trades=results_df)
+            except Exception:
+                chart_url = None
         if st.session_state.get(notify_key, False):
             sent = False
             for n in notifiers:
@@ -210,7 +217,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
                             period,
                             stats,
                             ranking,
-                            image_url=_img_url,
+                            image_url=chart_url,
                             mention=_mention,
                         )
                     else:

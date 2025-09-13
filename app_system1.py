@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, cast
+import time
 
 import pandas as pd
 import streamlit as st
-import requests
-from config.settings import get_settings
 
 from common.cache_utils import save_prepared_data_cache
-from common.equity_curve import save_equity_curve
+from common.price_chart import save_price_chart
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.notifier import Notifier, now_jst_str
 from common.performance_summary import summarize as summarize_perf
@@ -48,8 +47,15 @@ strategy: System1Strategy = System1Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
-def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None) -> None:
-    st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
+def run_tab(
+    spy_df: pd.DataFrame | None = None,
+    ui_manager: object | None = None,
+) -> None:
+    st.header(
+        tr(
+            f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"
+        )
+    )
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
@@ -59,6 +65,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             st.warning("再読み込みに失敗しました。必要ならアプリを再起動してください。")
             return
         spy_df = new_df
+    run_start = time.time()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -75,17 +82,22 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             ui_manager=ui_manager,
         ),
     )
+    elapsed = time.time() - run_start
     results_df, merged_df, data_dict, capital, _ = _rb
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
-        display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング")
+        display_roc200_ranking(
+            daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング"
+        )
 
         signal_summary_df = show_signal_trade_summary(
             merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
-            save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
+            save_signal_and_trade_logs(
+                signal_summary_df, results_df, SYSTEM_NAME, capital
+            )
         if data_dict is not None:
             save_prepared_data_cache(data_dict, SYSTEM_NAME)
 
@@ -97,7 +109,11 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             else float(summary.max_drawdown)
         )
         try:
-            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            max_dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"]))
+                .min()
+                * 100
+            )
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
         stats: dict[str, Any] = {
@@ -107,6 +123,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             "実施日時": now_jst_str(),
             "銘柄数": len(data_dict) if data_dict else 0,
             "開始資金": int(capital),
+            "処理時間": f"{elapsed:.2f}s",
         }
         # 画面上にも DD と DD% を表示（統合サマリーと同様）
         # show_results 側で統一表示するため、ここでのメトリクス表示は不要
@@ -168,12 +185,20 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
             if "symbol" in results_df.columns:
                 ranking = [str(s) for s in results_df["symbol"].head(10)]
 
-        img_path, img_url = save_equity_curve(results_df, capital, SYSTEM_NAME)
         period = ""
         if "entry_date" in results_df.columns and "exit_date" in results_df.columns:
             start = pd.to_datetime(results_df["entry_date"]).min()
             end = pd.to_datetime(results_df["exit_date"]).max()
             period = f"{start:%Y-%m-%d}〜{end:%Y-%m-%d}"
+        chart_url = None
+        if not results_df.empty and "symbol" in results_df.columns:
+            try:
+                top_sym = (
+                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                )
+                _, chart_url = save_price_chart(str(top_sym), trades=results_df)
+            except Exception:
+                chart_url = None
 
         notify_key = f"{SYSTEM_NAME}_notify_backtest"
         if st.session_state.get(notify_key, False):
@@ -189,7 +214,7 @@ def run_tab(spy_df: pd.DataFrame | None = None, ui_manager: object | None = None
                             period,
                             stats,
                             ranking,
-                            image_url=img_url,
+                            image_url=chart_url,
                             mention=mention,
                         )
                     else:
