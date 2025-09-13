@@ -297,7 +297,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     prog_txt = st.empty()
     # システムごとのプログレスバー（並行時に可視化）
     sys_cols = st.columns(7)
+    sys_labels = [f"System{i}" for i in range(1, 8)]
+    for i, col in enumerate(sys_cols, start=1):
+        col.caption(sys_labels[i - 1])
     sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
+    sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
     sys_states = {k: 0 for k in sys_bars.keys()}
     # 追加: 全ログを蓄積（UIで折り畳み表示用）
     log_lines: list[str] = []
@@ -357,9 +361,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             if phase == "start":
                 sys_states[n] = 50
                 bar.progress(50)
+                sys_stage_txt[n].text("running… (50%)")
             elif phase == "done":
                 sys_states[n] = 100
                 bar.progress(100)
+                sys_stage_txt[n].text("done (100%)")
         except Exception:
             pass
 
@@ -373,6 +379,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
+            # 簡易説明（大まかな段階）
+            if vv < 25:
+                sys_stage_txt[n].text("setup… (0-25%)")
+            elif vv < 50:
+                sys_stage_txt[n].text("prepare done (25%)")
+            elif vv < 100:
+                sys_stage_txt[n].text("candidates / scoring (50-75%)")
+            else:
+                sys_stage_txt[n].text("done (100%)")
         except Exception:
             pass
 
