@@ -51,23 +51,43 @@ def clean_date_column(df: pd.DataFrame, col_name: str = "Date") -> pd.DataFrame:
     return df
 
 
-def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame:
+def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:
     """
     キャッシュ済みCSVから銘柄データを読み込む
+
+    Returns
+    -------
+    pd.DataFrame | None
+        読み込み成功時はDataFrame、見つからない/失敗時はNoneを返す。
     """
     safe_symbol = safe_filename(symbol)
     path = os.path.join(folder, f"{safe_symbol}.csv")
+
+    # 1) 旧CSVキャッシュを優先（あれば）
     if os.path.exists(path):
         try:
-            df = pd.read_csv(path, parse_dates=["Date"])
-            df.set_index("Date", inplace=True)
-            df = df.sort_index()
-            return df
+            df = pd.read_csv(path)
+            # Date/date 列の正規化
+            if "Date" in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+                df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+            elif "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df = (
+                    df.dropna(subset=["date"])
+                    .sort_values("date")
+                    .rename(columns={"date": "Date"})
+                    .set_index("Date")
+                )
+            else:
+                # 日付列が無ければフォールバックに回す
+                raise ValueError("Date/date column missing")
+            return df.sort_index()
         except Exception as e:
             print(f"{symbol}: 読み込み失敗 - {e}")
-            return None
+            # フォールバックへ
 
-    # フォールバック: CacheManager の full キャッシュから読み込む
+    # 2) フォールバック: CacheManager の full キャッシュから読み込む
     try:
         from common.cache_manager import CacheManager  # 遅延importで循環回避
         from config.settings import get_settings
@@ -76,49 +96,39 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame:
         df2 = cm.read(symbol, "full")
         if df2 is None or df2.empty:
             return None
+
         # 従来呼び出し互換: 列を大文字・Date index に正規化
         x = df2.copy()
-        cols = {c.lower(): c for c in x.columns}
-        # date 列の正規化
-        if "date" in cols:
-            x["Date"] = pd.to_datetime(x["date"])
+        # 日付列
+        if "date" in x.columns:
+            x["Date"] = pd.to_datetime(x["date"], errors="coerce")
         elif "Date" in x.columns:
-            x["Date"] = pd.to_datetime(x["Date"])
+            x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
         else:
             return None
-        x = x.sort_values("Date").set_index("Date")
+        x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
 
         # 価格系列の正規化（存在するもののみ変換）
-        rename_map = {}
-        if "open" in cols:
-            rename_map["open"] = "Open"
-        if "high" in cols:
-            rename_map["high"] = "High"
-        if "low" in cols:
-            rename_map["low"] = "Low"
-        if "close" in cols:
-            rename_map["close"] = "Close"
-        if "adjusted_close" in cols:
-            rename_map["adjusted_close"] = "AdjClose"
-        if "adjclose" in cols:
-            rename_map["adjclose"] = "AdjClose"
-        if "volume" in cols:
-            rename_map["volume"] = "Volume"
-
-        # 小文字→大文字へ（存在する列のみ）
+        rename_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "adjusted_close": "AdjClose",
+            "adjclose": "AdjClose",
+            "volume": "Volume",
+        }
         for k, v in list(rename_map.items()):
             if k in x.columns:
                 x.rename(columns={k: v}, inplace=True)
 
-        return x
+        return x.sort_index()
     except Exception as e:
-        logging.getLogger(__name__).warning(
-            "CacheManager フォールバック読込に失敗: %s (%s)", symbol, e
-        )
+        print(f"{symbol}: フォールバック読み込み失敗 - {e}")
         return None
 
 
-def get_manual_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame:
+def get_manual_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:
     """
     ユーザー指定シンボルを手動読み込み用に取得
     get_cached_dataのラッパー
