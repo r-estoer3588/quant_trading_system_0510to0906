@@ -21,11 +21,11 @@ try:
                     cnt = 1
                 st.session_state[count_key] = cnt
                 kwargs["key"] = f"{base}_{cnt}"
-            return st._orig_checkbox(  # type: ignore[attr-defined]
+            return st._orig_checkbox(
                 label,
                 *args,
                 **kwargs,
-            )
+            )  # type: ignore[attr-defined]
 
         st.checkbox = _unique_checkbox  # type: ignore[attr-defined]
 except Exception:
@@ -54,16 +54,23 @@ with st.sidebar:
         univ.save_universe_file(universe)
     all_syms = universe
 
-    # 任意の件数でユニバースを制限するテスト用オプション
-    limit_max = max(1, len(all_syms))
-    test_limit = st.number_input(
-        "テスト用の銘柄数 (0は制限なし)",
-        min_value=0,
-        max_value=limit_max,
-        value=0,
-        step=1,
-    )
-    syms = all_syms[: int(test_limit)] if test_limit else all_syms
+    # テスト用10銘柄 or 全銘柄選択
+    test_mode = st.checkbox("テスト用（10銘柄のみ）", value=False)
+    syms = all_syms[:10] if test_mode else all_syms
+    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
+    # テスト用: 任意の件数で制限できるオプション（新）
+    # 既存の test_mode より後に評価され、指定があればこちらで上書きします
+    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
+    if test_limit_on:
+        limit_max = max(1, len(all_syms))
+        test_limit = st.number_input(
+            "テスト用の銘柄数",
+            min_value=1,
+            max_value=limit_max,
+            value=min(10, limit_max),
+            step=1,
+        )
+        syms = all_syms[: int(test_limit)]
 
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))
@@ -396,12 +403,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
                 # Debug: show per-symbol reason text for why it was selected
                 if "reason" in df.columns:
-                    with st.expander(f"{name} - 選定理由", expanded=False):
+                    tab_jp, tab_en = st.tabs(["選定理由", "selection reasons"])
+                    with tab_jp:
                         for _, row in df.iterrows():
                             sym = row.get("symbol")
                             reason = row.get("reason")
                             st.markdown(f"- **{sym}**: {reason}")
-                    with st.expander(f"{name} - selection reasons", expanded=False):
+                    with tab_en:
                         for _, row in df.iterrows():
                             sym = row.get("symbol")
                             reason = row.get("reason")

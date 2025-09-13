@@ -2,29 +2,20 @@
 
 from __future__ import annotations
 
-import os
-from typing import Optional, Union, Dict, Any, TYPE_CHECKING
-from common import broker_alpaca as ba
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import (
-    MarketOrderRequest,
-    LimitOrderRequest,
-    StopOrderRequest,
-    StopLimitOrderRequest,
-    TrailingStopOrderRequest,
-    TakeProfitRequest,
-    StopLossRequest,
-    GetOrdersRequest,
-)
-from alpaca.trading.enums import (
-    OrderSide,
-    TimeInForce,
-    OrderType,
-    OrderClass,
-    QueryOrderStatus,
-)
-from alpaca.common.exceptions import APIError
 import logging
+import os
+from typing import TYPE_CHECKING
+
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
+from alpaca.trading.requests import (
+    LimitOrderRequest,
+    MarketOrderRequest,
+    StopLossRequest,
+    TrailingStopOrderRequest,
+)
+
+from common import broker_alpaca as ba
 
 if TYPE_CHECKING:
     from alpaca.trading.stream import TradingStream
@@ -45,13 +36,13 @@ class AlpacaOrderManager:
         self.trading_client = trading_client
         self._api_key = api_key
         self._secret_key = secret_key
-        # TradingStream の paper 引数に渡すために記録（未指定時は trading_client から推定、なければ True）
-        self._paper = (
-            paper if paper is not None else getattr(trading_client, "paper", True)
-        )
+        # TradingStream の paper 引数に渡すために記録
+        # （未指定時は trading_client から推定、なければ True）
+        default_paper = getattr(trading_client, "paper", True)
+        self._paper = paper if paper is not None else default_paper
 
     @classmethod
-    def create_from_env(cls, paper: bool = True) -> "AlpacaOrderManager":
+    def create_from_env(cls, paper: bool = True) -> AlpacaOrderManager:
         """.env から API キーを読み込み `TradingClient` を生成する。"""
         if TradingClient is None:
             raise RuntimeError(
@@ -60,9 +51,7 @@ class AlpacaOrderManager:
         api_key = os.getenv("ALPACA_API_KEY")
         secret_key = os.getenv("ALPACA_SECRET_KEY")
         if not api_key or not secret_key:
-            raise RuntimeError(
-                "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。"
-            )
+            raise RuntimeError("ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。")
         return cls(
             TradingClient(api_key, secret_key, paper=paper),
             api_key=api_key,
@@ -72,7 +61,10 @@ class AlpacaOrderManager:
 
     def _build_market_order(self, *, symbol, qty, side_enum, tif, **_):
         return MarketOrderRequest(
-            symbol=symbol, qty=qty, side=side_enum, time_in_force=tif
+            symbol=symbol,
+            qty=qty,
+            side=side_enum,
+            time_in_force=tif,
         )
 
     def _build_limit_order(
@@ -188,16 +180,16 @@ class AlpacaOrderManager:
         order = client.submit_order(order_data=req)
         order_id = getattr(order, "id", None)
         if log_callback:
-            log_callback(
-                f"Submitted {order_type} order {order_id} {symbol} qty={qty} side={side_enum.name}"
+            msg = (
+                f"Submitted {order_type} order {order_id} {symbol} "
+                f"qty={qty} side={side_enum.name}"
             )
+            log_callback(msg)
         return order
 
     def log_orders_positions(self, client: TradingClient, log_callback=None):
         """現在の注文・ポジションを取得してログ出力する。"""
-        request = GetOrdersRequest(status=QueryOrderStatus.ALL)
-        orders = client.get_orders(filter=request)
-        positions = client.get_all_positions()
+        orders, positions = ba.log_orders_positions(client)
         if log_callback:
             for o in orders:
                 oid = getattr(o, "id", None)
@@ -212,12 +204,14 @@ class AlpacaOrderManager:
                 avg = getattr(p, "avg_entry_price", None)
                 log_callback(f"Position {psym} qty={pqty} avg_entry={avg}")
 
-    def subscribe_order_updates(self, log_callback=None) -> "TradingStream":
+    def subscribe_order_updates(self, log_callback=None) -> TradingStream:
         """注文更新の WebSocket を購読し、更新時にログ出力する。"""
         try:
             from alpaca.trading.stream import TradingStream
-        except ImportError:
-            raise RuntimeError("alpaca-py がインストールされていません。")
+        except ImportError as err:
+            raise RuntimeError(
+                "alpaca-py がインストールされていません。",
+            ) from err
 
         # TradingClient からはキーを取得できないため、保持しているキー（無ければ環境変数）を使用する
         api_key = self._api_key or os.getenv("ALPACA_API_KEY")
@@ -304,9 +298,7 @@ class AlpacaOrderMixin:
                     psym = getattr(p, "symbol", None)
                     pqty = getattr(p, "qty", None)
                     avg = getattr(p, "avg_entry_price", None)
-                    log_callback(
-                        f"Position {psym} qty={pqty} avg_entry={avg}"
-                    )
+                    log_callback(f"Position {psym} qty={pqty} avg_entry={avg}")
             except Exception:
                 pass
 
@@ -317,11 +309,11 @@ class AlpacaOrderMixin:
         """
         try:
             client = ba.get_client(paper=None)
-        except Exception:
+        except Exception as err:
             # クライアントが作れない場合はエラーを明示
             raise RuntimeError(
-                "Alpaca クライアントを初期化できませんでした（API キー要確認）。"
-            )
+                "Alpaca クライアントを初期化できませんでした（API キー要確認）。",
+            ) from err
         # ブロッキング実行（戻り値は None）
         return ba.subscribe_order_updates(client, log_callback=log_callback)
 

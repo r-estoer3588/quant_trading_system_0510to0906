@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 import os
-from typing import Any, Optional, Tuple, Dict, Iterable
 import time
+from typing import Any
 
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.enums import OrderSide, OrderClass, TimeInForce
+    from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
     from alpaca.trading.requests import (
-        MarketOrderRequest,
         LimitOrderRequest,
-        TakeProfitRequest,
+        MarketOrderRequest,
         StopLossRequest,
+        TakeProfitRequest,
         TrailingStopOrderRequest,
     )
     from alpaca.trading.stream import TradingStream
@@ -42,9 +44,9 @@ def _load_env_once() -> None:
 
 def get_client(
     *,
-    paper: Optional[bool] = None,
-    api_key: Optional[str] = None,
-    secret_key: Optional[str] = None,
+    paper: bool | None = None,
+    api_key: str | None = None,
+    secret_key: str | None = None,
 ):
     """TradingClient を生成して返す。
 
@@ -66,10 +68,14 @@ def get_client(
     secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError(
-            "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。"
+            "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。",
         )
 
-    return TradingClient(api_key, secret_key, paper=bool(paper))  # type: ignore[arg-type]
+    return TradingClient(
+        api_key,
+        secret_key,
+        paper=bool(paper),
+    )  # type: ignore[arg-type]
 
 
 def submit_order(
@@ -103,7 +109,7 @@ def submit_order(
     tif = (
         getattr(TimeInForce, time_in_force.upper())
         if hasattr(TimeInForce, time_in_force.upper())
-        else getattr(TimeInForce, "GTC")
+        else TimeInForce.GTC
     )  # type: ignore[attr-defined]
 
     if order_type == "market":
@@ -132,8 +138,12 @@ def submit_order(
             side=side_enum,
             time_in_force=tif,
             order_class=OrderClass.OCO,  # type: ignore[attr-defined]
-            take_profit=TakeProfitRequest(limit_price=take_profit),  # type: ignore[call-arg]
-            stop_loss=StopLossRequest(stop_price=stop_loss),  # type: ignore[call-arg]
+            take_profit=TakeProfitRequest(
+                limit_price=take_profit,
+            ),  # type: ignore[call-arg]
+            stop_loss=StopLossRequest(
+                stop_price=stop_loss,
+            ),  # type: ignore[call-arg]
         )
     elif order_type == "trailing_stop":
         if trail_percent is None and stop_price is None:
@@ -152,9 +162,11 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            log_callback(
-                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            msg = (
+                f"Submitted {order_type} order {order.id} {symbol} "
+                f"qty={qty} side={side_enum.name}"
             )
+            log_callback(msg)
         except Exception:
             pass
     return order
@@ -183,7 +195,7 @@ def submit_order_with_retry(
     - backoff_seconds: 失敗毎に待機する秒数（指数ではなく線形）
     - rate_limit_seconds: 成功/失敗に関わらず各試行後に待機
     """
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for i in range(retries + 1):
         try:
             order = submit_order(
@@ -207,9 +219,13 @@ def submit_order_with_retry(
             last_exc = e
             if log_callback:
                 try:
-                    log_callback(
-                        f"submit retry {i+1}/{retries}: {symbol} qty={qty} error={e}"
+                    msg = " ".join(
+                        [
+                            f"submit retry {i+1}/{retries}: {symbol}",
+                            f"qty={qty} error={e}",
+                        ]
                     )
+                    log_callback(msg)
                 except Exception:
                     pass
             if i < retries:
@@ -220,10 +236,10 @@ def submit_order_with_retry(
     raise last_exc
 
 
-def get_orders_status_map(client, order_ids: Iterable[str]) -> Dict[str, Any]:
+def get_orders_status_map(client, order_ids: Iterable[str]) -> dict[str, Any]:
     """order_id -> status の簡易マップを返す."""
     id_set = {oid for oid in order_ids if oid}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     if not id_set:
         return out
     for oid in id_set:
@@ -235,10 +251,14 @@ def get_orders_status_map(client, order_ids: Iterable[str]) -> Dict[str, Any]:
     return out
 
 
-def log_orders_positions(client) -> Tuple[Any, Any]:
-    """現在の注文とポジションを取得し、必要ならログ出力."""
-    orders = client.get_orders(status="all")
-    positions = client.get_all_positions()
+def log_orders_positions(client) -> tuple[Any, Any]:
+    """現在の注文とポジションを同時に取得する."""
+    # 並列取得で待ち時間を短縮
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        orders_future = executor.submit(client.get_orders, status="all")
+        positions_future = executor.submit(client.get_all_positions)
+        orders = orders_future.result()
+        positions = positions_future.result()
     return orders, positions
 
 
@@ -266,9 +286,13 @@ def subscribe_order_updates(client, log_callback=None):
     async def _(data):  # noqa: ANN001 - SDK 固有
         if log_callback:
             try:
-                log_callback(
-                    f"WS update {data.event} id={data.order.id} status={data.order.status}"
+                msg = " ".join(
+                    [
+                        f"WS update {data.event} id={data.order.id}",
+                        f"status={data.order.status}",
+                    ]
                 )
+                log_callback(msg)
             except Exception:
                 pass
 
