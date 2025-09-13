@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from pathlib import Path
 
 import pandas as pd
@@ -354,6 +354,11 @@ def compute_today_signals(
     # 最新営業日（NYSE）
     today = get_latest_nyse_trading_day().normalize()
     _log(f"📅 最新営業日（NYSE）: {today.date()}")
+    if progress_callback:
+        try:
+            progress_callback(0, 8, "init")
+        except Exception:
+            pass
 
     # シンボル決定
     if symbols and len(symbols) > 0:
@@ -381,6 +386,16 @@ def compute_today_signals(
         f"（例: {', '.join(symbols[:10])}"
         f"{'...' if len(symbols) > 10 else ''}）"
     )
+    if log_callback:
+        try:
+            log_callback("🧭 シンボル決定完了。基礎データのロードへ…")
+        except Exception:
+            pass
+    if progress_callback:
+        try:
+            progress_callback(1, 8, "symbols")
+        except Exception:
+            pass
 
     # データ読み込み
     # --- フィルター条件で銘柄を絞り込み、
@@ -391,8 +406,13 @@ def compute_today_signals(
     #     ローカル関数として定義 ---
 
     def load_basic_data(symbols):
+        import time as _t
+
         data = {}
-        for sym in symbols:
+        total_syms = len(symbols)
+        start_ts = _t.time()
+        CHUNK = 500
+        for idx, sym in enumerate(symbols, start=1):
             try:
                 df = cm.read(sym, "rolling")
                 if df is None or df.empty:
@@ -439,6 +459,22 @@ def compute_today_signals(
                     data[sym] = df
             except Exception:
                 continue
+            if idx % CHUNK == 0:
+                try:
+                    elapsed = max(0.001, _t.time() - start_ts)
+                    rate = idx / elapsed
+                    remain = max(0, total_syms - idx)
+                    eta_sec = int(remain / rate) if rate > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒")
+                except Exception:
+                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms}")
+        try:
+            total_elapsed = int(max(0, _t.time() - start_ts))
+            m, s = divmod(total_elapsed, 60)
+            _log(f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒")
+        except Exception:
+            _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
         return data
 
     def filter_system1(symbols, data):
@@ -476,8 +512,13 @@ def compute_today_signals(
         return result
 
     def load_indicator_data(symbols):
+        import time as _t
+
         data = {}
-        for sym in symbols:
+        total_syms = len(symbols)
+        start_ts = _t.time()
+        CHUNK = 500
+        for idx, sym in enumerate(symbols, start=1):
             try:
                 df = cm.read(sym, "rolling")
                 if df is None or df.empty:
@@ -521,17 +562,54 @@ def compute_today_signals(
                     data[sym] = df
             except Exception:
                 continue
+            if total_syms > 0 and idx % CHUNK == 0:
+                try:
+                    elapsed = max(0.001, _t.time() - start_ts)
+                    rate = idx / elapsed
+                    remain = max(0, total_syms - idx)
+                    eta_sec = int(remain / rate) if rate > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒")
+                except Exception:
+                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+        try:
+            total_elapsed = int(max(0, _t.time() - start_ts))
+            m, s = divmod(total_elapsed, 60)
+            _log(f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒")
+        except Exception:
+            _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
         return data
 
     # 実行スコープで変数定義
     # --- フィルター・データロード変数を
     #     forループより前に定義 ---
     basic_data = load_basic_data(symbols)
+    if progress_callback:
+        try:
+            progress_callback(2, 8, "load_basic")
+        except Exception:
+            pass
+    _log("🧪 事前フィルター実行中 (system1/system2)…")
     system1_syms = filter_system1(symbols, basic_data)
     system2_syms = filter_system2(symbols, basic_data)
+    _log(f"🧪 フィルター結果: system1={len(system1_syms)}件, system2={len(system2_syms)}件")
+    if progress_callback:
+        try:
+            progress_callback(3, 8, "filter")
+        except Exception:
+            pass
     # ...system3_syms, system4_syms, ...
+    _log("🧮 指標計算用データロード中 (system1)…")
     raw_data_system1 = load_indicator_data(system1_syms)
+    _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
+    _log("🧮 指標計算用データロード中 (system2)…")
     raw_data_system2 = load_indicator_data(system2_syms)
+    _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
+    if progress_callback:
+        try:
+            progress_callback(4, 8, "load_indicators")
+        except Exception:
+            pass
     # ...raw_data_system3, ...
     if "SPY" in basic_data:
         spy_df = get_spy_with_indicators(basic_data["SPY"])
@@ -620,22 +698,24 @@ def compute_today_signals(
         _local_log(msg)
         return name, df, msg, logs
 
+    _log("🚀 各システムの当日シグナル抽出を開始")
     per_system: dict[str, pd.DataFrame] = {}
     total = len(strategies)
     if parallel:
         if progress_callback:
             try:
-                progress_callback(0, total, "")
+                progress_callback(5, 8, "run_strategies")
             except Exception:
                 pass
             with ThreadPoolExecutor() as executor:
-                futures: dict[object, str] = {}
+                futures: dict[Future, str] = {}
                 for name, stg in strategies.items():
                     fut = executor.submit(_run_strategy, name, stg)
                     futures[fut] = name
                 for _idx, fut in enumerate(as_completed(futures), start=1):
                     name, df, msg, logs = fut.result()
                     per_system[name] = df
+                    _log(f"🧾 {msg}")
                     col_idx = name_to_idx.get(name)
                     if cols and col_idx is not None and col_idx < len(cols):
                         try:
@@ -649,37 +729,38 @@ def compute_today_signals(
                                     col.warning(msg)
                         except Exception:
                             pass
-                if log_callback:
-                    try:
-                        for line in logs:
-                            log_callback(line)
-                        import streamlit as st
+                    if log_callback:
+                        try:
+                            for line in logs:
+                                log_callback(line)
+                            import streamlit as st
 
-                        with st.expander(f"{name} 詳細ログ", expanded=False):
-                            st.text(msg)
-                            if df is not None and not df.empty:
-                                st.dataframe(df.head())
-                    except Exception:
-                        pass
-                if progress_callback:
-                    try:
-                        progress_callback(_idx, total, name)
-                    except Exception:
-                        pass
+                            with st.expander(f"{name} 詳細ログ", expanded=False):
+                                st.text(msg)
+                                if df is not None and not df.empty:
+                                    st.dataframe(df.head())
+                        except Exception:
+                            pass
+                    if progress_callback:
+                        try:
+                            progress_callback(5 + min(_idx, 1), 8, name)
+                        except Exception:
+                            pass
         if progress_callback:
             try:
-                progress_callback(total, total, "")
+                progress_callback(6, 8, "strategies_done")
             except Exception:
                 pass
     else:
         for idx, (name, stg) in enumerate(strategies.items(), start=1):
             if progress_callback:
                 try:
-                    progress_callback(idx - 1, total, name)
+                    progress_callback(5, 8, name)
                 except Exception:
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
+            _log(f"🧾 {msg}")
             col_idx = name_to_idx.get(name)
             if cols and col_idx is not None and col_idx < len(cols):
                 try:
@@ -707,7 +788,7 @@ def compute_today_signals(
                     pass
         if progress_callback:
             try:
-                progress_callback(total, total, "")
+                progress_callback(6, 8, "strategies_done")
             except Exception:
                 pass
 
@@ -734,6 +815,7 @@ def compute_today_signals(
     long_alloc = _normalize_alloc(settings_alloc_long, defaults_long)
     short_alloc = _normalize_alloc(settings_alloc_short, defaults_short)
 
+    _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
     if capital_long is None and capital_short is None:
         # 旧スロット方式（後方互換）
         max_pos = int(settings.risk.max_positions)
@@ -772,6 +854,12 @@ def compute_today_signals(
 
         long_counts = {k: len(per_system.get(k, pd.DataFrame())) for k in long_alloc}
         short_counts = {k: len(per_system.get(k, pd.DataFrame())) for k in short_alloc}
+        _log(
+            "🧮 枠配分: "
+            + ", ".join([f"{k}={long_counts.get(k,0)}" for k in long_alloc])
+            + " | "
+            + ", ".join([f"{k}={short_counts.get(k,0)}" for k in short_alloc])
+        )
         long_slots = _distribute_slots(long_alloc, slots_long, long_counts)
         short_slots = _distribute_slots(short_alloc, slots_short, short_counts)
 
@@ -812,10 +900,14 @@ def compute_today_signals(
             capital_long = total * _ratio
             capital_short = total * (1.0 - _ratio)
         else:
-            capital_long = float(capital_long)
-            capital_short = float(capital_short)
+            # mypy/pyright対応（この分岐では None にならない）
+            from typing import cast as _cast
+
+            capital_long = float(_cast(float, capital_long))
+            capital_short = float(_cast(float, capital_short))
 
         strategies_map = {k: v for k, v in strategies.items()}
+        _log(f"💰 金額配分: long=${capital_long}, short=${capital_short}")
         long_df = _amount_pick(
             {k: per_system.get(k, pd.DataFrame()) for k in long_alloc},
             strategies_map,
@@ -838,6 +930,14 @@ def compute_today_signals(
         final_df = final_df.sort_values(
             sort_cols, ascending=[True, True, True][: len(sort_cols)]
         ).reset_index(drop=True)
+        _log(f"📊 最終候補件数: {len(final_df)}")
+    else:
+        _log("📭 最終候補は0件でした")
+    if progress_callback:
+        try:
+            progress_callback(7, 8, "finalize")
+        except Exception:
+            pass
 
         if notify:
             try:
@@ -859,6 +959,11 @@ def compute_today_signals(
             out = signals_dir / f"signals_{name}_{date_str}.csv"
             df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
+    if progress_callback:
+        try:
+            progress_callback(8, 8, "done")
+        except Exception:
+            pass
 
     # clear callback
     try:

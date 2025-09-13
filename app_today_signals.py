@@ -177,6 +177,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     start_time = time.time()
     # 進捗表示用の領域（1行上書き）
     progress_area = st.empty()
+    # プログレスバー
+    prog = st.progress(0)
+    prog_txt = st.empty()
     # 追加: 全ログを蓄積（UIで折り畳み表示用）
     log_lines: list[str] = []
 
@@ -190,6 +193,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             progress_area.text(line)
         except Exception:
             # 表示に失敗しても処理は継続
+            pass
+
+    def _ui_progress(done: int, total: int, name: str) -> None:
+        try:
+            total = max(1, int(total))
+            ratio = min(max(int(done), 0), total) / total
+            prog.progress(int(ratio * 100))
+            if name:
+                prog_txt.text(f"進捗 {int(ratio*100)}%: {name}")
+        except Exception:
             pass
 
     # 必要な日数分だけデータをロードする関数例
@@ -233,6 +246,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             capital_short=float(st.session_state["today_cap_short"]),
             save_csv=save_csv,
             log_callback=_ui_log,
+            progress_callback=_ui_progress,
             symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
         )
 
