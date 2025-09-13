@@ -85,3 +85,24 @@
 
 - ブランチ: `feat/*`, `fix/*`, `chore/*`。
 - バージョニング: SemVer。`CHANGELOG.md` を更新。
+
+## Cache Policy（重要）
+
+- レイヤ構成: `data_cache/` 配下に以下の 3 階層を使用します。
+
+  - `base/`: 指標付与済みの長期データ（バックテストや広期間参照の既定）。
+  - `rolling/`: 直近 N 営業日（既定 240）の軽量データ（当日シグナル抽出用）。
+  - `full_backup/`: 取得元そのままの長期バックアップ（復旧・再構築のソース）。
+
+- リゾルバ方針（SPY 含む）:
+
+  - backtest: `base → full_backup`（`rolling` は探索しない）。
+  - today: `rolling → base → full_backup`（`rolling` が無ければ `base` から生成・保存）。
+
+- 命名変更: 旧 `full` は `full_backup` に統一。コード・設定・ドキュメントは新名称を使用。
+
+- 取得/復旧: `recover_spy_cache.py` は `data_cache/full_backup/` のみへ保存します。
+
+- 廃止事項: `data_cache/` 直下にある CSV を直接参照する実装は廃止しました。
+  - 読み込みは `CacheManager` および `load_base_cache()` を経由してください。
+  - 既存のレガシーファイルは `scripts/cache_daily_data.py` の移行処理を利用して整理してください。

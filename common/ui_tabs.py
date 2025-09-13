@@ -81,6 +81,29 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         st.caption(
             tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%")
         )
+        try:
+            # 表示用に現在の設定配分も添える
+            def _norm_map(d: dict[str, float], default_map: dict[str, float]):
+                try:
+                    f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
+                    s = sum(f.values())
+                    return {k: v / s for k, v in (f or default_map).items()} if s > 0 else default_map
+                except Exception:
+                    return default_map
+
+            la = getattr(settings.ui, "long_allocations", {}) or {}
+            sa = getattr(settings.ui, "short_allocations", {}) or {}
+            la_n = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
+            sa_n = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
+            def _fmt(d: dict[str, float]):
+                try:
+                    items = [f"{k}:{v:.0%}" for k, v in d.items()]
+                    return ", ".join(items)
+                except Exception:
+                    return ""
+            st.caption(f"settings long=({_fmt(la_n)}), short=({_fmt(sa_n)})")
+        except Exception:
+            pass
     colL, colS = st.columns(2)
     with colL:
         long_share = st.slider(
@@ -156,17 +179,56 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         sim = ui.phase("simulate", title=tr("simulate integrated"))
         sim.info(tr("running integrated engine..."))
 
-        # 進捗更新用のコールバック
+        # 進捗更新用のコールバック（時刻 + 分秒を表示）
+        sim_prog_txt = st.empty()
+
         def _on_progress(i: int, total: int, start):
             try:
                 sim.progress_bar.progress(0 if not total else i / total)
             except Exception:
                 pass
+            try:
+                elapsed = max(0, time.time() - (start or time.time()))
+                m, s = divmod(int(elapsed), 60)
+                now = time.strftime("%H:%M:%S")
+                sim_prog_txt.text(f"[{now} | {m}分{s}秒] integrated {i}/{total}")
+            except Exception:
+                pass
+
+        # 設定から配分マップを構築（System1..System7 キー、長短それぞれ正規化）
+        def _canon(k: str) -> str:
+            s = str(k)
+            try:
+                if s.lower().startswith("system"):
+                    num = "".join(ch for ch in s if ch.isdigit())
+                    return f"System{num}" if num else s.title()
+                if s.isdigit():
+                    return f"System{s}"
+                return s
+            except Exception:
+                return s
+        def _norm_map(d: dict[str, float], default_map: dict[str, float]):
+            try:
+                f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
+                s = sum(f.values())
+                if s <= 0:
+                    f = default_map
+                    s = sum(f.values())
+                return { _canon(k): v / s for k, v in f.items() }
+            except Exception:
+                s = sum(default_map.values())
+                return { _canon(k): v / s for k, v in default_map.items() }
+
+        la = getattr(settings.ui, "long_allocations", {}) or {}
+        sa = getattr(settings.ui, "short_allocations", {}) or {}
+        alloc_map_long = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
+        alloc_map_short = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
+        alloc_map = {**alloc_map_long, **alloc_map_short}
 
         trades_df, _sig = run_integrated_backtest(
             states,
             capital_i,
-            allocations=DEFAULT_ALLOCATIONS,
+            allocations=alloc_map or DEFAULT_ALLOCATIONS,
             long_share=float(long_share) / 100.0,
             short_share=float(short_share) / 100.0,
             allow_gross_leverage=allow_gross,
@@ -426,7 +488,11 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
 
             def _ui_log(msg: str) -> None:
                 try:
-                    st.session_state["batch_today_logs"].append(str(msg))
+                    elapsed = max(0, time.time() - start)
+                    m, s = divmod(int(elapsed), 60)
+                    now = time.strftime("%H:%M:%S")
+                    line = f"[{now} | {m}分{s}秒] {str(msg)}"
+                    st.session_state["batch_today_logs"].append(line)
                     log_box.code("\n".join(st.session_state["batch_today_logs"]))
                 except Exception:
                     pass
@@ -434,11 +500,12 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             def _progress(i: int, total: int, name: str) -> None:
                 try:
                     prog.progress(0 if not total else i / total)
-                    elapsed = time.time() - start
+                    elapsed = max(0, time.time() - start)
+                    m, s = divmod(int(elapsed), 60)
                     if i < total:
-                        prog_txt.text(f"{name} {i}/{total} ({elapsed:.1f}s)")
+                        prog_txt.text(f"{name} {i}/{total} | 経過: {m}分{s}秒")
                     else:
-                        prog_txt.text(f"{elapsed:.1f}s: done")
+                        prog_txt.text(f"{m}分{s}秒: done")
                 except Exception:
                     pass
 

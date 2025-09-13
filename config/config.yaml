@@ -45,7 +45,7 @@ data:
   api_throttle_seconds: 1.5
 
 cache:
-  full_dir: "data_cache/full"
+  full_dir: "data_cache/full_backup"
   rolling_dir: "data_cache/rolling"
   file_format: "auto"
   rolling:
@@ -67,7 +67,7 @@ outputs:
   signals_dir: data_cache/signals
 
 logging:
-  level: INFO    # DEBUG/INFO/WARN/ERROR
+  level: INFO # DEBUG/INFO/WARN/ERROR
   # rotation は loguru 互換の文字列か、日次ローテーションを意味する "daily"
   rotation: daily
   filename: app.log
@@ -82,13 +82,13 @@ scheduler:
       cron: "45 6 * * 1-5"
       task: bulk_last_day
     - name: warm_cache
-      cron: "0 7 * * 1-5"    # 平日 07:00
-      task: cache_daily_data   # python スクリプト/関数名の想定
+      cron: "0 7 * * 1-5" # 平日 07:00
+      task: cache_daily_data # python スクリプト/関数名の想定
     - name: run_today_signals
       cron: "15 8 * * 1-5"
       task: run_today_signals
     - name: send_signals
-      cron: "30 8 * * 1-5"   # 平日 08:30
+      cron: "30 8 * * 1-5" # 平日 08:30
       task: notify_signals
     - name: update_trailing_stops
       cron: "45 8 * * 1-5"

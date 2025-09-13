@@ -17,7 +17,9 @@ from config.settings import get_settings
 def _candidate_spy_paths(root: Path) -> list[Path]:
     """SPY.csv を探す候補パスを返す。
 
-    優先順位: data_cache/base > data_cache/full > data_cache/rolling > data_cache 直下。
+    （バックテストなど広期間が必要な場面では base を優先し、
+     当日シグナルなどでは rolling を優先する設計だが、
+     本関数は単純な候補列挙のみを行う）
     大文字小文字の違いも吸収する（クロスプラットフォームのため）。
     """
 
@@ -37,7 +39,6 @@ def _candidate_spy_paths(root: Path) -> list[Path]:
         root / "base",
         root / "full",
         root / "rolling",
-        root,
     )
     out: list[Path] = []
     for d in dirs:
@@ -63,27 +64,66 @@ def _read_daily_csv_any_datecol(path: Path) -> pd.DataFrame:
     return df
 
 
-def get_spy_data_cached_v2(folder: str = "data_cache"):
+def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
     """
     SPY.csv をキャッシュから読み込む。
-    - 探索は data_cache/base, data_cache/full, data_cache/rolling, data_cache の順
+    - mode="backtest": data_cache/base → data_cache/full_backup の順（rolling は探索しない）
+    - mode="today": data_cache/rolling → data_cache/base → data_cache/full_backup の順
     - キャッシュが見つからない場合はエラーを返す
     """
     try:
         settings = get_settings(create_dirs=True)
         root = Path(settings.DATA_CACHE_DIR)
+        full_dir = Path(getattr(settings.cache, "full_dir", root / "full_backup"))
+        rolling_dir = Path(getattr(settings.cache, "rolling_dir", root / "rolling"))
     except Exception:
         root = Path(folder)
+        full_dir = root / "full_backup"
+        rolling_dir = root / "rolling"
 
-    candidates = _candidate_spy_paths(root)
-    path: Path | None = candidates[0] if candidates else None
-    if path is None or not path.exists():
-        legacy = Path(folder) / "SPY.csv"
-        if legacy.exists():
-            path = legacy
-        else:
-            st.error(tr("❌ SPY.csv が存在しません"))
+    # 探索順を mode で切り替え
+    base_dir = root / "base"
+    mode_lower = str(mode).lower()
+    if mode_lower == "today":
+        search_dirs: list[Path] = [rolling_dir, base_dir, full_dir]
+    else:
+        # backtest: rolling は探索しない
+        search_dirs = [base_dir, full_dir]
+
+    def _find_case_insensitive(d: Path, name: str) -> Path | None:
+        try:
+            if not d.exists():
+                return None
+            for fn in os.listdir(d):
+                if fn.lower() == name.lower():
+                    return d / fn
+        except Exception:
             return None
+        return None
+
+    path: Path | None = None
+    for d in search_dirs:
+        p = _find_case_insensitive(d, "SPY.csv")
+        if p is not None:
+            path = p
+            break
+    if path is None or not path.exists():
+        st.error(tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)"))
+        return None
+
+    # backtest 時は full_backup の存在を必須とし、無ければエラーメッセージを表示
+    if mode_lower != "today":
+        has_full_backup = _find_case_insensitive(full_dir, "SPY.csv") is not None
+        if not has_full_backup:
+            try:
+                st.error(
+                    tr(
+                        "⚠ SPY の full_backup が存在しません: {p}",
+                        p=str(full_dir / "SPY.csv"),
+                    )
+                )
+            except Exception:
+                pass
 
     try:
         df = _read_daily_csv_any_datecol(Path(path))
@@ -109,7 +149,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache"):
                 start_date=today - pd.Timedelta(days=7),
                 end_date=today,
             )
-            valid = sched.index.normalize()
+            valid = pd.to_datetime(sched.index).normalize()
             prev_trading_day = valid[-2] if len(valid) >= 2 else latest_trading_day
         except Exception:
             prev_trading_day = latest_trading_day
@@ -147,79 +187,21 @@ def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timesta
         start_date=today - pd.Timedelta(days=7),
         end_date=today + pd.Timedelta(days=1),
     )
-    valid_days = sched.index.normalize()
+    valid_days = pd.to_datetime(sched.index).normalize()
     return valid_days[valid_days <= today].max()
 
 
 def get_spy_data_cached(folder: str = "data_cache"):
     """
     旧バージョンの SPY キャッシュ読み込み関数。
-    - Streamlit UI で最小限のメッセージを表示
-    - 直近のNYSE営業日とキャッシュ最終日を比較
-    - 古い場合は警告を出すのみ
+    - v2 リゾルバを使用（backtest: base→full_backup, today: rolling→base→full_backup）
     """
-    path = os.path.join(folder, "SPY.csv")
-    if not os.path.exists(path):
-        st.error(tr("❌ SPY.csv が存在しません"))
-        return None
-
+    # v2 実装へ委譲（探索順切替は v2 に集約）
     try:
-        df = pd.read_csv(path, parse_dates=["Date"])
-        if "Date" not in df.columns:
-            st.error(tr("❌ 'Date' 列が存在しません"))
-            return None
-        df.set_index("Date", inplace=True)
-        df = df.sort_index()
-
-        # 直近情報の表示（UIが無い環境では無視される）
-        try:
-            st.write(tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date())))
-        except Exception:
-            pass
-
-        # NYSE 最新営業日
-        today = pd.Timestamp.today().normalize()
-        latest_trading_day = get_latest_nyse_trading_day(today)
-        try:
-            st.write(tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date())))
-        except Exception:
-            pass
-
-        # 1つ前の営業日（当日営業時間帯の影響を避ける）
-        try:
-            nyse = mcal.get_calendar("NYSE")
-            sched = nyse.schedule(
-                start_date=today - pd.Timedelta(days=7),
-                end_date=today,
-            )
-            valid = sched.index.normalize()
-            prev_trading_day = valid[-2] if len(valid) >= 2 else latest_trading_day
-        except Exception:
-            prev_trading_day = latest_trading_day
-
-        # 米東部時間を取得
-        try:
-            ny_time = pd.Timestamp.now(tz="America/New_York").time()
-        except Exception:
-            ny_time = dtime(18, 0)
-
-        # 古い場合は警告のみ表示
-        if df.index[-1].normalize() < prev_trading_day and ny_time >= dtime(18, 0):
-            try:
-                st.warning(tr("⚠ SPYキャッシュが古い可能性があります"))
-            except Exception:
-                pass
-        else:
-            try:
-                st.write(tr("✅ SPYキャッシュは有効"))
-            except Exception:
-                pass
-
-        return df
-
-    except Exception as e:
-        st.error(tr("❌ SPY読み込み失敗: {e}", e=str(e)))
-        return None
+        return get_spy_data_cached_v2(folder)
+    except Exception:
+        # v2 側に一本化するため、従来の data_cache 直下フォールバックは廃止
+        return get_spy_data_cached_v2(folder)
 
 
 def get_spy_with_indicators(spy_df=None):

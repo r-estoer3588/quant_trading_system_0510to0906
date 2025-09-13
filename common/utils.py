@@ -53,62 +53,28 @@ def clean_date_column(df: pd.DataFrame, col_name: str = "Date") -> pd.DataFrame:
 
 def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:
     """
-    キャッシュ済みCSVから銘柄データを読み込む
+    キャッシュから銘柄データを読み込む。
 
-    Returns
-    -------
-    pd.DataFrame | None
-        読み込み成功時はDataFrame、見つからない/失敗時はNoneを返す。
+    方針:
+    - バックテスト/広期間参照の既定は base（存在しない場合は full/rolling から再構築）
+    - 互換のため引数 `folder` は維持するが、`data_cache/直下` のCSVは参照しない。
     """
-    safe_symbol = safe_filename(symbol)
-    path = os.path.join(folder, f"{safe_symbol}.csv")
-
-    # 1) 旧CSVキャッシュを優先（あれば）
-    if os.path.exists(path):
-        try:
-            df = pd.read_csv(path)
-            # Date/date 列の正規化
-            if "Date" in df.columns:
-                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-                df = df.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-            elif "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                df = (
-                    df.dropna(subset=["date"])
-                    .sort_values("date")
-                    .rename(columns={"date": "Date"})
-                    .set_index("Date")
-                )
-            else:
-                # 日付列が無ければフォールバックに回す
-                raise ValueError("Date/date column missing")
-            return df.sort_index()
-        except Exception as e:
-            print(f"{symbol}: 読み込み失敗 - {e}")
-            # フォールバックへ
-
-    # 2) フォールバック: CacheManager の full キャッシュから読み込む
     try:
-        from common.cache_manager import CacheManager  # 遅延importで循環回避
-        from config.settings import get_settings
+        # base を優先してロード（無ければ内部で full/rolling から再構築）
+        from common.cache_manager import load_base_cache  # 遅延import
 
-        cm = CacheManager(get_settings(create_dirs=False))
-        df2 = cm.read(symbol, "full")
-        if df2 is None or df2.empty:
+        df = load_base_cache(symbol, rebuild_if_missing=True)
+        if df is None or df.empty:
             return None
-
-        # 従来呼び出し互換: 列を大文字・Date index に正規化
-        x = df2.copy()
-        # 日付列
-        if "date" in x.columns:
-            x["Date"] = pd.to_datetime(x["date"], errors="coerce")
-        elif "Date" in x.columns:
-            x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
-        else:
-            return None
-        x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-
-        # 価格系列の正規化（存在するもののみ変換）
+        # 既存呼び出し互換: 大文字カラム/Date index を維持
+        if df.index.name != "Date":
+            if "Date" in df.columns:
+                df = df.sort_values("Date").set_index("Date")
+            elif "date" in df.columns:
+                x = df.rename(columns={"date": "Date"})
+                x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
+                df = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+        # 列名の大文字化（存在するもののみ）
         rename_map = {
             "open": "Open",
             "high": "High",
@@ -119,12 +85,11 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | N
             "volume": "Volume",
         }
         for k, v in list(rename_map.items()):
-            if k in x.columns:
-                x.rename(columns={k: v}, inplace=True)
-
-        return x.sort_index()
+            if k in df.columns:
+                df = df.rename(columns={k: v})
+        return df.sort_index()
     except Exception as e:
-        print(f"{symbol}: フォールバック読み込み失敗 - {e}")
+        print(f"{symbol}: base 経由の読み込み失敗 - {e}")
         return None
 
 

@@ -25,15 +25,37 @@ from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 
 _LOG_CALLBACK = None
+_LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
 
 def _log(msg: str):
-    # Print to stdout for CLI users
+    """CLI 出力には [HH:MM:SS | m分s秒] を付与。UI コールバックには原文を渡す。"""
+    import time as _t
+
+    # 初回呼び出しで開始時刻を設定
     try:
-        print(msg, flush=True)
+        global _LOG_START_TS
+        if _LOG_START_TS is None:
+            _LOG_START_TS = _t.time()
+    except Exception:
+        _LOG_START_TS = None
+
+    # プレフィックスを作成（現在時刻 + 分秒経過）
+    try:
+        now = _t.strftime("%H:%M:%S")
+        elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
+        m, s = divmod(int(elapsed), 60)
+        prefix = f"[{now} | {m}分{s}秒] "
+    except Exception:
+        prefix = ""
+
+    # CLI へは整形して出力
+    try:
+        print(f"{prefix}{msg}", flush=True)
     except Exception:
         pass
-    # Also forward to UI callback if set
+
+    # UI 側のコールバックには原文のまま通知（UI での重複プレフィックス回避）
     try:
         cb = globals().get("_LOG_CALLBACK")
         if cb and callable(cb):
@@ -182,10 +204,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log(
-            "(submit) shares 列がありません。"
-            "資金配分モードで実行してください。"
-        )
+        _log("(submit) shares 列がありません。" "資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -376,6 +395,46 @@ def compute_today_signals(
         for sym in symbols:
             try:
                 df = cm.read(sym, "rolling")
+                if df is None or df.empty:
+                    # rolling 不在 → base から必要分を生成して保存
+                    try:
+                        from common.cache_manager import load_base_cache
+                    except Exception:
+                        load_base_cache = None  # type: ignore
+                    base_df = (
+                        load_base_cache(sym, rebuild_if_missing=True)
+                        if load_base_cache is not None
+                        else None
+                    )
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    # 列名を rolling 想定へ（存在するもののみ）
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    # 必要期間: 設計上 240 営業日（不足時は全量）
+                    n = int(settings.cache.rolling.base_lookback_days)
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = sliced
                 if df is not None and not df.empty:
                     data[sym] = df
             except Exception:
@@ -421,6 +480,43 @@ def compute_today_signals(
         for sym in symbols:
             try:
                 df = cm.read(sym, "rolling")
+                if df is None or df.empty:
+                    try:
+                        from common.cache_manager import load_base_cache
+                    except Exception:
+                        load_base_cache = None  # type: ignore
+                    base_df = (
+                        load_base_cache(sym, rebuild_if_missing=True)
+                        if load_base_cache is not None
+                        else None
+                    )
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(settings.cache.rolling.base_lookback_days)
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = sliced
                 if df is not None and not df.empty:
                     data[sym] = df
             except Exception:
@@ -442,8 +538,8 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY が data_cache に見つかりません。"
-            "SPY.csv を用意してください。"
+            "⚠️ SPY がキャッシュに見つかりません (base/full_backup/rolling を確認)。"
+            "SPY.csv を data_cache/base もしくは data_cache/full_backup に配置してください。"
         )
 
     # ストラテジ初期化
@@ -616,8 +712,27 @@ def compute_today_signals(
                 pass
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
-    long_alloc = {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
-    short_alloc = {"system2": 0.40, "system6": 0.40, "system7": 0.20}
+    def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
+        try:
+            filtered = {k: float(v) for k, v in d.items() if float(v) > 0}
+            s = sum(filtered.values())
+            if s <= 0:
+                filtered = default_map
+                s = sum(filtered.values())
+            return {k: v / s for k, v in filtered.items()}
+        except Exception:
+            s = sum(default_map.values())
+            return {k: v / s for k, v in default_map.items()}
+
+    defaults_long = {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+    defaults_short = {"system2": 0.40, "system6": 0.40, "system7": 0.20}
+    try:
+        settings_alloc_long = getattr(settings.ui, "long_allocations", {}) or {}
+        settings_alloc_short = getattr(settings.ui, "short_allocations", {}) or {}
+    except Exception:
+        settings_alloc_long, settings_alloc_short = {}, {}
+    long_alloc = _normalize_alloc(settings_alloc_long, defaults_long)
+    short_alloc = _normalize_alloc(settings_alloc_short, defaults_short)
 
     if capital_long is None and capital_short is None:
         # 旧スロット方式（後方互換）
@@ -677,14 +792,28 @@ def compute_today_signals(
         )
     else:
         # 金額配分モード
-        if capital_long is None:
-            capital_long = float(
-                get_settings(create_dirs=False).backtest.initial_capital
-            )  # noqa: E501
-        if capital_short is None:
-            capital_short = float(
-                get_settings(create_dirs=False).backtest.initial_capital
-            )  # noqa: E501
+        _settings = get_settings(create_dirs=False)
+        _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
+        _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
+
+        _cl = None if (capital_long is None or float(capital_long) <= 0) else float(capital_long)
+        _cs = None if (capital_short is None or float(capital_short) <= 0) else float(capital_short)
+
+        if _cl is None and _cs is None:
+            total = _default_cap
+            capital_long = total * _ratio
+            capital_short = total * (1.0 - _ratio)
+        elif _cl is None and _cs is not None:
+            total = _cs
+            capital_long = total * _ratio
+            capital_short = total * (1.0 - _ratio)
+        elif _cs is None and _cl is not None:
+            total = _cl
+            capital_long = total * _ratio
+            capital_short = total * (1.0 - _ratio)
+        else:
+            capital_long = float(capital_long)
+            capital_short = float(capital_short)
 
         strategies_map = {k: v for k, v in strategies.items()}
         long_df = _amount_pick(
@@ -763,19 +892,13 @@ def main():
         "--capital-long",
         type=float,
         default=None,
-        help=(
-            "買いサイド予算（ドル）。"
-            "指定時は金額配分モード"
-        ),
+        help=("買いサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help=(
-            "売りサイド予算（ドル）。"
-            "指定時は金額配分モード"
-        ),
+        help=("売りサイド予算（ドル）。" "指定時は金額配分モード"),
     )
     parser.add_argument(
         "--save-csv",

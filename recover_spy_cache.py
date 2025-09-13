@@ -34,42 +34,33 @@ def resolve_cache_dir() -> str:
 
 
 def resolve_cache_group(root: str) -> str:
-    """保存グループ(base/full)を解決する。既定は base。
-    環境変数(QUANT_CACHE_GROUP/CACHE_GROUP/DATA_CACHE_GROUP) > 既存ディレクトリ検出(base>full) > base
-    """
-    for key in ("QUANT_CACHE_GROUP", "CACHE_GROUP", "DATA_CACHE_GROUP"):
-        v = os.getenv(key)
-        if v and v.lower() in ("base", "full"):
-            return v.lower()
-    if os.path.isdir(os.path.join(root, "base")):
-        return "base"
-    if os.path.isdir(os.path.join(root, "full")):
-        return "full"
-    return "base"
+    """保存グループを解決する（新方針: full_backup のみ）。"""
+    return "full_backup"
 
 
 def append_group(folder: str, group: str) -> str:
     tail = os.path.basename(os.path.normpath(folder)).lower()
-    if tail in ("base", "full"):
-        return folder
-    return os.path.join(folder, group)
+    if tail in ("base", "full", "full_backup"):
+        if tail == "full_backup":
+            return folder
+        # base/full の場合は full_backup に付け替える
+        return os.path.join(os.path.dirname(folder), "full_backup")
+    return os.path.join(folder, "full_backup")
 
 
 def resolve_target_dirs(folder: str) -> list[str]:
-    """与えられたフォルダから base と full の両方の保存先パスを返す。
-    folder が base/full を末尾に含む場合は親をルートとして両方を組み立てる。
-    """
+    """与えられたフォルダから full_backup の保存先パスのみを返す。"""
     norm = os.path.normpath(folder)
     tail = os.path.basename(norm).lower()
-    root = os.path.dirname(norm) if tail in ("base", "full") else norm
-    return [os.path.join(root, "base"), os.path.join(root, "full")]
+    root = os.path.dirname(norm) if tail in ("base", "full", "full_backup") else norm
+    return [os.path.join(root, "full_backup")]
 
 
 def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
     symbol = "SPY"
     if folder is None:
         folder = resolve_cache_dir()
-    # 常に base と full の両方へ保存する
+    # 新方針: full_backup のみに保存する
     target_dirs = resolve_target_dirs(folder)
     url = f"https://eodhistoricaldata.com/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
 
@@ -117,9 +108,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--group",
-        choices=["base", "full"],
+        choices=["full_backup"],
         default=None,
-        help="保存グループ(base/full)。未指定時は自動検出/既定base",
+        help="保存グループ(full_backup)。未指定時は full_backup",
     )
     args = parser.parse_args()
     fetch_and_cache_spy_from_eodhd(folder=args.out, group=args.group)

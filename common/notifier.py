@@ -745,7 +745,16 @@ class FallbackNotifier:
         if message:
             lines.append(str(message))
         if isinstance(fields, dict) and fields:
-            kv = ", ".join(f"{k}={v}" for k, v in list(fields.items())[:10])
+            def _fmt(v: Any) -> str:
+                try:
+                    if isinstance(v, (int, float)):
+                        return f"{float(v):.2f}"
+                    # 数値文字列も丸めを試行
+                    _f = float(str(v))
+                    return f"{_f:.2f}"
+                except Exception:
+                    return str(v)
+            kv = ", ".join(f"{k}={_fmt(v)}" for k, v in list(fields.items())[:10])
             lines.append(kv)
         text = "\n".join(lines)
         ch = channel or os.getenv("SLACK_CHANNEL_LOGS") or None

@@ -182,11 +182,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     def _ui_log(msg: str) -> None:
         try:
-            elapsed = time.time() - start_time
-            line = f"[{elapsed:6.1f}s] {msg}"
+            elapsed = max(0, time.time() - start_time)
+            m, s = divmod(int(elapsed), 60)
+            now = time.strftime("%H:%M:%S")
+            line = f"[{now} | {m}分{s}秒] {msg}"
             log_lines.append(line)
             progress_area.text(line)
         except Exception:
+            # 表示に失敗しても処理は継続
             pass
 
     # 必要な日数分だけデータをロードする関数例
@@ -238,8 +241,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
 
     # 処理終了時に総経過時間を表示（分+秒）
-    total_elapsed = time.time() - start_time
+    total_elapsed = max(0, time.time() - start_time)
     m, s = divmod(int(total_elapsed), 60)
+    # 追加表示: 分・秒表示の総経過時間（重複表示の場合は本行を採用）
+    st.info(f"総経過時間: {m}分{s}秒")
     st.info(f"総経過時間: {m}分{s}秒")
 
     # 追加: 実行ログをUIに折り畳み表示（CSVダウンロード付き）

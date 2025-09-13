@@ -384,11 +384,24 @@ def get_today_signals_for_strategy(
                 if sval is not None:
                     reason_parts.append(f"{skey}={sval}")
 
-        # fallback generic info
+        # fallback generic info（数値は小数第2位で丸め、日時は日付のみ）
         if not reason_parts:
             try:
+                def _fmt_val(v: object) -> str:
+                    try:
+                        # pandas の NaN 判定
+                        if isinstance(v, float) and pd.isna(v):
+                            return "N/A"
+                        if isinstance(v, (int, float)):
+                            return f"{float(v):.2f}"
+                        if isinstance(v, pd.Timestamp):
+                            return v.strftime("%Y-%m-%d")
+                        return str(v)
+                    except Exception:
+                        return str(v)
+
                 keys = ", ".join(
-                    f"{k}:{v}"
+                    f"{k}:{_fmt_val(v)}"
                     for k, v in c.items()
                     if k not in {"symbol", "entry_date"}
                 )

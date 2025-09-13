@@ -288,7 +288,7 @@ def load_base_cache(
     symbol: str, *, rebuild_if_missing: bool = True
 ) -> pd.DataFrame | None:  # noqa: E501
     """data_cache/base/{symbol}.csv を優先的に読み込む。
-    無ければ旧 `data_cache/{symbol}.csv` から構築・保存して返す（rebuild_if_missing=True）。
+    無ければ CacheManager の full/rolling から再構築して保存（rebuild_if_missing=True）。
     いずれも無ければ None。
     """
     path = base_cache_path(symbol)
@@ -304,8 +304,23 @@ def load_base_cache(
     if not rebuild_if_missing:
         return None
 
-    # 旧キャッシュから再構築
-    raw = get_cached_data(symbol)
+    # CacheManager から再構築（full -> rolling）
+    try:
+        from common.cache_manager import CacheManager  # 遅延importの循環回避
+        from config.settings import get_settings
+
+        cm = CacheManager(get_settings(create_dirs=False))
+        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling")
+        if raw is not None and not raw.empty:
+            # 列名の正規化（必要に応じて）
+            if "Date" not in raw.columns:
+                if "date" in raw.columns:
+                    raw = raw.rename(columns={"date": "Date"})
+                else:
+                    raw = raw.copy()
+                    raw["Date"] = pd.NaT
+    except Exception:
+        raw = get_cached_data(symbol)
     if raw is None or raw.empty:
         return None
     out = compute_base_indicators(raw)

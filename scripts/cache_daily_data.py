@@ -22,7 +22,7 @@ def _migrate_root_csv_to_full() -> None:
 
     旧バージョンでは ``data_cache/`` や ``data_cache_recent/`` 直下に
     シンボルごとの CSV を配置していた。現在は ``CacheManager`` により
-    ``data_cache/full/`` と ``data_cache/rolling/`` に整理されているため、
+    ``data_cache/full_backup/`` と ``data_cache/rolling/`` に整理されているため、
     既存ファイルがあればこの関数で移動する。移行に失敗してもログを
     出力するのみで処理を継続する。
     """
