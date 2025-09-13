@@ -72,8 +72,8 @@ def _get_today_logger() -> logging.Logger:
     return logger
 
 
-def _log(msg: str):
-    """CLI 出力には [HH:MM:SS | m分s秒] を付与。UI コールバックには原文を渡す。"""
+def _log(msg: str, ui: bool = True):
+    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
     import time as _t
 
     # 初回呼び出しで開始時刻を設定
@@ -102,7 +102,7 @@ def _log(msg: str):
     # UI 側のコールバックには原文のまま通知（UI での重複プレフィックス回避）
     try:
         cb = globals().get("_LOG_CALLBACK")
-        if cb and callable(cb):
+        if cb and callable(cb) and ui:
             try:
                 cb(str(msg))
             except Exception:
@@ -110,10 +110,10 @@ def _log(msg: str):
     except Exception:
         pass
 
-    # UI コールバックがない場合のみ、ファイルにもINFOで出力（CLI ログ保存）
+    # UI コールバックが無いか、ui=False の場合はファイルにINFOで出力（CLI ログ保存）
     try:
         cb = globals().get("_LOG_CALLBACK")
-        if not cb:
+        if not cb or not ui:
             _get_today_logger().info(str(msg))
     except Exception:
         pass
