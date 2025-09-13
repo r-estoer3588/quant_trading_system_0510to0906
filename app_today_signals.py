@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 
 # Streamlit checkbox の重複ID対策（key未指定時に自動で一意キーを付与）
@@ -381,6 +380,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 skip_keywords = (
                     "進捗",
                     "インジケーター",
+                    "indicator",
+                    "indicators",
                     "バッチ時間",
                     "batch time",
                     "候補抽出",
@@ -443,7 +444,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             pass
 
     # 段階進捗（0/25/50/75/100）
-    def _per_system_stage(name: str, v: int) -> None:
+    def _per_system_stage(
+        name: str,
+        v: int,
+        filter_cnt: int | None = None,
+        setup_cnt: int | None = None,
+        cand_cnt: int | None = None,
+        final_cnt: int | None = None,
+    ) -> None:
         try:
             ui_vis2 = st.session_state.get("ui_vis", {})
             if not bool(ui_vis2.get("per_system_progress", True)):
@@ -455,15 +463,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            # 簡易説明（大まかな段階）
             if vv < 25:
-                sys_stage_txt[n].text("setup… (0-25%)")
+                txt = f"filter {filter_cnt}" if filter_cnt is not None else "filter…"
             elif vv < 50:
-                sys_stage_txt[n].text("prepare done (25%)")
-            elif vv < 100:
-                sys_stage_txt[n].text("candidates / scoring (50-75%)")
+                txt = f"setup {setup_cnt}" if setup_cnt is not None else "setup…"
+            elif vv < 75:
+                txt = f"candidates {cand_cnt}" if cand_cnt is not None else "candidates…"
             else:
-                sys_stage_txt[n].text("done (100%)")
+                txt = f"final {final_cnt}" if final_cnt is not None else "done"
+            sys_stage_txt[n].text(txt)
         except Exception:
             pass
 
@@ -484,8 +492,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             parallel=bool(run_parallel),
         )
         # stage update 受け口をグローバルに登録（スレッドから参照）
-        import builtins as _bi
-
         try:
             globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
         except Exception:
@@ -692,14 +698,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 break
     any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
     if any_sys_logs and st.session_state.get("ui_vis", {}).get("per_system_logs", True):
-        with st.expander("システム別 実行ログ", expanded=False):
-            cols = st.columns(2)
+        with st.expander("システム別 実行ログ", expanded=True):
             keys = [f"system{i}" for i in range(1, 8)]
-            for idx, key in enumerate(keys):
+            for key in keys:
                 logs = per_system_logs[key]
                 if not logs:
                     continue
-                col = cols[idx % 2]
-                with col:
-                    st.markdown(f"#### {key}")
-                    st.code("\n".join(logs[-400:]))
+                st.markdown(f"#### {key}")
+                st.text_area(
+                    key=f"logs_{key}",
+                    value="\n".join(logs[-400:]),
+                    height=200,
+                    disabled=True,
+                )

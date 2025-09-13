@@ -685,40 +685,6 @@ def compute_today_signals(
                 pass
         return data
 
-    def filter_system1(symbols, data):
-        result = []
-        for sym in symbols:
-            df = data.get(sym)
-            if df is None or df.empty:
-                continue
-            # 株価5ドル以上（直近終値）
-            if df["close"].iloc[-1] < 5:
-                continue
-            # 過去20日平均売買代金5000万ドル以上
-            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 5e7:
-                continue
-            result.append(sym)
-        return result
-
-    def filter_system2(symbols, data):
-        result = []
-        for sym in symbols:
-            df = data.get(sym)
-            if df is None or df.empty:
-                continue
-            if df["close"].iloc[-1] < 5:
-                continue
-            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 2.5e7:
-                continue
-            # ATR計算（過去10日）
-            if "high" in df.columns and "low" in df.columns:
-                tr = (df["high"] - df["low"]).tail(10)
-                atr = tr.mean()
-                if atr < df["close"].iloc[-1] * 0.03:
-                    continue
-            result.append(sym)
-        return result
-
     def load_indicator_data(symbols):
         import time as _t
 
@@ -895,36 +861,18 @@ def compute_today_signals(
         _log("🧮 共有指標の前計算が完了")
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")
-    _log("🧪 事前フィルター実行中 (system1/system2)…")
-    system1_syms = filter_system1(symbols, basic_data)
-    system2_syms = filter_system2(symbols, basic_data)
-    _log(f"🧪 フィルター結果: system1={len(system1_syms)}件, system2={len(system2_syms)}件")
+    _log("🧪 フィルター処理は各システム内で実行します")
     if progress_callback:
         try:
             progress_callback(3, 8, "filter")
         except Exception:
             pass
-    # ...system3_syms, system4_syms, ...
-    _log("🧮 指標計算用データロード中 (system1)…")
-    raw_data_system1 = {
-        s: basic_data.get(s)
-        for s in (system1_syms or [])
-        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
-    }
-    _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
-    _log("🧮 指標計算用データロード中 (system2)…")
-    raw_data_system2 = {
-        s: basic_data.get(s)
-        for s in (system2_syms or [])
-        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
-    }
-    _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
     if progress_callback:
         try:
             progress_callback(4, 8, "load_indicators")
         except Exception:
             pass
-    # ...raw_data_system3, ...
+    # ...raw_data_system...
     if "SPY" in basic_data:
         spy_df = get_spy_with_indicators(basic_data["SPY"])
     else:
@@ -968,22 +916,10 @@ def compute_today_signals(
                 except Exception:
                     pass
 
-        if name == "system1":
-            base = raw_data_system1 if "raw_data_system1" in locals() else {}
-        elif name == "system2":
-            base = raw_data_system2 if "raw_data_system2" in locals() else {}
-        elif name == "system3":
-            base = basic_data if "basic_data" in locals() else {}
-        elif name == "system4":
-            base = basic_data if "basic_data" in locals() else {}
-        elif name == "system5":
-            base = basic_data if "basic_data" in locals() else {}
-        elif name == "system6":
-            base = basic_data if "basic_data" in locals() else {}
-        elif name == "system7":
+        if name == "system7":
             base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
         else:
-            base = {}
+            base = basic_data if "basic_data" in locals() else {}
         if name == "system4" and spy_df is None:
             _local_log(
                 "⚠️ System4 は SPY 指標が必要ですが "
@@ -994,14 +930,20 @@ def compute_today_signals(
         _local_log(f"🔎 {name}: シグナル抽出を開始")
         try:
             # 段階進捗: 0/25/50/75/100 を UI 側に橋渡し
-            def _stage(v: int) -> None:
+            def _stage(
+                v: int,
+                f: int | None = None,
+                s: int | None = None,
+                c: int | None = None,
+                fin: int | None = None,
+            ) -> None:
                 try:
                     cb2 = globals().get("_PER_SYSTEM_STAGE")
                 except Exception:
                     cb2 = None
                 if cb2 and callable(cb2):
                     try:
-                        cb2(name, max(0, min(100, int(v))))
+                        cb2(name, max(0, min(100, int(v))), f, s, c, fin)
                     except Exception:
                         pass
 

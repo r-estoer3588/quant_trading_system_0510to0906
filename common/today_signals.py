@@ -88,9 +88,7 @@ def _compute_entry_stop(
     strategy, df: pd.DataFrame, candidate: dict, side: str
 ) -> Optional[Tuple[float, float]]:
     # strategy 独自の compute_entry があれば優先
-    if hasattr(strategy, "compute_entry") and callable(
-        getattr(strategy, "compute_entry")
-    ):
+    if hasattr(strategy, "compute_entry") and callable(getattr(strategy, "compute_entry")):
         try:
             res = strategy.compute_entry(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
@@ -138,7 +136,9 @@ def get_today_signals_for_strategy(
     today: Optional[pd.Timestamp] = None,
     progress_callback: Optional[Callable[..., None]] = None,
     log_callback: Optional[Callable[[str], None]] = None,
-    stage_progress: Optional[Callable[[int], None]] = None,
+    stage_progress: Optional[
+        Callable[[int, Optional[int], Optional[int], Optional[int], Optional[int]], None]
+    ] = None,
 ) -> pd.DataFrame:
     """
     各 Strategy の prepare_data / generate_candidates を流用し、
@@ -171,7 +171,7 @@ def get_today_signals_for_strategy(
     # 0% -> 25%
     try:
         if stage_progress:
-            stage_progress(0)
+            stage_progress(0, None, None, None, None)
     except Exception:
         pass
     prepared = strategy.prepare_data(
@@ -179,11 +179,6 @@ def get_today_signals_for_strategy(
         progress_callback=progress_callback,
         log_callback=log_callback,
     )
-    try:
-        if stage_progress:
-            stage_progress(25)
-    except Exception:
-        pass
     # フィルター通過件数（前営業日を優先。無い場合は最終行）。
     try:
         # 前営業日（当日エントリーのシグナルは前日の終値で判定）
@@ -217,6 +212,11 @@ def get_today_signals_for_strategy(
             log_callback(f"🧪 フィルターチェック完了：{filter_pass} 銘柄")
         except Exception:
             pass
+    try:
+        if stage_progress:
+            stage_progress(25, filter_pass, None, None, None)
+    except Exception:
+        pass
 
     # 候補生成（market_df を必要とする実装に配慮）
     gen_fn = getattr(strategy, "generate_candidates")
@@ -239,11 +239,6 @@ def get_today_signals_for_strategy(
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
-    try:
-        if stage_progress:
-            stage_progress(50)
-    except Exception:
-        pass
 
     # セットアップ通過件数（前営業日を優先。無ければ最終行）
     try:
@@ -270,17 +265,25 @@ def get_today_signals_for_strategy(
         setup_pass = sum(int(_last_setup_on_date(df)) for df in prepared.values())
     except Exception:
         setup_pass = 0
+    try:
+        if stage_progress:
+            stage_progress(50, filter_pass, setup_pass, None, None)
+    except Exception:
+        pass
     # トレード候補件数（全期間と当日）
     try:
-        total_candidates = sum(
-            len(v or []) for v in (candidates_by_date or {}).values()
-        )
+        total_candidates = sum(len(v or []) for v in (candidates_by_date or {}).values())
     except Exception:
         total_candidates = 0
     try:
         total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
     except Exception:
         total_candidates_today = 0
+    try:
+        if stage_progress:
+            stage_progress(75, filter_pass, setup_pass, total_candidates_today, None)
+    except Exception:
+        pass
     if log_callback:
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
@@ -309,9 +312,7 @@ def get_today_signals_for_strategy(
         )
 
     # 当日分のみ抽出
-    today_candidates: List[dict] = candidates_by_date.get(
-        today, []
-    )  # type: ignore[index]
+    today_candidates: List[dict] = candidates_by_date.get(today, [])  # type: ignore[index]
     if not today_candidates:
         return pd.DataFrame(
             columns=[
@@ -327,7 +328,7 @@ def get_today_signals_for_strategy(
             ]
         )
 
-    rows: List[TodaySignal] = []
+        rows: List[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
         if not sym or sym not in prepared:
@@ -341,9 +342,7 @@ def get_today_signals_for_strategy(
 
         # System1 は ROC200 を必ずスコアに採用できるよう堅牢化
         try:
-            if (system_name == "system1") and (
-                skey is None or str(skey).upper() != "ROC200"
-            ):
+            if (system_name == "system1") and (skey is None or str(skey).upper() != "ROC200"):
                 skey = "ROC200"
         except Exception:
             pass
@@ -411,14 +410,10 @@ def get_today_signals_for_strategy(
                         try:
                             if "Date" in pdf.columns:
                                 row = pdf[
-                                    pd.to_datetime(pdf["Date"]).dt.normalize()
-                                    == signal_date_ts
+                                    pd.to_datetime(pdf["Date"]).dt.normalize() == signal_date_ts
                                 ]
                             else:
-                                row = pdf[
-                                    pd.to_datetime(pdf.index).normalize()
-                                    == signal_date_ts
-                                ]
+                                row = pdf[pd.to_datetime(pdf.index).normalize() == signal_date_ts]
                             if not row.empty and skey in row.columns:
                                 v = row.iloc[0][skey]
                                 if v is not None and not pd.isna(v):
@@ -430,9 +425,7 @@ def get_today_signals_for_strategy(
                         # 並び順: system の昇降順推定に合わせる（ROC200 などは降順）
                         reverse = not _asc
                         # 値が同一のときはシンボルで安定ソート
-                        vals_sorted = sorted(
-                            vals, key=lambda t: (t[1], t[0]), reverse=reverse
-                        )
+                        vals_sorted = sorted(vals, key=lambda t: (t[1], t[0]), reverse=reverse)
                         # 自銘柄の順位を決定
                         symbols_sorted = [s for s, _ in vals_sorted]
                         if sym in symbols_sorted:
@@ -532,7 +525,7 @@ def get_today_signals_for_strategy(
     out = pd.DataFrame([r.__dict__ for r in rows])
     try:
         if stage_progress:
-            stage_progress(100)
+            stage_progress(100, filter_pass, setup_pass, total_candidates_today, len(rows))
     except Exception:
         pass
     return out
