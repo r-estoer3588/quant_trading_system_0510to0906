@@ -124,6 +124,9 @@ class StrategyBase(ABC):
         progress_callback=None,
         log_callback=None,
         stage_progress=None,
+        use_process_pool: bool = False,
+        max_workers: int | None = None,
+        lookback_days: int | None = None,
     ) -> pd.DataFrame:
         """
         各 strategy の `prepare_data`/`generate_candidates` を流用し、
@@ -142,4 +145,7 @@ class StrategyBase(ABC):
             progress_callback=progress_callback,
             log_callback=log_callback,
             stage_progress=stage_progress,
+            use_process_pool=use_process_pool,
+            max_workers=max_workers,
+            lookback_days=lookback_days,
         )

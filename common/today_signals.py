@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
+import time as _t
 
 import pandas as pd
 
@@ -88,7 +89,9 @@ def _compute_entry_stop(
     strategy, df: pd.DataFrame, candidate: dict, side: str
 ) -> Optional[Tuple[float, float]]:
     # strategy 独自の compute_entry があれば優先
-    if hasattr(strategy, "compute_entry") and callable(getattr(strategy, "compute_entry")):
+    if hasattr(strategy, "compute_entry") and callable(
+        getattr(strategy, "compute_entry")
+    ):
         try:
             res = strategy.compute_entry(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
@@ -137,8 +140,13 @@ def get_today_signals_for_strategy(
     progress_callback: Optional[Callable[..., None]] = None,
     log_callback: Optional[Callable[[str], None]] = None,
     stage_progress: Optional[
-        Callable[[int, Optional[int], Optional[int], Optional[int], Optional[int]], None]
+        Callable[
+            [int, Optional[int], Optional[int], Optional[int], Optional[int]], None
+        ]
     ] = None,
+    use_process_pool: bool = False,
+    max_workers: Optional[int] = None,
+    lookback_days: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     各 Strategy の prepare_data / generate_candidates を流用し、
@@ -174,11 +182,51 @@ def get_today_signals_for_strategy(
             stage_progress(0, None, None, None, None)
     except Exception:
         pass
+    t0 = _t.time()
+    # ルックバック最適化：必要日数が指定されていれば各DFを末尾N行にスライス
+    sliced_dict = raw_data_dict
+    try:
+        if (
+            lookback_days is not None
+            and lookback_days > 0
+            and isinstance(raw_data_dict, dict)
+        ):
+            sliced: Dict[str, pd.DataFrame] = {}
+            for _sym, _df in raw_data_dict.items():
+                try:
+                    if _df is None or getattr(_df, "empty", True):
+                        continue
+                    x = _df.copy()
+                    if "Date" in x.columns:
+                        idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                        x.index = pd.Index(idx)
+                    else:
+                        x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+                    # 不正な日時は除外
+                    x = x[~x.index.isna()]
+                    # 末尾N営業日相当を抽出
+                    x = x.tail(int(lookback_days))
+                    sliced[_sym] = x
+                except Exception:
+                    sliced[_sym] = _df
+            sliced_dict = sliced
+    except Exception:
+        sliced_dict = raw_data_dict
+
     prepared = strategy.prepare_data(
-        raw_data_dict,
+        sliced_dict,
         progress_callback=progress_callback,
         log_callback=log_callback,
+        use_process_pool=use_process_pool,
+        max_workers=max_workers,
+        lookback_days=lookback_days,
     )
+    try:
+        if log_callback:
+            em, es = divmod(int(max(0, _t.time() - t0)), 60)
+            log_callback(f"⏱️ フィルター/前処理 完了（経過 {em}分{es}秒）")
+    except Exception:
+        pass
     # フィルター通過件数（前営業日を優先。無い場合は最終行）。
     try:
         # 前営業日（当日エントリーのシグナルは前日の終値で判定）
@@ -226,6 +274,7 @@ def get_today_signals_for_strategy(
             log_callback(f"🧩 セットアップチェック開始：{filter_pass} 銘柄")
         except Exception:
             pass
+    t1 = _t.time()
     if "market_df" in params and market_df is not None:
         candidates_by_date, _ = gen_fn(
             prepared,
@@ -239,6 +288,12 @@ def get_today_signals_for_strategy(
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+    try:
+        if log_callback:
+            em, es = divmod(int(max(0, _t.time() - t1)), 60)
+            log_callback(f"⏱️ セットアップ/候補抽出 完了（経過 {em}分{es}秒）")
+    except Exception:
+        pass
 
     # セットアップ通過件数（前営業日を優先。無ければ最終行）
     try:
@@ -272,7 +327,9 @@ def get_today_signals_for_strategy(
         pass
     # トレード候補件数（全期間と当日）
     try:
-        total_candidates = sum(len(v or []) for v in (candidates_by_date or {}).values())
+        total_candidates = sum(
+            len(v or []) for v in (candidates_by_date or {}).values()
+        )
     except Exception:
         total_candidates = 0
     try:
@@ -327,8 +384,7 @@ def get_today_signals_for_strategy(
                 "score",
             ]
         )
-
-        rows: List[TodaySignal] = []
+    rows: List[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
         if not sym or sym not in prepared:
@@ -342,7 +398,9 @@ def get_today_signals_for_strategy(
 
         # System1 は ROC200 を必ずスコアに採用できるよう堅牢化
         try:
-            if (system_name == "system1") and (skey is None or str(skey).upper() != "ROC200"):
+            if (system_name == "system1") and (
+                skey is None or str(skey).upper() != "ROC200"
+            ):
                 skey = "ROC200"
         except Exception:
             pass
@@ -410,10 +468,14 @@ def get_today_signals_for_strategy(
                         try:
                             if "Date" in pdf.columns:
                                 row = pdf[
-                                    pd.to_datetime(pdf["Date"]).dt.normalize() == signal_date_ts
+                                    pd.to_datetime(pdf["Date"]).dt.normalize()
+                                    == signal_date_ts
                                 ]
                             else:
-                                row = pdf[pd.to_datetime(pdf.index).normalize() == signal_date_ts]
+                                row = pdf[
+                                    pd.to_datetime(pdf.index).normalize()
+                                    == signal_date_ts
+                                ]
                             if not row.empty and skey in row.columns:
                                 v = row.iloc[0][skey]
                                 if v is not None and not pd.isna(v):
@@ -425,7 +487,9 @@ def get_today_signals_for_strategy(
                         # 並び順: system の昇降順推定に合わせる（ROC200 などは降順）
                         reverse = not _asc
                         # 値が同一のときはシンボルで安定ソート
-                        vals_sorted = sorted(vals, key=lambda t: (t[1], t[0]), reverse=reverse)
+                        vals_sorted = sorted(
+                            vals, key=lambda t: (t[1], t[0]), reverse=reverse
+                        )
                         # 自銘柄の順位を決定
                         symbols_sorted = [s for s, _ in vals_sorted]
                         if sym in symbols_sorted:
@@ -525,7 +589,9 @@ def get_today_signals_for_strategy(
     out = pd.DataFrame([r.__dict__ for r in rows])
     try:
         if stage_progress:
-            stage_progress(100, filter_pass, setup_pass, total_candidates_today, len(rows))
+            stage_progress(
+                100, filter_pass, setup_pass, total_candidates_today, len(rows)
+            )
     except Exception:
         pass
     return out

@@ -625,6 +625,19 @@ def compute_today_signals(
                     cm.write_atomic(sliced, sym, "rolling")
                     df = sliced
                 if df is not None and not df.empty:
+                    try:
+                        if "Date" not in df.columns:
+                            if "date" in df.columns:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            else:
+                                # 最低限 index を Date 列に昇格
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df.index, errors="coerce")
+                        # 正規化（表示/互換性向上）
+                        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                    except Exception:
+                        pass
                     data[sym] = df
             except Exception:
                 continue
@@ -769,6 +782,17 @@ def compute_today_signals(
                     cm.write_atomic(sliced, sym, "rolling")
                     df = sliced
                 if df is not None and not df.empty:
+                    try:
+                        if "Date" not in df.columns:
+                            if "date" in df.columns:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            else:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df.index, errors="coerce")
+                        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                    except Exception:
+                        pass
                     data[sym] = df
             except Exception:
                 continue
@@ -839,26 +863,61 @@ def compute_today_signals(
             pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
     try:
-        _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
-        from common.indicators_precompute import precompute_shared_indicators
+        from common.indicators_precompute import (
+            precompute_shared_indicators,
+            PRECOMPUTED_INDICATORS,
+        )
         import os as _os
 
-        # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
-        force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
-        if force_parallel in ("1", "true", "yes"):
-            use_parallel = True
-        elif force_parallel in ("0", "false", "no"):
-            use_parallel = False
+        # 実行しきい値（小規模ユニバースでは前計算をスキップしてオーバーヘッド削減）
+        try:
+            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
+        except Exception:
+            _thr_syms = 300
+        if len(basic_data) < max(0, _thr_syms):
+            _log(
+                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
+            )
         else:
-            use_parallel = len(basic_data) >= 2000
+            try:
+                _log(
+                    "🧮 共有指標の前計算を開始: "
+                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
+                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
+                )
+            except Exception:
+                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+            # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
+            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
+            try:
+                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
+            except Exception:
+                _thr_parallel = 1000
+            if force_parallel in ("1", "true", "yes"):
+                use_parallel = True
+            elif force_parallel in ("0", "false", "no"):
+                use_parallel = False
+            else:
+                use_parallel = len(basic_data) >= max(0, _thr_parallel)
 
-        basic_data = precompute_shared_indicators(
-            basic_data,
-            log=_log,
-            parallel=use_parallel,
-            max_workers=None,
-        )
-        _log("🧮 共有指標の前計算が完了")
+            # 前計算のワーカー数は設定値に連動（環境変数の直接指定がある場合は別途関知）
+            try:
+                _st = get_settings(create_dirs=False)
+                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
+            except Exception:
+                _pre_workers = 12
+            if use_parallel:
+                try:
+                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
+                except Exception:
+                    pass
+            basic_data = precompute_shared_indicators(
+                basic_data,
+                log=_log,
+                parallel=use_parallel,
+                max_workers=_pre_workers if use_parallel else None,
+            )
+            _log("🧮 共有指標の前計算が完了")
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")
     _log("🧪 フィルター処理は各システム内で実行します")
@@ -947,6 +1006,66 @@ def compute_today_signals(
                     except Exception:
                         pass
 
+            import os as _os
+
+            # プロセスプール利用可否（環境変数で上書き可）
+            env_pp = _os.environ.get("USE_PROCESS_POOL", "").lower()
+            if env_pp in ("0", "false", "no"):
+                use_process_pool = False
+            elif env_pp in ("1", "true", "yes"):
+                use_process_pool = True
+            else:
+                use_process_pool = True
+            # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
+            try:
+                _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
+                if _env_workers:
+                    max_workers = int(_env_workers) or None
+                else:
+                    try:
+                        _st = get_settings(create_dirs=False)
+                        max_workers = int(getattr(_st, "THREADS_DEFAULT", 8)) or None
+                    except Exception:
+                        max_workers = None
+            except Exception:
+                max_workers = None
+            # ルックバックは『必要指標の最大窓＋α』を動的推定
+            try:
+                settings2 = get_settings(create_dirs=True)
+                lb_default = int(settings2.cache.rolling.base_lookback_days)
+            except Exception:
+                settings2 = None
+                lb_default = 240
+            # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
+            # ルックバックのマージン/最小日数は環境変数で上書き可能
+            try:
+                margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
+            except Exception:
+                margin = 0.15
+            need_map: dict[str, int] = {
+                "system1": int(200 * (1 + margin)),
+                "system2": int(120 * (1 + margin)),
+                "system3": int(60 * (1 + margin)),
+                "system4": int(80 * (1 + margin)),
+                "system5": int(120 * (1 + margin)),
+                "system6": int(80 * (1 + margin)),
+                "system7": int(80 * (1 + margin)),
+            }
+            # 戦略側が get_total_days を実装していれば優先
+            custom_need = None
+            try:
+                if hasattr(stg, "get_total_days") and callable(getattr(stg, "get_total_days")):
+                    # 最小データ長（おおよその必要行数）を返す前提
+                    custom_need = int(getattr(stg, "get_total_days")(base))
+            except Exception:
+                custom_need = None
+            try:
+                min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
+            except Exception:
+                min_floor = 80
+            min_required = custom_need or need_map.get(name, lb_default)
+            lookback_days = min(lb_default, max(min_floor, int(min_required)))
+            _t0 = __import__("time").time()
             df = stg.get_today_signals(
                 base,
                 market_df=spy_df,
@@ -954,7 +1073,13 @@ def compute_today_signals(
                 progress_callback=None,
                 log_callback=_local_log,
                 stage_progress=_stage,
+                use_process_pool=use_process_pool,
+                max_workers=max_workers,
+                lookback_days=lookback_days,
             )
+            _elapsed = int(max(0, __import__("time").time() - _t0))
+            _m, _s = divmod(_elapsed, 60)
+            _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
         except Exception as e:  # noqa: BLE001
             _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
             df = pd.DataFrame()
@@ -982,6 +1107,17 @@ def compute_today_signals(
     _log("🚀 各システムの当日シグナル抽出を開始")
     per_system: dict[str, pd.DataFrame] = {}
     total = len(strategies)
+    # 事前に全システムへステージ0%（filter開始）を同時通知（UI同期表示用）
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        for name in strategies.keys():
+            try:
+                cb2(name, 0, None, None, None, None)
+            except Exception:
+                pass
     if parallel:
         if progress_callback:
             try:

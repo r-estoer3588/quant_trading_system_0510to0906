@@ -377,11 +377,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     or _msg.startswith("📦 基礎データロード完了")
                     or _msg.startswith("🧮 指標データロード完了")
                 )
+                # 不要ログ（UI表示では抑制したいもの）
                 skip_keywords = (
                     "進捗",
                     "インジケーター",
                     "indicator",
                     "indicators",
+                    "指標計算",
+                    "共有指標",
                     "バッチ時間",
                     "batch time",
                     "候補抽出",
@@ -463,20 +466,33 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            if vv < 25:
-                txt = f"filter {filter_cnt}" if filter_cnt is not None else "filter…"
-            elif vv < 50:
-                txt = f"setup {setup_cnt}" if setup_cnt is not None else "setup…"
-            elif vv < 75:
-                txt = f"candidates {cand_cnt}" if cand_cnt is not None else "candidates…"
-            else:
-                txt = f"final {final_cnt}" if final_cnt is not None else "done"
-            sys_stage_txt[n].text(txt)
+            phase = (
+                "filter"
+                if vv < 25
+                else "setup" if vv < 50 else "candidates" if vv < 75 else "final"
+            )
+            parts = []
+            if filter_cnt is not None:
+                parts.append(f"F:{filter_cnt}")
+            if setup_cnt is not None:
+                parts.append(f"S:{setup_cnt}")
+            if cand_cnt is not None:
+                parts.append(f"C:{cand_cnt}")
+            if final_cnt is not None:
+                parts.append(f"Final:{final_cnt}")
+            summary = " | ".join(parts) if parts else "…"
+            sys_stage_txt[n].text(f"{phase} {summary}")
         except Exception:
             pass
 
     # ボタン押下直後の開始ログをUIにも出力（ファイルにも出力されます）
     _ui_log("▶ 本日のシグナル: シグナル検出処理開始")
+
+    # ステージ進捗の受け口を先に登録（スレッドから参照されるため）
+    try:
+        globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
+    except Exception:
+        pass
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
@@ -491,11 +507,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 事前ロードは行わず、内部ローダに任せる
             parallel=bool(run_parallel),
         )
-        # stage update 受け口をグローバルに登録（スレッドから参照）
-        try:
-            globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
-        except Exception:
-            pass
 
     # DataFrameのインデックスをリセットして疑似インデックスを排除
     final_df = final_df.reset_index(drop=True)
@@ -583,7 +594,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         if do_trade:
             st.divider()
             st.subheader("Alpaca自動発注結果")
-            # 共通ヘルパーへ委譲
             system_order_type = {
                 "system1": "market",
                 "system3": "market",
@@ -698,16 +708,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 break
     any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
     if any_sys_logs and st.session_state.get("ui_vis", {}).get("per_system_logs", True):
-        with st.expander("システム別 実行ログ", expanded=True):
-            keys = [f"system{i}" for i in range(1, 8)]
-            for key in keys:
-                logs = per_system_logs[key]
-                if not logs:
-                    continue
-                st.markdown(f"#### {key}")
+        tabs = st.tabs([f"system{i}" for i in range(1, 8)])
+        for i, key in enumerate([f"system{i}" for i in range(1, 8)]):
+            logs = per_system_logs[key]
+            if not logs:
+                continue
+            with tabs[i]:
                 st.text_area(
+                    label=f"ログ（{key}）",
                     key=f"logs_{key}",
-                    value="\n".join(logs[-400:]),
-                    height=200,
+                    value="\n".join(logs[-1000:]),
+                    height=380,
                     disabled=True,
                 )

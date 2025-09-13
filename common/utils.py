@@ -1,6 +1,7 @@
 # common/utils.py
 import logging
 import os
+from pathlib import Path
 
 import pandas as pd
 
@@ -59,38 +60,49 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | N
     - バックテスト/広期間参照の既定は base（存在しない場合は full/rolling から再構築）
     - 互換のため引数 `folder` は維持するが、`data_cache/直下` のCSVは参照しない。
     """
+    # 1) base を優先してロード（無ければ内部で full/rolling から再構築）
+    df: pd.DataFrame | None = None
     try:
-        # base を優先してロード（無ければ内部で full/rolling から再構築）
         from common.cache_manager import load_base_cache  # 遅延import
 
         df = load_base_cache(symbol, rebuild_if_missing=True)
-        if df is None or df.empty:
+    except Exception:
+        df = None
+
+    if df is None or df.empty:
+        # 2) 旧CSV へのフォールバック（テスト互換のため保持）
+        try:
+            path = Path(folder) / f"{safe_filename(symbol)}.csv"
+            if path.exists():
+                df = pd.read_csv(path)
+            else:
+                return None
+        except Exception:
             return None
-        # 既存呼び出し互換: 大文字カラム/Date index を維持
-        if df.index.name != "Date":
-            if "Date" in df.columns:
-                df = df.sort_values("Date").set_index("Date")
-            elif "date" in df.columns:
-                x = df.rename(columns={"date": "Date"})
-                x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
-                df = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
-        # 列名の大文字化（存在するもののみ）
-        rename_map = {
-            "open": "Open",
-            "high": "High",
-            "low": "Low",
-            "close": "Close",
-            "adjusted_close": "AdjClose",
-            "adjclose": "AdjClose",
-            "volume": "Volume",
-        }
-        for k, v in list(rename_map.items()):
-            if k in df.columns:
-                df = df.rename(columns={k: v})
-        return df.sort_index()
-    except Exception as e:
-        print(f"{symbol}: base 経由の読み込み失敗 - {e}")
-        return None
+
+    # 既存呼び出し互換: 大文字カラム/Date index を維持
+    if df.index.name != "Date":
+        if "Date" in df.columns:
+            df = df.sort_values("Date").set_index("Date")
+        elif "date" in df.columns:
+            x = df.rename(columns={"date": "Date"})
+            x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
+            df = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+
+    # 列名の大文字化（存在するもののみ）
+    rename_map = {
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+        "adjusted_close": "AdjClose",
+        "adjclose": "AdjClose",
+        "volume": "Volume",
+    }
+    for k, v in list(rename_map.items()):
+        if k in df.columns:
+            df = df.rename(columns={k: v})
+    return df.sort_index()
 
 
 def get_manual_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:

@@ -7,6 +7,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 
 from indicators_common import add_indicators
+from pathlib import Path
+
+try:
+    from config.settings import get_settings
+except Exception:  # pragma: no cover
+    get_settings = None  # type: ignore
 
 
 def _ensure_price_columns_upper(df: pd.DataFrame) -> pd.DataFrame:
@@ -47,13 +53,142 @@ def precompute_shared_indicators(
     start_ts = _t.time()
     CHUNK = 500
 
+    # 共有前計算で付与する主な指標の名称一覧（ログ表示用）
+    # add_indicators() が実際の計算を担うため、この一覧は説明用に限定
+    # し、挙動の切り替えには影響しません。
+    global PRECOMPUTED_INDICATORS
+    PRECOMPUTED_INDICATORS = (
+        # ATR 系
+        "ATR10",
+        "ATR20",
+        "ATR40",
+        "ATR50",
+        # 移動平均
+        "SMA25",
+        "SMA50",
+        "SMA100",
+        "SMA150",
+        "SMA200",
+        # モメンタム/オシレーター
+        "ROC200",
+        "RSI3",
+        "RSI4",
+        "ADX7",
+        # 流動性・ボラティリティ等
+        "DollarVolume20",
+        "DollarVolume50",
+        "AvgVolume50",
+        "ATR_Ratio",
+        "ATR_Pct",
+        # 派生・補助指標
+        "Return_3D",
+        "6D_Return",
+        "UpTwoDays",
+        "TwoDayUp",
+        "HV50",
+        "min_50",
+        "max_70",
+    )
+
+    # 共有インジケータのキャッシュ格納場所（設定 > 既定）
+    def _cache_dir() -> Path:
+        try:
+            settings = get_settings(create_dirs=True) if get_settings else None
+            base = (
+                Path(settings.outputs.signals_dir)
+                if settings
+                else Path("data_cache/signals")
+            )
+        except Exception:
+            base = Path("data_cache/signals")
+        p = base / "shared_indicators"
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return p
+
+    cdir = _cache_dir()
+
+    def _read_cache(sym: str) -> Optional[pd.DataFrame]:
+        for ext in (".feather", ".parquet"):
+            fp = cdir / f"{sym}{ext}"
+            if fp.exists():
+                try:
+                    if ext == ".feather":
+                        df = pd.read_feather(fp)
+                    else:
+                        df = pd.read_parquet(fp)
+                    if df is not None and not df.empty:
+                        # Date 正規化
+                        col = "Date" if "Date" in df.columns else None
+                        if col:
+                            df[col] = pd.to_datetime(
+                                df[col], errors="coerce"
+                            ).dt.normalize()
+                        return df
+                except Exception:
+                    continue
+        return None
+
+    def _write_cache(sym: str, df: pd.DataFrame) -> None:
+        try:
+            # Feather を優先、Parquet をフォールバック保存
+            fp = cdir / f"{sym}.feather"
+            df.reset_index(drop=True).to_feather(fp)
+        except Exception:
+            try:
+                fp2 = cdir / f"{sym}.parquet"
+                df.to_parquet(fp2, index=False)
+            except Exception:
+                pass
+
     def _calc(sym_df: Tuple[str, pd.DataFrame]) -> Tuple[str, pd.DataFrame]:
         sym, df = sym_df
         try:
             if df is None or getattr(df, "empty", True):
                 return sym, df
             work = _ensure_price_columns_upper(df)
-            ind_df = add_indicators(work)
+            # 既存キャッシュを読み込み、差分行だけ再計算
+            cached = _read_cache(sym)
+            if cached is not None and not cached.empty:
+                # Date 基準で差分
+                try:
+                    src = work.copy()
+                    if "Date" in src.columns:
+                        src_dates = pd.to_datetime(
+                            src["Date"], errors="coerce"
+                        ).dt.normalize()
+                    else:
+                        src_dates = pd.to_datetime(
+                            src.index, errors="coerce"
+                        ).normalize()
+                        src = src.reset_index(drop=True)
+                        src["Date"] = src_dates
+                    if "Date" in cached.columns:
+                        cached_dates = pd.to_datetime(
+                            cached["Date"], errors="coerce"
+                        ).dt.normalize()
+                    else:
+                        cached_dates = pd.to_datetime(
+                            cached.index, errors="coerce"
+                        ).normalize()
+                    last = cached_dates.max()
+                    # 安全に文脈を付けて再計算（最大の必要窓は 200 と想定 + 10% 余裕）
+                    ctx_days = 220
+                    src_recent = src[
+                        src["Date"] >= (last - pd.Timedelta(days=ctx_days))
+                    ]
+                    # 差分再計算
+                    recomputed = add_indicators(src_recent)
+                    # 以前の最終日より新しい行だけを採用
+                    recomputed_new = recomputed[recomputed["Date"] > last]
+                    merged = pd.concat([cached, recomputed_new], ignore_index=True)
+                    ind_df = merged
+                except Exception:
+                    ind_df = add_indicators(work)
+            else:
+                ind_df = add_indicators(work)
             new_cols = [c for c in ind_df.columns if c not in df.columns]
             if new_cols:
                 merged = df.copy()
@@ -72,6 +207,12 @@ def precompute_shared_indicators(
             for fut in as_completed(futures):
                 sym, res = fut.result()
                 out[sym] = res
+                # キャッシュ書き込み（新規列も含むテーブル）
+                try:
+                    if res is not None and not getattr(res, "empty", True):
+                        _write_cache(sym, res)
+                except Exception:
+                    pass
                 done += 1
                 if log and (done % CHUNK == 0 or done == total):
                     try:
@@ -90,6 +231,11 @@ def precompute_shared_indicators(
         for idx, item in enumerate(basic_data.items(), start=1):
             sym, res = _calc(item)
             out[sym] = res
+            try:
+                if res is not None and not getattr(res, "empty", True):
+                    _write_cache(sym, res)
+            except Exception:
+                pass
             if log and (idx % CHUNK == 0 or idx == total):
                 try:
                     elapsed = max(0.001, _t.time() - start_ts)
@@ -106,4 +252,4 @@ def precompute_shared_indicators(
     return out
 
 
-__all__ = ["precompute_shared_indicators"]
+__all__ = ["precompute_shared_indicators", "PRECOMPUTED_INDICATORS"]
