@@ -281,114 +281,118 @@ def get_today_signals_for_strategy(
             continue
         entry, stop = comp
         skey, sval, _asc = _score_from_candidate(system_name, c)
-        # build human-readable reason（score のフォールバック補完を実施）
-        reason_parts: List[str] = []
-        # 欠損・NaN の場合は prepared 側から採取（同一シグナル日の値）
-        if skey is not None and (
-            sval is None or (isinstance(sval, float) and pd.isna(sval))
-        ):
+
+        # signal 日（通常は entry_date の前営業日を想定）
+        signal_date_ts: Optional[pd.Timestamp] = None
+        try:
+            # candidate["Date"] があれば優先
+            if "Date" in c and c.get("Date") is not None:
+                date_arg: Any = c.get("Date")
+                tmp = pd.to_datetime(date_arg, errors="coerce")
+                if not pd.isna(tmp):
+                    signal_date_ts = pd.Timestamp(tmp).normalize()
+        except Exception:
+            # フォールバックは後段の entry_date 補完に任せる
+            pass
+        if signal_date_ts is None:
             try:
-                # signal day は entry_date の前営業日
-                date_val = c.get("Date", None)
-                signal_date_ts: Optional[pd.Timestamp] = None
-                if date_val is not None:
-                    tmp = pd.to_datetime(cast(Any, date_val), errors="coerce")
-                    if not pd.isna(tmp):
-                        signal_date_ts = pd.Timestamp(tmp).normalize()
-                if signal_date_ts is None:
-                    entry_val = c.get("entry_date", None)
-                    if entry_val is not None:
-                        tmp2 = pd.to_datetime(cast(Any, entry_val), errors="coerce")
-                        if not pd.isna(tmp2):
-                            signal_date_ts = pd.Timestamp(
-                                tmp2
-                            ).normalize() - pd.Timedelta(days=1)
-                if signal_date_ts is not None:
-                    if "Date" in df.columns:
-                        row = df[
-                            pd.to_datetime(df["Date"]).dt.normalize() == signal_date_ts
+                ed_arg: Any = c.get("entry_date")
+                ed = pd.to_datetime(ed_arg, errors="coerce")
+                if isinstance(ed, pd.Timestamp) and not pd.isna(ed):
+                    signal_date_ts = ed.normalize() - pd.Timedelta(days=1)
+            except Exception:
+                signal_date_ts = None
+
+        # 欠損スコアの補完（まず値、次に順位）
+        rank_val: Optional[int] = None
+        total_for_rank: int = 0
+        if skey is not None:
+            # 1) 欠損なら prepared から同日値を補完
+            if sval is None or (isinstance(sval, float) and pd.isna(sval)):
+                try:
+                    if signal_date_ts is not None:
+                        row = prepared[sym][
+                            pd.to_datetime(
+                                prepared[sym]["Date"]
+                                if "Date" in prepared[sym].columns
+                                else prepared[sym].index
+                            )
+                            .normalize()
+                            .eq(signal_date_ts)
                         ]
-                    else:
-                        row = df[pd.to_datetime(df.index).normalize() == signal_date_ts]
-                    if not row.empty and skey in row.columns:
-                        _v = row.iloc[0][skey]
-                        if _v is not None and not pd.isna(_v):
-                            sval = float(_v)
+                        if not row.empty and skey in row.columns:
+                            _v = row.iloc[0][skey]
+                            if _v is not None and not pd.isna(_v):
+                                sval = float(_v)
+                except Exception:
+                    pass
+
+            # 2) 値がまだ欠損なら、同日全銘柄の順位を算出してスコアに設定
+            try:
+                if signal_date_ts is not None:
+                    vals: list[tuple[str, float]] = []
+                    for psym, pdf in prepared.items():
+                        try:
+                            if "Date" in pdf.columns:
+                                row = pdf[
+                                    pd.to_datetime(pdf["Date"]).dt.normalize()
+                                    == signal_date_ts
+                                ]
+                            else:
+                                row = pdf[
+                                    pd.to_datetime(pdf.index).normalize()
+                                    == signal_date_ts
+                                ]
+                            if not row.empty and skey in row.columns:
+                                v = row.iloc[0][skey]
+                                if v is not None and not pd.isna(v):
+                                    vals.append((psym, float(v)))
+                        except Exception:
+                            continue
+                    total_for_rank = len(vals)
+                    if total_for_rank:
+                        # 並び順: system の昇降順推定に合わせる（ROC200 などは降順）
+                        reverse = not _asc
+                        # 値が同一のときはシンボルで安定ソート
+                        vals_sorted = sorted(
+                            vals, key=lambda t: (t[1], t[0]), reverse=reverse
+                        )
+                        # 自銘柄の順位を決定
+                        symbols_sorted = [s for s, _ in vals_sorted]
+                        if sym in symbols_sorted:
+                            rank_val = symbols_sorted.index(sym) + 1
+                        # スコアが欠損なら順位をそのままスコアに採用
+                        if sval is None or (isinstance(sval, float) and pd.isna(sval)):
+                            if rank_val is not None:
+                                sval = float(rank_val)
             except Exception:
                 pass
 
-        if skey is not None:
-            # 一旦数値を整形
+        # 選定理由（順位を最優先、なければ値）
+        reason_parts: List[str] = []
+        if skey is not None and rank_val is not None:
+            if rank_val <= 10:
+                reason_parts = [f"{skey}が{rank_val}位のため"]
+            else:
+                reason_parts = [f"rank={rank_val}/{total_for_rank}"]
+        elif skey is not None:
+            # 値があれば値を表示（nan は避ける）
             try:
-                sval_disp = (
-                    f"{float(sval):.2f}"
-                    if sval is not None and not pd.isna(sval)
-                    else "nan"
-                )
+                if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
+                    reason_parts.append(f"{skey}={float(sval):.2f}")
             except Exception:
-                sval_disp = str(sval)
-            reason_parts.append(f"{skey}={sval_disp}")
-            # 同一エントリー日における順位（上位10位なら自然文表記に）
-            try:
-                # c["entry_date"] が None の可能性に対応し安全に正規化
-                entry_dt_raw = c.get("entry_date", None)
-                if entry_dt_raw is None:
-                    raise ValueError("invalid entry_date")
-                entry_dt = pd.to_datetime(cast(Any, entry_dt_raw), errors="coerce")
-                if not isinstance(entry_dt, pd.Timestamp) or pd.isna(entry_dt):
-                    raise ValueError("invalid entry_date")
-                entry_date_norm = entry_dt.normalize()
-                vals: List[float] = []
-                for psym, pdf in prepared.items():
-                    try:
-                        if "Date" in pdf.columns:
-                            row = pdf[
-                                pd.to_datetime(pdf["Date"]).dt.normalize()
-                                == entry_date_norm
-                            ]
-                        else:
-                            row = pdf[
-                                pd.to_datetime(pdf.index).normalize() == entry_date_norm
-                            ]
-                        if not row.empty and skey in row.columns:
-                            v = row.iloc[0][skey]
-                            if v is not None and not pd.isna(v):
-                                vals.append(float(v))
-                    except Exception:
-                        continue
-                rank = None
-                total = len(vals)
-                if total:
-                    # 値が未設定なら候補値を使う
-                    try:
-                        candidate_val = float(sval) if sval is not None else None
-                    except Exception:
-                        candidate_val = None
-                    if candidate_val is not None:
-                        sorted_vals = sorted(vals, reverse=not _asc)
-                        try:
-                            rank = sorted_vals.index(candidate_val) + 1
-                        except ValueError:
-                            diffs = [abs(candidate_val - x) for x in sorted_vals]
-                            rank = diffs.index(min(diffs)) + 1
-                # rank に応じて自然文へ
-                if rank is not None and rank <= 10:
-                    reason_parts = [f"{skey}が{rank}位のため"]
-                elif rank is not None and total:
-                    reason_parts.append(f"rank={rank}/{total}")
-            except Exception:
-                pass
+                if sval is not None:
+                    reason_parts.append(f"{skey}={sval}")
 
         # fallback generic info
         if not reason_parts:
-            # include keys present in candidate for debugging
             try:
                 keys = ", ".join(
                     f"{k}:{v}"
                     for k, v in c.items()
                     if k not in {"symbol", "entry_date"}
                 )
-                reason_parts.append(keys[:500])
+                reason_parts.append(keys[:500] or "selected")
             except Exception:
                 reason_parts.append("selected")
 
@@ -404,7 +408,12 @@ def get_today_signals_for_strategy(
                 entry_price=float(entry),
                 stop_price=float(stop),
                 score_key=skey,
-                score=sval,
+                # スコアは値があれば値、無ければ順位（上記で補完済み）
+                score=(
+                    None
+                    if sval is None or (isinstance(sval, float) and pd.isna(sval))
+                    else float(sval)
+                ),
                 reason=reason_text,
             )
         )

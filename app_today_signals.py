@@ -177,11 +177,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     start_time = time.time()
     # 進捗表示用の領域（1行上書き）
     progress_area = st.empty()
+    # 追加: 全ログを蓄積（UIで折り畳み表示用）
+    log_lines: list[str] = []
 
     def _ui_log(msg: str) -> None:
         try:
             elapsed = time.time() - start_time
-            progress_area.text(f"[{elapsed:6.1f}s] {msg}")
+            line = f"[{elapsed:6.1f}s] {msg}"
+            log_lines.append(line)
+            progress_area.text(line)
         except Exception:
             pass
 
@@ -233,9 +237,25 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     final_df = final_df.reset_index(drop=True)
     per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
 
-    # 処理終了時に総経過時間を表示
+    # 処理終了時に総経過時間を表示（分+秒）
     total_elapsed = time.time() - start_time
-    st.info(f"総経過時間: {total_elapsed:.1f}秒")
+    m, s = divmod(int(total_elapsed), 60)
+    st.info(f"総経過時間: {m}分{s}秒")
+
+    # 追加: 実行ログをUIに折り畳み表示（CSVダウンロード付き）
+    with st.expander("実行ログ", expanded=False):
+        try:
+            st.code("\n".join(log_lines))
+            log_csv = "\n".join(log_lines).encode("utf-8")
+            st.download_button(
+                "実行ログCSVをダウンロード",
+                data=log_csv,
+                file_name="today_run_logs.csv",
+                mime="text/csv",
+                key="today_logs_csv",
+            )
+        except Exception:
+            pass
 
     for name, df in per_system.items():
         syms2 = df["symbol"].tolist() if df is not None and not df.empty else []
@@ -394,16 +414,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     key=f"{name}_download_csv",
                 )
 
-                # Debug: show per-symbol reason text for why it was selected
+                # 選定理由（日本語のみ）: 英語タブは削除
                 if "reason" in df.columns:
-                    tab_jp, tab_en = st.tabs(["選定理由", "selection reasons"])
-                    with tab_jp:
-                        for _, row in df.iterrows():
-                            sym = row.get("symbol")
-                            reason = row.get("reason")
-                            st.markdown(f"- **{sym}**: {reason}")
-                    with tab_en:
-                        for _, row in df.iterrows():
-                            sym = row.get("symbol")
-                            reason = row.get("reason")
-                            st.markdown(f"- **{sym}**: {reason}")
+                    st.markdown("**選定理由**")
+                    for _, row in df.iterrows():
+                        sym = row.get("symbol")
+                        reason = row.get("reason")
+                        st.markdown(f"- **{sym}**: {reason}")

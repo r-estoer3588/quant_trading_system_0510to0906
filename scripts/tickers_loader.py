@@ -72,7 +72,14 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
         Path to the saved ticker CSV.
     """
     from config.settings import get_settings
-    from tools.notify_signals import _post_webhook
+
+    try:
+        from tools.notify_signals import _post_webhook  # type: ignore
+    except Exception:
+
+        def _post_webhook(url: str, text: str) -> None:
+            # ローカル/テスト環境用のフォールバック: 見つからない場合はログに出すだけ
+            print(f"[webhook skipped] url={url!r} | {text}")
 
     settings = get_settings(create_dirs=True)
     out = Path(output_path) if output_path else Path(settings.data.cache_dir) / "tickers.csv"
@@ -154,13 +161,14 @@ def filter_symbols_by_system1(data_dict):
             avg_time = elapsed / i
             remaining = avg_time * (total - i)
             mins, secs = divmod(remaining, 60)
-            st.write(
-                f"進捗: {i}/{total} | 経過時間: {elapsed:.1f}秒 | 推定残り: {int(mins)}分{int(secs)}秒"
-            )
+            em, es = divmod(int(elapsed), 60)
+            rm, rs = divmod(int(remaining), 60)
+            st.write(f"進捗: {i}/{total} | 経過: {em}分{es}秒 | 推定残り: {rm}分{rs}秒")
             last_log_time = current_time
 
     total_elapsed = time.time() - start_time
-    st.write(f"✅ フィルター処理完了：{total}件中 {len(result)}件通過 | 総処理時間: {total_elapsed:.1f}秒")
+    tm, ts = divmod(int(total_elapsed), 60)
+    st.write(f"✅ フィルター処理完了：{total}件中 {len(result)}件通過 | 総処理時間: {tm}分{ts}秒")
 
     return result
 
