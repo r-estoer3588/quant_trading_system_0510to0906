@@ -118,17 +118,39 @@ with st.sidebar:
         st.session_state["today_cap_long"] = 0.0
     if "today_cap_short" not in st.session_state:
         st.session_state["today_cap_short"] = 0.0
+    # 口座情報の一時保存領域
+    st.session_state.setdefault("alpaca_acct_type", None)
+    st.session_state.setdefault("alpaca_buying_power", None)
+    st.session_state.setdefault("alpaca_cash", None)
+    st.session_state.setdefault("alpaca_multiplier", None)
+    st.session_state.setdefault("alpaca_shorting_enabled", None)
+    st.session_state.setdefault("alpaca_status", None)
 
     # Alpacaから取得してフォームに反映
     if st.button("🔍 Alpacaから資産取得してフォームに反映"):
         try:
             client = ba.get_client(paper=True)
             acct = client.get_account()
+            # 口座情報を保存（表示用）
+            try:
+                st.session_state["alpaca_acct_type"] = getattr(acct, "account_type", None)
+                st.session_state["alpaca_multiplier"] = getattr(acct, "multiplier", None)
+                st.session_state["alpaca_shorting_enabled"] = getattr(
+                    acct, "shorting_enabled", None
+                )
+                st.session_state["alpaca_status"] = getattr(acct, "status", None)
+            except Exception:
+                pass
             bp_raw = getattr(acct, "buying_power", None)
             if bp_raw is None:
                 bp_raw = getattr(acct, "cash", None)
             if bp_raw is not None:
                 bp = float(bp_raw)
+                st.session_state["alpaca_buying_power"] = bp
+                try:
+                    st.session_state["alpaca_cash"] = float(getattr(acct, "cash", None) or 0.0)
+                except Exception:
+                    pass
                 st.session_state["today_cap_long"] = round(bp / 2.0, 2)
                 st.session_state["today_cap_short"] = round(bp / 2.0, 2)
                 st.success(
@@ -139,6 +161,44 @@ with st.sidebar:
                 st.warning("Alpaca口座情報: buying_power/cashが取得できません")
         except Exception as e:
             st.error(f"Alpaca資産取得エラー: {e}")
+
+    # 口座情報（表示のみの更新ボタン）
+    if st.button("ℹ️ Alpaca口座情報を更新（表示のみ）"):
+        try:
+            client = ba.get_client(paper=True)
+            acct = client.get_account()
+            st.session_state["alpaca_acct_type"] = getattr(acct, "account_type", None)
+            st.session_state["alpaca_buying_power"] = float(
+                getattr(acct, "buying_power", getattr(acct, "cash", 0.0)) or 0.0
+            )
+            st.session_state["alpaca_cash"] = float(getattr(acct, "cash", 0.0))
+            st.session_state["alpaca_multiplier"] = getattr(acct, "multiplier", None)
+            st.session_state["alpaca_shorting_enabled"] = getattr(acct, "shorting_enabled", None)
+            st.session_state["alpaca_status"] = getattr(acct, "status", None)
+            st.success("口座情報を更新しました（表示のみ）")
+        except Exception as e:
+            st.error(f"口座情報の更新に失敗: {e}")
+
+    # 口座情報の表示（タイプ推定 + Buying Power）
+    acct_type_raw = st.session_state.get("alpaca_acct_type")
+    multiplier = st.session_state.get("alpaca_multiplier")
+    try:
+        mult_f = float(multiplier) if multiplier is not None else None
+    except Exception:
+        mult_f = None
+    derived_type = (
+        "Margin"
+        if (mult_f is not None and mult_f > 1.0)
+        else ("Cash" if mult_f is not None else "不明")
+    )
+    bp_val = st.session_state.get("alpaca_buying_power")
+    bp_txt = f"${bp_val:,.2f}" if isinstance(bp_val, (int, float)) else "未取得"
+    st.caption("Alpaca口座情報")
+    st.write(f"アカウント種別（推定）: {derived_type}  |  Buying Power: {bp_txt}")
+    if acct_type_raw is not None or mult_f is not None:
+        st.caption(
+            f"詳細: account_type={acct_type_raw}, multiplier={mult_f if mult_f is not None else '-'}"
+        )
 
     # 資産入力フォーム
     st.session_state["today_cap_long"] = st.number_input(
