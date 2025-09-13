@@ -220,11 +220,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # 開始時刻を記録
     start_time = time.time()
-    # ファイルログ: ボタン押下でシグナル検出処理開始
-    try:
-        _get_today_logger().info("▶ 本日のシグナル: シグナル検出処理開始")
-    except Exception:
-        pass
     # 進捗表示用の領域（1行上書き）
     progress_area = st.empty()
     # プログレスバー
@@ -237,7 +232,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         try:
             elapsed = max(0, time.time() - start_time)
             m, s = divmod(int(elapsed), 60)
-            now = time.strftime("%H:%M:%S")
+            # 日付と時刻を含めてUIに表示
+            now = time.strftime("%Y-%m-%d %H:%M:%S")
             line = f"[{now} | {m}分{s}秒] {msg}"
             log_lines.append(line)
             progress_area.text(line)
@@ -290,6 +286,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             data = pd.DataFrame()
         return data
+
+    # ボタン押下直後の開始ログをUIにも出力（ファイルにも出力されます）
+    _ui_log("▶ 本日のシグナル: シグナル検出処理開始")
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
