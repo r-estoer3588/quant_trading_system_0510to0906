@@ -9,10 +9,13 @@ import sys
 import time
 import logging
 from datetime import datetime
-from typing import Callable, Dict, Iterable
+from typing import Callable, Dict, Iterable, Literal, Any, cast
 
 from config.settings import get_settings
 from common.logging_utils import setup_logging
+
+
+Field = tuple[int, ...] | Literal["*"]
 
 
 def parse_cron(cron: str):
@@ -27,7 +30,7 @@ def parse_cron(cron: str):
         raise ValueError(f"Unsupported cron format: {cron}")
     m_s, h_s, _, _, d_s = parts
 
-    def parse_field(val: str, min_v: int, max_v: int) -> Iterable[int] | str:
+    def parse_field(val: str, min_v: int, max_v: int) -> Field:
         if val.strip() == "*":
             return "*"
         vals = set()
@@ -41,20 +44,25 @@ def parse_cron(cron: str):
                 vals.add(int(tok))
         return tuple(sorted(v for v in vals if min_v <= v <= max_v))
 
-    m_val = parse_field(m_s, 0, 59)
-    h_val = parse_field(h_s, 0, 23)
-    d_val = parse_field(d_s, 0, 7)
+    m_val: Field = parse_field(m_s, 0, 59)
+    h_val: Field = parse_field(h_s, 0, 23)
+    d_val: Field = parse_field(d_s, 0, 7)
+
+    def _match(value: int, allowed: Field) -> bool:
+        if allowed == "*":
+            return True
+        return value in allowed
 
     def pred(dt: datetime) -> bool:
         minute = dt.minute
         hour = dt.hour
         dow = dt.weekday() + 1  # Monday=1 ... Sunday=7
         dow = 0 if dow == 7 else dow  # accept 0 as Sunday
-        if m_val != "*" and minute not in m_val:
+        if not _match(minute, m_val):
             return False
-        if h_val != "*" and hour not in h_val:
+        if not _match(hour, h_val):
             return False
-        if d_val != "*" and dow not in d_val:
+        if not _match(dow, d_val):
             return False
         return True
 
@@ -62,16 +70,18 @@ def parse_cron(cron: str):
 
 
 def task_cache_daily_data():
-    from scripts.cache_daily_data import warm_cache_default
+    import scripts.cache_daily_data as cache_daily_data
 
-    warm_cache_default()
+    cache_daily_data._cli_main()
 
 
 def task_notify_signals():
     try:
         from tools.notify_signals import notify_signals
     except Exception:
-        logging.warning("notify_signals タスクが未実装です。tools/notify_signals.py を用意してください。")
+        logging.warning(
+            "notify_signals タスクが未実装です。tools/notify_signals.py を用意してください。"
+        )
         return
     notify_signals()
 
@@ -125,7 +135,7 @@ TASKS: Dict[str, Callable[[], None]] = {
 
 def main():
     settings = get_settings(create_dirs=True)
-    setup_logging(settings)
+    setup_logging(cast(Any, settings))
     _ = settings.scheduler.timezone
     jobs = settings.scheduler.jobs
     if not jobs:

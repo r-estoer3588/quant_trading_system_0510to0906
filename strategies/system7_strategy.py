@@ -1,4 +1,5 @@
-# strategies/system7_strategy.py
+"""System7 strategy with cleaned Japanese comments and safe typing."""
+
 from __future__ import annotations
 
 import time
@@ -19,8 +20,8 @@ from .constants import STOP_ATR_MULTIPLE_DEFAULT
 
 class System7Strategy(AlpacaOrderMixin, StrategyBase):
     """
-    SPY専用のショート・カタストロフィー・ヘッジ。
-    - エントリー: SPYが直近50日安値を更新の翌日寄りでショート
+    SPY専用のショート・カタストロフィー・ヘッジ
+    - エントリー: SPYが直近70日安値を更新した翌日寄りでショート
     - ストップ: エントリー + 3×ATR50
     - 利確: SPYが直近70日高値を更新した翌日寄り
     """
@@ -32,65 +33,72 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     def prepare_data(
         self,
-        raw_data_or_symbols,
+        raw_data_dict,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
         **kwargs,
     ):
-        """インジケーター計算をコア関数へ委譲。"""
-        # UIから渡される unknown なキーワード（例: single_mode）を吸収して下流関数へ渡さない
+        """インジケーター計算をコア関数へ委譲"""
         kwargs.pop("single_mode", None)
-        if isinstance(raw_data_or_symbols, dict):
-            raw_dict = raw_data_or_symbols
+        if isinstance(raw_data_dict, dict):
+            tmp: dict[str, pd.DataFrame] = {}
+            for k, v in raw_data_dict.items():
+                if isinstance(k, str) and isinstance(v, pd.DataFrame):
+                    tmp[k] = v
+            prepared_input = tmp
         else:
-            raw_dict = {s: get_cached_data(s) for s in raw_data_or_symbols}
+            tmp2: dict[str, pd.DataFrame] = {}
+            try:
+                for s in list(raw_data_dict):  # type: ignore[arg-type]
+                    df = get_cached_data(s)
+                    if df is not None and isinstance(df, pd.DataFrame):
+                        tmp2[str(s)] = df
+            except Exception:
+                tmp2 = {}
+            prepared_input = tmp2
         return prepare_data_vectorized_system7(
-            raw_dict,
+            prepared_input,
             progress_callback=progress_callback,
             log_callback=log_callback,
             skip_callback=skip_callback,
         )
 
-    def generate_candidates(self, *args, **kwargs):
-        # 柔軟に引数を受け取り、UI などから渡される unknown なキーワード
-        # （例: single_mode）を吸収して下流の generate_candidates_system7 に
-        # 渡さないようにします。
-        prepared_dict = kwargs.pop("prepared_dict", None)
-        if prepared_dict is None and len(args) > 0:
-            prepared_dict = args[0]
+    def generate_candidates(self, data_dict, market_df=None, **kwargs):
         kwargs.pop("single_mode", None)
-        return generate_candidates_system7(prepared_dict, **kwargs)
+        return generate_candidates_system7(data_dict, **kwargs)
 
     def run_backtest(
         self,
-        prepared_dict,
+        data_dict,
         candidates_by_date,
         capital,
-        on_progress=None,
-        on_log=None,
-        single_mode=False,
-    ):
-        results = []
-        if "SPY" not in prepared_dict:
+        **kwargs,
+    ) -> pd.DataFrame:
+        results: list[dict] = []
+        if "SPY" not in data_dict:
             return pd.DataFrame()
 
-        df = prepared_dict["SPY"]
+        df: pd.DataFrame = data_dict["SPY"]
         total_days = len(candidates_by_date)
         start_time = time.time()
 
-        capital_current = capital
+        capital_current = float(capital)
         position_open = False
         current_exit_date = None
+
+        on_progress = kwargs.get("on_progress")
+        on_log = kwargs.get("on_log")
+        single_mode = bool(kwargs.get("single_mode", False))
 
         risk_pct = float(self.config.get("risk_pct", 0.02))
         max_pct = float(self.config.get("max_pct", 0.20))
         if "single_mode" in self.config:
-            single_mode = bool(self.config.get("single_mode", False))
+            single_mode = (
+                bool(self.config.get("single_mode", False)) if not single_mode else single_mode
+            )
 
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -101,14 +109,18 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 current_exit_date = None
 
             if position_open:
+                if on_progress:
+                    on_progress(i, total_days, start_time)
                 continue
 
             for c in candidates:
-                entry_price = float(df.loc[entry_date, "Open"])
-                # ATR が None/NaN の場合は当該候補をスキップ（Pylance の型警告/ゼロ除算対策）
+                idxers = df.index.get_indexer([pd.Timestamp(entry_date)])
+                if len(idxers) == 0 or int(idxers[0]) == -1:
+                    continue
+                entry_idx = int(idxers[0])
+                entry_price = float(df.iloc[entry_idx]["Open"])
                 atr_val = None
                 try:
-                    # c が dict の場合などを想定
                     atr_val = c.get("ATR50") if isinstance(c, dict) else c["ATR50"]
                 except Exception:
                     atr_val = None
@@ -116,16 +128,12 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
                 atr = float(atr_val)
                 stop_price = entry_price + stop_mult * atr
-                # 差がゼロまたは負ならリスク計算できないためスキップ
                 diff = stop_price - entry_price
                 if diff <= 0:
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                if single_mode:
-                    max_position_value = capital_current
-                else:
-                    max_position_value = capital_current * max_pct
+                max_position_value = capital_current if single_mode else capital_current * max_pct
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -134,21 +142,24 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 exit_date, exit_price = None, None
-                entry_idx = df.index.get_loc(entry_date)
                 for idx2 in range(entry_idx + 1, len(df)):
                     if float(df.iloc[idx2]["High"]) >= stop_price:
                         exit_date = df.index[idx2]
                         exit_price = stop_price
                         break
                     if float(df.iloc[idx2]["High"]) >= float(df.iloc[idx2]["max_70"]):
-                        exit_date = df.index[min(idx2 + 1, len(df) - 1)]
-                        exit_price = float(df.loc[exit_date, "Open"])
+                        exit_idx = min(idx2 + 1, len(df) - 1)
+                        exit_date = df.index[exit_idx]
+                        exit_price = float(df.iloc[exit_idx]["Open"])
                         break
                 if exit_date is None:
                     exit_date = df.index[-1]
                     exit_price = float(df.iloc[-1]["Close"])
 
-                pnl = (entry_price - exit_price) * shares
+                exit_price_safe = (
+                    float(exit_price) if exit_price is not None else float(df.iloc[-1]["Close"])
+                )
+                pnl = (entry_price - exit_price_safe) * shares
                 return_pct = pnl / capital_current * 100 if capital_current else 0.0
 
                 results.append(
@@ -157,7 +168,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                         "entry_date": entry_date,
                         "exit_date": exit_date,
                         "entry_price": entry_price,
-                        "exit_price": round(float(exit_price), 2),
+                        "exit_price": round(exit_price_safe, 2),
                         "shares": shares,
                         "pnl": round(pnl, 2),
                         "return_%": round(return_pct, 2),
@@ -174,16 +185,22 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 try:
                     on_log(i, total_days, start_time)
                 except TypeError:
-                    # on_log が1引数（msg）の実装に対応（日本語・他システムと整合）
-                    on_log(f"💹 バックテスト: {int(i)}/{int(total_days)} 日")
+                    on_log(f"💹 バックテスト進捗 {int(i)}/{int(total_days)} 日")
 
         return pd.DataFrame(results)
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+        key = candidate.get("entry_date")
+        if key is None:
+            return None
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            key_ts = pd.Timestamp(key)
         except Exception:
             return None
+        idxers = df.index.get_indexer([key_ts])
+        if len(idxers) == 0 or int(idxers[0]) == -1:
+            return None
+        entry_idx = int(idxers[0])
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         entry_price = float(df.iloc[entry_idx]["Open"])
@@ -197,17 +214,17 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 atr_val = df.iloc[entry_idx - 1]["ATR50"]
             except Exception:
                 return None
+        if atr_val is None or pd.isna(atr_val):
+            return None
         atr = float(atr_val)
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
         return entry_price, stop_price
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
-        out = {}
+        out: dict = {}
         for sym, df in raw_data_dict.items():
             x = df.copy()
             high, low, close = x["High"], x["Low"], x["Close"]

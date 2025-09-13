@@ -66,8 +66,8 @@ class StrategyBase(ABC):
     @abstractmethod
     def generate_candidates(
         self, data_dict: dict, market_df: pd.DataFrame | None = None, **kwargs
-    ):
-        """日別仕掛け候補を生成"""
+    ) -> tuple[dict, pd.DataFrame | None]:
+        """日別仕掛け候補を生成し、(candidates_by_date, market_df) を返す"""
         pass
 
     @abstractmethod
