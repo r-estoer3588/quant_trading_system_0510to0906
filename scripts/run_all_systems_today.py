@@ -417,6 +417,38 @@ def compute_today_signals(
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 
+    # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
+    try:
+        import logging as _lg
+        import os as _os
+
+        if not _os.environ.get("STREAMLIT_SERVER_ENABLED"):
+
+            class _SilenceBareModeWarnings(_lg.Filter):
+                def filter(self, record: _lg.LogRecord) -> bool:  # type: ignore[override]
+                    msg = str(record.getMessage())
+                    if "missing ScriptRunContext" in msg:
+                        return False
+                    if "Session state does not function" in msg:
+                        return False
+                    return True
+
+            _names = [
+                "streamlit",
+                "streamlit.runtime",
+                "streamlit.runtime.scriptrunner_utils.script_run_context",
+                "streamlit.runtime.state.session_state_proxy",
+            ]
+            for _name in _names:
+                _logger = _lg.getLogger(_name)
+                _logger.addFilter(_SilenceBareModeWarnings())
+                try:
+                    _logger.setLevel(_lg.ERROR)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     # 最新営業日（NYSE）
     today = get_latest_nyse_trading_day().normalize()
     _log(f"📅 最新営業日（NYSE）: {today.date()}")
@@ -741,8 +773,23 @@ def compute_today_signals(
     try:
         _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
         from common.indicators_precompute import precompute_shared_indicators
+        import os as _os
 
-        basic_data = precompute_shared_indicators(basic_data, log=_log)
+        # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
+        force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
+        if force_parallel in ("1", "true", "yes"):
+            use_parallel = True
+        elif force_parallel in ("0", "false", "no"):
+            use_parallel = False
+        else:
+            use_parallel = len(basic_data) >= 2000
+
+        basic_data = precompute_shared_indicators(
+            basic_data,
+            log=_log,
+            parallel=use_parallel,
+            max_workers=None,
+        )
         _log("🧮 共有指標の前計算が完了")
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")

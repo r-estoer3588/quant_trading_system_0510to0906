@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Iterable, Tuple
+import time as _t
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
@@ -27,6 +29,8 @@ def precompute_shared_indicators(
     basic_data: Dict[str, pd.DataFrame],
     *,
     log: Optional[Callable[[str], None]] = None,
+    parallel: bool = False,
+    max_workers: int | None = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     basic_data の各 DataFrame に共有インジケータ列を付与して返す。
@@ -40,32 +44,65 @@ def precompute_shared_indicators(
         return basic_data
     out: Dict[str, pd.DataFrame] = {}
     total = len(basic_data)
-    for idx, (sym, df) in enumerate(basic_data.items(), start=1):
+    start_ts = _t.time()
+    CHUNK = 500
+
+    def _calc(sym_df: Tuple[str, pd.DataFrame]) -> Tuple[str, pd.DataFrame]:
+        sym, df = sym_df
         try:
             if df is None or getattr(df, "empty", True):
-                out[sym] = df
-                continue
-            # 指標計算用に大文字カラムを補完
+                return sym, df
             work = _ensure_price_columns_upper(df)
-            # 計算（`add_indicators` は安全に不足時は NaN を入れる）
             ind_df = add_indicators(work)
-            # 新規列のみを元 df に結合（既存カラムは保持）
             new_cols = [c for c in ind_df.columns if c not in df.columns]
             if new_cols:
                 merged = df.copy()
                 for c in new_cols:
                     merged[c] = ind_df[c]
-                out[sym] = merged
-            else:
-                out[sym] = df
+                return sym, merged
+            return sym, df
         except Exception:
-            # 失敗時はそのまま返す（堅牢性重視）
-            out[sym] = df
-        if log and (idx % 1000 == 0 or idx == total):
-            try:
-                log(f"🧮 共有指標 前計算: {idx}/{total}")
-            except Exception:
-                pass
+            return sym, df
+
+    if parallel and total >= 1000:
+        workers = max_workers or min(32, (total // 1000) + 8)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_calc, item): item[0] for item in basic_data.items()}
+            done = 0
+            for fut in as_completed(futures):
+                sym, res = fut.result()
+                out[sym] = res
+                done += 1
+                if log and (done % CHUNK == 0 or done == total):
+                    try:
+                        elapsed = max(0.001, _t.time() - start_ts)
+                        rate = done / elapsed
+                        remain = max(0, total - done)
+                        eta_sec = int(remain / rate) if rate > 0 else 0
+                        m, s = divmod(eta_sec, 60)
+                        log(f"🧮 共有指標 前計算: {done}/{total} | ETA {m}分{s}秒")
+                    except Exception:
+                        try:
+                            log(f"🧮 共有指標 前計算: {done}/{total}")
+                        except Exception:
+                            pass
+    else:
+        for idx, item in enumerate(basic_data.items(), start=1):
+            sym, res = _calc(item)
+            out[sym] = res
+            if log and (idx % CHUNK == 0 or idx == total):
+                try:
+                    elapsed = max(0.001, _t.time() - start_ts)
+                    rate = idx / elapsed
+                    remain = max(0, total - idx)
+                    eta_sec = int(remain / rate) if rate > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    log(f"🧮 共有指標 前計算: {idx}/{total} | ETA {m}分{s}秒")
+                except Exception:
+                    try:
+                        log(f"🧮 共有指標 前計算: {idx}/{total}")
+                    except Exception:
+                        pass
     return out
 
 
