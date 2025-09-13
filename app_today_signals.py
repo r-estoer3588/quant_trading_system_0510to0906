@@ -306,7 +306,22 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             line = f"[{now} | {m}分{s}秒] {msg}"
             log_lines.append(line)
-            progress_area.text(line)
+            # 冗長ログをUIでは抑制（ファイルには別途書き出し）
+            try:
+                _msg = str(msg)
+                skip_keywords = (
+                    "進捗",
+                    "インジケーター",
+                    "バッチ時間",
+                    "batch time",
+                    "候補抽出",
+                    "候補日数",
+                    "銘柄:",
+                )
+                if not any(k in _msg for k in skip_keywords):
+                    progress_area.text(line)
+            except Exception:
+                progress_area.text(line)
             # ファイルにもINFOで書き出す
             try:
                 _get_today_logger().info(str(msg))
@@ -342,9 +357,32 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             parallel=bool(run_parallel),
         )
 
-    # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除
+    # DataFrameのインデックスをリセットして疑似インデックスを排除
     final_df = final_df.reset_index(drop=True)
     per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
+
+    # 表示順を system1→system7 で統一し、最終結果も同順に並べ替え
+    system_order = [f"system{i}" for i in range(1, 8)]
+    if not final_df.empty and "system" in final_df.columns:
+        try:
+            tmp = final_df.copy()
+            tmp["_system_no"] = (
+                tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
+            )
+            sort_cols = [c for c in ["side", "_system_no"] if c in tmp.columns]
+            tmp = tmp.sort_values(sort_cols, kind="stable").drop(
+                columns=["_system_no"], errors="ignore"
+            )
+            final_df = tmp.reset_index(drop=True)
+        except Exception:
+            pass
+
+    # 項番（1始まり）を付与
+    if final_df is not None and not final_df.empty:
+        try:
+            final_df.insert(0, "no", range(1, len(final_df) + 1))
+        except Exception:
+            pass
 
     # 処理終了時に総経過時間を表示（分+秒）
     total_elapsed = max(0, time.time() - start_time)
@@ -382,9 +420,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             pass
 
-    for name, df in per_system.items():
+    for name in system_order:
+        df = per_system.get(name)
         syms2 = df["symbol"].tolist() if df is not None and not df.empty else []
-        notifier.send_signals(name, syms2)
+        if syms2:
+            notifier.send_signals(name, syms2)
 
     st.subheader("最終選定銘柄")
     if final_df is None or final_df.empty:
@@ -469,7 +509,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 except Exception as e:
                     st.error(f"余力の自動更新に失敗: {e}")
     with st.expander("システム別詳細"):
-        for name, df in per_system.items():
+        for name in system_order:
+            df = per_system.get(name)
             st.markdown(f"#### {name}")
             if df is None or df.empty:
                 st.write("(空)")

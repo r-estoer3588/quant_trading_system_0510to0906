@@ -427,7 +427,7 @@ def get_today_signals_for_strategy(
             except Exception:
                 pass
 
-        # 選定理由（順位を最優先、なければ値）
+        # 選定理由（順位を最優先、なければ簡潔な値）
         reason_parts: List[str] = []
         if skey is not None and rank_val is not None:
             if rank_val <= 10:
@@ -435,13 +435,13 @@ def get_today_signals_for_strategy(
             else:
                 reason_parts = [f"rank={rank_val}/{total_for_rank}"]
         elif skey is not None:
-            # 値があれば値を表示（nan は避ける）
+            # 値は原則非表示（冗長回避）。必要最小限だけ示す。
             try:
                 if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
-                    reason_parts.append(f"{skey}={float(sval):.2f}")
+                    # system1 などランキング系は順位算出失敗時のみ短く表示
+                    reason_parts.append("スコア条件を満たしたため")
             except Exception:
-                if sval is not None:
-                    reason_parts.append(f"{skey}={sval}")
+                reason_parts.append("スコア条件を満たしたため")
 
         # fallback generic info（数値は小数第2位で丸め、日時は日付のみ）
         if not reason_parts:
@@ -460,14 +460,10 @@ def get_today_signals_for_strategy(
                     except Exception:
                         return str(v)
 
-                keys = ", ".join(
-                    f"{k}:{_fmt_val(v)}"
-                    for k, v in c.items()
-                    if k not in {"symbol", "entry_date"}
-                )
-                reason_parts.append(keys[:500] or "selected")
+                # フォールバックは簡潔に
+                reason_parts.append("条件一致のため")
             except Exception:
-                reason_parts.append("selected")
+                reason_parts.append("条件一致のため")
 
         reason_text = "; ".join(reason_parts)
 

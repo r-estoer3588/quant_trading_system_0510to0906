@@ -166,12 +166,14 @@ def _amount_pick(
     }  # noqa: E501
     remaining = budgets.copy()
 
-    # システムごとにスコア順で採用
-    # 複数周回して1件ずつ拾う（偏りを軽減）
+    # システム名の順序を固定（system1..system7）
+    sys_order = [f"system{i}" for i in range(1, 8)]
+    ordered_names = [n for n in sys_order if n in weights]
+    # システムごとにスコア順で採用。複数周回して1件ずつ拾う（偏りを軽減）
     still = True
     while still:
         still = False
-        for name in weights.keys():
+        for name in ordered_names:
             df = per_system.get(name, pd.DataFrame())
             if df is None or df.empty or remaining.get(name, 0.0) <= 0.0:
                 continue
@@ -247,10 +249,9 @@ def _amount_pick(
                 rec = row.to_dict()
                 rec["shares"] = int(shares)
                 rec["position_value"] = float(round(position_value, 2))
-                rec["system_budget"] = float(round(budgets[name], 2))
-                rec["remaining_after"] = float(
-                    round(remaining[name] - position_value, 2)
-                )  # noqa: E501
+                # 採用直前の残余を system_budget に表示（見た目が減っていく）
+                rec["system_budget"] = float(round(remaining[name], 2))
+                rec["remaining_after"] = float(round(remaining[name] - position_value, 2))
                 chosen.append(rec)
                 chosen_symbols.add(sym)
                 remaining[name] -= position_value
@@ -1193,11 +1194,35 @@ def compute_today_signals(
         parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
         final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
 
+        # 各システムの最大ポジション上限=10 を厳格化
+        if not final_df.empty and "system" in final_df.columns:
+            final_df = (
+                final_df.sort_values(["system", "score"], ascending=[True, True])
+                .groupby("system", as_index=False, group_keys=False)
+                .head(int(get_settings(create_dirs=False).risk.max_positions))
+                .reset_index(drop=True)
+            )
+
     if not final_df.empty:
-        sort_cols = [c for c in ["side", "system", "score"] if c in final_df.columns]
-        final_df = final_df.sort_values(
-            sort_cols, ascending=[True, True, True][: len(sort_cols)]
-        ).reset_index(drop=True)
+        # 並びは side → system番号 → score（安定ソート）
+        tmp = final_df.copy()
+        if "system" in tmp.columns:
+            try:
+                tmp["_system_no"] = (
+                    tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
+                )
+            except Exception:
+                tmp["_system_no"] = 0
+        sort_cols = [c for c in ["side", "_system_no", "score"] if c in tmp.columns]
+        tmp = tmp.sort_values(sort_cols, kind="stable").drop(
+            columns=["_system_no"], errors="ignore"
+        )
+        final_df = tmp.reset_index(drop=True)
+        # 先頭に連番（1始まり）を付与
+        try:
+            final_df.insert(0, "no", range(1, len(final_df) + 1))
+        except Exception:
+            pass
         # system別の件数/金額サマリを出力
         try:
             if "position_value" in final_df.columns:
