@@ -123,6 +123,20 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
+def _filter_ui_logs(lines: list[str]) -> list[str]:
+    """Remove verbose log entries for the UI display."""
+    skip_keywords = (
+        "進捗",
+        "インジケーター計算",
+        "バッチ時間",
+        "batch time",
+        "候補抽出",
+        "候補日数",
+        "銘柄:",
+    )
+    return [ln for ln in lines if not any(k in ln for k in skip_keywords)]
+
+
 def _amount_pick(
     per_system: dict[str, pd.DataFrame],
     strategies: dict[str, object],
@@ -558,9 +572,12 @@ def compute_today_signals(
                     remain = max(0, total_syms - idx)
                     eta_sec = int(remain / rate) if rate > 0 else 0
                     m, s = divmod(eta_sec, 60)
-                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒")
+                    _log(
+                        f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒",
+                        ui=False,
+                    )
                 except Exception:
-                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms}")
+                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
@@ -697,9 +714,12 @@ def compute_today_signals(
                     remain = max(0, total_syms - idx)
                     eta_sec = int(remain / rate) if rate > 0 else 0
                     m, s = divmod(eta_sec, 60)
-                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒")
+                    _log(
+                        f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒",
+                        ui=False,
+                    )
                 except Exception:
-                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
@@ -717,6 +737,15 @@ def compute_today_signals(
             progress_callback(2, 8, "load_basic")
         except Exception:
             pass
+    # 共有指標の前計算（ATR/SMA/ADXなど）
+    try:
+        _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+        from common.indicators_precompute import precompute_shared_indicators
+
+        basic_data = precompute_shared_indicators(basic_data, log=_log)
+        _log("🧮 共有指標の前計算が完了")
+    except Exception as e:
+        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
     _log("🧪 事前フィルター実行中 (system1/system2)…")
     system1_syms = filter_system1(symbols, basic_data)
     system2_syms = filter_system2(symbols, basic_data)
@@ -849,7 +878,7 @@ def compute_today_signals(
                     _log(f"🧾 {msg}")
                     if log_callback:
                         try:
-                            for line in logs:
+                            for line in _filter_ui_logs(logs):
                                 log_callback(line)
                         except Exception:
                             pass
@@ -875,7 +904,7 @@ def compute_today_signals(
             _log(f"🧾 {msg}")
             if log_callback:
                 try:
-                    for line in logs:
+                    for line in _filter_ui_logs(logs):
                         log_callback(line)
                 except Exception:
                     pass
