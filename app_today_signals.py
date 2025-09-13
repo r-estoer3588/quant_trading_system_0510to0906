@@ -59,7 +59,6 @@ with st.sidebar:
     # テスト用10銘柄 or 全銘柄選択
     test_mode = st.checkbox("テスト用（10銘柄のみ）", value=False)
     syms = all_syms[:10] if test_mode else all_syms
-    test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
     # テスト用: 任意の件数で制限できるオプション（新）
     # 既存の test_mode より後に評価され、指定があればこちらで上書きします
     test_limit_on = st.checkbox("テスト用: 銘柄数を制限する", value=False)
