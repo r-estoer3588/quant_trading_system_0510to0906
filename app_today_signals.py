@@ -36,7 +36,6 @@ except Exception:
 
 from common import broker_alpaca as ba
 from common import universe as univ
-from common.data_loader import load_price
 from common.notifier import create_notifier
 from common.alpaca_order import submit_orders_df
 from common.profit_protection import evaluate_positions
@@ -57,6 +56,16 @@ def _get_today_logger() -> logging.Logger:
     """
     logger = logging.getLogger("today_signals")
     logger.setLevel(logging.INFO)
+    # ルートロガーへの伝播を止める（重複防止）
+    try:
+        logger.propagate = False
+    except Exception:
+        pass
+    # ルートロガーへの伝播を止め、コンソール二重出力を防止
+    try:
+        logger.propagate = False
+    except Exception:
+        pass
     try:
         log_dir = Path(settings.LOGS_DIR)
     except Exception:
@@ -317,44 +326,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             pass
 
-    # 必要な日数分だけデータをロードする関数例
-    def load_minimal_history(symbol: str, days: int) -> pd.DataFrame:
-        # 指標ごとに必要な日数（＋10%余裕）を明示リストで定義
-        indicator_days = {
-            "SMA25": int(25 * 1.1),
-            "SMA50": int(50 * 1.1),
-            "SMA100": int(100 * 1.1),
-            "SMA150": int(150 * 1.1),
-            "SMA200": int(200 * 1.1),
-            "ATR3": int(50 * 1.1),  # 3ATRは最大50日分必要と仮定
-            "ATR1.5": int(40 * 1.1),
-            "ATR1": int(10 * 1.1),
-            "ATR2.5": int(10 * 1.1),
-            "ATR": int(50 * 1.1),  # 最大50日分
-            "ADX7": int(7 * 1.1),
-            "ADX7_High": int(7 * 1.1),
-            "RETURN6": int(6 * 1.1),
-            "Return6D": int(6 * 1.1),
-            "return_pct": int(200 * 1.1),  # 総リターンは最大200日分
-            "Drop3D": int(3 * 1.1),
-        }
-        # 最大必要日数を算出
-        max_days = max(indicator_days.values())
-        # 銘柄ごとのヒストリカルCSVを最大必要日数分だけロード
-        try:
-            df = load_price(symbol, cache_profile="rolling")
-            data = df.tail(max_days)
-        except Exception:
-            data = pd.DataFrame()
-        return data
-
     # ボタン押下直後の開始ログをUIにも出力（ファイルにも出力されます）
     _ui_log("▶ 本日のシグナル: シグナル検出処理開始")
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
-        # 必要な日数分だけデータをロードして渡す（例: dictで渡す）
-        symbol_data = {sym: load_minimal_history(sym, max_days) for sym in syms}
         final_df, per_system = compute_today_signals(
             syms,
             capital_long=float(st.session_state["today_cap_long"]),
@@ -362,7 +338,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             save_csv=save_csv,
             log_callback=_ui_log,
             progress_callback=_ui_progress,
-            symbol_data=symbol_data,  # 追加: 必要日数分だけのデータ
+            # 事前ロードは行わず、内部ローダに任せる
+            parallel=bool(run_parallel),
         )
 
     # DataFrameのインデックスをリセットしてf1などの疑似インデックスを排除

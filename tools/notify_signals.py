@@ -63,13 +63,20 @@ def _send_via_notifier(symbols: list[str]) -> None:
             try:
                 img_path, img_url = save_price_chart(sym)
                 if img_path:
-                    n.send_with_mention(
-                        f"📈 {sym} 日足チャート",
-                        "",
-                        image_url=img_url,
-                        mention=False,
-                        image_path=img_path,
-                    )
+                    # BroadcastNotifier には send_with_mention が存在しない場合があるためフォールバックする
+                    send_with_mention = getattr(n, "send_with_mention", None)
+                    if callable(send_with_mention):
+                        send_with_mention(
+                            f"📈 {sym} 日足チャート",
+                            "",
+                            image_url=img_url,
+                            mention=False,
+                            image_path=img_path,
+                        )
+                    else:
+                        # 画像アップロード非対応の場合は URL を含む簡易メッセージで通知する
+                        msg_symbols = [f"{sym} {img_url}" if img_url else sym]
+                        n.send_signals("charts", msg_symbols)
             except Exception:
                 logging.exception("failed to send chart for %s", sym)
     except Exception:

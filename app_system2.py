@@ -48,6 +48,14 @@ def display_adx7_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+
+    # 型整合のため、戻り値を無視して None を返すラッパーを用意
+    def _log_write(msg: str) -> None:
+        log_area.write(msg)
+
+    def _update_progress(v: float) -> None:
+        progress.progress(v)
+
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
@@ -62,12 +70,13 @@ def display_adx7_ranking(
             total,
             start,
             prefix="ADX7ランキング",
-            log_func=log_area.write,
-            progress_func=progress.progress,
+            log_func=_log_write,
+            progress_func=_update_progress,
             unit=tr("days"),
         )
     progress.empty()
     log_area.write(tr("ADX7ランキング完了"))
+    # 構文エラー修正: 誤ったトークン 'area.progress.' を削除
     df = pd.DataFrame(rows)
     df["Date"] = pd.to_datetime(df["Date"])  # type: ignore[arg-type]
 
@@ -101,9 +110,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         )
     )
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -155,9 +162,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -202,9 +207,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = (
-                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
-                )
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

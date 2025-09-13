@@ -46,6 +46,17 @@ def display_rsi4_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+    # progress コールバック（float 0.0〜1.0 を 0〜100 に変換して None を返す）
+    def _progress_update(v: float) -> None:
+        try:
+            v = float(v)
+        except Exception:
+            v = 0.0
+        v = max(0.0, min(1.0, v))
+        progress.progress(int(round(v * 100)))
+    # log コールバック（DeltaGenerator を返さず None を返す）
+    def _log_update(msg: str) -> None:
+        log_area.write(msg)
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
@@ -60,8 +71,8 @@ def display_rsi4_ranking(
             total,
             start,
             prefix="RSI4ランキング",
-            log_func=log_area.write,
-            progress_func=progress.progress,
+            log_func=_log_update,
+            progress_func=_progress_update,
             unit=tr("days"),
         )
     progress.empty()

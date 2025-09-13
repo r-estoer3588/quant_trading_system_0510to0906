@@ -47,6 +47,13 @@ def display_adx_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+    # Streamlit の progress/write は DeltaGenerator を返すため、型の整合性を保つコールバックでラップ
+    def _progress_cb(v: float) -> None:
+        progress.progress(v)
+
+    def _log_cb(msg: str) -> None:
+        log_area.write(msg)
+
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
@@ -61,8 +68,8 @@ def display_adx_ranking(
             total,
             start,
             prefix="ADX7ランキング",
-            log_func=log_area.write,
-            progress_func=progress.progress,
+            log_func=_log_cb,
+            progress_func=_progress_cb,
             unit=tr("days"),
         )
     progress.empty()

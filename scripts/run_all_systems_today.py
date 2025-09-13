@@ -38,6 +38,16 @@ def _get_today_logger() -> logging.Logger:
     """
     logger = logging.getLogger("today_signals")
     logger.setLevel(logging.INFO)
+    # ルートロガーへの伝播を止めて重複出力を防止
+    try:
+        logger.propagate = False
+    except Exception:
+        pass
+    # ルートロガーへの伝播を止め、コンソール二重出力を防止
+    try:
+        logger.propagate = False
+    except Exception:
+        pass
     try:
         # settings が未初期化でも安全に取得できるようにラップ
         settings = get_settings(create_dirs=True)
@@ -604,18 +614,54 @@ def compute_today_signals(
                     remain = max(0, total_syms - idx)
                     eta_sec = int(remain / rate) if rate > 0 else 0
                     m, s = divmod(eta_sec, 60)
-                    _log(
-                        f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒",
-                        ui=False,
-                    )
+                    msg = f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
+                    _log(msg, ui=False)
+                    # UIにも見えるよう適度に流す
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(msg)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 except Exception:
                     _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(f"📦 基礎データロード進捗: {idx}/{total_syms}")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
-            _log(f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒")
+            done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            _log(done_msg)
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(done_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         return data
 
     def filter_system1(symbols, data):
@@ -746,18 +792,53 @@ def compute_today_signals(
                     remain = max(0, total_syms - idx)
                     eta_sec = int(remain / rate) if rate > 0 else 0
                     m, s = divmod(eta_sec, 60)
-                    _log(
-                        f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒",
-                        ui=False,
-                    )
+                    msg = f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
+                    _log(msg, ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(msg)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 except Exception:
                     _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
-            _log(f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒")
+            done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            _log(done_msg)
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(done_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         return data
 
     # 実行スコープで変数定義
@@ -850,10 +931,21 @@ def compute_today_signals(
 
         def _local_log(message: str) -> None:
             logs.append(str(message))
+            # UI コールバックがあれば即時にUIへ転送。無ければCLIへ印字。
             try:
-                print(message, flush=True)
+                cb = globals().get("_LOG_CALLBACK")
             except Exception:
-                pass
+                cb = None
+            if cb and callable(cb):
+                try:
+                    cb(str(message))
+                except Exception:
+                    pass
+            else:
+                try:
+                    print(message, flush=True)
+                except Exception:
+                    pass
 
         if name == "system1":
             base = raw_data_system1 if "raw_data_system1" in locals() else {}
@@ -924,12 +1016,6 @@ def compute_today_signals(
                     per_system[name] = df
                     msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
                     _log(f"🧾 {msg_prev}")
-                    if log_callback:
-                        try:
-                            for line in _filter_ui_logs(logs):
-                                log_callback(line)
-                        except Exception:
-                            pass
                     if progress_callback:
                         try:
                             progress_callback(5 + min(_idx, 1), 8, name)
@@ -951,12 +1037,6 @@ def compute_today_signals(
             per_system[name] = df
             msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
             _log(f"🧾 {msg_prev}")
-            if log_callback:
-                try:
-                    for line in _filter_ui_logs(logs):
-                        log_callback(line)
-                except Exception:
-                    pass
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")

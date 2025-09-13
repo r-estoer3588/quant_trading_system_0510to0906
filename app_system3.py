@@ -46,6 +46,11 @@ def display_drop3d_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+
+    # st.progress の戻り値は DeltaGenerator なので、None を返すコールバックにラップする
+    def _progress_update(v: float) -> None:
+        progress.progress(float(v))
+
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
@@ -61,7 +66,7 @@ def display_drop3d_ranking(
             start,
             prefix="3日下落率ランキング",
             log_func=log_area.write,
-            progress_func=progress.progress,
+            progress_func=_progress_update,
             unit=tr("days"),
         )
     progress.empty()
@@ -97,9 +102,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         )
     )
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -150,11 +153,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"]))
-                .min()
-                * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -199,9 +198,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = (
-                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
-                )
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

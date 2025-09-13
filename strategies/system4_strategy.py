@@ -153,7 +153,8 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}
         for sym, df in raw_data_dict.items():
-            x = df.copy()
+            # テスト用の軽量処理では浅いコピーで十分
+            x = df.copy(deep=False)
             x["SMA200"] = x["Close"].rolling(200).mean()
             out[sym] = x
         return out

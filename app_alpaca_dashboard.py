@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -81,7 +82,7 @@ def _inject_css() -> None:
     )
 
 
-def _fmt_money(x: object, prefix: str = "$") -> str:
+def _fmt_money(x: float | int | str | None, prefix: str = "$") -> str:
     try:
         v = float(x) if x is not None else 0.0
         if abs(v) >= 1000:
@@ -91,20 +92,20 @@ def _fmt_money(x: object, prefix: str = "$") -> str:
         return str(x)
 
 
-def _fmt_number(x: object) -> str:
+def _fmt_number(x: float | int | str | None) -> str:
     try:
-        v = float(x)
+        v = float(x) if x is not None else 0.0
         if abs(v) >= 1000:
             return f"{v:,.0f}"
         return f"{v:,.2f}"
     except Exception:
         return str(x)
 
-
-def _fetch_account_and_positions() -> tuple[object, object, object]:
+def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
     client = ba.get_client()
     account = client.get_account()
-    positions = client.get_all_positions()
+    positions = list(client.get_all_positions())
+    return client, account, positions
     return client, account, positions
 
 
@@ -199,7 +200,10 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         try:
             # ポジション数が多いときは点数を抑えて軽量化
             n_points = 20 if len(df) > 15 else 45
-            df["価格ミニ"] = [(_load_recent_prices(sym, max_points=n_points) or []) for sym in df["銘柄"].astype(str)]
+            df["価格ミニ"] = [
+                (_load_recent_prices(sym, max_points=n_points) or [])
+                for sym in df["銘柄"].astype(str)
+            ]
         except Exception:
             pass
     return df
@@ -230,7 +234,10 @@ def main() -> None:
     _inject_css()
 
     # タイトル＋ツールバー（右端に 手動更新 と 最終更新 を横並び）
-    st.markdown("<div class='ap-title'>Alpaca <span class='accent'>現在状況</span></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='ap-title'>Alpaca <span class='accent'>現在状況</span></div>",
+        unsafe_allow_html=True,
+    )
     st.markdown("<div class='ap-toolbar ap-fade'>", unsafe_allow_html=True)
     spacer, right = st.columns([7, 3])
     with right:
@@ -303,7 +310,10 @@ def main() -> None:
             flags.append(("正常", "good"))
     except Exception:
         pass
-    st.markdown(" ".join([f"<span class='ap-badge {k}'>{t}</span>" for t, k in flags]), unsafe_allow_html=True)
+    st.markdown(
+        " ".join([f"<span class='ap-badge {k}'>{t}</span>" for t, k in flags]),
+        unsafe_allow_html=True,
+    )
 
     # タブ
     tab_summary, tab_pos, tab_alloc = st.tabs(["サマリー", "ポジション", "配分グラフ"])
@@ -322,6 +332,7 @@ def main() -> None:
 
             # 派生列: 損益率(%)
             try:
+
                 def _pnl_ratio(r):
                     try:
                         p = float(r.get("現在値", 0))
@@ -329,12 +340,15 @@ def main() -> None:
                         return (p / a - 1) * 100 if a else 0.0
                     except Exception:
                         return 0.0
+
                 pos_df["損益率(%)"] = pos_df.apply(_pnl_ratio, axis=1)
             except Exception:
                 pass
 
             # 並び替え
-            sort_key = st.selectbox("並び替え", ["含み損益", "損益率(%)", "保有日数", "銘柄"], index=0, key="pos_sort")
+            sort_key = st.selectbox(
+                "並び替え", ["含み損益", "損益率(%)", "保有日数", "銘柄"], index=0, key="pos_sort"
+            )
             ascending = st.toggle("昇順", value=False, key="pos_asc")
             try:
                 pos_df = pos_df.sort_values(sort_key, ascending=ascending)
@@ -347,7 +361,11 @@ def main() -> None:
                     pl = float(row.get("含み損益", 0))
                 except Exception:
                     pl = 0.0
-                bg = "rgba(0,230,168,.14)" if pl > 0 else ("rgba(255,107,107,.14)" if pl < 0 else "transparent")
+                bg = (
+                    "rgba(0,230,168,.14)"
+                    if pl > 0
+                    else ("rgba(255,107,107,.14)" if pl < 0 else "transparent")
+                )
                 return [f"background-color: {bg}"] * len(row)
 
             styler = pos_df.style.apply(_row_style, axis=1)
@@ -363,7 +381,9 @@ def main() -> None:
                         "平均取得単価": st.column_config.NumberColumn(format=",.2f"),
                         "現在値": st.column_config.NumberColumn(format=",.2f"),
                         "含み損益": st.column_config.NumberColumn(format=",.2f"),
-                        "損益率(%)": st.column_config.ProgressColumn(min_value=-20, max_value=20, format="%.1f%%"),
+                        "損益率(%)": st.column_config.ProgressColumn(
+                            min_value=-20, max_value=20, format="%.1f%%"
+                        ),
                         "価格ミニ": st.column_config.LineChartColumn(width="small"),
                     },
                 )
@@ -385,11 +405,15 @@ def main() -> None:
             total_positions = 0
         s1, s2, s3 = st.columns(3)
         with s1:
-            st.markdown(_metric_html("保有銘柄数", _fmt_number(total_positions)), unsafe_allow_html=True)
+            st.markdown(
+                _metric_html("保有銘柄数", _fmt_number(total_positions)), unsafe_allow_html=True
+            )
         with s2:
             try:
                 long_bp_ratio = min(max(float(buying_power) / float(equity), 0.0), 1.0)
-                st.markdown(_metric_html("余力比率", f"{long_bp_ratio*100:.1f}%"), unsafe_allow_html=True)
+                st.markdown(
+                    _metric_html("余力比率", f"{long_bp_ratio*100:.1f}%"), unsafe_allow_html=True
+                )
             except Exception:
                 st.markdown(_metric_html("余力比率", "-"), unsafe_allow_html=True)
         with s3:
@@ -400,11 +424,27 @@ def main() -> None:
 
         # 統計チップ
         try:
-            winners = int((pos_df["損益率(%)"] > 0).sum()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0
-            losers = int((pos_df["損益率(%)"] <= 0).sum()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0
-            avg_ret = float(pos_df["損益率(%)"].mean()) if "pos_df" in locals() and "損益率(%)" in pos_df.columns else 0.0
+            winners = (
+                int((pos_df["損益率(%)"] > 0).sum())
+                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
+                else 0
+            )
+            losers = (
+                int((pos_df["損益率(%)"] <= 0).sum())
+                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
+                else 0
+            )
+            avg_ret = (
+                float(pos_df["損益率(%)"].mean())
+                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
+                else 0.0
+            )
             try:
-                pl_series = pos_df["含み損益"].astype(float) if "含み損益" in pos_df.columns else pd.Series(dtype=float)
+                pl_series = (
+                    pos_df["含み損益"].astype(float)
+                    if "含み損益" in pos_df.columns
+                    else pd.Series(dtype=float)
+                )
                 max_pl = float(pl_series.max()) if not pl_series.empty else 0.0
                 sum_pl = float(pl_series.sum()) if not pl_series.empty else 0.0
                 med_pl = float(pl_series.median()) if not pl_series.empty else 0.0
@@ -418,7 +458,9 @@ def main() -> None:
                 f"<div class='ap-badge stat'>合計含み損益: {_fmt_money(sum_pl)}</div>",
                 f"<div class='ap-badge stat'>含み損益中央値: {_fmt_money(med_pl)}</div>",
             ]
-            st.markdown("<div class='ap-badges'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div class='ap-badges'>" + "".join(chips) + "</div>", unsafe_allow_html=True
+            )
         except Exception:
             pass
 
@@ -443,7 +485,15 @@ def main() -> None:
                             st.caption(f"{system} の配分")
                             fig, ax = plt.subplots()
                             try:
-                                ax.pie(g["評価額"], labels=g["銘柄"], autopct="%1.1f%%", textprops={"color": "#ffffff"})
+                                # Matplotlib の型定義に合わせて明示的に list へ変換
+                                values = g["評価額"].astype(float).tolist()
+                                labels = g["銘柄"].astype(str).tolist()
+                                ax.pie(
+                                    values,
+                                    labels=labels,
+                                    autopct="%1.1f%%",
+                                    textprops={"color": "#ffffff"},
+                                )
                                 ax.set_aspect("equal")
                                 st.pyplot(fig)
                             finally:
@@ -457,4 +507,3 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover - UI entry point
     main()
-

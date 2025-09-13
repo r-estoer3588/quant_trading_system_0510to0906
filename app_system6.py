@@ -45,6 +45,8 @@ def display_return6d_ranking(
     total = len(candidates_by_date)
     progress = st.progress(0)
     log_area = st.empty()
+    def _progress_update(v: float) -> None:
+        progress.progress(v)
     start = time.time()
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
@@ -59,9 +61,7 @@ def display_return6d_ranking(
             i,
             total,
             start,
-            prefix="Return6Dランキング",
-            log_func=log_area.write,
-            progress_func=progress.progress,
+            progress_func=_progress_update,
             unit=tr("days"),
         )
     progress.empty()

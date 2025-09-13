@@ -19,7 +19,8 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
-    x = df.copy()
+    # メモリ節約のため浅いコピーに変更（新規列の追加は元データに影響しない）
+    x = df.copy(deep=False)
     if len(x) < 200:
         return symbol, None
     try:
@@ -121,7 +122,8 @@ def prepare_data_vectorized_system4(
     buffer: list[str] = []
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        x = src.copy()
+        # 不要なブロック統合を避けるため浅いコピー
+        x = src.copy(deep=False)
         if len(x) < 200:
             raise ValueError("insufficient rows")
         x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
@@ -138,10 +140,11 @@ def prepare_data_vectorized_system4(
 
     for sym, df in raw_data_dict.items():
         if "Date" in df.columns:
-            df = df.copy()
+            # インデックス正規化前の浅いコピー（index 再割当は元 df に影響しない）
+            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
         else:
-            df = df.copy()
+            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
@@ -251,13 +254,15 @@ def generate_candidates_system4(
     processed, skipped = 0, 0
     buffer: list[str] = []
 
-    spy_df = market_df.copy()
+    # 浅いコピーで十分（新規列追加のみ）
+    spy_df = market_df.copy(deep=False)
     spy_df["SMA200"] = SMAIndicator(spy_df["Close"], window=200).sma_indicator()
     spy_df["spy_filter"] = (spy_df["Close"] > spy_df["SMA200"]).astype(int)
 
     for sym, df in prepared_dict.items():
         try:
-            x = df.copy()
+            # メモリ節約のため浅いコピー
+            x = df.copy(deep=False)
             cond_dv = x["DollarVolume50"] > 100_000_000
             cond_hv = x["HV50"].between(10, 40)
             x["filter"] = cond_dv & cond_hv
