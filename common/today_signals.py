@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import pandas as pd
 
@@ -63,9 +63,15 @@ def _score_from_candidate(
     for keys, asc in key_order:
         for k in keys:
             if k in candidate:
-                try:
-                    return k, float(candidate.get(k)), asc
-                except Exception:
+                v = candidate.get(k)
+                if v is None:
+                    return k, None, asc
+                if isinstance(v, (int, float, str)):
+                    try:
+                        return k, float(v), asc
+                    except Exception:
+                        return k, None, asc
+                else:
                     return k, None, asc
     # 見つからない場合
     return None, None, False
@@ -82,7 +88,9 @@ def _compute_entry_stop(
     strategy, df: pd.DataFrame, candidate: dict, side: str
 ) -> Optional[Tuple[float, float]]:
     # strategy 独自の compute_entry があれば優先
-    if hasattr(strategy, "compute_entry") and callable(getattr(strategy, "compute_entry")):
+    if hasattr(strategy, "compute_entry") and callable(
+        getattr(strategy, "compute_entry")
+    ):
         try:
             res = strategy.compute_entry(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
@@ -96,7 +104,12 @@ def _compute_entry_stop(
 
     # フォールバック: 当日始値 ± 3*ATR
     try:
-        entry_idx = df.index.get_loc(candidate["entry_date"])  # type: ignore[index]
+        entry_ts = pd.Timestamp(candidate["entry_date"])
+    except Exception:
+        return None
+    try:
+        idxer = df.index.get_indexer([entry_ts])
+        entry_idx = int(idxer[0]) if len(idxer) else -1
     except Exception:
         return None
     if entry_idx <= 0 or entry_idx >= len(df):
@@ -161,7 +174,13 @@ def get_today_signals_for_strategy(
     # 簡易フィルター通過件数（列がある場合のみカウント）
     try:
         filter_pass = sum(
-            int(bool(getattr(df, "empty", True) is False and "filter" in df.columns and bool(pd.Series(df["filter"]).tail(1).iloc[0])))
+            int(
+                bool(
+                    getattr(df, "empty", True) is False
+                    and "filter" in df.columns
+                    and bool(pd.Series(df["filter"]).tail(1).iloc[0])
+                )
+            )
             for df in prepared.values()
         )
     except Exception:
@@ -207,7 +226,9 @@ def get_today_signals_for_strategy(
         setup_pass = 0
     # トレード候補全体件数
     try:
-        total_candidates = sum(len(v or []) for v in (candidates_by_date or {}).values())
+        total_candidates = sum(
+            len(v or []) for v in (candidates_by_date or {}).values()
+        )
     except Exception:
         total_candidates = 0
     if log_callback:
@@ -263,40 +284,72 @@ def get_today_signals_for_strategy(
         # build human-readable reason（score のフォールバック補完を実施）
         reason_parts: List[str] = []
         # 欠損・NaN の場合は prepared 側から採取（同一シグナル日の値）
-        if skey is not None and (sval is None or (isinstance(sval, float) and pd.isna(sval))):
+        if skey is not None and (
+            sval is None or (isinstance(sval, float) and pd.isna(sval))
+        ):
             try:
                 # signal day は entry_date の前営業日
-                signal_date = pd.Timestamp(c.get("Date", None))
-                if signal_date is None or pd.isna(signal_date):
-                    signal_date = pd.Timestamp(c.get("entry_date")).normalize() - pd.Timedelta(days=1)
-                if "Date" in df.columns:
-                    row = df[pd.to_datetime(df["Date"]).dt.normalize() == pd.to_datetime(signal_date).normalize()]
-                else:
-                    row = df[pd.to_datetime(df.index).normalize() == pd.to_datetime(signal_date).normalize()]
-                if not row.empty and skey in row.columns:
-                    _v = row.iloc[0][skey]
-                    if _v is not None and not pd.isna(_v):
-                        sval = float(_v)
+                date_val = c.get("Date", None)
+                signal_date_ts: Optional[pd.Timestamp] = None
+                if date_val is not None:
+                    tmp = pd.to_datetime(cast(Any, date_val), errors="coerce")
+                    if not pd.isna(tmp):
+                        signal_date_ts = pd.Timestamp(tmp).normalize()
+                if signal_date_ts is None:
+                    entry_val = c.get("entry_date", None)
+                    if entry_val is not None:
+                        tmp2 = pd.to_datetime(cast(Any, entry_val), errors="coerce")
+                        if not pd.isna(tmp2):
+                            signal_date_ts = pd.Timestamp(
+                                tmp2
+                            ).normalize() - pd.Timedelta(days=1)
+                if signal_date_ts is not None:
+                    if "Date" in df.columns:
+                        row = df[
+                            pd.to_datetime(df["Date"]).dt.normalize() == signal_date_ts
+                        ]
+                    else:
+                        row = df[pd.to_datetime(df.index).normalize() == signal_date_ts]
+                    if not row.empty and skey in row.columns:
+                        _v = row.iloc[0][skey]
+                        if _v is not None and not pd.isna(_v):
+                            sval = float(_v)
             except Exception:
                 pass
 
         if skey is not None:
             # 一旦数値を整形
             try:
-                sval_disp = f"{float(sval):.2f}" if sval is not None and not pd.isna(sval) else "nan"
+                sval_disp = (
+                    f"{float(sval):.2f}"
+                    if sval is not None and not pd.isna(sval)
+                    else "nan"
+                )
             except Exception:
                 sval_disp = str(sval)
             reason_parts.append(f"{skey}={sval_disp}")
             # 同一エントリー日における順位（上位10位なら自然文表記に）
             try:
-                entry_date_norm = pd.Timestamp(c.get("entry_date")).normalize()
+                # c["entry_date"] が None の可能性に対応し安全に正規化
+                entry_dt_raw = c.get("entry_date", None)
+                if entry_dt_raw is None:
+                    raise ValueError("invalid entry_date")
+                entry_dt = pd.to_datetime(cast(Any, entry_dt_raw), errors="coerce")
+                if not isinstance(entry_dt, pd.Timestamp) or pd.isna(entry_dt):
+                    raise ValueError("invalid entry_date")
+                entry_date_norm = entry_dt.normalize()
                 vals: List[float] = []
                 for psym, pdf in prepared.items():
                     try:
                         if "Date" in pdf.columns:
-                            row = pdf[pd.to_datetime(pdf["Date"]).dt.normalize() == entry_date_norm]
+                            row = pdf[
+                                pd.to_datetime(pdf["Date"]).dt.normalize()
+                                == entry_date_norm
+                            ]
                         else:
-                            row = pdf[pd.to_datetime(pdf.index).normalize() == entry_date_norm]
+                            row = pdf[
+                                pd.to_datetime(pdf.index).normalize() == entry_date_norm
+                            ]
                         if not row.empty and skey in row.columns:
                             v = row.iloc[0][skey]
                             if v is not None and not pd.isna(v):
@@ -331,7 +384,9 @@ def get_today_signals_for_strategy(
             # include keys present in candidate for debugging
             try:
                 keys = ", ".join(
-                    f"{k}:{v}" for k, v in c.items() if k not in {"symbol", "entry_date"}
+                    f"{k}:{v}"
+                    for k, v in c.items()
+                    if k not in {"symbol", "entry_date"}
                 )
                 reason_parts.append(keys[:500])
             except Exception:

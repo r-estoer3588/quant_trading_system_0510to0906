@@ -21,11 +21,13 @@ try:
                     cnt = 1
                 st.session_state[count_key] = cnt
                 kwargs["key"] = f"{base}_{cnt}"
-            return st._orig_checkbox(
+            # _orig_checkbox は動的に追加した属性のため、直接参照せず getattr で取得して型チェックエラーを回避
+            orig_cb = getattr(st, "_orig_checkbox", st.checkbox)
+            return orig_cb(
                 label,
                 *args,
                 **kwargs,
-            )  # type: ignore[attr-defined]
+            )
 
         st.checkbox = _unique_checkbox  # type: ignore[attr-defined]
 except Exception:
