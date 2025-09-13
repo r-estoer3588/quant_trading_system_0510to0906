@@ -54,9 +54,9 @@ def _get_today_logger() -> logging.Logger:
     has_handler = False
     for h in list(logger.handlers):
         try:
-            if isinstance(h, logging.FileHandler) and getattr(
-                h, "baseFilename", ""
-            ) == str(log_path):
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
+                log_path
+            ):
                 has_handler = True
                 break
         except Exception:
@@ -64,9 +64,7 @@ def _get_today_logger() -> logging.Logger:
     if not has_handler:
         try:
             fh = logging.FileHandler(log_path, encoding="utf-8")
-            fmt = logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
-            )
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
             fh.setFormatter(fmt)
             logger.addHandler(fh)
         except Exception:
@@ -809,16 +807,14 @@ def compute_today_signals(
     raw_data_system1 = {
         s: basic_data.get(s)
         for s in (system1_syms or [])
-        if basic_data.get(s) is not None
-        and not basic_data.get(s).empty  # type: ignore[union-attr]
+        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
     }
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
     _log("🧮 指標計算用データロード中 (system2)…")
     raw_data_system2 = {
         s: basic_data.get(s)
         for s in (system2_syms or [])
-        if basic_data.get(s) is not None
-        and not basic_data.get(s).empty  # type: ignore[union-attr]
+        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
     }
     _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
     if progress_callback:
@@ -968,9 +964,7 @@ def compute_today_signals(
                 pass
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
-    def _normalize_alloc(
-        d: dict[str, float], default_map: dict[str, float]
-    ) -> dict[str, float]:
+    def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
         try:
             filtered = {k: float(v) for k, v in d.items() if float(v) > 0}
             s = sum(filtered.values())
@@ -1061,16 +1055,8 @@ def compute_today_signals(
         _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
         _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
 
-        _cl = (
-            None
-            if (capital_long is None or float(capital_long) <= 0)
-            else float(capital_long)
-        )
-        _cs = (
-            None
-            if (capital_short is None or float(capital_short) <= 0)
-            else float(capital_short)
-        )
+        _cl = None if (capital_long is None or float(capital_long) <= 0) else float(capital_long)
+        _cs = None if (capital_short is None or float(capital_short) <= 0) else float(capital_short)
 
         if _cl is None and _cs is None:
             total = _default_cap
@@ -1093,6 +1079,23 @@ def compute_today_signals(
 
         strategies_map = {k: v for k, v in strategies.items()}
         _log(f"💰 金額配分: long=${capital_long}, short=${capital_short}")
+        # 参考: システム別の予算内訳を出力
+        try:
+            long_budgets = {
+                k: float(capital_long) * float(long_alloc.get(k, 0.0)) for k in long_alloc
+            }
+            short_budgets = {
+                k: float(capital_short) * float(short_alloc.get(k, 0.0)) for k in short_alloc
+            }
+            _log(
+                "📊 long予算内訳: " + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
+            )
+            _log(
+                "📊 short予算内訳: "
+                + ", ".join([f"{k}=${v:,.0f}" for k, v in short_budgets.items()])
+            )
+        except Exception:
+            pass
         long_df = _amount_pick(
             {k: per_system.get(k, pd.DataFrame()) for k in long_alloc},
             strategies_map,
@@ -1115,6 +1118,22 @@ def compute_today_signals(
         final_df = final_df.sort_values(
             sort_cols, ascending=[True, True, True][: len(sort_cols)]
         ).reset_index(drop=True)
+        # system別の件数/金額サマリを出力
+        try:
+            if "position_value" in final_df.columns:
+                grp = (
+                    final_df.groupby("system")["position_value"].agg(["count", "sum"]).reset_index()
+                )
+                parts = [
+                    f"{r['system']}: {int(r['count'])}件 / ${float(r['sum']):,.0f}"
+                    for _, r in grp.iterrows()
+                ]
+                _log("🧾 system別サマリ: " + ", ".join(parts))
+            else:
+                grp = final_df.groupby("system").size().to_dict()
+                _log("🧾 system別サマリ: " + ", ".join([f"{k}: {v}件" for k, v in grp.items()]))
+        except Exception:
+            pass
         _log(f"📊 最終候補件数: {len(final_df)}")
     else:
         _log("📭 最終候補は0件でした")

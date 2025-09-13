@@ -172,18 +172,32 @@ def get_today_signals_for_strategy(
         progress_callback=progress_callback,
         log_callback=log_callback,
     )
-    # 簡易フィルター通過件数（列がある場合のみカウント）
+    # フィルター通過件数（前営業日を優先。無い場合は最終行）。
     try:
-        filter_pass = sum(
-            int(
-                bool(
-                    getattr(df, "empty", True) is False
-                    and "filter" in df.columns
-                    and bool(pd.Series(df["filter"]).tail(1).iloc[0])
-                )
-            )
-            for df in prepared.values()
-        )
+        # 前営業日（当日エントリーのシグナルは前日の終値で判定）
+        prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+
+        def _last_filter_on_date(x: pd.DataFrame) -> bool:
+            try:
+                if getattr(x, "empty", True) or "filter" not in x.columns:
+                    return False
+                # Date列があれば優先、無ければindexで比較
+                if "Date" in x.columns:
+                    dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                    sel = x.loc[dt == prev_day, "filter"]
+                else:
+                    idx = pd.to_datetime(x.index, errors="coerce").normalize()
+                    sel = x.loc[idx == prev_day, "filter"]
+                if len(sel) > 0:
+                    v = sel.iloc[-1]
+                    return bool(False if pd.isna(v) else bool(v))
+                # フォールバック: 最終行
+                v = pd.Series(x["filter"]).tail(1).iloc[0]
+                return bool(False if pd.isna(v) else bool(v))
+            except Exception:
+                return False
+
+        filter_pass = sum(int(_last_filter_on_date(df)) for df in prepared.values())
     except Exception:
         filter_pass = 0
     if log_callback:
@@ -214,29 +228,51 @@ def get_today_signals_for_strategy(
             log_callback=log_callback,
         )
 
-    # セットアップ通過件数（列がある場合のみカウント）
+    # セットアップ通過件数（前営業日を優先。無ければ最終行）
     try:
-        setup_pass = sum(
-            1
-            for df in prepared.values()
-            if getattr(df, "empty", True) is False
-            and "setup" in df.columns
-            and bool(pd.Series(df["setup"]).tail(1).iloc[0])
-        )
+        prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+
+        def _last_setup_on_date(x: pd.DataFrame) -> bool:
+            try:
+                if getattr(x, "empty", True) or "setup" not in x.columns:
+                    return False
+                if "Date" in x.columns:
+                    dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                    sel = x.loc[dt == prev_day, "setup"]
+                else:
+                    idx = pd.to_datetime(x.index, errors="coerce").normalize()
+                    sel = x.loc[idx == prev_day, "setup"]
+                if len(sel) > 0:
+                    v = sel.iloc[-1]
+                    return bool(False if pd.isna(v) else bool(v))
+                v = pd.Series(x["setup"]).tail(1).iloc[0]
+                return bool(False if pd.isna(v) else bool(v))
+            except Exception:
+                return False
+
+        setup_pass = sum(int(_last_setup_on_date(df)) for df in prepared.values())
     except Exception:
         setup_pass = 0
-    # トレード候補全体件数
+    # トレード候補件数（全期間と当日）
     try:
         total_candidates = sum(
             len(v or []) for v in (candidates_by_date or {}).values()
         )
     except Exception:
         total_candidates = 0
+    try:
+        total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
+    except Exception:
+        total_candidates_today = 0
     if log_callback:
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
-            log_callback(f"🧮 トレード候補選定完了：{total_candidates} 銘柄")
+            # 当日件数を明示。参考として全期間合計も併記。
+            log_callback(
+                f"🧮 トレード候補選定完了（当日）：{total_candidates_today} 銘柄"
+                + (f"（全期間合計 {total_candidates} 件）" if total_candidates else "")
+            )
         except Exception:
             pass
 
@@ -286,6 +322,15 @@ def get_today_signals_for_strategy(
         entry, stop = comp
         skey, sval, _asc = _score_from_candidate(system_name, c)
 
+        # System1 は ROC200 を必ずスコアに採用できるよう堅牢化
+        try:
+            if (system_name == "system1") and (
+                skey is None or str(skey).upper() != "ROC200"
+            ):
+                skey = "ROC200"
+        except Exception:
+            pass
+
         # signal 日（通常は entry_date の前営業日を想定）
         signal_date_ts: Optional[pd.Timestamp] = None
         try:
@@ -328,6 +373,16 @@ def get_today_signals_for_strategy(
                             _v = row.iloc[0][skey]
                             if _v is not None and not pd.isna(_v):
                                 sval = float(_v)
+                except Exception:
+                    pass
+            # System1 用のフォールバック（前日が見つからない場合は直近値）
+            if (system_name == "system1") and (
+                sval is None or (isinstance(sval, float) and pd.isna(sval))
+            ):
+                try:
+                    if skey in prepared[sym].columns:
+                        _v = pd.Series(prepared[sym][skey]).dropna().tail(1).iloc[0]
+                        sval = float(_v)
                 except Exception:
                     pass
 
@@ -391,6 +446,7 @@ def get_today_signals_for_strategy(
         # fallback generic info（数値は小数第2位で丸め、日時は日付のみ）
         if not reason_parts:
             try:
+
                 def _fmt_val(v: object) -> str:
                     try:
                         # pandas の NaN 判定
@@ -415,15 +471,23 @@ def get_today_signals_for_strategy(
 
         reason_text = "; ".join(reason_parts)
 
+        try:
+            _ed_raw: Any = c.get("entry_date")
+            _ed = pd.Timestamp(_ed_raw) if _ed_raw is not None else None
+            if _ed is None or pd.isna(_ed):
+                # entry_date が欠損する候補は無効
+                continue
+            entry_date_norm = pd.Timestamp(_ed).normalize()
+        except Exception:
+            continue
+
         rows.append(
             TodaySignal(
                 symbol=str(sym),
                 system=system_name,
                 side=side,
                 signal_type=signal_type,
-                entry_date=pd.Timestamp(
-                    c.get("entry_date")
-                ).normalize(),  # type: ignore[arg-type]
+                entry_date=entry_date_norm,
                 entry_price=float(entry),
                 stop_price=float(stop),
                 score_key=skey,

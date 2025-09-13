@@ -166,6 +166,7 @@ with st.sidebar:
     delay = st.number_input("遅延（秒）", min_value=0.0, step=0.5, value=0.5)
     poll_status = st.checkbox("注文状況を10秒ポーリング", value=False)
     do_trade = st.checkbox("Alpacaで自動発注", value=False)
+    update_bp_after = st.checkbox("注文後に余力を自動更新", value=True)
 
     # 注文状況を10秒ポーリングとは？
     # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、
@@ -405,6 +406,31 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                     st.write(status_map)
                                 last = status_map
                             time.sleep(1.0)
+            # 注文後に余力を自動更新（buying_power/cash を取得し、長短を半々に再設定）
+            if update_bp_after:
+                try:
+                    client2 = ba.get_client(paper=paper_mode)
+                    acct = client2.get_account()
+                    bp_raw = getattr(acct, "buying_power", None)
+                    if bp_raw is None:
+                        bp_raw = getattr(acct, "cash", None)
+                    if bp_raw is not None:
+                        bp = float(bp_raw)
+                        st.session_state["today_cap_long"] = round(bp / 2.0, 2)
+                        st.session_state["today_cap_short"] = round(bp / 2.0, 2)
+                        st.success(
+                            f"約定反映後の余力で長短を再設定しました: ${st.session_state['today_cap_long']} / ${st.session_state['today_cap_short']}"
+                        )
+                        try:
+                            _ui_log(
+                                f"🔄 Alpaca口座余力を更新: buying_power={bp:.2f} → long/short={bp/2:.2f}"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        st.warning("Alpaca口座情報: buying_power/cashが取得できません（更新なし）")
+                except Exception as e:
+                    st.error(f"余力の自動更新に失敗: {e}")
     with st.expander("システム別詳細"):
         for name, df in per_system.items():
             st.markdown(f"#### {name}")
