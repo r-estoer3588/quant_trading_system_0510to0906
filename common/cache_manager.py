@@ -215,14 +215,49 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     x = df.copy()
-    if "Date" in x.columns:
-        x["Date"] = pd.to_datetime(x["Date"])
-        x = x.sort_values("Date").set_index("Date")
 
-    close = x["Close"].astype(float)
-    high = x["High"].astype(float)
-    low = x["Low"].astype(float)
+    # 列名の正規化（大小・同義語を統一）
+    lower_map = {c.lower(): c for c in x.columns}
+    rename_map: dict[str, str] = {}
+    if "date" in lower_map and "Date" not in x.columns:
+        rename_map[lower_map["date"]] = "Date"
+    # Close は adjusted を優先
+    for key in ("adjusted_close", "adj_close", "adjclose", "close"):
+        if key in lower_map:
+            rename_map.setdefault(lower_map[key], "Close")
+            break
+    # その他の標準OHLCV
+    mapping = {
+        "Open": ("open",),
+        "High": ("high",),
+        "Low": ("low",),
+        "Volume": ("volume", "vol"),
+    }
+    for canon, candidates in mapping.items():
+        for key in candidates:
+            if key in lower_map:
+                rename_map.setdefault(lower_map[key], canon)
+                break
+    if rename_map:
+        x = x.rename(columns=rename_map)
+    # 日付インデックス化（可能なら）
+    if "Date" in x.columns:
+        x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
+        x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+
+    # 必須列チェック
+    required = ["High", "Low", "Close"]
+    missing = [c for c in required if c not in x.columns]
+    if missing:
+        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}")
+        return x
+
+    close = pd.to_numeric(x["Close"], errors="coerce")
+    high = pd.to_numeric(x["High"], errors="coerce")
+    low = pd.to_numeric(x["Low"], errors="coerce")
     vol = x.get("Volume")
+    if vol is not None:
+        vol = pd.to_numeric(vol, errors="coerce")
 
     # SMA/EMA
     x["SMA25"] = close.rolling(25).mean()

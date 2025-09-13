@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -36,6 +38,7 @@ from common import broker_alpaca as ba
 from common import universe as univ
 from common.data_loader import load_price
 from common.notifier import create_notifier
+from common.alpaca_order import submit_orders_df
 from common.profit_protection import evaluate_positions
 from config.settings import get_settings
 from scripts.run_all_systems_today import compute_today_signals
@@ -45,6 +48,47 @@ st.title("📈 本日のシグナル（全システム）")
 
 settings = get_settings(create_dirs=True)
 notifier = create_notifier(platform="slack", fallback=True)
+
+
+def _get_today_logger() -> logging.Logger:
+    """本日のシグナル実行用ロガー（ファイル: logs/today_signals.log）。
+
+    Streamlit の再実行でもハンドラが重複しないように、既存ハンドラを確認してから追加します。
+    """
+    logger = logging.getLogger("today_signals")
+    logger.setLevel(logging.INFO)
+    try:
+        log_dir = Path(settings.LOGS_DIR)
+    except Exception:
+        log_dir = Path("logs")
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_path = log_dir / "today_signals.log"
+
+    # 既に同じファイルに出力するハンドラがあれば追加しない
+    has_handler = False
+    for h in list(logger.handlers):
+        try:
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
+                log_path
+            ):
+                has_handler = True
+                break
+        except Exception:
+            continue
+    if not has_handler:
+        try:
+            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+            fh.setFormatter(fmt)
+            logger.addHandler(fh)
+        except Exception:
+            # ログ設定失敗時もUI処理は継続
+            pass
+    return logger
+
 
 with st.sidebar:
     st.header("ユニバース")
@@ -115,6 +159,7 @@ with st.sidebar:
     st.header("CSV保存")
     save_csv = st.checkbox("CSVをsignals_dirに保存", value=False)
 
+    run_parallel = st.checkbox("並列実行（システム横断）", value=True)
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
     retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2)
@@ -175,6 +220,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # 開始時刻を記録
     start_time = time.time()
+    # ファイルログ: ボタン押下でシグナル検出処理開始
+    try:
+        _get_today_logger().info("▶ 本日のシグナル: シグナル検出処理開始")
+    except Exception:
+        pass
     # 進捗表示用の領域（1行上書き）
     progress_area = st.empty()
     # プログレスバー
@@ -191,6 +241,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             line = f"[{now} | {m}分{s}秒] {msg}"
             log_lines.append(line)
             progress_area.text(line)
+            # ファイルにもINFOで書き出す
+            try:
+                _get_today_logger().info(str(msg))
+            except Exception:
+                pass
         except Exception:
             # 表示に失敗しても処理は継続
             pass
@@ -259,7 +314,21 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     m, s = divmod(int(total_elapsed), 60)
     # 追加表示: 分・秒表示の総経過時間（重複表示の場合は本行を採用）
     st.info(f"総経過時間: {m}分{s}秒")
-    st.info(f"総経過時間: {m}分{s}秒")
+    # ファイルにも終了ログ（件数付き）
+    try:
+        final_n = 0 if final_df is None or final_df.empty else int(len(final_df))
+        per_counts = []
+        try:
+            for name, df in per_system.items():
+                per_counts.append(f"{name}={0 if df is None or df.empty else len(df)}")
+        except Exception:
+            per_counts = []
+        detail = f" | システム別: {', '.join(per_counts)}" if per_counts else ""
+        _get_today_logger().info(
+            f"✅ 本日のシグナル: シグナル検出処理終了 (経過 {m}分{s}秒, 最終候補 {final_n} 件){detail}"
+        )
+    except Exception:
+        pass
 
     # 追加: 実行ログをUIに折り畳み表示（CSVダウンロード付き）
     with st.expander("実行ログ", expanded=False):
@@ -296,127 +365,47 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         if do_trade:
             st.divider()
             st.subheader("Alpaca自動発注結果")
-            try:
-                client = ba.get_client(paper=paper_mode)
-            except Exception as e:
-                st.error(f"Alpaca接続エラー: {e}")
-                client = None
-            results = []
-            if client is not None:
-                # システムごとに注文タイプとTIFを自動決定
-                system_order_type = {
-                    "system1": "market",
-                    "system3": "market",
-                    "system4": "market",
-                    "system5": "market",
-                    "system2": "limit",
-                    "system6": "limit",
-                    "system7": "limit",
-                }
-                tif = "DAY"  # 米国市場の当日限り
-                # 重複注文防止: symbol, system, entry_date で一意に
-                unique_orders = {}
-                for _, r in final_df.iterrows():
-                    key = (
-                        str(r.get("symbol")),
-                        str(r.get("system")).lower(),
-                        str(r.get("entry_date")),
-                    )
-                    if key in unique_orders:
-                        continue
-                    unique_orders[key] = r
-
-                for _key, r in unique_orders.items():
-                    sym = str(r.get("symbol"))
-                    qty = int(r.get("shares") or 0)
-                    side = "buy" if str(r.get("side")).lower() == "long" else "sell"
-                    system = str(r.get("system")).lower()
-                    order_type = system_order_type.get(system, "market")
-                    entry_price_raw = r.get("entry_price")
-                    if (
-                        order_type == "limit"
-                        and entry_price_raw is not None
-                        and entry_price_raw != ""
-                    ):
-                        try:
-                            limit_price = float(entry_price_raw)
-                        except (TypeError, ValueError):
-                            limit_price = None
-                    else:
-                        limit_price = None
-                    # estimate price for notification purposes
-                    price_val = None
-                    try:
-                        if entry_price_raw is not None and entry_price_raw != "":
-                            price_val = float(entry_price_raw)
-                    except (TypeError, ValueError):
-                        price_val = None
-                    if limit_price is not None:
-                        price_val = limit_price
-                    if not sym or qty <= 0:
-                        continue
-                    try:
-                        order = ba.submit_order_with_retry(
-                            client,
-                            sym,
-                            qty,
-                            side=side,
-                            order_type=order_type,
-                            limit_price=limit_price,
-                            time_in_force=tif,
-                            retries=int(retries),
-                            backoff_seconds=float(max(0.0, delay)),
-                            rate_limit_seconds=float(max(0.0, delay)),
-                            log_callback=_ui_log,
-                        )
-                        results.append(
-                            {
-                                "symbol": sym,
-                                "side": side,
-                                "qty": qty,
-                                "price": price_val,
-                                "order_id": getattr(order, "id", None),
-                                "status": getattr(order, "status", None),
-                                "system": system,
-                                "order_type": order_type,
-                                "time_in_force": tif,
-                                "entry_date": r.get("entry_date"),
-                            }
-                        )
-                    except Exception as e:
-                        results.append(
-                            {
-                                "symbol": sym,
-                                "side": side,
-                                "qty": qty,
-                                "price": price_val,
-                                "error": str(e),
-                                "system": system,
-                                "order_type": order_type,
-                                "time_in_force": tif,
-                                "entry_date": r.get("entry_date"),
-                            }
-                        )
-            if results:
-                st.dataframe(pd.DataFrame(results), use_container_width=True)
-                notifier.send_trade_report("integrated", results)
-                if poll_status and any(r.get("order_id") for r in results):
+            # 共通ヘルパーへ委譲
+            system_order_type = {
+                "system1": "market",
+                "system3": "market",
+                "system4": "market",
+                "system5": "market",
+                "system2": "limit",
+                "system6": "limit",
+                "system7": "limit",
+            }
+            results_df = submit_orders_df(
+                final_df,
+                paper=paper_mode,
+                order_type=None,
+                system_order_type=system_order_type,
+                tif="DAY",
+                retries=int(retries),
+                delay=float(max(0.0, delay)),
+                log_callback=_ui_log,
+                notify=True,
+            )
+            if results_df is not None and not results_df.empty:
+                st.dataframe(results_df, use_container_width=True)
+                if poll_status and any(results_df["order_id"].fillna("").astype(str)):
                     st.info("注文状況を10秒間ポーリングします...")
-
-                    order_ids: list[str] = []
-                    for r in results:
-                        oid = r.get("order_id")
-                        if oid:
-                            order_ids.append(oid)
-                    end = time.time() + 10
-                    last: dict[str, Any] = {}
-                    while time.time() < end:
-                        status_map = ba.get_orders_status_map(client, order_ids)
-                        if status_map != last:
-                            if status_map:  # 空でなければ表示
-                                st.write(status_map)
-                            last = status_map
-                        time.sleep(1.0)
+                    # ポーリングは新規にクライアントを作って実施
+                    try:
+                        client = ba.get_client(paper=paper_mode)
+                    except Exception:
+                        client = None
+                    if client is not None:
+                        order_ids = [str(oid) for oid in results_df["order_id"].tolist() if oid]
+                        end = time.time() + 10
+                        last: dict[str, Any] = {}
+                        while time.time() < end:
+                            status_map = ba.get_orders_status_map(client, order_ids)
+                            if status_map != last:
+                                if status_map:
+                                    st.write(status_map)
+                                last = status_map
+                            time.sleep(1.0)
     with st.expander("システム別詳細"):
         for name, df in per_system.items():
             st.markdown(f"#### {name}")

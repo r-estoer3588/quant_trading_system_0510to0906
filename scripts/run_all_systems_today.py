@@ -5,6 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from pathlib import Path
 
+import logging
 import pandas as pd
 
 from common import broker_alpaca as ba
@@ -14,6 +15,7 @@ from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
 from config.settings import get_settings
+from common.alpaca_order import submit_orders_df
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -26,6 +28,48 @@ from strategies.system7_strategy import System7Strategy
 
 _LOG_CALLBACK = None
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
+
+
+def _get_today_logger() -> logging.Logger:
+    """today_signals 用のファイルロガーを取得（logs/today_signals.log）。
+
+    UI 側が log_callback を渡す場合は UI がファイル出力するので、
+    本ロガーは CLI 実行や log_callback なしのときのみに使う想定。
+    """
+    logger = logging.getLogger("today_signals")
+    logger.setLevel(logging.INFO)
+    try:
+        # settings が未初期化でも安全に取得できるようにラップ
+        settings = get_settings(create_dirs=True)
+        log_dir = Path(settings.LOGS_DIR)
+    except Exception:
+        log_dir = Path("logs")
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_path = log_dir / "today_signals.log"
+
+    # 既存の同一ファイルハンドラがあるか確認
+    has_handler = False
+    for h in list(logger.handlers):
+        try:
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
+                log_path
+            ):
+                has_handler = True
+                break
+        except Exception:
+            continue
+    if not has_handler:
+        try:
+            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+            fh.setFormatter(fmt)
+            logger.addHandler(fh)
+        except Exception:
+            pass
+    return logger
 
 
 def _log(msg: str):
@@ -63,6 +107,14 @@ def _log(msg: str):
                 cb(str(msg))
             except Exception:
                 pass
+    except Exception:
+        pass
+
+    # UI コールバックがない場合のみ、ファイルにもINFOで出力（CLI ログ保存）
+    try:
+        cb = globals().get("_LOG_CALLBACK")
+        if not cb:
+            _get_today_logger().info(str(msg))
     except Exception:
         pass
 
@@ -414,7 +466,47 @@ def compute_today_signals(
         CHUNK = 500
         for idx, sym in enumerate(symbols, start=1):
             try:
-                df = cm.read(sym, "rolling")
+                # まずは呼び出し元から渡された minimal データを優先
+                df = None
+                try:
+                    if symbol_data and sym in symbol_data:
+                        df = symbol_data.get(sym)
+                        if df is not None and not df.empty:
+                            x = df.copy()
+                            if x.index.name is not None:
+                                x = x.reset_index()
+                            # 日付列の正規化
+                            if "date" in x.columns:
+                                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                            elif "Date" in x.columns:
+                                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                            # 列名の正規化（存在するもののみ）
+                            col_map = {
+                                "Open": "open",
+                                "High": "high",
+                                "Low": "low",
+                                "Close": "close",
+                                "Adj Close": "adjusted_close",
+                                "AdjClose": "adjusted_close",
+                                "Volume": "volume",
+                            }
+                            for k, v in list(col_map.items()):
+                                if k in x.columns:
+                                    x = x.rename(columns={k: v})
+                            # 最低限の必須列が揃っているか確認
+                            required = {"date", "close"}
+                            if required.issubset(set(x.columns)):
+                                x = x.dropna(subset=["date"]).sort_values("date")
+                                df = x
+                            else:
+                                df = None
+                        else:
+                            df = None
+                except Exception:
+                    df = None
+                # 受け取りが無い/不足 → キャッシュから取得
+                if df is None or df.empty:
+                    df = cm.read(sym, "rolling")
                 if df is None or df.empty:
                     # rolling 不在 → base から必要分を生成して保存
                     try:
@@ -520,7 +612,43 @@ def compute_today_signals(
         CHUNK = 500
         for idx, sym in enumerate(symbols, start=1):
             try:
-                df = cm.read(sym, "rolling")
+                # 提供された minimal データを優先
+                df = None
+                try:
+                    if symbol_data and sym in symbol_data:
+                        df = symbol_data.get(sym)
+                        if df is not None and not df.empty:
+                            x = df.copy()
+                            if x.index.name is not None:
+                                x = x.reset_index()
+                            if "date" in x.columns:
+                                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                            elif "Date" in x.columns:
+                                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                            col_map = {
+                                "Open": "open",
+                                "High": "high",
+                                "Low": "low",
+                                "Close": "close",
+                                "Adj Close": "adjusted_close",
+                                "AdjClose": "adjusted_close",
+                                "Volume": "volume",
+                            }
+                            for k, v in list(col_map.items()):
+                                if k in x.columns:
+                                    x = x.rename(columns={k: v})
+                            required = {"date", "close"}
+                            if required.issubset(set(x.columns)):
+                                x = x.dropna(subset=["date"]).sort_values("date")
+                                df = x
+                            else:
+                                df = None
+                        else:
+                            df = None
+                except Exception:
+                    df = None
+                if df is None or df.empty:
+                    df = cm.read(sym, "rolling")
                 if df is None or df.empty:
                     try:
                         from common.cache_manager import load_base_cache
@@ -600,10 +728,18 @@ def compute_today_signals(
             pass
     # ...system3_syms, system4_syms, ...
     _log("🧮 指標計算用データロード中 (system1)…")
-    raw_data_system1 = load_indicator_data(system1_syms)
+    raw_data_system1 = {
+        s: basic_data.get(s)
+        for s in (system1_syms or [])
+        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
+    }
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
     _log("🧮 指標計算用データロード中 (system2)…")
-    raw_data_system2 = load_indicator_data(system2_syms)
+    raw_data_system2 = {
+        s: basic_data.get(s)
+        for s in (system2_syms or [])
+        if basic_data.get(s) is not None and not basic_data.get(s).empty  # type: ignore[union-attr]
+    }
     _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
     if progress_callback:
         try:
@@ -631,18 +767,7 @@ def compute_today_signals(
         System7Strategy(),
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
-
-    # --- UI: サマリー表示用のカラムを用意 ---
-    try:
-        import streamlit as st
-
-        st.markdown("### システム別シグナル件数")
-        sys_names = [getattr(s, "SYSTEM_NAME", "") for s in strategy_objs]
-        cols = st.columns(len(sys_names))
-        name_to_idx = {n.lower(): i for i, n in enumerate(sys_names)}
-    except Exception:
-        cols = [None] * len(strategy_objs)
-        name_to_idx = {}
+    # エンジン層はUI依存を排除（UI表示はlog/progressコールバック側に任せる）
 
     def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
         logs: list[str] = []
@@ -658,8 +783,14 @@ def compute_today_signals(
             base = raw_data_system1 if "raw_data_system1" in locals() else {}
         elif name == "system2":
             base = raw_data_system2 if "raw_data_system2" in locals() else {}
+        elif name == "system3":
+            base = basic_data if "basic_data" in locals() else {}
         elif name == "system4":
-            base = {}
+            base = basic_data if "basic_data" in locals() else {}
+        elif name == "system5":
+            base = basic_data if "basic_data" in locals() else {}
+        elif name == "system6":
+            base = basic_data if "basic_data" in locals() else {}
         elif name == "system7":
             base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
         else:
@@ -716,29 +847,10 @@ def compute_today_signals(
                     name, df, msg, logs = fut.result()
                     per_system[name] = df
                     _log(f"🧾 {msg}")
-                    col_idx = name_to_idx.get(name)
-                    if cols and col_idx is not None and col_idx < len(cols):
-                        try:
-                            if df is not None and not df.empty:
-                                col = cols[col_idx]
-                                if col is not None and hasattr(col, "success"):
-                                    col.success(msg)
-                            else:
-                                col = cols[col_idx]
-                                if col is not None and hasattr(col, "warning"):
-                                    col.warning(msg)
-                        except Exception:
-                            pass
                     if log_callback:
                         try:
                             for line in logs:
                                 log_callback(line)
-                            import streamlit as st
-
-                            with st.expander(f"{name} 詳細ログ", expanded=False):
-                                st.text(msg)
-                                if df is not None and not df.empty:
-                                    st.dataframe(df.head())
                         except Exception:
                             pass
                     if progress_callback:
@@ -761,29 +873,10 @@ def compute_today_signals(
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
             _log(f"🧾 {msg}")
-            col_idx = name_to_idx.get(name)
-            if cols and col_idx is not None and col_idx < len(cols):
-                try:
-                    if df is not None and not df.empty:
-                        col = cols[col_idx]
-                        if col is not None and hasattr(col, "success"):
-                            col.success(msg)
-                    else:
-                        col = cols[col_idx]
-                        if col is not None and hasattr(col, "warning"):
-                            col.warning(msg)
-                except Exception:
-                    pass
             if log_callback:
                 try:
                     for line in logs:
                         log_callback(line)
-                    import streamlit as st
-
-                    with st.expander(f"{name} 詳細ログ", expanded=False):
-                        st.text(msg)
-                        if df is not None and not df.empty:
-                            st.dataframe(df.head())
                 except Exception:
                     pass
         if progress_callback:
@@ -965,6 +1058,16 @@ def compute_today_signals(
         except Exception:
             pass
 
+    # 終了ログ（UI/CLI 双方で記録される）
+    try:
+        _log(
+            (
+                f"✅ シグナル検出処理 終了 | 最終候補 {len(final_df) if final_df is not None else 0} 件"
+            )
+        )
+    except Exception:
+        pass
+
     # clear callback
     try:
         globals().pop("_LOG_CALLBACK", None)
@@ -1010,6 +1113,11 @@ def main():
         action="store_true",
         help="signalsディレクトリにCSVを保存する",
     )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="システムごとの当日シグナル抽出を並列実行する",
+    )
     # Alpaca 自動発注オプション
     parser.add_argument(
         "--alpaca-submit",
@@ -1042,6 +1150,7 @@ def main():
         capital_long=args.capital_long,
         capital_short=args.capital_short,
         save_csv=args.save_csv,
+        parallel=args.parallel,
     )
 
     if final_df.empty:
@@ -1075,14 +1184,19 @@ def main():
         ]
         merge_signals([signals_for_merge], portfolio_state={}, market_state={})
         if args.alpaca_submit:
-            _submit_orders(
+            # CLIでも共通ヘルパーを使用
+            submit_orders_df(
                 final_df,
                 paper=(not args.live),
                 order_type=args.order_type,
+                system_order_type=None,
                 tif=args.tif,
+                retries=2,
+                delay=0.5,
+                log_callback=_log,
+                notify=True,
             )
 
 
 if __name__ == "__main__":
-    main()
     main()

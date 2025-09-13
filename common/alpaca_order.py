@@ -1,243 +1,25 @@
-"""Alpaca注文関連の共通ミックスイン。"""
+"""Alpaca注文関連の共通ユーティリティとミックスイン。
+
+このモジュールは alpaca-py に直接依存せず、すべて `common.broker_alpaca`
+を経由して呼び出します（テスト環境で SDK が無くても読み込めるため）。
+"""
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import Any
 
-from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
-from alpaca.trading.requests import (
-    LimitOrderRequest,
-    MarketOrderRequest,
-    StopLossRequest,
-    TrailingStopOrderRequest,
-)
+import pandas as pd
 
 from common import broker_alpaca as ba
+from common.notifier import Notifier
+from common.position_age import load_entry_dates, save_entry_dates
 
-if TYPE_CHECKING:
-    from alpaca.trading.stream import TradingStream
+if False:  # typing guard
+    from alpaca.trading.stream import TradingStream  # type: ignore
 
 logger = logging.getLogger(__name__)
-
-
-class AlpacaOrderManager:
-    """Alpaca API を利用した注文ユーティリティを提供するミックスイン。"""
-
-    def __init__(
-        self,
-        trading_client: TradingClient,
-        api_key: str | None = None,
-        secret_key: str | None = None,
-        paper: bool | None = None,
-    ):
-        self.trading_client = trading_client
-        self._api_key = api_key
-        self._secret_key = secret_key
-        # TradingStream の paper 引数に渡すために記録
-        # （未指定時は trading_client から推定、なければ True）
-        default_paper = getattr(trading_client, "paper", True)
-        self._paper = paper if paper is not None else default_paper
-
-    @classmethod
-    def create_from_env(cls, paper: bool = True) -> AlpacaOrderManager:
-        """.env から API キーを読み込み `TradingClient` を生成する。"""
-        if TradingClient is None:
-            raise RuntimeError(
-                "alpaca-py がインストールされていません。requirements に追加してください。"
-            )
-        api_key = os.getenv("ALPACA_API_KEY")
-        secret_key = os.getenv("ALPACA_SECRET_KEY")
-        if not api_key or not secret_key:
-            raise RuntimeError("ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。")
-        return cls(
-            TradingClient(api_key, secret_key, paper=paper),
-            api_key=api_key,
-            secret_key=secret_key,
-            paper=paper,
-        )
-
-    def _build_market_order(self, *, symbol, qty, side_enum, tif, **_):
-        return MarketOrderRequest(
-            symbol=symbol,
-            qty=qty,
-            side=side_enum,
-            time_in_force=tif,
-        )
-
-    def _build_limit_order(
-        self,
-        *,
-        symbol,
-        qty,
-        side_enum,
-        tif,
-        limit_price=None,
-        **_,
-    ):
-        if limit_price is None:
-            raise ValueError("limit_price が必要です。")
-        return LimitOrderRequest(
-            symbol=symbol,
-            qty=qty,
-            side=side_enum,
-            limit_price=limit_price,
-            time_in_force=tif,
-        )
-
-    def _build_oco_order(
-        self,
-        *,
-        symbol,
-        qty,
-        side_enum,
-        tif,
-        limit_price=None,
-        stop_loss=None,
-        **_,
-    ):
-        # OCO は親のリミット注文 + 子のストップ注文の組み合わせ
-        if limit_price is None or stop_loss is None:
-            raise ValueError("limit_price と stop_loss が必要です。")
-        return LimitOrderRequest(
-            symbol=symbol,
-            qty=qty,
-            side=side_enum,
-            time_in_force=tif,
-            limit_price=limit_price,
-            order_class=OrderClass.OCO,
-            # 親がリミット（利確）なので take_profit は不要。子のストップのみ指定。
-            stop_loss=StopLossRequest(stop_price=stop_loss),
-        )
-
-    def _build_trailing_stop_order(
-        self,
-        *,
-        symbol,
-        qty,
-        side_enum,
-        tif,
-        trail_percent=None,
-        stop_price=None,
-        **_,
-    ):
-        if trail_percent is None and stop_price is None:
-            raise ValueError("trail_percent か trail_price のいずれかが必要です。")
-        return TrailingStopOrderRequest(
-            symbol=symbol,
-            qty=qty,
-            side=side_enum,
-            time_in_force=tif,
-            trail_percent=trail_percent,
-            trail_price=stop_price,
-        )
-
-    def submit_order(
-        self,
-        client: TradingClient,
-        symbol: str,
-        qty: int,
-        side: str = "buy",
-        order_type: str = "market",
-        *,
-        limit_price: float | None = None,
-        stop_price: float | None = None,
-        take_profit: float | None = None,
-        stop_loss: float | None = None,
-        trail_percent: float | None = None,
-        log_callback=None,
-    ):
-        """Alpaca へ注文を送信するユーティリティ。"""
-        if TradingClient is None:
-            raise RuntimeError("alpaca-py がインストールされていません。")
-        side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-        tif = TimeInForce.GTC
-
-        builders = {
-            "market": self._build_market_order,
-            "limit": self._build_limit_order,
-            "oco": self._build_oco_order,
-            "trailing_stop": self._build_trailing_stop_order,
-        }
-        builder = builders.get(order_type)
-        if builder is None:
-            raise ValueError(f"未知の order_type: {order_type}")
-
-        req = builder(
-            symbol=symbol,
-            qty=qty,
-            side_enum=side_enum,
-            tif=tif,
-            limit_price=limit_price,
-            stop_price=stop_price,
-            take_profit=take_profit,
-            stop_loss=stop_loss,
-            trail_percent=trail_percent,
-        )
-
-        order = client.submit_order(order_data=req)
-        order_id = getattr(order, "id", None)
-        if log_callback:
-            msg = (
-                f"Submitted {order_type} order {order_id} {symbol} "
-                f"qty={qty} side={side_enum.name}"
-            )
-            log_callback(msg)
-        return order
-
-    def log_orders_positions(self, client: TradingClient, log_callback=None):
-        """現在の注文・ポジションを取得してログ出力する。"""
-        orders, positions = ba.log_orders_positions(client)
-        if log_callback:
-            for o in orders:
-                oid = getattr(o, "id", None)
-                sym = getattr(o, "symbol", None)
-                side = getattr(o, "side", None)
-                status = getattr(o, "status", None)
-                filled = getattr(o, "filled_qty", None)
-                log_callback(f"Order {oid} {sym} {side} {status} filled={filled}")
-            for p in positions:
-                psym = getattr(p, "symbol", None)
-                pqty = getattr(p, "qty", None)
-                avg = getattr(p, "avg_entry_price", None)
-                log_callback(f"Position {psym} qty={pqty} avg_entry={avg}")
-
-    def subscribe_order_updates(self, log_callback=None) -> TradingStream:
-        """注文更新の WebSocket を購読し、更新時にログ出力する。"""
-        try:
-            from alpaca.trading.stream import TradingStream
-        except ImportError as err:
-            raise RuntimeError(
-                "alpaca-py がインストールされていません。",
-            ) from err
-
-        # TradingClient からはキーを取得できないため、保持しているキー（無ければ環境変数）を使用する
-        api_key = self._api_key or os.getenv("ALPACA_API_KEY")
-        secret_key = self._secret_key or os.getenv("ALPACA_SECRET_KEY")
-        if not api_key or not secret_key:
-            raise RuntimeError("ALPACA_API_KEY/ALPACA_SECRET_KEY が利用できません。")
-
-        stream = TradingStream(
-            api_key,
-            secret_key,
-            paper=self._paper,  # trading_clientのpaper属性が存在しない場合のデフォルト
-        )
-
-        async def _on_trade_update(data):  # noqa: ANN001 - Alpaca SDK 固有シグネチャ
-            if log_callback:
-                event = getattr(data, "event", None)
-                order_obj = getattr(data, "order", None)
-                oid = getattr(order_obj, "id", None)
-                status = getattr(order_obj, "status", None)
-                log_callback(f"Order update: event={event} id={oid} status={status}")
-
-        stream.subscribe_trade_updates(_on_trade_update)
-
-        self._trading_stream = stream
-        stream.run()  # 実行はブロッキング。適宜スレッド化/async 対応が必要。
-        return stream
 
 
 class AlpacaOrderMixin:
@@ -254,7 +36,7 @@ class AlpacaOrderMixin:
     # 既存の Manager と同名・同シグネチャのメソッドを提供
     def submit_order(
         self,
-        client: TradingClient,
+        client: Any,
         symbol: str,
         qty: int,
         side: str = "buy",
@@ -283,7 +65,7 @@ class AlpacaOrderMixin:
             log_callback=log_callback,
         )
 
-    def log_orders_positions(self, client: TradingClient, log_callback=None):
+    def log_orders_positions(self, client: Any, log_callback=None):
         orders, positions = ba.log_orders_positions(client)
         if log_callback:
             try:
@@ -319,6 +101,159 @@ class AlpacaOrderMixin:
 
 
 __all__ = [
-    "AlpacaOrderManager",
     "AlpacaOrderMixin",
+    "submit_orders_df",
 ]
+
+
+def submit_orders_df(
+    final_df: pd.DataFrame,
+    *,
+    paper: bool = True,
+    order_type: str | None = None,
+    system_order_type: dict[str, str] | None = None,
+    tif: str = "GTC",
+    retries: int = 2,
+    delay: float = 0.5,
+    log_callback: Any | None = None,
+    notify: bool = False,
+) -> pd.DataFrame:
+    """DataFrameからAlpacaへ注文を一括送信する共通ヘルパー。
+
+    - `final_df` は列に少なくとも `symbol`, `system`, `side`, `shares`, `entry_date`, `entry_price` を想定。
+    - `order_type` が指定されれば全件に適用。未指定なら `system_order_type` を参照。
+      `system_order_type` も無い場合は既定マップを使用（system1/3/4/5: market, system2/6/7: limit）。
+    - 重複送信防止のため (symbol, system, entry_date) でユニーク化。
+    - 返り値は結果の DataFrame（order_id/status/error を含む）。
+    """
+    if final_df is None or final_df.empty:
+        return pd.DataFrame()
+    if "shares" not in final_df.columns:
+        # shares が無い場合はスキップ
+        return pd.DataFrame()
+
+    try:
+        client = ba.get_client(paper=paper)
+    except Exception:
+        return pd.DataFrame()
+
+    # 既定のシステム別オーダータイプ
+    default_sys_map = {
+        "system1": "market",
+        "system3": "market",
+        "system4": "market",
+        "system5": "market",
+        "system2": "limit",
+        "system6": "limit",
+        "system7": "limit",
+    }
+    sys_map = (system_order_type or {}) | default_sys_map  # defaultを下敷き
+
+    # 重複注文防止
+    unique: dict[tuple[str, str, str], Any] = {}
+    for _, r in final_df.iterrows():
+        key = (
+            str(r.get("symbol")),
+            str(r.get("system")).lower(),
+            str(r.get("entry_date")),
+        )
+        if key in unique:
+            continue
+        unique[key] = r
+
+    results: list[dict[str, Any]] = []
+    for (_sym, _sys, _dt), r in unique.items():
+        sym = str(r.get("symbol"))
+        qty = int(r.get("shares") or 0)
+        side = "buy" if str(r.get("side")).lower() == "long" else "sell"
+        system = str(r.get("system")).lower()
+        if not sym or qty <= 0:
+            continue
+        ot = order_type or sys_map.get(system, "market")
+        entry_price_raw = r.get("entry_price")
+        # limit の場合のみ limit_price を推定
+        if ot == "limit" and entry_price_raw not in (None, ""):
+            try:
+                limit_price = float(entry_price_raw)
+            except (TypeError, ValueError):
+                limit_price = None
+        else:
+            limit_price = None
+        # 表示用価格
+        price_val = None
+        try:
+            if entry_price_raw not in (None, ""):
+                price_val = float(entry_price_raw)
+        except (TypeError, ValueError):
+            price_val = None
+        if limit_price is not None:
+            price_val = limit_price
+        try:
+            order = ba.submit_order_with_retry(
+                client,
+                sym,
+                qty,
+                side=side,
+                order_type=ot,
+                limit_price=limit_price,
+                time_in_force=tif,
+                retries=max(0, int(retries)),
+                backoff_seconds=max(0.0, float(delay)),
+                rate_limit_seconds=max(0.0, float(delay)),
+                log_callback=log_callback,
+            )
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": side,
+                    "qty": qty,
+                    "price": price_val,
+                    "order_id": getattr(order, "id", None),
+                    "status": getattr(order, "status", None),
+                    "system": system,
+                    "order_type": ot,
+                    "time_in_force": tif,
+                    "entry_date": r.get("entry_date"),
+                }
+            )
+        except Exception as e:  # noqa: BLE001
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": side,
+                    "qty": qty,
+                    "price": price_val,
+                    "error": str(e),
+                    "system": system,
+                    "order_type": ot,
+                    "time_in_force": tif,
+                    "entry_date": r.get("entry_date"),
+                }
+            )
+
+    if not results:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(results)
+    # エントリー日記録の更新
+    try:
+        entry_map = load_entry_dates()
+        for _, row in out.iterrows():
+            sym = str(row.get("symbol"))
+            side_val = str(row.get("side", "")).lower()
+            if side_val == "buy" and row.get("entry_date"):
+                entry_map[sym] = str(row.get("entry_date"))
+            elif side_val == "sell":
+                entry_map.pop(sym, None)
+        save_entry_dates(entry_map)
+    except Exception:
+        pass
+
+    # 通知（任意）
+    if notify:
+        try:
+            Notifier(platform="auto").send_trade_report("integrated", results)
+        except Exception:
+            pass
+
+    return out
