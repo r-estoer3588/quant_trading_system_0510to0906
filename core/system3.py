@@ -148,10 +148,10 @@ def prepare_data_vectorized_system3(
 
     for sym, df in raw_data_dict.items():
         if "Date" in df.columns:
-            df = df.copy()
+            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
         else:
-            df = df.copy()
+            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
