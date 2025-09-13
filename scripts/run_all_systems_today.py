@@ -959,12 +959,12 @@ def compute_today_signals(
                 cb = None
             if cb and callable(cb):
                 try:
-                    cb(str(message))
+                    cb(f"[{name}] {str(message)}")
                 except Exception:
                     pass
             else:
                 try:
-                    print(message, flush=True)
+                    print(f"[{name}] {message}", flush=True)
                 except Exception:
                     pass
 

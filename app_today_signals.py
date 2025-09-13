@@ -255,6 +255,51 @@ with st.sidebar:
         except Exception as e:
             st.error(f"注文キャンセルエラー: {e}")
 
+    st.header("表示/非表示")
+    # 表示制御の既定値（初期値）
+    ui_defaults = {
+        "overall_progress": True,
+        "per_system_progress": True,
+        "data_load_progress_lines": True,  # 📦/🧮 の進捗行
+        "execution_log": True,  # 全体の実行ログエクスパンダー
+        "per_system_logs": True,  # システム別 実行ログエクスパンダー
+        "previous_results": True,  # 前回結果（system別）
+        "system_details": True,  # システム別詳細テーブル
+    }
+    # セッションに保持（初回のみ）
+    if "ui_vis" not in st.session_state:
+        st.session_state["ui_vis"] = ui_defaults.copy()
+
+    ui_vis = st.session_state["ui_vis"]
+    # チェックボックスで更新
+    ui_vis["overall_progress"] = st.checkbox(
+        "全体進捗バー", value=ui_vis.get("overall_progress", True), key="ui_overall_progress"
+    )
+    ui_vis["per_system_progress"] = st.checkbox(
+        "システム別進捗バー",
+        value=ui_vis.get("per_system_progress", True),
+        key="ui_per_system_progress",
+    )
+    ui_vis["data_load_progress_lines"] = st.checkbox(
+        "データロード進捗行（📦/🧮）",
+        value=ui_vis.get("data_load_progress_lines", True),
+        key="ui_data_load_progress",
+    )
+    ui_vis["execution_log"] = st.checkbox(
+        "実行ログ（全体）", value=ui_vis.get("execution_log", True), key="ui_exec_log"
+    )
+    ui_vis["per_system_logs"] = st.checkbox(
+        "システム別 実行ログ", value=ui_vis.get("per_system_logs", True), key="ui_per_system_logs"
+    )
+    ui_vis["previous_results"] = st.checkbox(
+        "前回結果（system別）", value=ui_vis.get("previous_results", True), key="ui_prev_results"
+    )
+    ui_vis["system_details"] = st.checkbox(
+        "システム別詳細（表）", value=ui_vis.get("system_details", True), key="ui_system_details"
+    )
+    # 保存
+    st.session_state["ui_vis"] = ui_vis
+
 st.subheader("保有ポジションと利益保護判定")
 if st.button("🔍 Alpacaから保有ポジション取得"):
     try:
@@ -292,17 +337,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     start_time = time.time()
     # 進捗表示用の領域（1行上書き）
     progress_area = st.empty()
-    # プログレスバー
+    # プログレスバー（表示設定に応じて更新可）
     prog = st.progress(0)
     prog_txt = st.empty()
-    # システムごとのプログレスバー（並行時に可視化）
-    sys_cols = st.columns(7)
-    sys_labels = [f"System{i}" for i in range(1, 8)]
-    for i, col in enumerate(sys_cols, start=1):
-        col.caption(sys_labels[i - 1])
-    sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
-    sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
-    sys_states = {k: 0 for k in sys_bars.keys()}
+    # システムごとのプログレスバー（設定でオフなら作成しない）
+    ui_vis = st.session_state.get("ui_vis", {})
+    if ui_vis.get("per_system_progress", True):
+        sys_cols = st.columns(7)
+        sys_labels = [f"System{i}" for i in range(1, 8)]
+        for i, col in enumerate(sys_cols, start=1):
+            col.caption(sys_labels[i - 1])
+        sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
+        sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
+        sys_states = {k: 0 for k in sys_bars.keys()}
+    else:
+        sys_bars = {}
+        sys_stage_txt = {}
+        sys_states = {}
     # 追加: 全ログを蓄積（UIで折り畳み表示用）
     log_lines: list[str] = []
 
@@ -317,6 +368,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 冗長ログをUIでは抑制（ファイルには別途書き出し）
             try:
                 _msg = str(msg)
+                ui_vis2 = st.session_state.get("ui_vis", {})
+                show_overall = bool(ui_vis2.get("overall_progress", True))
+                allow_data_load = bool(ui_vis2.get("data_load_progress_lines", True))
+                # データロード進捗（📦/🧮）はホワイトリストで扱う
+                is_data_load_line = (
+                    _msg.startswith("📦 基礎データロード進捗")
+                    or _msg.startswith("🧮 指標データロード進捗")
+                    or _msg.startswith("📦 基礎データロード完了")
+                    or _msg.startswith("🧮 指標データロード完了")
+                )
                 skip_keywords = (
                     "進捗",
                     "インジケーター",
@@ -329,7 +390,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     "📊 候補抽出",
                     "⏱️ バッチ時間",
                 )
-                if not any(k in _msg for k in skip_keywords):
+                should_show = False
+                if show_overall:
+                    if is_data_load_line and allow_data_load:
+                        should_show = True
+                    elif not any(k in _msg for k in skip_keywords):
+                        should_show = True
+                if should_show:
                     progress_area.text(line)
             except Exception:
                 progress_area.text(line)
@@ -344,6 +411,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     def _ui_progress(done: int, total: int, name: str) -> None:
         try:
+            ui_vis2 = st.session_state.get("ui_vis", {})
+            if not bool(ui_vis2.get("overall_progress", True)):
+                return
             total = max(1, int(total))
             ratio = min(max(int(done), 0), total) / total
             prog.progress(int(ratio * 100))
@@ -354,6 +424,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     def _per_system_progress(name: str, phase: str) -> None:
         try:
+            ui_vis2 = st.session_state.get("ui_vis", {})
+            if not bool(ui_vis2.get("per_system_progress", True)):
+                return
             n = str(name).lower()
             bar = sys_bars.get(n)
             if not bar:
@@ -372,6 +445,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # 段階進捗（0/25/50/75/100）
     def _per_system_stage(name: str, v: int) -> None:
         try:
+            ui_vis2 = st.session_state.get("ui_vis", {})
+            if not bool(ui_vis2.get("per_system_progress", True)):
+                return
             n = str(name).lower()
             bar = sys_bars.get(n)
             if not bar:
@@ -464,19 +540,20 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         pass
 
     # 追加: 実行ログをUIに折り畳み表示（CSVダウンロード付き）
-    with st.expander("実行ログ", expanded=False):
-        try:
-            st.code("\n".join(log_lines))
-            log_csv = "\n".join(log_lines).encode("utf-8")
-            st.download_button(
-                "実行ログCSVをダウンロード",
-                data=log_csv,
-                file_name="today_run_logs.csv",
-                mime="text/csv",
-                key="today_logs_csv",
-            )
-        except Exception:
-            pass
+    if st.session_state.get("ui_vis", {}).get("execution_log", True):
+        with st.expander("実行ログ", expanded=False):
+            try:
+                st.code("\n".join(log_lines))
+                log_csv = "\n".join(log_lines).encode("utf-8")
+                st.download_button(
+                    "実行ログCSVをダウンロード",
+                    data=log_csv,
+                    file_name="today_run_logs.csv",
+                    mime="text/csv",
+                    key="today_logs_csv",
+                )
+            except Exception:
+                pass
 
     for name in system_order:
         df = per_system.get(name)
@@ -566,25 +643,63 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         st.warning("Alpaca口座情報: buying_power/cashが取得できません（更新なし）")
                 except Exception as e:
                     st.error(f"余力の自動更新に失敗: {e}")
-    with st.expander("システム別詳細"):
-        for name in system_order:
-            df = per_system.get(name)
-            st.markdown(f"#### {name}")
-            if df is None or df.empty:
-                st.write("(空)")
-            else:
-                # show dataframe (includes reason column if available)
-                st.dataframe(df, use_container_width=True)
-                csv2 = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    f"{name}のCSVをダウンロード",
-                    data=csv2,
-                    file_name=f"signals_{name}.csv",
-                    key=f"{name}_download_csv",
-                )
+    if st.session_state.get("ui_vis", {}).get("system_details", True):
+        with st.expander("システム別詳細"):
+            for name in system_order:
+                df = per_system.get(name)
+                st.markdown(f"#### {name}")
+                if df is None or df.empty:
+                    st.write("(空)")
+                else:
+                    # show dataframe (includes reason column if available)
+                    st.dataframe(df, use_container_width=True)
+                    csv2 = df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        f"{name}のCSVをダウンロード",
+                        data=csv2,
+                        file_name=f"signals_{name}.csv",
+                        key=f"{name}_download_csv",
+                    )
 
     # ④ 前回結果を別出し（既に run_all_systems_today が出力しているログをサマリ化）
     prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
-    if prev_msgs:
+    if prev_msgs and st.session_state.get("ui_vis", {}).get("previous_results", True):
+        # 件数と時刻を抽出し、system番号順に並べ替え
+        import re as _re
+
+        def _parse_prev_line(ln: str):
+            # [YYYY-mm-dd HH:MM:SS | x分y秒] 🧾 ✅ (前回結果) systemX: N 件
+            ts = ln.split("] ")[0].strip("[")
+            m = _re.search(r"\(前回結果\) (system\d+):\s*(\d+)", ln)
+            sys = m.group(1) if m else "system999"
+            cnt = int(m.group(2)) if m else 0
+            return sys, cnt, ts, ln
+
+        parsed = [_parse_prev_line(x) for x in prev_msgs]
+        order = {f"system{i}": i for i in range(1, 8)}
+        parsed.sort(key=lambda t: order.get(t[0], 999))
+        lines_sorted = [f"{p[2]} | {p[0]}: {p[1]}件\n{p[3]}" for p in parsed]
         with st.expander("前回結果（system別）", expanded=False):
-            st.text("\n".join(prev_msgs[-100:]))
+            st.text("\n\n".join(lines_sorted))
+
+    # ③ systemごとの実行ログ（[systemX] で始まる行）
+    per_system_logs: dict[str, list[str]] = {f"system{i}": [] for i in range(1, 8)}
+    for ln in log_lines:
+        for i in range(1, 8):
+            tag = f"[system{i}] "
+            if ln.find(tag) != -1:
+                per_system_logs[f"system{i}"].append(ln)
+                break
+    any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
+    if any_sys_logs and st.session_state.get("ui_vis", {}).get("per_system_logs", True):
+        with st.expander("システム別 実行ログ", expanded=False):
+            cols = st.columns(2)
+            keys = [f"system{i}" for i in range(1, 8)]
+            for idx, key in enumerate(keys):
+                logs = per_system_logs[key]
+                if not logs:
+                    continue
+                col = cols[idx % 2]
+                with col:
+                    st.markdown(f"#### {key}")
+                    st.code("\n".join(logs[-400:]))
