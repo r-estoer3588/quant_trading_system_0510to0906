@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-import time
-from pathlib import Path
 import os
+from pathlib import Path
 import platform
+import time
 from typing import Any
-import pandas as pd
 
+import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
@@ -61,14 +61,14 @@ except Exception:
 
 from common import broker_alpaca as ba
 from common import universe as univ
-from common.notifier import create_notifier
 from common.alpaca_order import submit_orders_df
-from common.profit_protection import evaluate_positions
-from common.position_age import load_entry_dates
 from common.data_loader import load_price
+from common.notifier import create_notifier
+from common.position_age import load_entry_dates
+from common.profit_protection import evaluate_positions
 from config.settings import get_settings
-from scripts.run_all_systems_today import compute_today_signals
 import scripts.run_all_systems_today as _run_today_mod
+from scripts.run_all_systems_today import compute_today_signals
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -555,10 +555,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             sys_stage_txt[n].text("running…" if vv < 100 else "done (100%)")
             # メトリクス保持
             sc = stage_counts.setdefault(n, {})
-            if vv == 0 and filter_cnt is not None:
-                sc["target"] = int(filter_cnt)
             if filter_cnt is not None:
-                sc["filter"] = int(filter_cnt)
+                if vv == 0:
+                    sc["target"] = int(filter_cnt)
+                else:
+                    sc["filter"] = int(filter_cnt)
             if setup_cnt is not None:
                 sc["setup"] = int(setup_cnt)
             if cand_cnt is not None:
@@ -570,17 +571,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             try:
                 if sc.get("target") is not None:
                     target_txt = str(sc.get("target"))
-                elif (vv == 0) and (filter_cnt is not None):
-                    target_txt = str(int(filter_cnt))
             except Exception:
                 target_txt = "-"
             lines = [
                 f"対象→{target_txt}",
-                f"filter通過数→{sc.get('filter','-') if sc.get('filter') is not None else '-'}",
-                f"setupクリア数→{sc.get('setup','-') if sc.get('setup') is not None else '-'}",
-                f"trade候補数→{sc.get('cand','-') if sc.get('cand') is not None else '-'}",
-                f"エントリー→{sc.get('entry','-') if sc.get('entry') is not None else '-'}",
-                f"エグジット→{sc.get('exit','-') if sc.get('exit') is not None else '-'}",
+                f"filter通過数→{sc.get('filter', '-') if sc.get('filter') is not None else '-'}",
+                f"setupクリア数→{sc.get('setup', '-') if sc.get('setup') is not None else '-'}",
+                f"trade候補数→{sc.get('cand', '-') if sc.get('cand') is not None else '-'}",
+                f"エントリー→{sc.get('entry', '-') if sc.get('entry') is not None else '-'}",
+                f"エグジット→{sc.get('exit', '-') if sc.get('exit') is not None else '-'}",
             ]
             if n in sys_metrics_txt:
                 sys_metrics_txt[n].text("\n".join(lines))
@@ -627,6 +626,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if sc.get("cand") is None:
                     df_sys = per_system.get(key)
                     sc["cand"] = 0 if df_sys is None or df_sys.empty else int(len(df_sys))
+                # エントリー数は最終結果から算出
+                try:
+                    if not final_df.empty and "system" in final_df.columns:
+                        sc["entry"] = int((final_df["system"].str.lower() == key).sum())
+                    elif sc.get("entry") is None:
+                        sc["entry"] = 0
+                except Exception:
+                    pass
                 # 先頭に対象件数（初回0%時のfilter_cntを流用）を表示
                 target_txt = "-"
                 try:
@@ -639,11 +646,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     pass
                 lines = [
                     f"対象→{target_txt}",
-                    f"filter通過数→{sc.get('filter','-')}",
-                    f"setupクリア数→{sc.get('setup','-')}",
-                    f"trade候補数→{sc.get('cand','-')}",
-                    f"エントリー→{sc.get('entry','-')}",
-                    f"エグジット→{sc.get('exit','-')}",
+                    f"filter通過数→{sc.get('filter', '-')}",
+                    f"setupクリア数→{sc.get('setup', '-')}",
+                    f"trade候補数→{sc.get('cand', '-')}",
+                    f"エントリー→{sc.get('entry', '-')}",
+                    f"エグジット→{sc.get('exit', '-')}",
                 ]
                 if key in sys_metrics_txt:
                     sys_metrics_txt[key].text("\n".join(lines))
@@ -1000,23 +1007,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             f"対象→{target_txt2}",
                             (
                                 "filter通過数→"
-                                f"{sc2.get('filter','-') if sc2.get('filter') is not None else '-'}"
+                                f"{sc2.get('filter', '-') if sc2.get('filter') is not None else '-'}"
                             ),
                             (
                                 "setupクリア数→"
-                                f"{sc2.get('setup','-') if sc2.get('setup') is not None else '-'}"
+                                f"{sc2.get('setup', '-') if sc2.get('setup') is not None else '-'}"
                             ),
                             (
                                 "trade候補数→"
-                                f"{sc2.get('cand','-') if sc2.get('cand') is not None else '-'}"
+                                f"{sc2.get('cand', '-') if sc2.get('cand') is not None else '-'}"
                             ),
                             (
                                 "エントリー→"
-                                f"{sc2.get('entry','-') if sc2.get('entry') is not None else '-'}"
+                                f"{sc2.get('entry', '-') if sc2.get('entry') is not None else '-'}"
                             ),
                             (
                                 "エグジット→"
-                                f"{sc2.get('exit','-') if sc2.get('exit') is not None else '-'}"
+                                f"{sc2.get('exit', '-') if sc2.get('exit') is not None else '-'}"
                             ),
                         ]
                         sys_metrics_txt[key2].text("\n".join(lines2))

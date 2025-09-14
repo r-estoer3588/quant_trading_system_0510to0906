@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 import inspect
 import time as _t
-from dataclasses import dataclass
 from typing import Any
-from collections.abc import Callable
 
 import pandas as pd
-
 
 # --- サイド定義（売買区分）---
 LONG_SYSTEMS = {"system1", "system3", "system4", "system5"}
@@ -120,8 +119,7 @@ def _compute_entry_stop(
             if res and isinstance(res, tuple) and len(res) == 2:
                 entry, stop = float(res[0]), float(res[1])
                 if entry > 0 and (
-                    (side == "short" and stop > entry)
-                    or (side == "long" and entry > stop)
+                    (side == "short" and stop > entry) or (side == "long" and entry > stop)
                 ):
                     return round(entry, 4), round(stop, 4)
         except Exception:
@@ -212,11 +210,7 @@ def get_today_signals_for_strategy(
     # ルックバック最適化：必要日数が指定されていれば各DFを末尾N行にスライス
     sliced_dict = raw_data_dict
     try:
-        if (
-            lookback_days is not None
-            and lookback_days > 0
-            and isinstance(raw_data_dict, dict)
-        ):
+        if lookback_days is not None and lookback_days > 0 and isinstance(raw_data_dict, dict):
             sliced: dict[str, pd.DataFrame] = {}
             for _sym, _df in raw_data_dict.items():
                 try:
@@ -351,13 +345,7 @@ def get_today_signals_for_strategy(
             stage_progress(50, filter_pass, setup_pass, None, None)
     except Exception:
         pass
-    # トレード候補件数（全期間と当日）
-    try:
-        total_candidates = sum(
-            len(v or []) for v in (candidates_by_date or {}).values()
-        )
-    except Exception:
-        total_candidates = 0
+    # トレード候補件数（当日のみ）
     try:
         total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
     except Exception:
@@ -371,11 +359,7 @@ def get_today_signals_for_strategy(
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
-            # 当日件数を明示。参考として全期間合計も併記。
-            log_callback(
-                f"🧮 トレード候補選定完了（当日）：{total_candidates_today} 銘柄"
-                + (f"（全期間合計 {total_candidates} 件）" if total_candidates else "")
-            )
+            log_callback(f"🧮 トレード候補選定完了（当日）：{total_candidates_today} 銘柄")
         except Exception:
             pass
 
@@ -424,9 +408,7 @@ def get_today_signals_for_strategy(
 
         # System1 は ROC200 を必ずスコアに採用できるよう堅牢化
         try:
-            if (system_name == "system1") and (
-                skey is None or str(skey).upper() != "ROC200"
-            ):
+            if (system_name == "system1") and (skey is None or str(skey).upper() != "ROC200"):
                 skey = "ROC200"
         except Exception:
             pass
@@ -494,14 +476,10 @@ def get_today_signals_for_strategy(
                         try:
                             if "Date" in pdf.columns:
                                 row = pdf[
-                                    pd.to_datetime(pdf["Date"]).dt.normalize()
-                                    == signal_date_ts
+                                    pd.to_datetime(pdf["Date"]).dt.normalize() == signal_date_ts
                                 ]
                             else:
-                                row = pdf[
-                                    pd.to_datetime(pdf.index).normalize()
-                                    == signal_date_ts
-                                ]
+                                row = pdf[pd.to_datetime(pdf.index).normalize() == signal_date_ts]
                             if not row.empty and skey in row.columns:
                                 v = row.iloc[0][skey]
                                 if v is not None and not pd.isna(v):
@@ -513,9 +491,7 @@ def get_today_signals_for_strategy(
                         # 並び順: system の昇降順推定に合わせる（ROC200 などは降順）
                         reverse = not _asc
                         # 値が同一のときはシンボルで安定ソート
-                        vals_sorted = sorted(
-                            vals, key=lambda t: (t[1], t[0]), reverse=reverse
-                        )
+                        vals_sorted = sorted(vals, key=lambda t: (t[1], t[0]), reverse=reverse)
                         # 自銘柄の順位を決定
                         symbols_sorted = [s for s, _ in vals_sorted]
                         if sym in symbols_sorted:
@@ -544,9 +520,7 @@ def get_today_signals_for_strategy(
             elif skey is not None:
                 # 値は原則非表示（冗長回避）。必要最小限だけ示す。
                 try:
-                    if sval is not None and not (
-                        isinstance(sval, float) and pd.isna(sval)
-                    ):
+                    if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
                         reason_parts.append("スコア条件を満たしたため")
                 except Exception:
                     reason_parts.append("スコア条件を満たしたため")
@@ -605,9 +579,7 @@ def get_today_signals_for_strategy(
     out = pd.DataFrame([r.__dict__ for r in rows])
     try:
         if stage_progress:
-            stage_progress(
-                100, filter_pass, setup_pass, total_candidates_today, len(rows)
-            )
+            stage_progress(100, filter_pass, setup_pass, total_candidates_today, len(rows))
     except Exception:
         pass
     return out

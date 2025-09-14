@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+import logging
 from pathlib import Path
 
-import logging
 import pandas as pd
 
 from common import broker_alpaca as ba
+from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager
 from common.notifier import Notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
 from config.settings import get_settings
-from common.alpaca_order import submit_orders_df
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -983,11 +983,12 @@ def compute_today_signals(
         pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
     try:
-        from common.indicators_precompute import (
-            precompute_shared_indicators,
-            PRECOMPUTED_INDICATORS,
-        )
         import os as _os
+
+        from common.indicators_precompute import (
+            PRECOMPUTED_INDICATORS,
+            precompute_shared_indicators,
+        )
 
         # 実行しきい値（小規模ユニバースでは前計算をスキップしてオーバーヘッド削減）
         try:
@@ -1313,7 +1314,7 @@ def compute_today_signals(
             df = df.sort_values("score", ascending=asc, na_position="last")
             df = df.reset_index(drop=True)
         if df is not None and not df.empty:
-            msg = f"✅ {name}: {len(df)} 件"
+            msg = f"📊 {name}: {len(df)} 件"
         else:
             msg = f"❌ {name}: 0 件 🚫"
         _local_log(msg)
@@ -1578,8 +1579,16 @@ def compute_today_signals(
         _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
         _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
 
-        _cl = None if (capital_long is None or float(capital_long) <= 0) else float(capital_long)
-        _cs = None if (capital_short is None or float(capital_short) <= 0) else float(capital_short)
+        _cl = (
+            None
+            if capital_long is None or float(capital_long) <= 0
+            else float(capital_long)
+        )
+        _cs = (
+            None
+            if capital_short is None or float(capital_short) <= 0
+            else float(capital_short)
+        )
 
         if _cl is None and _cs is None:
             total = _default_cap
@@ -1605,13 +1614,16 @@ def compute_today_signals(
         # 参考: システム別の予算内訳を出力
         try:
             long_budgets = {
-                k: float(capital_long) * float(long_alloc.get(k, 0.0)) for k in long_alloc
+                k: float(capital_long) * float(long_alloc.get(k, 0.0))
+                for k in long_alloc
             }
             short_budgets = {
-                k: float(capital_short) * float(short_alloc.get(k, 0.0)) for k in short_alloc
+                k: float(capital_short) * float(short_alloc.get(k, 0.0))
+                for k in short_alloc
             }
             _log(
-                "📊 long予算内訳: " + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
+                "📊 long予算内訳: "
+                + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
             )
             _log(
                 "📊 short予算内訳: "
@@ -1651,7 +1663,10 @@ def compute_today_signals(
         if "system" in tmp.columns:
             try:
                 tmp["_system_no"] = (
-                    tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
+                    tmp["system"].astype(str)
+                    .str.extract(r"(\d+)")
+                    .fillna(0)
+                    .astype(int)
                 )
             except Exception:
                 tmp["_system_no"] = 0
@@ -1671,7 +1686,9 @@ def compute_today_signals(
                             asc = True
                     except Exception:
                         asc = False
-                    g = g.sort_values("score", ascending=asc, na_position="last", kind="stable")
+                    g = g.sort_values(
+                        "score", ascending=asc, na_position="last", kind="stable"
+                    )
                 parts2.append(g)
             tmp = pd.concat(parts2, ignore_index=True)
         except Exception:
@@ -1687,7 +1704,9 @@ def compute_today_signals(
         try:
             if "position_value" in final_df.columns:
                 grp = (
-                    final_df.groupby("system")["position_value"].agg(["count", "sum"]).reset_index()
+                    final_df.groupby("system")["position_value"]
+                    .agg(["count", "sum"])
+                    .reset_index()
                 )
                 parts = [
                     f"{r['system']}: {int(r['count'])}件 / ${float(r['sum']):,.0f}"
@@ -1696,7 +1715,20 @@ def compute_today_signals(
                 _log("🧾 system別サマリ: " + ", ".join(parts))
             else:
                 grp = final_df.groupby("system").size().to_dict()
-                _log("🧾 system別サマリ: " + ", ".join([f"{k}: {v}件" for k, v in grp.items()]))
+                _log(
+                    "🧾 system別サマリ: "
+                    + ", ".join([f"{k}: {v}件" for k, v in grp.items()])
+                )
+            # system ごとの最終エントリー数を出力
+            try:
+                if isinstance(grp, dict):
+                    for k, v in grp.items():
+                        _log(f"✅ {k}: {int(v)} 件")
+                else:
+                    for _, r in grp.iterrows():
+                        _log(f"✅ {r['system']}: {int(r['count'])} 件")
+            except Exception:
+                pass
         except Exception:
             pass
         _log(f"📊 最終候補件数: {len(final_df)}")
