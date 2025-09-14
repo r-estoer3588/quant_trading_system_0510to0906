@@ -484,6 +484,8 @@ def _phase_update_coverage_and_tgt(
             try:
                 if fixed > 0:
                     _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
+                else:
+                    _log("🧩 補完対象に base/full が見つからず、生成 0 件", ui=False)
             except Exception:
                 pass
             cov_have = len(basic_data)
@@ -1724,7 +1726,13 @@ def _compute_today_signals_impl(
             elif env_pp in ("1", "true", "yes"):
                 use_process_pool = True
             else:
-                use_process_pool = True
+                # 既定: Windows では False（pickle不具合回避）、その他は True
+                try:
+                    import platform as _pf
+
+                    use_process_pool = not _pf.system().lower().startswith("win")
+                except Exception:
+                    use_process_pool = True
             # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
@@ -1929,12 +1937,17 @@ def _compute_today_signals_impl(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
-                # UI コールバックがある場合、_run_strategy 内で UI に転送済みなので
-                # ここで重ねて _log しない（重複防止）。UI が無い場合のみ CLI へ集約出力。
-                cb = globals().get("_LOG_CALLBACK")
-                if not (cb and callable(cb)):
-                    for line in _filter_ui_logs(logs):
-                        _log(f"[{name}] {line}")
+                # cand 件数を 75% 時点で更新（filter/setup は維持）
+                try:
+                    cb2 = globals().get("_PER_SYSTEM_STAGE")
+                except Exception:
+                    cb2 = None
+                if cb2 and callable(cb2):
+                    try:
+                        cand_n = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                        cb2(name, 75, None, None, cand_n, None)
+                    except Exception:
+                        pass
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -1967,10 +1980,17 @@ def _compute_today_signals_impl(
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
-            cb = globals().get("_LOG_CALLBACK")
-            if not (cb and callable(cb)):
-                for line in _filter_ui_logs(logs):
-                    _log(f"[{name}] {line}")
+            # cand 件数を 75% 時点で更新（filter/setup は維持）
+            try:
+                cb2 = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2 = None
+            if cb2 and callable(cb2):
+                try:
+                    cand_n = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                    cb2(name, 75, None, None, cand_n, None)
+                except Exception:
+                    pass
             if per_system_progress:
                 try:
                     per_system_progress(name, "done")
@@ -2342,6 +2362,28 @@ def _compute_today_signals_impl(
         _log(f"📊 最終候補件数: {len(final_df)}")
     else:
         _log("📭 最終候補は0件でした")
+
+    # システム別の最終エントリー件数を UI に 100% とともに反映
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            final_counts: dict[str, int] = {}
+            if final_df is not None and not final_df.empty and "system" in final_df.columns:
+                final_counts = (
+                    final_df.groupby("system").size().to_dict()
+                )  # type: ignore[assignment]
+            for i in range(1, 8):
+                key = f"system{i}"
+                cnt = int(final_counts.get(key, 0))
+                try:
+                    cb2(key, 100, None, None, None, cnt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     if progress_callback:
         try:
             progress_callback(7, 8, "finalize")
