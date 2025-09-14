@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import inspect
 import time as _t
 from dataclasses import dataclass

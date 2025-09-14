@@ -86,7 +86,7 @@ def _log(msg: str, ui: bool = True) -> None:
     """UI/CLI 兼用の軽量ロガー。
 
     - UI 側から `log_callback` が提供されていればそれに渡す（ui=True の時）。
-    - UI コールバックが無い、または ui=False の場合はファイルへINFO出力。
+    - UI コールバックが無い、または ui=False の場合はファイルへINFO出力に加えて標準出力にも印字。
     """
     try:
         cb = globals().get("_LOG_CALLBACK")
@@ -100,7 +100,14 @@ def _log(msg: str, ui: bool = True) -> None:
     try:
         cb = globals().get("_LOG_CALLBACK")
         if not cb or not ui:
-            _get_today_logger().info(str(msg))
+            text = str(msg)
+            # ファイルへ
+            _get_today_logger().info(text)
+            # CLI でも見えるように標準出力へも出す
+            try:
+                print(text, flush=True)
+            except Exception:
+                pass
     except Exception:
         pass
 
