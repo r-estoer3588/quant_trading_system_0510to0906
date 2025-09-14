@@ -7,6 +7,22 @@ from typing import Any
 
 import streamlit as st
 
+try:
+    # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）
+    from streamlit.runtime.scriptrunner import get_script_run_ctx as _st_get_ctx  # type: ignore
+
+    def _has_st_ctx() -> bool:
+        try:
+            return _st_get_ctx() is not None
+        except Exception:
+            return False
+
+except Exception:
+
+    def _has_st_ctx() -> bool:  # type: ignore
+        return False
+
+
 # Streamlit checkbox の重複ID対策（key未指定時に自動で一意キーを付与）
 try:
     if not hasattr(st, "_orig_checkbox"):
@@ -205,7 +221,8 @@ with st.sidebar:
     st.write(f"アカウント種別（推定）: {derived_type}  |  Buying Power: {bp_txt}")
     if acct_type_raw is not None or mult_f is not None:
         st.caption(
-            f"詳細: account_type={acct_type_raw}, multiplier={mult_f if mult_f is not None else '-'}"
+            f"詳細: account_type={acct_type_raw}, "
+            f"multiplier={mult_f if mult_f is not None else '-'}"
         )
 
     # 資産入力フォーム
@@ -365,45 +382,49 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             line = f"[{now} | {m}分{s}秒] {msg}"
             log_lines.append(line)
             # 冗長ログをUIでは抑制（ファイルには別途書き出し）
-            try:
-                _msg = str(msg)
-                ui_vis2 = st.session_state.get("ui_vis", {})
-                show_overall = bool(ui_vis2.get("overall_progress", True))
-                allow_data_load = bool(ui_vis2.get("data_load_progress_lines", True))
-                # データロード進捗（📦/🧮）はホワイトリストで扱う
-                is_data_load_line = (
-                    _msg.startswith("📦 基礎データロード進捗")
-                    or _msg.startswith("🧮 指標データロード進捗")
-                    or _msg.startswith("📦 基礎データロード完了")
-                    or _msg.startswith("🧮 指標データロード完了")
-                )
-                # 不要ログ（UI表示では抑制したいもの）
-                skip_keywords = (
-                    "進捗",
-                    "インジケーター",
-                    "indicator",
-                    "indicators",
-                    "指標計算",
-                    "共有指標",
-                    "バッチ時間",
-                    "batch time",
-                    "候補抽出",
-                    "候補日数",
-                    "銘柄:",
-                    "📊 インジケーター計算",
-                    "📊 候補抽出",
-                    "⏱️ バッチ時間",
-                )
-                should_show = False
-                if show_overall:
-                    if is_data_load_line and allow_data_load:
-                        should_show = True
-                    elif not any(k in _msg for k in skip_keywords):
-                        should_show = True
-                if should_show:
-                    progress_area.text(line)
-            except Exception:
-                progress_area.text(line)
+            if _has_st_ctx():
+                try:
+                    _msg = str(msg)
+                    ui_vis2 = st.session_state.get("ui_vis", {})
+                    show_overall = bool(ui_vis2.get("overall_progress", True))
+                    allow_data_load = bool(ui_vis2.get("data_load_progress_lines", True))
+                    # データロード進捗（📦/🧮）はホワイトリストで扱う
+                    is_data_load_line = (
+                        _msg.startswith("📦 基礎データロード進捗")
+                        or _msg.startswith("🧮 指標データロード進捗")
+                        or _msg.startswith("📦 基礎データロード完了")
+                        or _msg.startswith("🧮 指標データロード完了")
+                    )
+                    # 不要ログ（UI表示では抑制したいもの）
+                    skip_keywords = (
+                        "進捗",
+                        "インジケーター",
+                        "indicator",
+                        "indicators",
+                        "指標計算",
+                        "共有指標",
+                        "バッチ時間",
+                        "batch time",
+                        "候補抽出",
+                        "候補日数",
+                        "銘柄:",
+                        "📊 インジケーター計算",
+                        "📊 候補抽出",
+                        "⏱️ バッチ時間",
+                    )
+                    should_show = False
+                    if show_overall:
+                        if is_data_load_line and allow_data_load:
+                            should_show = True
+                        elif not any(k in _msg for k in skip_keywords):
+                            should_show = True
+                    if should_show:
+                        progress_area.text(line)
+                except Exception:
+                    try:
+                        progress_area.text(line)
+                    except Exception:
+                        pass
             # ファイルにもINFOで書き出す
             try:
                 _get_today_logger().info(str(msg))
@@ -415,6 +436,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     def _ui_progress(done: int, total: int, name: str) -> None:
         try:
+            if not _has_st_ctx():
+                return
             ui_vis2 = st.session_state.get("ui_vis", {})
             if not bool(ui_vis2.get("overall_progress", True)):
                 return
@@ -428,6 +451,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     def _per_system_progress(name: str, phase: str) -> None:
         try:
+            if not _has_st_ctx():
+                return
             ui_vis2 = st.session_state.get("ui_vis", {})
             if not bool(ui_vis2.get("per_system_progress", True)):
                 return
@@ -456,6 +481,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         final_cnt: int | None = None,
     ) -> None:
         try:
+            if not _has_st_ctx():
+                return
             ui_vis2 = st.session_state.get("ui_vis", {})
             if not bool(ui_vis2.get("per_system_progress", True)):
                 return
@@ -551,7 +578,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             per_counts = []
         detail = f" | システム別: {', '.join(per_counts)}" if per_counts else ""
         _get_today_logger().info(
-            f"✅ 本日のシグナル: シグナル検出処理終了 (経過 {m}分{s}秒, 最終候補 {final_n} 件){detail}"
+            f"✅ 本日のシグナル: シグナル検出処理終了 (経過 {m}分{s}秒, "
+            f"最終候補 {final_n} 件){detail}"
         )
     except Exception:
         pass
@@ -647,11 +675,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         st.session_state["today_cap_long"] = round(bp / 2.0, 2)
                         st.session_state["today_cap_short"] = round(bp / 2.0, 2)
                         st.success(
-                            f"約定反映後の余力で長短を再設定しました: ${st.session_state['today_cap_long']} / ${st.session_state['today_cap_short']}"
+                            "約定反映後の余力で長短を再設定しました: "
+                            f"${st.session_state['today_cap_long']} / "
+                            f"${st.session_state['today_cap_short']}"
                         )
                         try:
                             _ui_log(
-                                f"🔄 Alpaca口座余力を更新: buying_power={bp:.2f} → long/short={bp/2:.2f}"
+                                f"🔄 Alpaca口座余力を更新: buying_power={bp:.2f} "
+                                f"→ long/short={bp/2:.2f}"
                             )
                         except Exception:
                             pass
