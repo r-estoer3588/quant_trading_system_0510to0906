@@ -351,8 +351,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     index=_pd.to_datetime(df2["exit_date"]),
                 )
                 daily_eq = equity.resample("D").last().ffill()
-                year_start = daily_eq.resample("Y").first()
-                year_end = daily_eq.resample("Y").last()
+                year_start = daily_eq.resample("YE").first()
+                year_end = daily_eq.resample("YE").last()
                 yearly_df = _pd.DataFrame(
                     {
                         "年": year_end.index.to_series().dt.year.values,
@@ -366,8 +366,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
                 )
                 # 月次サマリー
-                month_start = daily_eq.resample("M").first()
-                month_end = daily_eq.resample("M").last()
+                month_start = daily_eq.resample("ME").first()
+                month_end = daily_eq.resample("ME").last()
                 monthly_df = _pd.DataFrame(
                     {
                         "月": month_end.index.to_series().dt.strftime("%Y-%m").values,

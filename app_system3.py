@@ -172,8 +172,8 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             equity = float(capital) + df2["cumulative_pnl"].astype(float)
             equity.index = pd.to_datetime(df2["exit_date"])  # type: ignore
             daily_eq = equity.resample("D").last().ffill()
-            ys = daily_eq.resample("Y").first()
-            ye = daily_eq.resample("Y").last()
+            ys = daily_eq.resample("YE").first()
+            ye = daily_eq.resample("YE").last()
             yearly_df = pd.DataFrame(
                 {
                     "year": pd.to_datetime(ye.index).year,

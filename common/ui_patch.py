@@ -198,8 +198,8 @@ try:  # noqa: WPS501
             equity = float(capital) + df2["cumulative_pnl"].astype(float)
             equity.index = _pd.to_datetime(df2["exit_date"])  # type: ignore[arg-type]
             daily = equity.resample("D").last().ffill()
-            ys = daily.resample("Y").first()
-            ye = daily.resample("Y").last()
+            ys = daily.resample("YE").first()
+            ye = daily.resample("YE").last()
             yearly_df = _pd.DataFrame(
                 {
                     "年": ye.index.year,
@@ -212,8 +212,8 @@ try:  # noqa: WPS501
                 yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
             )
             # 月次サマリー
-            ms = daily.resample("M").first()
-            me = daily.resample("M").last()
+            ms = daily.resample("ME").first()
+            me = daily.resample("ME").last()
             monthly_df = _pd.DataFrame(
                 {
                     "月": me.index.strftime("%Y-%m"),

@@ -40,7 +40,7 @@ def generate_holding_matrix(
             # 1%進んだタイミング or 最後の処理で更新
             if int(ratio * 100) != int((j - 1) / total_steps * 100) or j == total_steps:
                 matrix_progress_callback(j, total_steps)
-    return holding_matrix.fillna(0).astype(int)
+    return holding_matrix.fillna(0).infer_objects(copy=False).astype(int)
 
 
 def display_holding_heatmap(
