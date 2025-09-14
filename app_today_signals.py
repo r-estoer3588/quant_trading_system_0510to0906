@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 import os
+import platform
 from typing import Any
 import pandas as pd
 
@@ -67,6 +68,7 @@ from common.position_age import load_entry_dates
 from common.data_loader import load_price
 from config.settings import get_settings
 from scripts.run_all_systems_today import compute_today_signals
+import scripts.run_all_systems_today as _run_today_mod
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -255,7 +257,10 @@ with st.sidebar:
     st.header("CSV保存")
     save_csv = st.checkbox("CSVをsignals_dirに保存", value=False)
 
-    run_parallel = st.checkbox("並列実行（システム横断）", value=True)
+    # 既定で並列実行をON（Windowsでも有効化）
+    is_windows = platform.system().lower().startswith("win")
+    run_parallel_default = True
+    run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
     retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2)
@@ -327,6 +332,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # 開始時刻を記録
     start_time = time.time()
     # 進捗表示用の領域（1行上書き）
+    # ETA 専用表示（共有指標 前計算の残り時間など）
+    eta_area = st.empty()
     progress_area = st.empty()
     # プログレスバー（表示設定に応じて更新可）
     prog = st.progress(0)
@@ -342,11 +349,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
         # 追加: メトリクス表示用の行（stageの下の行）
         sys_metrics_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
+        # 追加: システム別の補足表示（System2のフィルタ内訳など）
+        sys_extra_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
         sys_states = {k: 0 for k in sys_bars.keys()}
     else:
         sys_bars = {}
         sys_stage_txt = {}
         sys_metrics_txt = {}
+        sys_extra_txt = {}
         sys_states = {}
     # 追加: 全ログを蓄積（system別タブで表示）
     log_lines: list[str] = []
@@ -378,6 +388,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         or _msg.startswith("📦 基礎データロード完了")
                         or _msg.startswith("🧮 指標データロード完了")
                     )
+                    # 共有指標 前計算（ETA付き）は別枠（eta_area）に表示
+                    if _msg.startswith("🧮 共有指標 前計算"):
+                        try:
+                            eta_area.text(line)
+                        except Exception:
+                            pass
+                        # メインの進捗ログには重複表示しない
+                        return
                     # 不要ログ（UI表示では抑制したいもの）
                     skip_keywords = (
                         "進捗",
@@ -388,6 +406,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         "共有指標",
                         "バッチ時間",
                         "batch time",
+                        "next batch size",
                         "候補抽出",
                         "候補日数",
                         "銘柄:",
@@ -476,29 +495,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            parts = []
-            # 0% 時に対象件数（total_symbols）が渡ってくる場合がある
-            if vv == 0 and filter_cnt is not None:
-                parts.append(f"対象→{filter_cnt}")
-            if filter_cnt is not None and vv >= 25:
-                parts.append(f"filter通過数→{filter_cnt}")
-            if setup_cnt is not None and vv >= 50:
-                parts.append(f"setupクリア数→{setup_cnt}")
-            if cand_cnt is not None and vv >= 75:
-                parts.append(f"trade候補数→{cand_cnt}")
-            if final_cnt is not None and vv >= 100:
-                parts.append(f"エントリー→{final_cnt}")
-            # exit は未算出のため、保持していれば表示
-            ex_val = stage_counts.get(n, {}).get("exit")
-            if ex_val is not None:
-                parts.append(f"エグジット→{ex_val}")
-            summary = " | ".join(parts) if parts else "…"
-            # フェーズ表示は日本語化せず簡潔に（行頭に統合表示があるため）
-            sys_stage_txt[n].text(summary)
+            # クイックフェーズ表示
+            sys_stage_txt[n].text("running…" if vv < 100 else "done (100%)")
             # メトリクス保持
             sc = stage_counts.setdefault(n, {})
             if vv == 0 and filter_cnt is not None:
-                # 初回0%通知時の件数は対象件数として保持
                 sc["target"] = int(filter_cnt)
             if filter_cnt is not None:
                 sc["filter"] = int(filter_cnt)
@@ -508,6 +509,25 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 sc["cand"] = int(cand_cnt)
             if final_cnt is not None:
                 sc["entry"] = int(final_cnt)
+            # 逐次メトリクスの改行レンダリング（欠損は「-」）
+            target_txt = "-"
+            try:
+                if sc.get("target") is not None:
+                    target_txt = str(sc.get("target"))
+                elif (vv == 0) and (filter_cnt is not None):
+                    target_txt = str(int(filter_cnt))
+            except Exception:
+                target_txt = "-"
+            lines = [
+                f"対象→{target_txt}",
+                f"filter通過数→{sc.get('filter','-') if sc.get('filter') is not None else '-'}",
+                f"setupクリア数→{sc.get('setup','-') if sc.get('setup') is not None else '-'}",
+                f"trade候補数→{sc.get('cand','-') if sc.get('cand') is not None else '-'}",
+                f"エントリー→{sc.get('entry','-') if sc.get('entry') is not None else '-'}",
+                f"エグジット→{sc.get('exit','-') if sc.get('exit') is not None else '-'}",
+            ]
+            if n in sys_metrics_txt:
+                sys_metrics_txt[n].text("\n".join(lines))
         except Exception:
             pass
 
@@ -516,15 +536,58 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # ステージ進捗の受け口を先に登録（スレッドから参照されるため）
     try:
-        globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
+        # orchestrator 側のモジュールグローバルに直接差し込む
+        _run_today_mod._PER_SYSTEM_STAGE = _per_system_stage  # type: ignore[attr-defined]
     except Exception:
         pass
 
-    # Windows 上のプロセスプール不安定回避（Streamlit 実行中は無効化）
+    # Windows 上のプロセスプールは不安定なため既定は無効。
+    # ただしUIで明示的に有効化できる実験的オプションを提供。
     try:
-        os.environ.setdefault("USE_PROCESS_POOL", "0")
+        # 推奨ワーカー数（CPU - 2 を基準に上限下限を丸める）
+        cpu = os.cpu_count() or 8
+        pp_default_workers = max(2, min(6 if is_windows else 12, (cpu - 2)))
+        common_default_workers = max(2, min(8 if is_windows else 16, (cpu - 2)))
+
+        enable_pp = bool(st.checkbox("プロセスプールを試す（上級・Windowsは非推奨）", value=False))
+        pp_workers = int(
+            st.number_input(
+                "プロセスプール ワーカー数",
+                min_value=1,
+                max_value=64,
+                value=int(pp_default_workers),
+            )
+        )
+        # 共有指標の前計算や一般的な並列処理の既定ワーカー（THREADS_DEFAULT）
+        common_workers = int(
+            st.number_input(
+                "共通ワーカー数（前計算/各システムの並列）",
+                min_value=1,
+                max_value=64,
+                value=int(common_default_workers),
+                help=(
+                    "共有指標 前計算や戦略内部の並列化に用いる既定ワーカー数。\n"
+                    "Windows では低め（~6）、他OSでは中程度（~12-16）を推奨。"
+                ),
+            )
+        )
+        if enable_pp:
+            os.environ["USE_PROCESS_POOL"] = "1"
+            os.environ["PROCESS_POOL_WORKERS"] = str(pp_workers)
+            st.caption(
+                "注意: Windows + Streamlit は不安定な場合があります。"
+                " エラー時はオフにしてください。"
+            )
+        else:
+            os.environ["USE_PROCESS_POOL"] = "0"
+        # THREADS_DEFAULT は orchestrator 側が参照（前計算/戦略内の並列処理に影響）
+        os.environ["THREADS_DEFAULT"] = str(common_workers)
     except Exception:
-        pass
+        # 失敗時は既定の無効化
+        try:
+            os.environ.setdefault("USE_PROCESS_POOL", "0")
+        except Exception:
+            pass
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
@@ -564,16 +627,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         target_txt = str(sc.get("filter"))
                 except Exception:
                     pass
-                txt = (
-                    f"対象→{target_txt}, "
-                    f"filter通過数→{sc.get('filter','-')}, "
-                    f"setupクリア数→{sc.get('setup','-')}, "
-                    f"trade候補数→{sc.get('cand','-')}, "
-                    f"エントリー→{sc.get('entry','-')}, "
-                    f"エグジット→{sc.get('exit','-')}"
-                )
+                lines = [
+                    f"対象→{target_txt}",
+                    f"filter通過数→{sc.get('filter','-')}",
+                    f"setupクリア数→{sc.get('setup','-')}",
+                    f"trade候補数→{sc.get('cand','-')}",
+                    f"エントリー→{sc.get('entry','-')}",
+                    f"エグジット→{sc.get('exit','-')}",
+                ]
                 if key in sys_metrics_txt:
-                    sys_metrics_txt[key].text(txt)
+                    sys_metrics_txt[key].text("\n".join(lines))
     except Exception:
         pass
 
@@ -636,6 +699,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         "インジケーター",
         "indicator",
         "indicators",
+        "batch time",
+        "next batch size",
     )
     for ln in log_lines:
         # タブ表示ではスキップすべきログを除外
@@ -664,6 +729,24 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     height=380,
                     disabled=True,
                 )
+                # System2 のフィルタ内訳があれば補足表示
+                try:
+                    if key == "system2":
+                        # 直近に受け取った内訳ログを抽出
+                        detail_lines = [
+                            x for x in logs if ("フィルタ内訳:" in x or "filter breakdown:" in x)
+                        ]
+                        if detail_lines:
+                            # 最後の1行だけ表示（文字列想定）
+                            last_line = str(detail_lines[-1])
+                            # 時刻/経過のプリフィックス以降を抽出
+                            try:
+                                disp = last_line.split("] ", 1)[1]
+                            except Exception:
+                                disp = last_line
+                            st.caption(disp)
+                except Exception:
+                    pass
 
     # 通知は内部エンジン側で送信済み（重複を避けるためここでは送らない）
 
