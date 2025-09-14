@@ -11,6 +11,7 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
+from common.cache_manager import CacheManager, load_base_cache
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -680,15 +681,7 @@ def compute_today_signals(
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     # rolling 不在 → base から必要分を生成して保存
-                    try:
-                        from common.cache_manager import load_base_cache
-                    except Exception:
-                        load_base_cache = None  # type: ignore
-                    base_df = (
-                        load_base_cache(sym, rebuild_if_missing=True)
-                        if load_base_cache is not None
-                        else None
-                    )
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
                     if base_df is None or base_df.empty:
                         continue
                     x = base_df.copy()
@@ -1027,15 +1020,7 @@ def compute_today_signals(
                     settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
-                    try:
-                        from common.cache_manager import load_base_cache
-                    except Exception:
-                        load_base_cache = None  # type: ignore
-                    base_df = (
-                        load_base_cache(sym, rebuild_if_missing=True)
-                        if load_base_cache is not None
-                        else None
-                    )
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
                     if base_df is None or base_df.empty:
                         continue
                     x = base_df.copy()
