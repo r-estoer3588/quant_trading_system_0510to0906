@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 import platform
 import time
@@ -262,61 +261,7 @@ with st.sidebar:
     run_parallel_default = True
     run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
 
-    # 並列/ワーカー設定（ボタン押下前に設定可能に）
-    try:
-        cpu = os.cpu_count() or 8
-        pp_default_workers = max(2, min(6 if is_windows else 12, (cpu - 2)))
-        common_default_workers = max(2, min(8 if is_windows else 16, (cpu - 2)))
-
-        st.caption("")
-        enable_pp = bool(
-            st.checkbox(
-                "プロセスプールを試す（上級・Windowsは非推奨）",
-                value=bool(st.session_state.get("enable_pp", False)),
-                key="enable_pp_cb",
-            )
-        )
-        st.session_state["enable_pp"] = enable_pp
-        pp_workers = int(
-            st.number_input(
-                "プロセスプール ワーカー数",
-                min_value=1,
-                max_value=64,
-                value=int(st.session_state.get("pp_workers", pp_default_workers)),
-                key="pp_workers_input",
-            )
-        )
-        st.session_state["pp_workers"] = pp_workers
-        common_workers = int(
-            st.number_input(
-                "共通ワーカー数（前計算/各システムの並列）",
-                min_value=1,
-                max_value=64,
-                value=int(st.session_state.get("common_workers", common_default_workers)),
-                help=(
-                    "共有指標 前計算や戦略内部の並列化に用いる既定ワーカー数。\n"
-                    "Windows では低め（~6）、他OSでは中程度（~12-16）を推奨。"
-                ),
-                key="common_workers_input",
-            )
-        )
-        st.session_state["common_workers"] = common_workers
-        # 即時に環境変数へ反映（オーケストレータ/戦略側が参照）
-        if enable_pp:
-            os.environ["USE_PROCESS_POOL"] = "1"
-            os.environ["PROCESS_POOL_WORKERS"] = str(pp_workers)
-            st.caption(
-                "注意: Windows + Streamlit は不安定な場合があります。"
-                " エラー時はオフにしてください。"
-            )
-        else:
-            os.environ["USE_PROCESS_POOL"] = "0"
-        os.environ["THREADS_DEFAULT"] = str(common_workers)
-    except Exception:
-        try:
-            os.environ.setdefault("USE_PROCESS_POOL", "0")
-        except Exception:
-            pass
+    # 並列実行の詳細設定は削除（初期デフォルト挙動に戻す）
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
     retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2)
@@ -1003,12 +948,12 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 target_txt2 = str(sc2.get("filter"))
                         except Exception:
                             target_txt2 = "-"
+                        # 行長回避のため一部を事前に文字列化
+                        _f_val = sc2.get("filter")
+                        _f_txt = "-" if _f_val is None else str(_f_val)
                         lines2 = [
                             f"対象→{target_txt2}",
-                            (
-                                "filter通過数→"
-                                f"{sc2.get('filter', '-') if sc2.get('filter') is not None else '-'}"
-                            ),
+                            ("filter通過数→" + _f_txt),
                             (
                                 "setupクリア数→"
                                 f"{sc2.get('setup', '-') if sc2.get('setup') is not None else '-'}"

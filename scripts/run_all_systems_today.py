@@ -1085,6 +1085,184 @@ def compute_today_signals(
         )
     except Exception:
         pass
+    # System1 フィルター内訳（価格・売買代金）
+    try:
+        s1_total = len(symbols)
+        s1_price = 0
+        s1_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
+                if last_close >= 5:
+                    s1_price += 1
+                else:
+                    continue
+                dv20 = float(
+                    _df.get("close", _df.get("Close")).tail(20).mean()  # type: ignore[union-attr]
+                    * _df.get("volume", _df.get("Volume")).tail(20).mean()  # type: ignore[union-attr]
+                )
+                if dv20 >= 5e7:
+                    s1_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV>=50M: {s1_dv}")
+    except Exception:
+        pass
+    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
+    try:
+        s3_total = len(symbols)
+        s3_low = 0
+        s3_av = 0
+        s3_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 1:
+                    s3_low += 1
+                else:
+                    continue
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) >= 1_000_000
+                ):
+                    s3_av += 1
+                else:
+                    continue
+                _atr_ratio = _df.get("ATR_Ratio")
+                if (
+                    _atr_ratio is not None
+                    and not pd.isna(_atr_ratio.iloc[-1])
+                    and float(_atr_ratio.iloc[-1]) >= 0.05
+                ):
+                    s3_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system3内訳: "
+            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+        )
+    except Exception:
+        pass
+    # System4 フィルター内訳（DV50>=100M → HV50 10〜40）
+    try:
+        s4_total = len(symbols)
+        s4_dv = 0
+        s4_hv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _dv50 = _df.get("DollarVolume50")
+                _hv50 = _df.get("HV50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 100_000_000
+                ):
+                    s4_dv += 1
+                else:
+                    continue
+                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
+                    hv = float(_hv50.iloc[-1])
+                    if 10 <= hv <= 40:
+                        s4_hv += 1
+            except Exception:
+                continue
+        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
+    except Exception:
+        pass
+    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>4%）
+    try:
+        s5_total = len(symbols)
+        s5_av = 0
+        s5_dv = 0
+        s5_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) > 500_000
+                ):
+                    s5_av += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 2_500_000
+                ):
+                    s5_dv += 1
+                else:
+                    continue
+                _atrp = _df.get("ATR_Pct")
+                if (
+                    _atrp is not None
+                    and not pd.isna(_atrp.iloc[-1])
+                    and float(_atrp.iloc[-1]) > 0.04
+                ):
+                    s5_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system5内訳: "
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+        )
+    except Exception:
+        pass
+    # System6 フィルター内訳（Low>=5 → DV50>10M）
+    try:
+        s6_total = len(symbols)
+        s6_low = 0
+        s6_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 5:
+                    s6_low += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 10_000_000
+                ):
+                    s6_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+    except Exception:
+        pass
+    # System7 は SPY 固定（参考情報のみ）
+    try:
+        spyp = (
+            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+        )
+        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
+    except Exception:
+        pass
     _log(
         "🧪 フィルター結果: "
         + f"system1={len(system1_syms)}件, "
@@ -1579,16 +1757,8 @@ def compute_today_signals(
         _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
         _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
 
-        _cl = (
-            None
-            if capital_long is None or float(capital_long) <= 0
-            else float(capital_long)
-        )
-        _cs = (
-            None
-            if capital_short is None or float(capital_short) <= 0
-            else float(capital_short)
-        )
+        _cl = None if capital_long is None or float(capital_long) <= 0 else float(capital_long)
+        _cs = None if capital_short is None or float(capital_short) <= 0 else float(capital_short)
 
         if _cl is None and _cs is None:
             total = _default_cap
@@ -1614,16 +1784,13 @@ def compute_today_signals(
         # 参考: システム別の予算内訳を出力
         try:
             long_budgets = {
-                k: float(capital_long) * float(long_alloc.get(k, 0.0))
-                for k in long_alloc
+                k: float(capital_long) * float(long_alloc.get(k, 0.0)) for k in long_alloc
             }
             short_budgets = {
-                k: float(capital_short) * float(short_alloc.get(k, 0.0))
-                for k in short_alloc
+                k: float(capital_short) * float(short_alloc.get(k, 0.0)) for k in short_alloc
             }
             _log(
-                "📊 long予算内訳: "
-                + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
+                "📊 long予算内訳: " + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
             )
             _log(
                 "📊 short予算内訳: "
@@ -1663,10 +1830,7 @@ def compute_today_signals(
         if "system" in tmp.columns:
             try:
                 tmp["_system_no"] = (
-                    tmp["system"].astype(str)
-                    .str.extract(r"(\d+)")
-                    .fillna(0)
-                    .astype(int)
+                    tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
                 )
             except Exception:
                 tmp["_system_no"] = 0
@@ -1686,9 +1850,7 @@ def compute_today_signals(
                             asc = True
                     except Exception:
                         asc = False
-                    g = g.sort_values(
-                        "score", ascending=asc, na_position="last", kind="stable"
-                    )
+                    g = g.sort_values("score", ascending=asc, na_position="last", kind="stable")
                 parts2.append(g)
             tmp = pd.concat(parts2, ignore_index=True)
         except Exception:
@@ -1704,9 +1866,7 @@ def compute_today_signals(
         try:
             if "position_value" in final_df.columns:
                 grp = (
-                    final_df.groupby("system")["position_value"]
-                    .agg(["count", "sum"])
-                    .reset_index()
+                    final_df.groupby("system")["position_value"].agg(["count", "sum"]).reset_index()
                 )
                 parts = [
                     f"{r['system']}: {int(r['count'])}件 / ${float(r['sum']):,.0f}"
@@ -1715,10 +1875,7 @@ def compute_today_signals(
                 _log("🧾 system別サマリ: " + ", ".join(parts))
             else:
                 grp = final_df.groupby("system").size().to_dict()
-                _log(
-                    "🧾 system別サマリ: "
-                    + ", ".join([f"{k}: {v}件" for k, v in grp.items()])
-                )
+                _log("🧾 system別サマリ: " + ", ".join([f"{k}: {v}件" for k, v in grp.items()]))
             # system ごとの最終エントリー数を出力
             try:
                 if isinstance(grp, dict):
