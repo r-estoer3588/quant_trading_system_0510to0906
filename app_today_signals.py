@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 import os
+import platform
 from typing import Any
 import pandas as pd
 
@@ -67,6 +68,7 @@ from common.position_age import load_entry_dates
 from common.data_loader import load_price
 from config.settings import get_settings
 from scripts.run_all_systems_today import compute_today_signals
+import scripts.run_all_systems_today as _run_today_mod
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -255,7 +257,66 @@ with st.sidebar:
     st.header("CSV保存")
     save_csv = st.checkbox("CSVをsignals_dirに保存", value=False)
 
-    run_parallel = st.checkbox("並列実行（システム横断）", value=True)
+    # 既定で並列実行をON（Windowsでも有効化）
+    is_windows = platform.system().lower().startswith("win")
+    run_parallel_default = True
+    run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
+
+    # 並列/ワーカー設定（ボタン押下前に設定可能に）
+    try:
+        cpu = os.cpu_count() or 8
+        pp_default_workers = max(2, min(6 if is_windows else 12, (cpu - 2)))
+        common_default_workers = max(2, min(8 if is_windows else 16, (cpu - 2)))
+
+        st.caption("")
+        enable_pp = bool(
+            st.checkbox(
+                "プロセスプールを試す（上級・Windowsは非推奨）",
+                value=bool(st.session_state.get("enable_pp", False)),
+                key="enable_pp_cb",
+            )
+        )
+        st.session_state["enable_pp"] = enable_pp
+        pp_workers = int(
+            st.number_input(
+                "プロセスプール ワーカー数",
+                min_value=1,
+                max_value=64,
+                value=int(st.session_state.get("pp_workers", pp_default_workers)),
+                key="pp_workers_input",
+            )
+        )
+        st.session_state["pp_workers"] = pp_workers
+        common_workers = int(
+            st.number_input(
+                "共通ワーカー数（前計算/各システムの並列）",
+                min_value=1,
+                max_value=64,
+                value=int(st.session_state.get("common_workers", common_default_workers)),
+                help=(
+                    "共有指標 前計算や戦略内部の並列化に用いる既定ワーカー数。\n"
+                    "Windows では低め（~6）、他OSでは中程度（~12-16）を推奨。"
+                ),
+                key="common_workers_input",
+            )
+        )
+        st.session_state["common_workers"] = common_workers
+        # 即時に環境変数へ反映（オーケストレータ/戦略側が参照）
+        if enable_pp:
+            os.environ["USE_PROCESS_POOL"] = "1"
+            os.environ["PROCESS_POOL_WORKERS"] = str(pp_workers)
+            st.caption(
+                "注意: Windows + Streamlit は不安定な場合があります。"
+                " エラー時はオフにしてください。"
+            )
+        else:
+            os.environ["USE_PROCESS_POOL"] = "0"
+        os.environ["THREADS_DEFAULT"] = str(common_workers)
+    except Exception:
+        try:
+            os.environ.setdefault("USE_PROCESS_POOL", "0")
+        except Exception:
+            pass
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
     retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2)
@@ -490,29 +551,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            parts = []
-            # 0% 時に対象件数（total_symbols）が渡ってくる場合がある
-            if vv == 0 and filter_cnt is not None:
-                parts.append(f"対象→{filter_cnt}")
-            if filter_cnt is not None and vv >= 25:
-                parts.append(f"filter通過数→{filter_cnt}")
-            if setup_cnt is not None and vv >= 50:
-                parts.append(f"setupクリア数→{setup_cnt}")
-            if cand_cnt is not None and vv >= 75:
-                parts.append(f"trade候補数→{cand_cnt}")
-            if final_cnt is not None and vv >= 100:
-                parts.append(f"エントリー→{final_cnt}")
-            # exit は未算出のため、保持していれば表示
-            ex_val = stage_counts.get(n, {}).get("exit")
-            if ex_val is not None:
-                parts.append(f"エグジット→{ex_val}")
-            summary = " | ".join(parts) if parts else "…"
-            # フェーズ表示は日本語化せず簡潔に（行頭に統合表示があるため）
-            sys_stage_txt[n].text(summary)
+            # クイックフェーズ表示
+            sys_stage_txt[n].text("running…" if vv < 100 else "done (100%)")
             # メトリクス保持
             sc = stage_counts.setdefault(n, {})
             if vv == 0 and filter_cnt is not None:
-                # 初回0%通知時の件数は対象件数として保持
                 sc["target"] = int(filter_cnt)
             if filter_cnt is not None:
                 sc["filter"] = int(filter_cnt)
@@ -522,6 +565,25 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 sc["cand"] = int(cand_cnt)
             if final_cnt is not None:
                 sc["entry"] = int(final_cnt)
+            # 逐次メトリクスの改行レンダリング（欠損は「-」）
+            target_txt = "-"
+            try:
+                if sc.get("target") is not None:
+                    target_txt = str(sc.get("target"))
+                elif (vv == 0) and (filter_cnt is not None):
+                    target_txt = str(int(filter_cnt))
+            except Exception:
+                target_txt = "-"
+            lines = [
+                f"対象→{target_txt}",
+                f"filter通過数→{sc.get('filter','-') if sc.get('filter') is not None else '-'}",
+                f"setupクリア数→{sc.get('setup','-') if sc.get('setup') is not None else '-'}",
+                f"trade候補数→{sc.get('cand','-') if sc.get('cand') is not None else '-'}",
+                f"エントリー→{sc.get('entry','-') if sc.get('entry') is not None else '-'}",
+                f"エグジット→{sc.get('exit','-') if sc.get('exit') is not None else '-'}",
+            ]
+            if n in sys_metrics_txt:
+                sys_metrics_txt[n].text("\n".join(lines))
         except Exception:
             pass
 
@@ -530,32 +592,12 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # ステージ進捗の受け口を先に登録（スレッドから参照されるため）
     try:
-        globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
+        # orchestrator 側のモジュールグローバルに直接差し込む
+        _run_today_mod._PER_SYSTEM_STAGE = _per_system_stage  # type: ignore[attr-defined]
     except Exception:
         pass
 
-    # Windows 上のプロセスプールは不安定なため既定は無効。
-    # ただしUIで明示的に有効化できる実験的オプションを提供。
-    try:
-        enable_pp = bool(st.checkbox("プロセスプールを試す（上級・Windowsは非推奨）", value=False))
-        pp_workers = int(
-            st.number_input("プロセスプール ワーカー数", min_value=1, max_value=64, value=8)
-        )
-        if enable_pp:
-            os.environ["USE_PROCESS_POOL"] = "1"
-            os.environ["PROCESS_POOL_WORKERS"] = str(pp_workers)
-            st.caption(
-                "注意: Windows + Streamlit は不安定な場合があります。"
-                " エラー時はオフにしてください。"
-            )
-        else:
-            os.environ["USE_PROCESS_POOL"] = "0"
-    except Exception:
-        # 失敗時は既定の無効化
-        try:
-            os.environ.setdefault("USE_PROCESS_POOL", "0")
-        except Exception:
-            pass
+    # ここでは何もしない（サイドバーで設定済みの環境変数を利用）
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
@@ -595,16 +637,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         target_txt = str(sc.get("filter"))
                 except Exception:
                     pass
-                txt = (
-                    f"対象→{target_txt}, "
-                    f"filter通過数→{sc.get('filter','-')}, "
-                    f"setupクリア数→{sc.get('setup','-')}, "
-                    f"trade候補数→{sc.get('cand','-')}, "
-                    f"エントリー→{sc.get('entry','-')}, "
-                    f"エグジット→{sc.get('exit','-')}"
-                )
+                lines = [
+                    f"対象→{target_txt}",
+                    f"filter通過数→{sc.get('filter','-')}",
+                    f"setupクリア数→{sc.get('setup','-')}",
+                    f"trade候補数→{sc.get('cand','-')}",
+                    f"エントリー→{sc.get('entry','-')}",
+                    f"エグジット→{sc.get('exit','-')}",
+                ]
                 if key in sys_metrics_txt:
-                    sys_metrics_txt[key].text(txt)
+                    sys_metrics_txt[key].text("\n".join(lines))
     except Exception:
         pass
 
@@ -953,16 +995,31 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             elif sc2.get("filter") is not None and sc2.get("setup") is None:
                                 target_txt2 = str(sc2.get("filter"))
                         except Exception:
-                            pass
-                        txt2 = (
-                            f"対象→{target_txt2}, "
-                            f"filter通過数→{sc2.get('filter','-')}, "
-                            f"setupクリア数→{sc2.get('setup','-')}, "
-                            f"trade候補数→{sc2.get('cand','-')}, "
-                            f"エントリー→{sc2.get('entry','-')}, "
-                            f"エグジット→{sc2.get('exit','-')}"
-                        )
-                        sys_metrics_txt[key2].text(txt2)
+                            target_txt2 = "-"
+                        lines2 = [
+                            f"対象→{target_txt2}",
+                            (
+                                "filter通過数→"
+                                f"{sc2.get('filter','-') if sc2.get('filter') is not None else '-'}"
+                            ),
+                            (
+                                "setupクリア数→"
+                                f"{sc2.get('setup','-') if sc2.get('setup') is not None else '-'}"
+                            ),
+                            (
+                                "trade候補数→"
+                                f"{sc2.get('cand','-') if sc2.get('cand') is not None else '-'}"
+                            ),
+                            (
+                                "エントリー→"
+                                f"{sc2.get('entry','-') if sc2.get('entry') is not None else '-'}"
+                            ),
+                            (
+                                "エグジット→"
+                                f"{sc2.get('exit','-') if sc2.get('exit') is not None else '-'}"
+                            ),
+                        ]
+                        sys_metrics_txt[key2].text("\n".join(lines2))
             except Exception:
                 pass
             # 発注ボタン（MOC）
