@@ -345,6 +345,161 @@ def get_today_signals_for_strategy(
         setup_pass = sum(int(_last_setup_on_date(df)) for df in prepared.values())
     except Exception:
         setup_pass = 0
+
+    # system別セットアップ内訳（フィルタ通過→条件ごとの通過数）
+    try:
+        if log_callback:
+            prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+
+            def _last_row(x: pd.DataFrame) -> pd.Series | None:
+                try:
+                    if "Date" in x.columns:
+                        dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                        rows = x.loc[dt == prev_day]
+                    else:
+                        idx = pd.to_datetime(x.index, errors="coerce").normalize()
+                        rows = x.loc[idx == prev_day]
+                    if len(rows) == 0:
+                        rows = x.tail(1)
+                    if len(rows) == 0:
+                        return None
+                    return rows.iloc[-1]
+                except Exception:
+                    return None
+
+            name = system_name.lower()
+            if name == "system1":
+                sma_pass = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        filt = bool(row.get("filter"))
+                        sma = float(row.get("SMA25", 0)) > float(row.get("SMA50", 0))
+                        if filt and sma:
+                            sma_pass += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system1セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, SMA25>SMA50: {sma_pass}"
+                )
+                log_callback(msg)
+            elif name == "system2":
+                rsi_pass = 0
+                two_up_pass = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        if not bool(row.get("filter")):
+                            continue
+                        if float(row.get("RSI3", 0)) > 90:
+                            rsi_pass += 1
+                            if bool(row.get("TwoDayUp")):
+                                two_up_pass += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system2セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, RSI3>90: {rsi_pass}, "
+                    f"TwoDayUp: {two_up_pass}"
+                )
+                log_callback(msg)
+            elif name == "system3":
+                close_pass = 0
+                drop_pass = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        if not bool(row.get("filter")):
+                            continue
+                        if float(row.get("Close", 0)) > float(row.get("SMA150", 0)):
+                            close_pass += 1
+                            if float(row.get("Drop3D", 0)) >= 0.125:
+                                drop_pass += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system3セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, Close>SMA150: {close_pass}, "
+                    f"3日下落率>=12.5%: {drop_pass}"
+                )
+                log_callback(msg)
+            elif name == "system4":
+                above_sma = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        filt = bool(row.get("filter"))
+                        over = float(row.get("Close", 0)) > float(row.get("SMA200", 0))
+                        if filt and over:
+                            above_sma += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system4セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, Close>SMA200: {above_sma}"
+                )
+                log_callback(msg)
+            elif name == "system5":
+                price_pass = 0
+                adx_pass = 0
+                rsi_pass = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        if not bool(row.get("filter")):
+                            continue
+                        close_over = float(row.get("Close", 0)) > (
+                            float(row.get("SMA100", 0)) + float(row.get("ATR10", 0))
+                        )
+                        if close_over:
+                            price_pass += 1
+                            if float(row.get("ADX7", 0)) > 55:
+                                adx_pass += 1
+                                if float(row.get("RSI3", 100)) < 50:
+                                    rsi_pass += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system5セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, Close>SMA100+ATR10: {price_pass}, "
+                    f"ADX7>55: {adx_pass}, RSI3<50: {rsi_pass}"
+                )
+                log_callback(msg)
+            elif name == "system6":
+                ret_pass = 0
+                up_pass = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        if not bool(row.get("filter")):
+                            continue
+                        if float(row.get("Return6D", 0)) > 0.20:
+                            ret_pass += 1
+                            if bool(row.get("UpTwoDays")):
+                                up_pass += 1
+                    except Exception:
+                        continue
+                msg = (
+                    "🧩 system6セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, Return6D>20%: {ret_pass}, "
+                    f"UpTwoDays: {up_pass}"
+                )
+                log_callback(msg)
+    except Exception:
+        pass
     try:
         if stage_progress:
             stage_progress(50, filter_pass, setup_pass, None, None)
@@ -386,7 +541,7 @@ def get_today_signals_for_strategy(
         )
 
     # 当日分のみ抽出
-    today_candidates: list[dict] = candidates_by_date.get(today, [])  # type: ignore[index]
+    today_candidates: list[dict] = candidates_by_date.get(today, [])  # type: ignore
     if not today_candidates:
         return pd.DataFrame(
             columns=[

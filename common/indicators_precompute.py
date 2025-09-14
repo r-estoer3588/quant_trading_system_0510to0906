@@ -88,6 +88,13 @@ def precompute_shared_indicators(
     start_ts = _t.time()
     CHUNK = 500
 
+    # 初回ログを即時出力（起動確認用）
+    if callable(log):
+        try:
+            log(f"🧮 共有指標 前計算: 0/{total} | 起動中…")
+        except Exception:
+            pass
+
     # 共有前計算で付与する主な指標の名称一覧（ログ表示用）
     # add_indicators() が実際の計算を担うため、この一覧は説明用に限定
     # し、挙動の切り替えには影響しません。

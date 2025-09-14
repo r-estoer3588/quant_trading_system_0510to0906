@@ -447,6 +447,52 @@ def compute_today_signals(
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
 
+    # 前回結果の保存/読込ヘルパ
+    def _prev_counts_path() -> Path:
+        try:
+            return signals_dir / "previous_per_system_counts.json"
+        except Exception:
+            return Path("signals/previous_per_system_counts.json")
+
+    def _load_prev_counts() -> dict[str, int]:
+        fp = _prev_counts_path()
+        if not fp.exists():
+            return {}
+        try:
+            import json as _json
+
+            data = _json.loads(fp.read_text(encoding="utf-8"))
+            counts = data.get("counts", {}) if isinstance(data, dict) else {}
+            out: dict[str, int] = {}
+            for i in range(1, 8):
+                k = f"system{i}"
+                try:
+                    out[k] = int(counts.get(k, 0))
+                except Exception:
+                    out[k] = 0
+            return out
+        except Exception:
+            return {}
+
+    def _save_prev_counts(per_system_map: dict[str, pd.DataFrame]) -> None:
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+
+            counts = {
+                k: (0 if (v is None or v.empty) else int(len(v)))
+                for k, v in per_system_map.items()
+            }
+            data = {"timestamp": _dt.utcnow().isoformat() + "Z", "counts": counts}
+            fp = _prev_counts_path()
+            try:
+                fp.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            fp.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
     # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
     try:
         import logging as _lg
@@ -482,6 +528,17 @@ def compute_today_signals(
     # 最新営業日（NYSE）
     today = get_latest_nyse_trading_day().normalize()
     _log(f"📅 最新営業日（NYSE）: {today.date()}")
+    # 開始直後に前回結果をまとめて表示
+    try:
+        prev = _load_prev_counts()
+        if prev:
+            for i in range(1, 8):
+                key = f"system{i}"
+                v = int(prev.get(key, 0))
+                icon = "✅" if v > 0 else "❌"
+                _log(f"🧾 {icon} (前回結果) {key}: {v} 件{' 🚫' if v == 0 else ''}")
+    except Exception:
+        pass
     if progress_callback:
         try:
             progress_callback(0, 8, "init")
@@ -1048,20 +1105,27 @@ def compute_today_signals(
     system4_syms = filter_system4(symbols, basic_data)
     system5_syms = filter_system5(symbols, basic_data)
     system6_syms = filter_system6(symbols, basic_data)
-    # UI のメトリクスに対象銘柄数を即反映（0%段階）
+    # 各システムのフィルター通過件数をUIへ通知
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
     except Exception:
         cb2 = None
     if cb2 and callable(cb2):
         try:
-            cb2("system1", 0, len(system1_syms), None, None, None)
-            cb2("system2", 0, len(system2_syms), None, None, None)
-            cb2("system3", 0, len(system3_syms), None, None, None)
-            cb2("system4", 0, len(system4_syms), None, None, None)
-            cb2("system5", 0, len(system5_syms), None, None, None)
-            cb2("system6", 0, len(system6_syms), None, None, None)
-            cb2("system7", 0, 1 if "SPY" in basic_data else 0, None, None, None)
+            cb2("system1", 25, len(system1_syms), None, None, None)
+            cb2("system2", 25, len(system2_syms), None, None, None)
+            cb2("system3", 25, len(system3_syms), None, None, None)
+            cb2("system4", 25, len(system4_syms), None, None, None)
+            cb2("system5", 25, len(system5_syms), None, None, None)
+            cb2("system6", 25, len(system6_syms), None, None, None)
+            cb2(
+                "system7",
+                25,
+                1 if "SPY" in (basic_data or {}) else 0,
+                None,
+                None,
+                None,
+            )
         except Exception:
             pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
@@ -1116,11 +1180,10 @@ def compute_today_signals(
                     s1_price += 1
                 else:
                     continue
-                dv20 = float(
-                    (_df.get("close", _df.get("Close")) * _df.get("volume", _df.get("Volume")))
-                    .tail(20)
-                    .mean()  # type: ignore[union-attr]
-                )
+                # 安全にカラムを取得して DV20 を計算
+                _c = _df["close"] if "close" in _df.columns else _df["Close"]
+                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
+                dv20 = float((_c * _v).tail(20).mean())
                 if dv20 >= 5e7:
                     s1_dv += 1
             except Exception:
@@ -1555,8 +1618,7 @@ def compute_today_signals(
                         per_system_progress(name, "done")
                     except Exception:
                         pass
-                msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
-                _log(f"🧾 {msg_prev}")
+                # 前回結果は開始時にまとめて出力するため、ここでは出さない
                 if progress_callback:
                     try:
                         progress_callback(5 + min(_idx, 1), 8, name)
@@ -1587,8 +1649,7 @@ def compute_today_signals(
                     per_system_progress(name, "done")
                 except Exception:
                     pass
-            msg_prev = msg.replace(name, f"(前回結果) {name}", 1)
-            _log(f"🧾 {msg_prev}")
+            # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")

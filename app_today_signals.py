@@ -335,6 +335,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # 進捗表示用の領域（1行上書き）
     # ETA 専用表示（共有指標 前計算の残り時間など）
     eta_area = st.empty()
+    # 大きめ表示のフェーズタイトル
+    phase_title_area = st.empty()
     progress_area = st.empty()
     # プログレスバー（表示設定に応じて更新可）
     prog = st.progress(0)
@@ -437,6 +439,44 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 表示に失敗しても処理は継続
             pass
 
+    # フェーズ表示の状態管理（可変辞書でスコープ問題を回避）
+    phase_state = {"percent": 0, "label": "対象読み込み"}
+
+    def _map_overall_phase(tag: str) -> str:
+        try:
+            t = (tag or "").lower()
+        except Exception:
+            t = ""
+        # 全体フェーズの日本語ラベル
+        if t in {"init", "load_basic:start", "load_basic", "load_indicators", "spx", "spy"}:
+            return "対象読み込み"
+        if t in {"filter"}:
+            return "filter"
+        # 戦略実行中は setup/trade の中間だが、初期は setup とする
+        if t in {"run_strategies", "strategies_done"} or t.startswith("system"):
+            return "setup"
+        if t in {"finalize", "done"}:
+            return "エントリー"
+        # 既定
+        return phase_state.get("label", "対象読み込み")
+
+    def _render_phase_title(percent: int, phase_label: str) -> None:
+        try:
+            # 大きめの文字で表示（H2相当）
+            phase_title_area.markdown(f"## 進捗 {percent}%: {phase_label}フェーズ")
+        except Exception:
+            pass
+
+    def _set_phase_label(phase_label: str) -> None:
+        try:
+            phase_state["label"] = str(phase_label)
+            _render_phase_title(
+                int(phase_state.get("percent", 0)),
+                phase_state.get("label", "対象読み込み"),
+            )
+        except Exception:
+            pass
+
     def _ui_progress(done: int, total: int, name: str) -> None:
         try:
             if not _has_st_ctx():
@@ -446,9 +486,17 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 return
             total = max(1, int(total))
             ratio = min(max(int(done), 0), total) / total
-            prog.progress(int(ratio * 100))
+            percent = int(ratio * 100)
+            prog.progress(percent)
+            # 現在の全体フェーズを更新
+            phase_lbl = _map_overall_phase(name)
+            # 画面下のテキスト（従来表示）も維持
             if name:
-                prog_txt.text(f"進捗 {int(ratio*100)}%: {name}")
+                prog_txt.text(f"進捗 {percent}%: {name}")
+            # 大きなタイトルも更新
+            phase_state["percent"] = percent
+            phase_state["label"] = phase_lbl
+            _render_phase_title(phase_state["percent"], phase_state["label"])
         except Exception:
             pass
 
@@ -498,6 +546,22 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             sys_states[n] = vv
             # クイックフェーズ表示
             sys_stage_txt[n].text("running…" if vv < 100 else "done (100%)")
+            # 全体フェーズの見出しを、各システムの段階にあわせて上書き（日本語）
+            try:
+                if vv <= 0:
+                    _set_phase_label("対象読み込み")
+                elif vv < 25:
+                    _set_phase_label("対象読み込み")
+                elif vv < 50:
+                    _set_phase_label("filter")
+                elif vv < 75:
+                    _set_phase_label("setup")
+                elif vv < 100:
+                    _set_phase_label("trade")
+                else:
+                    _set_phase_label("エントリー")
+            except Exception:
+                pass
             # メトリクス保持
             sc = stage_counts.setdefault(n, {})
             if filter_cnt is not None:
@@ -930,6 +994,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         if exits_today_rows:
             df_ex = pd.DataFrame(exits_today_rows)
             st.dataframe(df_ex, use_container_width=True)
+            # 全体フェーズ: エグジット
+            try:
+                _set_phase_label("エグジット")
+            except Exception:
+                pass
             # stage_counts を更新してメトリクスに exit を反映
             for k, v in exit_counts.items():
                 if v and k in stage_counts:
