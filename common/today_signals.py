@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import inspect
 import time as _t
 from dataclasses import dataclass
@@ -168,7 +169,6 @@ def get_today_signals_for_strategy(
     use_process_pool: bool = False,
     max_workers: int | None = None,
     lookback_days: int | None = None,
-    universe_count: int | None = None,
 ) -> pd.DataFrame:
     """
     各 Strategy の prepare_data / generate_candidates を流用し、
@@ -195,10 +195,7 @@ def get_today_signals_for_strategy(
         today = today.normalize()
 
     # 準備
-    # 進捗・ログ用の対象件数
-    total_symbols = (
-        int(universe_count) if universe_count is not None else len(raw_data_dict)
-    )
+    total_symbols = len(raw_data_dict)
     if log_callback:
         try:
             log_callback(f"🧪 フィルターチェック開始：{total_symbols} 銘柄")
@@ -207,7 +204,7 @@ def get_today_signals_for_strategy(
     # 0% -> 25%
     try:
         if stage_progress:
-            # 0% ステージでは対象銘柄数（ユニバースの件数）を第1引数に渡す
+            # 0% ステージでは対象銘柄数を第1引数に渡す（UI 側で "対象→n" 表示に使用）
             stage_progress(0, total_symbols, None, None, None)
     except Exception:
         pass
@@ -355,7 +352,12 @@ def get_today_signals_for_strategy(
     except Exception:
         pass
     # トレード候補件数（全期間と当日）
-    # 全期間合計はUI要件上、表示不要のため集計は省略
+    try:
+        total_candidates = sum(
+            len(v or []) for v in (candidates_by_date or {}).values()
+        )
+    except Exception:
+        total_candidates = 0
     try:
         total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
     except Exception:
@@ -369,9 +371,10 @@ def get_today_signals_for_strategy(
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
-            # 当日の件数のみを明示
+            # 当日件数を明示。参考として全期間合計も併記。
             log_callback(
                 f"🧮 トレード候補選定完了（当日）：{total_candidates_today} 銘柄"
+                + (f"（全期間合計 {total_candidates} 件）" if total_candidates else "")
             )
         except Exception:
             pass
