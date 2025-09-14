@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+# Streamlit のコンテキスト外で実行された場合は警告を抑止して終了する
+if get_script_run_ctx(suppress_warning=True) is None:
+    if __name__ == "__main__":
+        print("このスクリプトはStreamlitで実行してください: `streamlit run app_today_signals.py`")
+    raise SystemExit
 
 try:
     # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）
@@ -365,10 +372,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             col.caption(sys_labels[i - 1])
         sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
         sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
+        # 追加: メトリクス表示用の行（stageの下の行）
+        sys_metrics_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
         sys_states = {k: 0 for k in sys_bars.keys()}
     else:
         sys_bars = {}
         sys_stage_txt = {}
+        sys_metrics_txt = {}
         sys_states = {}
     # 追加: 全ログを蓄積（UIで折り畳み表示用）
     log_lines: list[str] = []
@@ -538,6 +548,45 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # DataFrameのインデックスをリセットして疑似インデックスを排除
     final_df = final_df.reset_index(drop=True)
     per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
+
+    # 追加: 「done (100%)」の下に systemごとのメトリクスを表示
+    try:
+        ui_vis2 = st.session_state.get("ui_vis", {})
+        if ui_vis2.get("per_system_progress", True):
+            import re as _re
+
+            metrics_map: dict[str, tuple[int, int]] = {}
+            # ログから最新のメトリクス概要行を探す
+            lines_rev = list(reversed(log_lines))
+            target_line = None
+            for ln in lines_rev:
+                if "📊 メトリクス概要:" in ln:
+                    target_line = ln
+                    break
+            if target_line:
+                # 例: system1: pre=159, cand=0, system2: pre=76, cand=0, ...
+                for m in _re.finditer(r"(system\d+):\s*pre=(\d+),\s*cand=(\d+)", target_line):
+                    sys_name = m.group(1).lower()
+                    pre = int(m.group(2))
+                    cand = int(m.group(3))
+                    metrics_map[sys_name] = (pre, cand)
+            # Fallback: per_system の件数から cand を、pre は不明なら '-' 表示
+            for i in range(1, 8):
+                key = f"system{i}"
+                pre, cand = metrics_map.get(key, (None, None)) if metrics_map else (None, None)
+                if cand is None:
+                    df_sys = per_system.get(key)
+                    cand = 0 if df_sys is None or df_sys.empty else int(len(df_sys))
+                pre_str = str(pre) if pre is not None else "-"
+                try:
+                    # 表示: pre/cand を done の下の行に
+                    txt = f"pre={pre_str}, cand={cand}"
+                    if key in sys_metrics_txt:
+                        sys_metrics_txt[key].text(txt)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # 表示順を system1→system7 で統一し、最終結果も同順に並べ替え
     system_order = [f"system{i}" for i in range(1, 8)]
