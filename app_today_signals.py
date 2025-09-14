@@ -585,21 +585,19 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 逐次メトリクスを行ごとに個別更新（欠損は「-」）
             try:
                 # 名称(半角スペース)銘柄数 で1行表示。最大5桁でも収まる短縮名を使用。
-                labels = [
-                    ("Tgt", sc.get("target")),
-                    ("FILpass", sc.get("filter")),
-                    ("STUpass", sc.get("setup")),
-                    ("TRDlist", sc.get("cand")),
-                    ("Entry", sc.get("entry")),
-                    ("Exit", sc.get("exit")),
+                # 6行表示: 各メトリクスを独立行で表示
+                def _v(x):
+                    return "-" if (x is None) else str(x)
+
+                lines = [
+                    f"Tgt {_v(sc.get('target'))}",
+                    f"FILpass {_v(sc.get('filter'))}",
+                    f"STUpass {_v(sc.get('setup'))}",
+                    f"TRDlist {_v(sc.get('cand'))}",
+                    f"Entry {_v(sc.get('entry'))}",
+                    f"Exit {_v(sc.get('exit'))}",
                 ]
-                parts = []
-                for name, val in labels:
-                    vtxt = "-" if (val is None) else str(val)
-                    parts.append(f"{name} {vtxt}")
-                line = "  ".join(parts)
-                # テキストは1行で表示（Streamlitの自動折返しを避けるため短縮名を採用）
-                sys_metrics_txt[n].text(line)
+                sys_metrics_txt[n].text("\n".join(lines))
             except Exception:
                 # 表示に失敗しても処理は継続
                 pass
@@ -1034,28 +1032,19 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         # 行長回避のため一部を事前に文字列化
                         _f_val = sc2.get("filter")
                         _f_txt = "-" if _f_val is None else str(_f_val)
-                        labels2 = [
-                            ("Tgt", target_txt2),
-                            ("FILpass", _f_txt),
-                            (
-                                "STUpass",
-                                sc2.get("setup", "-") if sc2.get("setup") is not None else "-",
-                            ),
-                            (
-                                "TRDlist",
-                                sc2.get("cand", "-") if sc2.get("cand") is not None else "-",
-                            ),
-                            (
-                                "Entry",
-                                sc2.get("entry", "-") if sc2.get("entry") is not None else "-",
-                            ),
-                            (
-                                "Exit",
-                                sc2.get("exit", "-") if sc2.get("exit") is not None else "-",
-                            ),
+
+                        def _v2(x):
+                            return x if isinstance(x, str) else ("-" if x is None else str(x))
+
+                        lines2 = [
+                            f"Tgt {_v2(target_txt2)}",
+                            f"FILpass {_v2(_f_txt)}",
+                            f"STUpass {_v2(sc2.get('setup'))}",
+                            f"TRDlist {_v2(sc2.get('cand'))}",
+                            f"Entry {_v2(sc2.get('entry'))}",
+                            f"Exit {_v2(sc2.get('exit'))}",
                         ]
-                        parts2 = [f"{nm} {val}" for nm, val in labels2]
-                        sys_metrics_txt[key2].text("  ".join(parts2))
+                        sys_metrics_txt[key2].text("\n".join(lines2))
             except Exception:
                 pass
             # 発注ボタン（MOC）

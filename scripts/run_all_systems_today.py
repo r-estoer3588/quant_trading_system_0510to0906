@@ -578,6 +578,7 @@ def compute_today_signals(
         print("#" * 68, flush=True)
     except Exception:
         pass
+    # CLI 専用の開始バナー（UI には出さない）
     _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
     try:
         import time as _time
@@ -675,8 +676,7 @@ def compute_today_signals(
                     df = cm.read(sym, "rolling")
                 # 既存 rolling があっても行数不足なら再構築する
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     # rolling 不在 → base から必要分を生成して保存
@@ -1007,8 +1007,7 @@ def compute_today_signals(
                 if df is None or df.empty:
                     df = cm.read(sym, "rolling")
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     try:
@@ -1524,7 +1523,7 @@ def compute_today_signals(
         s2_filter = int(len(system2_syms))
         s2_rsi = 0
         s2_up2 = 0
-        for _sym in (system2_syms or []):
+        for _sym in system2_syms or []:
             _df = raw_data_system2.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1542,7 +1541,9 @@ def compute_today_signals(
                     s2_up2 += 1
             except Exception:
                 pass
-        _log(f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}")
+        _log(
+            f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}"
+        )
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system3)…")
@@ -1553,7 +1554,7 @@ def compute_today_signals(
         s3_filter = int(len(system3_syms))
         s3_close = 0
         s3_drop = 0
-        for _sym in (system3_syms or []):
+        for _sym in system3_syms or []:
             _df = raw_data_system3.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1583,7 +1584,7 @@ def compute_today_signals(
     try:
         s4_filter = int(len(system4_syms))
         s4_close = 0
-        for _sym in (system4_syms or []):
+        for _sym in system4_syms or []:
             _df = raw_data_system4.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1608,7 +1609,7 @@ def compute_today_signals(
         s5_close = 0
         s5_adx = 0
         s5_rsi = 0
-        for _sym in (system5_syms or []):
+        for _sym in system5_syms or []:
             _df = raw_data_system5.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1617,7 +1618,9 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(last.get("ATR10", 0)):
+                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
+                    last.get("ATR10", 0)
+                ):
                     s5_close += 1
             except Exception:
                 pass
@@ -1644,7 +1647,7 @@ def compute_today_signals(
         s6_filter = int(len(system6_syms))
         s6_ret = 0
         s6_up2 = 0
-        for _sym in (system6_syms or []):
+        for _sym in system6_syms or []:
             _df = raw_data_system6.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1786,8 +1789,7 @@ def compute_today_signals(
             try:
                 settings2 = get_settings(create_dirs=True)
                 lb_default = int(
-                    settings2.cache.rolling.base_lookback_days
-                    + settings2.cache.rolling.buffer_days
+                    settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
                 )
             except Exception:
                 settings2 = None
@@ -1907,8 +1909,12 @@ def compute_today_signals(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
-                for line in _filter_ui_logs(logs):
-                    _log(f"[{name}] {line}")
+                # UI コールバックがある場合、_run_strategy 内で UI に転送済みなので
+                # ここで重ねて _log しない（重複防止）。UI が無い場合のみ CLI へ集約出力。
+                cb = globals().get("_LOG_CALLBACK")
+                if not (cb and callable(cb)):
+                    for line in _filter_ui_logs(logs):
+                        _log(f"[{name}] {line}")
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -1941,8 +1947,10 @@ def compute_today_signals(
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
-            for line in _filter_ui_logs(logs):
-                _log(f"[{name}] {line}")
+            cb = globals().get("_LOG_CALLBACK")
+            if not (cb and callable(cb)):
+                for line in _filter_ui_logs(logs):
+                    _log(f"[{name}] {line}")
             if per_system_progress:
                 try:
                     per_system_progress(name, "done")
