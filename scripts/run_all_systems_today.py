@@ -1452,10 +1452,12 @@ def compute_today_signals(
             # 通知: メトリクス概要を送信（環境が用意されていない場合は内部で無害化）
             try:
                 fields = {
-                    r["system"]: f"pre={int(r['prefilter_pass'])}, cand={int(r['candidates'])}"
+                    r["system"]: (
+                        f"対象→{int(r['prefilter_pass'])}, " f"trade候補数→{int(r['candidates'])}"
+                    )
                     for r in metrics_rows
                 }
-                title = "📈 本日のメトリクス（事前フィルタ / 候補数）"
+                title = "📈 本日のメトリクス（対象 / 候補）"
                 _td = locals().get("today")
                 try:
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
@@ -1470,7 +1472,10 @@ def compute_today_signals(
         try:
             summary = ", ".join(
                 [
-                    f"{r['system']}: pre={r['prefilter_pass']}, cand={r['candidates']}"
+                    (
+                        f"{r['system']}: 対象→{r['prefilter_pass']}, "
+                        f"trade候補数→{r['candidates']}"
+                    )
                     for r in metrics_rows
                 ]
             )

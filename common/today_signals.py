@@ -204,7 +204,8 @@ def get_today_signals_for_strategy(
     # 0% -> 25%
     try:
         if stage_progress:
-            stage_progress(0, None, None, None, None)
+            # 0% ステージでは対象銘柄数を第1引数に渡す（UI 側で "対象→n" 表示に使用）
+            stage_progress(0, total_symbols, None, None, None)
     except Exception:
         pass
     t0 = _t.time()

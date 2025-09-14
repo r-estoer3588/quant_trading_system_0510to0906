@@ -476,24 +476,30 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            phase = "filter" if vv < 25 else "setup" if vv < 50 else "cand" if vv < 75 else "entry"
             parts = []
-            if filter_cnt is not None:
-                parts.append(f"filter:{filter_cnt}")
-            if setup_cnt is not None:
-                parts.append(f"setup:{setup_cnt}")
-            if cand_cnt is not None:
-                parts.append(f"cand:{cand_cnt}")
-            if final_cnt is not None:
-                parts.append(f"entry:{final_cnt}")
+            # 0% 時に対象件数（total_symbols）が渡ってくる場合がある
+            if vv == 0 and filter_cnt is not None:
+                parts.append(f"対象→{filter_cnt}")
+            if filter_cnt is not None and vv >= 25:
+                parts.append(f"filter通過数→{filter_cnt}")
+            if setup_cnt is not None and vv >= 50:
+                parts.append(f"setupクリア数→{setup_cnt}")
+            if cand_cnt is not None and vv >= 75:
+                parts.append(f"trade候補数→{cand_cnt}")
+            if final_cnt is not None and vv >= 100:
+                parts.append(f"エントリー→{final_cnt}")
             # exit は未算出のため、保持していれば表示
             ex_val = stage_counts.get(n, {}).get("exit")
             if ex_val is not None:
-                parts.append(f"exit:{ex_val}")
+                parts.append(f"エグジット→{ex_val}")
             summary = " | ".join(parts) if parts else "…"
-            sys_stage_txt[n].text(f"{phase} {summary}")
+            # フェーズ表示は日本語化せず簡潔に（行頭に統合表示があるため）
+            sys_stage_txt[n].text(summary)
             # メトリクス保持
             sc = stage_counts.setdefault(n, {})
+            if vv == 0 and filter_cnt is not None:
+                # 初回0%通知時の件数は対象件数として保持
+                sc["target"] = int(filter_cnt)
             if filter_cnt is not None:
                 sc["filter"] = int(filter_cnt)
             if setup_cnt is not None:
@@ -548,10 +554,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if sc.get("cand") is None:
                     df_sys = per_system.get(key)
                     sc["cand"] = 0 if df_sys is None or df_sys.empty else int(len(df_sys))
+                # 先頭に対象件数（初回0%時のfilter_cntを流用）を表示
+                target_txt = "-"
+                try:
+                    # 0% 通知時に一時的に filter に総数が入る場合がある
+                    if sc.get("target") is not None:
+                        target_txt = str(sc.get("target"))
+                    elif sc.get("filter") is not None and sc.get("setup") is None:
+                        target_txt = str(sc.get("filter"))
+                except Exception:
+                    pass
                 txt = (
-                    f"filter={sc.get('filter','-')}, setup={sc.get('setup','-')}, "
-                    f"cand={sc.get('cand','-')}, entry={sc.get('entry','-')}, "
-                    f"exit={sc.get('exit','-')}"
+                    f"対象→{target_txt}, "
+                    f"filter通過数→{sc.get('filter','-')}, "
+                    f"setupクリア数→{sc.get('setup','-')}, "
+                    f"trade候補数→{sc.get('cand','-')}, "
+                    f"エントリー→{sc.get('entry','-')}, "
+                    f"エグジット→{sc.get('exit','-')}"
                 )
                 if key in sys_metrics_txt:
                     sys_metrics_txt[key].text(txt)
@@ -876,10 +895,21 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     key2 = f"system{i2}"
                     sc2 = stage_counts.get(key2, {})
                     if key2 in sys_metrics_txt and sys_metrics_txt.get(key2) is not None:
+                        target_txt2 = "-"
+                        try:
+                            if sc2.get("target") is not None:
+                                target_txt2 = str(sc2.get("target"))
+                            elif sc2.get("filter") is not None and sc2.get("setup") is None:
+                                target_txt2 = str(sc2.get("filter"))
+                        except Exception:
+                            pass
                         txt2 = (
-                            f"filter={sc2.get('filter','-')}, setup={sc2.get('setup','-')}, "
-                            f"cand={sc2.get('cand','-')}, entry={sc2.get('entry','-')}, "
-                            f"exit={sc2.get('exit','-')}"
+                            f"対象→{target_txt2}, "
+                            f"filter通過数→{sc2.get('filter','-')}, "
+                            f"setupクリア数→{sc2.get('setup','-')}, "
+                            f"trade候補数→{sc2.get('cand','-')}, "
+                            f"エントリー→{sc2.get('entry','-')}, "
+                            f"エグジット→{sc2.get('exit','-')}"
                         )
                         sys_metrics_txt[key2].text(txt2)
             except Exception:
