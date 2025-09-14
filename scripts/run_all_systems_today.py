@@ -484,8 +484,8 @@ def compute_today_signals(
 
     def _save_prev_counts(per_system_map: dict[str, pd.DataFrame]) -> None:
         try:
-            import json as _json
             from datetime import datetime as _dt
+            import json as _json
 
             counts = {
                 k: (0 if (v is None or v.empty) else int(len(v))) for k, v in per_system_map.items()
@@ -675,8 +675,7 @@ def compute_today_signals(
                     df = cm.read(sym, "rolling")
                 # 既存 rolling があっても行数不足なら再構築する
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     # rolling 不在 → base から必要分を生成して保存
@@ -735,6 +734,7 @@ def compute_today_signals(
                         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
                     except Exception:
                         pass
+                    df = _normalize_ohlcv(df)
                     data[sym] = df
             except Exception:
                 continue
@@ -827,6 +827,22 @@ def compute_today_signals(
             return float(s2.iloc[-1])
         except Exception:
             return None
+
+    def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+        """列名を大文字OHLCVに統一"""
+        col_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+            "adj_close": "AdjClose",
+            "adjusted_close": "AdjClose",
+        }
+        try:
+            return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+        except Exception:
+            return df
 
     def filter_system1(symbols, data):
         result = []
@@ -1007,8 +1023,7 @@ def compute_today_signals(
                 if df is None or df.empty:
                     df = cm.read(sym, "rolling")
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     try:
@@ -1062,6 +1077,7 @@ def compute_today_signals(
                         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
                     except Exception:
                         pass
+                    df = _normalize_ohlcv(df)
                     data[sym] = df
             except Exception:
                 continue
@@ -1147,6 +1163,7 @@ def compute_today_signals(
                     load_base_cache(sym, rebuild_if_missing=True)
                     df = cm.read(sym, "rolling")
                     if df is not None and not df.empty:
+                        df = _normalize_ohlcv(df)
                         basic_data[sym] = df
                 except Exception:
                     continue
@@ -1524,7 +1541,7 @@ def compute_today_signals(
         s2_filter = int(len(system2_syms))
         s2_rsi = 0
         s2_up2 = 0
-        for _sym in (system2_syms or []):
+        for _sym in system2_syms or []:
             _df = raw_data_system2.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1542,7 +1559,9 @@ def compute_today_signals(
                     s2_up2 += 1
             except Exception:
                 pass
-        _log(f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}")
+        _log(
+            f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}"
+        )
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system3)…")
@@ -1553,7 +1572,7 @@ def compute_today_signals(
         s3_filter = int(len(system3_syms))
         s3_close = 0
         s3_drop = 0
-        for _sym in (system3_syms or []):
+        for _sym in system3_syms or []:
             _df = raw_data_system3.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1583,7 +1602,7 @@ def compute_today_signals(
     try:
         s4_filter = int(len(system4_syms))
         s4_close = 0
-        for _sym in (system4_syms or []):
+        for _sym in system4_syms or []:
             _df = raw_data_system4.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1608,7 +1627,7 @@ def compute_today_signals(
         s5_close = 0
         s5_adx = 0
         s5_rsi = 0
-        for _sym in (system5_syms or []):
+        for _sym in system5_syms or []:
             _df = raw_data_system5.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1617,7 +1636,9 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(last.get("ATR10", 0)):
+                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
+                    last.get("ATR10", 0)
+                ):
                     s5_close += 1
             except Exception:
                 pass
@@ -1644,7 +1665,7 @@ def compute_today_signals(
         s6_filter = int(len(system6_syms))
         s6_ret = 0
         s6_up2 = 0
-        for _sym in (system6_syms or []):
+        for _sym in system6_syms or []:
             _df = raw_data_system6.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1786,8 +1807,7 @@ def compute_today_signals(
             try:
                 settings2 = get_settings(create_dirs=True)
                 lb_default = int(
-                    settings2.cache.rolling.base_lookback_days
-                    + settings2.cache.rolling.buffer_days
+                    settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
                 )
             except Exception:
                 settings2 = None
