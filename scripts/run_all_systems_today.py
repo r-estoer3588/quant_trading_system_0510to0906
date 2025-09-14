@@ -425,6 +425,438 @@ def _filter_ui_logs(lines: list[str]) -> list[str]:
     return [ln for ln in lines if not any(k in ln for k in skip_keywords)]
 
 
+def _phase_update_coverage_and_tgt(
+    basic_data: dict[str, pd.DataFrame],
+    symbols: list[str],
+    settings,
+    cm: CacheManager,
+) -> dict[str, pd.DataFrame]:
+    """データカバレッジの補完と、補完後Tgtの即時更新を行う。"""
+    try:
+        cov_have = len(basic_data)
+        cov_total = len(symbols)
+        cov_missing = max(0, cov_total - cov_have)
+        _log(
+            "🧮 データカバレッジ: "
+            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+        )
+        if cov_missing > 0:
+            missing_syms = [s for s in symbols if s not in basic_data]
+            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            fixed = 0
+            for sym in missing_syms:
+                try:
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = _normalize_ohlcv(sliced)
+                    basic_data[sym] = df
+                    fixed += 1
+                except Exception:
+                    continue
+            try:
+                if fixed > 0:
+                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
+            except Exception:
+                pass
+            cov_have = len(basic_data)
+            cov_missing = max(0, cov_total - cov_have)
+            _log(
+                "🧮 データカバレッジ(補完後): "
+                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+            )
+            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
+            try:
+                cb2 = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2 = None
+            if cb2 and callable(cb2):
+                try:
+                    try:
+                        tgt_total = int(cov_total)
+                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
+                            tgt_total = max(0, tgt_total - 1)
+                    except Exception:
+                        tgt_total = int(cov_total)
+                    for i in range(1, 8):
+                        cb2(f"system{i}", 0, tgt_total, None, None, None)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return basic_data
+
+
+def _phase_precompute_shared(
+    basic_data: dict[str, pd.DataFrame],
+    settings,
+) -> dict[str, pd.DataFrame]:
+    """共有指標の前計算を実施（必要に応じて並列化）"""
+    try:
+        import os as _os
+        from common.indicators_precompute import (
+            PRECOMPUTED_INDICATORS,
+            precompute_shared_indicators,
+        )
+
+        try:
+            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
+        except Exception:
+            _thr_syms = 300
+        if len(basic_data) < max(0, _thr_syms):
+            _log(
+                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
+            )
+        else:
+            try:
+                _log(
+                    "🧮 共有指標の前計算を開始: "
+                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
+                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
+                )
+            except Exception:
+                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
+            try:
+                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
+            except Exception:
+                _thr_parallel = 1000
+            if force_parallel in ("1", "true", "yes"):
+                use_parallel = True
+            elif force_parallel in ("0", "false", "no"):
+                use_parallel = False
+            else:
+                use_parallel = len(basic_data) >= max(0, _thr_parallel)
+            try:
+                _st = get_settings(create_dirs=False)
+                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
+            except Exception:
+                _pre_workers = 12
+            if use_parallel:
+                try:
+                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
+                except Exception:
+                    pass
+            basic_data = precompute_shared_indicators(
+                basic_data,
+                log=_log,
+                parallel=use_parallel,
+                max_workers=_pre_workers if use_parallel else None,
+            )
+            _log("🧮 共有指標の前計算が完了")
+    except Exception as e:
+        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
+    return basic_data
+
+
+def _phase_prefilter_syms(
+    symbols: list[str],
+    basic_data: dict[str, pd.DataFrame],
+):
+    """system1〜6 の事前フィルタと UI 25% 通知。"""
+    system1_syms = filter_system1(symbols, basic_data)
+    system2_syms = filter_system2(symbols, basic_data)
+    system3_syms = filter_system3(symbols, basic_data)
+    system4_syms = filter_system4(symbols, basic_data)
+    system5_syms = filter_system5(symbols, basic_data)
+    system6_syms = filter_system6(symbols, basic_data)
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            cb2("system1", 25, len(system1_syms), None, None, None)
+            cb2("system2", 25, len(system2_syms), None, None, None)
+            cb2("system3", 25, len(system3_syms), None, None, None)
+            cb2("system4", 25, len(system4_syms), None, None, None)
+            cb2("system5", 25, len(system5_syms), None, None, None)
+            cb2("system6", 25, len(system6_syms), None, None, None)
+            cb2("system7", 25, 1 if "SPY" in (basic_data or {}) else 0, None, None, None)
+        except Exception:
+            pass
+    return (
+        system1_syms,
+        system2_syms,
+        system3_syms,
+        system4_syms,
+        system5_syms,
+        system6_syms,
+    )
+
+
+def _phase_log_filter_breakdowns(
+    symbols: list[str],
+    basic_data: dict[str, pd.DataFrame],
+) -> None:
+    """フィルタ段階の内訳ログ（system1,2,3,4,5,6）と SPY 確認。"""
+    # System2 breakdown
+    try:
+        s2_total = len(symbols)
+        c_price = 0
+        c_dv = 0
+        c_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                close_s = _pick_series(
+                    _df,
+                    [
+                        "close",
+                        "Close",
+                        "Adj Close",
+                        "adj_close",
+                    ],
+                )
+                last_close = _last_scalar(close_s)
+                if last_close is None or last_close < 5:
+                    continue
+                c_price += 1
+                vol_s = _pick_series(_df, ["volume", "Volume"])
+                if close_s is None or vol_s is None:
+                    continue
+                dv_ser = (close_s * vol_s).dropna()
+                dv = float(dv_ser.tail(20).mean()) if not dv_ser.empty else 0.0
+                if dv >= 2.5e7:
+                    c_dv += 1
+                else:
+                    continue
+                high_s = _pick_series(_df, ["high", "High"]) if _df is not None else None
+                low_s = _pick_series(_df, ["low", "Low"]) if _df is not None else None
+                if high_s is not None and low_s is not None:
+                    try:
+                        tr = (high_s - low_s).dropna().tail(10)
+                        atr = float(tr.mean()) if not tr.empty else 0.0
+                    except Exception:
+                        atr = 0.0
+                    if atr >= last_close * 0.03:
+                        c_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system2内訳: "
+            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
+        )
+    except Exception:
+        pass
+    # System1 breakdown
+    try:
+        s1_total = len(symbols)
+        s1_price = 0
+        s1_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                close_s = _pick_series(
+                    _df,
+                    [
+                        "close",
+                        "Close",
+                        "Adj Close",
+                        "adj_close",
+                    ],
+                )
+                last_close = _last_scalar(close_s)
+                if last_close is None or last_close < 5:
+                    continue
+                s1_price += 1
+                vol_s = _pick_series(_df, ["volume", "Volume"])
+                if close_s is None or vol_s is None:
+                    continue
+                dv_ser = (close_s * vol_s).dropna()
+                dv20 = float(dv_ser.tail(20).mean()) if not dv_ser.empty else 0.0
+                if dv20 >= 5e7:
+                    s1_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
+    except Exception:
+        pass
+    # System3 breakdown
+    try:
+        s3_total = len(symbols)
+        s3_low = 0
+        s3_av = 0
+        s3_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 1:
+                    s3_low += 1
+                else:
+                    continue
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) >= 1_000_000
+                ):
+                    s3_av += 1
+                else:
+                    continue
+                _atr_ratio = _df.get("ATR_Ratio")
+                if (
+                    _atr_ratio is not None
+                    and not pd.isna(_atr_ratio.iloc[-1])
+                    and float(_atr_ratio.iloc[-1]) >= 0.05
+                ):
+                    s3_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system3内訳: "
+            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+        )
+    except Exception:
+        pass
+    # System4 breakdown
+    try:
+        s4_total = len(symbols)
+        s4_dv = 0
+        s4_hv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _dv50 = _df.get("DollarVolume50")
+                _hv50 = _df.get("HV50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 100_000_000
+                ):
+                    s4_dv += 1
+                else:
+                    continue
+                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
+                    hv = float(_hv50.iloc[-1])
+                    if 10 <= hv <= 40:
+                        s4_hv += 1
+            except Exception:
+                continue
+        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
+    except Exception:
+        pass
+    # System5 breakdown
+    try:
+        s5_total = len(symbols)
+        s5_av = 0
+        s5_dv = 0
+        s5_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) > 500_000
+                ):
+                    s5_av += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 2_500_000
+                ):
+                    s5_dv += 1
+                else:
+                    continue
+                _atrp = _df.get("ATR_Pct")
+                if (
+                    _atrp is not None
+                    and not pd.isna(_atrp.iloc[-1])
+                    and float(_atrp.iloc[-1]) > 0.04
+                ):
+                    s5_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system5内訳: "
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+        )
+    except Exception:
+        pass
+    # System6 breakdown
+    try:
+        s6_total = len(symbols)
+        s6_low = 0
+        s6_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 5:
+                    s6_low += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 10_000_000
+                ):
+                    s6_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+    except Exception:
+        pass
+    # System7
+    try:
+        spyp = (
+            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+        )
+        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
+    except Exception:
+        pass
+
+
 def _amount_pick(
     per_system: dict[str, pd.DataFrame],
     strategies: dict[str, object],
@@ -909,392 +1341,22 @@ def _compute_today_signals_impl(
             progress_callback(2, 8, "load_basic")
         except Exception:
             pass
-    # データカバレッジ内訳（rollingに存在する銘柄数）
-    try:
-        cov_have = len(basic_data)
-        cov_total = len(symbols)
-        cov_missing = max(0, cov_total - cov_have)
-        _log(
-            "🧮 データカバレッジ: "
-            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-        )
-        if cov_missing > 0:
-            missing_syms = [s for s in symbols if s not in basic_data]
-            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
-            fixed = 0
-            for sym in missing_syms:
-                try:
-                    base_df = load_base_cache(sym, rebuild_if_missing=True)
-                    if base_df is None or base_df.empty:
-                        continue
-                    x = base_df.copy()
-                    if x.index.name is not None:
-                        x = x.reset_index()
-                    if "Date" in x.columns:
-                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                    elif "date" in x.columns:
-                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                    else:
-                        continue
-                    x = x.dropna(subset=["date"]).sort_values("date")
-                    col_map = {
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "AdjClose": "adjusted_close",
-                        "Volume": "volume",
-                    }
-                    for k, v in list(col_map.items()):
-                        if k in x.columns:
-                            x = x.rename(columns={k: v})
-                    n = int(
-                        settings.cache.rolling.base_lookback_days
-                        + settings.cache.rolling.buffer_days
-                    )
-                    sliced = x.tail(n).reset_index(drop=True)
-                    cm.write_atomic(sliced, sym, "rolling")
-                    df = _normalize_ohlcv(sliced)
-                    basic_data[sym] = df
-                    fixed += 1
-                except Exception:
-                    continue
-            try:
-                if fixed > 0:
-                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
-            except Exception:
-                pass
-            cov_have = len(basic_data)
-            cov_missing = max(0, cov_total - cov_have)
-            _log(
-                "🧮 データカバレッジ(補完後): "
-                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-            )
-            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
-            try:
-                cb2 = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2 = None
-            if cb2 and callable(cb2):
-                try:
-                    # Tgt はユニバース総数（SPY除外）を採用
-                    try:
-                        tgt_total = int(cov_total)
-                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
-                            tgt_total = max(0, tgt_total - 1)
-                    except Exception:
-                        tgt_total = int(cov_total)
-                    for i in range(1, 8):
-                        cb2(f"system{i}", 0, tgt_total, None, None, None)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # データカバレッジ補完とTgt更新
+    basic_data = _phase_update_coverage_and_tgt(basic_data, symbols, settings, cm)
     # 共有指標の前計算（ATR/SMA/ADXなど）
-    try:
-        import os as _os
-
-        from common.indicators_precompute import (
-            PRECOMPUTED_INDICATORS,
-            precompute_shared_indicators,
-        )
-
-        # 実行しきい値（小規模ユニバースでは前計算をスキップしてオーバーヘッド削減）
-        try:
-            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
-        except Exception:
-            _thr_syms = 300
-        if len(basic_data) < max(0, _thr_syms):
-            _log(
-                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
-            )
-        else:
-            try:
-                _log(
-                    "🧮 共有指標の前計算を開始: "
-                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
-                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
-                )
-            except Exception:
-                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
-            # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
-            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
-            try:
-                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
-            except Exception:
-                _thr_parallel = 1000
-            if force_parallel in ("1", "true", "yes"):
-                use_parallel = True
-            elif force_parallel in ("0", "false", "no"):
-                use_parallel = False
-            else:
-                use_parallel = len(basic_data) >= max(0, _thr_parallel)
-
-            # 前計算のワーカー数は設定値に連動（環境変数の直接指定がある場合は別途関知）
-            try:
-                _st = get_settings(create_dirs=False)
-                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
-            except Exception:
-                _pre_workers = 12
-            if use_parallel:
-                try:
-                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
-                except Exception:
-                    pass
-            basic_data = precompute_shared_indicators(
-                basic_data,
-                log=_log,
-                parallel=use_parallel,
-                max_workers=_pre_workers if use_parallel else None,
-            )
-            _log("🧮 共有指標の前計算が完了")
-    except Exception as e:
-        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
+    # 共有指標 前計算
+    basic_data = _phase_precompute_shared(basic_data, settings)
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
-    system1_syms = filter_system1(symbols, basic_data)
-    system2_syms = filter_system2(symbols, basic_data)
-    system3_syms = filter_system3(symbols, basic_data)
-    system4_syms = filter_system4(symbols, basic_data)
-    system5_syms = filter_system5(symbols, basic_data)
-    system6_syms = filter_system6(symbols, basic_data)
-    # 各システムのフィルター通過件数をUIへ通知
-    try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
-    except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
-        try:
-            cb2("system1", 25, len(system1_syms), None, None, None)
-            cb2("system2", 25, len(system2_syms), None, None, None)
-            cb2("system3", 25, len(system3_syms), None, None, None)
-            cb2("system4", 25, len(system4_syms), None, None, None)
-            cb2("system5", 25, len(system5_syms), None, None, None)
-            cb2("system6", 25, len(system6_syms), None, None, None)
-            cb2(
-                "system7",
-                25,
-                1 if "SPY" in (basic_data or {}) else 0,
-                None,
-                None,
-                None,
-            )
-        except Exception:
-            pass
-    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
-    try:
-        s2_total = len(symbols)
-        c_price = 0
-        c_dv = 0
-        c_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                # 価格フィルター
-                last_close = float(_df["close"].iloc[-1])
-                if last_close >= 5:
-                    c_price += 1
-                else:
-                    continue
-                # 売買代金フィルター（20日平均・厳密）
-                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
-                if dv >= 2.5e7:
-                    c_dv += 1
-                else:
-                    continue
-                # ATR 比率フィルター（10日）
-                if "high" in _df.columns and "low" in _df.columns:
-                    _tr = (_df["high"] - _df["low"]).tail(10)
-                    _atr = float(_tr.mean())
-                    if _atr >= last_close * 0.03:
-                        c_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system2内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
-        )
-    except Exception:
-        pass
-    # System1 フィルター内訳（価格・売買代金）
-    try:
-        s1_total = len(symbols)
-        s1_price = 0
-        s1_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
-                if last_close >= 5:
-                    s1_price += 1
-                else:
-                    continue
-                # 安全にカラムを取得して DV20 を計算
-                _c = _df["close"] if "close" in _df.columns else _df["Close"]
-                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
-                dv20 = float((_c * _v).tail(20).mean())
-                if dv20 >= 5e7:
-                    s1_dv += 1
-            except Exception:
-                continue
-        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
-    except Exception:
-        pass
-    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
-    try:
-        s3_total = len(symbols)
-        s3_low = 0
-        s3_av = 0
-        s3_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 1:
-                    s3_low += 1
-                else:
-                    continue
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) >= 1_000_000
-                ):
-                    s3_av += 1
-                else:
-                    continue
-                _atr_ratio = _df.get("ATR_Ratio")
-                if (
-                    _atr_ratio is not None
-                    and not pd.isna(_atr_ratio.iloc[-1])
-                    and float(_atr_ratio.iloc[-1]) >= 0.05
-                ):
-                    s3_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system3内訳: "
-            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
-        )
-    except Exception:
-        pass
-    # System4 フィルター内訳（DV50>=100M → HV50 10〜40）
-    try:
-        s4_total = len(symbols)
-        s4_dv = 0
-        s4_hv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _dv50 = _df.get("DollarVolume50")
-                _hv50 = _df.get("HV50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 100_000_000
-                ):
-                    s4_dv += 1
-                else:
-                    continue
-                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
-                    hv = float(_hv50.iloc[-1])
-                    if 10 <= hv <= 40:
-                        s4_hv += 1
-            except Exception:
-                continue
-        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
-    except Exception:
-        pass
-    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>4%）
-    try:
-        s5_total = len(symbols)
-        s5_av = 0
-        s5_dv = 0
-        s5_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) > 500_000
-                ):
-                    s5_av += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 2_500_000
-                ):
-                    s5_dv += 1
-                else:
-                    continue
-                _atrp = _df.get("ATR_Pct")
-                if (
-                    _atrp is not None
-                    and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > 0.04
-                ):
-                    s5_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system5内訳: "
-            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
-        )
-    except Exception:
-        pass
-    # System6 フィルター内訳（Low>=5 → DV50>10M）
-    try:
-        s6_total = len(symbols)
-        s6_low = 0
-        s6_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 5:
-                    s6_low += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 10_000_000
-                ):
-                    s6_dv += 1
-            except Exception:
-                continue
-        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
-    except Exception:
-        pass
-    # System7 は SPY 固定（参考情報のみ）
-    try:
-        spyp = (
-            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
-        )
-        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
-    except Exception:
-        pass
+    (
+        system1_syms,
+        system2_syms,
+        system3_syms,
+        system4_syms,
+        system5_syms,
+        system6_syms,
+    ) = _phase_prefilter_syms(symbols, basic_data)
+    # 各フィルター段階の内訳ログ
+    _phase_log_filter_breakdowns(symbols, basic_data)
     _log(
         "🧪 フィルター結果: "
         + f"system1={len(system1_syms)}件, "
@@ -1578,6 +1640,19 @@ def _compute_today_signals_impl(
 
     def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
         logs: list[str] = []
+
+        # デフォルトのステージ通知（後で上書き）
+        def _stage(
+            v: int,
+            f: int | None = None,
+            s: int | None = None,
+            c: int | None = None,
+            fin: int | None = None,
+        ) -> None:
+            return None
+
+        # デフォルトのルックバック（後で戦略や設定で上書き）
+        lookback_days: int = 240
 
         def _local_log(message: str) -> None:
             logs.append(str(message))
