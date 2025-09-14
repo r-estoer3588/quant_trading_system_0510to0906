@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from datetime import time as dtime
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
+import sys
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -12,6 +13,43 @@ from ta.trend import SMAIndicator
 
 from common.i18n import tr
 from config.settings import get_settings
+
+
+def _ui_enabled() -> bool:
+    """Return True when running under Streamlit UI.
+
+    Heuristic only: avoid querying Streamlit runtime context directly to prevent
+    'missing ScriptRunContext' warnings. Prefer environment flag or command hint.
+    """
+    try:
+        v = (os.getenv("STREAMLIT_SERVER_ENABLED") or "").strip().lower()
+        if v in {"1", "true", "yes"}:
+            return True
+    except Exception:
+        pass
+    try:
+        argv = " ".join(sys.argv).lower()
+        if "streamlit" in argv:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _st_emit(kind: str, *args, **kwargs) -> None:
+    """Safely emit Streamlit UI calls only when UI context is active.
+
+    In CLI/batch runs, this becomes a no-op to avoid ScriptRunContext warnings.
+    """
+    if not _ui_enabled():
+        return
+    try:
+        fn = getattr(st, kind, None)
+        if callable(fn):
+            fn(*args, **kwargs)
+    except Exception:
+        # Silently ignore UI errors in non-critical paths
+        return
 
 
 def _candidate_spy_paths(root: Path) -> list[Path]:
@@ -108,7 +146,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
             path = p
             break
     if path is None or not path.exists():
-        st.error(tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)"))
+        _st_emit(
+            "error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)")
+        )
         return None
 
     # backtest 時は full_backup の存在を必須とし、無ければエラーメッセージを表示
@@ -116,11 +156,12 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         has_full_backup = _find_case_insensitive(full_dir, "SPY.csv") is not None
         if not has_full_backup:
             try:
-                st.error(
+                _st_emit(
+                    "error",
                     tr(
                         "⚠ SPY の full_backup が存在しません: {p}",
                         p=str(full_dir / "SPY.csv"),
-                    )
+                    ),
                 )
             except Exception:
                 pass
@@ -130,7 +171,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
 
         # 直近情報の表示（UIが無い場面では無視される）
         try:
-            st.write(tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date())))
+            _st_emit(
+                "write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date()))
+            )
         except Exception:
             pass
 
@@ -138,7 +181,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         today = pd.Timestamp.today().normalize()
         latest_trading_day = get_latest_nyse_trading_day(today)
         try:
-            st.write(tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date())))
+            _st_emit(
+                "write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date()))
+            )
         except Exception:
             pass
 
@@ -163,19 +208,19 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         # 古い場合は警告のみ表示
         if df.index[-1].normalize() < prev_trading_day and ny_time >= dtime(18, 0):
             try:
-                st.warning(tr("⚠ SPYキャッシュが古い可能性があります"))
+                _st_emit("warning", tr("⚠ SPYキャッシュが古い可能性があります"))
             except Exception:
                 pass
         else:
             try:
-                st.write(tr("✅ SPYキャッシュは有効"))
+                _st_emit("write", tr("✅ SPYキャッシュは有効"))
             except Exception:
                 pass
 
         return df
 
     except Exception as e:
-        st.error(tr("❌ SPY読み込み失敗: {e}", e=str(e)))
+        _st_emit("error", tr("❌ SPY読み込み失敗: {e}", e=str(e)))
         return None
 
 
@@ -224,11 +269,12 @@ def get_spy_with_indicators(spy_df=None):
                 spy_df["Close"] = spy_df["adjusted_close"]
             else:
                 try:
-                    st.warning(
+                    _st_emit(
+                        "warning",
                         tr(
                             "❗SPYの終値列が見つかりません: {cols}",
                             cols=str(list(spy_df.columns)),
-                        )
+                        ),
                     )
                 except Exception:
                     pass

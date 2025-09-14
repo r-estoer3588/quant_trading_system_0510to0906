@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
-from typing import Dict, Optional
 from pathlib import Path
 import re
 
@@ -16,15 +16,38 @@ except Exception:  # pragma: no cover
 SUPPORTED = ("en", "ja")
 
 # モジュール内での言語設定（streamlit が無い場合に利用）
-_module_lang: Optional[str] = None
+_module_lang: str | None = None
 
 # 外部から読み込んだ翻訳辞書
-_TRANSLATIONS: Dict[str, Dict[str, str]] = {}
+_TRANSLATIONS: dict[str, dict[str, str]] = {}
 
 
-def _get_session_state() -> Dict:
-    if st is not None:
-        return getattr(st, "session_state", {})
+def _ui_enabled() -> bool:
+    """UI実行中か簡易判定（環境変数とargvで推測）。
+
+    Streamlit の実行文脈APIを直接触らず、警告を避けるための簡易判定のみ行う。
+    """
+    try:
+        v = (os.getenv("STREAMLIT_SERVER_ENABLED") or "").strip().lower()
+        if v in {"1", "true", "yes"}:
+            return True
+    except Exception:
+        pass
+    try:
+        argv = " ".join(sys.argv).lower()
+        if "streamlit" in argv:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _get_session_state() -> dict:
+    if st is not None and _ui_enabled():
+        try:
+            return getattr(st, "session_state", {})
+        except Exception:
+            return {}
     return {}
 
 
@@ -49,7 +72,7 @@ def set_language(lang: str) -> None:
 
 
 # 既存の英語文言をキーとして日本語訳を提供（フォールバック用）
-_JA_MAP: Dict[str, str] = {
+_JA_MAP: dict[str, str] = {
     # common/ui_components.py 周辺
     "clear streamlit cache": "Streamlitキャッシュをクリア",
     "cache cleared": "キャッシュをクリアしました",
@@ -94,7 +117,6 @@ _JA_MAP: Dict[str, str] = {
     "heatmap generated": "ヒートマップ生成完了",
     "days": "日",
     "System1 - holdings heatmap": "System1 - 保有銘柄ヒートマップ",
-    "download holdings csv": "保有状況CSVをダウンロード",
     # app_integrated.py 周辺（一部）
     "Trading Systems Integrated UI": "トレーディングシステム統合UI",
     "settings": "設定",
@@ -161,7 +183,7 @@ def load_translations_from_dir(translations_dir: str | os.PathLike) -> None:
                 continue
 
 
-def _lookup_translation(text: str, lang: str) -> Optional[str]:
+def _lookup_translation(text: str, lang: str) -> str | None:
     """ロード済み辞書や組み込みの _JA_MAP から翻訳を取得"""
     if lang in _TRANSLATIONS and text in _TRANSLATIONS[lang]:
         return _TRANSLATIONS[lang][text]
