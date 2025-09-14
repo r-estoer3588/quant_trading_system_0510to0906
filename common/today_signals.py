@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
 import time as _t
+from dataclasses import dataclass
+from typing import Any
+from collections.abc import Callable
 
 import pandas as pd
 
@@ -22,9 +23,9 @@ class TodaySignal:
     entry_date: pd.Timestamp
     entry_price: float
     stop_price: float
-    score_key: Optional[str] = None
-    score: Optional[float] = None
-    reason: Optional[str] = None
+    score_key: str | None = None
+    score: float | None = None
+    reason: str | None = None
 
 
 def _infer_side(system_name: str) -> str:
@@ -36,14 +37,14 @@ def _infer_side(system_name: str) -> str:
 
 def _score_from_candidate(
     system_name: str, candidate: dict
-) -> Tuple[Optional[str], Optional[float], bool]:
+) -> tuple[str | None, float | None, bool]:
     """
     候補レコードからスコア項目と並び順（昇順か）を推定して返す。
     戻り値: (score_key, score_value, asc)
     """
     name = (system_name or "").lower()
     # システム別の代表スコア
-    key_order: List[Tuple[List[str], bool]] = [
+    key_order: list[tuple[list[str], bool]] = [
         (["ROC200"], False),  # s1: 大きいほど良い
         (["ADX7"], False),  # s2,s5: 大きいほど良い
         (["Drop3D"], False),  # s3: 大きいほど良い（下落率）
@@ -78,7 +79,27 @@ def _score_from_candidate(
     return None, None, False
 
 
-def _pick_atr_col(df: pd.DataFrame) -> Optional[str]:
+def _label_for_score_key(key: str | None) -> str:
+    """スコアキーの日本語ラベルを返す（既知のもののみ簡潔表示）。"""
+    if key is None:
+        return "スコア"
+    k = str(key).upper()
+    mapping = {
+        "ROC200": "ROC200",
+        "ADX7": "ADX",
+        "RSI4": "RSI4",
+        "RSI3": "RSI3",
+        "DROP3D": "3日下落率",
+        "RETURN6D": "過去6日騰落率",
+        "ATR10": "ATR10",
+        "ATR20": "ATR20",
+        "ATR40": "ATR40",
+        "ATR50": "ATR50",
+    }
+    return mapping.get(k, k)
+
+
+def _pick_atr_col(df: pd.DataFrame) -> str | None:
     for col in ("ATR20", "ATR10", "ATR40", "ATR50", "ATR14"):
         if col in df.columns:
             return col
@@ -87,17 +108,20 @@ def _pick_atr_col(df: pd.DataFrame) -> Optional[str]:
 
 def _compute_entry_stop(
     strategy, df: pd.DataFrame, candidate: dict, side: str
-) -> Optional[Tuple[float, float]]:
+) -> tuple[float, float] | None:
     # strategy 独自の compute_entry があれば優先
-    if hasattr(strategy, "compute_entry") and callable(
-        getattr(strategy, "compute_entry")
-    ):
+    try:
+        _fn = strategy.compute_entry  # type: ignore[attr-defined]
+    except Exception:
+        _fn = None
+    if callable(_fn):
         try:
-            res = strategy.compute_entry(df, candidate, 0.0)
+            res = _fn(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
                 entry, stop = float(res[0]), float(res[1])
                 if entry > 0 and (
-                    side == "short" and stop > entry or side == "long" and entry > stop
+                    (side == "short" and stop > entry)
+                    or (side == "long" and entry > stop)
                 ):
                     return round(entry, 4), round(stop, 4)
         except Exception:
@@ -133,20 +157,18 @@ def _compute_entry_stop(
 
 def get_today_signals_for_strategy(
     strategy,
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
-    market_df: Optional[pd.DataFrame] = None,
-    today: Optional[pd.Timestamp] = None,
-    progress_callback: Optional[Callable[..., None]] = None,
-    log_callback: Optional[Callable[[str], None]] = None,
-    stage_progress: Optional[
-        Callable[
-            [int, Optional[int], Optional[int], Optional[int], Optional[int]], None
-        ]
-    ] = None,
+    market_df: pd.DataFrame | None = None,
+    today: pd.Timestamp | None = None,
+    progress_callback: Callable[..., None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    stage_progress: (
+        Callable[[int, int | None, int | None, int | None, int | None], None] | None
+    ) = None,
     use_process_pool: bool = False,
-    max_workers: Optional[int] = None,
-    lookback_days: Optional[int] = None,
+    max_workers: int | None = None,
+    lookback_days: int | None = None,
 ) -> pd.DataFrame:
     """
     各 Strategy の prepare_data / generate_candidates を流用し、
@@ -159,7 +181,10 @@ def get_today_signals_for_strategy(
     """
     from common.utils_spy import get_latest_nyse_trading_day
 
-    system_name = getattr(strategy, "SYSTEM_NAME", "").lower()
+    try:
+        system_name = str(strategy.SYSTEM_NAME).lower()  # type: ignore[attr-defined]
+    except Exception:
+        system_name = ""
     side = _infer_side(system_name)
     signal_type = "sell" if side == "short" else "buy"
 
@@ -191,7 +216,7 @@ def get_today_signals_for_strategy(
             and lookback_days > 0
             and isinstance(raw_data_dict, dict)
         ):
-            sliced: Dict[str, pd.DataFrame] = {}
+            sliced: dict[str, pd.DataFrame] = {}
             for _sym, _df in raw_data_dict.items():
                 try:
                     if _df is None or getattr(_df, "empty", True):
@@ -267,7 +292,7 @@ def get_today_signals_for_strategy(
         pass
 
     # 候補生成（market_df を必要とする実装に配慮）
-    gen_fn = getattr(strategy, "generate_candidates")
+    gen_fn = strategy.generate_candidates  # type: ignore[attr-defined]
     params = inspect.signature(gen_fn).parameters
     if log_callback:
         try:
@@ -369,7 +394,7 @@ def get_today_signals_for_strategy(
         )
 
     # 当日分のみ抽出
-    today_candidates: List[dict] = candidates_by_date.get(today, [])  # type: ignore[index]
+    today_candidates: list[dict] = candidates_by_date.get(today, [])  # type: ignore[index]
     if not today_candidates:
         return pd.DataFrame(
             columns=[
@@ -384,7 +409,7 @@ def get_today_signals_for_strategy(
                 "score",
             ]
         )
-    rows: List[TodaySignal] = []
+    rows: list[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
         if not sym or sym not in prepared:
@@ -406,7 +431,7 @@ def get_today_signals_for_strategy(
             pass
 
         # signal 日（通常は entry_date の前営業日を想定）
-        signal_date_ts: Optional[pd.Timestamp] = None
+        signal_date_ts: pd.Timestamp | None = None
         try:
             # candidate["Date"] があれば優先
             if "Date" in c and c.get("Date") is not None:
@@ -427,7 +452,7 @@ def get_today_signals_for_strategy(
                 signal_date_ts = None
 
         # 欠損スコアの補完（まず値、次に順位）
-        rank_val: Optional[int] = None
+        rank_val: int | None = None
         total_for_rank: int = 0
         if skey is not None:
             # 1) 欠損なら prepared から同日値を補完
@@ -502,42 +527,32 @@ def get_today_signals_for_strategy(
                 pass
 
         # 選定理由（順位を最優先、なければ簡潔な値）
-        reason_parts: List[str] = []
-        if skey is not None and rank_val is not None:
-            if rank_val <= 10:
-                reason_parts = [f"{skey}が{rank_val}位のため"]
+        reason_parts: list[str] = []
+        # System1 は日本語で「ROC200がn位のため」に統一（順位が取れない場合のみ汎用文言）
+        if system_name == "system1":
+            if rank_val is not None:
+                reason_parts = [f"ROC200が{rank_val}位のため"]
             else:
-                reason_parts = [f"rank={rank_val}/{total_for_rank}"]
-        elif skey is not None:
-            # 値は原則非表示（冗長回避）。必要最小限だけ示す。
-            try:
-                if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
-                    # system1 などランキング系は順位算出失敗時のみ短く表示
+                reason_parts = ["条件一致のため"]
+        else:
+            if skey is not None and rank_val is not None:
+                if rank_val <= 10:
+                    reason_parts = [f"{_label_for_score_key(skey)}が{rank_val}位のため"]
+                else:
+                    reason_parts = [f"rank={rank_val}/{total_for_rank}"]
+            elif skey is not None:
+                # 値は原則非表示（冗長回避）。必要最小限だけ示す。
+                try:
+                    if sval is not None and not (
+                        isinstance(sval, float) and pd.isna(sval)
+                    ):
+                        reason_parts.append("スコア条件を満たしたため")
+                except Exception:
                     reason_parts.append("スコア条件を満たしたため")
-            except Exception:
-                reason_parts.append("スコア条件を満たしたため")
 
-        # fallback generic info（数値は小数第2位で丸め、日時は日付のみ）
+        # fallback generic info
         if not reason_parts:
-            try:
-
-                def _fmt_val(v: object) -> str:
-                    try:
-                        # pandas の NaN 判定
-                        if isinstance(v, float) and pd.isna(v):
-                            return "N/A"
-                        if isinstance(v, (int, float)):
-                            return f"{float(v):.2f}"
-                        if isinstance(v, pd.Timestamp):
-                            return v.strftime("%Y-%m-%d")
-                        return str(v)
-                    except Exception:
-                        return str(v)
-
-                # フォールバックは簡潔に
-                reason_parts.append("条件一致のため")
-            except Exception:
-                reason_parts.append("条件一致のため")
+            reason_parts.append("条件一致のため")
 
         reason_text = "; ".join(reason_parts)
 

@@ -33,6 +33,81 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
     with colR:
         st.caption(".env の ALPACA_PAPER と独立。ここは明示設定です。")
 
+    # Account summary (buying power, cash, type, status)
+    st.markdown("---")
+    st.subheader("口座サマリー / 買付余力")
+    # session keys for account info
+    st.session_state.setdefault("pos_tab_acct_type", None)
+    st.session_state.setdefault("pos_tab_multiplier", None)
+    st.session_state.setdefault("pos_tab_shorting_enabled", None)
+    st.session_state.setdefault("pos_tab_status", None)
+    st.session_state.setdefault("pos_tab_buying_power", None)
+    st.session_state.setdefault("pos_tab_cash", None)
+
+    colA, colB, colC = st.columns(3)
+    with colA:
+        if st.button("ℹ️ 口座サマリーを取得/更新"):
+            try:
+                client = _ba.get_client(paper=paper)
+                acct = client.get_account()
+                st.session_state["pos_tab_acct_type"] = getattr(
+                    acct, "account_type", None
+                )
+                st.session_state["pos_tab_multiplier"] = getattr(
+                    acct, "multiplier", None
+                )
+                st.session_state["pos_tab_shorting_enabled"] = getattr(
+                    acct, "shorting_enabled", None
+                )
+                st.session_state["pos_tab_status"] = getattr(acct, "status", None)
+                bp_raw = getattr(acct, "buying_power", None)
+                if bp_raw is None:
+                    bp_raw = getattr(acct, "cash", None)
+                try:
+                    st.session_state["pos_tab_buying_power"] = (
+                        float(bp_raw) if bp_raw is not None else None
+                    )
+                except Exception:
+                    st.session_state["pos_tab_buying_power"] = None
+                try:
+                    st.session_state["pos_tab_cash"] = float(
+                        getattr(acct, "cash", None) or 0.0
+                    )
+                except Exception:
+                    st.session_state["pos_tab_cash"] = None
+                st.success("口座情報を更新しました")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"口座情報の取得に失敗: {e}")
+    with colB:
+        # derived account type
+        mult = st.session_state.get("pos_tab_multiplier")
+        try:
+            mult_f = float(mult) if mult is not None else None
+        except Exception:
+            mult_f = None
+        derived_type = (
+            "Margin"
+            if (mult_f is not None and mult_f > 1.0)
+            else ("Cash" if mult_f is not None else "不明")
+        )
+        acct_type = st.session_state.get("pos_tab_acct_type")
+        status = st.session_state.get("pos_tab_status")
+        st.caption(
+            f"種別(推定): {derived_type} / status: {status if status is not None else '-'}"
+        )
+        if acct_type is not None or mult_f is not None:
+            st.caption(
+                f"詳細: account_type={acct_type}, "
+                f"multiplier={mult_f if mult_f is not None else '-'}"
+            )
+    with colC:
+        bp = st.session_state.get("pos_tab_buying_power")
+        cash = st.session_state.get("pos_tab_cash")
+        bp_txt = f"${bp:,.2f}" if isinstance(bp, (int, float)) else "未取得"
+        cash_txt = f"${cash:,.2f}" if isinstance(cash, (int, float)) else "未取得"
+        st.metric("買付余力 (Buying Power)", bp_txt)
+        st.caption(f"Cash: {cash_txt}")
+
     # Refresh positions
     if st.button("🔄 ポジション取得"):
         try:
@@ -164,6 +239,103 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                 st.success("キャンセルを送信しました")
             except Exception as e:  # noqa: BLE001
                 st.error(f"キャンセル失敗: {e}")
+
+    # Planned exits viewer/editor
+    st.markdown("---")
+    st.subheader("予約一覧（編集）")
+    from pathlib import Path as _Path
+    import json as _json
+
+    _plan = _Path("data/planned_exits.jsonl")
+    plans: list[dict] = []
+    if _plan.exists():
+        try:
+            for line in _plan.read_text(encoding="utf-8").splitlines():
+                try:
+                    plans.append(_json.loads(line))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    if plans:
+        import pandas as _pd
+
+        df_pl = _pd.DataFrame(plans)
+        st.dataframe(df_pl, use_container_width=True)
+        sel_to_remove = st.multiselect(
+            "削除する予約（symbol when で選択）",
+            [f"{r.get('symbol')} | {r.get('when')}" for r in plans],
+            default=[],
+        )
+        col_rm1, col_rm2 = st.columns(2)
+        with col_rm1:
+            if st.button("選択した予約を削除"):
+                new_plans = []
+                keys = set(sel_to_remove)
+                for r in plans:
+                    key = f"{r.get('symbol')} | {r.get('when')}"
+                    if key in keys:
+                        continue
+                    new_plans.append(r)
+                try:
+                    _plan.write_text(
+                        "\n".join(_json.dumps(x, ensure_ascii=False) for x in new_plans)
+                        + ("\n" if new_plans else ""),
+                        encoding="utf-8",
+                    )
+                    st.success("削除しました")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"削除失敗: {e}")
+        with col_rm2:
+            if st.button("全予約をクリア"):
+                try:
+                    _plan.unlink(missing_ok=True)
+                    st.success("クリアしました")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"クリア失敗: {e}")
+    else:
+        st.info("予約はありません")
+
+    # Open orders list + individual cancel
+    st.markdown("---")
+    st.subheader("未約定注文一覧")
+    try:
+        client = _ba.get_client(paper=st.session_state.get("pos_tab_paper", True))
+        orders = client.get_orders(status="open")
+        rows = []
+        for o in orders:
+            rows.append(
+                {
+                    "id": getattr(o, "id", None),
+                    "symbol": getattr(o, "symbol", None),
+                    "side": getattr(o, "side", None),
+                    "qty": getattr(o, "qty", None),
+                    "type": getattr(o, "type", None),
+                    "tif": getattr(o, "time_in_force", None),
+                    "status": getattr(o, "status", None),
+                    "submitted_at": getattr(o, "submitted_at", None),
+                }
+            )
+        if rows:
+            import pandas as _pd
+
+            df_o = _pd.DataFrame(rows)
+            st.dataframe(df_o, use_container_width=True)
+            ids = [str(r.get("id")) for r in rows if r.get("id")]
+            sel_ids = st.multiselect("キャンセルする order_id", ids, default=[])
+            if st.button("選択した注文をキャンセル"):
+                ok = 0
+                for oid in sel_ids:
+                    try:
+                        client.cancel_order_by_id(oid)
+                        ok += 1
+                    except Exception:
+                        pass
+                st.success(f"{ok} 件キャンセルを送信しました")
+        else:
+            st.info("未約定注文はありません")
+    except Exception as e:  # noqa: BLE001
+        st.warning(f"未約定注文の取得に失敗: {e}")
 
 
 def render_metrics_tab(settings) -> None:

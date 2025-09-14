@@ -605,7 +605,26 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # 実行ログは廃止。代わりにここに system 別ログタブを表示
     per_system_logs: dict[str, list[str]] = {f"system{i}": [] for i in range(1, 8)}
+    # 指標計算や冗長行はタブ内でも非表示にする
+    _skip_in_tabs = (
+        "📊 指標計算",
+        "⏱️ バッチ時間",
+        "🧮 指標データ",
+        "🧮 指標データロード",
+        "🧮 共有指標の前計算",
+        "📦 基礎データロード",
+        "候補抽出",
+        "インジケーター",
+        "indicator",
+        "indicators",
+    )
     for ln in log_lines:
+        # タブ表示ではスキップすべきログを除外
+        try:
+            if any(k in ln for k in _skip_in_tabs):
+                continue
+        except Exception:
+            pass
         for i in range(1, 8):
             tag = f"[system{i}] "
             if ln.find(tag) != -1:
@@ -627,11 +646,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     disabled=True,
                 )
 
-    for name in system_order:
-        df = per_system.get(name)
-        syms2 = df["symbol"].tolist() if df is not None and not df.empty else []
-        if syms2:
-            notifier.send_signals(name, syms2)
+    # 通知は内部エンジン側で送信済み（重複を避けるためここでは送らない）
 
     # === 今日の手仕舞い候補（MOC）を推定して集計・発注オプションを提供 ===
     st.subheader("今日の手仕舞い候補（MOC）")
@@ -657,6 +672,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             symbol_system_map = {}
 
         # strategy クラスを遅延import
+        from strategies.system1_strategy import System1Strategy
         from strategies.system2_strategy import System2Strategy
         from strategies.system3_strategy import System3Strategy
         from strategies.system4_strategy import System4Strategy
@@ -731,7 +747,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 stop_price = None
                 try:
                     prev_close = float(df.iloc[int(max(0, entry_idx - 1))]["Close"])
-                    if system == "system2":
+                    if system == "system1":
+                        stg = System1Strategy()
+                        entry_price = float(df.iloc[int(entry_idx)]["Open"])
+                        atr20 = float(df.iloc[int(max(0, entry_idx - 1))]["ATR20"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 5.0))
+                        stop_price = entry_price - stop_mult * atr20
+                    elif system == "system2":
                         stg = System2Strategy()
                         entry_price = float(df.iloc[int(entry_idx)]["Open"])
                         atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
@@ -816,8 +838,18 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         )
                         exit_counts[system] = exit_counts.get(system, 0) + 1
                 else:
-                    # 利食い翌日引けや時間切れ翌日引けのケースを計画として保存
-                    if system in {"system2", "system3", "system6"}:
+                    # 翌日寄り/引けの予約を前日に作成
+                    if system == "system5":
+                        planned_rows.append(
+                            {
+                                "symbol": sym,
+                                "qty": qty,
+                                "position_side": pos_side,
+                                "system": system,
+                                "when": "tomorrow_open",
+                            }
+                        )
+                    elif system in {"system1", "system2", "system3", "system6"}:
                         planned_rows.append(
                             {
                                 "symbol": sym,
@@ -838,6 +870,20 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             for k, v in exit_counts.items():
                 if v and k in stage_counts:
                     stage_counts[k]["exit"] = int(v)
+            # 既存のメトリクス表示を更新（exit 反映）
+            try:
+                for i2 in range(1, 8):
+                    key2 = f"system{i2}"
+                    sc2 = stage_counts.get(key2, {})
+                    if key2 in sys_metrics_txt and sys_metrics_txt.get(key2) is not None:
+                        txt2 = (
+                            f"filter={sc2.get('filter','-')}, setup={sc2.get('setup','-')}, "
+                            f"cand={sc2.get('cand','-')}, entry={sc2.get('entry','-')}, "
+                            f"exit={sc2.get('exit','-')}"
+                        )
+                        sys_metrics_txt[key2].text(txt2)
+            except Exception:
+                pass
             # 発注ボタン（MOC）
             if st.button("本日分の手仕舞い注文（MOC）を送信"):
                 from common.alpaca_order import submit_exit_orders_df

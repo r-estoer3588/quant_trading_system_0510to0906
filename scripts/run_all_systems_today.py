@@ -806,6 +806,7 @@ def compute_today_signals(
                 continue
             result.append(sym)
         return result
+
     def load_indicator_data(symbols):
         import time as _t
 
@@ -969,6 +970,17 @@ def compute_today_signals(
             progress_callback(2, 8, "load_basic")
         except Exception:
             pass
+    # データカバレッジ内訳（rollingに存在する銘柄数）
+    try:
+        cov_have = len(basic_data)
+        cov_total = len(symbols)
+        cov_missing = max(0, cov_total - cov_have)
+        _log(
+            "🧮 データカバレッジ: "
+            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+        )
+    except Exception:
+        pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
     try:
         from common.indicators_precompute import (
@@ -1035,6 +1047,43 @@ def compute_today_signals(
     system4_syms = filter_system4(symbols, basic_data)
     system5_syms = filter_system5(symbols, basic_data)
     system6_syms = filter_system6(symbols, basic_data)
+    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
+    try:
+        s2_total = len(symbols)
+        c_price = 0
+        c_dv = 0
+        c_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                # 価格フィルター
+                last_close = float(_df["close"].iloc[-1])
+                if last_close >= 5:
+                    c_price += 1
+                else:
+                    continue
+                # 売買代金フィルター（20日平均）
+                dv = float(_df["close"].tail(20).mean() * _df["volume"].tail(20).mean())
+                if dv >= 2.5e7:
+                    c_dv += 1
+                else:
+                    continue
+                # ATR 比率フィルター（10日）
+                if "high" in _df.columns and "low" in _df.columns:
+                    _tr = (_df["high"] - _df["low"]).tail(10)
+                    _atr = float(_tr.mean())
+                    if _atr >= last_close * 0.03:
+                        c_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system2内訳: "
+            + f"元={s2_total}, 価格>=5: {c_price}, DV>=25M: {c_dv}, ATR>=3%: {c_atr}"
+        )
+    except Exception:
+        pass
     _log(
         "🧪 フィルター結果: "
         + f"system1={len(system1_syms)}件, "
@@ -1049,6 +1098,7 @@ def compute_today_signals(
             progress_callback(3, 8, "filter")
         except Exception:
             pass
+
     # 各システム用の生データ辞書を事前フィルター後の銘柄で構築
     def _subset_data(keys: list[str]) -> dict[str, pd.DataFrame]:
         out = {}
@@ -1216,9 +1266,18 @@ def compute_today_signals(
             # 戦略側が get_total_days を実装していれば優先
             custom_need = None
             try:
-                if hasattr(stg, "get_total_days") and callable(getattr(stg, "get_total_days")):
-                    # 最小データ長（おおよその必要行数）を返す前提
-                    custom_need = int(getattr(stg, "get_total_days")(base))
+                fn = getattr(stg, "get_total_days", None)
+                if callable(fn):
+                    _val = fn(base)
+                    if isinstance(_val, (int, float)):
+                        custom_need = int(_val)
+                    elif isinstance(_val, str):
+                        try:
+                            custom_need = int(float(_val))
+                        except Exception:
+                            custom_need = None
+                    else:
+                        custom_need = None
             except Exception:
                 custom_need = None
             try:
@@ -1253,12 +1312,6 @@ def compute_today_signals(
             asc = _asc_by_score_key(first_key)
             df = df.sort_values("score", ascending=asc, na_position="last")
             df = df.reset_index(drop=True)
-            # System1 の理由欄は ROC ランキングの順位（1始まり）に統一
-            if name == "system1":
-                try:
-                    df["reason"] = pd.Series(range(1, len(df) + 1), index=df.index).astype(str)
-                except Exception:
-                    pass
         if df is not None and not df.empty:
             msg = f"✅ {name}: {len(df)} 件"
         else:
@@ -1319,7 +1372,7 @@ def compute_today_signals(
             except Exception:
                 pass
     else:
-        for idx, (name, stg) in enumerate(strategies.items(), start=1):
+        for _idx, (name, stg) in enumerate(strategies.items(), start=1):
             if progress_callback:
                 try:
                     progress_callback(5, 8, name)
@@ -1368,12 +1421,14 @@ def compute_today_signals(
             df_sys = per_system.get(sys_name, pd.DataFrame())
             candidates = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
             pre_count = int(prefilter_map.get(sys_name, 0))
-            metrics_rows.append({
-                "date": locals().get("today"),
-                "system": sys_name,
-                "prefilter_pass": pre_count,
-                "candidates": candidates,
-            })
+            metrics_rows.append(
+                {
+                    "date": locals().get("today"),
+                    "system": sys_name,
+                    "prefilter_pass": pre_count,
+                    "candidates": candidates,
+                }
+            )
         if metrics_rows:
             metrics_df = pd.DataFrame(metrics_rows)
             try:
@@ -1396,7 +1451,10 @@ def compute_today_signals(
                 _log(f"⚠️ メトリクス保存に失敗: {e}")
             # 通知: メトリクス概要を送信（環境が用意されていない場合は内部で無害化）
             try:
-                fields = {r["system"]: f"pre={int(r['prefilter_pass'])}, cand={int(r['candidates'])}" for r in metrics_rows}
+                fields = {
+                    r["system"]: f"pre={int(r['prefilter_pass'])}, cand={int(r['candidates'])}"
+                    for r in metrics_rows
+                }
                 title = "📈 本日のメトリクス（事前フィルタ / 候補数）"
                 _td = locals().get("today")
                 try:
@@ -1410,7 +1468,12 @@ def compute_today_signals(
                 pass
         # 簡易ログ
         try:
-            summary = ", ".join([f"{r['system']}: pre={r['prefilter_pass']}, cand={r['candidates']}" for r in metrics_rows])
+            summary = ", ".join(
+                [
+                    f"{r['system']}: pre={r['prefilter_pass']}, cand={r['candidates']}"
+                    for r in metrics_rows
+                ]
+            )
             if summary:
                 _log(f"📊 メトリクス概要: {summary}")
         except Exception:
@@ -1640,13 +1703,14 @@ def compute_today_signals(
         except Exception:
             pass
 
-        if notify:
-            try:
-                from tools.notify_signals import send_signal_notification
+    # 通知は progress_callback の有無に関係なく実行する
+    if notify:
+        try:
+            from tools.notify_signals import send_signal_notification
 
-                send_signal_notification(final_df)
-            except Exception:
-                _log("⚠️ 通知に失敗しました。")
+            send_signal_notification(final_df)
+        except Exception:
+            _log("⚠️ 通知に失敗しました。")
 
     # CSV 保存（任意）
     if save_csv and not final_df.empty:
@@ -1668,11 +1732,8 @@ def compute_today_signals(
 
     # 終了ログ（UI/CLI 双方で記録される）
     try:
-        _log(
-            (
-                f"✅ シグナル検出処理 終了 | 最終候補 {len(final_df) if final_df is not None else 0} 件"
-            )
-        )
+        cnt = 0 if final_df is None else len(final_df)
+        _log(f"✅ シグナル検出処理 終了 | 最終候補 {cnt} 件")
     except Exception:
         pass
 

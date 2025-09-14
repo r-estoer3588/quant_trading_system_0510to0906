@@ -93,9 +93,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR20"])
         except Exception:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None
@@ -103,3 +101,27 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
 
     def get_total_days(self, data_dict: dict) -> int:
         return get_total_days_system1(data_dict)
+
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+        """Day-based exit for System1 (long):
+        - Stop hit: if Low <= stop -> exit same day at stop_price
+        - Otherwise, max-hold days then exit on close
+        """
+        try:
+            from .constants import MAX_HOLD_DAYS_DEFAULT
+        except Exception:
+            MAX_HOLD_DAYS_DEFAULT = 3
+        max_hold_days = int(self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT))
+        n = len(df)
+        for offset in range(max_hold_days):
+            idx = entry_idx + offset
+            if idx >= n:
+                break
+            row = df.iloc[idx]
+            try:
+                if float(row["Low"]) <= float(stop_price):
+                    return float(stop_price), df.index[idx]
+            except Exception:
+                pass
+        exit_idx = min(entry_idx + max_hold_days, n - 1)
+        return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
