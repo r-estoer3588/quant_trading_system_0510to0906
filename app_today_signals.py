@@ -334,8 +334,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     start_time = time.time()
     # CLI バナーはエンジン側で出すため、UI側では出さない
     # 進捗表示用の領域（1行上書き）
-    # ETA 専用表示（共有指標 前計算の残り時間など）
-    eta_area = st.empty()
     # 大きめ表示のフェーズタイトル
     phase_title_area = st.empty()
     progress_area = st.empty()
@@ -351,26 +349,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             col.caption(sys_labels[i - 1])
         sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
         sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
-        # 追加: メトリクス表示用（行ごとに個別 placeholder を用意）
+        # 追加: メトリクス表示用（各システム1行のプレースホルダ）
         sys_metrics_txt = {}
         for i in range(1, 8):
             n = f"system{i}"
             with sys_cols[i - 1]:
-                sys_metrics_txt[n] = {
-                    "target": st.empty(),
-                    "filter": st.empty(),
-                    "setup": st.empty(),
-                    "cand": st.empty(),
-                    "entry": st.empty(),
-                    "exit": st.empty(),
-                }
-                # 初期表示（ハイフン）
-                sys_metrics_txt[n]["target"].text("target→-")
-                sys_metrics_txt[n]["filter"].text("filter-pass→-")
-                sys_metrics_txt[n]["setup"].text("setup-pass→-")
-                sys_metrics_txt[n]["cand"].text("trade-list→-")
-                sys_metrics_txt[n]["entry"].text("entry→-")
-                sys_metrics_txt[n]["exit"].text("exit→-")
+                sys_metrics_txt[n] = st.empty()
+                # 初期表示（短縮名 + ハイフン）
+                sys_metrics_txt[n].text("Tgt -  FILpass -  STUpass -  TRDlist -  Entry -  Exit -")
         # 追加: システム別の補足表示（System2のフィルタ内訳など）
         sys_extra_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
         sys_states = {k: 0 for k in sys_bars.keys()}
@@ -417,13 +403,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         or _msg.startswith("📦 基礎データロード完了")
                         or _msg.startswith("🧮 指標データロード完了")
                     )
-                    # 共有指標 前計算（ETA付き）は別枠（eta_area）に表示
+                    # 共有指標 前計算ログは表示しない
                     if _msg.startswith("🧮 共有指標 前計算"):
-                        try:
-                            eta_area.text(line)
-                        except Exception:
-                            pass
-                        # メインの進捗ログには重複表示しない
                         return
                     # 不要ログ（UI表示では抑制したいもの）
                     skip_keywords = (
@@ -603,21 +584,24 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 sc["entry"] = int(final_cnt)
             # 逐次メトリクスを行ごとに個別更新（欠損は「-」）
             try:
-                tgt = str(sc.get("target")) if sc.get("target") is not None else "-"
-                fil = str(sc.get("filter")) if sc.get("filter") is not None else "-"
-                sup = str(sc.get("setup")) if sc.get("setup") is not None else "-"
-                can = str(sc.get("cand")) if sc.get("cand") is not None else "-"
-                ent = str(sc.get("entry")) if sc.get("entry") is not None else "-"
-                exi = str(sc.get("exit")) if sc.get("exit") is not None else "-"
-                elems = sys_metrics_txt.get(n)
-                if elems:
-                    elems["target"].text(f"target→{tgt}")
-                    elems["filter"].text(f"filter-pass→{fil}")
-                    elems["setup"].text(f"setup-pass→{sup}")
-                    elems["cand"].text(f"trade-list→{can}")
-                    elems["entry"].text(f"entry→{ent}")
-                    elems["exit"].text(f"exit→{exi}")
+                # 名称(半角スペース)銘柄数 で1行表示。最大5桁でも収まる短縮名を使用。
+                labels = [
+                    ("Tgt", sc.get("target")),
+                    ("FILpass", sc.get("filter")),
+                    ("STUpass", sc.get("setup")),
+                    ("TRDlist", sc.get("cand")),
+                    ("Entry", sc.get("entry")),
+                    ("Exit", sc.get("exit")),
+                ]
+                parts = []
+                for name, val in labels:
+                    vtxt = "-" if (val is None) else str(val)
+                    parts.append(f"{name} {vtxt}")
+                line = "  ".join(parts)
+                # テキストは1行で表示（Streamlitの自動折返しを避けるため短縮名を採用）
+                sys_metrics_txt[n].text(line)
             except Exception:
+                # 表示に失敗しても処理は継続
                 pass
         except Exception:
             pass
@@ -680,16 +664,19 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         target_txt = str(sc.get("filter"))
                 except Exception:
                     pass
-                lines = [
-                    f"対象→{target_txt}",
-                    f"filter通過数→{sc.get('filter', '-')}",
-                    f"setupクリア数→{sc.get('setup', '-')}",
-                    f"trade候補数→{sc.get('cand', '-')}",
-                    f"エントリー→{sc.get('entry', '-')}",
-                    f"エグジット→{sc.get('exit', '-')}",
+                # 1行の短縮名表示
+                labels = [
+                    ("Tgt", target_txt),
+                    ("FILpass", sc.get("filter", "-")),
+                    ("STUpass", sc.get("setup", "-")),
+                    ("TRDlist", sc.get("cand", "-")),
+                    ("Entry", sc.get("entry", "-")),
+                    ("Exit", sc.get("exit", "-")),
                 ]
+                parts = [f"{nm} {('-' if v is None else v)}" for nm, v in labels]
+                line = "  ".join(map(str, parts))
                 if key in sys_metrics_txt:
-                    sys_metrics_txt[key].text("\n".join(lines))
+                    sys_metrics_txt[key].text(line)
     except Exception:
         pass
 
@@ -1047,27 +1034,28 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         # 行長回避のため一部を事前に文字列化
                         _f_val = sc2.get("filter")
                         _f_txt = "-" if _f_val is None else str(_f_val)
-                        lines2 = [
-                            f"対象→{target_txt2}",
-                            ("filter通過数→" + _f_txt),
+                        labels2 = [
+                            ("Tgt", target_txt2),
+                            ("FILpass", _f_txt),
                             (
-                                "setupクリア数→"
-                                f"{sc2.get('setup', '-') if sc2.get('setup') is not None else '-'}"
+                                "STUpass",
+                                sc2.get("setup", "-") if sc2.get("setup") is not None else "-",
                             ),
                             (
-                                "trade候補数→"
-                                f"{sc2.get('cand', '-') if sc2.get('cand') is not None else '-'}"
+                                "TRDlist",
+                                sc2.get("cand", "-") if sc2.get("cand") is not None else "-",
                             ),
                             (
-                                "エントリー→"
-                                f"{sc2.get('entry', '-') if sc2.get('entry') is not None else '-'}"
+                                "Entry",
+                                sc2.get("entry", "-") if sc2.get("entry") is not None else "-",
                             ),
                             (
-                                "エグジット→"
-                                f"{sc2.get('exit', '-') if sc2.get('exit') is not None else '-'}"
+                                "Exit",
+                                sc2.get("exit", "-") if sc2.get("exit") is not None else "-",
                             ),
                         ]
-                        sys_metrics_txt[key2].text("\n".join(lines2))
+                        parts2 = [f"{nm} {val}" for nm, val in labels2]
+                        sys_metrics_txt[key2].text("  ".join(parts2))
             except Exception:
                 pass
             # 発注ボタン（MOC）

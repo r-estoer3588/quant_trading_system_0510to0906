@@ -10,7 +10,7 @@ import pandas as pd
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
-from common.cache_manager import CacheManager
+from common.cache_manager import CacheManager, load_base_cache
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -795,6 +795,39 @@ def compute_today_signals(
                 pass
         return data
 
+    # 列名の大小・重複（DataFrame）にも耐える安全な抽出ヘルパー
+    def _pick_series(df, names):
+        try:
+            for nm in names:
+                if nm in df.columns:
+                    s = df[nm]
+                    # 重複列で DataFrame になる場合は先頭列を採用
+                    if isinstance(s, pd.DataFrame):
+                        try:
+                            s = s.iloc[:, 0]
+                        except Exception:
+                            continue
+                    # 数値化（失敗は NaN）
+                    try:
+                        s = pd.to_numeric(s, errors="coerce")
+                    except Exception:
+                        pass
+                    return s
+        except Exception:
+            pass
+        return None
+
+    def _last_scalar(series):
+        try:
+            if series is None:
+                return None
+            s2 = series.dropna()
+            if s2.empty:
+                return None
+            return float(s2.iloc[-1])
+        except Exception:
+            return None
+
     def filter_system1(symbols, data):
         result = []
         for sym in symbols:
@@ -802,10 +835,19 @@ def compute_today_signals(
             if df is None or df.empty:
                 continue
             # 株価5ドル以上（直近終値）
-            if df["close"].iloc[-1] < 5:
+            close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
+            last_close = _last_scalar(close_s)
+            if last_close is None or last_close < 5:
                 continue
             # 過去20日平均売買代金（厳密: mean(close*volume)）が5000万ドル以上
-            if (df["close"] * df["volume"]).tail(20).mean() < 5e7:
+            vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
+            if vol_s is None or close_s is None:
+                continue
+            try:
+                dollar_vol = (close_s * vol_s).dropna()
+            except Exception:
+                continue
+            if dollar_vol.tail(20).mean() < 5e7:
                 continue
             result.append(sym)
         return result
@@ -816,15 +858,29 @@ def compute_today_signals(
             df = data.get(sym)
             if df is None or df.empty:
                 continue
-            if df["close"].iloc[-1] < 5:
+            close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
+            last_close = _last_scalar(close_s)
+            if last_close is None or last_close < 5:
                 continue
-            if (df["close"] * df["volume"]).tail(20).mean() < 2.5e7:
+            vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
+            if vol_s is None or close_s is None:
+                continue
+            try:
+                dollar_vol = (close_s * vol_s).dropna()
+            except Exception:
+                continue
+            if dollar_vol.tail(20).mean() < 2.5e7:
                 continue
             # ATR計算（過去10日）
-            if "high" in df.columns and "low" in df.columns:
-                tr = (df["high"] - df["low"]).tail(10)
-                atr = tr.mean()
-                if atr < df["close"].iloc[-1] * 0.03:
+            high_s = _pick_series(df, ["high", "High"]) if df is not None else None
+            low_s = _pick_series(df, ["low", "Low"]) if df is not None else None
+            if high_s is not None and low_s is not None and close_s is not None:
+                try:
+                    tr = (high_s - low_s).dropna().tail(10)
+                    atr = tr.mean()
+                except Exception:
+                    atr = None
+                if atr is not None and atr < (last_close * 0.03):
                     continue
             result.append(sym)
         return result
@@ -1083,6 +1139,23 @@ def compute_today_signals(
             "🧮 データカバレッジ: "
             + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
         )
+        if cov_missing > 0:
+            missing_syms = [s for s in symbols if s not in basic_data]
+            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            for sym in missing_syms:
+                try:
+                    load_base_cache(sym, rebuild_if_missing=True)
+                    df = cm.read(sym, "rolling")
+                    if df is not None and not df.empty:
+                        basic_data[sym] = df
+                except Exception:
+                    continue
+            cov_have = len(basic_data)
+            cov_missing = max(0, cov_total - cov_have)
+            _log(
+                "🧮 データカバレッジ(補完後): "
+                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+            )
     except Exception:
         pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
