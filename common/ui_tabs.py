@@ -18,6 +18,154 @@ from common.utils_spy import get_spy_data_cached, get_spy_with_indicators
 from scripts.tickers_loader import get_all_tickers
 
 
+def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
+    import pandas as _pd
+    import streamlit as st
+    from pathlib import Path as _Path
+    from common import broker_alpaca as _ba
+    from common.profit_protection import evaluate_positions as _eval
+    from common.alpaca_order import submit_exit_orders_df as _submit_exits
+
+    st.subheader(tr("Positions / Orders"))
+    colL, colR = st.columns(2)
+    with colL:
+        paper = st.checkbox("ペーパートレード", value=True, key="pos_tab_paper")
+    with colR:
+        st.caption(".env の ALPACA_PAPER と独立。ここは明示設定です。")
+
+    # Refresh positions
+    if st.button("🔄 ポジション取得"):
+        try:
+            client = _ba.get_client(paper=paper)
+            positions = client.get_all_positions()
+            st.session_state["positions_df_tab"] = _eval(positions)
+            st.success("取得しました")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"取得失敗: {e}")
+
+    df_pos = st.session_state.get("positions_df_tab")
+    if isinstance(df_pos, _pd.DataFrame) and not df_pos.empty:
+        st.dataframe(df_pos, use_container_width=True)
+        # Selection for exits
+        syms = df_pos["symbol"].astype(str).tolist()
+        sel = st.multiselect("手仕舞い対象シンボル", syms, default=[])
+        if sel:
+            qty_map = (
+                df_pos.set_index("symbol")["qty"].astype(int).to_dict()
+                if "qty" in df_pos.columns
+                else {s: 0 for s in sel}
+            )
+            side_map = (
+                df_pos.set_index("symbol")["side"].astype(str).str.lower().to_dict()
+                if "side" in df_pos.columns
+                else {s: "long" for s in sel}
+            )
+            # Today close (MOC)
+            if st.button("本日引け（CLS）で手仕舞い"):
+                rows = [
+                    {
+                        "symbol": s,
+                        "qty": int(qty_map.get(s, 0)),
+                        "position_side": side_map.get(s, "long"),
+                        "system": "",
+                        "when": "today_close",
+                    }
+                    for s in sel
+                    if int(qty_map.get(s, 0)) > 0
+                ]
+                res = _submit_exits(
+                    _pd.DataFrame(rows), paper=paper, tif="CLS", notify=True
+                )
+                if res is not None and not res.empty:
+                    st.dataframe(res, use_container_width=True)
+            # Plan tomorrow open/close
+            col_o, col_c = st.columns(2)
+            with col_o:
+                if st.button("明日寄り（OPG）で手仕舞いを予約"):
+                    _plan = _Path("data/planned_exits.jsonl")
+                    _plan.parent.mkdir(parents=True, exist_ok=True)
+                    import json as _json
+
+                    with _plan.open("a", encoding="utf-8") as f:
+                        for s in sel:
+                            if int(qty_map.get(s, 0)) <= 0:
+                                continue
+                            f.write(
+                                _json.dumps(
+                                    {
+                                        "symbol": s,
+                                        "qty": int(qty_map.get(s, 0)),
+                                        "position_side": side_map.get(s, "long"),
+                                        "system": "",
+                                        "when": "tomorrow_open",
+                                    },
+                                    ensure_ascii=False,
+                                )
+                                + "\n"
+                            )
+                    st.success("予約を書き込みました（tomorrow_open）")
+            with col_c:
+                if st.button("明日引け（CLS）で手仕舞いを予約"):
+                    _plan = _Path("data/planned_exits.jsonl")
+                    _plan.parent.mkdir(parents=True, exist_ok=True)
+                    import json as _json
+
+                    with _plan.open("a", encoding="utf-8") as f:
+                        for s in sel:
+                            if int(qty_map.get(s, 0)) <= 0:
+                                continue
+                            f.write(
+                                _json.dumps(
+                                    {
+                                        "symbol": s,
+                                        "qty": int(qty_map.get(s, 0)),
+                                        "position_side": side_map.get(s, "long"),
+                                        "system": "",
+                                        "when": "tomorrow_close",
+                                    },
+                                    ensure_ascii=False,
+                                )
+                                + "\n"
+                            )
+                    st.success("予約を書き込みました（tomorrow_close）")
+
+    st.markdown("---")
+    st.subheader("予約の実行 / 注文管理")
+    colA, colB, colC = st.columns(3)
+    with colA:
+        if st.button("⏱️ 寄り（OPG）予約を今すぐ実行"):
+            try:
+                from schedulers.next_day_exits import submit_planned_exits as _exec
+
+                df = _exec("open")
+                if df is not None and not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("実行対象はありません")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"実行失敗: {e}")
+    with colB:
+        if st.button("⏱️ 引け（CLS）予約を今すぐ実行"):
+            try:
+                from schedulers.next_day_exits import submit_planned_exits as _exec
+
+                df = _exec("close")
+                if df is not None and not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("実行対象はありません")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"実行失敗: {e}")
+    with colC:
+        if st.button("未約定注文をすべてキャンセル"):
+            try:
+                client = _ba.get_client(paper=paper)
+                _ba.cancel_all_orders(client)
+                st.success("キャンセルを送信しました")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"キャンセル失敗: {e}")
+
+
 def render_metrics_tab(settings) -> None:
     import pandas as _pd
     import streamlit as st

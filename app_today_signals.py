@@ -636,6 +636,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # === 今日の手仕舞い候補（MOC）を推定して集計・発注オプションを提供 ===
     st.subheader("今日の手仕舞い候補（MOC）")
     exits_today_rows: list[dict[str, Any]] = []
+    planned_rows: list[dict[str, Any]] = []  # for tomorrow open/close
     exit_counts: dict[str, int] = {f"system{i}": 0 for i in range(1, 8)}
     try:
         # 口座のポジションとエントリー日付のローカル記録を読み込む
@@ -790,22 +791,42 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 if latest_trading_day is not None:
                     today_norm = latest_trading_day
                 is_today_exit = pd.to_datetime(exit_date).normalize() == today_norm
-                if not is_today_exit:
-                    continue
-                if system == "system5":
-                    # 翌日寄りのため MOC では送らない
-                    continue
-                when = "today_close"
-                exits_today_rows.append(
-                    {
-                        "symbol": sym,
-                        "qty": qty,
-                        "position_side": pos_side,
-                        "system": system,
-                        "when": when,
-                    }
-                )
-                exit_counts[system] = exit_counts.get(system, 0) + 1
+                if is_today_exit:
+                    if system == "system5":
+                        # System5 は翌日寄り決済
+                        planned_rows.append(
+                            {
+                                "symbol": sym,
+                                "qty": qty,
+                                "position_side": pos_side,
+                                "system": system,
+                                "when": "tomorrow_open",
+                            }
+                        )
+                    else:
+                        when = "today_close"
+                        exits_today_rows.append(
+                            {
+                                "symbol": sym,
+                                "qty": qty,
+                                "position_side": pos_side,
+                                "system": system,
+                                "when": when,
+                            }
+                        )
+                        exit_counts[system] = exit_counts.get(system, 0) + 1
+                else:
+                    # 利食い翌日引けや時間切れ翌日引けのケースを計画として保存
+                    if system in {"system2", "system3", "system6"}:
+                        planned_rows.append(
+                            {
+                                "symbol": sym,
+                                "qty": qty,
+                                "position_side": pos_side,
+                                "system": system,
+                                "when": "tomorrow_close",
+                            }
+                        )
             except Exception:
                 continue
 
@@ -834,6 +855,53 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     st.dataframe(res, use_container_width=True)
         else:
             st.info("本日大引けでの手仕舞い候補はありません。")
+
+        # 計画出力（翌日寄り/引け）
+        if planned_rows:
+            st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
+            df_plan = pd.DataFrame(planned_rows)
+            st.dataframe(df_plan, use_container_width=True)
+            if st.button("計画を保存（JSONL）"):
+                import json as _json
+
+                plan_path = Path("data/planned_exits.jsonl")
+                try:
+                    plan_path.parent.mkdir(parents=True, exist_ok=True)
+                    with plan_path.open("w", encoding="utf-8") as f:
+                        for r in planned_rows:
+                            f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+                    st.success(f"保存しました: {plan_path}")
+                except Exception as e:
+                    st.error(f"保存に失敗: {e}")
+
+            st.write("")
+            col_open, col_close = st.columns(2)
+            with col_open:
+                if st.button("⏱️ 寄り（OPG）予約を今すぐ送信", key="run_scheduler_open"):
+                    try:
+                        from schedulers.next_day_exits import submit_planned_exits as _run_sched
+
+                        df_exec = _run_sched("open")
+                        if df_exec is not None and not df_exec.empty:
+                            st.success("寄り（OPG）分の予約送信を実行しました。結果を表示します。")
+                            st.dataframe(df_exec, use_container_width=True)
+                        else:
+                            st.info("寄り（OPG）対象の予約はありませんでした。")
+                    except Exception as e:
+                        st.error(f"寄り（OPG）予約の実行に失敗: {e}")
+            with col_close:
+                if st.button("⏱️ 引け（CLS）予約を今すぐ送信", key="run_scheduler_close"):
+                    try:
+                        from schedulers.next_day_exits import submit_planned_exits as _run_sched
+
+                        df_exec = _run_sched("close")
+                        if df_exec is not None and not df_exec.empty:
+                            st.success("引け（CLS）分の予約送信を実行しました。結果を表示します。")
+                            st.dataframe(df_exec, use_container_width=True)
+                        else:
+                            st.info("引け（CLS）対象の予約はありませんでした。")
+                    except Exception as e:
+                        st.error(f"引け（CLS）予約の実行に失敗: {e}")
     except Exception as e:
         st.warning(f"手仕舞い候補の推定に失敗しました: {e}")
 
