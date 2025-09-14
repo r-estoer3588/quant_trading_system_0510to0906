@@ -11,7 +11,7 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
-from common.cache_manager import CacheManager, load_base_cache
+from typing import no_type_check
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -415,6 +415,7 @@ def _apply_filters(
     return out
 
 
+@no_type_check
 def compute_today_signals(
     symbols: list[str] | None,
     *,
@@ -1144,21 +1145,73 @@ def compute_today_signals(
         if cov_missing > 0:
             missing_syms = [s for s in symbols if s not in basic_data]
             _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            fixed = 0
             for sym in missing_syms:
                 try:
-                    load_base_cache(sym, rebuild_if_missing=True)
-                    df = cm.read(sym, "rolling")
-                    if df is not None and not df.empty:
-                        df = _normalize_ohlcv(df)
-                        basic_data[sym] = df
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = _normalize_ohlcv(sliced)
+                    basic_data[sym] = df
+                    fixed += 1
                 except Exception:
                     continue
+            try:
+                if fixed > 0:
+                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
+            except Exception:
+                pass
             cov_have = len(basic_data)
             cov_missing = max(0, cov_total - cov_have)
             _log(
                 "🧮 データカバレッジ(補完後): "
                 + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
             )
+            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
+            try:
+                cb2 = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2 = None
+            if cb2 and callable(cb2):
+                try:
+                    # Tgt はユニバース総数（SPY除外）を採用
+                    try:
+                        tgt_total = int(cov_total)
+                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
+                            tgt_total = max(0, tgt_total - 1)
+                    except Exception:
+                        tgt_total = int(cov_total)
+                    for i in range(1, 8):
+                        cb2(f"system{i}", 0, tgt_total, None, None, None)
+                except Exception:
+                    pass
     except Exception:
         pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
@@ -1517,6 +1570,13 @@ def compute_today_signals(
                 if passed_setup:
                     s1_setup += 1
         _log(f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SMA25>SMA50: {s1_setup}")
+        # UI の STUpass へ反映（50%時点）
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system1", 50, int(s1_filter), int(s1_setup), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system2)…")
@@ -1546,8 +1606,16 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(
-            f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}"
+            "🧩 system2セットアップ内訳: "
+            + f"フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, "
+            + f"TwoDayUp: {s2_up2}"
         )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system2", 50, int(s2_filter), int(max(s2_rsi, s2_up2)), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system3)…")
@@ -1577,8 +1645,16 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(
-            f"🧩 system3セットアップ内訳: フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, 3日下落率>=12.5%: {s3_drop}"
+            "🧩 system3セットアップ内訳: "
+            + f"フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, "
+            + f"3日下落率>=12.5%: {s3_drop}"
         )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system3", 50, int(s3_filter), int(max(s3_close, s3_drop)), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system4)…")
@@ -1602,6 +1678,12 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system4", 50, int(s4_filter), int(s4_close), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system5)…")
@@ -1639,8 +1721,16 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(
-            f"� system5セットアップ内訳: フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
+            "� system5セットアップ内訳: "
+            + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
+            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
         )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system5", 50, int(s5_filter), int(s5_close), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     _log("�🧮 指標計算用データロード中 (system6)…")
@@ -1670,8 +1760,16 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(
-            f"🧩 system6セットアップ内訳: フィルタ通過={s6_filter}, Return6D>20%: {s6_ret}, UpTwoDays: {s6_up2}"
+            "🧩 system6セットアップ内訳: "
+            + f"フィルタ通過={s6_filter}, Return6D>20%: {s6_ret}, "
+            + f"UpTwoDays: {s6_up2}"
         )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            if cb2 and callable(cb2):
+                cb2("system6", 50, int(s6_filter), int(max(s6_ret, s6_up2)), None, None)
+        except Exception:
+            pass
     except Exception:
         pass
     if progress_callback:
@@ -1853,7 +1951,43 @@ def compute_today_signals(
             _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
         except Exception as e:  # noqa: BLE001
             _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
-            df = pd.DataFrame()
+            # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
+            try:
+                msg = str(e).lower()
+            except Exception:
+                msg = ""
+            needs_fallback = any(
+                k in msg
+                for k in [
+                    "process pool",
+                    "a child process terminated",
+                    "terminated abruptly",
+                    "forkserver",
+                ]
+            )
+            if needs_fallback:
+                _local_log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
+                try:
+                    _t0b = __import__("time").time()
+                    df = stg.get_today_signals(
+                        base,
+                        market_df=spy_df,
+                        today=today,
+                        progress_callback=None,
+                        log_callback=_local_log,
+                        stage_progress=_stage,
+                        use_process_pool=False,
+                        max_workers=None,
+                        lookback_days=lookback_days,
+                    )
+                    _elapsed_b = int(max(0, __import__("time").time() - _t0b))
+                    _m2, _s2 = divmod(_elapsed_b, 60)
+                    _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                except Exception as e2:  # noqa: BLE001
+                    _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
+                    df = pd.DataFrame()
+            else:
+                df = pd.DataFrame()
         if not df.empty:
             if "score_key" in df.columns and len(df):
                 first_key = df["score_key"].iloc[0]
@@ -1868,6 +2002,37 @@ def compute_today_signals(
             msg = f"❌ {name}: 0 件 🚫"
         _local_log(msg)
         return name, df, msg, logs
+
+    # 抽出開始前にセットアップ通過のまとめを出力
+    try:
+        setup_summary = []
+        for name, val in (
+            ("system1", locals().get("s1_setup")),
+            (
+                "system2",
+                max(locals().get("s2_rsi", 0), locals().get("s2_up2", 0)),
+            ),
+            (
+                "system3",
+                max(locals().get("s3_close", 0), locals().get("s3_drop", 0)),
+            ),
+            ("system4", locals().get("s4_close")),
+            ("system5", locals().get("s5_close")),
+            (
+                "system6",
+                max(locals().get("s6_ret", 0), locals().get("s6_up2", 0)),
+            ),
+            ("system7", 1 if ("SPY" in (basic_data or {})) else 0),
+        ):
+            try:
+                if val is not None:
+                    setup_summary.append(f"{name}={int(val)}")
+            except Exception:
+                continue
+        if setup_summary:
+            _log("🧩 セットアップ通過まとめ: " + ", ".join(setup_summary))
+    except Exception:
+        pass
 
     _log("🚀 各システムの当日シグナル抽出を開始")
     per_system: dict[str, pd.DataFrame] = {}
@@ -1970,6 +2135,52 @@ def compute_today_signals(
     # システム別の順序を明示（1..7）に固定
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
+
+    # メトリクス保存前に、当日のトレード候補Top10を簡易出力（デバッグ/可視化用）
+    try:
+        all_rows: list[pd.DataFrame] = []
+        for _sys_name, df in per_system.items():
+            if df is None or df.empty:
+                continue
+            x = df.copy()
+            if "score" in x.columns:
+                try:
+                    asc = False
+                    if "score_key" in x.columns and len(x):
+                        asc = _asc_by_score_key(str(x.iloc[0].get("score_key")))
+                    x["_sort_val"] = x["score"].astype(float)
+                    if not asc:
+                        x["_sort_val"] = -x["_sort_val"]
+                except Exception:
+                    x["_sort_val"] = 0.0
+            else:
+                x["_sort_val"] = 0.0
+            all_rows.append(x)
+        if all_rows:
+            merged = pd.concat(all_rows, ignore_index=True)
+            merged = merged.sort_values("_sort_val", kind="stable", na_position="last")
+            top10 = merged.head(10).drop(columns=["_sort_val"], errors="ignore")
+            _log("📝 事前トレードリスト(Top10, メトリクス保存前)")
+            cols = [
+                c
+                for c in [
+                    "symbol",
+                    "system",
+                    "side",
+                    "entry_date",
+                    "entry_price",
+                    "stop_price",
+                    "score_key",
+                    "score",
+                ]
+                if c in top10.columns
+            ]
+            if not top10.empty:
+                _log(top10[cols].to_string(index=False))
+            else:
+                _log("(候補なし)")
+    except Exception:
+        pass
 
     # --- 日次メトリクス（事前フィルタ通過数・候補数）の保存 ---
     try:

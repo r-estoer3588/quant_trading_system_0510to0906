@@ -402,10 +402,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         or _msg.startswith("🧮 指標データロード進捗")
                         or _msg.startswith("📦 基礎データロード完了")
                         or _msg.startswith("🧮 指標データロード完了")
+                        or _msg.startswith("🧮 共有指標 前計算")
                     )
-                    # 共有指標 前計算ログは表示しない
-                    if _msg.startswith("🧮 共有指標 前計算"):
-                        return
+                    # 共有指標 前計算ログも表示対象に含める（UIでの可視化を要望）
                     # 不要ログ（UI表示では抑制したいもの）
                     skip_keywords = (
                         "進捗",
@@ -413,7 +412,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         "indicator",
                         "indicators",
                         "指標計算",
-                        "共有指標",
                         "バッチ時間",
                         "batch time",
                         "next batch size",
