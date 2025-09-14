@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+import os
 from typing import Any
+import pandas as pd
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
@@ -61,6 +63,8 @@ from common import universe as univ
 from common.notifier import create_notifier
 from common.alpaca_order import submit_orders_df
 from common.profit_protection import evaluate_positions
+from common.position_age import load_entry_dates
+from common.data_loader import load_price
 from config.settings import get_settings
 from scripts.run_all_systems_today import compute_today_signals
 
@@ -278,50 +282,14 @@ with st.sidebar:
         except Exception as e:
             st.error(f"注文キャンセルエラー: {e}")
 
-    st.header("表示/非表示")
-    # 表示制御の既定値（初期値）
-    ui_defaults = {
+    # 表示制御は固定（チェックボックスは廃止）
+    st.session_state["ui_vis"] = {
         "overall_progress": True,
         "per_system_progress": True,
-        "data_load_progress_lines": True,  # 📦/🧮 の進捗行
-        "execution_log": True,  # 全体の実行ログエクスパンダー
-        "per_system_logs": True,  # システム別 実行ログエクスパンダー
-        "previous_results": True,  # 前回結果（system別）
-        "system_details": True,  # システム別詳細テーブル
+        "data_load_progress_lines": True,
+        "previous_results": True,
+        "system_details": True,
     }
-    # セッションに保持（初回のみ）
-    if "ui_vis" not in st.session_state:
-        st.session_state["ui_vis"] = ui_defaults.copy()
-
-    ui_vis = st.session_state["ui_vis"]
-    # チェックボックスで更新
-    ui_vis["overall_progress"] = st.checkbox(
-        "全体進捗バー", value=ui_vis.get("overall_progress", True), key="ui_overall_progress"
-    )
-    ui_vis["per_system_progress"] = st.checkbox(
-        "システム別進捗バー",
-        value=ui_vis.get("per_system_progress", True),
-        key="ui_per_system_progress",
-    )
-    ui_vis["data_load_progress_lines"] = st.checkbox(
-        "データロード進捗行（📦/🧮）",
-        value=ui_vis.get("data_load_progress_lines", True),
-        key="ui_data_load_progress",
-    )
-    ui_vis["execution_log"] = st.checkbox(
-        "実行ログ（全体）", value=ui_vis.get("execution_log", True), key="ui_exec_log"
-    )
-    ui_vis["per_system_logs"] = st.checkbox(
-        "システム別 実行ログ", value=ui_vis.get("per_system_logs", True), key="ui_per_system_logs"
-    )
-    ui_vis["previous_results"] = st.checkbox(
-        "前回結果（system別）", value=ui_vis.get("previous_results", True), key="ui_prev_results"
-    )
-    ui_vis["system_details"] = st.checkbox(
-        "システム別詳細（表）", value=ui_vis.get("system_details", True), key="ui_system_details"
-    )
-    # 保存
-    st.session_state["ui_vis"] = ui_vis
 
 st.subheader("保有ポジションと利益保護判定")
 if st.button("🔍 Alpacaから保有ポジション取得"):
@@ -380,8 +348,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         sys_stage_txt = {}
         sys_metrics_txt = {}
         sys_states = {}
-    # 追加: 全ログを蓄積（UIで折り畳み表示用）
+    # 追加: 全ログを蓄積（system別タブで表示）
     log_lines: list[str] = []
+    # 追加: per-system メトリクス保持（filter/setup/cand/entry/exit）
+    stage_counts: dict[str, dict[str, int | None]] = {
+        f"system{i}": {"filter": None, "setup": None, "cand": None, "entry": None, "exit": None}
+        for i in range(1, 8)
+    }
 
     def _ui_log(msg: str) -> None:
         try:
@@ -503,22 +476,32 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            phase = (
-                "filter"
-                if vv < 25
-                else "setup" if vv < 50 else "candidates" if vv < 75 else "final"
-            )
+            phase = "filter" if vv < 25 else "setup" if vv < 50 else "cand" if vv < 75 else "entry"
             parts = []
             if filter_cnt is not None:
-                parts.append(f"F:{filter_cnt}")
+                parts.append(f"filter:{filter_cnt}")
             if setup_cnt is not None:
-                parts.append(f"S:{setup_cnt}")
+                parts.append(f"setup:{setup_cnt}")
             if cand_cnt is not None:
-                parts.append(f"C:{cand_cnt}")
+                parts.append(f"cand:{cand_cnt}")
             if final_cnt is not None:
-                parts.append(f"Final:{final_cnt}")
+                parts.append(f"entry:{final_cnt}")
+            # exit は未算出のため、保持していれば表示
+            ex_val = stage_counts.get(n, {}).get("exit")
+            if ex_val is not None:
+                parts.append(f"exit:{ex_val}")
             summary = " | ".join(parts) if parts else "…"
             sys_stage_txt[n].text(f"{phase} {summary}")
+            # メトリクス保持
+            sc = stage_counts.setdefault(n, {})
+            if filter_cnt is not None:
+                sc["filter"] = int(filter_cnt)
+            if setup_cnt is not None:
+                sc["setup"] = int(setup_cnt)
+            if cand_cnt is not None:
+                sc["cand"] = int(cand_cnt)
+            if final_cnt is not None:
+                sc["entry"] = int(final_cnt)
         except Exception:
             pass
 
@@ -528,6 +511,12 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # ステージ進捗の受け口を先に登録（スレッドから参照されるため）
     try:
         globals()["_PER_SYSTEM_STAGE"] = _per_system_stage
+    except Exception:
+        pass
+
+    # Windows 上のプロセスプール不安定回避（Streamlit 実行中は無効化）
+    try:
+        os.environ.setdefault("USE_PROCESS_POOL", "0")
     except Exception:
         pass
 
@@ -549,42 +538,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     final_df = final_df.reset_index(drop=True)
     per_system = {name: df.reset_index(drop=True) for name, df in per_system.items()}
 
-    # 追加: 「done (100%)」の下に systemごとのメトリクスを表示
+    # 追加: メトリクス行を filter/setup/cand/entry/exit の5種で表示
     try:
-        ui_vis2 = st.session_state.get("ui_vis", {})
-        if ui_vis2.get("per_system_progress", True):
-            import re as _re
-
-            metrics_map: dict[str, tuple[int, int]] = {}
-            # ログから最新のメトリクス概要行を探す
-            lines_rev = list(reversed(log_lines))
-            target_line = None
-            for ln in lines_rev:
-                if "📊 メトリクス概要:" in ln:
-                    target_line = ln
-                    break
-            if target_line:
-                # 例: system1: pre=159, cand=0, system2: pre=76, cand=0, ...
-                for m in _re.finditer(r"(system\d+):\s*pre=(\d+),\s*cand=(\d+)", target_line):
-                    sys_name = m.group(1).lower()
-                    pre = int(m.group(2))
-                    cand = int(m.group(3))
-                    metrics_map[sys_name] = (pre, cand)
-            # Fallback: per_system の件数から cand を、pre は不明なら '-' 表示
+        if st.session_state.get("ui_vis", {}).get("per_system_progress", True):
             for i in range(1, 8):
                 key = f"system{i}"
-                pre, cand = metrics_map.get(key, (None, None)) if metrics_map else (None, None)
-                if cand is None:
+                sc = stage_counts.get(key, {})
+                # Fallback 補完
+                if sc.get("cand") is None:
                     df_sys = per_system.get(key)
-                    cand = 0 if df_sys is None or df_sys.empty else int(len(df_sys))
-                pre_str = str(pre) if pre is not None else "-"
-                try:
-                    # 表示: pre/cand を done の下の行に
-                    txt = f"pre={pre_str}, cand={cand}"
-                    if key in sys_metrics_txt:
-                        sys_metrics_txt[key].text(txt)
-                except Exception:
-                    pass
+                    sc["cand"] = 0 if df_sys is None or df_sys.empty else int(len(df_sys))
+                txt = (
+                    f"filter={sc.get('filter','-')}, setup={sc.get('setup','-')}, "
+                    f"cand={sc.get('cand','-')}, entry={sc.get('entry','-')}, "
+                    f"exit={sc.get('exit','-')}"
+                )
+                if key in sys_metrics_txt:
+                    sys_metrics_txt[key].text(txt)
     except Exception:
         pass
 
@@ -633,27 +603,239 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     except Exception:
         pass
 
-    # 追加: 実行ログをUIに折り畳み表示（CSVダウンロード付き）
-    if st.session_state.get("ui_vis", {}).get("execution_log", True):
-        with st.expander("実行ログ", expanded=False):
-            try:
-                st.code("\n".join(log_lines))
-                log_csv = "\n".join(log_lines).encode("utf-8")
-                st.download_button(
-                    "実行ログCSVをダウンロード",
-                    data=log_csv,
-                    file_name="today_run_logs.csv",
-                    mime="text/csv",
-                    key="today_logs_csv",
+    # 実行ログは廃止。代わりにここに system 別ログタブを表示
+    per_system_logs: dict[str, list[str]] = {f"system{i}": [] for i in range(1, 8)}
+    for ln in log_lines:
+        for i in range(1, 8):
+            tag = f"[system{i}] "
+            if ln.find(tag) != -1:
+                per_system_logs[f"system{i}"].append(ln)
+                break
+    any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
+    if any_sys_logs:
+        tabs = st.tabs([f"system{i}" for i in range(1, 8)])
+        for i, key in enumerate([f"system{i}" for i in range(1, 8)]):
+            logs = per_system_logs[key]
+            if not logs:
+                continue
+            with tabs[i]:
+                st.text_area(
+                    label=f"ログ（{key}）",
+                    key=f"logs_{key}",
+                    value="\n".join(logs[-1000:]),
+                    height=380,
+                    disabled=True,
                 )
-            except Exception:
-                pass
 
     for name in system_order:
         df = per_system.get(name)
         syms2 = df["symbol"].tolist() if df is not None and not df.empty else []
         if syms2:
             notifier.send_signals(name, syms2)
+
+    # === 今日の手仕舞い候補（MOC）を推定して集計・発注オプションを提供 ===
+    st.subheader("今日の手仕舞い候補（MOC）")
+    exits_today_rows: list[dict[str, Any]] = []
+    exit_counts: dict[str, int] = {f"system{i}": 0 for i in range(1, 8)}
+    try:
+        # 口座のポジションとエントリー日付のローカル記録を読み込む
+        client_tmp = ba.get_client(paper=paper_mode)
+        positions = list(client_tmp.get_all_positions())
+        entry_map = load_entry_dates()
+        # symbol->system マップ（エントリー時に保存されたもの）
+        sym_map_path = Path("data/symbol_system_map.json")
+        try:
+            import json as _json
+
+            symbol_system_map = (
+                _json.loads(sym_map_path.read_text(encoding="utf-8"))
+                if sym_map_path.exists()
+                else {}
+            )
+        except Exception:
+            symbol_system_map = {}
+
+        # strategy クラスを遅延import
+        from strategies.system2_strategy import System2Strategy
+        from strategies.system3_strategy import System3Strategy
+        from strategies.system4_strategy import System4Strategy
+        from strategies.system5_strategy import System5Strategy
+        from strategies.system6_strategy import System6Strategy
+
+        latest_trading_day = None
+        # まず SPY で最新営業日を得る（fallback で df の最終日）
+        try:
+            spy_df = load_price("SPY", cache_profile="rolling")
+            if spy_df is not None and not spy_df.empty:
+                latest_trading_day = pd.to_datetime(spy_df.index[-1]).normalize()
+        except Exception:
+            latest_trading_day = None
+
+        for pos in positions:
+            try:
+                sym = str(getattr(pos, "symbol", "")).upper()
+                if not sym:
+                    continue
+                qty = int(abs(float(getattr(pos, "qty", 0)) or 0))
+                if qty <= 0:
+                    continue
+                pos_side = str(getattr(pos, "side", "")).lower()
+                # system の推定（エントリー時のマップが最優先）
+                system = str(symbol_system_map.get(sym, "")).lower()
+                if not system:
+                    if sym == "SPY" and pos_side == "short":
+                        system = "system7"
+                    else:
+                        # 不明な場合は保守的にスキップ
+                        continue
+                # system7（SPYヘッジ）はここでは扱わない（別ロジック）
+                if system == "system7":
+                    continue
+                # エントリー日付（ローカル記録）。無ければスキップ
+                entry_date_str = entry_map.get(sym)
+                if not entry_date_str:
+                    continue
+                entry_dt = pd.to_datetime(entry_date_str).normalize()
+                # 価格データ
+                df_price = load_price(sym, cache_profile="full")
+                if df_price is None or df_price.empty:
+                    continue
+                # index を DatetimeIndex に揃える
+                try:
+                    df = df_price.copy(deep=False)
+                    if "Date" in df.columns:
+                        df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
+                    else:
+                        df.index = pd.Index(pd.to_datetime(df.index).normalize())
+                except Exception:
+                    continue
+                if latest_trading_day is None and len(df.index) > 0:
+                    latest_trading_day = pd.to_datetime(df.index[-1]).normalize()
+                # entry_idx を探す（見つからない場合は最も近い将来日に丸め）
+                try:
+                    idx = df.index
+                    if entry_dt in idx:
+                        arr = idx.get_indexer([entry_dt])
+                    else:
+                        arr = idx.get_indexer([entry_dt], method="bfill")
+                    entry_idx = int(arr[0]) if len(arr) and arr[0] >= 0 else -1
+                    if entry_idx < 0:
+                        continue
+                except Exception:
+                    continue
+
+                # システム別に entry/stop を近似再現
+                stg = None
+                entry_price = None
+                stop_price = None
+                try:
+                    prev_close = float(df.iloc[int(max(0, entry_idx - 1))]["Close"])
+                    if system == "system2":
+                        stg = System2Strategy()
+                        entry_price = float(df.iloc[int(entry_idx)]["Open"])
+                        atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 3.0))
+                        stop_price = entry_price + stop_mult * atr
+                    elif system == "system6":
+                        stg = System6Strategy()
+                        ratio = float(stg.config.get("entry_price_ratio_vs_prev_close", 1.05))
+                        entry_price = round(prev_close * ratio, 2)
+                        atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 3.0))
+                        stop_price = entry_price + stop_mult * atr
+                    elif system == "system3":
+                        stg = System3Strategy()
+                        ratio = float(stg.config.get("entry_price_ratio_vs_prev_close", 0.93))
+                        entry_price = round(prev_close * ratio, 2)
+                        atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 2.5))
+                        stop_price = entry_price - stop_mult * atr
+                    elif system == "system4":
+                        stg = System4Strategy()
+                        entry_price = float(df.iloc[int(entry_idx)]["Open"])
+                        atr40 = float(df.iloc[int(max(0, entry_idx - 1))]["ATR40"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 1.5))
+                        stop_price = entry_price - stop_mult * atr40
+                    elif system == "system5":
+                        stg = System5Strategy()
+                        ratio = float(stg.config.get("entry_price_ratio_vs_prev_close", 0.97))
+                        entry_price = round(prev_close * ratio, 2)
+                        atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
+                        stop_mult = float(stg.config.get("stop_atr_multiple", 3.0))
+                        stop_price = entry_price - stop_mult * atr
+                        # System5 は ATR を参照するので一部内部状態も付与
+                        try:
+                            stg._last_entry_atr = atr  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                    else:
+                        continue
+                except Exception:
+                    continue
+                if stg is None or entry_price is None or stop_price is None:
+                    continue
+
+                try:
+                    exit_price, exit_date = stg.compute_exit(
+                        df,
+                        int(entry_idx),
+                        float(entry_price),
+                        float(stop_price),
+                    )
+                except Exception:
+                    continue
+
+                # "今日の大引けで手仕舞い" のみ対象（MOC）。System5 の Open 決済は除外。
+                today_norm = pd.to_datetime(df.index[-1]).normalize()
+                if latest_trading_day is not None:
+                    today_norm = latest_trading_day
+                is_today_exit = pd.to_datetime(exit_date).normalize() == today_norm
+                if not is_today_exit:
+                    continue
+                if system == "system5":
+                    # 翌日寄りのため MOC では送らない
+                    continue
+                when = "today_close"
+                exits_today_rows.append(
+                    {
+                        "symbol": sym,
+                        "qty": qty,
+                        "position_side": pos_side,
+                        "system": system,
+                        "when": when,
+                    }
+                )
+                exit_counts[system] = exit_counts.get(system, 0) + 1
+            except Exception:
+                continue
+
+        # UI 表示 + stage_counts へ反映
+        if exits_today_rows:
+            df_ex = pd.DataFrame(exits_today_rows)
+            st.dataframe(df_ex, use_container_width=True)
+            # stage_counts を更新してメトリクスに exit を反映
+            for k, v in exit_counts.items():
+                if v and k in stage_counts:
+                    stage_counts[k]["exit"] = int(v)
+            # 発注ボタン（MOC）
+            if st.button("本日分の手仕舞い注文（MOC）を送信"):
+                from common.alpaca_order import submit_exit_orders_df
+
+                res = submit_exit_orders_df(
+                    df_ex,
+                    paper=paper_mode,
+                    tif="CLS",
+                    retries=int(retries),
+                    delay=float(max(0.0, delay)),
+                    log_callback=_ui_log,
+                    notify=True,
+                )
+                if res is not None and not res.empty:
+                    st.dataframe(res, use_container_width=True)
+        else:
+            st.info("本日大引けでの手仕舞い候補はありません。")
+    except Exception as e:
+        st.warning(f"手仕舞い候補の推定に失敗しました: {e}")
 
     st.subheader("最終選定銘柄")
     if final_df is None or final_df.empty:
@@ -739,27 +921,26 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         st.warning("Alpaca口座情報: buying_power/cashが取得できません（更新なし）")
                 except Exception as e:
                     st.error(f"余力の自動更新に失敗: {e}")
-    if st.session_state.get("ui_vis", {}).get("system_details", True):
-        with st.expander("システム別詳細"):
-            for name in system_order:
-                df = per_system.get(name)
-                st.markdown(f"#### {name}")
-                if df is None or df.empty:
-                    st.write("(空)")
-                else:
-                    # show dataframe (includes reason column if available)
-                    st.dataframe(df, use_container_width=True)
-                    csv2 = df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        f"{name}のCSVをダウンロード",
-                        data=csv2,
-                        file_name=f"signals_{name}.csv",
-                        key=f"{name}_download_csv",
-                    )
+    with st.expander("システム別詳細"):
+        for name in system_order:
+            df = per_system.get(name)
+            st.markdown(f"#### {name}")
+            if df is None or df.empty:
+                st.write("(空)")
+            else:
+                # show dataframe (includes reason column if available)
+                st.dataframe(df, use_container_width=True)
+                csv2 = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    f"{name}のCSVをダウンロード",
+                    data=csv2,
+                    file_name=f"signals_{name}.csv",
+                    key=f"{name}_download_csv",
+                )
 
     # ④ 前回結果を別出し（既に run_all_systems_today が出力しているログをサマリ化）
     prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
-    if prev_msgs and st.session_state.get("ui_vis", {}).get("previous_results", True):
+    if prev_msgs:
         # 件数と時刻を抽出し、system番号順に並べ替え
         import re as _re
 
@@ -777,27 +958,3 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         lines_sorted = [f"{p[2]} | {p[0]}: {p[1]}件\n{p[3]}" for p in parsed]
         with st.expander("前回結果（system別）", expanded=False):
             st.text("\n\n".join(lines_sorted))
-
-    # ③ systemごとの実行ログ（[systemX] で始まる行）
-    per_system_logs: dict[str, list[str]] = {f"system{i}": [] for i in range(1, 8)}
-    for ln in log_lines:
-        for i in range(1, 8):
-            tag = f"[system{i}] "
-            if ln.find(tag) != -1:
-                per_system_logs[f"system{i}"].append(ln)
-                break
-    any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
-    if any_sys_logs and st.session_state.get("ui_vis", {}).get("per_system_logs", True):
-        tabs = st.tabs([f"system{i}" for i in range(1, 8)])
-        for i, key in enumerate([f"system{i}" for i in range(1, 8)]):
-            logs = per_system_logs[key]
-            if not logs:
-                continue
-            with tabs[i]:
-                st.text_area(
-                    label=f"ログ（{key}）",
-                    key=f"logs_{key}",
-                    value="\n".join(logs[-1000:]),
-                    height=380,
-                    disabled=True,
-                )

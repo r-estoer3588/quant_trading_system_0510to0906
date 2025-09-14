@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
+from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -17,7 +18,7 @@ from common.notifier import Notifier
 from common.position_age import load_entry_dates, save_entry_dates
 
 if False:  # typing guard
-    from alpaca.trading.stream import TradingStream  # type: ignore
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,29 @@ class AlpacaOrderMixin:
 __all__ = [
     "AlpacaOrderMixin",
     "submit_orders_df",
+    "submit_exit_orders_df",
 ]
+
+
+# --- lightweight symbol<->system mapping persistence ---
+_SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
+
+
+def _load_symbol_system_map() -> dict[str, str]:
+    try:
+        return json.loads(_SYMBOL_SYSTEM_MAP_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_symbol_system_map(mapping: dict[str, str]) -> None:
+    try:
+        _SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SYMBOL_SYSTEM_MAP_PATH.write_text(
+            json.dumps(mapping, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception:
+        pass
 
 
 def submit_orders_df(
@@ -120,9 +143,11 @@ def submit_orders_df(
 ) -> pd.DataFrame:
     """DataFrameからAlpacaへ注文を一括送信する共通ヘルパー。
 
-    - `final_df` は列に少なくとも `symbol`, `system`, `side`, `shares`, `entry_date`, `entry_price` を想定。
-    - `order_type` が指定されれば全件に適用。未指定なら `system_order_type` を参照。
-      `system_order_type` も無い場合は既定マップを使用（system1/3/4/5: market, system2/6/7: limit）。
+        - `final_df` は列に少なくとも `symbol`, `system`, `side`,
+            `shares`, `entry_date`, `entry_price` を想定。
+        - `order_type` が指定されれば全件に適用。未指定なら
+            `system_order_type` を参照。`system_order_type` も無い場合は
+            既定マップを使用（system1/3/4/5: market, system2/6/7: limit）。
     - 重複送信防止のため (symbol, system, entry_date) でユニーク化。
     - 返り値は結果の DataFrame（order_id/status/error を含む）。
     """
@@ -160,6 +185,9 @@ def submit_orders_df(
         if key in unique:
             continue
         unique[key] = r
+
+    # load existing symbol->system mapping (for positions dashboard / exit mapping)
+    sys_map_store = _load_symbol_system_map()
 
     results: list[dict[str, Any]] = []
     for (_sym, _sys, _dt), r in unique.items():
@@ -235,17 +263,21 @@ def submit_orders_df(
         return pd.DataFrame()
 
     out = pd.DataFrame(results)
-    # エントリー日記録の更新
+    # エントリー日記録とシンボル<->システムの更新
     try:
         entry_map = load_entry_dates()
         for _, row in out.iterrows():
             sym = str(row.get("symbol"))
-            side_val = str(row.get("side", "")).lower()
-            if side_val == "buy" and row.get("entry_date"):
+            # final_df はエントリー用途のみを想定しているため、
+            # ロング・ショート双方でエントリー日を保存する
+            if row.get("entry_date"):
                 entry_map[sym] = str(row.get("entry_date"))
-            elif side_val == "sell":
-                entry_map.pop(sym, None)
+            # シンボル→システムも記録（ダッシュボード/exit 判定で使用）
+            sys_val = str(row.get("system") or "").lower()
+            if sym and sys_val:
+                sys_map_store[sym] = sys_val
         save_entry_dates(entry_map)
+        _save_symbol_system_map(sys_map_store)
     except Exception:
         pass
 
@@ -256,4 +288,114 @@ def submit_orders_df(
         except Exception:
             pass
 
+    return out
+
+
+def submit_exit_orders_df(
+    exit_df: pd.DataFrame,
+    *,
+    paper: bool = True,
+    tif: str = "CLS",
+    retries: int = 2,
+    delay: float = 0.5,
+    log_callback: Any | None = None,
+    notify: bool = True,
+) -> pd.DataFrame:
+    """Submit exit orders (close existing positions).
+
+    Expected columns in ``exit_df``:
+      - ``symbol``: ticker
+      - ``qty``: absolute quantity to close
+      - ``position_side``: "long" | "short" (to infer order side)
+      - ``system``: system name like "system3" (optional but recommended)
+      - ``when``: one of "today_close" | "tomorrow_close" | "tomorrow_open"
+
+    Only "today_close" will be sent immediately as Market-On-Close (MOC) via
+    time_in_force="cls". Others are returned as planned but not submitted.
+    """
+    if exit_df is None or exit_df.empty:
+        return pd.DataFrame()
+    try:
+        client = ba.get_client(paper=paper)
+    except Exception:
+        return pd.DataFrame()
+
+    # Persisted mappings for cleanup after successful exits
+    entry_map = load_entry_dates()
+    sys_map_store = _load_symbol_system_map()
+
+    results: list[dict[str, Any]] = []
+    for _, r in exit_df.iterrows():
+        sym = str(r.get("symbol"))
+        qty = int(r.get("qty") or 0)
+        pos_side = str(r.get("position_side", "")).lower()
+        system = str(r.get("system", "")).lower()
+        when = str(r.get("when", "")).lower()
+        if not sym or qty <= 0:
+            continue
+        if when != "today_close":
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": "planned",
+                    "qty": qty,
+                    "when": when,
+                    "system": system,
+                    "status": "planned",
+                }
+            )
+            continue
+        order_side = "sell" if pos_side == "long" else "buy"
+        try:
+            order = ba.submit_order_with_retry(
+                client,
+                sym,
+                qty,
+                side=order_side,
+                order_type="market",
+                time_in_force=(tif or "CLS").upper(),
+                retries=max(0, int(retries)),
+                backoff_seconds=max(0.0, float(delay)),
+                rate_limit_seconds=max(0.0, float(delay)),
+                log_callback=log_callback,
+            )
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": order_side,
+                    "qty": qty,
+                    "when": when,
+                    "system": system,
+                    "order_id": getattr(order, "id", None),
+                    "status": getattr(order, "status", None),
+                }
+            )
+            # cleanup local tracking for the symbol upon exit
+            entry_map.pop(sym, None)
+            sys_map_store.pop(sym, None)
+        except Exception as e:  # noqa: BLE001
+            results.append(
+                {
+                    "symbol": sym,
+                    "side": order_side,
+                    "qty": qty,
+                    "when": when,
+                    "system": system,
+                    "error": str(e),
+                }
+            )
+
+    # persist updated mappings
+    try:
+        save_entry_dates(entry_map)
+        _save_symbol_system_map(sys_map_store)
+    except Exception:
+        pass
+
+    out = pd.DataFrame(results)
+    if notify and not out.empty:
+        try:
+            Notifier(platform="auto").send_trade_report("exits", results)
+        except Exception:
+            pass
     return out
