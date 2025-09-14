@@ -512,11 +512,18 @@ def get_today_signals_for_strategy(
             stage_progress(50, filter_pass, setup_pass, None, None)
     except Exception:
         pass
-    # トレード候補件数（当日のみ）
+    # トレード候補件数（当日のみ）→ UI表示は最大ポジション数に合わせて上限10に丸める
     try:
         total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
     except Exception:
         total_candidates_today = 0
+    # UIのTRDlistは各systemの最大ポジション数を超えないように表示
+    try:
+        _max_pos_ui = int(get_settings(create_dirs=False).risk.max_positions)
+    except Exception:
+        _max_pos_ui = 10
+    if total_candidates_today and _max_pos_ui > 0:
+        total_candidates_today = min(int(total_candidates_today), int(_max_pos_ui))
     try:
         if stage_progress:
             stage_progress(75, filter_pass, setup_pass, total_candidates_today, None)
@@ -784,6 +791,7 @@ def get_today_signals_for_strategy(
     except Exception:
         max_pos = 10
     if max_pos > 0 and not out.empty:
+
         def _sort_val(row: pd.Series) -> float:
             sc = row.get("score")
             sk = row.get("score_key")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -30,381 +31,103 @@ _LOG_CALLBACK = None
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
 
-def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """列名を大文字OHLCVに統一"""
-    col_map = {
-        "open": "Open",
-        "high": "High",
-        "low": "Low",
-        "close": "Close",
-        "volume": "Volume",
-        "adj_close": "AdjClose",
-        "adjusted_close": "AdjClose",
-    }
-    try:
-        return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-    except Exception:
-        return df
+def _get_today_logger() -> logging.Logger:
+    """today_signals 用のファイルロガーを取得（logs/today_signals.log）。
 
-
-def _pick_series(df: pd.DataFrame, names: list[str] | tuple[str, ...]):
-    """列名の候補から最初に見つかった列をSeriesとして返す。重複列(DataFrame)は先頭列を採用。"""
+    UI 側が log_callback を渡す場合は UI がファイル出力するので、
+    本ロガーは CLI 実行や log_callback なしのときのみに使う想定。
+    """
+    logger = logging.getLogger("today_signals")
+    logger.setLevel(logging.INFO)
+    # ルートロガーへの伝播を止めて重複出力を防止
     try:
-        for nm in names:
-            if nm in df.columns:
-                obj = df[nm]
-                if isinstance(obj, pd.DataFrame):
-                    try:
-                        arr = obj.to_numpy(copy=False)
-                        ser = pd.Series(arr[:, 0], index=obj.index)
-                    except Exception:
-                        continue
-                else:
-                    ser = obj
-                try:
-                    ser = pd.to_numeric(ser, errors="coerce")
-                except Exception:
-                    pass
-                return ser
+        logger.propagate = False
     except Exception:
         pass
-    return None
-
-
-def _last_scalar(series):
+    # ルートロガーへの伝播を止め、コンソール二重出力を防止
     try:
-        if series is None:
-            return None
-        s2 = series.dropna()
-        if s2.empty:
-            return None
-        return float(s2.iloc[-1])
-    except Exception:
-        return None
-
-
-def _log(message: str, ui: bool = True) -> None:
-    """共通ログ関数。UI用コールバックがあればそちらへ、なければ標準出力へ。"""
-    try:
-        cb = globals().get("_LOG_CALLBACK")
-    except Exception:
-        cb = None
-    text = str(message)
-    if ui and cb and callable(cb):
-        try:
-            cb(text)
-            return
-        except Exception:
-            pass
-    try:
-        print(text, flush=True)
+        logger.propagate = False
     except Exception:
         pass
+    try:
+        # settings が未初期化でも安全に取得できるようにラップ
+        settings = get_settings(create_dirs=True)
+        log_dir = Path(settings.LOGS_DIR)
+    except Exception:
+        log_dir = Path("logs")
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_path = log_dir / "today_signals.log"
 
-
-def compute_today_signals(
-    symbols: list[str] | None,
-    *,
-    slots_long: int | None = None,
-    slots_short: int | None = None,
-    capital_long: float | None = None,
-    capital_short: float | None = None,
-    save_csv: bool = False,
-    notify: bool = True,
-    log_callback: Callable[[str], None] | None = None,
-    progress_callback: Callable[[int, int, str], None] | None = None,
-    per_system_progress: Callable[[str, str], None] | None = None,
-    symbol_data: dict[str, pd.DataFrame] | None = None,
-    parallel: bool = False,
-):
-    return _compute_today_signals_impl(
-        symbols,
-        slots_long=slots_long,
-        slots_short=slots_short,
-        capital_long=capital_long,
-        capital_short=capital_short,
-        save_csv=save_csv,
-        notify=notify,
-        log_callback=log_callback,
-        progress_callback=progress_callback,
-        per_system_progress=per_system_progress,
-        symbol_data=symbol_data,
-        parallel=parallel,
-    )
-
-
-def load_basic_data_ext(
-    symbols: list[str],
-    *,
-    cm: CacheManager,
-    settings,
-    symbol_data: dict[str, pd.DataFrame] | None,
-) -> dict[str, pd.DataFrame]:
-    import time as _t
-
-    data: dict[str, pd.DataFrame] = {}
-    total_syms = len(symbols)
-    start_ts = _t.time()
-    CHUNK = 500
-    for idx, sym in enumerate(symbols, start=1):
+    # 既存の同一ファイルハンドラがあるか確認
+    has_handler = False
+    for h in list(logger.handlers):
         try:
-            df = None
-            try:
-                if symbol_data and sym in symbol_data:
-                    df = symbol_data.get(sym)
-                    if df is not None and not df.empty:
-                        x = df.copy()
-                        if x.index.name is not None:
-                            x = x.reset_index()
-                        if "date" in x.columns:
-                            x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                        elif "Date" in x.columns:
-                            x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                        col_map = {
-                            "Open": "open",
-                            "High": "high",
-                            "Low": "low",
-                            "Close": "close",
-                            "Adj Close": "adjusted_close",
-                            "AdjClose": "adjusted_close",
-                            "Volume": "volume",
-                        }
-                        for k, v in list(col_map.items()):
-                            if k in x.columns:
-                                x = x.rename(columns={k: v})
-                        if {"date", "close"}.issubset(set(x.columns)):
-                            x = x.dropna(subset=["date"]).sort_values("date")
-                            df = x
-                        else:
-                            df = None
-                    else:
-                        df = None
-            except Exception:
-                df = None
-            if df is None or df.empty:
-                df = cm.read(sym, "rolling")
-            target_len = int(
-                settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-            )
-            if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
-                base_df = load_base_cache(sym, rebuild_if_missing=True)
-                if base_df is None or base_df.empty:
-                    continue
-                x = base_df.copy()
-                if x.index.name is not None:
-                    x = x.reset_index()
-                if "Date" in x.columns:
-                    x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                elif "date" in x.columns:
-                    x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                else:
-                    continue
-                x = x.dropna(subset=["date"]).sort_values("date")
-                col_map = {
-                    "Open": "open",
-                    "High": "high",
-                    "Low": "low",
-                    "Close": "close",
-                    "AdjClose": "adjusted_close",
-                    "Volume": "volume",
-                }
-                for k, v in list(col_map.items()):
-                    if k in x.columns:
-                        x = x.rename(columns={k: v})
-                n = int(
-                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-                )
-                sliced = x.tail(n).reset_index(drop=True)
-                cm.write_atomic(sliced, sym, "rolling")
-                df = sliced
-            if df is not None and not df.empty:
-                try:
-                    if "Date" not in df.columns:
-                        if "date" in df.columns:
-                            df = df.copy()
-                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
-                        else:
-                            df = df.copy()
-                            df["Date"] = pd.to_datetime(df.index, errors="coerce")
-                    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
-                except Exception:
-                    pass
-                df = _normalize_ohlcv(df)
-                data[sym] = df
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
+                log_path
+            ):
+                has_handler = True
+                break
         except Exception:
             continue
-        if idx % CHUNK == 0:
-            try:
-                elapsed = max(0.001, _t.time() - start_ts)
-                rate = idx / elapsed
-                remain = max(0, total_syms - idx)
-                eta_sec = int(remain / rate) if rate > 0 else 0
-                m, s = divmod(eta_sec, 60)
-                msg = f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
-                _log(msg, ui=False)
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(msg)
-                    except Exception:
-                        pass
-            except Exception:
-                _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(f"📦 基礎データロード進捗: {idx}/{total_syms}")
-                    except Exception:
-                        pass
+    if not has_handler:
+        try:
+            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+            fh.setFormatter(fmt)
+            logger.addHandler(fh)
+        except Exception:
+            pass
+    return logger
+
+
+def _log(msg: str, ui: bool = True):
+    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
+    import time as _t
+
+    # 初回呼び出しで開始時刻を設定
     try:
-        total_elapsed = int(max(0, _t.time() - start_ts))
-        m, s = divmod(total_elapsed, 60)
-        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
-        _log(done_msg)
+        global _LOG_START_TS
+        if _LOG_START_TS is None:
+            _LOG_START_TS = _t.time()
+    except Exception:
+        _LOG_START_TS = None
+
+    # プレフィックスを作成（現在時刻 + 分秒経過）
+    try:
+        now = _t.strftime("%H:%M:%S")
+        elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
+        m, s = divmod(int(elapsed), 60)
+        prefix = f"[{now} | {m}分{s}秒] "
+    except Exception:
+        prefix = ""
+
+    # CLI へは整形して出力
+    try:
+        print(f"{prefix}{msg}", flush=True)
+    except Exception:
+        pass
+
+    # UI 側のコールバックには原文のまま通知（UI での重複プレフィックス回避）
+    try:
         cb = globals().get("_LOG_CALLBACK")
-        if cb and callable(cb):
+        if cb and callable(cb) and ui:
             try:
-                cb(done_msg)
+                cb(str(msg))
             except Exception:
                 pass
     except Exception:
         pass
-    return data
 
-
-def filter_system1(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
-        last_close = _last_scalar(close_s)
-        if last_close is None or last_close < 5:
-            continue
-        vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
-        if vol_s is None or close_s is None:
-            continue
-        try:
-            dollar_vol = (close_s * vol_s).dropna()
-        except Exception:
-            continue
-        if dollar_vol.tail(20).mean() < 5e7:
-            continue
-        result.append(sym)
-    return result
-
-
-def filter_system2(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
-        last_close = _last_scalar(close_s)
-        if last_close is None or last_close < 5:
-            continue
-        vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
-        if vol_s is None or close_s is None:
-            continue
-        try:
-            dollar_vol = (close_s * vol_s).dropna()
-        except Exception:
-            continue
-        if dollar_vol.tail(20).mean() < 2.5e7:
-            continue
-        high_s = _pick_series(df, ["high", "High"]) if df is not None else None
-        low_s = _pick_series(df, ["low", "Low"]) if df is not None else None
-        if high_s is not None and low_s is not None and close_s is not None:
-            try:
-                tr = (high_s - low_s).dropna().tail(10)
-                atr = tr.mean()
-            except Exception:
-                atr = None
-            if atr is not None and atr < (last_close * 0.03):
-                continue
-        result.append(sym)
-    return result
-
-
-def filter_system3(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        low = df.get("Low", df.get("low"))
-        if low is None or float(low.iloc[-1]) < 1:
-            continue
-        av50 = df.get("AvgVolume50")
-        if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) < 1_000_000:
-            continue
-        atr_ratio = df.get("ATR_Ratio")
-        if atr_ratio is None or pd.isna(atr_ratio.iloc[-1]) or float(atr_ratio.iloc[-1]) < 0.05:
-            continue
-        result.append(sym)
-    return result
-
-
-def filter_system4(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        dv50 = df.get("DollarVolume50")
-        hv50 = df.get("HV50")
-        try:
-            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 100_000_000:
-                continue
-            if hv50 is None or pd.isna(hv50.iloc[-1]):
-                continue
-            hv = float(hv50.iloc[-1])
-            if hv < 10 or hv > 40:
-                continue
-        except Exception:
-            continue
-        result.append(sym)
-    return result
-
-
-def filter_system5(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        av50 = df.get("AvgVolume50")
-        dv50 = df.get("DollarVolume50")
-        atr_pct = df.get("ATR_Pct")
-        try:
-            if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) <= 500_000:
-                continue
-            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 2_500_000:
-                continue
-            if atr_pct is None or pd.isna(atr_pct.iloc[-1]) or float(atr_pct.iloc[-1]) <= 0.04:
-                continue
-        except Exception:
-            continue
-        result.append(sym)
-    return result
-
-
-def filter_system6(symbols, data):
-    result = []
-    for sym in symbols:
-        df = data.get(sym)
-        if df is None or df.empty:
-            continue
-        low = df.get("Low", df.get("low"))
-        if low is None or float(low.iloc[-1]) < 5:
-            continue
-        dv50 = df.get("DollarVolume50")
-        if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 10_000_000:
-            continue
-        result.append(sym)
-    return result
+    # UI コールバックが無いか、ui=False の場合はファイルにINFOで出力（CLI ログ保存）
+    try:
+        cb = globals().get("_LOG_CALLBACK")
+        if not cb or not ui:
+            _get_today_logger().info(str(msg))
+    except Exception:
+        pass
 
 
 def _asc_by_score_key(score_key: str | None) -> bool:
@@ -423,440 +146,6 @@ def _filter_ui_logs(lines: list[str]) -> list[str]:
         "銘柄:",
     )
     return [ln for ln in lines if not any(k in ln for k in skip_keywords)]
-
-
-def _phase_update_coverage_and_tgt(
-    basic_data: dict[str, pd.DataFrame],
-    symbols: list[str],
-    settings,
-    cm: CacheManager,
-) -> dict[str, pd.DataFrame]:
-    """データカバレッジの補完と、補完後Tgtの即時更新を行う。"""
-    try:
-        cov_have = len(basic_data)
-        cov_total = len(symbols)
-        cov_missing = max(0, cov_total - cov_have)
-        _log(
-            "🧮 データカバレッジ: "
-            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-        )
-        if cov_missing > 0:
-            missing_syms = [s for s in symbols if s not in basic_data]
-            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
-            fixed = 0
-            for sym in missing_syms:
-                try:
-                    base_df = load_base_cache(sym, rebuild_if_missing=True)
-                    if base_df is None or base_df.empty:
-                        continue
-                    x = base_df.copy()
-                    if x.index.name is not None:
-                        x = x.reset_index()
-                    if "Date" in x.columns:
-                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                    elif "date" in x.columns:
-                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                    else:
-                        continue
-                    x = x.dropna(subset=["date"]).sort_values("date")
-                    col_map = {
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "AdjClose": "adjusted_close",
-                        "Volume": "volume",
-                    }
-                    for k, v in list(col_map.items()):
-                        if k in x.columns:
-                            x = x.rename(columns={k: v})
-                    n = int(
-                        settings.cache.rolling.base_lookback_days
-                        + settings.cache.rolling.buffer_days
-                    )
-                    sliced = x.tail(n).reset_index(drop=True)
-                    cm.write_atomic(sliced, sym, "rolling")
-                    df = _normalize_ohlcv(sliced)
-                    basic_data[sym] = df
-                    fixed += 1
-                except Exception:
-                    continue
-            try:
-                if fixed > 0:
-                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
-                else:
-                    _log("🧩 補完対象に base/full が見つからず、生成 0 件", ui=False)
-            except Exception:
-                pass
-            cov_have = len(basic_data)
-            cov_missing = max(0, cov_total - cov_have)
-            _log(
-                "🧮 データカバレッジ(補完後): "
-                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-            )
-            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
-            try:
-                cb2 = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2 = None
-            if cb2 and callable(cb2):
-                try:
-                    try:
-                        tgt_total = int(cov_total)
-                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
-                            tgt_total = max(0, tgt_total - 1)
-                    except Exception:
-                        tgt_total = int(cov_total)
-                    for i in range(1, 8):
-                        cb2(f"system{i}", 0, tgt_total, None, None, None)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return basic_data
-
-
-def _phase_precompute_shared(
-    basic_data: dict[str, pd.DataFrame],
-    settings,
-) -> dict[str, pd.DataFrame]:
-    """共有指標の前計算を実施（必要に応じて並列化）"""
-    try:
-        import os as _os
-        from common.indicators_precompute import (
-            PRECOMPUTED_INDICATORS,
-            precompute_shared_indicators,
-        )
-
-        try:
-            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
-        except Exception:
-            _thr_syms = 300
-        if len(basic_data) < max(0, _thr_syms):
-            _log(
-                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
-            )
-        else:
-            try:
-                _log(
-                    "🧮 共有指標の前計算を開始: "
-                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
-                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
-                )
-            except Exception:
-                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
-            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
-            try:
-                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
-            except Exception:
-                _thr_parallel = 1000
-            if force_parallel in ("1", "true", "yes"):
-                use_parallel = True
-            elif force_parallel in ("0", "false", "no"):
-                use_parallel = False
-            else:
-                use_parallel = len(basic_data) >= max(0, _thr_parallel)
-            try:
-                _st = get_settings(create_dirs=False)
-                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
-            except Exception:
-                _pre_workers = 12
-            if use_parallel:
-                try:
-                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
-                except Exception:
-                    pass
-            basic_data = precompute_shared_indicators(
-                basic_data,
-                log=_log,
-                parallel=use_parallel,
-                max_workers=_pre_workers if use_parallel else None,
-            )
-            _log("🧮 共有指標の前計算が完了")
-    except Exception as e:
-        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
-    return basic_data
-
-
-def _phase_prefilter_syms(
-    symbols: list[str],
-    basic_data: dict[str, pd.DataFrame],
-):
-    """system1〜6 の事前フィルタと UI 25% 通知。"""
-    system1_syms = filter_system1(symbols, basic_data)
-    system2_syms = filter_system2(symbols, basic_data)
-    system3_syms = filter_system3(symbols, basic_data)
-    system4_syms = filter_system4(symbols, basic_data)
-    system5_syms = filter_system5(symbols, basic_data)
-    system6_syms = filter_system6(symbols, basic_data)
-    try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
-    except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
-        try:
-            cb2("system1", 25, len(system1_syms), None, None, None)
-            cb2("system2", 25, len(system2_syms), None, None, None)
-            cb2("system3", 25, len(system3_syms), None, None, None)
-            cb2("system4", 25, len(system4_syms), None, None, None)
-            cb2("system5", 25, len(system5_syms), None, None, None)
-            cb2("system6", 25, len(system6_syms), None, None, None)
-            cb2("system7", 25, 1 if "SPY" in (basic_data or {}) else 0, None, None, None)
-        except Exception:
-            pass
-    return (
-        system1_syms,
-        system2_syms,
-        system3_syms,
-        system4_syms,
-        system5_syms,
-        system6_syms,
-    )
-
-
-def _phase_log_filter_breakdowns(
-    symbols: list[str],
-    basic_data: dict[str, pd.DataFrame],
-) -> None:
-    """フィルタ段階の内訳ログ（system1,2,3,4,5,6）と SPY 確認。"""
-    # System2 breakdown
-    try:
-        s2_total = len(symbols)
-        c_price = 0
-        c_dv = 0
-        c_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                close_s = _pick_series(
-                    _df,
-                    [
-                        "close",
-                        "Close",
-                        "Adj Close",
-                        "adj_close",
-                    ],
-                )
-                last_close = _last_scalar(close_s)
-                if last_close is None or last_close < 5:
-                    continue
-                c_price += 1
-                vol_s = _pick_series(_df, ["volume", "Volume"])
-                if close_s is None or vol_s is None:
-                    continue
-                dv_ser = (close_s * vol_s).dropna()
-                dv = float(dv_ser.tail(20).mean()) if not dv_ser.empty else 0.0
-                if dv >= 2.5e7:
-                    c_dv += 1
-                else:
-                    continue
-                high_s = _pick_series(_df, ["high", "High"]) if _df is not None else None
-                low_s = _pick_series(_df, ["low", "Low"]) if _df is not None else None
-                if high_s is not None and low_s is not None:
-                    try:
-                        tr = (high_s - low_s).dropna().tail(10)
-                        atr = float(tr.mean()) if not tr.empty else 0.0
-                    except Exception:
-                        atr = 0.0
-                    if atr >= last_close * 0.03:
-                        c_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system2内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
-        )
-    except Exception:
-        pass
-    # System1 breakdown
-    try:
-        s1_total = len(symbols)
-        s1_price = 0
-        s1_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                close_s = _pick_series(
-                    _df,
-                    [
-                        "close",
-                        "Close",
-                        "Adj Close",
-                        "adj_close",
-                    ],
-                )
-                last_close = _last_scalar(close_s)
-                if last_close is None or last_close < 5:
-                    continue
-                s1_price += 1
-                vol_s = _pick_series(_df, ["volume", "Volume"])
-                if close_s is None or vol_s is None:
-                    continue
-                dv_ser = (close_s * vol_s).dropna()
-                dv20 = float(dv_ser.tail(20).mean()) if not dv_ser.empty else 0.0
-                if dv20 >= 5e7:
-                    s1_dv += 1
-            except Exception:
-                continue
-        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
-    except Exception:
-        pass
-    # System3 breakdown
-    try:
-        s3_total = len(symbols)
-        s3_low = 0
-        s3_av = 0
-        s3_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 1:
-                    s3_low += 1
-                else:
-                    continue
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) >= 1_000_000
-                ):
-                    s3_av += 1
-                else:
-                    continue
-                _atr_ratio = _df.get("ATR_Ratio")
-                if (
-                    _atr_ratio is not None
-                    and not pd.isna(_atr_ratio.iloc[-1])
-                    and float(_atr_ratio.iloc[-1]) >= 0.05
-                ):
-                    s3_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system3内訳: "
-            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
-        )
-    except Exception:
-        pass
-    # System4 breakdown
-    try:
-        s4_total = len(symbols)
-        s4_dv = 0
-        s4_hv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _dv50 = _df.get("DollarVolume50")
-                _hv50 = _df.get("HV50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 100_000_000
-                ):
-                    s4_dv += 1
-                else:
-                    continue
-                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
-                    hv = float(_hv50.iloc[-1])
-                    if 10 <= hv <= 40:
-                        s4_hv += 1
-            except Exception:
-                continue
-        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
-    except Exception:
-        pass
-    # System5 breakdown
-    try:
-        s5_total = len(symbols)
-        s5_av = 0
-        s5_dv = 0
-        s5_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) > 500_000
-                ):
-                    s5_av += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 2_500_000
-                ):
-                    s5_dv += 1
-                else:
-                    continue
-                _atrp = _df.get("ATR_Pct")
-                if (
-                    _atrp is not None
-                    and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > 0.04
-                ):
-                    s5_atr += 1
-            except Exception:
-                continue
-        _log(
-            "🧪 system5内訳: "
-            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
-        )
-    except Exception:
-        pass
-    # System6 breakdown
-    try:
-        s6_total = len(symbols)
-        s6_low = 0
-        s6_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 5:
-                    s6_low += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 10_000_000
-                ):
-                    s6_dv += 1
-            except Exception:
-                continue
-        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
-    except Exception:
-        pass
-    # System7
-    try:
-        spyp = (
-            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
-        )
-        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
-    except Exception:
-        pass
 
 
 def _amount_pick(
@@ -1127,7 +416,7 @@ def _apply_filters(
 
 
 @no_type_check
-def _compute_today_signals_impl(
+def compute_today_signals(
     symbols: list[str] | None,
     *,
     slots_long: int | None = None,
@@ -1144,8 +433,6 @@ def _compute_today_signals_impl(
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    # hint for static analyzers; real body continues below
-    pass  # type: ignore[unreachable]
     """当日シグナル抽出＋配分の本体。
 
     Args:
@@ -1331,34 +618,907 @@ def _compute_today_signals_impl(
         except Exception:
             pass
 
-    # データ読み込み（外出しローダ使用）
-    basic_data = load_basic_data_ext(
-        symbols,
-        cm=cm,
-        settings=settings,
-        symbol_data=symbol_data,
-    )
+    # データ読み込み
+    # --- フィルター条件で銘柄を絞り込み、
+    #     通過銘柄のみデータロード ---
+    # 1. まずフィルター条件に必要なデータ
+    #    （株価・売買代金・ATR等）を全銘柄分ロード
+    # --- フィルター・データロード関数を
+    #     ローカル関数として定義 ---
+
+    def load_basic_data(symbols):
+        import time as _t
+
+        data = {}
+        total_syms = len(symbols)
+        start_ts = _t.time()
+        CHUNK = 500
+        for idx, sym in enumerate(symbols, start=1):
+            try:
+                # まずは呼び出し元から渡された minimal データを優先
+                df = None
+                try:
+                    if symbol_data and sym in symbol_data:
+                        df = symbol_data.get(sym)
+                        if df is not None and not df.empty:
+                            x = df.copy()
+                            if x.index.name is not None:
+                                x = x.reset_index()
+                            # 日付列の正規化
+                            if "date" in x.columns:
+                                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                            elif "Date" in x.columns:
+                                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                            # 列名の正規化（存在するもののみ）
+                            col_map = {
+                                "Open": "open",
+                                "High": "high",
+                                "Low": "low",
+                                "Close": "close",
+                                "Adj Close": "adjusted_close",
+                                "AdjClose": "adjusted_close",
+                                "Volume": "volume",
+                            }
+                            for k, v in list(col_map.items()):
+                                if k in x.columns:
+                                    x = x.rename(columns={k: v})
+                            # 最低限の必須列が揃っているか確認
+                            required = {"date", "close"}
+                            if required.issubset(set(x.columns)):
+                                x = x.dropna(subset=["date"]).sort_values("date")
+                                df = x
+                            else:
+                                df = None
+                        else:
+                            df = None
+                except Exception:
+                    df = None
+                # 受け取りが無い/不足 → キャッシュから取得
+                if df is None or df.empty:
+                    df = cm.read(sym, "rolling")
+                # 既存 rolling があっても行数不足なら再構築する
+                target_len = int(
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+                )
+                if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
+                    # rolling 不在 → base から必要分を生成して保存
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    # 列名を rolling 想定へ（存在するもののみ）
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    # 必要期間: 設計上 base_lookback_days + buffer_days（不足時は全量）
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = sliced
+                if df is not None and not df.empty:
+                    try:
+                        if "Date" not in df.columns:
+                            if "date" in df.columns:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            else:
+                                # 最低限 index を Date 列に昇格
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df.index, errors="coerce")
+                        # 正規化（表示/互換性向上）
+                        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                    except Exception:
+                        pass
+                    df = _normalize_ohlcv(df)
+                    data[sym] = df
+            except Exception:
+                continue
+            if idx % CHUNK == 0:
+                try:
+                    elapsed = max(0.001, _t.time() - start_ts)
+                    rate = idx / elapsed
+                    remain = max(0, total_syms - idx)
+                    eta_sec = int(remain / rate) if rate > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    msg = f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
+                    _log(msg, ui=False)
+                    # UIにも見えるよう適度に流す
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(msg)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                except Exception:
+                    _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(f"📦 基礎データロード進捗: {idx}/{total_syms}")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+        try:
+            total_elapsed = int(max(0, _t.time() - start_ts))
+            m, s = divmod(total_elapsed, 60)
+            done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            _log(done_msg)
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(done_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return data
+
+    # 列名の大小・重複（DataFrame）にも耐える安全な抽出ヘルパー
+    def _pick_series(df, names):
+        try:
+            for nm in names:
+                if nm in df.columns:
+                    s = df[nm]
+                    # 重複列で DataFrame になる場合は先頭列を採用
+                    if isinstance(s, pd.DataFrame):
+                        try:
+                            s = s.iloc[:, 0]
+                        except Exception:
+                            continue
+                    # 数値化（失敗は NaN）
+                    try:
+                        s = pd.to_numeric(s, errors="coerce")
+                    except Exception:
+                        pass
+                    return s
+        except Exception:
+            pass
+        return None
+
+    def _last_scalar(series):
+        try:
+            if series is None:
+                return None
+            s2 = series.dropna()
+            if s2.empty:
+                return None
+            return float(s2.iloc[-1])
+        except Exception:
+            return None
+
+    def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+        """列名を大文字OHLCVに統一"""
+        col_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+            "adj_close": "AdjClose",
+            "adjusted_close": "AdjClose",
+        }
+        try:
+            return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+        except Exception:
+            return df
+
+    def filter_system1(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            # 株価5ドル以上（直近終値）
+            close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
+            last_close = _last_scalar(close_s)
+            if last_close is None or last_close < 5:
+                continue
+            # 過去20日平均売買代金（厳密: mean(close*volume)）が5000万ドル以上
+            vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
+            if vol_s is None or close_s is None:
+                continue
+            try:
+                dollar_vol = (close_s * vol_s).dropna()
+            except Exception:
+                continue
+            if dollar_vol.tail(20).mean() < 5e7:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system2(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
+            last_close = _last_scalar(close_s)
+            if last_close is None or last_close < 5:
+                continue
+            vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
+            if vol_s is None or close_s is None:
+                continue
+            try:
+                dollar_vol = (close_s * vol_s).dropna()
+            except Exception:
+                continue
+            if dollar_vol.tail(20).mean() < 2.5e7:
+                continue
+            # ATR計算（過去10日）
+            high_s = _pick_series(df, ["high", "High"]) if df is not None else None
+            low_s = _pick_series(df, ["low", "Low"]) if df is not None else None
+            if high_s is not None and low_s is not None and close_s is not None:
+                try:
+                    tr = (high_s - low_s).dropna().tail(10)
+                    atr = tr.mean()
+                except Exception:
+                    atr = None
+                if atr is not None and atr < (last_close * 0.03):
+                    continue
+            result.append(sym)
+        return result
+
+    def filter_system3(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            low = df.get("Low", df.get("low"))
+            if low is None or float(low.iloc[-1]) < 1:
+                continue
+            av50 = df.get("AvgVolume50")
+            if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) < 1_000_000:
+                continue
+            atr_ratio = df.get("ATR_Ratio")
+            if atr_ratio is None or pd.isna(atr_ratio.iloc[-1]) or float(atr_ratio.iloc[-1]) < 0.05:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system4(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            dv50 = df.get("DollarVolume50")
+            hv50 = df.get("HV50")
+            try:
+                if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 100_000_000:
+                    continue
+                if hv50 is None or pd.isna(hv50.iloc[-1]):
+                    continue
+                hv = float(hv50.iloc[-1])
+                if hv < 10 or hv > 40:
+                    continue
+            except Exception:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system5(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            av50 = df.get("AvgVolume50")
+            dv50 = df.get("DollarVolume50")
+            atr_pct = df.get("ATR_Pct")
+            try:
+                if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) <= 500_000:
+                    continue
+                if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 2_500_000:
+                    continue
+                if atr_pct is None or pd.isna(atr_pct.iloc[-1]) or float(atr_pct.iloc[-1]) <= 0.04:
+                    continue
+            except Exception:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system6(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            low = df.get("Low", df.get("low"))
+            if low is None or float(low.iloc[-1]) < 5:
+                continue
+            dv50 = df.get("DollarVolume50")
+            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 10_000_000:
+                continue
+            result.append(sym)
+        return result
+
+    def load_indicator_data(symbols):
+        import time as _t
+
+        data = {}
+        total_syms = len(symbols)
+        start_ts = _t.time()
+        CHUNK = 500
+        for idx, sym in enumerate(symbols, start=1):
+            try:
+                # 提供された minimal データを優先
+                df = None
+                try:
+                    if symbol_data and sym in symbol_data:
+                        df = symbol_data.get(sym)
+                        if df is not None and not df.empty:
+                            x = df.copy()
+                            if x.index.name is not None:
+                                x = x.reset_index()
+                            if "date" in x.columns:
+                                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                            elif "Date" in x.columns:
+                                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                            col_map = {
+                                "Open": "open",
+                                "High": "high",
+                                "Low": "low",
+                                "Close": "close",
+                                "Adj Close": "adjusted_close",
+                                "AdjClose": "adjusted_close",
+                                "Volume": "volume",
+                            }
+                            for k, v in list(col_map.items()):
+                                if k in x.columns:
+                                    x = x.rename(columns={k: v})
+                            required = {"date", "close"}
+                            if required.issubset(set(x.columns)):
+                                x = x.dropna(subset=["date"]).sort_values("date")
+                                df = x
+                            else:
+                                df = None
+                        else:
+                            df = None
+                except Exception:
+                    df = None
+                if df is None or df.empty:
+                    df = cm.read(sym, "rolling")
+                target_len = int(
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+                )
+                if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = sliced
+                if df is not None and not df.empty:
+                    try:
+                        if "Date" not in df.columns:
+                            if "date" in df.columns:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            else:
+                                df = df.copy()
+                                df["Date"] = pd.to_datetime(df.index, errors="coerce")
+                        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                    except Exception:
+                        pass
+                    df = _normalize_ohlcv(df)
+                    data[sym] = df
+            except Exception:
+                continue
+            if total_syms > 0 and idx % CHUNK == 0:
+                try:
+                    elapsed = max(0.001, _t.time() - start_ts)
+                    rate = idx / elapsed
+                    remain = max(0, total_syms - idx)
+                    eta_sec = int(remain / rate) if rate > 0 else 0
+                    m, s = divmod(eta_sec, 60)
+                    msg = f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
+                    _log(msg, ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(msg)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                except Exception:
+                    _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
+                    try:
+                        cb = globals().get("_LOG_CALLBACK")
+                        if cb and callable(cb):
+                            try:
+                                cb(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+        try:
+            total_elapsed = int(max(0, _t.time() - start_ts))
+            m, s = divmod(total_elapsed, 60)
+            done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            _log(done_msg)
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(done_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
+            try:
+                cb = globals().get("_LOG_CALLBACK")
+                if cb and callable(cb):
+                    try:
+                        cb(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return data
+
+    # 実行スコープで変数定義
+    # --- フィルター・データロード変数を
+    #     forループより前に定義 ---
+    basic_data = load_basic_data(symbols)
     if progress_callback:
         try:
             progress_callback(2, 8, "load_basic")
         except Exception:
             pass
-    # データカバレッジ補完とTgt更新
-    basic_data = _phase_update_coverage_and_tgt(basic_data, symbols, settings, cm)
+    # データカバレッジ内訳（rollingに存在する銘柄数）
+    try:
+        cov_have = len(basic_data)
+        cov_total = len(symbols)
+        cov_missing = max(0, cov_total - cov_have)
+        _log(
+            "🧮 データカバレッジ: "
+            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+        )
+        if cov_missing > 0:
+            missing_syms = [s for s in symbols if s not in basic_data]
+            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            fixed = 0
+            for sym in missing_syms:
+                try:
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cm.write_atomic(sliced, sym, "rolling")
+                    df = _normalize_ohlcv(sliced)
+                    basic_data[sym] = df
+                    fixed += 1
+                except Exception:
+                    continue
+            try:
+                if fixed > 0:
+                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
+            except Exception:
+                pass
+            cov_have = len(basic_data)
+            cov_missing = max(0, cov_total - cov_have)
+            _log(
+                "🧮 データカバレッジ(補完後): "
+                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+            )
+            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
+            try:
+                cb2 = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2 = None
+            if cb2 and callable(cb2):
+                try:
+                    # Tgt はユニバース総数（SPY除外）を採用
+                    try:
+                        tgt_total = int(cov_total)
+                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
+                            tgt_total = max(0, tgt_total - 1)
+                    except Exception:
+                        tgt_total = int(cov_total)
+                    for i in range(1, 8):
+                        cb2(f"system{i}", 0, tgt_total, None, None, None)
+                except Exception:
+                    pass
+    except Exception:
+        pass
     # 共有指標の前計算（ATR/SMA/ADXなど）
-    # 共有指標 前計算
-    basic_data = _phase_precompute_shared(basic_data, settings)
+    try:
+        import os as _os
+
+        from common.indicators_precompute import (
+            PRECOMPUTED_INDICATORS,
+            precompute_shared_indicators,
+        )
+
+        # 実行しきい値（小規模ユニバースでは前計算をスキップしてオーバーヘッド削減）
+        try:
+            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
+        except Exception:
+            _thr_syms = 300
+        if len(basic_data) < max(0, _thr_syms):
+            _log(
+                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
+            )
+        else:
+            try:
+                _log(
+                    "🧮 共有指標の前計算を開始: "
+                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
+                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
+                )
+            except Exception:
+                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+            # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
+            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
+            try:
+                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
+            except Exception:
+                _thr_parallel = 1000
+            if force_parallel in ("1", "true", "yes"):
+                use_parallel = True
+            elif force_parallel in ("0", "false", "no"):
+                use_parallel = False
+            else:
+                use_parallel = len(basic_data) >= max(0, _thr_parallel)
+
+            # 前計算のワーカー数は設定値に連動（環境変数の直接指定がある場合は別途関知）
+            try:
+                _st = get_settings(create_dirs=False)
+                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
+            except Exception:
+                _pre_workers = 12
+            if use_parallel:
+                try:
+                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
+                except Exception:
+                    pass
+            basic_data = precompute_shared_indicators(
+                basic_data,
+                log=_log,
+                parallel=use_parallel,
+                max_workers=_pre_workers if use_parallel else None,
+            )
+            _log("🧮 共有指標の前計算が完了")
+    except Exception as e:
+        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
-    (
-        system1_syms,
-        system2_syms,
-        system3_syms,
-        system4_syms,
-        system5_syms,
-        system6_syms,
-    ) = _phase_prefilter_syms(symbols, basic_data)
-    # 各フィルター段階の内訳ログ
-    _phase_log_filter_breakdowns(symbols, basic_data)
+    system1_syms = filter_system1(symbols, basic_data)
+    system2_syms = filter_system2(symbols, basic_data)
+    system3_syms = filter_system3(symbols, basic_data)
+    system4_syms = filter_system4(symbols, basic_data)
+    system5_syms = filter_system5(symbols, basic_data)
+    system6_syms = filter_system6(symbols, basic_data)
+    # 各システムのフィルター通過件数をUIへ通知
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            cb2("system1", 25, len(system1_syms), None, None, None)
+            cb2("system2", 25, len(system2_syms), None, None, None)
+            cb2("system3", 25, len(system3_syms), None, None, None)
+            cb2("system4", 25, len(system4_syms), None, None, None)
+            cb2("system5", 25, len(system5_syms), None, None, None)
+            cb2("system6", 25, len(system6_syms), None, None, None)
+            cb2(
+                "system7",
+                25,
+                1 if "SPY" in (basic_data or {}) else 0,
+                None,
+                None,
+                None,
+            )
+        except Exception:
+            pass
+    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
+    try:
+        s2_total = len(symbols)
+        c_price = 0
+        c_dv = 0
+        c_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                # 価格フィルター
+                last_close = float(_df["close"].iloc[-1])
+                if last_close >= 5:
+                    c_price += 1
+                else:
+                    continue
+                # 売買代金フィルター（20日平均・厳密）
+                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
+                if dv >= 2.5e7:
+                    c_dv += 1
+                else:
+                    continue
+                # ATR 比率フィルター（10日）
+                if "high" in _df.columns and "low" in _df.columns:
+                    _tr = (_df["high"] - _df["low"]).tail(10)
+                    _atr = float(_tr.mean())
+                    if _atr >= last_close * 0.03:
+                        c_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system2内訳: "
+            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
+        )
+    except Exception:
+        pass
+    # System1 フィルター内訳（価格・売買代金）
+    try:
+        s1_total = len(symbols)
+        s1_price = 0
+        s1_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
+                if last_close >= 5:
+                    s1_price += 1
+                else:
+                    continue
+                # 安全にカラムを取得して DV20 を計算
+                _c = _df["close"] if "close" in _df.columns else _df["Close"]
+                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
+                dv20 = float((_c * _v).tail(20).mean())
+                if dv20 >= 5e7:
+                    s1_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
+    except Exception:
+        pass
+    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
+    try:
+        s3_total = len(symbols)
+        s3_low = 0
+        s3_av = 0
+        s3_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 1:
+                    s3_low += 1
+                else:
+                    continue
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) >= 1_000_000
+                ):
+                    s3_av += 1
+                else:
+                    continue
+                _atr_ratio = _df.get("ATR_Ratio")
+                if (
+                    _atr_ratio is not None
+                    and not pd.isna(_atr_ratio.iloc[-1])
+                    and float(_atr_ratio.iloc[-1]) >= 0.05
+                ):
+                    s3_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system3内訳: "
+            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+        )
+    except Exception:
+        pass
+    # System4 フィルター内訳（DV50>=100M → HV50 10〜40）
+    try:
+        s4_total = len(symbols)
+        s4_dv = 0
+        s4_hv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _dv50 = _df.get("DollarVolume50")
+                _hv50 = _df.get("HV50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 100_000_000
+                ):
+                    s4_dv += 1
+                else:
+                    continue
+                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
+                    hv = float(_hv50.iloc[-1])
+                    if 10 <= hv <= 40:
+                        s4_hv += 1
+            except Exception:
+                continue
+        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
+    except Exception:
+        pass
+    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>4%）
+    try:
+        s5_total = len(symbols)
+        s5_av = 0
+        s5_dv = 0
+        s5_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) > 500_000
+                ):
+                    s5_av += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 2_500_000
+                ):
+                    s5_dv += 1
+                else:
+                    continue
+                _atrp = _df.get("ATR_Pct")
+                if (
+                    _atrp is not None
+                    and not pd.isna(_atrp.iloc[-1])
+                    and float(_atrp.iloc[-1]) > 0.04
+                ):
+                    s5_atr += 1
+            except Exception:
+                continue
+        _log(
+            "🧪 system5内訳: "
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+        )
+    except Exception:
+        pass
+    # System6 フィルター内訳（Low>=5 → DV50>10M）
+    try:
+        s6_total = len(symbols)
+        s6_low = 0
+        s6_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 5:
+                    s6_low += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 10_000_000
+                ):
+                    s6_dv += 1
+            except Exception:
+                continue
+        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+    except Exception:
+        pass
+    # System7 は SPY 固定（参考情報のみ）
+    try:
+        spyp = (
+            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+        )
+        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
+    except Exception:
+        pass
     _log(
         "🧪 フィルター結果: "
         + f"system1={len(system1_syms)}件, "
@@ -1388,7 +1548,9 @@ def _compute_today_signals_impl(
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
     # System1 セットアップ内訳（最新日の filter / setup 判定数）を CLI に出力
     try:
-        s1_filter = 0
+        # フィルタ通過は事前フィルター結果（system1_syms）を使用して確定させる
+        s1_filter = int(len(system1_syms))
+        # セットアップは直近日の SMA25>SMA50 を用いた堅牢な集計
         s1_setup = 0
         for _sym, _df in (raw_data_system1 or {}).items():
             if _df is None or getattr(_df, "empty", True):
@@ -1398,17 +1560,15 @@ def _compute_today_signals_impl(
             except Exception:
                 continue
             try:
-                passed_filter = bool(last["filter"]) if "filter" in last else False
+                filt = bool(last.get("filter", False))
             except Exception:
-                passed_filter = False
-            if passed_filter:
-                s1_filter += 1
-                try:
-                    passed_setup = bool(last["setup"]) if "setup" in last else False
-                except Exception:
-                    passed_setup = False
-                if passed_setup:
-                    s1_setup += 1
+                filt = False
+            try:
+                sma_pass = float(last.get("SMA25", 0)) > float(last.get("SMA50", 0))
+            except Exception:
+                sma_pass = False
+            if filt and sma_pass:
+                s1_setup += 1
         _log(f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SMA25>SMA50: {s1_setup}")
         # UI の STUpass へ反映（50%時点）
         try:
@@ -1561,7 +1721,7 @@ def _compute_today_signals_impl(
             except Exception:
                 pass
         _log(
-            "🧩 system5セットアップ内訳: "
+            "� system5セットアップ内訳: "
             + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
         )
@@ -1573,7 +1733,7 @@ def _compute_today_signals_impl(
             pass
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system6)…")
+    _log("�🧮 指標計算用データロード中 (system6)…")
     raw_data_system6 = _subset_data(system6_syms)
     _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
     # System6 セットアップ内訳: フィルタ通過, Return6D>20%, UpTwoDays
@@ -1642,19 +1802,6 @@ def _compute_today_signals_impl(
 
     def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
         logs: list[str] = []
-
-        # デフォルトのステージ通知（後で上書き）
-        def _stage(
-            v: int,
-            f: int | None = None,
-            s: int | None = None,
-            c: int | None = None,
-            fin: int | None = None,
-        ) -> None:
-            return None
-
-        # デフォルトのルックバック（後で戦略や設定で上書き）
-        lookback_days: int = 240
 
         def _local_log(message: str) -> None:
             logs.append(str(message))
@@ -1726,13 +1873,7 @@ def _compute_today_signals_impl(
             elif env_pp in ("1", "true", "yes"):
                 use_process_pool = True
             else:
-                # 既定: Windows では False（pickle不具合回避）、その他は True
-                try:
-                    import platform as _pf
-
-                    use_process_pool = not _pf.system().lower().startswith("win")
-                except Exception:
-                    use_process_pool = True
+                use_process_pool = True
             # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
@@ -1937,17 +2078,12 @@ def _compute_today_signals_impl(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
-                # cand 件数を 75% 時点で更新（filter/setup は維持）
-                try:
-                    cb2 = globals().get("_PER_SYSTEM_STAGE")
-                except Exception:
-                    cb2 = None
-                if cb2 and callable(cb2):
-                    try:
-                        cand_n = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                        cb2(name, 75, None, None, cand_n, None)
-                    except Exception:
-                        pass
+                # UI コールバックがある場合、_run_strategy 内で UI に転送済みなので
+                # ここで重ねて _log しない（重複防止）。UI が無い場合のみ CLI へ集約出力。
+                cb = globals().get("_LOG_CALLBACK")
+                if not (cb and callable(cb)):
+                    for line in _filter_ui_logs(logs):
+                        _log(f"[{name}] {line}")
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -1980,17 +2116,10 @@ def _compute_today_signals_impl(
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
-            # cand 件数を 75% 時点で更新（filter/setup は維持）
-            try:
-                cb2 = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2 = None
-            if cb2 and callable(cb2):
-                try:
-                    cand_n = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                    cb2(name, 75, None, None, cand_n, None)
-                except Exception:
-                    pass
+            cb = globals().get("_LOG_CALLBACK")
+            if not (cb and callable(cb)):
+                for line in _filter_ui_logs(logs):
+                    _log(f"[{name}] {line}")
             if per_system_progress:
                 try:
                     per_system_progress(name, "done")
@@ -2006,6 +2135,23 @@ def _compute_today_signals_impl(
     # システム別の順序を明示（1..7）に固定
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
+
+    # 並列実行時はワーカースレッドからの UI 更新が抑制されるため、
+    # メインスレッドで候補件数（TRDlist）を75%段階として通知する
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            for _name in order_1_7:
+                _df_sys = per_system.get(_name, pd.DataFrame())
+                _cand_cnt = int(
+                    0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
+                )
+                cb2(_name, 75, None, None, _cand_cnt, None)
+        except Exception:
+            pass
 
     # メトリクス保存前に、当日のトレード候補Top10を簡易出力（デバッグ/可視化用）
     try:
@@ -2362,31 +2508,39 @@ def _compute_today_signals_impl(
         _log(f"📊 最終候補件数: {len(final_df)}")
     else:
         _log("📭 最終候補は0件でした")
+    if progress_callback:
+        try:
+            progress_callback(7, 8, "finalize")
+        except Exception:
+            pass
 
-    # システム別の最終エントリー件数を UI に 100% とともに反映
+    # 最終採用件数（Entry）を100%段階として通知（UI カウンタ整合）
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
     except Exception:
         cb2 = None
     if cb2 and callable(cb2):
         try:
+            # per-system 候補（TRDlist）は上で通知済み。ここでは最終採用数を渡す。
             final_counts: dict[str, int] = {}
-            if final_df is not None and not final_df.empty and "system" in final_df.columns:
-                final_counts = (
-                    final_df.groupby("system").size().to_dict()
-                )  # type: ignore[assignment]
-            for i in range(1, 8):
-                key = f"system{i}"
-                cnt = int(final_counts.get(key, 0))
-                try:
-                    cb2(key, 100, None, None, None, cnt)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    if progress_callback:
-        try:
-            progress_callback(7, 8, "finalize")
+            try:
+                if (
+                    final_df is not None
+                    and not getattr(final_df, "empty", True)
+                    and "system" in final_df.columns
+                ):
+                    final_counts = (
+                        final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
+                    )
+            except Exception:
+                final_counts = {}
+            for _name in order_1_7:
+                _df_sys = per_system.get(_name, pd.DataFrame())
+                _cand_cnt = int(
+                    0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
+                )
+                _final_cnt = int(final_counts.get(_name, 0))
+                cb2(_name, 100, None, None, _cand_cnt, _final_cnt)
         except Exception:
             pass
 
