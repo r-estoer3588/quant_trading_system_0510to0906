@@ -439,6 +439,14 @@ def compute_today_signals(
 
     戻り値: (final_df, per_system_df_dict)
     """
+    # === CLI バナー（開始の明確化）: RUN-ID のみ事前生成 ===
+    try:
+        import uuid as _uuid
+
+        _run_id = str(_uuid.uuid4())[:8]
+    except Exception:
+        _run_id = "--------"
+
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
     # install log callback for helpers
@@ -480,8 +488,7 @@ def compute_today_signals(
             from datetime import datetime as _dt
 
             counts = {
-                k: (0 if (v is None or v.empty) else int(len(v)))
-                for k, v in per_system_map.items()
+                k: (0 if (v is None or v.empty) else int(len(v))) for k, v in per_system_map.items()
             }
             data = {"timestamp": _dt.utcnow().isoformat() + "Z", "counts": counts}
             fp = _prev_counts_path()
@@ -566,6 +573,31 @@ def compute_today_signals(
     if "SPY" not in symbols:
         symbols.append("SPY")
 
+    # バナー（開始）: 罫線は print で出力してタイムスタンプを付けない
+    try:
+        print("#" * 68, flush=True)
+    except Exception:
+        pass
+    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
+    try:
+        import time as _time
+
+        _now = _time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        _now = ""
+    try:
+        universe_total = sum(1 for s in symbols if str(s).upper() != "SPY")
+    except Exception:
+        universe_total = len(symbols)
+    _log(
+        f"# ⏱️ {_now} | 銘柄数：{universe_total}　| RUN-ID: {_run_id}",
+        ui=False,
+    )
+    try:
+        print("#" * 68 + "\n", flush=True)
+    except Exception:
+        pass
+
     _log(
         f"🎯 対象シンボル数: {len(symbols)}"
         f"（例: {', '.join(symbols[:10])}"
@@ -641,7 +673,12 @@ def compute_today_signals(
                 # 受け取りが無い/不足 → キャッシュから取得
                 if df is None or df.empty:
                     df = cm.read(sym, "rolling")
-                if df is None or df.empty:
+                # 既存 rolling があっても行数不足なら再構築する
+                target_len = int(
+                    settings.cache.rolling.base_lookback_days
+                    + settings.cache.rolling.buffer_days
+                )
+                if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     # rolling 不在 → base から必要分を生成して保存
                     try:
                         from common.cache_manager import load_base_cache
@@ -676,8 +713,11 @@ def compute_today_signals(
                     for k, v in list(col_map.items()):
                         if k in x.columns:
                             x = x.rename(columns={k: v})
-                    # 必要期間: 設計上 240 営業日（不足時は全量）
-                    n = int(settings.cache.rolling.base_lookback_days)
+                    # 必要期間: 設計上 base_lookback_days + buffer_days（不足時は全量）
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
                     sliced = x.tail(n).reset_index(drop=True)
                     cm.write_atomic(sliced, sym, "rolling")
                     df = sliced
@@ -910,7 +950,11 @@ def compute_today_signals(
                     df = None
                 if df is None or df.empty:
                     df = cm.read(sym, "rolling")
-                if df is None or df.empty:
+                target_len = int(
+                    settings.cache.rolling.base_lookback_days
+                    + settings.cache.rolling.buffer_days
+                )
+                if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                     try:
                         from common.cache_manager import load_base_cache
                     except Exception:
@@ -943,7 +987,10 @@ def compute_today_signals(
                     for k, v in list(col_map.items()):
                         if k in x.columns:
                             x = x.rename(columns={k: v})
-                    n = int(settings.cache.rolling.base_lookback_days)
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
                     sliced = x.tail(n).reset_index(drop=True)
                     cm.write_atomic(sliced, sym, "rolling")
                     df = sliced
@@ -1370,21 +1417,183 @@ def compute_today_signals(
     _log("🧮 指標計算用データロード中 (system1)…")
     raw_data_system1 = _subset_data(system1_syms)
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
+    # System1 セットアップ内訳（最新日の filter / setup 判定数）を CLI に出力
+    try:
+        s1_filter = 0
+        s1_setup = 0
+        for _sym, _df in (raw_data_system1 or {}).items():
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                passed_filter = bool(last["filter"]) if "filter" in last else False
+            except Exception:
+                passed_filter = False
+            if passed_filter:
+                s1_filter += 1
+                try:
+                    passed_setup = bool(last["setup"]) if "setup" in last else False
+                except Exception:
+                    passed_setup = False
+                if passed_setup:
+                    s1_setup += 1
+        _log(f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SMA25>SMA50: {s1_setup}")
+    except Exception:
+        pass
     _log("🧮 指標計算用データロード中 (system2)…")
     raw_data_system2 = _subset_data(system2_syms)
     _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
+    # System2 セットアップ内訳: フィルタ通過, RSI3>90, TwoDayUp
+    try:
+        s2_filter = int(len(system2_syms))
+        s2_rsi = 0
+        s2_up2 = 0
+        for _sym in (system2_syms or []):
+            _df = raw_data_system2.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("RSI3", 0)) > 90:
+                    s2_rsi += 1
+            except Exception:
+                pass
+            try:
+                if bool(last.get("TwoDayUp", False)):
+                    s2_up2 += 1
+            except Exception:
+                pass
+        _log(f"🧩 system2セットアップ内訳: フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, TwoDayUp: {s2_up2}")
+    except Exception:
+        pass
     _log("🧮 指標計算用データロード中 (system3)…")
     raw_data_system3 = _subset_data(system3_syms)
     _log(f"🧮 指標データ: system3={len(raw_data_system3)}銘柄")
+    # System3 セットアップ内訳: フィルタ通過, Close>SMA150, 3日下落率>=12.5%
+    try:
+        s3_filter = int(len(system3_syms))
+        s3_close = 0
+        s3_drop = 0
+        for _sym in (system3_syms or []):
+            _df = raw_data_system3.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA150", float("inf"))):
+                    s3_close += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("Drop3D", 0)) >= 0.125:
+                    s3_drop += 1
+            except Exception:
+                pass
+        _log(
+            f"🧩 system3セットアップ内訳: フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, 3日下落率>=12.5%: {s3_drop}"
+        )
+    except Exception:
+        pass
     _log("🧮 指標計算用データロード中 (system4)…")
     raw_data_system4 = _subset_data(system4_syms)
     _log(f"🧮 指標データ: system4={len(raw_data_system4)}銘柄")
+    # System4 セットアップ内訳: フィルタ通過, Close>SMA200
+    try:
+        s4_filter = int(len(system4_syms))
+        s4_close = 0
+        for _sym in (system4_syms or []):
+            _df = raw_data_system4.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA200", float("inf"))):
+                    s4_close += 1
+            except Exception:
+                pass
+        _log(f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
+    except Exception:
+        pass
     _log("🧮 指標計算用データロード中 (system5)…")
     raw_data_system5 = _subset_data(system5_syms)
     _log(f"🧮 指標データ: system5={len(raw_data_system5)}銘柄")
-    _log("🧮 指標計算用データロード中 (system6)…")
+    # System5 セットアップ内訳: フィルタ通過, Close>SMA100+ATR10, ADX7>55, RSI3<50
+    try:
+        s5_filter = int(len(system5_syms))
+        s5_close = 0
+        s5_adx = 0
+        s5_rsi = 0
+        for _sym in (system5_syms or []):
+            _df = raw_data_system5.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(last.get("ATR10", 0)):
+                    s5_close += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("ADX7", 0)) > 55:
+                    s5_adx += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("RSI3", 100)) < 50:
+                    s5_rsi += 1
+            except Exception:
+                pass
+        _log(
+            f"� system5セットアップ内訳: フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
+        )
+    except Exception:
+        pass
+    _log("�🧮 指標計算用データロード中 (system6)…")
     raw_data_system6 = _subset_data(system6_syms)
     _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
+    # System6 セットアップ内訳: フィルタ通過, Return6D>20%, UpTwoDays
+    try:
+        s6_filter = int(len(system6_syms))
+        s6_ret = 0
+        s6_up2 = 0
+        for _sym in (system6_syms or []):
+            _df = raw_data_system6.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Return6D", 0)) > 0.20:
+                    s6_ret += 1
+            except Exception:
+                pass
+            try:
+                if bool(last.get("UpTwoDays", False)):
+                    s6_up2 += 1
+            except Exception:
+                pass
+        _log(
+            f"🧩 system6セットアップ内訳: フィルタ通過={s6_filter}, Return6D>20%: {s6_ret}, UpTwoDays: {s6_up2}"
+        )
+    except Exception:
+        pass
     if progress_callback:
         try:
             progress_callback(4, 8, "load_indicators")
@@ -1503,7 +1712,10 @@ def compute_today_signals(
             # ルックバックは『必要指標の最大窓＋α』を動的推定
             try:
                 settings2 = get_settings(create_dirs=True)
-                lb_default = int(settings2.cache.rolling.base_lookback_days)
+                lb_default = int(
+                    settings2.cache.rolling.base_lookback_days
+                    + settings2.cache.rolling.buffer_days
+                )
             except Exception:
                 settings2 = None
                 lb_default = 240
@@ -1587,9 +1799,19 @@ def compute_today_signals(
     except Exception:
         cb2 = None
     if cb2 and callable(cb2):
+        # 0% ステージの「対象→」はユニバース総数ベース（SPYは除外）
+        try:
+            universe_total = sum(1 for s in (symbols or []) if str(s).upper() != "SPY")
+        except Exception:
+            universe_total = len(symbols) if symbols is not None else 0
+            try:
+                has_spy = 1 if "SPY" in (symbols or []) else 0
+                universe_total = max(0, int(universe_total) - has_spy)
+            except Exception:
+                pass
         for name in strategies.keys():
             try:
-                cb2(name, 0, None, None, None, None)
+                cb2(name, 0, int(universe_total), None, None, None)
             except Exception:
                 pass
     if parallel:
@@ -1612,6 +1834,8 @@ def compute_today_signals(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
+                for line in _filter_ui_logs(logs):
+                    _log(f"[{name}] {line}")
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -1644,6 +1868,8 @@ def compute_today_signals(
                     pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
+            for line in _filter_ui_logs(logs):
+                _log(f"[{name}] {line}")
             if per_system_progress:
                 try:
                     per_system_progress(name, "done")
@@ -2006,6 +2232,24 @@ def compute_today_signals(
     try:
         cnt = 0 if final_df is None else len(final_df)
         _log(f"✅ シグナル検出処理 終了 | 最終候補 {cnt} 件")
+    except Exception:
+        pass
+
+    # === CLI バナー（終了の明確化）===
+    try:
+        import time as _time
+
+        _end_txt = _time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        _end_txt = ""
+    try:
+        print("#" * 68, flush=True)
+    except Exception:
+        pass
+    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False)
+    _log(f"# ⏱️ {_end_txt} | RUN-ID: {_run_id}", ui=False)
+    try:
+        print("#" * 68 + "\n", flush=True)
     except Exception:
         pass
 

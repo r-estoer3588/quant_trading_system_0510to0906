@@ -8,6 +8,8 @@ from typing import Any
 
 import pandas as pd
 
+from config.settings import get_settings
+
 # --- サイド定義（売買区分）---
 LONG_SYSTEMS = {"system1", "system3", "system4", "system5"}
 SHORT_SYSTEMS = {"system2", "system6", "system7"}
@@ -96,6 +98,11 @@ def _label_for_score_key(key: str | None) -> str:
         "ATR50": "ATR50",
     }
     return mapping.get(k, k)
+
+
+def _asc_by_score_key(score_key: str | None) -> bool:
+    """スコアキーごとの昇順/降順を判定。"""
+    return bool(score_key and score_key.upper() in {"RSI4"})
 
 
 def _pick_atr_col(df: pd.DataFrame) -> str | None:
@@ -519,9 +526,6 @@ def get_today_signals_for_strategy(
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
-            log_callback(
-                f"🧮 トレード候補選定完了（当日）：{total_candidates_today} 銘柄"
-            )
         except Exception:
             pass
 
@@ -774,10 +778,37 @@ def get_today_signals_for_strategy(
         )
 
     out = pd.DataFrame([r.__dict__ for r in rows])
+
+    try:
+        max_pos = int(get_settings(create_dirs=False).risk.max_positions)
+    except Exception:
+        max_pos = 10
+    if max_pos > 0 and not out.empty:
+        def _sort_val(row: pd.Series) -> float:
+            sc = row.get("score")
+            sk = row.get("score_key")
+            if sc is None or (isinstance(sc, float) and pd.isna(sc)):
+                return float("inf")
+            return float(sc) if _asc_by_score_key(sk) else -float(sc)
+
+        out["_sort_val"] = out.apply(_sort_val, axis=1)
+        out = (
+            out.sort_values("_sort_val")
+            .head(max_pos)
+            .drop(columns=["_sort_val"])
+            .reset_index(drop=True)
+        )
+    final_count = len(out)
+
+    try:
+        if log_callback:
+            log_callback(f"🧮 トレード候補選定完了（当日）：{final_count} 銘柄")
+    except Exception:
+        pass
     try:
         if stage_progress:
             stage_progress(
-                100, filter_pass, setup_pass, total_candidates_today, len(rows)
+                100, filter_pass, setup_pass, total_candidates_today, final_count
             )
     except Exception:
         pass

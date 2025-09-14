@@ -142,7 +142,18 @@ def generate_candidates_system7(
         candidates_by_date.setdefault(entry_date, []).append(rec)
     if log_callback:
         try:
-            log_callback(f"候補日数: {len(candidates_by_date)}")
+            # 直近のセットアップ（50日安値ブレイク）に基づく、
+            # 翌営業日のユニークなエントリー予定日数を、過去50営業日に限定して集計
+            all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            window_size = int(min(50, len(all_dates)) or 50)
+            if window_size > 0:
+                recent_set = set(all_dates[-window_size:])
+            else:
+                recent_set = set()
+            count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
+            log_callback(
+                f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
+            )
         except Exception:
             pass
     if progress_callback:

@@ -332,6 +332,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # 開始時刻を記録
     start_time = time.time()
+    # CLI バナーはエンジン側で出すため、UI側では出さない
     # 進捗表示用の領域（1行上書き）
     # ETA 専用表示（共有指標 前計算の残り時間など）
     eta_area = st.empty()
@@ -350,8 +351,26 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             col.caption(sys_labels[i - 1])
         sys_bars = {f"system{i}": sys_cols[i - 1].progress(0) for i in range(1, 8)}
         sys_stage_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
-        # 追加: メトリクス表示用の行（stageの下の行）
-        sys_metrics_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
+        # 追加: メトリクス表示用（行ごとに個別 placeholder を用意）
+        sys_metrics_txt = {}
+        for i in range(1, 8):
+            n = f"system{i}"
+            with sys_cols[i - 1]:
+                sys_metrics_txt[n] = {
+                    "target": st.empty(),
+                    "filter": st.empty(),
+                    "setup": st.empty(),
+                    "cand": st.empty(),
+                    "entry": st.empty(),
+                    "exit": st.empty(),
+                }
+                # 初期表示（ハイフン）
+                sys_metrics_txt[n]["target"].text("target→-")
+                sys_metrics_txt[n]["filter"].text("filter-pass→-")
+                sys_metrics_txt[n]["setup"].text("setup-pass→-")
+                sys_metrics_txt[n]["cand"].text("trade-list→-")
+                sys_metrics_txt[n]["entry"].text("entry→-")
+                sys_metrics_txt[n]["exit"].text("exit→-")
         # 追加: システム別の補足表示（System2のフィルタ内訳など）
         sys_extra_txt = {f"system{i}": sys_cols[i - 1].empty() for i in range(1, 8)}
         sys_states = {k: 0 for k in sys_bars.keys()}
@@ -365,7 +384,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     log_lines: list[str] = []
     # 追加: per-system メトリクス保持（filter/setup/cand/entry/exit）
     stage_counts: dict[str, dict[str, int | None]] = {
-        f"system{i}": {"filter": None, "setup": None, "cand": None, "entry": None, "exit": None}
+        f"system{i}": {
+            "target": None,
+            "filter": None,
+            "setup": None,
+            "cand": None,
+            "entry": None,
+            "exit": None,
+        }
         for i in range(1, 8)
     }
 
@@ -575,23 +601,24 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 sc["cand"] = int(cand_cnt)
             if final_cnt is not None:
                 sc["entry"] = int(final_cnt)
-            # 逐次メトリクスの改行レンダリング（欠損は「-」）
-            target_txt = "-"
+            # 逐次メトリクスを行ごとに個別更新（欠損は「-」）
             try:
-                if sc.get("target") is not None:
-                    target_txt = str(sc.get("target"))
+                tgt = str(sc.get("target")) if sc.get("target") is not None else "-"
+                fil = str(sc.get("filter")) if sc.get("filter") is not None else "-"
+                sup = str(sc.get("setup")) if sc.get("setup") is not None else "-"
+                can = str(sc.get("cand")) if sc.get("cand") is not None else "-"
+                ent = str(sc.get("entry")) if sc.get("entry") is not None else "-"
+                exi = str(sc.get("exit")) if sc.get("exit") is not None else "-"
+                elems = sys_metrics_txt.get(n)
+                if elems:
+                    elems["target"].text(f"target→{tgt}")
+                    elems["filter"].text(f"filter-pass→{fil}")
+                    elems["setup"].text(f"setup-pass→{sup}")
+                    elems["cand"].text(f"trade-list→{can}")
+                    elems["entry"].text(f"entry→{ent}")
+                    elems["exit"].text(f"exit→{exi}")
             except Exception:
-                target_txt = "-"
-            lines = [
-                f"対象→{target_txt}",
-                f"filter通過数→{sc.get('filter', '-') if sc.get('filter') is not None else '-'}",
-                f"setupクリア数→{sc.get('setup', '-') if sc.get('setup') is not None else '-'}",
-                f"trade候補数→{sc.get('cand', '-') if sc.get('cand') is not None else '-'}",
-                f"エントリー→{sc.get('entry', '-') if sc.get('entry') is not None else '-'}",
-                f"エグジット→{sc.get('exit', '-') if sc.get('exit') is not None else '-'}",
-            ]
-            if n in sys_metrics_txt:
-                sys_metrics_txt[n].text("\n".join(lines))
+                pass
         except Exception:
             pass
 
