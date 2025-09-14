@@ -11,7 +11,6 @@ from pathlib import Path
 import logging
 import pandas as pd
 
-from common.notifier import Notifier
 from config.settings import get_settings
 
 
@@ -60,7 +59,9 @@ def notify_metrics() -> None:
     title = "\U0001F4C8 本日のメトリクス（事前フィルタ / 候補数）"
     msg = f"対象日: {day_str or ''}"
     try:
-        Notifier(platform="auto").send(title, msg, fields=fields)
+        from common.notifier import create_notifier
+
+        create_notifier(platform="auto", fallback=True).send(title, msg, fields=fields)
     except Exception:
         # 環境未設定でも処理継続（ログのみ）
         logging.info("metrics notified (log only)")

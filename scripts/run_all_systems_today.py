@@ -11,7 +11,7 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager
-from common.notifier import Notifier
+from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
@@ -385,7 +385,7 @@ def _submit_orders(
             elif side_val == "sell":
                 entry_map.pop(sym, None)
         save_entry_dates(entry_map)
-        notifier = Notifier(platform="auto")
+        notifier = create_notifier(platform="auto", fallback=True)
         notifier.send_trade_report("integrated", results)
         return out
     return pd.DataFrame()
@@ -707,8 +707,8 @@ def compute_today_signals(
             # 株価5ドル以上（直近終値）
             if df["close"].iloc[-1] < 5:
                 continue
-            # 過去20日平均売買代金5000万ドル以上
-            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 5e7:
+            # 過去20日平均売買代金（厳密: mean(close*volume)）が5000万ドル以上
+            if (df["close"] * df["volume"]).tail(20).mean() < 5e7:
                 continue
             result.append(sym)
         return result
@@ -721,7 +721,7 @@ def compute_today_signals(
                 continue
             if df["close"].iloc[-1] < 5:
                 continue
-            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 2.5e7:
+            if (df["close"] * df["volume"]).tail(20).mean() < 2.5e7:
                 continue
             # ATR計算（過去10日）
             if "high" in df.columns and "low" in df.columns:
@@ -1048,6 +1048,22 @@ def compute_today_signals(
     system4_syms = filter_system4(symbols, basic_data)
     system5_syms = filter_system5(symbols, basic_data)
     system6_syms = filter_system6(symbols, basic_data)
+    # UI のメトリクスに対象銘柄数を即反映（0%段階）
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            cb2("system1", 0, len(system1_syms), None, None, None)
+            cb2("system2", 0, len(system2_syms), None, None, None)
+            cb2("system3", 0, len(system3_syms), None, None, None)
+            cb2("system4", 0, len(system4_syms), None, None, None)
+            cb2("system5", 0, len(system5_syms), None, None, None)
+            cb2("system6", 0, len(system6_syms), None, None, None)
+            cb2("system7", 0, 1 if "SPY" in basic_data else 0, None, None, None)
+        except Exception:
+            pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
     try:
         s2_total = len(symbols)
@@ -1065,8 +1081,8 @@ def compute_today_signals(
                     c_price += 1
                 else:
                     continue
-                # 売買代金フィルター（20日平均）
-                dv = float(_df["close"].tail(20).mean() * _df["volume"].tail(20).mean())
+                # 売買代金フィルター（20日平均・厳密）
+                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
                 if dv >= 2.5e7:
                     c_dv += 1
                 else:
@@ -1081,7 +1097,7 @@ def compute_today_signals(
                 continue
         _log(
             "🧪 system2内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price}, DV>=25M: {c_dv}, ATR>=3%: {c_atr}"
+            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
         )
     except Exception:
         pass
@@ -1101,14 +1117,15 @@ def compute_today_signals(
                 else:
                     continue
                 dv20 = float(
-                    _df.get("close", _df.get("Close")).tail(20).mean()  # type: ignore[union-attr]
-                    * _df.get("volume", _df.get("Volume")).tail(20).mean()  # type: ignore[union-attr]
+                    (_df.get("close", _df.get("Close")) * _df.get("volume", _df.get("Volume")))
+                    .tail(20)
+                    .mean()  # type: ignore[union-attr]
                 )
                 if dv20 >= 5e7:
                     s1_dv += 1
             except Exception:
                 continue
-        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV>=50M: {s1_dv}")
+        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
     except Exception:
         pass
     # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
@@ -1643,7 +1660,7 @@ def compute_today_signals(
                 except Exception:
                     _td_str = ""
                 msg = f"対象日: {_td_str}"
-                notifier = Notifier(platform="auto")
+                notifier = create_notifier(platform="auto", fallback=True)
                 notifier.send(title, msg, fields=fields)
             except Exception:
                 pass
