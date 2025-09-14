@@ -19,7 +19,20 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
-    # メモリ節約のため浅いコピーに変更（新規列の追加は元データに影響しない）
+    df = df.copy(deep=False)
+    rename_map = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in df.columns and up not in df.columns:
+            rename_map[low] = up
+    if rename_map:
+        df.rename(columns=rename_map, inplace=True)
+
     x = df.copy(deep=False)
     if len(x) < 200:
         return symbol, None
@@ -139,12 +152,26 @@ def prepare_data_vectorized_system4(
         return x
 
     for sym, df in raw_data_dict.items():
+        # 列名の大小文字差を吸収
+        df = df.copy(deep=False)
+        rename_map = {}
+        for low, up in (
+            ("open", "Open"),
+            ("high", "High"),
+            ("low", "Low"),
+            ("close", "Close"),
+            ("volume", "Volume"),
+        ):
+            if low in df.columns and up not in df.columns:
+                rename_map[low] = up
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
         if "Date" in df.columns:
-            # インデックス正規化前の浅いコピー（index 再割当は元 df に影響しない）
-            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
+        elif "date" in df.columns:
+            df.index = pd.Index(pd.to_datetime(df["date"]).dt.normalize())
         else:
-            df = df.copy(deep=False)
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
@@ -340,6 +367,8 @@ def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:
             continue
         if "Date" in df.columns:
             dates = pd.to_datetime(df["Date"]).dt.normalize()
+        elif "date" in df.columns:
+            dates = pd.to_datetime(df["date"]).dt.normalize()
         else:
             dates = pd.to_datetime(df.index).normalize()
         all_dates.update(dates)

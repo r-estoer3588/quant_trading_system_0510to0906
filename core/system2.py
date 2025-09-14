@@ -24,7 +24,23 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     if df is None or df.empty:
         return symbol, None
 
-    base_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+    # lower-case の OHLCV を許容
+    rename_map = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in df.columns and up not in df.columns:
+            rename_map[low] = up
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    base_cols = [
+        c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns
+    ]
     if base_cols:
         x = df[base_cols].copy()
     else:
@@ -48,8 +64,14 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     else:
         x["DollarVolume20"] = pd.Series(index=x.index, dtype=float)
     x["ATR_Ratio"] = x["ATR10"] / x["Close"]
-    x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
-    x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 25_000_000) & (x["ATR_Ratio"] > 0.03)
+    x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (
+        x["Close"].shift(1) > x["Close"].shift(2)
+    )
+    x["filter"] = (
+        (x["Low"] >= 5)
+        & (x["DollarVolume20"] > 25_000_000)
+        & (x["ATR_Ratio"] > 0.03)
+    )
     x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
     return symbol, x
 
@@ -86,7 +108,10 @@ def prepare_data_vectorized_system2(
         buffer: list[str] = []
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_compute_indicators, sym): sym for sym in symbols}
+            futures = {
+                executor.submit(_compute_indicators, sym): sym
+                for sym in symbols
+            }
             for i, fut in enumerate(as_completed(futures), 1):
                 sym, df = fut.result()
                 if df is not None:
@@ -133,7 +158,9 @@ def prepare_data_vectorized_system2(
     skipped_count = 0
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        base_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in src.columns]
+        base_cols = [
+            c for c in ["Open", "High", "Low", "Close", "Volume"] if c in src.columns
+        ]
         if base_cols:
             x = src[base_cols].copy()
         else:
@@ -154,16 +181,35 @@ def prepare_data_vectorized_system2(
         x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (
             x["Close"].shift(1) > x["Close"].shift(2)
         )
-        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 25_000_000) & (x["ATR_Ratio"] > 0.03)
+        x["filter"] = (
+            (x["Low"] >= 5)
+            & (x["DollarVolume20"] > 25_000_000)
+            & (x["ATR_Ratio"] > 0.03)
+        )
         x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
         return x
 
     for sym, df in raw_data_dict.items():
+        # 列名の大小文字差を吸収
+        df = df.copy()
+        rename_map = {}
+        for low, up in (
+            ("open", "Open"),
+            ("high", "High"),
+            ("low", "Low"),
+            ("close", "Close"),
+            ("volume", "Volume"),
+        ):
+            if low in df.columns and up not in df.columns:
+                rename_map[low] = up
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
         if "Date" in df.columns:
-            df = df.copy()
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
+        elif "date" in df.columns:
+            df.index = pd.Index(pd.to_datetime(df["date"]).dt.normalize())
         else:
-            df = df.copy()
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
@@ -277,6 +323,8 @@ def get_total_days_system2(data_dict: Dict[str, pd.DataFrame]) -> int:
             continue
         if "Date" in df.columns:
             dates = pd.to_datetime(df["Date"]).dt.normalize()
+        elif "date" in df.columns:
+            dates = pd.to_datetime(df["date"]).dt.normalize()
         else:
             dates = pd.to_datetime(df.index).normalize()
         all_dates.update(dates)

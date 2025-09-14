@@ -484,8 +484,8 @@ def compute_today_signals(
 
     def _save_prev_counts(per_system_map: dict[str, pd.DataFrame]) -> None:
         try:
-            import json as _json
             from datetime import datetime as _dt
+            import json as _json
 
             counts = {
                 k: (0 if (v is None or v.empty) else int(len(v))) for k, v in per_system_map.items()
@@ -735,6 +735,7 @@ def compute_today_signals(
                         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
                     except Exception:
                         pass
+                    df = _normalize_ohlcv(df)
                     data[sym] = df
             except Exception:
                 continue
@@ -827,6 +828,22 @@ def compute_today_signals(
             return float(s2.iloc[-1])
         except Exception:
             return None
+
+    def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+        """列名を大文字OHLCVに統一"""
+        col_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+            "adj_close": "AdjClose",
+            "adjusted_close": "AdjClose",
+        }
+        try:
+            return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+        except Exception:
+            return df
 
     def filter_system1(symbols, data):
         result = []
@@ -1061,6 +1078,7 @@ def compute_today_signals(
                         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
                     except Exception:
                         pass
+                    df = _normalize_ohlcv(df)
                     data[sym] = df
             except Exception:
                 continue
@@ -1146,6 +1164,7 @@ def compute_today_signals(
                     load_base_cache(sym, rebuild_if_missing=True)
                     df = cm.read(sym, "rolling")
                     if df is not None and not df.empty:
+                        df = _normalize_ohlcv(df)
                         basic_data[sym] = df
                 except Exception:
                     continue

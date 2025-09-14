@@ -20,6 +20,20 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+    df = df.copy()
+    rename_map = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in df.columns and up not in df.columns:
+            rename_map[low] = up
+    if rename_map:
+        df.rename(columns=rename_map, inplace=True)
+
     x = df.copy()
     if len(x) < 100:
         return symbol, None
@@ -158,11 +172,25 @@ def prepare_data_vectorized_system5(
         return x
 
     for sym, df in raw_data_dict.items():
+        df = df.copy()
+        rename_map = {}
+        for low, up in (
+            ("open", "Open"),
+            ("high", "High"),
+            ("low", "Low"),
+            ("close", "Close"),
+            ("volume", "Volume"),
+        ):
+            if low in df.columns and up not in df.columns:
+                rename_map[low] = up
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
         if "Date" in df.columns:
-            df = df.copy()
             df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
+        elif "date" in df.columns:
+            df.index = pd.Index(pd.to_datetime(df["date"]).dt.normalize())
         else:
-            df = df.copy()
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
@@ -344,6 +372,8 @@ def get_total_days_system5(data_dict: dict[str, pd.DataFrame]) -> int:
             continue
         if "Date" in df.columns:
             dates = pd.to_datetime(df["Date"]).dt.normalize()
+        elif "date" in df.columns:
+            dates = pd.to_datetime(df["date"]).dt.normalize()
         else:
             dates = pd.to_datetime(df.index).normalize()
         all_dates.update(dates)
