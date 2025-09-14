@@ -482,6 +482,11 @@ def compute_today_signals(
                 symbols = list(dict.fromkeys(primaries + others))
             except Exception:
                 symbols = []
+    # UI指定のユニバース件数を保持（SPY付加前の値）
+    try:
+        universe_total = len(symbols)
+    except Exception:
+        universe_total = 0
     if "SPY" not in symbols:
         symbols.append("SPY")
 
@@ -1286,6 +1291,7 @@ def compute_today_signals(
                 use_process_pool=use_process_pool,
                 max_workers=max_workers,
                 lookback_days=lookback_days,
+                universe_count=universe_total,
             )
             _elapsed = int(max(0, __import__("time").time() - _t0))
             _m, _s = divmod(_elapsed, 60)
@@ -1302,6 +1308,7 @@ def compute_today_signals(
             df = df.sort_values("score", ascending=asc, na_position="last")
             df = df.reset_index(drop=True)
         if df is not None and not df.empty:
+            # ここでは抽出候補数。実際のエントリー数は配分後に決まる。
             msg = f"✅ {name}: {len(df)} 件"
         else:
             msg = f"❌ {name}: 0 件 🚫"
@@ -1689,6 +1696,14 @@ def compute_today_signals(
         except Exception:
             pass
         _log(f"📊 最終候補件数: {len(final_df)}")
+        # 実エントリー件数（配分後）を system 別に通知（UI 側のエントリー行に対応）
+        try:
+            grp_cnt = final_df.groupby("system").size().to_dict()
+            for _name in [f"system{i}" for i in range(1, 8)]:
+                _cnt = int(grp_cnt.get(_name, 0))
+                _log(f"✅ {_name}: {_cnt} 件")
+        except Exception:
+            pass
     else:
         _log("📭 最終候補は0件でした")
     if progress_callback:

@@ -127,6 +127,7 @@ class StrategyBase(ABC):
         use_process_pool: bool = False,
         max_workers: int | None = None,
         lookback_days: int | None = None,
+        universe_count: int | None = None,
     ) -> pd.DataFrame:
         """
         各 strategy の `prepare_data`/`generate_candidates` を流用し、
@@ -148,4 +149,5 @@ class StrategyBase(ABC):
             use_process_pool=use_process_pool,
             max_workers=max_workers,
             lookback_days=lookback_days,
+            universe_count=universe_count,
         )
