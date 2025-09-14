@@ -18,6 +18,59 @@ from common.utils_spy import get_spy_data_cached, get_spy_with_indicators
 from scripts.tickers_loader import get_all_tickers
 
 
+def render_metrics_tab(settings) -> None:
+    import pandas as _pd
+    import streamlit as st
+    from pathlib import Path
+
+    st.subheader(tr("Daily Metrics"))
+    try:
+        results_dir = Path(settings.RESULTS_DIR)
+    except Exception:
+        results_dir = Path("results_csv")
+    metrics_fp = results_dir / "daily_metrics.csv"
+    if not metrics_fp.exists():
+        st.info(tr("metrics csv not found: {p}").format(p=str(metrics_fp)))
+        return
+    try:
+        df = _pd.read_csv(metrics_fp)
+    except Exception as e:
+        st.warning(f"failed to read metrics: {e}")
+        return
+    if df.empty:
+        st.info(tr("no metrics yet"))
+        return
+    # normalize date
+    try:
+        df["date"] = _pd.to_datetime(df["date"]).dt.date
+    except Exception:
+        pass
+    systems = sorted(df["system"].dropna().unique())
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        sel_metric = st.selectbox("metric", ["candidates", "prefilter_pass"], index=0)
+    with col2:
+        sel_systems = st.multiselect("systems", systems, default=systems)
+    with col3:
+        chart_type = st.selectbox("chart", ["line", "bar"], index=0)
+
+    work = df[df["system"].isin(sel_systems)].copy()
+    pivot = work.pivot_table(
+        index="date", columns="system", values=sel_metric, aggfunc="sum"
+    ).fillna(0)
+    st.caption(tr("daily {m} by system").format(m=sel_metric))
+    try:
+        if chart_type == "line":
+            st.line_chart(pivot)
+        else:
+            st.bar_chart(pivot)
+    except Exception:
+        st.dataframe(pivot)
+    st.markdown("---")
+    st.caption(tr("raw metrics"))
+    st.dataframe(df.sort_values(["date", "system"]))
+
+
 def _show_sys_result(df, capital):
     if df is None or getattr(df, "empty", True):
         st.info(tr("no trades"))
@@ -87,20 +140,28 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 try:
                     f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
                     s = sum(f.values())
-                    return {k: v / s for k, v in (f or default_map).items()} if s > 0 else default_map
+                    return (
+                        {k: v / s for k, v in (f or default_map).items()}
+                        if s > 0
+                        else default_map
+                    )
                 except Exception:
                     return default_map
 
             la = getattr(settings.ui, "long_allocations", {}) or {}
             sa = getattr(settings.ui, "short_allocations", {}) or {}
-            la_n = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
+            la_n = _norm_map(
+                la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+            )
             sa_n = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
+
             def _fmt(d: dict[str, float]):
                 try:
                     items = [f"{k}:{v:.0%}" for k, v in d.items()]
                     return ", ".join(items)
                 except Exception:
                     return ""
+
             st.caption(f"settings long=({_fmt(la_n)}), short=({_fmt(sa_n)})")
         except Exception:
             pass
@@ -207,6 +268,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 return s
             except Exception:
                 return s
+
         def _norm_map(d: dict[str, float], default_map: dict[str, float]):
             try:
                 f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
@@ -214,15 +276,19 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 if s <= 0:
                     f = default_map
                     s = sum(f.values())
-                return { _canon(k): v / s for k, v in f.items() }
+                return {_canon(k): v / s for k, v in f.items()}
             except Exception:
                 s = sum(default_map.values())
-                return { _canon(k): v / s for k, v in default_map.items() }
+                return {_canon(k): v / s for k, v in default_map.items()}
 
         la = getattr(settings.ui, "long_allocations", {}) or {}
         sa = getattr(settings.ui, "short_allocations", {}) or {}
-        alloc_map_long = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
-        alloc_map_short = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
+        alloc_map_long = _norm_map(
+            la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+        )
+        alloc_map_short = _norm_map(
+            sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20}
+        )
         alloc_map = {**alloc_map_long, **alloc_map_short}
 
         trades_df, _sig = run_integrated_backtest(
@@ -236,8 +302,10 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         )
         try:
             import logging as _logging
+
             _logging.getLogger(__name__).info(
-                "[integrated] result trades=%d", 0 if trades_df is None else len(trades_df)
+                "[integrated] result trades=%d",
+                0 if trades_df is None else len(trades_df),
             )
         except Exception:
             pass

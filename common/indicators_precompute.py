@@ -14,6 +14,41 @@ try:
 except Exception:  # pragma: no cover
     get_settings = None  # type: ignore
 
+# 共有前計算で付与する主な指標（説明用）。
+# インポート時点で参照可能にし、呼び出し側の from ... import を安全化する。
+PRECOMPUTED_INDICATORS = (
+    # ATR 系
+    "ATR10",
+    "ATR20",
+    "ATR40",
+    "ATR50",
+    # 移動平均
+    "SMA25",
+    "SMA50",
+    "SMA100",
+    "SMA150",
+    "SMA200",
+    # モメンタム/オシレーター
+    "ROC200",
+    "RSI3",
+    "RSI4",
+    "ADX7",
+    # 流動性・ボラティリティ等
+    "DollarVolume20",
+    "DollarVolume50",
+    "AvgVolume50",
+    "ATR_Ratio",
+    "ATR_Pct",
+    # 派生・補助指標
+    "Return_3D",
+    "6D_Return",
+    "UpTwoDays",
+    "TwoDayUp",
+    "HV50",
+    "min_50",
+    "max_70",
+)
+
 
 def _ensure_price_columns_upper(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy()

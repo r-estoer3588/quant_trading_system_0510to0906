@@ -7,7 +7,7 @@ import streamlit as st
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import setup_logging
 import common.ui_patch  # noqa: F401
-from common.ui_tabs import render_batch_tab, render_integrated_tab
+from common.ui_tabs import render_batch_tab, render_integrated_tab, render_metrics_tab
 from common.utils_spy import get_spy_data_cached
 from config.settings import get_settings
 
@@ -61,7 +61,9 @@ def main() -> None:
             st.write("DEFAULT CAPITAL:", settings.ui.default_capital)
             st.write("LOG LEVEL:", settings.logging.level)
 
-    tabs = st.tabs([tr("Integrated"), tr("Batch")] + [f"System{i}" for i in range(1, 8)])
+    tabs = st.tabs(
+        [tr("Integrated"), tr("Batch"), tr("Metrics")] + [f"System{i}" for i in range(1, 8)]
+    )
 
     with tabs[0]:
         render_integrated_tab(settings, notifier)
@@ -69,7 +71,10 @@ def main() -> None:
     with tabs[1]:
         render_batch_tab(settings, logger, notifier)
 
-    system_tabs = tabs[2:]
+    with tabs[2]:
+        render_metrics_tab(settings)
+
+    system_tabs = tabs[3:]
     for sys_idx, tab in enumerate(system_tabs, start=1):
         sys_name = f"System{sys_idx}"
         with tab:

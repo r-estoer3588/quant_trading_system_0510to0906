@@ -73,7 +73,7 @@ logging:
   filename: app.log
 
 scheduler:
-  timezone: America/New_York
+  timezone: Asia/Tokyo
   jobs:
     - name: update_tickers
       cron: "0 6 * * 1-5"
@@ -93,6 +93,12 @@ scheduler:
     - name: update_trailing_stops
       cron: "45 8 * * 1-5"
       task: update_trailing_stops
+    - name: notify_metrics
+      cron: "50 8 * * 1-5" # 平日 08:50（signals保存後）
+      task: notify_metrics
+    - name: build_metrics_report
+      cron: "55 8 * * 1-5" # 平日 08:55（確認用レポート）
+      task: build_metrics_report
 
 ui:
   default_capital: 100000

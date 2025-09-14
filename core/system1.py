@@ -187,9 +187,18 @@ def prepare_data_vectorized_system1(
                 idx = pd.to_datetime(df.index, errors="coerce").normalize()
             except Exception:
                 idx = None
-        if idx is None or getattr(idx, "isnull", lambda: False)().all():
-            # 日付が取れないデータはスキップ
+        # 日付が取れない、または全て欠損ならスキップ
+        if idx is None:
             continue
+        try:
+            if pd.isna(idx).all():
+                continue
+        except Exception:
+            try:
+                if idx.isnull().all():
+                    continue
+            except Exception:
+                pass
         df.index = pd.Index(idx)
         df.index.name = "Date"
 
@@ -303,10 +312,17 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
     for symbol, df in data_dict.items():
         if "setup" not in df.columns or df["setup"].sum() == 0:
             continue
+        # 安全な日付演算: Index に直接加算せず Series で行う
         sig_df = df[df["setup"]][["ROC200", "ATR20", "Open"]].copy()
         sig_df["symbol"] = symbol
-        sig_df["entry_date"] = sig_df.index + pd.Timedelta(days=1)
-        all_signals.append(sig_df.reset_index())
+        # インデックスを正規化した日時に変換して列として保持
+        idx_norm = pd.to_datetime(sig_df.index, errors="coerce").normalize()
+        # reset_index 前に明示的に "Date" 列を持たせる（後続のマージ/ソートを安定化）
+        sig_df["Date"] = idx_norm
+        # entry_date は Date 列の Series に対して加算（配列結合の誤用を回避）
+        sig_df["entry_date"] = sig_df["Date"] + pd.Timedelta(days=1)
+        # インデックスは不要なので落としてから蓄積
+        all_signals.append(sig_df.reset_index(drop=True))
 
     if not all_signals:
         return {}, pd.DataFrame()
@@ -337,7 +353,14 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         # index が日時の場吁E
         try:
             idx = pd.to_datetime(spy.index, errors="coerce")
-            if getattr(idx, "notna", lambda: False)().any():
+            try:
+                cond_any = pd.notna(idx).any()
+            except Exception:
+                try:
+                    cond_any = idx.notna().any()
+                except Exception:
+                    cond_any = False
+            if cond_any:
                 spy = spy.reset_index().rename(columns={spy.index.name or "index": "date"})
                 spy["date"] = pd.to_datetime(spy["date"], errors="coerce")
                 date_col = "date"

@@ -698,6 +698,114 @@ def compute_today_signals(
                 pass
         return data
 
+    def filter_system1(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            # 株価5ドル以上（直近終値）
+            if df["close"].iloc[-1] < 5:
+                continue
+            # 過去20日平均売買代金5000万ドル以上
+            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 5e7:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system2(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            if df["close"].iloc[-1] < 5:
+                continue
+            if df["close"].tail(20).mean() * df["volume"].tail(20).mean() < 2.5e7:
+                continue
+            # ATR計算（過去10日）
+            if "high" in df.columns and "low" in df.columns:
+                tr = (df["high"] - df["low"]).tail(10)
+                atr = tr.mean()
+                if atr < df["close"].iloc[-1] * 0.03:
+                    continue
+            result.append(sym)
+        return result
+
+    def filter_system3(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            low = df.get("Low", df.get("low"))
+            if low is None or float(low.iloc[-1]) < 1:
+                continue
+            av50 = df.get("AvgVolume50")
+            if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) < 1_000_000:
+                continue
+            atr_ratio = df.get("ATR_Ratio")
+            if atr_ratio is None or pd.isna(atr_ratio.iloc[-1]) or float(atr_ratio.iloc[-1]) < 0.05:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system4(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            dv50 = df.get("DollarVolume50")
+            hv50 = df.get("HV50")
+            try:
+                if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 100_000_000:
+                    continue
+                if hv50 is None or pd.isna(hv50.iloc[-1]):
+                    continue
+                hv = float(hv50.iloc[-1])
+                if hv < 10 or hv > 40:
+                    continue
+            except Exception:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system5(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            av50 = df.get("AvgVolume50")
+            dv50 = df.get("DollarVolume50")
+            atr_pct = df.get("ATR_Pct")
+            try:
+                if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) <= 500_000:
+                    continue
+                if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 2_500_000:
+                    continue
+                if atr_pct is None or pd.isna(atr_pct.iloc[-1]) or float(atr_pct.iloc[-1]) <= 0.04:
+                    continue
+            except Exception:
+                continue
+            result.append(sym)
+        return result
+
+    def filter_system6(symbols, data):
+        result = []
+        for sym in symbols:
+            df = data.get(sym)
+            if df is None or df.empty:
+                continue
+            low = df.get("Low", df.get("low"))
+            if low is None or float(low.iloc[-1]) < 5:
+                continue
+            dv50 = df.get("DollarVolume50")
+            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 10_000_000:
+                continue
+            result.append(sym)
+        return result
     def load_indicator_data(symbols):
         import time as _t
 
@@ -920,12 +1028,54 @@ def compute_today_signals(
             _log("🧮 共有指標の前計算が完了")
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")
-    _log("🧪 フィルター処理は各システム内で実行します")
+    _log("🧪 事前フィルター実行中 (system1〜system6)…")
+    system1_syms = filter_system1(symbols, basic_data)
+    system2_syms = filter_system2(symbols, basic_data)
+    system3_syms = filter_system3(symbols, basic_data)
+    system4_syms = filter_system4(symbols, basic_data)
+    system5_syms = filter_system5(symbols, basic_data)
+    system6_syms = filter_system6(symbols, basic_data)
+    _log(
+        "🧪 フィルター結果: "
+        + f"system1={len(system1_syms)}件, "
+        + f"system2={len(system2_syms)}件, "
+        + f"system3={len(system3_syms)}件, "
+        + f"system4={len(system4_syms)}件, "
+        + f"system5={len(system5_syms)}件, "
+        + f"system6={len(system6_syms)}件"
+    )
     if progress_callback:
         try:
             progress_callback(3, 8, "filter")
         except Exception:
             pass
+    # 各システム用の生データ辞書を事前フィルター後の銘柄で構築
+    def _subset_data(keys: list[str]) -> dict[str, pd.DataFrame]:
+        out = {}
+        for s in keys or []:
+            v = basic_data.get(s)
+            if v is not None and not getattr(v, "empty", True):
+                out[s] = v
+        return out
+
+    _log("🧮 指標計算用データロード中 (system1)…")
+    raw_data_system1 = _subset_data(system1_syms)
+    _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
+    _log("🧮 指標計算用データロード中 (system2)…")
+    raw_data_system2 = _subset_data(system2_syms)
+    _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
+    _log("🧮 指標計算用データロード中 (system3)…")
+    raw_data_system3 = _subset_data(system3_syms)
+    _log(f"🧮 指標データ: system3={len(raw_data_system3)}銘柄")
+    _log("🧮 指標計算用データロード中 (system4)…")
+    raw_data_system4 = _subset_data(system4_syms)
+    _log(f"🧮 指標データ: system4={len(raw_data_system4)}銘柄")
+    _log("🧮 指標計算用データロード中 (system5)…")
+    raw_data_system5 = _subset_data(system5_syms)
+    _log(f"🧮 指標データ: system5={len(raw_data_system5)}銘柄")
+    _log("🧮 指標計算用データロード中 (system6)…")
+    raw_data_system6 = _subset_data(system6_syms)
+    _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
     if progress_callback:
         try:
             progress_callback(4, 8, "load_indicators")
@@ -975,7 +1125,19 @@ def compute_today_signals(
                 except Exception:
                     pass
 
-        if name == "system7":
+        if name == "system1":
+            base = raw_data_system1
+        elif name == "system2":
+            base = raw_data_system2
+        elif name == "system3":
+            base = raw_data_system3
+        elif name == "system4":
+            base = raw_data_system4
+        elif name == "system5":
+            base = raw_data_system5
+        elif name == "system6":
+            base = raw_data_system6
+        elif name == "system7":
             base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
         else:
             base = basic_data if "basic_data" in locals() else {}
@@ -1187,6 +1349,74 @@ def compute_today_signals(
     # システム別の順序を明示（1..7）に固定
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
+
+    # --- 日次メトリクス（事前フィルタ通過数・候補数）の保存 ---
+    try:
+        metrics_rows = []
+        # 事前フィルタ通過数（存在しないシステムは0扱い）
+        prefilter_map = {
+            "system1": len(locals().get("system1_syms", []) or []),
+            "system2": len(locals().get("system2_syms", []) or []),
+            "system3": len(locals().get("system3_syms", []) or []),
+            "system4": len(locals().get("system4_syms", []) or []),
+            "system5": len(locals().get("system5_syms", []) or []),
+            "system6": len(locals().get("system6_syms", []) or []),
+            "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
+        }
+        # 候補数（per_systemの行数）
+        for sys_name in order_1_7:
+            df_sys = per_system.get(sys_name, pd.DataFrame())
+            candidates = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
+            pre_count = int(prefilter_map.get(sys_name, 0))
+            metrics_rows.append({
+                "date": locals().get("today"),
+                "system": sys_name,
+                "prefilter_pass": pre_count,
+                "candidates": candidates,
+            })
+        if metrics_rows:
+            metrics_df = pd.DataFrame(metrics_rows)
+            try:
+                settings_out = get_settings(create_dirs=True)
+                out_dir = Path(settings_out.outputs.results_csv_dir)
+            except Exception:
+                out_dir = Path("results_csv")
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            out_fp = out_dir / "daily_metrics.csv"
+            try:
+                if out_fp.exists():
+                    metrics_df.to_csv(out_fp, mode="a", header=False, index=False, encoding="utf-8")
+                else:
+                    metrics_df.to_csv(out_fp, index=False, encoding="utf-8")
+                _log(f"📈 メトリクス保存: {out_fp} に {len(metrics_rows)} 行を追記")
+            except Exception as e:
+                _log(f"⚠️ メトリクス保存に失敗: {e}")
+            # 通知: メトリクス概要を送信（環境が用意されていない場合は内部で無害化）
+            try:
+                fields = {r["system"]: f"pre={int(r['prefilter_pass'])}, cand={int(r['candidates'])}" for r in metrics_rows}
+                title = "📈 本日のメトリクス（事前フィルタ / 候補数）"
+                _td = locals().get("today")
+                try:
+                    _td_str = str(getattr(_td, "date", lambda: None)() or _td)
+                except Exception:
+                    _td_str = ""
+                msg = f"対象日: {_td_str}"
+                notifier = Notifier(platform="auto")
+                notifier.send(title, msg, fields=fields)
+            except Exception:
+                pass
+        # 簡易ログ
+        try:
+            summary = ", ".join([f"{r['system']}: pre={r['prefilter_pass']}, cand={r['candidates']}" for r in metrics_rows])
+            if summary:
+                _log(f"📊 メトリクス概要: {summary}")
+        except Exception:
+            pass
+    except Exception:
+        _log("⚠️ メトリクス集計で例外が発生しました（処理続行）")
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:

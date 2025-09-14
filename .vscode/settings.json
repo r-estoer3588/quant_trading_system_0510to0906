@@ -21,5 +21,10 @@
   "black-formatter.importStrategy": "fromEnvironment",
   // "black-formatter.importStrategy": "fromEnvironment",
   "files.autoGuessEncoding": false,
-  "files.encoding": "utf8"
+  "files.encoding": "utf8",
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }

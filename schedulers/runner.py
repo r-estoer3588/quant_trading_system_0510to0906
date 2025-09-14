@@ -9,6 +9,7 @@ import sys
 import time
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Callable, Dict, Iterable, Literal, Any, cast
 
 from config.settings import get_settings
@@ -86,6 +87,26 @@ def task_notify_signals():
     notify_signals()
 
 
+def task_notify_metrics():
+    try:
+        from tools.notify_metrics import notify_metrics
+    except Exception:
+        logging.warning(
+            "notify_metrics タスクが未実装です。tools/notify_metrics.py を用意してください。"
+        )
+        return
+    notify_metrics()
+
+
+def task_build_metrics_report():
+    try:
+        from tools.build_metrics_report import build_metrics_report
+
+        build_metrics_report()
+    except Exception:
+        logging.exception("build_metrics_report タスクが失敗しました")
+
+
 def task_run_today_signals():
     try:
         from scripts.run_all_systems_today import compute_today_signals
@@ -130,13 +151,20 @@ TASKS: Dict[str, Callable[[], None]] = {
     "bulk_last_day": task_bulk_last_day,
     "update_tickers": task_update_tickers,
     "update_trailing_stops": task_update_trailing_stops,
+    "notify_metrics": task_notify_metrics,
+    "build_metrics_report": task_build_metrics_report,
 }
 
 
 def main():
     settings = get_settings(create_dirs=True)
     setup_logging(cast(Any, settings))
-    _ = settings.scheduler.timezone
+    tz_name = settings.scheduler.timezone or "America/New_York"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        logging.warning("未知のタイムゾーン '%s'、ローカル時刻を使用します", tz_name)
+        tz = None
     jobs = settings.scheduler.jobs
     if not jobs:
         logging.warning("scheduler.jobs が空です。config/config.yaml を確認してください。")
@@ -161,7 +189,7 @@ def main():
     last_minute = None
     try:
         while True:
-            now = datetime.now()
+            now = datetime.now(tz) if tz is not None else datetime.now()
             # 1分に1回だけ起動判定
             if last_minute != (now.year, now.month, now.day, now.hour, now.minute):
                 last_minute = (now.year, now.month, now.day, now.hour, now.minute)
