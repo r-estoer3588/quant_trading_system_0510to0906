@@ -556,10 +556,29 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
 
             def _ui_log(msg: str) -> None:
                 try:
+                    msg_str = str(msg)
+                    skip_keywords = (
+                        "進捗",
+                        "インジケーター",
+                        "indicator",
+                        "indicators",
+                        "指標計算",
+                        "共有指標",
+                        "バッチ時間",
+                        "batch time",
+                        "候補抽出",
+                        "候補日数",
+                        "銘柄:",
+                        "📊 インジケーター計算",
+                        "📊 候補抽出",
+                        "⏱️ バッチ時間",
+                    )
+                    if any(k in msg_str for k in skip_keywords):
+                        return
                     elapsed = max(0, time.time() - start)
                     m, s = divmod(int(elapsed), 60)
                     now = time.strftime("%H:%M:%S")
-                    line = f"[{now} | {m}分{s}秒] {str(msg)}"
+                    line = f"[{now} | {m}分{s}秒] {msg_str}"
                     st.session_state["batch_today_logs"].append(line)
                     log_box.code("\n".join(st.session_state["batch_today_logs"]))
                 except Exception:

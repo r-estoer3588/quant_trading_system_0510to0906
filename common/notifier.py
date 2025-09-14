@@ -612,7 +612,10 @@ class Notifier:
         summary: dict[str, Any],
         image_url: str | None = None,
     ) -> None:
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, "
+            f"実行日 ・ {now_jst_str()}"
+        )
         fields = {k: str(v) for k, v in summary.items()}
         self.send(title, "", fields=fields, image_url=image_url)
         self.logger.info(
@@ -780,7 +783,11 @@ class FallbackNotifier(Notifier):
                 )
             except Exception as e:
                 self._logger.warning("fallback: Slack API exception: %s", e)
-        if webhook:
+        # Webhook フォールバックは既定で無効化（明示許可時のみ使用）
+        allow_webhook_fallback = os.getenv(
+            "ALLOW_SLACK_WEBHOOK_FALLBACK", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if webhook and allow_webhook_fallback:
             try:  # pragma: no cover
                 r = requests.post(webhook, json={"text": text}, timeout=10)
                 if 200 <= r.status_code < 300:
@@ -793,6 +800,10 @@ class FallbackNotifier(Notifier):
                 )
             except Exception as e:
                 self._logger.warning("fallback: Slack webhook exception: %s", e)
+        elif webhook and not allow_webhook_fallback:
+            self._logger.info(
+                "fallback: Slack webhook は無効（ALLOW_SLACK_WEBHOOK_FALLBACK 未設定）"
+            )
         return False
 
     def _slack_upload_file(
@@ -1042,7 +1053,10 @@ class FallbackNotifier(Notifier):
         summary: dict[str, Any],
         image_url: str | None = None,
     ) -> None:  # noqa: E501
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, "
+            f"実行日 ・ {now_jst_str()}"
+        )
         kv = ", ".join(f"{k}={v}" for k, v in list(summary.items())[:10])
         text = f"{title}\n{kv}" if kv else title
         if self._slack_send_text(text):
@@ -1067,11 +1081,8 @@ def create_notifier(
     if fallback is None:
         fallback = True
     if fallback:
-        if (
-            os.getenv("SLACK_BOT_TOKEN")
-            or os.getenv("SLACK_WEBHOOK_URL")
-            or os.getenv("DISCORD_WEBHOOK_URL")
-        ):
+        # Bot Token があるときのみ FallbackNotifier を使用（Webhook だけでは使わない）
+        if os.getenv("SLACK_BOT_TOKEN"):
             return FallbackNotifier()
     if broadcast:
         notifiers: list[Notifier] = []
@@ -1097,11 +1108,8 @@ def create_notifier(
 
 def get_notifiers_from_env() -> list[Notifier]:
     try:
-        if (
-            os.getenv("SLACK_BOT_TOKEN")
-            or os.getenv("SLACK_WEBHOOK_URL")
-            or os.getenv("DISCORD_WEBHOOK_URL")
-        ):
+        # Bot Token がある場合のみ FallbackNotifier（API 経路）を返す
+        if os.getenv("SLACK_BOT_TOKEN"):
             return [FallbackNotifier()]
     except Exception:
         pass
