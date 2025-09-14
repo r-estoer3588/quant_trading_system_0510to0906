@@ -521,11 +521,11 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             if phase == "start":
                 sys_states[n] = 50
                 bar.progress(50)
-                sys_stage_txt[n].text("running… (50%)")
+                sys_stage_txt[n].text("run 50%")
             elif phase == "done":
                 sys_states[n] = 100
                 bar.progress(100)
-                sys_stage_txt[n].text("done (100%)")
+                sys_stage_txt[n].text("done 100%")
         except Exception:
             pass
 
@@ -551,8 +551,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             vv = max(0, min(100, int(v)))
             bar.progress(vv)
             sys_states[n] = vv
-            # クイックフェーズ表示
-            sys_stage_txt[n].text("running…" if vv < 100 else "done (100%)")
+            # クイックフェーズ表示（常に1行で収まる短縮表記）
+            sys_stage_txt[n].text(f"run {vv}%" if vv < 100 else "done 100%")
             # 全体フェーズの見出しを、各システムの段階にあわせて上書き（日本語）
             try:
                 if vv <= 0:
