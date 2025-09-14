@@ -82,12 +82,34 @@ def _get_today_logger() -> logging.Logger:
     return logger
 
 
-def _log(msg: str, ui: bool = True) -> None:
-    """UI/CLI 兼用の軽量ロガー。
+def _log(msg: str, ui: bool = True):
+    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
+    import time as _t
 
-    - UI 側から `log_callback` が提供されていればそれに渡す（ui=True の時）。
-    - UI コールバックが無い、または ui=False の場合はファイルへINFO出力。
-    """
+    # 初回呼び出しで開始時刻を設定
+    try:
+        global _LOG_START_TS
+        if _LOG_START_TS is None:
+            _LOG_START_TS = _t.time()
+    except Exception:
+        _LOG_START_TS = None
+
+    # プレフィックスを作成（現在時刻 + 分秒経過）
+    try:
+        now = _t.strftime("%H:%M:%S")
+        elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
+        m, s = divmod(int(elapsed), 60)
+        prefix = f"[{now} | {m}分{s}秒] "
+    except Exception:
+        prefix = ""
+
+    # CLI へは整形して出力
+    try:
+        print(f"{prefix}{msg}", flush=True)
+    except Exception:
+        pass
+
+    # UI 側のコールバックには原文のまま通知（UI での重複プレフィックス回避）
     try:
         cb = globals().get("_LOG_CALLBACK")
         if cb and callable(cb) and ui:
@@ -97,6 +119,8 @@ def _log(msg: str, ui: bool = True) -> None:
                 pass
     except Exception:
         pass
+
+    # UI コールバックが無いか、ui=False の場合はファイルにINFOで出力（CLI ログ保存）
     try:
         cb = globals().get("_LOG_CALLBACK")
         if not cb or not ui:
@@ -1023,53 +1047,40 @@ def compute_today_signals(
     system4_syms = filter_system4(symbols, basic_data)
     system5_syms = filter_system5(symbols, basic_data)
     system6_syms = filter_system6(symbols, basic_data)
-    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数＋NA件数）
+    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
     try:
         s2_total = len(symbols)
-        c_price = c_dv = c_atr = 0
-        na_price = na_dv = na_atr = 0
+        c_price = 0
+        c_dv = 0
+        c_atr = 0
         for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or _df.empty:
+                continue
             try:
-                _df = basic_data.get(_sym)
-                if _df is None or _df.empty:
-                    continue
                 # 価格フィルター
-                try:
-                    last_close = float(_df["close"].iloc[-1])
-                except Exception:
-                    na_price += 1
-                    continue
+                last_close = float(_df["close"].iloc[-1])
                 if last_close >= 5:
                     c_price += 1
                 else:
                     continue
                 # 売買代金フィルター（20日平均）
-                try:
-                    dv = float(_df["close"].tail(20).mean() * _df["volume"].tail(20).mean())
-                except Exception:
-                    na_dv += 1
-                    continue
+                dv = float(_df["close"].tail(20).mean() * _df["volume"].tail(20).mean())
                 if dv >= 2.5e7:
                     c_dv += 1
                 else:
                     continue
                 # ATR 比率フィルター（10日）
-                try:
-                    if "high" in _df.columns and "low" in _df.columns:
-                        _tr = (_df["high"] - _df["low"]).tail(10)
-                        _atr = float(_tr.mean())
-                        if _atr >= last_close * 0.03:
-                            c_atr += 1
-                    else:
-                        na_atr += 1
-                except Exception:
-                    na_atr += 1
+                if "high" in _df.columns and "low" in _df.columns:
+                    _tr = (_df["high"] - _df["low"]).tail(10)
+                    _atr = float(_tr.mean())
+                    if _atr >= last_close * 0.03:
+                        c_atr += 1
             except Exception:
                 continue
         _log(
-            "🧪 System2 フィルタ内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price} (NA {na_price}), "
-            + f"DV>=25M: {c_dv} (NA {na_dv}), ATR>=3%: {c_atr} (NA {na_atr})"
+            "🧪 system2内訳: "
+            + f"元={s2_total}, 価格>=5: {c_price}, DV>=25M: {c_dv}, ATR>=3%: {c_atr}"
         )
     except Exception:
         pass
