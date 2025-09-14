@@ -18,7 +18,10 @@ slack_sdk>=3.26,<4
 
 # Trading
 alpaca-py
-alpaca-trade-api
+
+# Network stack pins to satisfy dependencies
+urllib3>=2,<3
+websockets>=11,<16
 
 # Dev/Test (optional)
 # pytest>=8,<9
