@@ -47,21 +47,23 @@ def notify_metrics() -> None:
     if day_df is None or day_df.empty:
         logging.info("no metrics to notify")
         return
-    fields = {}
+    lines = []
     try:
         for _, r in day_df.iterrows():
             sys = str(r.get("system"))
             pre = int(r.get("prefilter_pass", 0) or 0)
             cand = int(r.get("candidates", 0) or 0)
-            fields[sys] = f"pre={pre}, cand={cand}"
+            lines.append(f"{sys:<7} {pre:>4} {cand:>4}")
     except Exception:
         pass
+    header = f"{'System':<7} {'pre':>4} {'cand':>4}"
+    table = "\n".join([header] + lines)
     title = "\U0001F4C8 本日のメトリクス（事前フィルタ / 候補数）"
-    msg = f"対象日: {day_str or ''}"
+    msg = f"対象日: {day_str or ''}\n```{table}```"
     try:
         from common.notifier import create_notifier
 
-        create_notifier(platform="auto", fallback=True).send(title, msg, fields=fields)
+        create_notifier(platform="auto", fallback=True).send(title, msg)
     except Exception:
         # 環境未設定でも処理継続（ログのみ）
         logging.info("metrics notified (log only)")

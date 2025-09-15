@@ -2507,7 +2507,7 @@ def compute_today_signals(
                         final_counts = final_df.groupby("system").size().to_dict()
                 except Exception:
                     final_counts = {}
-                fields = {}
+                lines = []
                 for sys_name in order_1_7:
                     tgt = tgt_base if sys_name != "system7" else 1
                     fil = int(prefilter_map.get(sys_name, 0))
@@ -2524,19 +2524,25 @@ def compute_today_signals(
                     ent = int(final_counts.get(sys_name, 0))
                     exv = exit_counts_map.get(sys_name)
                     ex_txt = "-" if exv is None else str(int(exv))
-                    fields[sys_name] = (
-                        f"Tgt {tgt}  FILpass {fil}  STUpass {stu}  "
-                        f"TRDlist {trd}  Entry {ent}  Exit {ex_txt}"
+                    line = (
+                        f"{sys_name:<7} {tgt:>4} {fil:>7} {stu:>7} "
+                        f"{trd:>7} {ent:>5} {ex_txt:>4}"
                     )
+                    lines.append(line)
+                header = (
+                    f"{'System':<7} {'Tgt':>4} {'FILpass':>7} "
+                    f"{'STUpass':>7} {'TRDlist':>7} {'Entry':>5} {'Exit':>4}"
+                )
+                table = "\n".join([header] + lines)
                 title = "📈 本日の最終メトリクス（system別）"
                 _td = locals().get("today")
                 try:
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
                 except Exception:
                     _td_str = ""
-                msg = f"対象日: {_td_str}"
+                msg = f"対象日: {_td_str}\n```{table}```"
                 notifier = create_notifier(platform="auto", fallback=True)
-                notifier.send(title, msg, fields=fields)
+                notifier.send(title, msg)
             except Exception:
                 pass
         # 簡易ログ
