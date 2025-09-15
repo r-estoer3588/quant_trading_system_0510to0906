@@ -79,6 +79,11 @@ notifier = create_notifier(platform="slack", fallback=True)
 st.session_state.setdefault("today_shown_this_run", False)
 
 
+def _reset_shown_flag() -> None:
+    """リラン後の前回結果再表示を有効にするフラグをリセットする。"""
+    st.session_state["today_shown_this_run"] = False
+
+
 def _get_today_logger() -> logging.Logger:
     """本日のシグナル実行用ロガー。
 
@@ -1396,31 +1401,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             "最終CSVをダウンロード",
             data=csv,
             file_name="today_signals_final.csv",
+            on_click=_reset_shown_flag,
         )
         # 今回のリランでは結果を表示済み
         st.session_state["today_shown_this_run"] = True
-
-        # 結果のCSVをsignals_dirに保存（ボタン押下でのみ保存）
-        if st.button("結果のCSVをsignals_dirに保存", key="save_results_to_signals"):
-            try:
-                settings2 = get_settings(create_dirs=True)
-                sig_dir = Path(settings2.outputs.signals_dir)
-                sig_dir.mkdir(parents=True, exist_ok=True)
-                # ファイル名モードはサイドバー選択を利用
-                mode = str(st.session_state.get("csv_name_mode", "date"))
-                from datetime import datetime as _dt
-
-                ts = _dt.now().strftime("%Y-%m-%d")
-                if mode == "datetime":
-                    ts = _dt.now().strftime("%Y-%m-%d_%H%M")
-                elif mode == "runid":
-                    rid = st.session_state.get("last_run_id") or "RUN"
-                    ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
-                fp = sig_dir / f"today_signals_{ts}.csv"
-                final_df.to_csv(fp, index=False)
-                st.success(f"保存しました: {fp}")
-            except Exception as e:
-                st.error(f"保存に失敗: {e}")
 
         # Alpaca 自動発注（任意）
         if do_trade:
@@ -1538,6 +1522,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     data=csv2,
                     file_name=f"signals_{name}.csv",
                     key=f"{name}_download_csv",
+                    on_click=_reset_shown_flag,
                 )
 
     # 追加: リラン後でも前回の結果が見えるように簡易再表示セクション
@@ -1556,20 +1541,24 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     data=_csv_prev,
                     file_name="today_signals_final_prev.csv",
                     key="download_prev_final",
+                    on_click=_reset_shown_flag,
                 )
-                if st.button("結果のCSVをsignals_dirに保存（前回）", key="save_prev_results"):
-                    try:
-                        settings2 = get_settings(create_dirs=True)
-                        sig_dir = Path(settings2.outputs.signals_dir)
-                        sig_dir.mkdir(parents=True, exist_ok=True)
-                        from datetime import datetime as _dt
-
-                        ts = _dt.now().strftime("%Y-%m-%d_%H%M")
-                        fp = sig_dir / f"today_signals_{ts}.csv"
-                        _prev_df.to_csv(fp, index=False)
-                        st.success(f"保存しました: {fp}")
-                    except Exception as e:
-                        st.error(f"保存に失敗: {e}")
+                prev_per = st.session_state.get("today_per_system", {})
+                if isinstance(prev_per, dict):
+                    with st.expander("前回のシステム別CSV", expanded=False):
+                        for _name, _df in prev_per.items():
+                            if _df is None or _df.empty:
+                                continue
+                            st.markdown(f"#### {_name}")
+                            st.dataframe(_df, use_container_width=True)
+                            _csv_sys_prev = _df.to_csv(index=False).encode("utf-8")
+                            st.download_button(
+                                f"{_name}のCSVをダウンロード（前回）",
+                                data=_csv_sys_prev,
+                                file_name=f"signals_{_name}_prev.csv",
+                                key=f"download_prev_{_name}",
+                                on_click=_reset_shown_flag,
+                            )
     except Exception:
         pass
 
