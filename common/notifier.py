@@ -21,6 +21,19 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+# Ensure .env is loaded early so env vars are available even if settings is not imported yet
+try:  # pragma: no cover - optional dependency
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover
+    load_dotenv = None  # type: ignore
+
+try:
+    if load_dotenv is not None:
+        _ROOT = Path(__file__).resolve().parents[1]
+        load_dotenv(dotenv_path=_ROOT / ".env", override=False)  # does nothing if missing
+except Exception:
+    pass
+
 try:  # pragma: no cover - optional dependency
     from slack_sdk import WebClient  # type: ignore
     from slack_sdk.errors import SlackApiError  # type: ignore
@@ -280,6 +293,9 @@ class Notifier:
             payload.pop("_channel", None)
             or os.getenv("SLACK_CHANNEL", "").strip()
             or os.getenv("SLACK_CHANNEL_ID", "").strip()
+            or os.getenv("SLACK_CHANNEL_LOGS", "").strip()
+            or os.getenv("SLACK_CHANNEL_SIGNALS", "").strip()
+            or os.getenv("SLACK_CHANNEL_EQUITY", "").strip()
         )
         # 前提条件チェック（詳細な診断をログ出力）
         missing: list[str] = []

@@ -305,7 +305,11 @@ with st.sidebar:
 
     st.header("CSV保存")
     st.session_state.setdefault("save_csv", False)
-    save_csv = st.checkbox("CSVをsignals_dirに保存", key="save_csv")
+    save_csv = st.checkbox(
+        "CSVをsignals_dirに自動保存",
+        key="save_csv",
+        help="実行後に自動で signals_dir に保存します（他のダウンロードに影響しません）。",
+    )
     # CSVファイル名の形式選択（date/datetime/runid）
     st.session_state.setdefault("csv_name_mode", "date")
     csv_name_mode = st.selectbox(
@@ -1405,6 +1409,27 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         )
         # 今回のリランでは結果を表示済み
         st.session_state["today_shown_this_run"] = True
+
+        # 自動保存（サイドバーでONのとき）。ボタンではないのでリランを誘発しない
+        if save_csv:
+            try:
+                settings2 = get_settings(create_dirs=True)
+                sig_dir = Path(settings2.outputs.signals_dir)
+                sig_dir.mkdir(parents=True, exist_ok=True)
+                mode = str(st.session_state.get("csv_name_mode", "date"))
+                from datetime import datetime as _dt
+
+                ts = _dt.now().strftime("%Y-%m-%d")
+                if mode == "datetime":
+                    ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+                elif mode == "runid":
+                    rid = st.session_state.get("last_run_id") or "RUN"
+                    ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
+                fp = sig_dir / f"today_signals_{ts}.csv"
+                final_df.to_csv(fp, index=False)
+                st.caption(f"自動保存: {fp}")
+            except Exception as e:
+                st.warning(f"自動保存に失敗: {e}")
 
         # Alpaca 自動発注（任意）
         if do_trade:
