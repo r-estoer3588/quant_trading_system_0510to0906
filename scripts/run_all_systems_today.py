@@ -5,13 +5,13 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
+from typing import no_type_check
 
 import pandas as pd
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
-from typing import no_type_check
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -1546,12 +1546,22 @@ def compute_today_signals(
     _log("🧮 指標計算用データロード中 (system1)…")
     raw_data_system1 = _subset_data(system1_syms)
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
-    # System1 セットアップ内訳（最新日の filter / setup 判定数）を CLI に出力
+    # System1 セットアップ内訳（最新日の setup 判定数）を CLI に出力
     try:
-        # フィルタ通過は事前フィルター結果（system1_syms）を使用して確定させる
+        # フィルタ通過は事前フィルター結果（system1_syms）由来で確定
         s1_filter = int(len(system1_syms))
-        # セットアップは直近日の SMA25>SMA50 を用いた堅牢な集計
+        # 直近日の SMA25>SMA50 を集計（事前計算済み列を参照）
         s1_setup = 0
+        # 市場条件（SPYのClose>SMA100）を先に判定
+        _spy_ok = None
+        try:
+            if "SPY" in (basic_data or {}):
+                _spy_df = get_spy_with_indicators(basic_data["SPY"])
+                if _spy_df is not None and not getattr(_spy_df, "empty", True):
+                    _last = _spy_df.iloc[-1]
+                    _spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
+        except Exception:
+            _spy_ok = None
         for _sym, _df in (raw_data_system1 or {}).items():
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -1560,16 +1570,24 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                filt = bool(last.get("filter", False))
-            except Exception:
-                filt = False
-            try:
-                sma_pass = float(last.get("SMA25", 0)) > float(last.get("SMA50", 0))
+                sma_pass = float(last.get("SMA25", float("nan"))) > float(
+                    last.get("SMA50", float("nan"))
+                )
             except Exception:
                 sma_pass = False
-            if filt and sma_pass:
+            if sma_pass:
                 s1_setup += 1
-        _log(f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SMA25>SMA50: {s1_setup}")
+        # 出力順: フィルタ通過 → SPY>SMA100 → SMA25>SMA50
+        if _spy_ok is None:
+            _log(
+                f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SPY>SMA100: -, "
+                f"SMA25>SMA50: {s1_setup}"
+            )
+        else:
+            _log(
+                f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SPY>SMA100: {_spy_ok}, "
+                f"SMA25>SMA50: {s1_setup}"
+            )
         # UI の STUpass へ反映（50%時点）
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -1721,7 +1739,7 @@ def compute_today_signals(
             except Exception:
                 pass
         _log(
-            "� system5セットアップ内訳: "
+            "🧩 system5セットアップ内訳: "
             + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
         )
@@ -1733,7 +1751,7 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    _log("�🧮 指標計算用データロード中 (system6)…")
+    _log("🧮 指標計算用データロード中 (system6)…")
     raw_data_system6 = _subset_data(system6_syms)
     _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
     # System6 セットアップ内訳: フィルタ通過, Return6D>20%, UpTwoDays
@@ -1873,7 +1891,8 @@ def compute_today_signals(
             elif env_pp in ("1", "true", "yes"):
                 use_process_pool = True
             else:
-                use_process_pool = True
+                # 既定はプロセスプール無効（UIログ/コールバックを優先）
+                use_process_pool = False
             # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
@@ -1917,7 +1936,7 @@ def compute_today_signals(
                 fn = getattr(stg, "get_total_days", None)
                 if callable(fn):
                     _val = fn(base)
-                    if isinstance(_val, (int, float)):
+                    if isinstance(_val, int | float):
                         custom_need = int(_val)
                     elif isinstance(_val, str):
                         try:
@@ -1935,13 +1954,16 @@ def compute_today_signals(
             min_required = custom_need or need_map.get(name, lb_default)
             lookback_days = min(lb_default, max(min_floor, int(min_required)))
             _t0 = __import__("time").time()
+            # プロセスプール使用時は stage_progress を渡さない（pickle/__main__問題を回避）
+            _stage_cb = None if use_process_pool else _stage
+            _log_cb = None if use_process_pool else _local_log
             df = stg.get_today_signals(
                 base,
                 market_df=spy_df,
                 today=today,
                 progress_callback=None,
-                log_callback=_local_log,
-                stage_progress=_stage,
+                log_callback=_log_cb,
+                stage_progress=_stage_cb,
                 use_process_pool=use_process_pool,
                 max_workers=max_workers,
                 lookback_days=lookback_days,
@@ -1963,6 +1985,7 @@ def compute_today_signals(
                     "a child process terminated",
                     "terminated abruptly",
                     "forkserver",
+                    "__main__",
                 ]
             )
             if needs_fallback:
@@ -1975,7 +1998,7 @@ def compute_today_signals(
                         today=today,
                         progress_callback=None,
                         log_callback=_local_log,
-                        stage_progress=_stage,
+                        stage_progress=None,
                         use_process_pool=False,
                         max_workers=None,
                         lookback_days=lookback_days,
@@ -2078,12 +2101,21 @@ def compute_today_signals(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
-                # UI コールバックがある場合、_run_strategy 内で UI に転送済みなので
-                # ここで重ねて _log しない（重複防止）。UI が無い場合のみ CLI へ集約出力。
+                # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は安全側で再送。
                 cb = globals().get("_LOG_CALLBACK")
                 if not (cb and callable(cb)):
                     for line in _filter_ui_logs(logs):
                         _log(f"[{name}] {line}")
+                else:
+                    # 並列実行環境で UI への逐次送信が抑止されるケースのため、完了後にUIへ再送
+                    try:
+                        for line in logs:
+                            try:
+                                cb(f"[{name}] {str(line)}")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -2245,15 +2277,259 @@ def compute_today_signals(
                 _log(f"📈 メトリクス保存: {out_fp} に {len(metrics_rows)} 行を追記")
             except Exception as e:
                 _log(f"⚠️ メトリクス保存に失敗: {e}")
-            # 通知: メトリクス概要を送信（環境が用意されていない場合は内部で無害化）
+            # 通知: 最終ステージ形式（Tgt/FILpass/STUpass/TRDlist/Entry/Exit）で送信
             try:
-                fields = {
-                    r["system"]: (
-                        f"対象→{int(r['prefilter_pass'])}, " f"trade候補数→{int(r['candidates'])}"
-                    )
-                    for r in metrics_rows
+                # 0%のTgtはユニバース総数（SPY除く）
+                try:
+                    tgt_base = sum(1 for s in (symbols or []) if str(s).upper() != "SPY")
+                except Exception:
+                    tgt_base = len(symbols) if symbols is not None else 0
+                    try:
+                        if "SPY" in (symbols or []):
+                            tgt_base = max(0, int(tgt_base) - 1)
+                    except Exception:
+                        pass
+
+                # Exit 件数を簡易推定（Alpaca の保有ポジションと各 Strategy の compute_exit を利用）
+                def _estimate_exit_counts_today() -> dict[str, int]:
+                    counts: dict[str, int] = {}
+                    try:
+                        # 価格ロード関数は共通ローダーを利用
+                        from common.data_loader import load_price as _load_price  # lazy import
+
+                        # SPY から本日の基準日（最新営業日）を推定
+                        latest_trading_day = None
+                        try:
+                            spy_df0 = _load_price("SPY", cache_profile="rolling")
+                            if spy_df0 is not None and not spy_df0.empty:
+                                latest_trading_day = pd.to_datetime(spy_df0.index[-1]).normalize()
+                        except Exception:
+                            latest_trading_day = None
+
+                        # Alpaca ポジション取得（失敗時は空）
+                        try:
+                            client0 = ba.get_client(paper=True)
+                            positions0 = list(client0.get_all_positions())
+                        except Exception:
+                            positions0 = []
+
+                        # エントリー日のローカル記録と system 推定マップ
+                        entry_map0 = load_entry_dates()
+                        sym_map_path0 = Path("data/symbol_system_map.json")
+                        try:
+                            import json as _json
+
+                            symbol_system_map0 = (
+                                _json.loads(sym_map_path0.read_text(encoding="utf-8"))
+                                if sym_map_path0.exists()
+                                else {}
+                            )
+                        except Exception:
+                            symbol_system_map0 = {}
+
+                        for pos in positions0:
+                            try:
+                                sym = str(getattr(pos, "symbol", "")).upper()
+                                if not sym:
+                                    continue
+                                qty = int(abs(float(getattr(pos, "qty", 0)) or 0))
+                                if qty <= 0:
+                                    continue
+                                pos_side = str(getattr(pos, "side", "")).lower()
+                                # system の推定
+                                system0 = str(symbol_system_map0.get(sym, "")).lower()
+                                if not system0:
+                                    if sym == "SPY" and pos_side == "short":
+                                        system0 = "system7"
+                                    else:
+                                        continue
+                                if system0 == "system7":
+                                    continue
+                                entry_date_str0 = entry_map0.get(sym)
+                                if not entry_date_str0:
+                                    continue
+                                # 価格データ読込（full）
+                                dfp = _load_price(sym, cache_profile="full")
+                                if dfp is None or dfp.empty:
+                                    continue
+                                try:
+                                    dfp2 = dfp.copy(deep=False)
+                                    if "Date" in dfp2.columns:
+                                        dfp2.index = pd.Index(
+                                            pd.to_datetime(dfp2["Date"]).dt.normalize()
+                                        )
+                                    else:
+                                        dfp2.index = pd.Index(
+                                            pd.to_datetime(dfp2.index).normalize()
+                                        )
+                                except Exception:
+                                    continue
+                                if latest_trading_day is None and len(dfp2.index) > 0:
+                                    latest_trading_day = pd.to_datetime(dfp2.index[-1]).normalize()
+                                # エントリー日のインデックス
+                                try:
+                                    idx = dfp2.index
+                                    ent_dt = pd.to_datetime(entry_date_str0).normalize()
+                                    if ent_dt in idx:
+                                        ent_arr = idx.get_indexer([ent_dt])
+                                    else:
+                                        ent_arr = idx.get_indexer([ent_dt], method="bfill")
+                                    entry_idx0 = (
+                                        int(ent_arr[0]) if len(ent_arr) and ent_arr[0] >= 0 else -1
+                                    )
+                                    if entry_idx0 < 0:
+                                        continue
+                                except Exception:
+                                    continue
+
+                                # Strategy毎の entry/stop を近似（UIと同等の簡易版）
+                                entry_price0 = None
+                                stop_price0 = None
+                                try:
+                                    prev_close0 = float(
+                                        dfp2.iloc[int(max(0, entry_idx0 - 1))]["Close"]
+                                    )
+                                    if system0 == "system1":
+                                        stg0 = System1Strategy()
+                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
+                                        atr20 = float(
+                                            dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR20"]
+                                        )
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 5.0)
+                                        )
+                                        stop_price0 = entry_price0 - stop_mult0 * atr20
+                                    elif system0 == "system2":
+                                        stg0 = System2Strategy()
+                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
+                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 3.0)
+                                        )
+                                        stop_price0 = entry_price0 + stop_mult0 * atr
+                                    elif system0 == "system6":
+                                        stg0 = System6Strategy()
+                                        ratio0 = float(
+                                            stg0.config.get("entry_price_ratio_vs_prev_close", 1.05)
+                                        )
+                                        entry_price0 = round(prev_close0 * ratio0, 2)
+                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 3.0)
+                                        )
+                                        stop_price0 = entry_price0 + stop_mult0 * atr
+                                    elif system0 == "system3":
+                                        stg0 = System3Strategy()
+                                        ratio0 = float(
+                                            stg0.config.get("entry_price_ratio_vs_prev_close", 0.93)
+                                        )
+                                        entry_price0 = round(prev_close0 * ratio0, 2)
+                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 2.5)
+                                        )
+                                        stop_price0 = entry_price0 - stop_mult0 * atr
+                                    elif system0 == "system4":
+                                        stg0 = System4Strategy()
+                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
+                                        atr40 = float(
+                                            dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR40"]
+                                        )
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 1.5)
+                                        )
+                                        stop_price0 = entry_price0 - stop_mult0 * atr40
+                                    elif system0 == "system5":
+                                        stg0 = System5Strategy()
+                                        ratio0 = float(
+                                            stg0.config.get("entry_price_ratio_vs_prev_close", 0.97)
+                                        )
+                                        entry_price0 = round(prev_close0 * ratio0, 2)
+                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
+                                        stop_mult0 = float(
+                                            stg0.config.get("stop_atr_multiple", 3.0)
+                                        )
+                                        stop_price0 = entry_price0 - stop_mult0 * atr
+                                        try:
+                                            stg0._last_entry_atr = atr  # type: ignore[attr-defined]
+                                        except Exception:
+                                            pass
+                                    else:
+                                        continue
+                                except Exception:
+                                    continue
+                                if entry_price0 is None or stop_price0 is None:
+                                    continue
+                                try:
+                                    exit_price0, exit_date0 = stg0.compute_exit(
+                                        dfp2,
+                                        int(entry_idx0),
+                                        float(entry_price0),
+                                        float(stop_price0),
+                                    )
+                                except Exception:
+                                    continue
+                                today_norm0 = pd.to_datetime(dfp2.index[-1]).normalize()
+                                if latest_trading_day is not None:
+                                    today_norm0 = latest_trading_day
+                                is_today_exit0 = (
+                                    pd.to_datetime(exit_date0).normalize() == today_norm0
+                                )
+                                if is_today_exit0:
+                                    if system0 == "system5":
+                                        # System5 は翌日寄り決済のためカウント対象外
+                                        pass
+                                    else:
+                                        counts[system0] = counts.get(system0, 0) + 1
+                            except Exception:
+                                continue
+                    except Exception:
+                        return {}
+                    return counts
+
+                exit_counts_map = _estimate_exit_counts_today()
+                # 既に集計済みの値を再構成
+                setup_map = {
+                    "system1": int(locals().get("s1_setup") or 0),
+                    "system2": int(max(locals().get("s2_rsi", 0), locals().get("s2_up2", 0))),
+                    "system3": int(max(locals().get("s3_close", 0), locals().get("s3_drop", 0))),
+                    "system4": int(locals().get("s4_close") or 0),
+                    "system5": int(locals().get("s5_close") or 0),
+                    "system6": int(max(locals().get("s6_ret", 0), locals().get("s6_up2", 0))),
+                    "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
                 }
-                title = "📈 本日のメトリクス（対象 / 候補）"
+                final_counts = {}
+                try:
+                    if (
+                        final_df is not None
+                        and not getattr(final_df, "empty", True)
+                        and "system" in final_df.columns
+                    ):
+                        final_counts = final_df.groupby("system").size().to_dict()
+                except Exception:
+                    final_counts = {}
+                fields = {}
+                for sys_name in order_1_7:
+                    tgt = tgt_base if sys_name != "system7" else 1
+                    fil = int(prefilter_map.get(sys_name, 0))
+                    stu = int(setup_map.get(sys_name, 0))
+                    try:
+                        _df_trd = per_system.get(sys_name, pd.DataFrame())
+                        trd = int(
+                            0
+                            if _df_trd is None or getattr(_df_trd, "empty", True)
+                            else len(_df_trd)
+                        )
+                    except Exception:
+                        trd = 0
+                    ent = int(final_counts.get(sys_name, 0))
+                    exv = exit_counts_map.get(sys_name)
+                    ex_txt = "-" if exv is None else str(int(exv))
+                    fields[sys_name] = (
+                        f"Tgt {tgt}  FILpass {fil}  STUpass {stu}  "
+                        f"TRDlist {trd}  Entry {ent}  Exit {ex_txt}"
+                    )
+                title = "📈 本日の最終メトリクス（system別）"
                 _td = locals().get("today")
                 try:
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
@@ -2501,6 +2777,16 @@ def compute_today_signals(
                 else:
                     for _, r in grp.iterrows():
                         _log(f"✅ {r['system']}: {int(r['count'])} 件")
+            except Exception:
+                pass
+            # 追加: エントリー銘柄の system ごとのまとめ
+            try:
+                lines = []
+                for sys_name, g in final_df.groupby("system"):
+                    syms = ", ".join(list(g["symbol"].astype(str))[:20])
+                    lines.append(f"{sys_name}: {syms}")
+                if lines:
+                    _log("🧾 エントリー内訳:\n" + "\n".join(lines))
             except Exception:
                 pass
         except Exception:

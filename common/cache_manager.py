@@ -249,7 +249,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = ["High", "Low", "Close"]
     missing = [c for c in required if c not in x.columns]
     if missing:
-        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}")
+        logger.warning(
+            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}"
+        )
         return x
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -261,6 +263,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # SMA/EMA
     x["SMA25"] = close.rolling(25).mean()
+    x["SMA50"] = close.rolling(50).mean()
     x["SMA100"] = close.rolling(100).mean()
     x["SMA150"] = close.rolling(150).mean()
     x["SMA200"] = close.rolling(200).mean()

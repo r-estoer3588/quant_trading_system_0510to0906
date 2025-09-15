@@ -315,6 +315,12 @@ if "positions_df" in st.session_state:
         st.dataframe(df_pos, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
+    # 実行ごとに per-system ログ表示（text_area）の状態をクリア
+    try:
+        for i in range(1, 8):
+            st.session_state.pop(f"logs_system{i}", None)
+    except Exception:
+        pass
     # 指標ごとに必要な日数（＋10%余裕）を定義
     indicator_days = {
         "ROC200": int(200 * 1.1),
