@@ -2185,6 +2185,11 @@ def compute_today_signals(
                         per_system_progress(name, "start")
                     except Exception:
                         pass
+                # CLI専用: 各システム開始を即時表示（UIには出さない）
+                try:
+                    _log(f"▶ {name} 開始", ui=False)
+                except Exception:
+                    pass
                 fut = executor.submit(_run_strategy, name, stg)
                 futures[fut] = name
             for _idx, fut in enumerate(as_completed(futures), start=1):
@@ -2211,10 +2216,9 @@ def compute_today_signals(
                         pass
                 # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
                 # （UI にはワーカー実行中に逐次送信済みのため、ここでの再送は行わない）
-                cb = globals().get("_LOG_CALLBACK")
-                if not (cb and callable(cb)):
-                    for line in _filter_logs(logs, ui=False):
-                        _log(f"[{name}] {line}")
+                # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
+                for line in _filter_logs(logs, ui=False):
+                    _log(f"[{name}] {line}", ui=False)
                 # UI コールバックがある場合は何もしない（重複防止）
                 # 完了通知
                 if per_system_progress:
@@ -2222,6 +2226,15 @@ def compute_today_signals(
                         per_system_progress(name, "done")
                     except Exception:
                         pass
+                # CLI専用: 完了を簡潔表示（件数付き。失敗時は件数不明でも続行）
+                try:
+                    _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                except Exception:
+                    _cnt = -1
+                try:
+                    _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
+                except Exception:
+                    pass
                 # 前回結果は開始時にまとめて出力するため、ここでは出さない
                 if progress_callback:
                     try:
@@ -2246,12 +2259,16 @@ def compute_today_signals(
                     per_system_progress(name, "start")
                 except Exception:
                     pass
+            # CLI専用: 各システム開始を即時表示（UIには出さない）
+            try:
+                _log(f"▶ {name} 開始", ui=False)
+            except Exception:
+                pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
-            cb = globals().get("_LOG_CALLBACK")
-            if not (cb and callable(cb)):
-                for line in _filter_logs(logs, ui=False):
-                    _log(f"[{name}] {line}")
+            # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
+            for line in _filter_logs(logs, ui=False):
+                _log(f"[{name}] {line}", ui=False)
             # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
             try:
                 cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -2274,6 +2291,15 @@ def compute_today_signals(
                     per_system_progress(name, "done")
                 except Exception:
                     pass
+            # CLI専用: 完了を簡潔表示（件数付き）
+            try:
+                _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+            except Exception:
+                _cnt = -1
+            try:
+                _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
+            except Exception:
+                pass
             # 即時の75%再通知は行わない（メインスレッド側で一括通知）
             # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:

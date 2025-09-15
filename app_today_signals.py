@@ -316,6 +316,28 @@ with st.sidebar:
     run_parallel_default = True
     run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
 
+    # 通知（Slack Bot Token）設定
+    st.header("通知設定（Slack Bot Token）")
+    st.session_state.setdefault("use_slack_notify", False)
+    use_slack_notify = st.checkbox(
+        "Slack通知を有効化（Bot Token）",
+        key="use_slack_notify",
+        help="環境変数 SLACK_BOT_TOKEN が設定済みである前提。"
+        " チャンネルは #name か channel_id を入力してください。",
+    )
+    st.session_state.setdefault("slack_channel_input", "")
+    slack_channel_input = st.text_input(
+        "Slackチャンネル（#name または ID）",
+        value=str(st.session_state.get("slack_channel_input", "")),
+        key="slack_channel_input",
+    )
+    # 簡易ヘルスチェック表示
+    try:
+        has_token = bool(os.environ.get("SLACK_BOT_TOKEN", "").strip())
+        st.caption("トークン: " + ("検出済み" if has_token else "未設定（.envを設定してください）"))
+    except Exception:
+        pass
+
     # 並列実行の詳細設定は削除（初期デフォルト挙動に戻す）
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
@@ -345,6 +367,95 @@ with st.sidebar:
             st.success("すべての未約定注文をキャンセルしました")
         except Exception as e:
             st.error(f"注文キャンセルエラー: {e}")
+
+    # 未約定注文の表示
+    if st.button("未約定注文を表示"):
+        try:
+            client = ba.get_client(paper=paper_mode)
+            orders = client.get_orders(status="open")
+            if not orders:
+                st.info("未約定注文はありません。")
+            else:
+                rows = []
+                for o in orders:
+                    try:
+                        rows.append(
+                            {
+                                "order_id": str(getattr(o, "id", "")),
+                                "symbol": getattr(o, "symbol", None),
+                                "side": getattr(o, "side", None),
+                                "qty": getattr(o, "qty", None),
+                                "status": getattr(o, "status", None),
+                                "submitted_at": str(getattr(o, "submitted_at", "")),
+                                "type": getattr(o, "type", None),
+                                "limit_price": getattr(o, "limit_price", None),
+                                "time_in_force": getattr(o, "time_in_force", None),
+                            }
+                        )
+                    except Exception:
+                        pass
+                if rows:
+                    import pandas as _pd
+
+                    df_open = _pd.DataFrame(rows)
+                    st.dataframe(df_open, use_container_width=True)
+                    # 行ごとにキャンセルボタンを提供
+                    st.caption("未約定注文の個別キャンセル")
+                    for _i, r in df_open.iterrows():
+                        col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
+                        with col1:
+                            st.write(f"{r.get('symbol')}  {r.get('side')}  qty={r.get('qty')}")
+                        with col2:
+                            st.write(f"status: {r.get('status')}")
+                        with col3:
+                            st.write(f"type: {r.get('type')}")
+                        with col4:
+                            st.write(f"limit: {r.get('limit_price')}")
+                        with col5:
+                            if st.button("キャンセル", key=f"cancel_{r.get('order_id')}"):
+                                try:
+                                    client.cancel_order(str(r.get("order_id")))
+                                    st.success(f"キャンセルしました: {r.get('order_id')}")
+                                except Exception as _e:
+                                    st.error(f"キャンセル失敗: {_e}")
+                                # 最新のopen ordersを再取得
+                                try:
+                                    orders2 = client.get_orders(status="open")
+                                    rows2 = []
+                                    for o2 in orders2:
+                                        try:
+                                            rows2.append(
+                                                {
+                                                    "order_id": str(getattr(o2, "id", "")),
+                                                    "symbol": getattr(o2, "symbol", None),
+                                                    "side": getattr(o2, "side", None),
+                                                    "qty": getattr(o2, "qty", None),
+                                                    "status": getattr(o2, "status", None),
+                                                    "submitted_at": str(
+                                                        getattr(
+                                                            o2,
+                                                            "submitted_at",
+                                                            "",
+                                                        )
+                                                    ),
+                                                    "type": getattr(o2, "type", None),
+                                                    "limit_price": getattr(o2, "limit_price", None),
+                                                    "time_in_force": getattr(
+                                                        o2, "time_in_force", None
+                                                    ),
+                                                }
+                                            )
+                                        except Exception:
+                                            pass
+                                    if not rows2:
+                                        st.info("未約定注文はありません。")
+                                    else:
+                                        df2 = _pd.DataFrame(rows2)
+                                        st.dataframe(df2, use_container_width=True)
+                                except Exception as __e2:
+                                    st.error(f"未約定注文の再取得に失敗: {__e2}")
+        except Exception as e:
+            st.error(f"未約定注文の取得に失敗: {e}")
 
     # 表示制御は固定（チェックボックスは廃止）
     st.session_state["ui_vis"] = {
@@ -749,11 +860,22 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
+        # Slack通知の環境反映（この実行スコープ内のみ）
+        do_notify = bool(use_slack_notify)
+        if do_notify and slack_channel_input.strip():
+            try:
+                os.environ["SLACK_CHANNEL_SIGNALS"] = slack_channel_input.strip()
+                # 汎用チャンネルも未設定なら同値で補完
+                os.environ.setdefault("SLACK_CHANNEL", slack_channel_input.strip())
+            except Exception:
+                pass
+
         final_df, per_system = compute_today_signals(
             syms,
             capital_long=float(st.session_state["today_cap_long"]),
             capital_short=float(st.session_state["today_cap_short"]),
             save_csv=save_csv,
+            notify=do_notify,
             csv_name_mode=str(csv_name_mode),
             log_callback=_ui_log,
             progress_callback=_ui_progress,
@@ -1195,7 +1317,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     retries=int(retries),
                     delay=float(max(0.0, delay)),
                     log_callback=_ui_log,
-                    notify=True,
+                    notify=do_notify,
                 )
                 if res is not None and not res.empty:
                     st.dataframe(res, use_container_width=True)
@@ -1285,7 +1407,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 retries=int(retries),
                 delay=float(max(0.0, delay)),
                 log_callback=_ui_log,
-                notify=True,
+                notify=do_notify,
             )
             if results_df is not None and not results_df.empty:
                 st.dataframe(results_df, use_container_width=True)

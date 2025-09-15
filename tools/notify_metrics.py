@@ -49,12 +49,14 @@ def notify_metrics() -> None:
         logging.info("no metrics to notify")
         return
     fields: list[dict[str, str]] = []
+    lines: list[str] = []
     try:
         for _, r in day_df.iterrows():
             sys = str(r.get("system"))
             pre = int(r.get("prefilter_pass", 0) or 0)
             cand = int(r.get("candidates", 0) or 0)
             fields.append({"name": sys, "value": f"pre {pre} / cand {cand}"})
+            lines.append(f"{sys:<7} {pre:>4} {cand:>4}")
     except Exception:
         pass
     header = f"{'System':<7} {'pre':>4} {'cand':>4}"
@@ -64,7 +66,7 @@ def notify_metrics() -> None:
     try:
         from common.notifier import create_notifier
 
-        create_notifier(platform="auto", fallback=True).send(title, msg)
+        create_notifier(platform="auto", fallback=True).send(title, msg, fields=fields)
     except Exception:
         # 環境未設定でも処理継続（ログのみ）
         logging.info("metrics notified (log only)")

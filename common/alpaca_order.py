@@ -263,6 +263,14 @@ def submit_orders_df(
         return pd.DataFrame()
 
     out = pd.DataFrame(results)
+    # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化
+    try:
+        if "order_id" in out.columns:
+            out["order_id"] = out["order_id"].apply(
+                lambda x: str(x) if x not in (None, "") else ""
+            )
+    except Exception:
+        pass
     # エントリー日記録とシンボル<->システムの更新
     try:
         entry_map = load_entry_dates()
@@ -393,6 +401,14 @@ def submit_exit_orders_df(
         pass
 
     out = pd.DataFrame(results)
+    # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化
+    try:
+        if "order_id" in out.columns:
+            out["order_id"] = out["order_id"].apply(
+                lambda x: str(x) if x not in (None, "") else ""
+            )
+    except Exception:
+        pass
     if notify and not out.empty:
         try:
             Notifier(platform="auto").send_trade_report("exits", results)

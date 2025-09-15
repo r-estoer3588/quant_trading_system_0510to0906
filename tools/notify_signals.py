@@ -52,32 +52,36 @@ def notify_signals():
             logging.exception("signal notification failed")
 
 
-def _send_via_notifier(symbols: list[str]) -> None:
+def _send_via_notifier(df: pd.DataFrame) -> None:
     """Send notification using Slack (fallback to Discord) via Notifier."""
     n = create_notifier(platform="slack", fallback=True)
     try:
-        # Use a neutral system name for aggregated signals
-        n.send_signals("integrated", symbols)
-        for sym in symbols:
-            try:
-                img_path, img_url = save_price_chart(sym)
-                if img_path:
-                    # BroadcastNotifier には send_with_mention が存在しない場合があるためフォールバックする
-                    send_with_mention = getattr(n, "send_with_mention", None)
-                    if callable(send_with_mention):
-                        send_with_mention(
-                            f"📈 {sym} 日足チャート",
-                            "",
-                            image_url=img_url,
-                            mention=False,
-                            image_path=img_path,
-                        )
-                    else:
-                        # 画像アップロード非対応の場合は URL を含む簡易メッセージで通知する
-                        msg_symbols = [f"{sym} {img_url}" if img_url else sym]
-                        n.send_signals("charts", msg_symbols)
-            except Exception:
-                logging.exception("failed to send chart for %s", sym)
+        groups = (
+            df.groupby("system")
+            if "system" in df.columns
+            else [("integrated", df)]
+        )
+        for sys_name, g in groups:
+            symbols = g["symbol"].astype(str).tolist()
+            n.send_signals(str(sys_name), symbols)
+            for sym in symbols:
+                try:
+                    img_path, img_url = save_price_chart(sym)
+                    if img_path:
+                        send_with_mention = getattr(n, "send_with_mention", None)
+                        if callable(send_with_mention):
+                            send_with_mention(
+                                f"📈 {sym} 日足チャート",
+                                "",
+                                image_url=img_url,
+                                mention=False,
+                                image_path=img_path,
+                            )
+                        else:
+                            msg_symbols = [f"{sym} {img_url}" if img_url else sym]
+                            n.send_signals("charts", msg_symbols)
+                except Exception:
+                    logging.exception("failed to send chart for %s", sym)
     except Exception:
         logging.exception("signal notification failed (slack+discord)")
 
@@ -87,7 +91,7 @@ def send_signal_notification(df: pd.DataFrame) -> None:
     if df is None or df.empty:
         return
     logging.info("Today signals: %d picks", len(df))
-    _send_via_notifier(df["symbol"].astype(str).tolist())
+    _send_via_notifier(df)
 
 
 if __name__ == "__main__":
