@@ -6,7 +6,6 @@
 """
 
 import os
-from typing import Dict, Tuple
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -38,9 +37,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     if rename_map:
         df = df.rename(columns=rename_map)
 
-    base_cols = [
-        c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns
-    ]
+    base_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
     if base_cols:
         x = df[base_cols].copy()
     else:
@@ -64,20 +61,14 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     else:
         x["DollarVolume20"] = pd.Series(index=x.index, dtype=float)
     x["ATR_Ratio"] = x["ATR10"] / x["Close"]
-    x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (
-        x["Close"].shift(1) > x["Close"].shift(2)
-    )
-    x["filter"] = (
-        (x["Low"] >= 5)
-        & (x["DollarVolume20"] > 25_000_000)
-        & (x["ATR_Ratio"] > 0.03)
-    )
+    x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
+    x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 25_000_000) & (x["ATR_Ratio"] > 0.03)
     x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
     return symbol, x
 
 
 def prepare_data_vectorized_system2(
-    raw_data_dict: Dict[str, pd.DataFrame] | None,
+    raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
     log_callback=None,
@@ -88,7 +79,7 @@ def prepare_data_vectorized_system2(
     max_workers: int | None = None,
     skip_callback=None,
     **kwargs,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     cache_dir = "data_cache/indicators_system2_cache"
     os.makedirs(cache_dir, exist_ok=True)
     raw_data_dict = raw_data_dict or {}
@@ -104,14 +95,11 @@ def prepare_data_vectorized_system2(
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(total, batch_size)
-        result_dict: Dict[str, pd.DataFrame] = {}
+        result_dict: dict[str, pd.DataFrame] = {}
         buffer: list[str] = []
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(_compute_indicators, sym): sym
-                for sym in symbols
-            }
+            futures = {executor.submit(_compute_indicators, sym): sym for sym in symbols}
             for i, fut in enumerate(as_completed(futures), 1):
                 sym, df = fut.result()
                 if df is not None:
@@ -154,13 +142,11 @@ def prepare_data_vectorized_system2(
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
     buffer = []
-    result_dict: Dict[str, pd.DataFrame] = {}
+    result_dict: dict[str, pd.DataFrame] = {}
     skipped_count = 0
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        base_cols = [
-            c for c in ["Open", "High", "Low", "Close", "Volume"] if c in src.columns
-        ]
+        base_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in src.columns]
         if base_cols:
             x = src[base_cols].copy()
         else:
@@ -181,11 +167,7 @@ def prepare_data_vectorized_system2(
         x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (
             x["Close"].shift(1) > x["Close"].shift(2)
         )
-        x["filter"] = (
-            (x["Low"] >= 5)
-            & (x["DollarVolume20"] > 25_000_000)
-            & (x["ATR_Ratio"] > 0.03)
-        )
+        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 25_000_000) & (x["ATR_Ratio"] > 0.03)
         x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
         return x
 
@@ -287,10 +269,10 @@ def prepare_data_vectorized_system2(
 
 
 def generate_candidates_system2(
-    prepared_dict: Dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int = 10,
-) -> Tuple[dict, pd.DataFrame | None]:
+) -> tuple[dict, pd.DataFrame | None]:
     """セットアップ通過銘柄を日別に ADX7 降順で抽出。
     返却: (candidates_by_date, merged_df=None)
     """
@@ -300,7 +282,21 @@ def generate_candidates_system2(
             continue
         setup_df = df[df["setup"]].copy()
         setup_df["symbol"] = sym
-        setup_df["entry_date"] = setup_df.index + pd.Timedelta(days=1)
+        # 翌営業日に補正（カレンダー+1ではなく、当該シンボルの次の取引日）
+        try:
+            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
+            base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
+            pos = idx.searchsorted(base, side="right")
+            next_dates = pd.Series(pd.NaT, index=setup_df.index, dtype="datetime64[ns]")
+            mask = (pos >= 0) & (pos < len(idx))
+            if getattr(mask, "any", lambda: False)():
+                next_vals = idx[pos[mask]]
+                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
+            setup_df["entry_date"] = next_dates
+            setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        except Exception:
+            # フォールバック: 従来通り+1（存在しなければ後段で落ちる）
+            setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
         all_signals.append(setup_df)
 
     if not all_signals:
@@ -315,7 +311,7 @@ def generate_candidates_system2(
     return candidates_by_date, None
 
 
-def get_total_days_system2(data_dict: Dict[str, pd.DataFrame]) -> int:
+def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:
     """データ中の日数ユニーク数。"""
     all_dates = set()
     for df in data_dict.values():

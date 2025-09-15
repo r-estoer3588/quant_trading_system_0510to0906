@@ -297,7 +297,20 @@ def generate_candidates_system3(
             continue
         setup_df = df[df["setup"] == 1].copy()
         setup_df["symbol"] = sym
-        setup_df["entry_date"] = setup_df.index + pd.Timedelta(days=1)
+        # 翌営業日に補正
+        try:
+            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
+            base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
+            pos = idx.searchsorted(base, side="right")
+            next_dates = pd.Series(pd.NaT, index=setup_df.index, dtype="datetime64[ns]")
+            mask = (pos >= 0) & (pos < len(idx))
+            if getattr(mask, "any", lambda: False)():
+                next_vals = idx[pos[mask]]
+                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
+            setup_df["entry_date"] = next_dates
+            setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        except Exception:
+            setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
         setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10"]]
         all_signals.append(setup_df)
         buffer.append(sym)

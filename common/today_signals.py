@@ -514,7 +514,26 @@ def get_today_signals_for_strategy(
         pass
     # トレード候補件数（当日のみ）→ UI表示は最大ポジション数に合わせて上限10に丸める
     try:
-        total_candidates_today = len((candidates_by_date or {}).get(today, []) or [])
+        candidate_dates = sorted(
+            pd.to_datetime(list((candidates_by_date or {}).keys()))
+        )
+    except Exception:
+        candidate_dates = []
+    target_date = today
+    try:
+        for dt in candidate_dates:
+            if dt >= today:
+                target_date = dt
+                break
+        else:
+            if candidate_dates:
+                target_date = candidate_dates[-1]
+    except Exception:
+        pass
+    try:
+        total_candidates_today = len(
+            (candidates_by_date or {}).get(target_date, []) or []
+        )
     except Exception:
         total_candidates_today = 0
     # UIのTRDlistは各systemの最大ポジション数を超えないように表示
@@ -534,6 +553,8 @@ def get_today_signals_for_strategy(
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             # 誤解回避: ここでの件数は『候補生成の母集団（セットアップ通過）』
             log_callback(f"🧮 候補生成元（セットアップ通過）：{setup_pass} 銘柄")
+            # TRDlist 相当（当日候補数。最大{_max_pos_ui}に丸め）
+            log_callback(f"🧮 TRDlist相当（当日候補数）：{total_candidates_today} 銘柄")
         except Exception:
             pass
 
@@ -552,8 +573,10 @@ def get_today_signals_for_strategy(
             ]
         )
 
-    # 当日分のみ抽出
-    today_candidates: list[dict] = candidates_by_date.get(today, [])  # type: ignore
+    # 当日または最も近い未来日の候補のみ抽出
+    today_candidates: list[dict] = candidates_by_date.get(
+        target_date, []
+    )  # type: ignore
     if not today_candidates:
         return pd.DataFrame(
             columns=[

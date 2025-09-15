@@ -304,9 +304,17 @@ def generate_candidates_system4(
                     continue
                 if int(spy_df.at[ts, "spy_filter"]) == 0:
                     continue
-                entry_date = ts + pd.Timedelta(days=1)
-                if entry_date not in x.index:
-                    continue
+                # 翌営業日に補正
+                try:
+                    idx = pd.DatetimeIndex(pd.to_datetime(x.index, errors="coerce").normalize())
+                    pos = idx.searchsorted(ts, side="right")
+                    if pos >= len(idx):
+                        continue
+                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
+                except Exception:
+                    entry_date = ts + pd.Timedelta(days=1)
+                    if entry_date not in x.index:
+                        continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,

@@ -297,9 +297,17 @@ def generate_candidates_system6(
                 continue
             for date, row in setup_days.iterrows():
                 ts = pd.to_datetime(pd.Index([date]))[0]
-                entry_date = ts + pd.Timedelta(days=1)
-                if entry_date not in df.index:
-                    continue
+                # 翌営業日に補正
+                try:
+                    idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
+                    pos = idx.searchsorted(ts, side="right")
+                    if pos >= len(idx):
+                        continue
+                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
+                except Exception:
+                    entry_date = ts + pd.Timedelta(days=1)
+                    if entry_date not in df.index:
+                        continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
