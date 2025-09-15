@@ -562,6 +562,7 @@ def compute_today_signals(
     # 最新営業日（NYSE）
     today = get_latest_nyse_trading_day().normalize()
     _log(f"📅 最新営業日（NYSE）: {today.date()}")
+    _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
     # 開始直後に前回結果をまとめて表示
     try:
         prev = _load_prev_counts()
