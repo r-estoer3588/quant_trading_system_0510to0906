@@ -2202,6 +2202,49 @@ def compute_today_signals(
                 _log(top10[cols].to_string(index=False))
             else:
                 _log("(候補なし)")
+        # 追加: システム別のTop10を個別に出力（system2〜system6）
+        try:
+            for _sys_name in [f"system{i}" for i in range(2, 7)]:
+                _df = per_system.get(_sys_name, pd.DataFrame())
+                _log(f"📝 事前トレードリスト({_sys_name} Top10, メトリクス保存前)")
+                if _df is None or getattr(_df, "empty", True):
+                    _log("(候補なし)")
+                    continue
+                x = _df.copy()
+                if "score" in x.columns:
+                    try:
+                        asc = False
+                        if "score_key" in x.columns and len(x):
+                            asc = _asc_by_score_key(str(x.iloc[0].get("score_key")))
+                        x["_sort_val"] = x["score"].astype(float)
+                        if not asc:
+                            x["_sort_val"] = -x["_sort_val"]
+                    except Exception:
+                        x["_sort_val"] = 0.0
+                else:
+                    x["_sort_val"] = 0.0
+                x = x.sort_values("_sort_val", kind="stable", na_position="last")
+                top10_s = x.head(10).drop(columns=["_sort_val"], errors="ignore")
+                cols_s = [
+                    c
+                    for c in [
+                        "symbol",
+                        "system",
+                        "side",
+                        "entry_date",
+                        "entry_price",
+                        "stop_price",
+                        "score_key",
+                        "score",
+                    ]
+                    if c in top10_s.columns
+                ]
+                if not top10_s.empty:
+                    _log(top10_s[cols_s].to_string(index=False))
+                else:
+                    _log("(候補なし)")
+        except Exception:
+            pass
     except Exception:
         pass
 

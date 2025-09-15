@@ -463,9 +463,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             return "対象読み込み"
         if t in {"filter"}:
             return "filter"
-        # 戦略実行中は setup/trade の中間だが、初期は setup とする
-        if t in {"run_strategies", "strategies_done"} or t.startswith("system"):
+        if t in {"run_strategies"} or t.startswith("system"):
             return "setup"
+        if t in {"strategies_done"}:
+            return "trade候補"
         if t in {"finalize", "done"}:
             return "エントリー"
         # 既定
@@ -560,15 +561,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 全体フェーズの見出しを、各システムの段階にあわせて上書き（日本語）
             try:
                 if vv <= 0:
+                    _set_phase_label("対象準備")
+                elif vv < 10:
                     _set_phase_label("対象読み込み")
-                elif vv < 25:
-                    _set_phase_label("対象読み込み")
-                elif vv < 50:
-                    _set_phase_label("filter")
-                elif vv < 75:
-                    _set_phase_label("setup")
-                elif vv < 100:
-                    _set_phase_label("trade")
+                elif vv < 30:
+                    _set_phase_label("フィルター")
+                elif vv < 60:
+                    _set_phase_label("セットアップ")
+                elif vv < 90:
+                    _set_phase_label("トレード候補選定")
                 else:
                     _set_phase_label("エントリー")
             except Exception:

@@ -285,6 +285,12 @@ def get_today_signals_for_strategy(
                 return False
 
         filter_pass = sum(int(_last_filter_on_date(df)) for df in prepared.values())
+        # System7 は SPY 固定のため、SPYが存在する場合はフィルタ通過=1として扱う
+        try:
+            if str(system_name).lower() == "system7":
+                filter_pass = 1 if ("SPY" in (prepared or {})) else 0
+        except Exception:
+            pass
     except Exception:
         filter_pass = 0
     if log_callback:
@@ -712,8 +718,8 @@ def get_today_signals_for_strategy(
         reason_parts: list[str] = []
         # System1 は日本語で「ROC200がn位のため」に統一（順位が取れない場合のみ汎用文言）
         if system_name == "system1":
-            if rank_val is not None:
-                reason_parts = [f"ROC200が{rank_val}位のため"]
+            if rank_val is not None and int(rank_val) <= 10:
+                reason_parts = [f"ROC200が{int(rank_val)}位のため"]
             else:
                 reason_parts = ["ROC200が上位のため"]
         elif system_name == "system2":
