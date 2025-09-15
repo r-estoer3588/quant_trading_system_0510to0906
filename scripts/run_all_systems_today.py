@@ -541,6 +541,7 @@ def compute_today_signals(
     capital_long: float | None = None,
     capital_short: float | None = None,
     save_csv: bool = False,
+    csv_name_mode: str | None = None,
     notify: bool = True,
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
@@ -3043,14 +3044,30 @@ def compute_today_signals(
 
     # CSV 保存（任意）
     if save_csv and not final_df.empty:
+        # ファイル名モード: date(YYYY-MM-DD) | datetime(YYYY-MM-DD_HHMM) | runid(YYYY-MM-DD_RUNID)
+        mode = (csv_name_mode or "date").lower()
         date_str = today.strftime("%Y-%m-%d")
-        out_all = signals_dir / f"signals_final_{date_str}.csv"
+        suffix = date_str
+        if mode == "datetime":
+            try:
+                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            except Exception:
+                jst_now = datetime.now()
+            suffix = f"{date_str}_{jst_now.strftime('%H%M')}"
+        elif mode == "runid":
+            try:
+                # _run_id は本関数先頭で採番済み
+                suffix = f"{date_str}_{_run_id}"
+            except Exception:
+                suffix = date_str
+
+        out_all = signals_dir / f"signals_final_{suffix}.csv"
         final_df.to_csv(out_all, index=False)
         # システム別
         for name, df in per_system.items():
             if df is None or df.empty:
                 continue
-            out = signals_dir / f"signals_{name}_{date_str}.csv"
+            out = signals_dir / f"signals_{name}_{suffix}.csv"
             df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
     if progress_callback:
@@ -3163,6 +3180,15 @@ def main():
         default=None,
         help="ログ保存形式: single=固定 today_signals.log / dated=日付別ファイル",
     )
+    parser.add_argument(
+        "--csv-name-mode",
+        choices=["date", "datetime", "runid"],
+        default=None,
+        help=(
+            "CSVファイル名の形式: date=YYYY-MM-DD / "
+            "datetime=YYYY-MM-DD_HHMM / runid=YYYY-MM-DD_RUNID"
+        ),
+    )
     args = parser.parse_args()
 
     # ログ保存形式を決定（CLI > 環境変数 > 既定）
@@ -3182,6 +3208,7 @@ def main():
         capital_long=args.capital_long,
         capital_short=args.capital_short,
         save_csv=args.save_csv,
+        csv_name_mode=args.csv_name_mode,
         parallel=args.parallel,
     )
 

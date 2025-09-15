@@ -297,7 +297,19 @@ with st.sidebar:
     )
 
     st.header("CSV保存")
-    save_csv = st.checkbox("CSVをsignals_dirに保存", value=False)
+    st.session_state.setdefault("save_csv", False)
+    save_csv = st.checkbox("CSVをsignals_dirに保存", key="save_csv")
+    # CSVファイル名の形式選択（date/datetime/runid）
+    st.session_state.setdefault("csv_name_mode", "date")
+    csv_name_mode = st.selectbox(
+        "CSVファイル名",
+        options=["date", "datetime", "runid"],
+        index=["date", "datetime", "runid"].index(
+            str(st.session_state.get("csv_name_mode", "date"))
+        ),
+        help="date=YYYY-MM-DD / datetime=YYYY-MM-DD_HHMM / runid=YYYY-MM-DD_RUNID",
+        key="csv_name_mode",
+    )
 
     # 既定で並列実行をON（Windowsでも有効化）
     is_windows = platform.system().lower().startswith("win")
@@ -742,6 +754,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             capital_long=float(st.session_state["today_cap_long"]),
             capital_short=float(st.session_state["today_cap_short"]),
             save_csv=save_csv,
+            csv_name_mode=str(csv_name_mode),
             log_callback=_ui_log,
             progress_callback=_ui_progress,
             per_system_progress=_per_system_progress,
