@@ -86,6 +86,19 @@ def save_price_chart(
                 linestyle="--",
                 linewidth=1,
             )
+            # Annotate profit or loss near the exit marker
+            profit = exit_price - entry_price
+            pct = profit / entry_price * 100 if entry_price else 0.0
+            color = "#2ca02c" if profit >= 0 else "#d62728"
+            ax.annotate(
+                f"{profit:+.2f} ({pct:+.1f}%)",
+                xy=(exit_date, exit_price),
+                xytext=(0, -15),
+                textcoords="offset points",
+                ha="center",
+                color=color,
+                fontsize=8,
+            )
 
     fig.autofmt_xdate()
     fig.tight_layout()

@@ -84,6 +84,9 @@ scheduler:
     - name: warm_cache
       cron: "0 7 * * 1-5" # 平日 07:00
       task: cache_daily_data # python スクリプト/関数名の想定
+    - name: precompute_shared_indicators
+      cron: "30 7 * * 1-5" # 平日 07:30（市場時間外のウォームアップ）
+      task: precompute_shared_indicators
     - name: run_today_signals
       cron: "15 8 * * 1-5"
       task: run_today_signals

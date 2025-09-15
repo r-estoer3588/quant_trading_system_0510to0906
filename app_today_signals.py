@@ -1351,12 +1351,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
             df_plan = pd.DataFrame(planned_rows)
             st.dataframe(df_plan, use_container_width=True)
-            if st.button("計画を保存（JSONL）"):
-                import json as _json
 
-                plan_path = Path("data/planned_exits.jsonl")
+            # 自動保存（UI操作を減らす）
+            import json as _json
+
+            plan_path = Path("data/planned_exits.jsonl")
+            try:
+                plan_path.parent.mkdir(parents=True, exist_ok=True)
+                with plan_path.open("w", encoding="utf-8") as f:
+                    for r in planned_rows:
+                        f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+                st.caption(f"計画を保存しました: {plan_path}")
+            except Exception as e:
+                st.error(f"計画の保存に失敗: {e}")
+
+            # 手動保存ボタンも残す（必要なら再保存）
+            if st.button("計画を保存（JSONL）"):
                 try:
-                    plan_path.parent.mkdir(parents=True, exist_ok=True)
                     with plan_path.open("w", encoding="utf-8") as f:
                         for r in planned_rows:
                             f.write(_json.dumps(r, ensure_ascii=False) + "\n")
@@ -1365,9 +1376,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     st.error(f"保存に失敗: {e}")
 
             st.write("")
+            # 即時実行のオプション（自動化に近づける）
+            auto_exec_open = st.checkbox(
+                "保存後に寄り（OPG）予約を即時送信",
+                value=False,
+                key="auto_exec_open",
+            )
+            auto_exec_close = st.checkbox(
+                "保存後に引け（CLS）予約を即時送信",
+                value=False,
+                key="auto_exec_close",
+            )
             col_open, col_close = st.columns(2)
             with col_open:
-                if st.button("⏱️ 寄り（OPG）予約を今すぐ送信", key="run_scheduler_open"):
+                if auto_exec_open or st.button(
+                    "⏱️ 寄り（OPG）予約を今すぐ送信",
+                    key="run_scheduler_open",
+                ):
                     try:
                         from schedulers.next_day_exits import submit_planned_exits as _run_sched
 
@@ -1380,7 +1405,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     except Exception as e:
                         st.error(f"寄り（OPG）予約の実行に失敗: {e}")
             with col_close:
-                if st.button("⏱️ 引け（CLS）予約を今すぐ送信", key="run_scheduler_close"):
+                if auto_exec_close or st.button(
+                    "⏱️ 引け（CLS）予約を今すぐ送信",
+                    key="run_scheduler_close",
+                ):
                     try:
                         from schedulers.next_day_exits import submit_planned_exits as _run_sched
 
@@ -1444,7 +1472,6 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     pass
             except Exception as e:
                 st.warning(f"自動保存に失敗: {e}")
-
         # Alpaca 自動発注（任意）
         if do_trade:
             st.divider()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional, Iterable, Tuple
+from collections.abc import Callable
 import time as _t
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -67,12 +67,12 @@ def _ensure_price_columns_upper(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def precompute_shared_indicators(
-    basic_data: Dict[str, pd.DataFrame],
+    basic_data: dict[str, pd.DataFrame],
     *,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
     parallel: bool = False,
     max_workers: int | None = None,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     basic_data の各 DataFrame に共有インジケータ列を付与して返す。
 
@@ -83,7 +83,7 @@ def precompute_shared_indicators(
     """
     if not basic_data:
         return basic_data
-    out: Dict[str, pd.DataFrame] = {}
+    out: dict[str, pd.DataFrame] = {}
     total = len(basic_data)
     start_ts = _t.time()
     CHUNK = 500
@@ -152,7 +152,7 @@ def precompute_shared_indicators(
 
     cdir = _cache_dir()
 
-    def _read_cache(sym: str) -> Optional[pd.DataFrame]:
+    def _read_cache(sym: str) -> pd.DataFrame | None:
         for ext in (".feather", ".parquet"):
             fp = cdir / f"{sym}{ext}"
             if fp.exists():
@@ -185,7 +185,7 @@ def precompute_shared_indicators(
             except Exception:
                 pass
 
-    def _calc(sym_df: Tuple[str, pd.DataFrame]) -> Tuple[str, pd.DataFrame]:
+    def _calc(sym_df: tuple[str, pd.DataFrame]) -> tuple[str, pd.DataFrame]:
         sym, df = sym_df
         try:
             if df is None or getattr(df, "empty", True):
@@ -225,8 +225,21 @@ def precompute_shared_indicators(
                     recomputed = add_indicators(src_recent)
                     # 以前の最終日より新しい行だけを採用
                     recomputed_new = recomputed[recomputed["Date"] > last]
-                    merged = pd.concat([cached, recomputed_new], ignore_index=True)
-                    ind_df = merged
+                    # FutureWarning 回避: 空/全NAのフレームは concat から除外
+                    is_empty = recomputed_new is None or getattr(
+                        recomputed_new, "empty", True
+                    )
+                    is_all_na = False
+                    try:
+                        if not is_empty:
+                            is_all_na = bool(recomputed_new.count().sum() == 0)
+                    except Exception:
+                        is_all_na = False
+                    if is_empty or is_all_na:
+                        ind_df = cached
+                    else:
+                        merged = pd.concat([cached, recomputed_new], ignore_index=True)
+                        ind_df = merged
                 except Exception:
                     ind_df = add_indicators(work)
             else:
@@ -241,8 +254,10 @@ def precompute_shared_indicators(
         except Exception:
             return sym, df
 
-    if parallel and total >= 1000:
+    # 並列指定があれば件数に関わらず並列実行する（ワーカー数は銘柄数を超えない）
+    if parallel:
         workers = max_workers or min(32, (total // 1000) + 8)
+        workers = max(1, min(int(workers), int(total)))
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = {ex.submit(_calc, item): item[0] for item in basic_data.items()}
             done = 0

@@ -68,7 +68,7 @@ def _is_market_close_window(now: pd.Timestamp) -> bool:
     )
 
 
-def submit_planned_exits(window: str) -> pd.DataFrame:
+def submit_planned_exits(window: str, dry_run: bool = False) -> pd.DataFrame:
     plans = _load_plans()
     if not plans:
         return pd.DataFrame()
@@ -93,31 +93,43 @@ def submit_planned_exits(window: str) -> pd.DataFrame:
         order_type = "market"
         tif = "OPG" if window == "open" else "CLS"
         try:
-            if client is None:
-                raise RuntimeError("Alpaca client not available")
-            order = ba.submit_order_with_retry(
-                client,
-                sym,
-                qty,
-                side=side,
-                order_type=order_type,
-                time_in_force=tif,
-                retries=2,
-                backoff_seconds=0.5,
-                rate_limit_seconds=0.2,
-                log_callback=None,
-            )
-            rows.append(
-                {
-                    "symbol": sym,
-                    "qty": qty,
-                    "side": side,
-                    "when": when,
-                    "system": system,
-                    "order_id": getattr(order, "id", None),
-                    "status": getattr(order, "status", None),
-                }
-            )
+            if dry_run:
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "qty": qty,
+                        "side": side,
+                        "when": when,
+                        "system": system,
+                        "dry_run": True,
+                    }
+                )
+            else:
+                if client is None:
+                    raise RuntimeError("Alpaca client not available")
+                order = ba.submit_order_with_retry(
+                    client,
+                    sym,
+                    qty,
+                    side=side,
+                    order_type=order_type,
+                    time_in_force=tif,
+                    retries=2,
+                    backoff_seconds=0.5,
+                    rate_limit_seconds=0.2,
+                    log_callback=None,
+                )
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "qty": qty,
+                        "side": side,
+                        "when": when,
+                        "system": system,
+                        "order_id": getattr(order, "id", None),
+                        "status": getattr(order, "status", None),
+                    }
+                )
         except Exception as e:  # noqa: BLE001
             rows.append(
                 {
@@ -136,10 +148,11 @@ def submit_planned_exits(window: str) -> pd.DataFrame:
             Notifier(platform="auto").send_trade_report(f"planned-exits-{window}", rows)
         except Exception:
             pass
-    # Remove executed ones from plan
-    target = "tomorrow_open" if window == "open" else "tomorrow_close"
-    remain = [r for r in plans if str(r.get("when", "")).lower() != target]
-    _save_plans(remain)
+    # Remove executed ones from plan（dry_run のときは削除しない）
+    if not dry_run:
+        target = "tomorrow_open" if window == "open" else "tomorrow_close"
+        remain = [r for r in plans if str(r.get("when", "")).lower() != target]
+        _save_plans(remain)
     return df
 
 

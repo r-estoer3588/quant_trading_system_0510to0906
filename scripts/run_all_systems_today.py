@@ -41,6 +41,19 @@ _LOG_FILE_PATH: Path | None = None
 _LOG_FILE_MODE: str = "single"  # single | dated
 
 
+def _get_account_equity() -> float:
+    """Return current account equity via Alpaca API.
+
+    失敗した場合は 0.0 を返す（テスト環境など API 未設定時の安全対策）。
+    """
+    try:
+        client = ba.get_client(paper=True)
+        acct = client.get_account()
+        return float(getattr(acct, "equity", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
 def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) -> None:
     """today_signals 用のロガーファイルを構成する。
 
@@ -239,17 +252,19 @@ def _asc_by_score_key(score_key: str | None) -> bool:
 
 
 # ログ出力から除外するキーワード
+# ログ全体から除外するキーワード（CLI/UI 共通）
+# インジケーター計算自体は CLI に出したいので除外しない。
 _GLOBAL_SKIP_KEYWORDS = (
     "バッチ時間",
     "batch time",
+    # 銘柄の長いダンプは CLI でも非表示にする
+    "銘柄:",
 )
 # UI 表示からのみ除外するキーワード
 _UI_ONLY_SKIP_KEYWORDS = (
     "進捗",
-    "インジケーター計算",
     "候補抽出",
     "候補日数",
-    "銘柄:",
 )
 
 
@@ -596,6 +611,9 @@ def compute_today_signals(
     cache_dir = cm.rolling_dir
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
+
+    run_start_time = datetime.now()
+    start_equity = _get_account_equity()
 
     # 前回結果の保存/読込ヘルパ
     def _prev_counts_path() -> Path:
@@ -2776,8 +2794,23 @@ def compute_today_signals(
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
                 except Exception:
                     _td_str = ""
-                # fields に各systemのメトリクスを添付するため、本文は簡潔にする
-                msg = f"対象日: {_td_str}"
+                run_end_time = datetime.now()
+                end_equity = _get_account_equity()
+                profit_amt = max(end_equity - start_equity, 0.0)
+                loss_amt = max(start_equity - end_equity, 0.0)
+                total_entries = sum(final_counts.values())
+                total_exits = sum(
+                    int(v) for v in exit_counts_map.values() if v is not None
+                )
+                msg = (
+                    f"対象日: {_td_str}\n"
+                    f"指定銘柄総数: {tgt_base}\n"
+                    f"開始: {run_start_time.strftime('%H:%M:%S')} / "
+                    f"完了: {run_end_time.strftime('%H:%M:%S')}\n"
+                    f"開始資産: {start_equity:.2f} / 完了資産: {end_equity:.2f}\n"
+                    f"エントリー数: {total_entries} / エグジット数: {total_exits}\n"
+                    f"利益額: {profit_amt:.2f} / 損失額: {loss_amt:.2f}"
+                )
                 notifier = create_notifier(platform="auto", fallback=True)
                 notifier.send(title, msg, fields=lines)
             except Exception:
@@ -3228,6 +3261,21 @@ def main():
             "datetime=YYYY-MM-DD_HHMM / runid=YYYY-MM-DD_RUNID"
         ),
     )
+    # 計画 -> 実行ブリッジ（安全のため既定はドライラン）
+    parser.add_argument(
+        "--run-planned-exits",
+        choices=["off", "open", "close", "auto"],
+        default=None,
+        help=(
+            "手仕舞い計画の自動実行: off=無効 / open=寄り(OPG) / "
+            "close=引け(CLS) / auto=時間帯で自動判定"
+        ),
+    )
+    parser.add_argument(
+        "--planned-exits-dry-run",
+        action="store_true",
+        help="手仕舞い計画の自動実行をドライランにする（既定で有効）",
+    )
     args = parser.parse_args()
 
     # ログ保存形式を決定（CLI > 環境変数 > 既定）
@@ -3294,6 +3342,42 @@ def main():
                 log_callback=_log,
                 notify=True,
             )
+
+    # --- 手仕舞い計画の自動実行（任意） ---
+    try:
+        from schedulers.next_day_exits import submit_planned_exits as _run_planned
+    except Exception:
+        _run_planned = None
+    env_run = os.environ.get("RUN_PLANNED_EXITS", "").lower()
+    run_mode = (
+        args.run_planned_exits
+        or (env_run if env_run in {"off", "open", "close", "auto"} else None)
+        or "off"
+    )
+    # 既定はドライラン（--planned-exits-dry-run 指定なしでも True）
+    dry_run = True if not args.planned_exits_dry_run else True
+    if _run_planned and run_mode != "off":
+        # auto の場合はNY時間で判定
+        sel = run_mode
+        if run_mode == "auto":
+            now = datetime.now(ZoneInfo("America/New_York"))
+            hhmm = now.strftime("%H%M")
+            # 09:30-09:45 を open、15:50-16:00 を close とする
+            sel = (
+                "open"
+                if ("0930" <= hhmm <= "0945")
+                else ("close" if ("1550" <= hhmm <= "1600") else "off")
+            )
+        if sel in {"open", "close"}:
+            _log(f"⏱️ 手仕舞い計画の自動実行: {sel} (dry_run={dry_run})")
+            try:
+                df_exec = _run_planned(sel, dry_run=dry_run)
+                if df_exec is not None and not df_exec.empty:
+                    _log(df_exec.to_string(index=False), ui=False)
+                else:
+                    _log("対象の手仕舞い計画はありません。", ui=False)
+            except Exception as e:
+                _log(f"⚠️ 手仕舞い計画の自動実行に失敗: {e}")
 
 
 if __name__ == "__main__":

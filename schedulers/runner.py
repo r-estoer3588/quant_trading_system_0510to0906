@@ -10,7 +10,8 @@ import time
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Callable, Dict, Iterable, Literal, Any, cast
+from collections.abc import Callable
+from typing import Literal, Any, cast
 
 from config.settings import get_settings
 from common.logging_utils import setup_logging
@@ -143,7 +144,16 @@ def task_update_trailing_stops():
         logging.exception("update_trailing_stops タスクが失敗しました")
 
 
-TASKS: Dict[str, Callable[[], None]] = {
+def task_precompute_shared_indicators():
+    try:
+        from tools.precompute_shared_indicators import main as warmup
+
+        warmup()
+    except Exception:
+        logging.exception("precompute_shared_indicators タスクが失敗しました")
+
+
+TASKS: dict[str, Callable[[], None]] = {
     "cache_daily_data": task_cache_daily_data,
     "warm_cache": task_cache_daily_data,
     "notify_signals": task_notify_signals,
@@ -151,6 +161,7 @@ TASKS: Dict[str, Callable[[], None]] = {
     "bulk_last_day": task_bulk_last_day,
     "update_tickers": task_update_tickers,
     "update_trailing_stops": task_update_trailing_stops,
+    "precompute_shared_indicators": task_precompute_shared_indicators,
     "notify_metrics": task_notify_metrics,
     "build_metrics_report": task_build_metrics_report,
 }

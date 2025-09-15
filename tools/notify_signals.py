@@ -17,6 +17,7 @@ import pandas as pd
 
 from common.notifier import create_notifier
 from common.price_chart import save_price_chart
+from common.trade_cache import pop_entry, store_entry
 from config.settings import get_settings
 
 
@@ -77,18 +78,46 @@ def _send_via_notifier(df: pd.DataFrame) -> None:
     """Send notification using Slack (fallback to Discord) via Notifier."""
     n = create_notifier(platform="slack", fallback=True)
     try:
-        groups = (
-            df.groupby("system")
-            if "system" in df.columns
-            else [("integrated", df)]
-        )
+        if "system" in df.columns:
+            groups = df.groupby("system")
+        else:
+            groups = [("integrated", df)]
         for sys_name, g in groups:
-            symbols = g["symbol"].astype(str).tolist()
+            raw_symbols = g["symbol"].astype(str).tolist()
+            if "close" in g.columns:
+                closes = g["close"].tolist()
+                symbols = []
+                for sym, close in zip(raw_symbols, closes, strict=False):
+                    try:
+                        price = float(close)
+                        symbols.append(f"{sym} ${price:.2f}")
+                    except Exception:
+                        symbols.append(sym)
+            else:
+                symbols = raw_symbols
             n.send_signals(str(sys_name), symbols)
             chart_paths: list[str] = []
-            for sym in symbols:
+            for sym in raw_symbols:
                 try:
-                    img_path, _ = save_price_chart(sym)
+                    row = g[g["symbol"] == sym].iloc[0]
+                except Exception:
+                    row = None
+                trades_df: pd.DataFrame | None = None
+                if row is not None:
+                    action = str(row.get("action") or row.get("side") or "").upper()
+                    if action == "BUY":
+                        entry_date = row.get("entry_date")
+                        entry_price = row.get("entry_price")
+                        if entry_date and entry_price:
+                            store_entry(sym, str(entry_date), float(entry_price))
+                        trades_df = pd.DataFrame([row])
+                    elif action == "SELL":
+                        entry_info = pop_entry(sym) or {}
+                        if entry_info:
+                            row = {**row.to_dict(), **entry_info}
+                        trades_df = pd.DataFrame([row])
+                try:
+                    img_path, _ = save_price_chart(sym, trades=trades_df)
                     if img_path:
                         chart_paths.append(img_path)
                 except Exception:
