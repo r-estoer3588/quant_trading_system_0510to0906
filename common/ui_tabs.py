@@ -507,8 +507,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             st.toggle(_label_i, key=notify_key_i)
         else:
             st.checkbox(_label_i, key=notify_key_i)
-        if not (os.getenv("DISCORD_WEBHOOK_URL") or os.getenv("SLACK_WEBHOOK_URL")):
-            st.caption(tr("Webhook URL が未設定です（.env を確認）"))
+        if not (os.getenv("DISCORD_WEBHOOK_URL") or os.getenv("SLACK_BOT_TOKEN")):
+            st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
     except Exception:
         pass
 
@@ -719,7 +719,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             # Save equity curve image for integrated results
             _img_path, _img_url = save_equity_curve(df2, capital_i, "Integrated")
             _title = tr("Integrated Summary")
-            _mention = "channel" if os.getenv("SLACK_WEBHOOK_URL") else None
+            _mention = "channel" if os.getenv("SLACK_BOT_TOKEN") else None
             # Use unified sender with mention support if available
             if st.session_state.get(notify_key_i, False):
                 try:
@@ -1257,7 +1257,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             if notifier is not None:
                 _img_path, _img_url = save_equity_curve(all_df2, capital, "Batch")
                 _title = tr("Batch Backtest / Summary")
-                _mention = "channel" if os.getenv("SLACK_WEBHOOK_URL") else None
+                _mention = "channel" if os.getenv("SLACK_BOT_TOKEN") else None
                 try:
                     if hasattr(notifier, "send_with_mention"):
                         notifier.send_with_mention(

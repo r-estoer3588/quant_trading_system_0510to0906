@@ -1,6 +1,6 @@
 """通知ユーティリティ。
 
-- Slack / Discord Webhook に対応
+- Slack Web API / Discord Webhook に対応
 - 日本語の文言と絵文字を正しく整形して送信
 
 注意:
@@ -164,7 +164,7 @@ def chunk_fields(
 
 
 def detect_default_platform() -> str:
-    if os.getenv("SLACK_WEBHOOK_URL") or os.getenv("SLACK_BOT_TOKEN"):
+    if os.getenv("SLACK_BOT_TOKEN"):
         return "slack"
     if os.getenv("DISCORD_WEBHOOK_URL"):
         return "discord"
@@ -230,11 +230,13 @@ class Notifier:
         if platform == "auto":
             platform = detect_default_platform()
         self.platform = platform
-        self.webhook_url = webhook_url or (
-            os.getenv("SLACK_WEBHOOK_URL")
-            if platform == "slack"
-            else os.getenv("DISCORD_WEBHOOK_URL")
-        )
+        if platform == "slack":
+            # Slack は Webhook を使用せず Web API のみサポート
+            self.webhook_url = None
+        elif platform == "discord":
+            self.webhook_url = webhook_url or os.getenv("DISCORD_WEBHOOK_URL")
+        else:
+            self.webhook_url = webhook_url
         self.logger = _setup_logger()
 
     def _post(self, payload: dict[str, Any]) -> None:
@@ -297,6 +299,11 @@ class Notifier:
         text = payload.get("text") or "Notification"
         try:  # pragma: no cover
             client = WebClient(token=token)  # type: ignore
+            client.chat_postMessage(  # type: ignore
+                channel=channel,
+                text=text,
+                blocks=blocks,
+            )
             client.chat_postMessage(  # type: ignore
                 channel=channel,
                 text=text,
@@ -775,10 +782,12 @@ class FallbackNotifier(Notifier):
         if not ch:
             return False
         token = self._slack_token
-        webhook = os.getenv("SLACK_WEBHOOK_URL", "").strip()
         if token and WebClient is not None:
             try:  # pragma: no cover
                 client = WebClient(token=token)  # type: ignore
+                client.chat_postMessage(  # type: ignore
+                    channel=ch, text=text, blocks=blocks
+                )
                 client.chat_postMessage(  # type: ignore
                     channel=ch, text=text, blocks=blocks
                 )
@@ -795,29 +804,6 @@ class FallbackNotifier(Notifier):
                 )
             except Exception as e:
                 self._logger.warning("fallback: Slack API exception: %s", e)
-        # Webhook フォールバックは既定で無効化（明示許可時のみ使用）
-        allow_webhook_fallback = os.getenv(
-            "ALLOW_SLACK_WEBHOOK_FALLBACK", ""
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        if webhook and allow_webhook_fallback:
-            try:  # pragma: no cover
-                r = requests.post(
-                    webhook, json={"text": text, "blocks": blocks}, timeout=10
-                )
-                if 200 <= r.status_code < 300:
-                    self._logger.info("fallback: sent via Slack Webhook")
-                    return True
-                self._logger.warning(
-                    "fallback: webhook status=%s body=%s",
-                    r.status_code,
-                    truncate(r.text, 200),
-                )
-            except Exception as e:
-                self._logger.warning("fallback: Slack webhook exception: %s", e)
-        elif webhook and not allow_webhook_fallback:
-            self._logger.info(
-                "fallback: Slack webhook は無効（ALLOW_SLACK_WEBHOOK_FALLBACK 未設定）"
-            )
         return False
 
     def _slack_upload_file(
@@ -1128,16 +1114,11 @@ def create_notifier(
             return FallbackNotifier()
     if broadcast:
         notifiers: list[Notifier] = []
-        slack_url = os.getenv("SLACK_WEBHOOK_URL")
         discord_url = os.getenv("DISCORD_WEBHOOK_URL")
         if platform in {"auto", "both", "broadcast", "all"}:
-            if slack_url:
-                notifiers.append(Notifier(platform="slack", webhook_url=slack_url))
             if discord_url:
                 notifiers.append(Notifier(platform="discord", webhook_url=discord_url))
         else:
-            if platform == "slack" and slack_url:
-                notifiers.append(Notifier(platform="slack", webhook_url=slack_url))
             if platform == "discord" and discord_url:
                 notifiers.append(Notifier(platform="discord", webhook_url=discord_url))
         if len(notifiers) >= 2:

@@ -1,10 +1,9 @@
 """Simple signal notification utilities.
 
 `notify_signals()` reads today's CSVs under ``settings.outputs.signals_dir``
-and logs a summary. ``send_signal_notification`` posts a short text message to
-webhooks defined by ``TEAMS_WEBHOOK_URL`` or ``SLACK_WEBHOOK_URL`` environment
-variables.  The payload is compatible with Microsoft Teams and Slack incoming
-webhooks. Discord webhooks are also supported via ``DISCORD_WEBHOOK_URL``.
+and logs a summary. ``send_signal_notification`` posts a short text message via
+Microsoft Teams (``TEAMS_WEBHOOK_URL``) or Slack Web API (``SLACK_BOT_TOKEN``).
+Discord webhooks are also supported via ``DISCORD_WEBHOOK_URL``.
 """
 
 from __future__ import annotations

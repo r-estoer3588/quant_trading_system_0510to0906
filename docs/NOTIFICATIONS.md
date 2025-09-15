@@ -3,7 +3,7 @@
 以下の環境変数を `.env` に設定すると、各種通知が有効になります。
 
 - `DISCORD_WEBHOOK_URL`（推奨）
-- `SLACK_WEBHOOK_URL`
+- `SLACK_BOT_TOKEN` と `SLACK_CHANNEL` または `SLACK_CHANNEL_ID`
 - `TEAMS_WEBHOOK_URL`
 
 主な送信元:

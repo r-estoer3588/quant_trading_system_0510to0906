@@ -1,13 +1,10 @@
 # tickers_loader.py
-import pandas as pd
-import requests
-import zipfile
-import io
-from datetime import datetime
-from pathlib import Path
-import streamlit as st
-import time
 import os
+import time
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
 
 FAILED_LIST = "eodhd_failed_symbols.csv"
 
@@ -82,7 +79,11 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
             print(f"[webhook skipped] url={url!r} | {text}")
 
     settings = get_settings(create_dirs=True)
-    out = Path(output_path) if output_path else Path(settings.data.cache_dir) / "tickers.csv"
+    out = (
+        Path(output_path)
+        if output_path
+        else Path(settings.data.cache_dir) / "tickers.csv"
+    )
 
     tickers = get_all_tickers()
     prev: set[str] = set()
@@ -101,7 +102,7 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
         text += f"\nAdded: {', '.join(new[:10])}"
     if removed:
         text += f"\nRemoved: {', '.join(removed[:10])}"
-    for env in ("TEAMS_WEBHOOK_URL", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"):
+    for env in ("TEAMS_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"):
         url = os.getenv(env)
         if url:
             _post_webhook(url, text)

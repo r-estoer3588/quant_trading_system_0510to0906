@@ -27,6 +27,9 @@ from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 
+# ワーカー側で観測した cand_cnt(=TRDlist) を保存し、メインスレッドで参照するためのスナップショット
+_CAND_COUNT_SNAPSHOT: dict[str, int] = {}
+
 _LOG_CALLBACK = None
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
@@ -1862,6 +1865,12 @@ def compute_today_signals(
                         cb2(name, max(0, min(100, int(v))), f, s, c, fin)
                     except Exception:
                         pass
+                # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
+                try:
+                    if c is not None:
+                        _CAND_COUNT_SNAPSHOT[name] = int(c)
+                except Exception:
+                    pass
 
             import os as _os
 
@@ -2130,19 +2139,7 @@ def compute_today_signals(
                     per_system_progress(name, "done")
                 except Exception:
                     pass
-            # 戦略完了直後にも TRDlist 件数（=当日/直近営業日候補数）を 75% 段階として即時通知
-            try:
-                cb2_local = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2_local = None
-            if cb2_local and callable(cb2_local):
-                try:
-                    _cand_cnt_local = int(
-                        0 if df is None or getattr(df, "empty", True) else len(df)
-                    )
-                    cb2_local(name, 75, None, None, _cand_cnt_local, None)
-                except Exception:
-                    pass
+            # 即時の75%再通知は行わない（メインスレッド側で一括通知）
             # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:
             try:
@@ -2163,10 +2160,17 @@ def compute_today_signals(
     if cb2 and callable(cb2):
         try:
             for _name in order_1_7:
-                _df_sys = per_system.get(_name, pd.DataFrame())
-                _cand_cnt = int(
-                    0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
-                )
+                # ワーカーからのスナップショットがあれば優先（型ゆらぎ等を超えて信頼できる値）
+                _cand_cnt = None
+                try:
+                    _cand_cnt = int(_CAND_COUNT_SNAPSHOT.get(_name))
+                except Exception:
+                    _cand_cnt = None
+                if _cand_cnt is None:
+                    _df_sys = per_system.get(_name, pd.DataFrame())
+                    _cand_cnt = int(
+                        0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
+                    )
                 cb2(_name, 75, None, None, _cand_cnt, None)
         except Exception:
             pass

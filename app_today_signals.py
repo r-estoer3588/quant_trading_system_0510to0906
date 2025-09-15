@@ -562,8 +562,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             if not bar:
                 return
             vv = max(0, min(100, int(v)))
-            bar.progress(vv)
-            sys_states[n] = vv
+            # 単調非減少に補正（戻り対策）
+            try:
+                prev_v = int(sys_states.get(n, 0))
+            except Exception:
+                prev_v = 0
+            vv2 = max(prev_v, vv)
+            bar.progress(vv2)
+            sys_states[n] = vv2
             # クイックフェーズ表示（常に1行で収まる短縮表記）
             sys_stage_txt[n].text(f"run {vv}%" if vv < 100 else "done 100%")
             # 全体フェーズの見出しを、各システムの段階にあわせて上書き（日本語）
