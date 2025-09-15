@@ -37,7 +37,7 @@ data:
   # .env の EODHD_API_KEY を優先
   api_key_env: EODHD_API_KEY
   cache_dir: data_cache
-  max_workers: 12
+  max_workers: 16
   # バッチ処理で一度に扱う銘柄数（調整可能）
   batch_size: 100
   request_timeout: 10

@@ -329,7 +329,7 @@ with st.sidebar:
 
     # 通知（Slack Bot Token）設定（チャンネル指定フォームは廃止）
     st.header("通知設定（Slack Bot Token）")
-    st.session_state.setdefault("use_slack_notify", False)
+    st.session_state.setdefault("use_slack_notify", True)
     use_slack_notify = st.checkbox(
         "Slack通知を有効化（Bot Token）",
         key="use_slack_notify",
@@ -1376,27 +1376,22 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     st.error(f"保存に失敗: {e}")
 
             st.write("")
-            # 即時実行のオプション（自動化に近づける）
-            auto_exec_open = st.checkbox(
-                "保存後に寄り（OPG）予約を即時送信",
-                value=False,
-                key="auto_exec_open",
-            )
-            auto_exec_close = st.checkbox(
-                "保存後に引け（CLS）予約を即時送信",
-                value=False,
-                key="auto_exec_close",
+            # ドライラン切替（UIからの即時送信時のみ適用）
+            dry_run_plan = st.checkbox(
+                "ドライラン（予約送信をテストとして実行）",
+                value=True,
+                key="planned_exits_dry_run",
             )
             col_open, col_close = st.columns(2)
             with col_open:
-                if auto_exec_open or st.button(
+                if st.button(
                     "⏱️ 寄り（OPG）予約を今すぐ送信",
                     key="run_scheduler_open",
                 ):
                     try:
                         from schedulers.next_day_exits import submit_planned_exits as _run_sched
 
-                        df_exec = _run_sched("open")
+                        df_exec = _run_sched("open", dry_run=dry_run_plan)
                         if df_exec is not None and not df_exec.empty:
                             st.success("寄り（OPG）分の予約送信を実行しました。結果を表示します。")
                             st.dataframe(df_exec, use_container_width=True)
@@ -1405,14 +1400,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     except Exception as e:
                         st.error(f"寄り（OPG）予約の実行に失敗: {e}")
             with col_close:
-                if auto_exec_close or st.button(
+                if st.button(
                     "⏱️ 引け（CLS）予約を今すぐ送信",
                     key="run_scheduler_close",
                 ):
                     try:
                         from schedulers.next_day_exits import submit_planned_exits as _run_sched
 
-                        df_exec = _run_sched("close")
+                        df_exec = _run_sched("close", dry_run=dry_run_plan)
                         if df_exec is not None and not df_exec.empty:
                             st.success("引け（CLS）分の予約送信を実行しました。結果を表示します。")
                             st.dataframe(df_exec, use_container_width=True)

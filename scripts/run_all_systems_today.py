@@ -2799,9 +2799,7 @@ def compute_today_signals(
                 profit_amt = max(end_equity - start_equity, 0.0)
                 loss_amt = max(start_equity - end_equity, 0.0)
                 total_entries = sum(final_counts.values())
-                total_exits = sum(
-                    int(v) for v in exit_counts_map.values() if v is not None
-                )
+                total_exits = sum(int(v) for v in exit_counts_map.values() if v is not None)
                 msg = (
                     f"対象日: {_td_str}\n"
                     f"指定銘柄総数: {tgt_base}\n"
@@ -3274,7 +3272,7 @@ def main():
     parser.add_argument(
         "--planned-exits-dry-run",
         action="store_true",
-        help="手仕舞い計画の自動実行をドライランにする（既定で有効）",
+        help="手仕舞い計画の自動実行をドライランにする（既定は実発注）",
     )
     args = parser.parse_args()
 
@@ -3354,8 +3352,8 @@ def main():
         or (env_run if env_run in {"off", "open", "close", "auto"} else None)
         or "off"
     )
-    # 既定はドライラン（--planned-exits-dry-run 指定なしでも True）
-    dry_run = True if not args.planned_exits_dry_run else True
+    # 既定は実発注。--planned-exits-dry-run 指定時のみドライラン
+    dry_run = True if args.planned_exits_dry_run else False
     if _run_planned and run_mode != "off":
         # auto の場合はNY時間で判定
         sel = run_mode
