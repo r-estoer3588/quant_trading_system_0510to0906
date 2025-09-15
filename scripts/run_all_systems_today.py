@@ -5,7 +5,10 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import no_type_check
+import os
 
 import pandas as pd
 
@@ -33,12 +36,68 @@ _CAND_COUNT_SNAPSHOT: dict[str, int] = {}
 _LOG_CALLBACK = None
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
+# ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
+_LOG_FILE_PATH: Path | None = None
+_LOG_FILE_MODE: str = "single"  # single | dated
+
+
+def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) -> None:
+    """today_signals 用のロガーファイルを構成する。
+
+    mode:
+      - "single": 固定ファイル `today_signals.log`
+      - "dated":  日付付き `today_signals_YYYYMMDD_HHMM.log`（JST）
+    run_id: 予約（現状未使用）。将来、ファイル名に含めたい場合に利用。
+    """
+    global _LOG_FILE_PATH, _LOG_FILE_MODE
+    _LOG_FILE_MODE = mode or "single"
+    try:
+        settings = get_settings(create_dirs=True)
+        log_dir = Path(settings.LOGS_DIR)
+    except Exception:
+        log_dir = Path("logs")
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    if _LOG_FILE_MODE == "dated":
+        try:
+            jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        except Exception:
+            jst_now = datetime.now()
+        stamp = jst_now.strftime("%Y%m%d_%H%M")
+        filename = f"today_signals_{stamp}.log"
+    else:
+        filename = "today_signals.log"
+
+    _LOG_FILE_PATH = log_dir / filename
+    # ハンドラを最新パスに合わせて張り替える
+    try:
+        logger = logging.getLogger("today_signals")
+        for h in list(logger.handlers):
+            try:
+                if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None):
+                    if Path(h.baseFilename) != _LOG_FILE_PATH:
+                        logger.removeHandler(h)
+                        try:
+                            h.close()
+                        except Exception:
+                            pass
+            except Exception:
+                # ハンドラ情報取得に失敗した場合は無視
+                pass
+        # 以降、_get_today_logger() が適切なハンドラを追加する
+    except Exception:
+        pass
+
 
 def _get_today_logger() -> logging.Logger:
-    """today_signals 用のファイルロガーを取得（logs/today_signals.log）。
+    """today_signals 用のファイルロガーを取得。
 
-    UI 側が log_callback を渡す場合は UI がファイル出力するので、
-    本ロガーは CLI 実行や log_callback なしのときのみに使う想定。
+    デフォルトは `logs/today_signals.log`。
+    `_configure_today_logger(mode="dated")` 適用時は日付付きファイルに出力。
+    UI 有無に関係なく、完全な実行ログを常にファイルへ残す。
     """
     logger = logging.getLogger("today_signals")
     logger.setLevel(logging.INFO)
@@ -52,32 +111,64 @@ def _get_today_logger() -> logging.Logger:
         logger.propagate = False
     except Exception:
         pass
+    # 目標ファイルパスを決定
     try:
-        # settings が未初期化でも安全に取得できるようにラップ
-        settings = get_settings(create_dirs=True)
-        log_dir = Path(settings.LOGS_DIR)
+        # 環境変数でも日付別ログ指定を許可（UI 実行など main() を経ない場合）
+        if globals().get("_LOG_FILE_PATH") is None:
+            try:
+                import os as _os
+
+                _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+                if _mode_env == "dated":
+                    try:
+                        _jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+                    except Exception:
+                        _jst_now = datetime.now()
+                    _stamp = _jst_now.strftime("%Y%m%d_%H%M")
+                    try:
+                        settings = get_settings(create_dirs=True)
+                        _log_dir = Path(settings.LOGS_DIR)
+                    except Exception:
+                        _log_dir = Path("logs")
+                    try:
+                        _log_dir.mkdir(parents=True, exist_ok=True)
+                    except Exception:
+                        pass
+                    globals()["_LOG_FILE_PATH"] = _log_dir / f"today_signals_{_stamp}.log"
+            except Exception:
+                pass
+
+        if globals().get("_LOG_FILE_PATH") is not None:
+            log_path = globals().get("_LOG_FILE_PATH")  # type: ignore[assignment]
+        else:
+            try:
+                settings = get_settings(create_dirs=True)
+                log_dir = Path(settings.LOGS_DIR)
+            except Exception:
+                log_dir = Path("logs")
+            try:
+                log_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            log_path = log_dir / "today_signals.log"
     except Exception:
-        log_dir = Path("logs")
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    log_path = log_dir / "today_signals.log"
+        log_path = Path("logs") / "today_signals.log"
 
     # 既存の同一ファイルハンドラがあるか確認
     has_handler = False
     for h in list(logger.handlers):
         try:
-            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
-                log_path
-            ):
-                has_handler = True
-                break
+            if isinstance(h, logging.FileHandler):
+                base = getattr(h, "baseFilename", None)
+                if base:
+                    if Path(base).resolve() == Path(str(log_path)).resolve():
+                        has_handler = True
+                        break
         except Exception:
             continue
     if not has_handler:
         try:
-            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fh = logging.FileHandler(str(log_path), encoding="utf-8")
             fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
             fh.setFormatter(fmt)
             logger.addHandler(fh)
@@ -136,11 +227,9 @@ def _log(msg: str, ui: bool = True):
     if ui_allowed:
         _emit_ui_log(str(msg))
 
-    # UI コールバックが無いか、UI へ送信しなかった場合はファイルにINFOで出力（CLI ログ保存）
+    # 常にファイルへもINFOで出力（UI/CLI の別なく完全なログを保存）
     try:
-        cb = globals().get("_LOG_CALLBACK")
-        if not cb or not ui_allowed:
-            _get_today_logger().info(str(msg))
+        _get_today_logger().info(str(msg))
     except Exception:
         pass
 
@@ -469,6 +558,15 @@ def compute_today_signals(
 
     戻り値: (final_df, per_system_df_dict)
     """
+    # CLI 経由で未設定の場合（UI 等）、既定で日付別ログに切替
+    try:
+        if globals().get("_LOG_FILE_PATH") is None:
+            import os as _os
+
+            _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
+    except Exception:
+        pass
     # === CLI バナー（開始の明確化）: RUN-ID のみ事前生成 ===
     try:
         import uuid as _uuid
@@ -3059,7 +3157,23 @@ def main():
         action="store_true",
         help="ライブ口座で発注（デフォルトはPaper）",
     )
+    parser.add_argument(
+        "--log-file-mode",
+        choices=["single", "dated"],
+        default=None,
+        help="ログ保存形式: single=固定 today_signals.log / dated=日付別ファイル",
+    )
     args = parser.parse_args()
+
+    # ログ保存形式を決定（CLI > 環境変数 > 既定）
+    env_mode = os.environ.get("TODAY_SIGNALS_LOG_MODE", "").strip().lower()
+    mode = args.log_file_mode or (env_mode if env_mode in {"single", "dated"} else None) or "dated"
+    _configure_today_logger(mode=mode)
+    try:
+        sel_path = globals().get("_LOG_FILE_PATH")
+        _log(f"📝 ログ保存先: {sel_path}", ui=False)
+    except Exception:
+        pass
 
     final_df, per_system = compute_today_signals(
         args.symbols,

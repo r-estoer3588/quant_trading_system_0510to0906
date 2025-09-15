@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import os
 import platform
 import time
 from typing import Any
@@ -77,22 +78,20 @@ notifier = create_notifier(platform="slack", fallback=True)
 
 
 def _get_today_logger() -> logging.Logger:
-    """本日のシグナル実行用ロガー（ファイル: logs/today_signals.log）。
+    """本日のシグナル実行用ロガー。
 
-    Streamlit の再実行でもハンドラが重複しないように、既存ハンドラを確認してから追加します。
+    - orchestrator(`scripts.run_all_systems_today`)が設定したログパスがあればそれに合わせる
+    - 無い場合は `TODAY_SIGNALS_LOG_MODE`（single|dated）を参照
+    - 既定は dated（JST: today_signals_YYYYMMDD_HHMM.log）
     """
     logger = logging.getLogger("today_signals")
     logger.setLevel(logging.INFO)
-    # ルートロガーへの伝播を止める（重複防止）
     try:
         logger.propagate = False
     except Exception:
         pass
-    # ルートロガーへの伝播を止め、コンソール二重出力を防止
-    try:
-        logger.propagate = False
-    except Exception:
-        pass
+
+    # ログディレクトリ
     try:
         log_dir = Path(settings.LOGS_DIR)
     except Exception:
@@ -101,27 +100,71 @@ def _get_today_logger() -> logging.Logger:
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    log_path = log_dir / "today_signals.log"
 
-    # 既に同じファイルに出力するハンドラがあれば追加しない
+    # orchestrator 側の設定を最優先
+    log_path: Path | None = None
+    try:
+        sel = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
+        if isinstance(sel, (Path,)):
+            log_path = sel
+    except Exception:
+        log_path = None
+
+    # 無ければ環境変数を見て決定
+    if log_path is None:
+        try:
+            mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+        except Exception:
+            mode_env = ""
+        if mode_env == "single":
+            log_path = log_dir / "today_signals.log"
+        else:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+
+                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            except Exception:
+                from datetime import datetime
+
+                jst_now = datetime.now()
+            stamp = jst_now.strftime("%Y%m%d_%H%M")
+            log_path = log_dir / f"today_signals_{stamp}.log"
+
+    # 既存のハンドラを整理（異なるファイルへのハンドラは除去）
+    try:
+        for h in list(logger.handlers):
+            try:
+                if isinstance(h, logging.FileHandler):
+                    base = getattr(h, "baseFilename", None)
+                    if base and Path(base) != log_path:
+                        logger.removeHandler(h)
+                        try:
+                            h.close()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 同一ファイル向けが未追加なら追加
     has_handler = False
     for h in list(logger.handlers):
         try:
-            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(
-                log_path
-            ):
-                has_handler = True
-                break
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None):
+                if Path(h.baseFilename) == log_path:
+                    has_handler = True
+                    break
         except Exception:
             continue
     if not has_handler:
         try:
-            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fh = logging.FileHandler(str(log_path), encoding="utf-8")
             fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
             fh.setFormatter(fmt)
             logger.addHandler(fh)
         except Exception:
-            # ログ設定失敗時もUI処理は継続
             pass
     return logger
 
@@ -266,8 +309,11 @@ with st.sidebar:
     paper_mode = st.checkbox("ペーパートレードを使用", value=True)
     retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2)
     delay = st.number_input("遅延（秒）", min_value=0.0, step=0.5, value=0.5)
-    poll_status = st.checkbox("注文状況を10秒ポーリング", value=False)
-    do_trade = st.checkbox("Alpacaで自動発注", value=False)
+    # 既定値は session_state に一度だけ設定し、ウィジェット側では value を渡さない
+    st.session_state.setdefault("poll_status", False)
+    st.session_state.setdefault("do_trade", False)
+    poll_status = st.checkbox("注文状況を10秒ポーリング", key="poll_status")
+    do_trade = st.checkbox("Alpacaで自動発注", key="do_trade")
     update_bp_after = st.checkbox("注文後に余力を自動更新", value=True)
 
     # 注文状況を10秒ポーリングとは？
@@ -674,7 +720,20 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     except Exception:
         pass
 
-    # ここでは何もしない（サイドバーで設定済みの環境変数を利用）
+    # ログファイルは run_all_systems_today 側の設定に合わせて事前確定
+    try:
+        mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+        sel_mode = "single" if mode_env == "single" else "dated"
+        _run_today_mod._configure_today_logger(mode=sel_mode)  # type: ignore[attr-defined]
+        # 選択されたログパスをUIに表示
+        try:
+            sel_path = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
+            if sel_path:
+                st.caption(f"ログ保存先: {sel_path}")
+        except Exception:
+            pass
+    except Exception:
+        pass
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
