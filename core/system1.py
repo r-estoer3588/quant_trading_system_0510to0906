@@ -319,8 +319,24 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         idx_norm = pd.to_datetime(sig_df.index, errors="coerce").normalize()
         # reset_index 前に明示的に "Date" 列を持たせる（後続のマージ/ソートを安定化）
         sig_df["Date"] = idx_norm
-        # entry_date は Date 列の Series に対して加算（配列結合の誤用を回避）
-        sig_df["entry_date"] = sig_df["Date"] + pd.Timedelta(days=1)
+        # entry_date は『翌営業日』に補正（単純な+1日ではなく、当該シンボルの次の取引日）
+        try:
+            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
+            base_dates = pd.to_datetime(sig_df["Date"], errors="coerce").dt.normalize()
+            pos = idx.searchsorted(base_dates, side="right")
+            next_dates = pd.Series(pd.NaT, index=base_dates.index, dtype="datetime64[ns]")
+            mask = (pos >= 0) & (pos < len(idx))
+            if mask.any():
+                # pos は ndarray なのでブールマスクで抽出後に代入
+                next_vals = idx[pos[mask]]
+                # pandas Index -> numpy -> pandas Series で整形
+                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
+            sig_df["entry_date"] = next_dates
+            # 翌営業日が無い行はドロップ
+            sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        except Exception:
+            # 失敗時は後段の当日フィルタで除外されるため、そのまま進める
+            pass
         # インデックスは不要なので落としてから蓄積
         all_signals.append(sig_df.reset_index(drop=True))
 

@@ -1253,7 +1253,36 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             df = per_system.get(name)
             st.markdown(f"#### {name}")
             if df is None or df.empty:
-                st.write("(空)")
+                st.write("(空) 候補は0件です。メトリクスを表示します。")
+                try:
+                    # 段階メトリクス（filter/setup/cand/entry/exit）を1行で表示
+                    sc = stage_counts.get(name, {})
+                    tgt_txt = "-"
+                    try:
+                        if sc.get("target") is not None:
+                            tgt_txt = str(sc.get("target"))
+                        elif sc.get("filter") is not None and sc.get("setup") is None:
+                            tgt_txt = str(sc.get("filter"))
+                    except Exception:
+                        tgt_txt = "-"
+
+                    def _v(x):
+                        return "-" if x is None else str(x)
+
+                    metrics_line = "  ".join(
+                        [
+                            f"Tgt {_v(tgt_txt)}",
+                            f"FILpass {_v(sc.get('filter'))}",
+                            f"STUpass {_v(sc.get('setup'))}",
+                            f"TRDlist {_v(sc.get('cand'))}",
+                            f"Entry {_v(sc.get('entry'))}",
+                            f"Exit {_v(sc.get('exit'))}",
+                        ]
+                    )
+                    st.caption(metrics_line)
+                except Exception:
+                    pass
+                # 直近ログは表示しない（ユーザー要望）
             else:
                 # show dataframe (includes reason column if available)
                 st.dataframe(df, use_container_width=True)

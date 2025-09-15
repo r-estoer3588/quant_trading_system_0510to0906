@@ -532,7 +532,8 @@ def get_today_signals_for_strategy(
     if log_callback:
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
-            log_callback(f"🧮 トレード候補選定開始：{setup_pass} 銘柄")
+            # 誤解回避: ここでの件数は『候補生成の母集団（セットアップ通過）』
+            log_callback(f"🧮 候補生成元（セットアップ通過）：{setup_pass} 銘柄")
         except Exception:
             pass
 
