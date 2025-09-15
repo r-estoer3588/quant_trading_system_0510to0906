@@ -2130,6 +2130,19 @@ def compute_today_signals(
                     per_system_progress(name, "done")
                 except Exception:
                     pass
+            # 戦略完了直後にも TRDlist 件数（=当日/直近営業日候補数）を 75% 段階として即時通知
+            try:
+                cb2_local = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2_local = None
+            if cb2_local and callable(cb2_local):
+                try:
+                    _cand_cnt_local = int(
+                        0 if df is None or getattr(df, "empty", True) else len(df)
+                    )
+                    cb2_local(name, 75, None, None, _cand_cnt_local, None)
+                except Exception:
+                    pass
             # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:
             try:

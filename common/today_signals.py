@@ -523,11 +523,25 @@ def get_today_signals_for_strategy(
     except Exception:
         pass
     # トレード候補件数（当日のみ）→ UI表示は最大ポジション数に合わせて上限10に丸める
+    # 候補キー型のゆらぎ（str/date/Timestamp）を吸収するため、
+    # 正規化Timestamp→元キーのマップを作成してから選択・参照する
     try:
-        candidate_dates = sorted(
-            pd.to_datetime(list((candidates_by_date or {}).keys()))
-        )
+        key_map: dict[pd.Timestamp, object] = {}
+        cand_keys = list((candidates_by_date or {}).keys())
+        for _k in cand_keys:
+            try:
+                _ts = pd.to_datetime(_k, errors="coerce")
+                if pd.isna(_ts):
+                    continue
+                _ts = pd.Timestamp(_ts).normalize()
+                # 同一日の複数キーがあっても最初を採用
+                if _ts not in key_map:
+                    key_map[_ts] = _k
+            except Exception:
+                continue
+        candidate_dates = sorted(list(key_map.keys()))
     except Exception:
+        key_map = {}
         candidate_dates = []
     target_date = None
     try:
@@ -538,11 +552,13 @@ def get_today_signals_for_strategy(
     except Exception:
         target_date = None
     try:
-        total_candidates_today = (
-            len((candidates_by_date or {}).get(target_date, []) or [])
-            if target_date is not None
-            else 0
-        )
+        if target_date is not None and target_date in key_map:
+            orig_key = key_map[target_date]
+            total_candidates_today = len(
+                (candidates_by_date or {}).get(orig_key, []) or []
+            )
+        else:
+            total_candidates_today = 0
     except Exception:
         total_candidates_today = 0
     # UIのTRDlistは各systemの最大ポジション数を超えないように表示
@@ -585,9 +601,11 @@ def get_today_signals_for_strategy(
         )
 
     # 当日または最も近い未来日の候補のみ抽出
-    today_candidates: list[dict] = (
-        candidates_by_date.get(target_date, []) if target_date is not None else []
-    )  # type: ignore
+    if target_date is not None and target_date in key_map:
+        orig_key2 = key_map[target_date]
+        today_candidates: list[dict] = candidates_by_date.get(orig_key2, [])  # type: ignore
+    else:
+        today_candidates = []  # type: ignore
     if not today_candidates:
         return pd.DataFrame(
             columns=[
