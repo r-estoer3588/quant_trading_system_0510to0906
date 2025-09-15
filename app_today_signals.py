@@ -75,6 +75,8 @@ st.title("📈 本日のシグナル（全システム）")
 
 settings = get_settings(create_dirs=True)
 notifier = create_notifier(platform="slack", fallback=True)
+# この実行ループで結果を表示したかのフラグ（保存ボタン等でのリラン対策）
+st.session_state.setdefault("today_shown_this_run", False)
 
 
 def _get_today_logger() -> logging.Logger:
@@ -316,20 +318,13 @@ with st.sidebar:
     run_parallel_default = True
     run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
 
-    # 通知（Slack Bot Token）設定
+    # 通知（Slack Bot Token）設定（チャンネル指定フォームは廃止）
     st.header("通知設定（Slack Bot Token）")
     st.session_state.setdefault("use_slack_notify", False)
     use_slack_notify = st.checkbox(
         "Slack通知を有効化（Bot Token）",
         key="use_slack_notify",
-        help="環境変数 SLACK_BOT_TOKEN が設定済みである前提。"
-        " チャンネルは #name か channel_id を入力してください。",
-    )
-    st.session_state.setdefault("slack_channel_input", "")
-    slack_channel_input = st.text_input(
-        "Slackチャンネル（#name または ID）",
-        value=str(st.session_state.get("slack_channel_input", "")),
-        key="slack_channel_input",
+        help="環境変数 SLACK_BOT_TOKEN が設定済みである前提（通知先は既定値を使用）。",
     )
     # 簡易ヘルスチェック表示
     try:
@@ -348,7 +343,7 @@ with st.sidebar:
     st.session_state.setdefault("do_trade", False)
     poll_status = st.checkbox("注文状況を10秒ポーリング", key="poll_status")
     do_trade = st.checkbox("Alpacaで自動発注", key="do_trade")
-    update_bp_after = st.checkbox("注文後に余力を自動更新", value=True)
+    update_bp_after = st.checkbox("注文後に余力を自動更新", value=True, key="update_bp_after")
 
     # 注文状況を10秒ポーリングとは？
     # → Alpacaに注文を送信した後、注文IDのステータス（filled, canceled等）を10秒間、
@@ -372,7 +367,16 @@ with st.sidebar:
     if st.button("未約定注文を表示"):
         try:
             client = ba.get_client(paper=paper_mode)
-            orders = client.get_orders(status="open")
+            try:
+                # alpaca-py のAPIに合わせ、リクエストオブジェクトで指定
+                from alpaca.trading.requests import (  # type: ignore
+                    GetOrdersRequest as _GetOrdersRequest,
+                )
+
+                orders = client.get_orders(filter=_GetOrdersRequest(status="open"))
+            except Exception:
+                # フォールバック（古いSDKなど）
+                orders = client.get_orders()
             if not orders:
                 st.info("未約定注文はありません。")
             else:
@@ -420,7 +424,16 @@ with st.sidebar:
                                     st.error(f"キャンセル失敗: {_e}")
                                 # 最新のopen ordersを再取得
                                 try:
-                                    orders2 = client.get_orders(status="open")
+                                    try:
+                                        from alpaca.trading.requests import (  # type: ignore
+                                            GetOrdersRequest as _GetOrdersRequest,
+                                        )
+
+                                        orders2 = client.get_orders(
+                                            filter=_GetOrdersRequest(status="open")
+                                        )
+                                    except Exception:
+                                        orders2 = client.get_orders()
                                     rows2 = []
                                     for o2 in orders2:
                                         try:
@@ -860,15 +873,8 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
 
     # シグナル計算時に必要な日数分だけデータを渡すようにcompute_today_signalsへ
     with st.spinner("実行中... (経過時間表示あり)"):
-        # Slack通知の環境反映（この実行スコープ内のみ）
+        # Slack通知の環境反映はチャンネル指定なし（既定設定を使用）
         do_notify = bool(use_slack_notify)
-        if do_notify and slack_channel_input.strip():
-            try:
-                os.environ["SLACK_CHANNEL_SIGNALS"] = slack_channel_input.strip()
-                # 汎用チャンネルも未設定なら同値で補完
-                os.environ.setdefault("SLACK_CHANNEL", slack_channel_input.strip())
-            except Exception:
-                pass
 
         final_df, per_system = compute_today_signals(
             syms,
@@ -883,6 +889,13 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             # 事前ロードは行わず、内部ローダに任せる
             parallel=bool(run_parallel),
         )
+
+    # 計算結果をセッションに保持（リラン時の再表示に使用）
+    try:
+        st.session_state["today_final_df"] = final_df.copy()
+        st.session_state["today_per_system"] = {k: v.copy() for k, v in per_system.items()}
+    except Exception:
+        pass
 
     # DataFrameのインデックスをリセットして疑似インデックスを排除
     final_df = final_df.reset_index(drop=True)
@@ -1384,6 +1397,30 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             data=csv,
             file_name="today_signals_final.csv",
         )
+        # 今回のリランでは結果を表示済み
+        st.session_state["today_shown_this_run"] = True
+
+        # 結果のCSVをsignals_dirに保存（ボタン押下でのみ保存）
+        if st.button("結果のCSVをsignals_dirに保存", key="save_results_to_signals"):
+            try:
+                settings2 = get_settings(create_dirs=True)
+                sig_dir = Path(settings2.outputs.signals_dir)
+                sig_dir.mkdir(parents=True, exist_ok=True)
+                # ファイル名モードはサイドバー選択を利用
+                mode = str(st.session_state.get("csv_name_mode", "date"))
+                from datetime import datetime as _dt
+
+                ts = _dt.now().strftime("%Y-%m-%d")
+                if mode == "datetime":
+                    ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+                elif mode == "runid":
+                    rid = st.session_state.get("last_run_id") or "RUN"
+                    ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
+                fp = sig_dir / f"today_signals_{ts}.csv"
+                final_df.to_csv(fp, index=False)
+                st.success(f"保存しました: {fp}")
+            except Exception as e:
+                st.error(f"保存に失敗: {e}")
 
         # Alpaca 自動発注（任意）
         if do_trade:
@@ -1502,6 +1539,39 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                     file_name=f"signals_{name}.csv",
                     key=f"{name}_download_csv",
                 )
+
+    # 追加: リラン後でも前回の結果が見えるように簡易再表示セクション
+    # （上の詳細表示と同じ完全UIまでは再構築しないが、保存・DLは可能にする）
+    try:
+        if (not st.session_state.get("today_shown_this_run", False)) and (
+            "today_final_df" in st.session_state
+        ):
+            _prev_df = st.session_state.get("today_final_df")
+            if _prev_df is not None and not _prev_df.empty:
+                st.subheader("前回の最終選定銘柄（再表示）")
+                st.dataframe(_prev_df, use_container_width=True)
+                _csv_prev = _prev_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "最終CSVをダウンロード（前回）",
+                    data=_csv_prev,
+                    file_name="today_signals_final_prev.csv",
+                    key="download_prev_final",
+                )
+                if st.button("結果のCSVをsignals_dirに保存（前回）", key="save_prev_results"):
+                    try:
+                        settings2 = get_settings(create_dirs=True)
+                        sig_dir = Path(settings2.outputs.signals_dir)
+                        sig_dir.mkdir(parents=True, exist_ok=True)
+                        from datetime import datetime as _dt
+
+                        ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+                        fp = sig_dir / f"today_signals_{ts}.csv"
+                        _prev_df.to_csv(fp, index=False)
+                        st.success(f"保存しました: {fp}")
+                    except Exception as e:
+                        st.error(f"保存に失敗: {e}")
+    except Exception:
+        pass
 
     # ④ 前回結果を別出し（既に run_all_systems_today が出力しているログをサマリ化）
     prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
