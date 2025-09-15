@@ -2542,12 +2542,13 @@ def compute_today_signals(
                 }
                 final_counts = {}
                 try:
+                    _final_df = locals().get("final_df")
                     if (
-                        final_df is not None
-                        and not getattr(final_df, "empty", True)
-                        and "system" in final_df.columns
+                        _final_df is not None
+                        and not getattr(_final_df, "empty", True)
+                        and "system" in _final_df.columns
                     ):
-                        final_counts = final_df.groupby("system").size().to_dict()
+                        final_counts = _final_df.groupby("system").size().to_dict()
                 except Exception:
                     final_counts = {}
                 lines = []
@@ -2567,16 +2568,11 @@ def compute_today_signals(
                     ent = int(final_counts.get(sys_name, 0))
                     exv = exit_counts_map.get(sys_name)
                     ex_txt = "-" if exv is None else str(int(exv))
-                    line = (
-                        f"{sys_name:<7} {tgt:>4} {fil:>7} {stu:>7} "
-                        f"{trd:>7} {ent:>5} {ex_txt:>4}"
+                    value = (
+                        f"Tgt {tgt} / FIL {fil} / STU {stu} / "
+                        f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
                     )
-                    lines.append(line)
-                header = (
-                    f"{'System':<7} {'Tgt':>4} {'FILpass':>7} "
-                    f"{'STUpass':>7} {'TRDlist':>7} {'Entry':>5} {'Exit':>4}"
-                )
-                table = "\n".join([header] + lines)
+                    lines.append({"name": sys_name, "value": value})
                 title = "📈 本日の最終メトリクス（system別）"
                 _td = locals().get("today")
                 try:
@@ -2585,7 +2581,7 @@ def compute_today_signals(
                     _td_str = ""
                 msg = f"対象日: {_td_str}\n```{table}```"
                 notifier = create_notifier(platform="auto", fallback=True)
-                notifier.send(title, msg)
+                notifier.send(title, msg, fields=lines)
             except Exception:
                 pass
         # 簡易ログ

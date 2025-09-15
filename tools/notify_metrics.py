@@ -7,8 +7,9 @@ no webhook is configured (logs only).
 
 from __future__ import annotations
 
-from pathlib import Path
 import logging
+from pathlib import Path
+
 import pandas as pd
 
 from config.settings import get_settings
@@ -47,13 +48,13 @@ def notify_metrics() -> None:
     if day_df is None or day_df.empty:
         logging.info("no metrics to notify")
         return
-    lines = []
+    fields: list[dict[str, str]] = []
     try:
         for _, r in day_df.iterrows():
             sys = str(r.get("system"))
             pre = int(r.get("prefilter_pass", 0) or 0)
             cand = int(r.get("candidates", 0) or 0)
-            lines.append(f"{sys:<7} {pre:>4} {cand:>4}")
+            fields.append({"name": sys, "value": f"pre {pre} / cand {cand}"})
     except Exception:
         pass
     header = f"{'System':<7} {'pre':>4} {'cand':>4}"
