@@ -788,9 +788,6 @@ class FallbackNotifier(Notifier):
                 client.chat_postMessage(  # type: ignore
                     channel=ch, text=text, blocks=blocks
                 )
-                client.chat_postMessage(  # type: ignore
-                    channel=ch, text=text, blocks=blocks
-                )
                 self._logger.info("fallback: sent via Slack API to %s", ch)
                 return True
             except SlackApiError as e:  # type: ignore[name-defined]
@@ -862,6 +859,7 @@ class FallbackNotifier(Notifier):
         lines = [f"{title}"]
         if message:
             lines.append(str(message))
+        blocks: list[dict[str, Any]] | None = None
         if isinstance(fields, dict) and fields:
 
             def _fmt(v: Any) -> str:
@@ -876,9 +874,20 @@ class FallbackNotifier(Notifier):
 
             kv = ", ".join(f"{k}={_fmt(v)}" for k, v in list(fields.items())[:10])
             lines.append(kv)
+        elif isinstance(fields, list) and fields:
+            blocks = []
+            for f in fields:
+                name = str(f.get("name", ""))
+                value = str(f.get("value", ""))
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*{name}*\n{value}"},
+                    }
+                )
         text = "\n".join(lines)
         ch = channel or os.getenv("SLACK_CHANNEL_LOGS") or None
-        if self._slack_send_text(text, channel=ch):
+        if self._slack_send_text(text, channel=ch, blocks=blocks):
             return
         if not self._discord_call(
             "send", title, message, fields=fields, image_url=image_url, color=color

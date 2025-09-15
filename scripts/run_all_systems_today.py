@@ -473,7 +473,12 @@ def _submit_orders(
                     "price": price_val,
                     "system": system,
                     "entry_date": entry_date,
-                    "order_id": getattr(order, "id", None),
+                    # Streamlit/Arrow 互換のため UUID を文字列化
+                    "order_id": (
+                        str(getattr(order, "id", ""))
+                        if getattr(order, "id", None) is not None
+                        else ""
+                    ),
                     "status": getattr(order, "status", None),
                 }
             )
@@ -491,6 +496,14 @@ def _submit_orders(
             )
     if results:
         out = pd.DataFrame(results)
+        # 念のため order_id 列が存在すれば文字列化（他経路で UUID 型が混じるのを防ぐ）
+        try:
+            if "order_id" in out.columns:
+                out["order_id"] = out["order_id"].apply(
+                    lambda x: str(x) if x not in (None, "") else ""
+                )
+        except Exception:
+            pass
         _log("\n=== Alpaca submission results ===")
         _log(out.to_string(index=False))
         # record entry dates for future day-based rules

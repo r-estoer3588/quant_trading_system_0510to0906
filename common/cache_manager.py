@@ -70,7 +70,15 @@ class CacheManager:
         except Exception as e:  # pragma: no cover - log and continue
             logger.warning(f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})")
             return None
+        # 正規化: 列名を小文字化
         df.columns = [c.lower() for c in df.columns]
+        # 列名の重複を除去（例: CSVに 'date' と 'Date' が混在していた場合）
+        try:
+            cols = pd.Index(df.columns)
+            if len(cols) != len(cols.unique()):
+                df = df.loc[:, ~cols.duplicated(keep="first")]
+        except Exception:
+            pass
         if "date" in df.columns:
             df = df.sort_values("date").drop_duplicates("date").reset_index(drop=True)
         return df
@@ -215,6 +223,16 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     x = df.copy()
+
+    # 'Date' / 'date' が両方存在するなど、日付列重複を事前に整理
+    try:
+        date_like = [c for c in x.columns if str(c).lower() == "date"]
+        if len(date_like) >= 2:
+            keep = "Date" if "Date" in date_like else date_like[0]
+            drop_cols = [c for c in date_like if c != keep]
+            x = x.drop(columns=drop_cols, errors="ignore")
+    except Exception:
+        pass
 
     # 列名の正規化（大小・同義語を統一）
     lower_map = {c.lower(): c for c in x.columns}
