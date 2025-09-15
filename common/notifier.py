@@ -30,7 +30,9 @@ except Exception:  # pragma: no cover
 try:
     if load_dotenv is not None:
         _ROOT = Path(__file__).resolve().parents[1]
-        load_dotenv(dotenv_path=_ROOT / ".env", override=False)  # does nothing if missing
+        load_dotenv(
+            dotenv_path=_ROOT / ".env", override=False
+        )  # does nothing if missing
 except Exception:
     pass
 

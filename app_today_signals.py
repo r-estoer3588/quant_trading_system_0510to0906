@@ -1428,6 +1428,20 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 fp = sig_dir / f"today_signals_{ts}.csv"
                 final_df.to_csv(fp, index=False)
                 st.caption(f"自動保存: {fp}")
+
+                # 追加: システム別CSVも自動保存（空はスキップ）
+                try:
+                    for _name, _df in per_system.items():
+                        try:
+                            if _df is None or _df.empty:
+                                continue
+                            fp_sys = sig_dir / f"signals_{_name}_{ts}.csv"
+                            _df.to_csv(fp_sys, index=False)
+                            st.caption(f"自動保存: {fp_sys}")
+                        except Exception as _e_sys:
+                            st.warning(f"{_name} の自動保存に失敗: {_e_sys}")
+                except Exception:
+                    pass
             except Exception as e:
                 st.warning(f"自動保存に失敗: {e}")
 
