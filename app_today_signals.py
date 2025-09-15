@@ -459,15 +459,23 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             t = ""
         # 全体フェーズの日本語ラベル
-        if t in {"init", "load_basic:start", "load_basic", "load_indicators", "spx", "spy"}:
+        if t in {
+            "init",
+            "対象読み込み:start",
+            "load_basic:start",
+            "load_basic",
+            "load_indicators",
+            "spx",
+            "spy",
+        }:
             return "対象読み込み"
-        if t in {"filter"}:
-            return "filter"
-        if t in {"run_strategies"} or t.startswith("system"):
-            return "setup"
-        if t in {"strategies_done"}:
-            return "trade候補"
-        if t in {"finalize", "done"}:
+        if t in {"filter", "フィルター"}:
+            return "フィルター"
+        if t in {"run_strategies", "setup"} or t.startswith("system"):
+            return "セットアップ"
+        if t in {"strategies_done", "trade候補", "トレード候補選定"}:
+            return "トレード候補選定"
+        if t in {"finalize", "done", "エントリー"}:
             return "エントリー"
         # 既定
         return phase_state.get("label", "対象読み込み")
@@ -502,9 +510,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             prog.progress(percent)
             # 現在の全体フェーズを更新
             phase_lbl = _map_overall_phase(name)
-            # 画面下のテキスト（従来表示）も維持
-            if name:
-                prog_txt.text(f"進捗 {percent}%: {name}")
+            # 画面下のテキストも日本語フェーズで統一
+            if phase_lbl:
+                prog_txt.text(f"進捗 {percent}%: {phase_lbl}")
             # 大きなタイトルも更新
             phase_state["percent"] = percent
             phase_state["label"] = phase_lbl
