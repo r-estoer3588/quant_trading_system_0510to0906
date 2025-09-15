@@ -83,6 +83,17 @@ def _get_today_logger() -> logging.Logger:
     return logger
 
 
+def _emit_ui_log(message: str) -> None:
+    """UI 側のログコールバックが登録されていれば、そのまま文字列を送信する。"""
+    try:
+        cb = globals().get("_LOG_CALLBACK")
+        if cb and callable(cb):
+            cb(str(message))
+    except Exception:
+        # UI コールバック未設定や例外は黙って無視（CLI 実行時を考慮）
+        pass
+
+
 def _log(msg: str, ui: bool = True):
     """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
     import time as _t
@@ -104,27 +115,28 @@ def _log(msg: str, ui: bool = True):
     except Exception:
         prefix = ""
 
+    # キーワードによる除外判定（全体）
+    try:
+        if any(k in str(msg) for k in _GLOBAL_SKIP_KEYWORDS):
+            return
+        ui_allowed = ui and not any(k in str(msg) for k in _UI_ONLY_SKIP_KEYWORDS)
+    except Exception:
+        ui_allowed = ui
+
     # CLI へは整形して出力
     try:
         print(f"{prefix}{msg}", flush=True)
     except Exception:
         pass
 
-    # UI 側のコールバックには原文のまま通知（UI での重複プレフィックス回避）
-    try:
-        cb = globals().get("_LOG_CALLBACK")
-        if cb and callable(cb) and ui:
-            try:
-                cb(str(msg))
-            except Exception:
-                pass
-    except Exception:
-        pass
+    # UI 側のコールバックにはフィルタ済みで通知（UI での重複プレフィックス回避）
+    if ui_allowed:
+        _emit_ui_log(str(msg))
 
-    # UI コールバックが無いか、ui=False の場合はファイルにINFOで出力（CLI ログ保存）
+    # UI コールバックが無いか、UI へ送信しなかった場合はファイルにINFOで出力（CLI ログ保存）
     try:
         cb = globals().get("_LOG_CALLBACK")
-        if not cb or not ui:
+        if not cb or not ui_allowed:
             _get_today_logger().info(str(msg))
     except Exception:
         pass
@@ -134,17 +146,30 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
-def _filter_ui_logs(lines: list[str]) -> list[str]:
-    """Remove verbose log entries for the UI display."""
-    skip_keywords = (
-        "進捗",
-        "インジケーター計算",
-        "バッチ時間",
-        "batch time",
-        "候補抽出",
-        "候補日数",
-        "銘柄:",
-    )
+# ログ出力から除外するキーワード
+_GLOBAL_SKIP_KEYWORDS = (
+    "バッチ時間",
+    "batch time",
+)
+# UI 表示からのみ除外するキーワード
+_UI_ONLY_SKIP_KEYWORDS = (
+    "進捗",
+    "インジケーター計算",
+    "候補抽出",
+    "候補日数",
+    "銘柄:",
+)
+
+
+def _filter_logs(lines: list[str], ui: bool = False) -> list[str]:
+    """キーワードに基づいてログ行を除外する。
+
+    Args:
+        lines: 対象ログ行のリスト。
+        ui: True の場合は UI 限定の除外キーワードも適用。
+    """
+
+    skip_keywords = _GLOBAL_SKIP_KEYWORDS + (_UI_ONLY_SKIP_KEYWORDS if ui else ())
     return [ln for ln in lines if not any(k in ln for k in skip_keywords)]
 
 
@@ -742,52 +767,19 @@ def compute_today_signals(
                     m, s = divmod(eta_sec, 60)
                     msg = f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
                     _log(msg, ui=False)
-                    # UIにも見えるよう適度に流す
-                    try:
-                        cb = globals().get("_LOG_CALLBACK")
-                        if cb and callable(cb):
-                            try:
-                                cb(msg)
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                    _emit_ui_log(msg)
                 except Exception:
                     _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
-                    try:
-                        cb = globals().get("_LOG_CALLBACK")
-                        if cb and callable(cb):
-                            try:
-                                cb(f"📦 基礎データロード進捗: {idx}/{total_syms}")
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                    _emit_ui_log(f"📦 基礎データロード進捗: {idx}/{total_syms}")
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
             done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
             _log(done_msg)
-            try:
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(done_msg)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _emit_ui_log(done_msg)
         except Exception:
             _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
-            try:
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _emit_ui_log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
         return data
 
     # 列名の大小・重複（DataFrame）にも耐える安全な抽出ヘルパー
@@ -1077,51 +1069,19 @@ def compute_today_signals(
                     m, s = divmod(eta_sec, 60)
                     msg = f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
                     _log(msg, ui=False)
-                    try:
-                        cb = globals().get("_LOG_CALLBACK")
-                        if cb and callable(cb):
-                            try:
-                                cb(msg)
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                    _emit_ui_log(msg)
                 except Exception:
                     _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
-                    try:
-                        cb = globals().get("_LOG_CALLBACK")
-                        if cb and callable(cb):
-                            try:
-                                cb(f"🧮 指標データロード進捗: {idx}/{total_syms}")
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                    _emit_ui_log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
         try:
             total_elapsed = int(max(0, _t.time() - start_ts))
             m, s = divmod(total_elapsed, 60)
             done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
             _log(done_msg)
-            try:
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(done_msg)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _emit_ui_log(done_msg)
         except Exception:
             _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
-            try:
-                cb = globals().get("_LOG_CALLBACK")
-                if cb and callable(cb):
-                    try:
-                        cb(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _emit_ui_log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
         return data
 
     # 実行スコープで変数定義
@@ -1592,7 +1552,30 @@ def compute_today_signals(
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                cb2("system1", 50, int(s1_filter), int(s1_setup), None, None)
+                # SPY ゲート（Close>SMA100）が偽なら STUpass は 0 扱い
+                s1_setup_eff = int(s1_setup)
+                try:
+                    if isinstance(_spy_ok, int) and _spy_ok == 0:
+                        s1_setup_eff = 0
+                except Exception:
+                    pass
+                cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
+        except Exception:
+            pass
+        # 参考: System1 の SPY gate 状態を UI に補足表示
+        try:
+            cb_note = globals().get("_PER_SYSTEM_NOTE")
+            if cb_note and callable(cb_note):
+                try:
+                    if _spy_ok is None:
+                        cb_note("system1", "SPY>SMA100: -")
+                    else:
+                        cb_note(
+                            "system1",
+                            "SPY>SMA100: OK" if int(_spy_ok) == 1 else "SPY>SMA100: NG",
+                        )
+                except Exception:
+                    pass
         except Exception:
             pass
     except Exception:
@@ -1823,16 +1806,13 @@ def compute_today_signals(
 
         def _local_log(message: str) -> None:
             logs.append(str(message))
-            # UI コールバックがあれば即時にUIへ転送。無ければCLIへ印字。
+            # UI コールバックがあればフィルタ済みで送信、無ければ CLI に出力
             try:
                 cb = globals().get("_LOG_CALLBACK")
             except Exception:
                 cb = None
             if cb and callable(cb):
-                try:
-                    cb(f"[{name}] {str(message)}")
-                except Exception:
-                    pass
+                _emit_ui_log(f"[{name}] {message}")
             else:
                 try:
                     print(f"[{name}] {message}", flush=True)
@@ -2101,21 +2081,15 @@ def compute_today_signals(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
-                # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は安全側で再送。
+                # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
+                # （UIへの再送は重複表示となるため行わない）
                 cb = globals().get("_LOG_CALLBACK")
                 if not (cb and callable(cb)):
-                    for line in _filter_ui_logs(logs):
+                    for line in _filter_logs(logs, ui=False):
                         _log(f"[{name}] {line}")
                 else:
-                    # 並列実行環境で UI への逐次送信が抑止されるケースのため、完了後にUIへ再送
-                    try:
-                        for line in logs:
-                            try:
-                                cb(f"[{name}] {str(line)}")
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                    for line in logs:
+                        _emit_ui_log(f"[{name}] {line}")
                 # 完了通知
                 if per_system_progress:
                     try:
@@ -2150,7 +2124,7 @@ def compute_today_signals(
             per_system[name] = df
             cb = globals().get("_LOG_CALLBACK")
             if not (cb and callable(cb)):
-                for line in _filter_ui_logs(logs):
+                for line in _filter_logs(logs, ui=False):
                     _log(f"[{name}] {line}")
             if per_system_progress:
                 try:
@@ -2488,9 +2462,34 @@ def compute_today_signals(
                     return counts
 
                 exit_counts_map = _estimate_exit_counts_today()
+                # UI へも Exit 件数を送る（早期に可視化）
+                try:
+                    cb_exit = globals().get("_PER_SYSTEM_EXIT")
+                except Exception:
+                    cb_exit = None
+                if cb_exit and callable(cb_exit):
+                    try:
+                        for _nm, _cnt in (exit_counts_map or {}).items():
+                            try:
+                                cb_exit(_nm, int(_cnt))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 # 既に集計済みの値を再構成
                 setup_map = {
-                    "system1": int(locals().get("s1_setup") or 0),
+                    # System1 は SPY ゲート（Close>SMA100）が偽なら 0 扱い
+                    "system1": int(
+                        (
+                            locals().get("s1_setup")
+                            if (
+                                (locals().get("_spy_ok") is None)
+                                or (int(locals().get("_spy_ok", 0)) == 1)
+                            )
+                            else 0
+                        )
+                        or 0
+                    ),
                     "system2": int(max(locals().get("s2_rsi", 0), locals().get("s2_up2", 0))),
                     "system3": int(max(locals().get("s3_close", 0), locals().get("s3_drop", 0))),
                     "system4": int(locals().get("s4_close") or 0),

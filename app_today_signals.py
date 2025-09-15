@@ -608,6 +608,46 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             pass
 
+    # 追加: per-system の Exit 件数を UI に即時反映する受け口
+    def _per_system_exit(name: str, count: int) -> None:
+        try:
+            if not _has_st_ctx():
+                return
+            ui_vis2 = st.session_state.get("ui_vis", {})
+            if not bool(ui_vis2.get("per_system_progress", True)):
+                return
+            n = str(name).lower()
+            sc = stage_counts.setdefault(n, {})
+            sc["exit"] = int(count)
+            # 既存の行を更新
+            if n in sys_metrics_txt:
+                tgt_txt = "-"
+                try:
+                    tgt_txt = (
+                        str(sc.get("target"))
+                        if sc.get("target") is not None
+                        else str(sc.get("filter")) if sc.get("setup") is None else "-"
+                    )
+                except Exception:
+                    pass
+
+                def _v2(x):
+                    return "-" if (x is None) else str(x)
+
+                lines = [
+                    f"Tgt {_v2(tgt_txt)}",
+                    f"FILpass {_v2(sc.get('filter'))}",
+                    f"STUpass {_v2(sc.get('setup'))}",
+                    f"TRDlist {_v2(sc.get('cand'))}",
+                    f"Entry {_v2(sc.get('entry'))}",
+                    f"Exit {_v2(sc.get('exit'))}",
+                ]
+                sys_metrics_txt[n].text("\n".join(lines))
+        except Exception:
+            pass
+
+    # ノート欄は不要のため削除（受け口は未登録）
+
     # ボタン押下直後の開始ログをUIにも出力（ファイルにも出力されます）
     _ui_log("▶ 本日のシグナル: シグナル検出処理開始")
 
@@ -615,6 +655,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     try:
         # orchestrator 側のモジュールグローバルに直接差し込む
         _run_today_mod._PER_SYSTEM_STAGE = _per_system_stage  # type: ignore[attr-defined]
+        _run_today_mod._PER_SYSTEM_EXIT = _per_system_exit  # type: ignore[attr-defined]
     except Exception:
         pass
 
@@ -751,10 +792,15 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 continue
         except Exception:
             pass
+        ln_l = ln.lower()
         for i in range(1, 8):
-            tag = f"[system{i}] "
-            if ln.find(tag) != -1:
-                per_system_logs[f"system{i}"].append(ln)
+            key = f"system{i}"
+            tag1 = f"[system{i}]"  # 旧形式
+            tag2 = f" {key}:"  # 現行の『🔎 systemX: ...』など
+            tag3 = f"{key}:"  # 行頭等に現れる場合も拾う
+            tag4 = f" {key}："  # 全角コロン対応
+            if (tag1 in ln_l) or (tag2 in ln_l) or (tag3 in ln_l) or (tag4 in ln_l):
+                per_system_logs[key].append(ln)
                 break
     any_sys_logs = any(per_system_logs[k] for k in per_system_logs)
     if any_sys_logs:
