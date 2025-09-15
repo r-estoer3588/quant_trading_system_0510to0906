@@ -529,20 +529,19 @@ def get_today_signals_for_strategy(
         )
     except Exception:
         candidate_dates = []
-    target_date = today
+    target_date = None
     try:
         for dt in candidate_dates:
-            if dt >= today:
+            if dt is not None and today is not None and dt >= today:
                 target_date = dt
                 break
-        else:
-            if candidate_dates:
-                target_date = candidate_dates[-1]
     except Exception:
-        pass
+        target_date = None
     try:
-        total_candidates_today = len(
-            (candidates_by_date or {}).get(target_date, []) or []
+        total_candidates_today = (
+            len((candidates_by_date or {}).get(target_date, []) or [])
+            if target_date is not None
+            else 0
         )
     except Exception:
         total_candidates_today = 0
@@ -563,8 +562,10 @@ def get_today_signals_for_strategy(
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             # 誤解回避: ここでの件数は『候補生成の母集団（セットアップ通過）』
             log_callback(f"🧮 候補生成元（セットアップ通過）：{setup_pass} 銘柄")
-            # TRDlist 相当（当日候補数。最大{_max_pos_ui}に丸め）
-            log_callback(f"🧮 TRDlist相当（当日候補数）：{total_candidates_today} 銘柄")
+            # TRDlist 相当（直近営業日時点の候補数。最大{_max_pos_ui}に丸め）
+            log_callback(
+                f"🧮 TRDlist相当（直近営業日時点の候補数）：{total_candidates_today} 銘柄"
+            )
         except Exception:
             pass
 
@@ -584,8 +585,8 @@ def get_today_signals_for_strategy(
         )
 
     # 当日または最も近い未来日の候補のみ抽出
-    today_candidates: list[dict] = candidates_by_date.get(
-        target_date, []
+    today_candidates: list[dict] = (
+        candidates_by_date.get(target_date, []) if target_date is not None else []
     )  # type: ignore
     if not today_candidates:
         return pd.DataFrame(

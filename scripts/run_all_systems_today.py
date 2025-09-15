@@ -2082,14 +2082,12 @@ def compute_today_signals(
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
                 # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
-                # （UIへの再送は重複表示となるため行わない）
+                # （UI にはワーカー実行中に逐次送信済みのため、ここでの再送は行わない）
                 cb = globals().get("_LOG_CALLBACK")
                 if not (cb and callable(cb)):
                     for line in _filter_logs(logs, ui=False):
                         _log(f"[{name}] {line}")
-                else:
-                    for line in logs:
-                        _emit_ui_log(f"[{name}] {line}")
+                # UI コールバックがある場合は何もしない（重複防止）
                 # 完了通知
                 if per_system_progress:
                     try:
