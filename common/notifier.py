@@ -297,7 +297,11 @@ class Notifier:
         text = payload.get("text") or "Notification"
         try:  # pragma: no cover
             client = WebClient(token=token)  # type: ignore
-            client.chat_postMessage(channel=channel, text=text, blocks=blocks)  # type: ignore
+            client.chat_postMessage(  # type: ignore
+                channel=channel,
+                text=text,
+                blocks=blocks,
+            )
             self.logger.info("sent via Slack Web API to channel=%s", channel)
             return True
         except SlackApiError as e:  # type: ignore[name-defined]
@@ -757,7 +761,13 @@ class FallbackNotifier(Notifier):
         except Exception:
             self._discord = None
 
-    def _slack_send_text(self, text: str, *, channel: str | None = None) -> bool:
+    def _slack_send_text(
+        self,
+        text: str,
+        *,
+        channel: str | None = None,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> bool:
         if _notifications_disabled():
             self._logger.info("通知送信は無効化されています（テスト/CI/環境変数）")
             return True
@@ -769,7 +779,9 @@ class FallbackNotifier(Notifier):
         if token and WebClient is not None:
             try:  # pragma: no cover
                 client = WebClient(token=token)  # type: ignore
-                client.chat_postMessage(channel=ch, text=text)  # type: ignore
+                client.chat_postMessage(  # type: ignore
+                    channel=ch, text=text, blocks=blocks
+                )
                 self._logger.info("fallback: sent via Slack API to %s", ch)
                 return True
             except SlackApiError as e:  # type: ignore[name-defined]
@@ -789,7 +801,9 @@ class FallbackNotifier(Notifier):
         ).strip().lower() in {"1", "true", "yes", "on"}
         if webhook and allow_webhook_fallback:
             try:  # pragma: no cover
-                r = requests.post(webhook, json={"text": text}, timeout=10)
+                r = requests.post(
+                    webhook, json={"text": text, "blocks": blocks}, timeout=10
+                )
                 if 200 <= r.status_code < 300:
                     self._logger.info("fallback: sent via Slack Webhook")
                     return True
@@ -929,14 +943,42 @@ class FallbackNotifier(Notifier):
     def send_signals(
         self, system_name: str, signals: list[str], *, channel: str | None = None
     ) -> None:
+        direction = SYSTEM_POSITION.get(system_name.lower(), "")
         title = f"📢 {system_name} 日次シグナル ・ {now_jst_str()}"
+        ch = channel or os.getenv("SLACK_CHANNEL_SIGNALS") or None
         if not signals:
             text = f"{title}\n本日のシグナルはありません"
-        else:
-            top = [str(s) for s in signals[:50]]
-            text = f"{title}\n" + "\n".join(top)
-        ch = channel or os.getenv("SLACK_CHANNEL_SIGNALS") or None
-        if self._slack_send_text(text, channel=ch):
+            if self._slack_send_text(text, channel=ch):
+                return
+            if not self._discord_call("send_signals", system_name, signals):
+                raise RuntimeError("notification failed (slack+discord)")
+            return
+
+        emoji = "🟢" if direction == "long" else ("🔴" if direction == "short" else "")
+        items = [f"{emoji} {s}" if emoji else str(s) for s in signals]
+        fields = chunk_fields("銘柄", items, inline=False)
+        preview = ", ".join(signals[:10])
+        if len(signals) > 10:
+            preview += " ..."
+        summary = (
+            f"シグナル数: {len(signals)}\n{preview}"
+            if preview
+            else f"シグナル数: {len(signals)}"
+        )
+        blocks: list[dict[str, Any]] = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{title}*\n{summary}"},
+            }
+        ]
+        for f in fields:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*{f['name']}*\n{f['value']}"},
+                }
+            )
+        if self._slack_send_text(summary, channel=ch, blocks=blocks):
             return
         if not self._discord_call("send_signals", system_name, signals):
             raise RuntimeError("notification failed (slack+discord)")

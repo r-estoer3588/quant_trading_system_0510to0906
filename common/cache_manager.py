@@ -299,7 +299,8 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     x["ROC200"] = close.pct_change(200) * 100.0
 
     # HV50 (% 年率)
-    ret = np.log(close / close.shift(1))
+    # np.log は型チェッカー上で ndarray を返すと解釈されるため、Series.apply を使って Series を維持
+    ret = (close / close.shift(1)).apply(np.log)
     x["HV50"] = ret.rolling(50).std() * np.sqrt(252) * 100
 
     # 補助: 流動性系
