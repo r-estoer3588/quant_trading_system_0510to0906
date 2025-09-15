@@ -263,10 +263,12 @@ def get_today_signals_for_strategy(
             log_callback(f"⏱️ フィルター/前処理 完了（経過 {em}分{es}秒）")
     except Exception:
         pass
-    # フィルター通過件数（前営業日を優先。無い場合は最終行）。
+    # フィルター通過件数（NYSEカレンダーの前営業日を優先。無い場合は最終行）。
     try:
-        # 前営業日（当日エントリーのシグナルは前日の終値で判定）
-        prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+        # 前営業日（当日エントリーのシグナルは前営業日の終値で判定）
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_filter_on_date(x: pd.DataFrame) -> bool:
             try:
@@ -275,10 +277,10 @@ def get_today_signals_for_strategy(
                 # Date列があれば優先、無ければindexで比較
                 if "Date" in x.columns:
                     dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                    sel = x.loc[dt == prev_day, "filter"]
+                    sel = x.loc[dt == prev_trading_day, "filter"]
                 else:
                     idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                    sel = x.loc[idx == prev_day, "filter"]
+                    sel = x.loc[idx == prev_trading_day, "filter"]
                 if len(sel) > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
@@ -337,9 +339,11 @@ def get_today_signals_for_strategy(
     except Exception:
         pass
 
-    # セットアップ通過件数（前営業日を優先。無ければ最終行）
+    # セットアップ通過件数（NYSEカレンダーの前営業日を優先。無ければ最終行）
     try:
-        prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_setup_on_date(x: pd.DataFrame) -> bool:
             try:
@@ -347,10 +351,10 @@ def get_today_signals_for_strategy(
                     return False
                 if "Date" in x.columns:
                     dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                    sel = x.loc[dt == prev_day, "setup"]
+                    sel = x.loc[dt == prev_trading_day, "setup"]
                 else:
                     idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                    sel = x.loc[idx == prev_day, "setup"]
+                    sel = x.loc[idx == prev_trading_day, "setup"]
                 if len(sel) > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
@@ -366,16 +370,18 @@ def get_today_signals_for_strategy(
     # system別セットアップ内訳（フィルタ通過→条件ごとの通過数）
     try:
         if log_callback:
-            prev_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+            prev_trading_day = get_latest_nyse_trading_day(
+                pd.Timestamp(today) - pd.Timedelta(days=1)
+            )
 
             def _last_row(x: pd.DataFrame) -> pd.Series | None:
                 try:
                     if "Date" in x.columns:
                         dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                        rows = x.loc[dt == prev_day]
+                        rows = x.loc[dt == prev_trading_day]
                     else:
                         idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                        rows = x.loc[idx == prev_day]
+                        rows = x.loc[idx == prev_trading_day]
                     if len(rows) == 0:
                         rows = x.tail(1)
                     if len(rows) == 0:
@@ -543,10 +549,23 @@ def get_today_signals_for_strategy(
     except Exception:
         key_map = {}
         candidate_dates = []
+    # 対象日: 当日→直近のNYSE営業日（最大3営業日まで）に限定して選択（未来日は使わない）
     target_date = None
     try:
-        for dt in candidate_dates:
-            if dt is not None and today is not None and dt >= today:
+        # 優先探索リストを作成（today, prev1, prev2）
+        search_days: list[pd.Timestamp] = []
+        if today is not None:
+            cur = pd.Timestamp(today).normalize()
+            for _ in range(3):
+                td = get_latest_nyse_trading_day(cur)
+                td = pd.Timestamp(td).normalize()
+                if len(search_days) == 0 or td != search_days[-1]:
+                    search_days.append(td)
+                # 次はその前日基準で探索
+                cur = td - pd.Timedelta(days=1)
+        # 候補に存在する最初の営業日を採用
+        for dt in search_days:
+            if dt in candidate_dates:
                 target_date = dt
                 break
     except Exception:
@@ -600,7 +619,7 @@ def get_today_signals_for_strategy(
             ]
         )
 
-    # 当日または最も近い未来日の候補のみ抽出
+    # 当日または直近過去日の候補のみ抽出
     if target_date is not None and target_date in key_map:
         orig_key2 = key_map[target_date]
         today_candidates: list[dict] = candidates_by_date.get(orig_key2, [])  # type: ignore
@@ -658,7 +677,10 @@ def get_today_signals_for_strategy(
                 ed_arg: Any = c.get("entry_date")
                 ed = pd.to_datetime(ed_arg, errors="coerce")
                 if isinstance(ed, pd.Timestamp) and not pd.isna(ed):
-                    signal_date_ts = ed.normalize() - pd.Timedelta(days=1)
+                    # エントリー日の前「NYSE営業日」を推定
+                    signal_date_ts = get_latest_nyse_trading_day(
+                        pd.Timestamp(ed).normalize() - pd.Timedelta(days=1)
+                    )
             except Exception:
                 signal_date_ts = None
 

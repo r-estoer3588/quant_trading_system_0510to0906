@@ -2091,6 +2091,25 @@ def compute_today_signals(
             for _idx, fut in enumerate(as_completed(futures), start=1):
                 name, df, msg, logs = fut.result()
                 per_system[name] = df
+                # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
+                try:
+                    cb2 = globals().get("_PER_SYSTEM_STAGE")
+                except Exception:
+                    cb2 = None
+                if cb2 and callable(cb2):
+                    try:
+                        try:
+                            _mx = int(get_settings(create_dirs=False).risk.max_positions)
+                        except Exception:
+                            _mx = 10
+                        _cand_cnt = (
+                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                        )
+                        if _mx > 0:
+                            _cand_cnt = min(int(_cand_cnt), int(_mx))
+                        cb2(name, 75, None, None, int(_cand_cnt), None)
+                    except Exception:
+                        pass
                 # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
                 # （UI にはワーカー実行中に逐次送信済みのため、ここでの再送は行わない）
                 cb = globals().get("_LOG_CALLBACK")
@@ -2134,6 +2153,23 @@ def compute_today_signals(
             if not (cb and callable(cb)):
                 for line in _filter_logs(logs, ui=False):
                     _log(f"[{name}] {line}")
+            # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
+            try:
+                cb2 = globals().get("_PER_SYSTEM_STAGE")
+            except Exception:
+                cb2 = None
+            if cb2 and callable(cb2):
+                try:
+                    try:
+                        _mx = int(get_settings(create_dirs=False).risk.max_positions)
+                    except Exception:
+                        _mx = 10
+                    _cand_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                    if _mx > 0:
+                        _cand_cnt = min(int(_cand_cnt), int(_mx))
+                    cb2(name, 75, None, None, int(_cand_cnt), None)
+                except Exception:
+                    pass
             if per_system_progress:
                 try:
                     per_system_progress(name, "done")
@@ -2159,6 +2195,11 @@ def compute_today_signals(
         cb2 = None
     if cb2 and callable(cb2):
         try:
+            # UIのTRDlist表示は最大ポジション数を超えないよう丸める
+            try:
+                _mx = int(get_settings(create_dirs=False).risk.max_positions)
+            except Exception:
+                _mx = 10
             for _name in order_1_7:
                 # ワーカーからのスナップショットがあれば優先（型ゆらぎ等を超えて信頼できる値）
                 _cand_cnt = None
@@ -2171,7 +2212,9 @@ def compute_today_signals(
                     _cand_cnt = int(
                         0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
                     )
-                cb2(_name, 75, None, None, _cand_cnt, None)
+                if _mx > 0:
+                    _cand_cnt = min(int(_cand_cnt), int(_mx))
+                cb2(_name, 75, None, None, int(_cand_cnt), None)
         except Exception:
             pass
 
@@ -2595,7 +2638,8 @@ def compute_today_signals(
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
                 except Exception:
                     _td_str = ""
-                msg = f"対象日: {_td_str}\n```{table}```"
+                # fields に各systemのメトリクスを添付するため、本文は簡潔にする
+                msg = f"対象日: {_td_str}"
                 notifier = create_notifier(platform="auto", fallback=True)
                 notifier.send(title, msg, fields=lines)
             except Exception:
