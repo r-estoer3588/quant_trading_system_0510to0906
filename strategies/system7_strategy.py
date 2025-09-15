@@ -21,9 +21,10 @@ from .constants import STOP_ATR_MULTIPLE_DEFAULT
 class System7Strategy(AlpacaOrderMixin, StrategyBase):
     """
     SPY専用のショート・カタストロフィー・ヘッジ
-    - エントリー: SPYが直近70日安値を更新した翌日寄りでショート
-    - ストップ: エントリー + 3×ATR50
-    - 利確: SPYが直近70日高値を更新した翌日寄り
+    - セットアップ: SPYの安値が直近50日最安値(min_50)を更新
+    - エントリー: セットアップ日の翌営業日寄りでショート
+    - ストップ: エントリー + 3×ATR50（ATR50は損切り幅の計算専用）
+    - 利確: SPYが直近70日高値(max_70)を更新した翌営業日寄り
     """
 
     SYSTEM_NAME = "system7"

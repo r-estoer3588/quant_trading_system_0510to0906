@@ -639,7 +639,7 @@ def compute_today_signals(
     if progress_callback:
         try:
             # 直後に基礎データロードを開始するため、フェーズ名を明確化
-            progress_callback(1, 8, "load_basic:start")
+            progress_callback(1, 8, "対象読み込み:start")
         except Exception:
             pass
 

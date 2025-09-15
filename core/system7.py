@@ -110,7 +110,7 @@ def prepare_data_vectorized_system7(
 
     if log_callback:
         try:
-            log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup)")
+            log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)")
         except Exception:
             pass
     if progress_callback:
@@ -152,7 +152,8 @@ def generate_candidates_system7(
                 recent_set = set()
             count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
             log_callback(
-                f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
+                f"候補日数: {count_50} "
+                f"(直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
             )
         except Exception:
             pass

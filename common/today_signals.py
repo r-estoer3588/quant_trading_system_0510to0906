@@ -44,6 +44,10 @@ def _score_from_candidate(
     戻り値: (score_key, score_value, asc)
     """
     name = (system_name or "").lower()
+    # System7 は SPY 専用ヘッジ。ATR50 はストップ計算用のため、
+    # スコア/理由には使用しない（スコア欄は空にする）。
+    if name == "system7":
+        return None, None, False
     # システム別の代表スコア
     key_order: list[tuple[list[str], bool]] = [
         (["ROC200"], False),  # s1: 大きいほど良い
@@ -747,6 +751,9 @@ def get_today_signals_for_strategy(
                 reason_parts = [f"過去6日騰落率が{rank_val}位のため"]
             else:
                 reason_parts = ["短期下落トレンド（ショート）条件一致のため"]
+        elif system_name == "system7":
+            # ATR50 は損切り計算用。理由は「50日安値更新」に限定する。
+            reason_parts = ["SPYが50日安値を更新したため（ヘッジ）"]
         else:
             if skey is not None and rank_val is not None:
                 if rank_val <= 10:
