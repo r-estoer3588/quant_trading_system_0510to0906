@@ -254,6 +254,7 @@ def get_today_signals_for_strategy(
     # スキップ理由の収集（systemごとに集計）
     _skip_counts: dict[str, int] = {}
     _skip_samples: dict[str, list[str]] = {}
+    _skip_details: list[dict[str, str]] = []
 
     def _on_skip(*args, **kwargs):
         try:
@@ -280,6 +281,12 @@ def get_today_signals_for_strategy(
                 _skip_samples[_reason] = []
             if len(_skip_samples[_reason]) < 5 and _sym not in _skip_samples[_reason]:
                 _skip_samples[_reason].append(_sym)
+        try:
+            _skip_details.append(
+                {"symbol": str(_sym or ""), "reason": str(_reason or "")}
+            )
+        except Exception:
+            pass
 
     try:
         prepared = strategy.prepare_data(
@@ -375,6 +382,53 @@ def get_today_signals_for_strategy(
                 samples = _skip_samples.get(k) or []
                 if samples:
                     log_callback(f"  ↳ 例({k}): {', '.join(samples)}")
+            # 追加: 全スキップのCSVを保存（デバッグ用）。UI/CLI両方でパスを出力。
+            try:
+                import pandas as _pd
+                from config.settings import get_settings as _gs
+
+                _rows = []
+                for _reason, _cnt in sorted_items:
+                    _rows.append(
+                        {
+                            "reason": _reason,
+                            "count": int(_cnt),
+                            "examples": ", ".join(_skip_samples.get(_reason, [])),
+                        }
+                    )
+                if _rows:
+                    _df = _pd.DataFrame(_rows)
+                    try:
+                        _settings = _gs(create_dirs=True)
+                        _dir = getattr(_settings.outputs, "results_csv_dir", None)
+                    except Exception:
+                        _dir = None
+                    import os as _os
+
+                    _out_dir = str(_dir or "results_csv")
+                    try:
+                        _os.makedirs(_out_dir, exist_ok=True)
+                    except Exception:
+                        pass
+                    _fp = _os.path.join(_out_dir, f"skip_summary_{system_name}.csv")
+                    try:
+                        _df.to_csv(_fp, index=False, encoding="utf-8")
+                        log_callback(f"📝 スキップ内訳CSVを保存: {_fp}")
+                    except Exception:
+                        pass
+                    # per-symbol の詳細（symbol, reason）も保存
+                    try:
+                        if _skip_details:
+                            _df2 = _pd.DataFrame(_skip_details)
+                            _fp2 = _os.path.join(
+                                _out_dir, f"skip_details_{system_name}.csv"
+                            )
+                            _df2.to_csv(_fp2, index=False, encoding="utf-8")
+                            log_callback(f"📝 スキップ詳細CSVを保存: {_fp2}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
     except Exception:
         pass
     # フィルター通過件数（NYSEカレンダーの前営業日を優先。無い場合は最終行）。
@@ -708,6 +762,17 @@ def get_today_signals_for_strategy(
             if dt in candidate_dates:
                 target_date = dt
                 break
+        # 診断ログ: 探索日と候補日、採用日
+        if log_callback:
+            try:
+                _cands_str = ", ".join([str(d.date()) for d in candidate_dates[:5]])
+                _search_str = ", ".join([str(d.date()) for d in search_days])
+                _chosen = str(target_date.date()) if target_date is not None else "None"
+                log_callback(
+                    f"🗓️ 候補日(keys先頭5): {_cands_str} | 探索順: {_search_str} | 採用: {_chosen}"
+                )
+            except Exception:
+                pass
     except Exception:
         target_date = None
     try:

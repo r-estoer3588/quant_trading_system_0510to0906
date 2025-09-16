@@ -2402,6 +2402,72 @@ def compute_today_signals(
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
 
+    # 追加: Alpacaのショート可否で system2/6 候補を事前フィルタ（取得失敗時はスキップ）
+    try:
+        # 対象システムと候補銘柄
+        short_systems = ["system2", "system6"]
+        symbols_to_check: list[str] = []
+        for nm in short_systems:
+            dfc = per_system.get(nm, pd.DataFrame())
+            if dfc is not None and not getattr(dfc, "empty", True) and "symbol" in dfc.columns:
+                symbols_to_check.extend([str(s).upper() for s in dfc["symbol"].tolist()])
+        symbols_to_check = sorted(list({s for s in symbols_to_check if s and s != "SPY"}))
+        if symbols_to_check:
+            try:
+                client_short = ba.get_client(paper=True)
+                shortable_map = ba.get_shortable_map(client_short, symbols_to_check)
+            except Exception:
+                shortable_map = {}
+            for nm in short_systems:
+                dfc = per_system.get(nm, pd.DataFrame())
+                if dfc is None or getattr(dfc, "empty", True) or "symbol" not in dfc.columns:
+                    continue
+                if not shortable_map:
+                    # 取得できなければフィルタせず継続
+                    continue
+                mask = (
+                    dfc["symbol"]
+                    .astype(str)
+                    .str.upper()
+                    .map(lambda s: bool(shortable_map.get(s, False)))
+                )
+                filtered = dfc[mask].reset_index(drop=True)
+                dropped = int(len(dfc) - len(filtered))
+                per_system[nm] = filtered
+                if dropped > 0:
+                    _log(
+                        f"🚫 {nm}: ショート不可で除外: {dropped} 件 (例: "
+                        + ", ".join(dfc.loc[~mask, "symbol"].astype(str).head(5))
+                        + (" ほか" + str(dropped - 5) + "件" if dropped > 5 else "")
+                        + ")"
+                    )
+                    # 保存: 除外銘柄リスト（デバッグ/監査用）
+                    try:
+                        from config.settings import get_settings as _gs
+
+                        _stg = _gs(create_dirs=True)
+                        _dir = Path(getattr(_stg.outputs, "results_csv_dir", "results_csv"))
+                    except Exception:
+                        _dir = Path("results_csv")
+                    try:
+                        _dir.mkdir(parents=True, exist_ok=True)
+                    except Exception:
+                        pass
+                    try:
+                        _excluded = (
+                            dfc.loc[~mask, ["symbol"]].astype(str).copy()
+                            if ("symbol" in dfc.columns)
+                            else pd.DataFrame(columns=["symbol"])
+                        )
+                        _excluded["reason"] = "not_shortable"
+                        _fp = _dir / f"shortability_excluded_{nm}.csv"
+                        _excluded.to_csv(_fp, index=False, encoding="utf-8")
+                        _log(f"📝 {nm}: ショート不可の除外銘柄CSVを保存: {_fp}")
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     metrics_summary_context = None
 
     # 並列実行時はワーカースレッドからの UI 更新が抑制されるため、
@@ -2437,6 +2503,11 @@ def compute_today_signals(
 
     # メトリクス保存前に、当日のトレード候補Top10を簡易出力（デバッグ/可視化用）
     try:
+        # 追加: 候補日キーの診断（today/prev日正規化の確認）
+        try:
+            from common.today_signals import get_latest_nyse_trading_day as _gln  # type: ignore
+        except Exception:
+            _gln = None
         all_rows: list[pd.DataFrame] = []
         for _sys_name, df in per_system.items():
             if df is None or df.empty:
@@ -2519,6 +2590,23 @@ def compute_today_signals(
                     _log(top10_s[cols_s].to_string(index=False))
                 else:
                     _log("(候補なし)")
+            # 追加: 各systemで entry_date のユニーク日付を出力（最大3件）
+            try:
+                if "entry_date" in _df.columns and not _df.empty:
+                    uniq = sorted(
+                        {
+                            pd.to_datetime(v).date()
+                            for v in _df["entry_date"].tolist()
+                            if v is not None
+                        }
+                    )
+                    sample_dates = ", ".join([str(d) for d in uniq[:3]])
+                    _log(
+                        f"🗓️ {_sys_name} entry日ユニーク: {sample_dates}"
+                        + (" ..." if len(uniq) > 3 else "")
+                    )
+            except Exception:
+                pass
         except Exception:
             pass
     except Exception:
@@ -3223,9 +3311,7 @@ def compute_today_signals(
                 try:
                     _df_trd = per_system.get(sys_name, pd.DataFrame())
                     trd = int(
-                        0
-                        if _df_trd is None or getattr(_df_trd, "empty", True)
-                        else len(_df_trd)
+                        0 if _df_trd is None or getattr(_df_trd, "empty", True) else len(_df_trd)
                     )
                 except Exception:
                     trd = 0
@@ -3254,16 +3340,12 @@ def compute_today_signals(
             except Exception:
                 total_entries = 0
             try:
-                total_exits = int(
-                    sum(int(v) for v in exit_counts_map.values() if v is not None)
-                )
+                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
             except Exception:
                 total_exits = 0
             start_time_str = run_start_time.strftime("%H:%M:%S")
             end_time_str = run_end_time.strftime("%H:%M:%S")
-            duration_seconds = max(
-                0, int((run_end_time - run_start_time).total_seconds())
-            )
+            duration_seconds = max(0, int((run_end_time - run_start_time).total_seconds()))
             hours, remainder = divmod(duration_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"

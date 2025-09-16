@@ -306,3 +306,27 @@ __all__ = [
     "cancel_all_orders",
     "subscribe_order_updates",
 ]
+
+
+def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
+    """Return a map of symbol->shortable via Alpaca Assets API.
+
+    - On any SDK/API error, returns empty map (caller should skip filtering).
+    - Symbols are upper-cased for lookup consistency.
+    """
+    out: dict[str, bool] = {}
+    try:
+        syms = [str(s).upper() for s in symbols if str(s).strip()]
+    except Exception:
+        return out
+    if not syms:
+        return out
+    for sym in syms:
+        try:
+            asset = client.get_asset(sym)
+            shortable = bool(getattr(asset, "shortable", False))
+            out[sym] = shortable
+        except Exception:
+            # On error per-symbol, leave it out (unknown)
+            continue
+    return out

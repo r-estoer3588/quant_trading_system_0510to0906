@@ -5,7 +5,8 @@ from pathlib import Path
 import os
 import platform
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import pandas as pd
 import streamlit as st
@@ -67,6 +68,10 @@ from common.notifier import create_notifier
 from common.position_age import load_entry_dates
 from common.profit_protection import evaluate_positions
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+from common.system_groups import (
+    format_group_counts,
+    format_group_counts_and_values,
+)
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
 from scripts.run_all_systems_today import compute_today_signals
@@ -1740,6 +1745,118 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         if summary_lines:
             st.caption("サマリー（Long/Short別）: " + " / ".join(summary_lines))
         st.dataframe(final_df, use_container_width=True)
+
+        # デバッグ: today_signals 側で保存したスキップ内訳CSVを表示/ダウンロード
+        try:
+            from config.settings import get_settings as _gs
+
+            _stg = _gs(create_dirs=True)
+            _dir = Path(getattr(_stg.outputs, "results_csv_dir", "results_csv"))
+            _cands = []
+            for i in range(1, 8):
+                name = f"system{i}"
+                fp = _dir / f"skip_summary_{name}.csv"
+                if fp.exists() and fp.is_file():
+                    _cands.append((name, fp))
+            if _cands:
+                with st.expander("🧪 データスキップ/ショート不可の内訳CSV（本日）", expanded=False):
+                    for name, fp in _cands:
+                        cols = st.columns([4, 1])
+                        with cols[0]:
+                            try:
+                                df_skip = pd.read_csv(fp)
+                            except Exception:
+                                df_skip = None
+                            st.caption(f"{name}: {fp.name}")
+                            if df_skip is not None and not df_skip.empty:
+                                st.dataframe(df_skip, use_container_width=True)
+                            else:
+                                st.write("(空) 内訳情報は見つかりませんでした。")
+                        with cols[1]:
+                            try:
+                                data_bytes = fp.read_bytes()
+                            except Exception:
+                                data_bytes = None
+                            if data_bytes:
+                                st.download_button(
+                                    label=f"{name} CSV",
+                                    data=data_bytes,
+                                    file_name=fp.name,
+                                    mime="text/csv",
+                                    key=f"dl_skip_{name}",
+                                )
+                    # 追加: per-symbol スキップ詳細（skip_details_*）の表示
+                    _detail_files = []
+                    for i in range(1, 8):
+                        nm = f"system{i}"
+                        fpd = _dir / f"skip_details_{nm}.csv"
+                        if fpd.exists() and fpd.is_file():
+                            _detail_files.append((nm, fpd))
+                    if _detail_files:
+                        st.markdown("---")
+                        st.caption("スキップ詳細（symbol×reason）")
+                        for nm2, fpd in _detail_files:
+                            cols3 = st.columns([4, 1])
+                            with cols3[0]:
+                                try:
+                                    df_det = pd.read_csv(fpd)
+                                except Exception:
+                                    df_det = None
+                                st.caption(f"{nm2}: {fpd.name}")
+                                if df_det is not None and not df_det.empty:
+                                    st.dataframe(df_det, use_container_width=True)
+                                else:
+                                    st.write("(空)")
+                            with cols3[1]:
+                                try:
+                                    b3 = fpd.read_bytes()
+                                except Exception:
+                                    b3 = None
+                                if b3:
+                                    st.download_button(
+                                        label=f"{nm2} CSV",
+                                        data=b3,
+                                        file_name=fpd.name,
+                                        mime="text/csv",
+                                        key=f"dl_skipdet_{nm2}",
+                                    )
+                    # 追加: ショート不可で除外された銘柄のCSV（system2/6）
+                    _shortable_files = []
+                    for i in (2, 6):
+                        nm = f"system{i}"
+                        fp2 = _dir / f"shortability_excluded_{nm}.csv"
+                        if fp2.exists() and fp2.is_file():
+                            _shortable_files.append((nm, fp2))
+                    if _shortable_files:
+                        st.markdown("---")
+                        st.caption("ショート不可で除外された銘柄（system2/6）")
+                        for name2, fp2 in _shortable_files:
+                            cols2 = st.columns([4, 1])
+                            with cols2[0]:
+                                try:
+                                    df_exc = pd.read_csv(fp2)
+                                except Exception:
+                                    df_exc = None
+                                st.caption(f"{name2}: {fp2.name}")
+                                if df_exc is not None and not df_exc.empty:
+                                    st.dataframe(df_exc, use_container_width=True)
+                                else:
+                                    st.write("(空)")
+                            with cols2[1]:
+                                try:
+                                    bytes2 = fp2.read_bytes()
+                                except Exception:
+                                    bytes2 = None
+                                if bytes2:
+                                    st.download_button(
+                                        label=f"{name2} CSV",
+                                        data=bytes2,
+                                        file_name=fp2.name,
+                                        mime="text/csv",
+                                        key=f"dl_short_exc_{name2}",
+                                    )
+        except Exception:
+            pass
         csv = final_df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "最終CSVをダウンロード",

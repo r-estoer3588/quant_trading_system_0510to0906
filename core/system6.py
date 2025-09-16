@@ -137,6 +137,9 @@ def prepare_data_vectorized_system6(
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
     processed, skipped = 0, 0
+    skipped_insufficient_rows = 0
+    skipped_missing_cols = 0
+    skipped_calc_errors = 0
     buffer: list[str] = []
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
@@ -213,18 +216,27 @@ def prepare_data_vectorized_system6(
             buffer.append(sym)
         except ValueError as e:
             skipped += 1
+            # 分類: insufficient_rows or calc_error
+            try:
+                msg = str(e).lower()
+                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+            except Exception:
+                reason = "calc_error"
+            if reason == "insufficient_rows":
+                skipped_insufficient_rows += 1
+            else:
+                skipped_calc_errors += 1
             if skip_callback:
                 try:
-                    msg = str(e).lower()
-                    reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
                     skip_callback(sym, reason)
                 except Exception:
                     try:
-                        skip_callback(f"{sym}: insufficient_rows")
+                        skip_callback(f"{sym}: {reason}")
                     except Exception:
                         pass
         except Exception:
             skipped += 1
+            skipped_calc_errors += 1
             if skip_callback:
                 try:
                     skip_callback(sym, "calc_error")
@@ -275,9 +287,23 @@ def prepare_data_vectorized_system6(
 
     # 集計サマリーはログにのみ出力（skip_callback で集計を汚染しない）
     if skipped > 0 and log_callback:
-        msg = f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件"
         try:
-            log_callback(msg)
+            log_callback(f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件")
+            if skipped_insufficient_rows:
+                try:
+                    log_callback(f"  ├─ 行数不足(<50): {skipped_insufficient_rows} 件")
+                except Exception:
+                    pass
+            if skipped_missing_cols:
+                try:
+                    log_callback(f"  ├─ 必須列欠落: {skipped_missing_cols} 件")
+                except Exception:
+                    pass
+            if skipped_calc_errors:
+                try:
+                    log_callback(f"  └─ 計算エラー: {skipped_calc_errors} 件")
+                except Exception:
+                    pass
         except Exception:
             pass
 
