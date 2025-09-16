@@ -80,7 +80,17 @@ class CacheManager:
         except Exception:
             pass
         if "date" in df.columns:
-            df = df.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+            try:
+                # 型が混在（str/datetime）しても確実に datetime 化
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            except Exception:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = (
+                df.dropna(subset=["date"])  # 不正日付を除外
+                .sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)
+            )
         return df
 
     def write_atomic(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
@@ -108,6 +118,15 @@ class CacheManager:
             self._upsert_one(ticker, new_rows, profile)
 
     def _upsert_one(self, ticker: str, new_rows: pd.DataFrame, profile: str) -> None:
+        # 入力行の日付を厳密に正規化（str/Timestamp 混在対策）
+        if new_rows is not None and not new_rows.empty:
+            try:
+                if "date" in new_rows.columns:
+                    new_rows = new_rows.copy()
+                    new_rows["date"] = pd.to_datetime(new_rows["date"], errors="coerce")
+                    new_rows = new_rows.dropna(subset=["date"]).reset_index(drop=True)
+            except Exception:
+                pass
         cur = self.read(ticker, profile)
         if cur is None or cur.empty:
             merged = new_rows.copy()

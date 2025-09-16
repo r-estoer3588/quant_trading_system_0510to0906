@@ -31,6 +31,10 @@ def test_evaluate_positions(monkeypatch):
         return pd.DataFrame({"High": range(1, 71)}, index=idx)
 
     monkeypatch.setattr("common.profit_protection.load_price", fake_load_price)
+    monkeypatch.setattr(
+        "common.profit_protection._load_symbol_system_map",
+        lambda: {"AAA": "system3", "EEE": "System2"},
+    )
 
     now = pd.Timestamp.utcnow().normalize()
     positions = [
@@ -45,7 +49,9 @@ def test_evaluate_positions(monkeypatch):
     ]
 
     df = evaluate_positions(positions)
+    assert "system" in df.columns
     judge = dict(zip(df["symbol"], df["judgement"], strict=True))
+    systems = dict(zip(df["symbol"], df["system"], strict=True))
 
     assert judge["SPY"].startswith("70日高値更新")
     assert judge["AAA"] == "4%利益→翌日大引けで手仕舞い"
@@ -55,6 +61,9 @@ def test_evaluate_positions(monkeypatch):
     assert judge["EEE"] == "5%利益→翌日大引けで手仕舞い"
     assert judge["FFF"] == "3日経過→大引けで手仕舞い"
     assert judge["GGG"] == "2日経過→大引けで手仕舞い"
+    assert systems["AAA"] == "system3"
+    assert systems["EEE"] == "system2"
+    assert systems["SPY"] == "system7"
 
 
 def test_evaluate_positions_load_failure(monkeypatch):

@@ -14,9 +14,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 
-import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
+import plotly.express as px
 
 from common import broker_alpaca as ba
 
@@ -61,6 +62,8 @@ def _inject_css() -> None:
 
         .stDataFrame { background: var(--panel) !important; border-radius: 14px !important; box-shadow: 0 6px 18px rgba(0,0,0,.25) !important; }
         .stDataFrame [data-testid="StyledFullRow"] { background: transparent !important; }
+        .stDataFrame tbody tr td, .stDataFrame thead tr th { color: var(--text) !important; }
+        .stDataFrame tbody tr td a { color: var(--accent) !important; }
 
         .ap-toolbar { position: sticky; top: .5rem; z-index: 20; backdrop-filter: blur(6px); background: rgba(23,28,42,.6); border-radius: 12px; padding: .4rem .6rem; border: 1px solid rgba(255,255,255,.06); }
         .ap-caption { white-space: nowrap; }
@@ -101,11 +104,11 @@ def _fmt_number(x: float | int | str | None) -> str:
     except Exception:
         return str(x)
 
+
 def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
     client = ba.get_client()
     account = client.get_account()
     positions = list(client.get_all_positions())
-    return client, account, positions
     return client, account, positions
 
 
@@ -150,7 +153,11 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
+                close_col = (
+                    cols.get("close")
+                    or cols.get("adj close")
+                    or cols.get("adj_close")
+                )
                 if close_col is None:
                     continue
                 s = df[close_col].astype(float).tail(max_points)
@@ -178,8 +185,8 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
     for pos in positions:
         sym = getattr(pos, "symbol", "")
         held = _days_held(entry_map.get(sym))
-        system = symbol_map.get(sym, "unknown").lower()
-        limit = hold_limits.get(system)
+        system_value = symbol_map.get(sym, "unknown")
+        limit = hold_limits.get(str(system_value).lower())
         exit_hint = (
             f"{limit}日経過で手仕切り検討" if held is not None and limit and held >= limit else ""
         )
@@ -192,20 +199,32 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
                 "含み損益": getattr(pos, "unrealized_pl", ""),
                 "保有日数": held if held is not None else "-",
                 "経過日手仕切り": exit_hint,
-                "システム": symbol_map.get(sym, "unknown"),
+                "システム": system_value,
             }
         )
     df = pd.DataFrame(records)
-    if not df.empty:
-        try:
-            # ポジション数が多いときは点数を抑えて軽量化
-            n_points = 20 if len(df) > 15 else 45
-            df["価格ミニ"] = [
-                (_load_recent_prices(sym, max_points=n_points) or [])
-                for sym in df["銘柄"].astype(str)
-            ]
-        except Exception:
-            pass
+    if df.empty:
+        return df
+
+    numeric_cols = ["平均取得単価", "現在値", "含み損益"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "銘柄" in df.columns:
+        df["銘柄"] = df["銘柄"].astype(str)
+    if "システム" in df.columns:
+        df["システム"] = df["システム"].fillna("unknown").astype(str)
+
+    try:
+        # ポジション数が多いときは点数を抑えて軽量化
+        n_points = 20 if len(df) > 15 else 45
+        df["価格ミニ"] = [
+            (_load_recent_prices(sym, max_points=n_points) or [])
+            for sym in df["銘柄"].astype(str)
+        ]
+    except Exception:
+        pass
     return df
 
 
@@ -225,7 +244,9 @@ def _group_by_system(
 
     grouped: dict[str, pd.DataFrame] = {}
     for system_value, g in work.groupby("system"):
-        grouped[str(system_value)] = g[["銘柄", "評価額"]]
+        cleaned = g[["銘柄", "評価額"]].copy()
+        cleaned["評価額"] = pd.to_numeric(cleaned["評価額"], errors="coerce").fillna(0.0)
+        grouped[str(system_value)] = cleaned
     return grouped
 
 
@@ -262,12 +283,21 @@ def main() -> None:
     cash = getattr(account, "cash", "-")
     buying_power = getattr(account, "buying_power", "-")
     last_equity = getattr(account, "last_equity", None)
+
+    equity_value = _safe_float(equity)
+    buying_power_value = _safe_float(buying_power)
+    last_equity_value = _safe_float(last_equity)
+
     delta = None
-    try:
-        if last_equity is not None:
-            delta = float(equity) - float(last_equity)
-    except Exception:
-        delta = None
+    if equity_value is not None and last_equity_value is not None:
+        delta = equity_value - last_equity_value
+
+    ratio = None
+    if equity_value not in (None, 0) and buying_power_value is not None:
+        try:
+            ratio = buying_power_value / equity_value
+        except ZeroDivisionError:
+            ratio = None
 
     def _metric_html(label: str, value: str, delta_val: float | None = None) -> str:
         d = ""
@@ -284,18 +314,30 @@ def main() -> None:
         )
 
     with c1:
-        st.markdown(_metric_html("総資産", _fmt_money(equity), delta), unsafe_allow_html=True)
+        st.markdown(
+            _metric_html("総資産", _fmt_money(equity), delta),
+            unsafe_allow_html=True,
+        )
     with c2:
-        st.markdown(_metric_html("現金", _fmt_money(cash)), unsafe_allow_html=True)
+        st.markdown(
+            _metric_html("現金", _fmt_money(cash)),
+            unsafe_allow_html=True,
+        )
     with c3:
-        st.markdown(_metric_html("余力", _fmt_money(buying_power)), unsafe_allow_html=True)
+        st.markdown(
+            _metric_html("余力", _fmt_money(buying_power)),
+            unsafe_allow_html=True,
+        )
     with c4:
-        try:
-            ratio = min(max(float(buying_power) / float(equity), 0.0), 1.0)
-            ring = f"<div class='ap-ring' style='--val:{ratio*100:.1f};'><span>{ratio*100:.0f}%</span></div>"
+        if ratio is not None:
+            fill_ratio = min(max(ratio, 0.0), 1.0)
+            ring = (
+                f"<div class='ap-ring' style='--val:{fill_ratio*100:.1f};'>"
+                f"<span>{ratio*100:.1f}%</span></div>"
+            )
             st.markdown(ring, unsafe_allow_html=True)
             st.caption("余力比率")
-        except Exception:
+        else:
             st.caption("余力比率: -")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -321,14 +363,26 @@ def main() -> None:
     with tab_pos:
         st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
         pos_df = _positions_to_df(positions, client)
+        if not pos_df.empty:
+            numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
+            for col in numeric_cols:
+                if col in pos_df.columns:
+                    pos_df[col] = pd.to_numeric(pos_df[col], errors="coerce")
         if pos_df.empty:
             st.info("ポジションはありません。")
         else:
             # システム絞り込み
             if "システム" in pos_df.columns:
-                systems = sorted([str(s) for s in pos_df["システム"].fillna("unknown").unique()])
+                systems = sorted(
+                    [str(s) for s in pos_df["システム"].fillna("unknown").unique()]
+                )
                 selected = st.multiselect("システム絞り込み", systems, default=systems)
                 pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
+
+            numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
+            for col in numeric_cols:
+                if col in pos_df.columns:
+                    pos_df[col] = pd.to_numeric(pos_df[col], errors="coerce")
 
             # 派生列: 損益率(%)
             try:
@@ -368,7 +422,13 @@ def main() -> None:
                 )
                 return [f"background-color: {bg}"] * len(row)
 
-            styler = pos_df.style.apply(_row_style, axis=1)
+            display_df = pos_df.copy()
+            try:
+                display_df["数量"] = pd.to_numeric(display_df["数量"], errors="coerce")
+            except Exception:
+                pass
+
+            styler = display_df.style.apply(_row_style, axis=1)
 
             # 表示（スパークライン列は LineChartColumn）
             try:
@@ -406,21 +466,31 @@ def main() -> None:
         s1, s2, s3 = st.columns(3)
         with s1:
             st.markdown(
-                _metric_html("保有銘柄数", _fmt_number(total_positions)), unsafe_allow_html=True
+                _metric_html("保有銘柄数", f"{total_positions}"),
+                unsafe_allow_html=True,
             )
         with s2:
-            try:
-                long_bp_ratio = min(max(float(buying_power) / float(equity), 0.0), 1.0)
+            if ratio is not None:
                 st.markdown(
-                    _metric_html("余力比率", f"{long_bp_ratio*100:.1f}%"), unsafe_allow_html=True
+                    _metric_html("余力比率", f"{ratio*100:.1f}%"),
+                    unsafe_allow_html=True,
                 )
-            except Exception:
-                st.markdown(_metric_html("余力比率", "-"), unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    _metric_html("余力比率", "-"),
+                    unsafe_allow_html=True,
+                )
         with s3:
             if delta is not None:
-                st.markdown(_metric_html("前日比", _fmt_money(delta)), unsafe_allow_html=True)
+                st.markdown(
+                    _metric_html("前日比", _fmt_money(delta)),
+                    unsafe_allow_html=True,
+                )
             else:
-                st.markdown(_metric_html("前日比", "-"), unsafe_allow_html=True)
+                st.markdown(
+                    _metric_html("前日比", "-"),
+                    unsafe_allow_html=True,
+                )
 
         # 統計チップ
         try:
@@ -459,7 +529,8 @@ def main() -> None:
                 f"<div class='ap-badge stat'>含み損益中央値: {_fmt_money(med_pl)}</div>",
             ]
             st.markdown(
-                "<div class='ap-badges'>" + "".join(chips) + "</div>", unsafe_allow_html=True
+                "<div class='ap-badges'>" + "".join(chips) + "</div>",
+                unsafe_allow_html=True,
             )
         except Exception:
             pass
@@ -483,21 +554,43 @@ def main() -> None:
                     for system, g in grouped.items():
                         with cols[i % len(cols)]:
                             st.caption(f"{system} の配分")
-                            fig, ax = plt.subplots()
-                            try:
-                                # Matplotlib の型定義に合わせて明示的に list へ変換
-                                values = g["評価額"].astype(float).tolist()
-                                labels = g["銘柄"].astype(str).tolist()
-                                ax.pie(
-                                    values,
-                                    labels=labels,
-                                    autopct="%1.1f%%",
-                                    textprops={"color": "#ffffff"},
+                            chart_df = g.copy()
+                            values = chart_df["評価額"].astype(float).abs().fillna(0.0)
+                            labels = chart_df["銘柄"].astype(str)
+                            if values.sum() <= 0:
+                                st.info("評価額が取得できませんでした。")
+                            else:
+                                fig = go.Figure(
+                                    data=[
+                                        go.Pie(
+                                            labels=labels.tolist(),
+                                            values=values.tolist(),
+                                            textinfo="percent",
+                                            hovertemplate=(
+                                                "<b>%{label}</b><br>評価額: %{value:,.0f}" "<extra></extra>"
+                                            ),
+                                            hole=0.35,
+                                        )
+                                    ]
                                 )
-                                ax.set_aspect("equal")
-                                st.pyplot(fig)
-                            finally:
-                                plt.close(fig)
+                                fig.update_traces(
+                                    textfont=dict(color="#f5f7fa"),
+                                    marker=dict(line=dict(color="#0f1420", width=1)),
+                                )
+                                fig.update_layout(
+                                    showlegend=True,
+                                    legend_title="銘柄",
+                                    legend=dict(font=dict(color="#f5f7fa")),
+                                    margin=dict(l=0, r=0, t=10, b=10),
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    font=dict(color="#f5f7fa"),
+                                )
+                                st.plotly_chart(
+                                    fig,
+                                    use_container_width=True,
+                                    config={"displayModeBar": False},
+                                )
                         i += 1
         elif mapping_path.exists():
             st.info("ポジションがないため、グラフを表示できません。")

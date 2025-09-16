@@ -3,9 +3,15 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from datetime import datetime
+import sys
+from pathlib import Path
 
-from config.settings import get_settings
-from common.cache_manager import CacheManager
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from config.settings import get_settings  # noqa: E402
+from common.cache_manager import CacheManager  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -38,16 +44,40 @@ def append_to_cache(df: pd.DataFrame, cm: CacheManager) -> tuple[int, int]:
         "adjusted_close": "adjusted_close",
         "volume": "volume",
     }
-    df = df.rename(columns={k: v for k, v in cols_map.items() if k in df.columns}).copy()
-    df["date"] = pd.to_datetime(df["date"])
+    # 列名大文字・混在対策
+    df = df.copy()
+    df.columns = [str(c).lower() for c in df.columns]
+    df = df.rename(columns={k: v for k, v in cols_map.items() if k in df.columns})
+    if "date" not in df.columns:
+        return 0, 0
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])  # 不正日時を除外
     total = 0
     updated = 0
+    # シンボル列（code）が無い場合は更新対象なし
+    if "code" not in df.columns:
+        return 0, 0
     for sym, g in df.groupby("code"):
         total += 1
         # 1日分（複数行が来てもそのまま渡せる）
-        rows = g[["date", "open", "high", "low", "close", "adjusted_close", "volume"]].copy()
+        keep_cols = [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "adjusted_close",
+            "volume",
+        ]
+        cols_exist = [c for c in keep_cols if c in g.columns]
+        if not cols_exist:
+            continue
+        rows = g[cols_exist].copy()
         try:
-            cm.upsert_both(str(sym), rows)
+            sym_norm = str(sym).upper().strip()
+            if sym_norm.endswith(".US"):
+                sym_norm = sym_norm.rsplit(".", 1)[0]
+            cm.upsert_both(sym_norm, rows)
             updated += 1
         except Exception as e:
             print(f"{sym}: upsert error - {e}")

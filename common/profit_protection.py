@@ -9,11 +9,43 @@ Systems2, 3, 5, and 6.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from common.data_loader import load_price
+
+
+_SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
+
+
+def _load_symbol_system_map() -> dict[str, str]:
+    """Load persisted symbol→system mapping.
+
+    Returns an empty dictionary when the mapping file is missing or invalid.
+    """
+
+    try:
+        data = json.loads(_SYMBOL_SYSTEM_MAP_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    mapping: dict[str, str] = {}
+    for key, value in data.items():
+        try:
+            symbol = str(key).upper()
+            system = str(value).strip()
+        except Exception:
+            continue
+        if not symbol:
+            continue
+        mapping[symbol] = system.lower()
+    return mapping
 
 
 def is_new_70day_high(symbol: str = "SPY") -> bool | None:
@@ -74,23 +106,40 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         text.
     """
 
+    raw_map = _load_symbol_system_map()
+    symbol_system_map: dict[str, str] = {}
+    for key, value in raw_map.items():
+        try:
+            sym_key = str(key).upper()
+            sys_val = str(value).strip().lower()
+        except Exception:
+            continue
+        if not sym_key:
+            continue
+        symbol_system_map[sym_key] = sys_val
     records: list[dict[str, str]] = []
     for pos in positions:
-        symbol = getattr(pos, "symbol", "")
+        symbol_raw = getattr(pos, "symbol", "")
+        symbol = "" if symbol_raw in (None, "") else str(symbol_raw)
+        symbol_key = symbol.upper()
         qty = getattr(pos, "qty", "")
         current = getattr(pos, "current_price", "")
         side = getattr(pos, "side", "")
+        side_lower = str(side).lower()
         plpc = float(getattr(pos, "unrealized_plpc", 0) or 0)
         held = _days_held(getattr(pos, "entry_date", None))
+        system = symbol_system_map.get(symbol_key, "")
+        if not system and symbol_key == "SPY" and side_lower == "short":
+            system = "system7"
         judgement = "継続"
 
-        if symbol.upper() == "SPY" and side.lower() == "short":
+        if symbol_key == "SPY" and side_lower == "short":
             high_check = is_new_70day_high(symbol)
             if high_check is True:
                 judgement = "70日高値更新→翌日寄りで手仕舞い"
             elif high_check is None:
                 judgement = "判定失敗"
-        elif side.lower() == "short":  # System2/6
+        elif side_lower == "short":  # System2/6
             if plpc >= 0.05:
                 judgement = "5%利益→翌日大引けで手仕舞い"
             elif held is not None and held >= 3:
@@ -110,6 +159,7 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         records.append(
             {
                 "symbol": symbol,
+                "system": system,
                 "side": side,
                 "qty": qty,
                 "current_price": current,
