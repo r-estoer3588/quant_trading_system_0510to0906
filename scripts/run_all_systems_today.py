@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+import json
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -280,18 +281,69 @@ def _filter_logs(lines: list[str], ui: bool = False) -> list[str]:
     return [ln for ln in lines if not any(k in ln for k in skip_keywords)]
 
 
+def _load_active_positions_by_system() -> dict[str, int]:
+    """Return current active position counts grouped by system name.
+
+    Alpaca の保有ポジションと `data/symbol_system_map.json` を突き合わせ、
+    system1〜7 のどの戦略で保有しているかを推定する。
+    失敗した場合は空 dict を返す。
+    """
+
+    counts: dict[str, int] = {}
+    try:
+        client = ba.get_client(paper=True)
+        positions = list(client.get_all_positions())
+    except Exception:
+        return counts
+
+    try:
+        mapping_path = Path("data/symbol_system_map.json")
+        if mapping_path.exists():
+            symbol_system_map = json.loads(mapping_path.read_text(encoding="utf-8"))
+        else:
+            symbol_system_map = {}
+    except Exception:
+        symbol_system_map = {}
+
+    for pos in positions:
+        try:
+            sym = str(getattr(pos, "symbol", "")).upper()
+        except Exception:
+            continue
+        if not sym:
+            continue
+        try:
+            qty = abs(float(getattr(pos, "qty", 0)) or 0.0)
+        except Exception:
+            qty = 0.0
+        if qty <= 0:
+            continue
+        side = str(getattr(pos, "side", "")).lower()
+        system_name = str(symbol_system_map.get(sym, "")).lower()
+        if not system_name:
+            if sym == "SPY" and side == "short":
+                system_name = "system7"
+            else:
+                continue
+        counts[system_name] = counts.get(system_name, 0) + 1
+    return counts
+
+
 def _amount_pick(
     per_system: dict[str, pd.DataFrame],
     strategies: dict[str, object],
     total_budget: float,
     weights: dict[str, float],
     side: str,
+    active_positions: dict[str, int] | None = None,
 ) -> pd.DataFrame:
     """資金配分に基づいて候補を採用。
     shares と position_value を付与して返す。
     """
     chosen = []
     chosen_symbols = set()
+
+    active_positions = active_positions or {}
 
     # システムごとの割当予算
     budgets = {
@@ -310,7 +362,8 @@ def _amount_pick(
             _lim = int(getattr(_stg, "config", {}).get("max_positions", 10))
         except Exception:
             _lim = 10
-        max_pos_by_system[_n] = max(0, _lim)
+        taken = int(active_positions.get(_n, 0))
+        max_pos_by_system[_n] = max(0, _lim - taken)
     count_by_system: dict[str, int] = {k: 0 for k in ordered_names}
     # システムごとにスコア順で採用。複数周回して1件ずつ拾う（偏りを軽減）
     still = True
@@ -2796,23 +2849,40 @@ def compute_today_signals(
                     _td_str = ""
                 run_end_time = datetime.now()
                 end_equity = _get_account_equity()
-                profit_amt = max(end_equity - start_equity, 0.0)
-                loss_amt = max(start_equity - end_equity, 0.0)
-                total_entries = sum(final_counts.values())
-                total_exits = sum(
-                    int(v) for v in exit_counts_map.values() if v is not None
+                start_equity_val = float(start_equity or 0.0)
+                end_equity_val = float(end_equity or 0.0)
+                profit_amt = max(end_equity_val - start_equity_val, 0.0)
+                loss_amt = max(start_equity_val - end_equity_val, 0.0)
+                total_entries = int(sum(final_counts.values()))
+                total_exits = int(
+                    sum(int(v) for v in exit_counts_map.values() if v is not None)
                 )
-                msg = (
-                    f"対象日: {_td_str}\n"
-                    f"指定銘柄総数: {tgt_base}\n"
-                    f"開始: {run_start_time.strftime('%H:%M:%S')} / "
-                    f"完了: {run_end_time.strftime('%H:%M:%S')}\n"
-                    f"開始資産: {start_equity:.2f} / 完了資産: {end_equity:.2f}\n"
-                    f"エントリー数: {total_entries} / エグジット数: {total_exits}\n"
-                    f"利益額: {profit_amt:.2f} / 損失額: {loss_amt:.2f}"
-                )
+                start_time_str = run_start_time.strftime("%H:%M:%S")
+                end_time_str = run_end_time.strftime("%H:%M:%S")
+                summary_pairs = [
+                    ("指定銘柄総数", f"{int(tgt_base):,}"),
+                    ("開始時間/完了時間", f"{start_time_str} / {end_time_str}"),
+                    (
+                        "開始時資産/完了時資産",
+                        f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
+                    ),
+                    (
+                        "エントリー銘柄数/エグジット銘柄数",
+                        f"{total_entries} / {total_exits}",
+                    ),
+                    (
+                        "利益額/損失額",
+                        f"${profit_amt:,.2f} / ${loss_amt:,.2f}",
+                    ),
+                ]
+                summary_fields = [
+                    {"name": key, "value": value, "inline": True}
+                    for key, value in summary_pairs
+                ]
+                msg = "対象日: " + str(_td_str)
+                msg += "\n" + "\n".join(f"{k}: {v}" for k, v in summary_pairs)
                 notifier = create_notifier(platform="auto", fallback=True)
-                notifier.send(title, msg, fields=lines)
+                notifier.send(title, msg, fields=summary_fields + lines)
             except Exception:
                 pass
         # 簡易ログ
@@ -2856,6 +2926,40 @@ def compute_today_signals(
     long_alloc = _normalize_alloc(settings_alloc_long, defaults_long)
     short_alloc = _normalize_alloc(settings_alloc_short, defaults_short)
 
+    active_positions_map = _load_active_positions_by_system()
+    max_positions_per_system: dict[str, int] = {}
+    for name, stg in strategies.items():
+        try:
+            limit_val = int(getattr(stg, "config", {}).get("max_positions", settings.risk.max_positions))
+        except Exception:
+            limit_val = int(settings.risk.max_positions)
+        max_positions_per_system[name] = max(0, limit_val)
+    available_slots_map: dict[str, int] = {}
+    for name, limit_val in max_positions_per_system.items():
+        taken = int(active_positions_map.get(name, 0))
+        available_slots_map[name] = max(0, int(limit_val) - taken)
+
+    try:
+        if active_positions_map:
+            summary = ", ".join(
+                f"{k}={int(v)}" for k, v in sorted(active_positions_map.items()) if int(v) > 0
+            )
+            if summary:
+                _log("📦 現在保有ポジション数: " + summary)
+    except Exception:
+        pass
+    try:
+        lines = []
+        for name in sorted(max_positions_per_system.keys()):
+            limit_val = int(max_positions_per_system.get(name, 0))
+            remain = int(available_slots_map.get(name, limit_val))
+            if remain < limit_val:
+                lines.append(f"{name}={remain}/{limit_val}")
+        if lines:
+            _log("🪧 利用可能スロット (残/上限): " + ", ".join(lines))
+    except Exception:
+        pass
+
     _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
     if capital_long is None and capital_short is None:
         # 旧スロット方式（後方互換）
@@ -2893,23 +2997,46 @@ def compute_today_signals(
                 base[k] = min(base[k], counts.get(k, 0))
             return base
 
-        long_counts = {k: len(per_system.get(k, pd.DataFrame())) for k in long_alloc}
-        short_counts = {k: len(per_system.get(k, pd.DataFrame())) for k in short_alloc}
+        long_counts_raw: dict[str, int] = {}
+        long_counts_available: dict[str, int] = {}
+        for k in long_alloc:
+            df = per_system.get(k, pd.DataFrame())
+            cand_cnt = 0 if df is None or getattr(df, "empty", True) else int(len(df))
+            long_counts_raw[k] = cand_cnt
+            long_counts_available[k] = min(cand_cnt, int(available_slots_map.get(k, 0)))
+
+        short_counts_raw: dict[str, int] = {}
+        short_counts_available: dict[str, int] = {}
+        for k in short_alloc:
+            df = per_system.get(k, pd.DataFrame())
+            cand_cnt = 0 if df is None or getattr(df, "empty", True) else int(len(df))
+            short_counts_raw[k] = cand_cnt
+            short_counts_available[k] = min(cand_cnt, int(available_slots_map.get(k, 0)))
+
+        def _fmt_alloc(name: str, avail_map: dict[str, int], cand_map: dict[str, int]) -> str:
+            avail = int(avail_map.get(name, 0))
+            cand = int(cand_map.get(name, 0))
+            return f"{name}={avail}" if avail == cand else f"{name}={avail}/{cand}"
+
         _log(
-            "🧮 枠配分: "
-            + ", ".join([f"{k}={long_counts.get(k, 0)}" for k in long_alloc])
+            "🧮 枠配分（利用可能スロット/候補数）: "
+            + ", ".join([_fmt_alloc(k, long_counts_available, long_counts_raw) for k in long_alloc])
             + " | "
-            + ", ".join([f"{k}={short_counts.get(k, 0)}" for k in short_alloc])
+            + ", ".join([_fmt_alloc(k, short_counts_available, short_counts_raw) for k in short_alloc])
         )
-        long_slots = _distribute_slots(long_alloc, slots_long, long_counts)
-        short_slots = _distribute_slots(short_alloc, slots_short, short_counts)
+        long_slots = _distribute_slots(long_alloc, slots_long, long_counts_available)
+        short_slots = _distribute_slots(short_alloc, slots_short, short_counts_available)
 
         chosen_frames: list[pd.DataFrame] = []
         for name, slot in {**long_slots, **short_slots}.items():
             df = per_system.get(name, pd.DataFrame())
-            if df is None or df.empty or slot <= 0:
+            if df is None or df.empty:
                 continue
-            take = df.head(slot).copy()
+            free_slots = int(available_slots_map.get(name, 0))
+            use_slot = min(int(slot), free_slots)
+            if use_slot <= 0:
+                continue
+            take = df.head(use_slot).copy()
             take["alloc_weight"] = (
                 long_alloc.get(name) or short_alloc.get(name) or 0.0
             )  # noqa: E501
@@ -2972,6 +3099,7 @@ def compute_today_signals(
             float(capital_long),
             long_alloc,
             side="long",
+            active_positions=active_positions_map,
         )
         short_df = _amount_pick(
             {k: per_system.get(k, pd.DataFrame()) for k in short_alloc},
@@ -2979,6 +3107,7 @@ def compute_today_signals(
             float(capital_short),
             short_alloc,
             side="short",
+            active_positions=active_positions_map,
         )
         parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
         final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
