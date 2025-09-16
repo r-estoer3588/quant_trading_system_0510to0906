@@ -140,6 +140,11 @@ def prepare_data_vectorized_system5(
             batch_size = 100
         batch_size = resolve_batch_size(total, batch_size)
     processed, skipped = 0, 0
+    # スキップ理由の内訳カウンタ
+    skipped_insufficient_rows = 0
+    skipped_missing_cols = 0
+    skipped_calc_errors = 0
+    missing_cols_examples: dict[str, int] = {}
     buffer: list[str] = []
     start_time = time.time()
     batch_monitor = BatchSizeMonitor(batch_size)
@@ -204,6 +209,111 @@ def prepare_data_vectorized_system5(
                 cached = None
 
         try:
+            # 事前チェック: 行数と必須列
+            if len(df) < 100:
+                skipped += 1
+                skipped_insufficient_rows += 1
+                if skip_callback:
+                    try:
+                        skip_callback(sym, "insufficient_rows")
+                    except Exception:
+                        try:
+                            skip_callback(f"{sym}: insufficient_rows")
+                        except Exception:
+                            pass
+                processed += 1
+                if progress_callback:
+                    try:
+                        progress_callback(processed, total)
+                    except Exception:
+                        pass
+                if (processed % batch_size == 0 or processed == total) and log_callback:
+                    elapsed = time.time() - start_time
+                    remain = (elapsed / processed) * (total - processed) if processed else 0
+                    em, es = divmod(int(elapsed), 60)
+                    rm, rs = divmod(int(remain), 60)
+                    msg = tr(
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                        "remain: ~{rm}m{rs}s",
+                        done=processed,
+                        total=total,
+                        em=em,
+                        es=es,
+                        rm=rm,
+                        rs=rs,
+                    )
+                    if buffer:
+                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                    batch_duration = time.time() - batch_start
+                    batch_size = batch_monitor.update(batch_duration)
+                    batch_start = time.time()
+                    try:
+                        log_callback(msg)
+                        log_callback(
+                            tr(
+                                "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                                sec=batch_duration,
+                                size=batch_size,
+                            )
+                        )
+                    except Exception:
+                        pass
+                    buffer.clear()
+                continue
+            required_cols = ["Open", "High", "Low", "Close", "Volume"]
+            miss = [c for c in required_cols if c not in df.columns]
+            if miss:
+                skipped += 1
+                skipped_missing_cols += 1
+                for m in miss:
+                    missing_cols_examples[m] = missing_cols_examples.get(m, 0) + 1
+                if skip_callback:
+                    try:
+                        skip_callback(sym, f"missing_cols:{','.join(miss)}")
+                    except Exception:
+                        try:
+                            skip_callback(f"{sym}: missing_cols:{','.join(miss)}")
+                        except Exception:
+                            pass
+                processed += 1
+                if progress_callback:
+                    try:
+                        progress_callback(processed, total)
+                    except Exception:
+                        pass
+                if (processed % batch_size == 0 or processed == total) and log_callback:
+                    elapsed = time.time() - start_time
+                    remain = (elapsed / processed) * (total - processed) if processed else 0
+                    em, es = divmod(int(elapsed), 60)
+                    rm, rs = divmod(int(remain), 60)
+                    msg = tr(
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                        "remain: ~{rm}m{rs}s",
+                        done=processed,
+                        total=total,
+                        em=em,
+                        es=es,
+                        rm=rm,
+                        rs=rs,
+                    )
+                    if buffer:
+                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                    batch_duration = time.time() - batch_start
+                    batch_size = batch_monitor.update(batch_duration)
+                    batch_start = time.time()
+                    try:
+                        log_callback(msg)
+                        log_callback(
+                            tr(
+                                "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                                sec=batch_duration,
+                                size=batch_size,
+                            )
+                        )
+                    except Exception:
+                        pass
+                    buffer.clear()
+                continue
             if cached is not None and not cached.empty:
                 last_date = cached.index.max()
                 new_rows = df[df.index > last_date]
@@ -229,6 +339,15 @@ def prepare_data_vectorized_system5(
             buffer.append(sym)
         except Exception:
             skipped += 1
+            skipped_calc_errors += 1
+            if skip_callback:
+                try:
+                    skip_callback(sym, "calc_error")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
 
         processed += 1
         if progress_callback:
@@ -272,6 +391,32 @@ def prepare_data_vectorized_system5(
     if skipped > 0 and log_callback:
         try:
             log_callback(f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件")
+            # 追加の内訳（多い順に表示、ノイズ防止のため上位のみ）
+            if skipped_insufficient_rows:
+                try:
+                    log_callback(f"  ├─ 行数不足(<100): {skipped_insufficient_rows} 件")
+                except Exception:
+                    pass
+            if skipped_missing_cols:
+                try:
+                    # 欠落列の上位3件
+                    top_missing = sorted(
+                        missing_cols_examples.items(),
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )[:3]
+                    details = ", ".join([f"{k}:{v}" for k, v in top_missing]) if top_missing else ""
+                    log_callback(
+                        f"  ├─ 必須列欠落: {skipped_missing_cols} 件"
+                        + (f" ({details})" if details else "")
+                    )
+                except Exception:
+                    pass
+            if skipped_calc_errors:
+                try:
+                    log_callback(f"  └─ 計算エラー: {skipped_calc_errors} 件")
+                except Exception:
+                    pass
         except Exception:
             pass
     return result_dict

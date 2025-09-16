@@ -202,6 +202,27 @@ def prepare_data_vectorized_system1(
         df.index = pd.Index(idx)
         df.index.name = "Date"
 
+        # 必須列チェック（S1は Volume を用いるため必須に含める）
+        needed = {"Open", "High", "Low", "Close", "Volume"}
+        miss = [c for c in needed if c not in df.columns]
+        if miss:
+            if skip_callback:
+                try:
+                    skip_callback(sym, f"missing_cols:{','.join(miss)}")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: missing_cols:{','.join(miss)}")
+                    except Exception:
+                        pass
+            # スキップとしてカウント/進捗
+            processed += 1
+            if progress_callback:
+                try:
+                    progress_callback(processed, total_symbols)
+                except Exception:
+                    pass
+            continue
+
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
         if reuse_indicators and os.path.exists(cache_path):

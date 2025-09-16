@@ -84,6 +84,55 @@ def _reset_shown_flag() -> None:
     st.session_state["today_shown_this_run"] = False
 
 
+def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
+    """side×system 別の保有件数サマリーを作成する。"""
+
+    if df.empty:
+        return pd.DataFrame()
+
+    work = df.copy()
+
+    def _norm_side(value: Any) -> str:
+        if isinstance(value, str):
+            side = value.strip().lower()
+            if side in {"long", "short"}:
+                return side
+        return "その他"
+
+    def _norm_system(value: Any) -> str:
+        if isinstance(value, str):
+            system = value.strip().lower()
+            if system:
+                return system
+        return "その他"
+
+    work["side_norm"] = work["side"].map(_norm_side)
+    work["system_norm"] = work["system"].map(_norm_system)
+
+    summary = (
+        work.groupby(["side_norm", "system_norm"]).size().unstack(fill_value=0)
+    )
+
+    systems_order = [f"system{i}" for i in range(1, 8)]
+    other_cols = [col for col in summary.columns if col not in systems_order]
+    summary = summary.reindex(systems_order + other_cols, axis=1, fill_value=0)
+
+    summary["合計"] = summary.sum(axis=1)
+
+    main_rows = ["long", "short"]
+    additional_rows = [idx for idx in summary.index if idx not in main_rows]
+    summary = summary.reindex(main_rows + additional_rows, fill_value=0)
+
+    rename_map = {f"system{i}": f"System{i}" for i in range(1, 8)}
+    summary = summary.rename(columns=rename_map)
+    summary = summary.rename(index={"long": "Long", "short": "Short"})
+
+    summary.index.name = "side"
+    summary.columns.name = None
+
+    return summary.astype(int)
+
+
 def _get_today_logger() -> logging.Logger:
     """本日のシグナル実行用ロガー。
 
@@ -503,6 +552,10 @@ if "positions_df" in st.session_state:
     if df_pos.empty:
         st.info("保有ポジションはありません。")
     else:
+        summary_df = _build_position_summary_table(df_pos)
+        if not summary_df.empty:
+            st.caption("ポジションサマリー（件数）")
+            st.dataframe(summary_df, use_container_width=True)
         st.dataframe(df_pos, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):

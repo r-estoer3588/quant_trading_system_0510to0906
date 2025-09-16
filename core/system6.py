@@ -89,9 +89,12 @@ def prepare_data_vectorized_system6(
                 else:
                     if skip_callback:
                         try:
-                            skip_callback(f"{sym} スキップ")
+                            skip_callback(sym, "pool_skipped")
                         except Exception:
-                            pass
+                            try:
+                                skip_callback(f"{sym}: pool_skipped")
+                            except Exception:
+                                pass
                 if progress_callback:
                     try:
                         progress_callback(i, total)
@@ -208,8 +211,28 @@ def prepare_data_vectorized_system6(
                     pass
             result_dict[sym] = result_df
             buffer.append(sym)
+        except ValueError as e:
+            skipped += 1
+            if skip_callback:
+                try:
+                    msg = str(e).lower()
+                    reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: insufficient_rows")
+                    except Exception:
+                        pass
         except Exception:
             skipped += 1
+            if skip_callback:
+                try:
+                    skip_callback(sym, "calc_error")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
 
         processed += 1
         if progress_callback:
@@ -254,7 +277,10 @@ def prepare_data_vectorized_system6(
         msg = f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件"
         try:
             if skip_callback:
-                skip_callback(msg)
+                try:
+                    skip_callback(msg)
+                except Exception:
+                    pass
             elif log_callback:
                 log_callback(msg)
         except Exception:

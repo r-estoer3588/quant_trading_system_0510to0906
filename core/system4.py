@@ -174,6 +174,27 @@ def prepare_data_vectorized_system4(
         else:
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
+        # 必須列チェック
+        needed = {"Open", "High", "Low", "Close", "Volume"}
+        miss = [c for c in needed if c not in df.columns]
+        if miss:
+            skipped += 1
+            if skip_callback:
+                try:
+                    skip_callback(sym, f"missing_cols:{','.join(miss)}")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: missing_cols:{','.join(miss)}")
+                    except Exception:
+                        pass
+            processed += 1
+            if progress_callback:
+                try:
+                    progress_callback(processed, total)
+                except Exception:
+                    pass
+            continue
+
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
         if reuse_indicators and os.path.exists(cache_path):
@@ -208,8 +229,28 @@ def prepare_data_vectorized_system4(
                     pass
             result_dict[sym] = result_df
             buffer.append(sym)
+        except ValueError as e:
+            skipped += 1
+            if skip_callback:
+                try:
+                    msg = str(e).lower()
+                    reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: insufficient_rows")
+                    except Exception:
+                        pass
         except Exception:
             skipped += 1
+            if skip_callback:
+                try:
+                    skip_callback(sym, "calc_error")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
 
         processed += 1
         if progress_callback:
