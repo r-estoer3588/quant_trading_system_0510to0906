@@ -12,9 +12,9 @@ import pandas as pd
 from config.settings import get_settings
 
 # --- サイド定義（売買区分）---
-# System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
-LONG_SYSTEMS = {"system1", "system3", "system5"}
-SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
+# System1/3/4/5 は買い戦略、System2/6/7 は売り戦略として扱う。
+LONG_SYSTEMS = {"system1", "system3", "system4", "system5"}
+SHORT_SYSTEMS = {"system2", "system6", "system7"}
 
 
 @dataclass(frozen=True)
@@ -375,6 +375,43 @@ def get_today_signals_for_strategy(
                 samples = _skip_samples.get(k) or []
                 if samples:
                     log_callback(f"  ↳ 例({k}): {', '.join(samples)}")
+        
+        # ⑨の要求: スキップ銘柄の詳細をCSV出力用に保存
+        try:
+            if _skip_counts or _skip_samples:
+                from config.settings import get_settings
+                settings = get_settings(create_dirs=True)
+                skip_export_path = Path(settings.outputs.results_dir) / f"skipped_symbols_{system_name}_{pd.Timestamp(today).strftime('%Y%m%d')}.csv"
+                
+                skip_rows = []
+                for reason, count in _skip_counts.items():
+                    samples = _skip_samples.get(reason, [])
+                    for i, symbol in enumerate(samples):
+                        skip_rows.append({
+                            "system": system_name,
+                            "symbol": symbol,
+                            "skip_reason": reason,
+                            "reason_total_count": count,
+                            "sample_order": i + 1
+                        })
+                    # サンプルが5件未満の場合も残り件数を記録
+                    if count > len(samples):
+                        skip_rows.append({
+                            "system": system_name,
+                            "symbol": f"...and {count - len(samples)} more",
+                            "skip_reason": reason,
+                            "reason_total_count": count,
+                            "sample_order": len(samples) + 1
+                        })
+                
+                if skip_rows:
+                    skip_df = pd.DataFrame(skip_rows)
+                    skip_df.to_csv(skip_export_path, index=False)
+                    if log_callback:
+                        log_callback(f"📄 スキップ詳細をCSV出力: {skip_export_path}")
+        except Exception as e:
+            if log_callback:
+                log_callback(f"⚠️ スキップCSV出力エラー: {e}")
     except Exception:
         pass
     # フィルター通過件数（NYSEカレンダーの前営業日を優先。無い場合は最終行）。
@@ -704,10 +741,25 @@ def get_today_signals_for_strategy(
                 # 次はその前日基準で探索
                 cur = td - pd.Timedelta(days=1)
         # 候補に存在する最初の営業日を採用
+        selected_date_info = []  # 診断用ログ
         for dt in search_days:
             if dt in candidate_dates:
                 target_date = dt
+                selected_date_info.append(f"選択日={dt.strftime('%Y-%m-%d')}")
                 break
+            else:
+                selected_date_info.append(f"候補なし({dt.strftime('%Y-%m-%d')})")
+        
+        # System6の日付選択診断ログ（④の要求対応）
+        if log_callback and system_name == "system6":
+            try:
+                today_str = pd.Timestamp(today).strftime('%Y-%m-%d')
+                search_str = ", ".join([d.strftime('%m-%d') for d in search_days])
+                candidates_str = ", ".join([d.strftime('%m-%d') for d in candidate_dates])
+                selected_str = target_date.strftime('%m-%d') if target_date else "None"
+                log_callback(f"🗓️ System6日付選択: 今日={today_str}, 検索順=[{search_str}], 候補日=[{candidates_str}], 選択={selected_str}")
+            except Exception:
+                pass
     except Exception:
         target_date = None
     try:

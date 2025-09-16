@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.client import TradingClient
+    from alpaca.data import StockHistoricalDataClient
     from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
     from alpaca.trading.requests import (
         LimitOrderRequest,
@@ -21,6 +22,7 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.stream import TradingStream
 except Exception:  # pragma: no cover
     TradingClient = None  # type: ignore
+    StockHistoricalDataClient = None  # type: ignore
     OrderSide = OrderClass = TimeInForce = None  # type: ignore
     MarketOrderRequest = None  # type: ignore
     LimitOrderRequest = None  # type: ignore
@@ -299,10 +301,41 @@ def subscribe_order_updates(client, log_callback=None):
     stream.run()
 
 
+def check_shortable_stocks(symbols: list[str], *, 
+                          api_key: str | None = None, 
+                          secret_key: str | None = None, 
+                          paper: bool | None = None,
+                          log_callback=None) -> dict[str, bool]:
+    """
+    指定された銘柄リストに対してショート可能かどうかをチェック。
+    
+    Returns:
+        dict[str, bool]: {symbol: is_shortable, ...}
+    """
+    _require_sdk()
+    
+    client = get_client(api_key=api_key, secret_key=secret_key, paper=paper)
+    shortable_status = {}
+    
+    for symbol in symbols:
+        try:
+            asset = client.get_asset(symbol)
+            shortable_status[symbol] = getattr(asset, 'shortable', False)
+            if log_callback:
+                log_callback(f"Symbol {symbol}: shortable={shortable_status[symbol]}")
+        except Exception as e:
+            shortable_status[symbol] = False  # デフォルトは安全側でFalse
+            if log_callback:
+                log_callback(f"Failed to check shortable status for {symbol}: {e}")
+    
+    return shortable_status
+
+
 __all__ = [
     "get_client",
     "submit_order",
-    "log_orders_positions",
+    "log_orders_positions", 
     "cancel_all_orders",
     "subscribe_order_updates",
+    "check_shortable_stocks",
 ]

@@ -274,10 +274,10 @@ def prepare_data_vectorized_system6(
             buffer.clear()
 
     # 集計サマリーはログにのみ出力（skip_callback で集計を汚染しない）
+    # 注意: このサマリーは today_signals で別途集計されるため、重複を避ける
     if skipped > 0 and log_callback:
-        msg = f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件"
         try:
-            log_callback(msg)
+            log_callback(f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件")
         except Exception:
             pass
 

@@ -81,13 +81,57 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-        return generate_candidates_system6(
+        
+        # 基本候補を生成
+        candidates_by_date, extra_df = generate_candidates_system6(
             prepared_dict,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,
             skip_callback=skip_callback,
             batch_size=batch_size,
+        )
+        
+        # ショート可能チェックを実行（設定で有効な場合のみ）
+        try:
+            enable_shortable_check = getattr(
+                get_settings(create_dirs=False).risk, 'enable_shortable_check', False
+            )
+            
+            if enable_shortable_check:
+                # 全候補銘柄を抽出
+                all_symbols = set()
+                for date_candidates in candidates_by_date.values():
+                    for candidate in date_candidates:
+                        all_symbols.add(candidate.get('symbol', ''))
+                
+                if all_symbols:
+                    from common.broker_alpaca import check_shortable_stocks
+                    
+                    shortable_status = check_shortable_stocks(
+                        list(all_symbols),
+                        log_callback=log_callback
+                    )
+                    
+                    # ショート不可の銘柄を除外
+                    filtered_candidates = {}
+                    for date, candidates in candidates_by_date.items():
+                        filtered = []
+                        for candidate in candidates:
+                            symbol = candidate.get('symbol', '')
+                            if shortable_status.get(symbol, False):
+                                filtered.append(candidate)
+                            elif log_callback:
+                                log_callback(f"🚫 System6: {symbol} - ショート不可のため除外")
+                        filtered_candidates[date] = filtered
+                    
+                    candidates_by_date = filtered_candidates
+                    
+        except Exception as e:
+            if log_callback:
+                log_callback(f"⚠️ System6: ショート可能チェックでエラー: {e}")
+        
+        return candidates_by_date, extra_df
         )
 
     def run_backtest(
