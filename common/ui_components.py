@@ -1091,13 +1091,14 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
         signal_counts_df.to_csv(signal_path, index=False)
         st.write(tr("シグナルを保存しました: {signal_path}", signal_path=signal_path))
         # 即時ダウンロード
-        st.download_button(
-            label=f"{system_name} シグナルCSVをダウンロード",
-            data=signal_counts_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"{system_name}_signals_{today_str}_{int(capital)}.csv",
-            mime="text/csv",
-            key=f"{system_name}_download_signals_csv",
-        )
+        # システム別CSVダウンロードボタンを削除（⑤の要求）
+        # st.download_button(
+        #     label=f"{system_name} シグナルCSVをダウンロード",
+        #     data=signal_counts_df.to_csv(index=False).encode("utf-8"),
+        #     file_name=f"{system_name}_signals_{today_str}_{int(capital)}.csv",
+        #     mime="text/csv",
+        #     key=f"{system_name}_download_signals_csv",
+        # )
 
     trades_df = pd.DataFrame(results) if isinstance(results, list) else results
     if trades_df is not None and not trades_df.empty:
@@ -1121,14 +1122,14 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
         )
         trades_df.to_csv(trade_path, index=False)
         st.write(tr("トレードを保存しました: {trade_path}", trade_path=trade_path))
-        # 即時ダウンロード
-        st.download_button(
-            label=f"{system_name} トレードCSVをダウンロード",
-            data=trades_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"{system_name}_trades_{today_str}_{int(capital)}.csv",
-            mime="text/csv",
-            key=f"{system_name}_download_trades_csv",
-        )
+        # システム別CSVダウンロードボタンを削除（⑤の要求）
+        # st.download_button(
+        #     label=f"{system_name} トレードCSVをダウンロード",
+        #     data=trades_df.to_csv(index=False).encode("utf-8"),
+        #     file_name=f"{system_name}_trades_{today_str}_{int(capital)}.csv",
+        #     mime="text/csv",
+        #     key=f"{system_name}_download_trades_csv",
+        # )
 
 
 @overload

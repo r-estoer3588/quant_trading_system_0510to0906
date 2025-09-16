@@ -165,19 +165,22 @@ def prepare_data_vectorized_system5(
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
         x = src.copy()
+        original_rows = len(x)
         # 型を数値へ強制
         for col in ("Open", "High", "Low", "Close", "Volume"):
             if col in x.columns:
                 x[col] = pd.to_numeric(x[col], errors="coerce")
         # 不正行の除外と整列
         x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
+        after_dropna_rows = len(x)
         if not x.index.is_monotonic_increasing:
             try:
                 x = x.sort_index()
             except Exception:
                 pass
         if len(x) < 100:
-            raise ValueError("insufficient rows")
+            # 詳細な診断情報を含めてエラーを投げる
+            raise ValueError(f"insufficient_rows_after_dropna_{after_dropna_rows}_from_{original_rows}")
         x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
         x["ATR10"] = AverageTrueRange(
             x["High"], x["Low"], x["Close"], window=10
@@ -235,15 +238,16 @@ def prepare_data_vectorized_system5(
 
         try:
             # 事前チェック: 行数と必須列
-            if len(df) < 100:
+            original_rows = len(df)
+            if original_rows < 100:
                 skipped += 1
                 skipped_insufficient_rows += 1
                 if skip_callback:
                     try:
-                        skip_callback(sym, "insufficient_rows")
+                        skip_callback(sym, f"insufficient_rows_raw_{original_rows}")
                     except Exception:
                         try:
-                            skip_callback(f"{sym}: insufficient_rows")
+                            skip_callback(f"{sym}: insufficient_rows_raw_{original_rows}")
                         except Exception:
                             pass
                 processed += 1
@@ -365,15 +369,17 @@ def prepare_data_vectorized_system5(
         except ValueError as e:
             skipped += 1
             skipped_calc_errors += 1
-            # insufficient rows の ValueError を分類
+            # insufficient rows の ValueError を分類・詳細を保持
             try:
                 msg = str(e).lower()
-                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+                if "insufficient_rows" in msg:
+                    reason = str(e)  # 詳細情報を保持
+                    skipped_insufficient_rows += 1
+                    skipped_calc_errors -= 1  # 調整
+                else:
+                    reason = "calc_error"
             except Exception:
                 reason = "calc_error"
-            if reason == "insufficient_rows":
-                skipped_insufficient_rows += 1
-                skipped_calc_errors -= 1  # 調整
             if skip_callback:
                 try:
                     skip_callback(sym, reason)
