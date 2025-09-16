@@ -1739,7 +1739,48 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             summary_lines = []
         if summary_lines:
             st.caption("サマリー（Long/Short別）: " + " / ".join(summary_lines))
-        st.dataframe(final_df, use_container_width=True)
+        
+        # ⑧の要求: 非該当システムに"-"を表示（Long系にはShort列に"-"、Short系にはLong列に"-"）
+        display_df = final_df.copy()
+        if not display_df.empty and "system" in display_df.columns:
+            try:
+                from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+                
+                # side列を追加/修正してLong/Short表示を明確化
+                if "side" not in display_df.columns:
+                    display_df["side"] = display_df["system"].apply(
+                        lambda s: "Long" if s.lower() in LONG_SYSTEMS else "Short"
+                    )
+                else:
+                    # side列の値を日本語表記に統一
+                    display_df["side"] = display_df["side"].map({
+                        "long": "Long", "short": "Short"
+                    }).fillna(display_df["side"])
+                
+                # 非該当側に"-"を表示するため、Long列とShort列を追加
+                display_df["Long_Position"] = display_df.apply(
+                    lambda row: row.get("symbol", "") if row["side"] == "Long" else "-", 
+                    axis=1
+                )
+                display_df["Short_Position"] = display_df.apply(
+                    lambda row: row.get("symbol", "") if row["side"] == "Short" else "-", 
+                    axis=1
+                )
+                
+                # 表示用に列順を調整
+                preferred_cols = ["system", "Long_Position", "Short_Position", "entry_price", "stop_price", "entry_date"]
+                available_cols = [c for c in preferred_cols if c in display_df.columns]
+                other_cols = [c for c in display_df.columns if c not in preferred_cols and c not in ["side"]]
+                display_cols = available_cols + other_cols
+                display_df = display_df[display_cols]
+                
+            except Exception as e:
+                # エラー時は元のDataFrameを使用
+                display_df = final_df
+        else:
+            display_df = final_df
+            
+        st.dataframe(display_df, use_container_width=True)
         csv = final_df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "最終CSVをダウンロード",
