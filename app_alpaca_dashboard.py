@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -25,6 +26,15 @@ import streamlit as st
 import plotly.graph_objects as go
 
 from common import broker_alpaca as ba
+
+
+# 経過日手仕切りの上限日数（システム別）
+HOLD_LIMITS: dict[str, int] = {
+    "system2": 2,
+    "system3": 3,
+    "system5": 6,
+    "system6": 3,
+}
 
 
 def _inject_css() -> None:
@@ -216,14 +226,12 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         except Exception:
             symbol_map = {}
 
-    hold_limits = {"system2": 2, "system3": 3, "system5": 6, "system6": 3}
-
     records: list[dict[str, object]] = []
     for pos in positions:
         sym = getattr(pos, "symbol", "")
         held = _days_held(entry_map.get(sym))
         system_value = symbol_map.get(sym, "unknown")
-        limit = hold_limits.get(str(system_value).lower())
+        limit = HOLD_LIMITS.get(str(system_value).lower())
         exit_hint = (
             f"{limit}日経過で手仕切り検討" if held is not None and limit and held >= limit else ""
         )
@@ -294,6 +302,18 @@ def main() -> None:
     st.markdown(
         "<div class='ap-title'>Alpaca <span class='accent'>現在状況</span></div>",
         unsafe_allow_html=True,
+    )
+    tz_tokyo = ZoneInfo("Asia/Tokyo")
+    tz_newyork = ZoneInfo("America/New_York")
+    now_tokyo = datetime.now(tz_tokyo)
+    now_newyork = datetime.now(tz_newyork)
+    st.caption(
+        " / ".join(
+            [
+                f"日本時間: {now_tokyo.strftime('%Y-%m-%d %H:%M:%S')}",
+                f"ニューヨーク時間: {now_newyork.strftime('%Y-%m-%d %H:%M:%S')}",
+            ]
+        )
     )
     st.markdown("<div class='ap-toolbar ap-fade'>", unsafe_allow_html=True)
     spacer, right = st.columns([7, 3])
@@ -398,6 +418,21 @@ def main() -> None:
 
     with tab_pos:
         st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
+        try:
+            items = ", ".join(
+                f"{k}={v}日"
+                for k, v in sorted(
+                    HOLD_LIMITS.items(),
+                    key=lambda kv: (
+                        int(str(kv[0]).replace("system", ""))
+                        if str(kv[0]).startswith("system") and str(kv[0])[6:].isdigit()
+                        else 999
+                    ),
+                )
+            )
+        except Exception:
+            items = ", ".join(f"{k}={v}日" for k, v in HOLD_LIMITS.items())
+        st.caption(f"経過日手仕切り（上限日数）: {items}")
         pos_df = _positions_to_df(positions, client)
         if not pos_df.empty:
             numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]

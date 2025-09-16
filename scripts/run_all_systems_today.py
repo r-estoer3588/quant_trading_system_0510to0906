@@ -2799,7 +2799,9 @@ def compute_today_signals(
                 profit_amt = max(end_equity - start_equity, 0.0)
                 loss_amt = max(start_equity - end_equity, 0.0)
                 total_entries = sum(final_counts.values())
-                total_exits = sum(int(v) for v in exit_counts_map.values() if v is not None)
+                total_exits = sum(
+                    int(v) for v in exit_counts_map.values() if v is not None
+                )
                 msg = (
                     f"対象日: {_td_str}\n"
                     f"指定銘柄総数: {tgt_base}\n"
