@@ -10,6 +10,7 @@ def test_positions_to_df():
             symbol="AAPL",
             qty="10",
             avg_entry_price="100",
+            lastday_price="108",
             current_price="110",
             unrealized_pl="100",
         ),
@@ -17,6 +18,7 @@ def test_positions_to_df():
             symbol="MSFT",
             qty="5",
             avg_entry_price="200",
+            lastday_price="",
             current_price="190",
             unrealized_pl="-50",
         ),
@@ -26,6 +28,8 @@ def test_positions_to_df():
     assert list(df["銘柄"]) == ["AAPL", "MSFT"]
     assert list(df["数量"]) == ["10", "5"]
     assert "保有日数" in df.columns
+    assert df.loc[df["銘柄"] == "AAPL", "現在値"].iat[0] == 108.0
+    assert df.loc[df["銘柄"] == "MSFT", "現在値"].iat[0] == 190.0
 
 
 def test_group_by_system():

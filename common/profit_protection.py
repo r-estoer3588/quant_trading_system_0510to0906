@@ -91,6 +91,23 @@ def _days_held(entry_date: Any) -> int | None:
         return None
 
 
+def _position_close_price(position: Any) -> float | str:
+    """Return the last-day close for ``position`` when available."""
+
+    for attr in ("lastday_price", "current_price"):
+        candidate = getattr(position, attr, None)
+        if candidate in (None, ""):
+            continue
+        try:
+            return float(candidate)
+        except (TypeError, ValueError):
+            continue
+    fallback = getattr(position, "current_price", None)
+    if fallback in (None, ""):
+        return ""
+    return fallback
+
+
 def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
     """Evaluate profit protection rules for given positions.
 
@@ -123,7 +140,7 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         symbol = "" if symbol_raw in (None, "") else str(symbol_raw)
         symbol_key = symbol.upper()
         qty = getattr(pos, "qty", "")
-        current = getattr(pos, "current_price", "")
+        current = _position_close_price(pos)
         side = getattr(pos, "side", "")
         side_lower = str(side).lower()
         plpc = float(getattr(pos, "unrealized_plpc", 0) or 0)

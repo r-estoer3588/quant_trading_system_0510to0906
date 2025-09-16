@@ -11,19 +11,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import streamlit as st
+import pandas_market_calendars as mcal
 
 try:  # pragma: no cover - optional dependency
     import plotly.graph_objects as go
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     go = None
-import streamlit as st
-import plotly.graph_objects as go
 
 from common import broker_alpaca as ba
 
@@ -156,6 +154,47 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _get_nyse_status(now_newyork: datetime) -> str:
+    """NYSE の営業状況を返す。"""
+
+    try:
+        calendar = mcal.get_calendar("NYSE")
+    except Exception:
+        return "NYSE: 状態不明"
+
+    start_date = now_newyork.date() - timedelta(days=5)
+    end_date = now_newyork.date() + timedelta(days=5)
+
+    try:
+        schedule = calendar.schedule(start_date=start_date, end_date=end_date)
+    except Exception:
+        return "NYSE: 状態不明"
+
+    if schedule.empty:
+        return "NYSE: クローズ"
+
+    try:
+        is_open = bool(calendar.open_at_time(schedule, pd.Timestamp(now_newyork)))
+    except Exception:
+        is_open = False
+
+    return "NYSE: 営業中" if is_open else "NYSE: クローズ"
+
+
+def _resolve_position_price(position: Any) -> float | str:
+    """Return a price preferring last-day close over the current price."""
+
+    for attr in ("lastday_price", "current_price"):
+        candidate = getattr(position, attr, None)
+        value = _safe_float(candidate)
+        if value is not None:
+            return value
+    fallback = getattr(position, "current_price", None)
+    if fallback in (None, ""):
+        return ""
+    return fallback
+
+
 def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
     client = ba.get_client()
     account = client.get_account()
@@ -240,7 +279,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
                 "銘柄": sym,
                 "数量": getattr(pos, "qty", ""),
                 "平均取得単価": getattr(pos, "avg_entry_price", ""),
-                "現在値": getattr(pos, "current_price", ""),
+                "現在値": _resolve_position_price(pos),
                 "含み損益": getattr(pos, "unrealized_pl", ""),
                 "保有日数": held if held is not None else "-",
                 "経過日手仕切り": exit_hint,
@@ -307,11 +346,13 @@ def main() -> None:
     tz_newyork = ZoneInfo("America/New_York")
     now_tokyo = datetime.now(tz_tokyo)
     now_newyork = datetime.now(tz_newyork)
+    nyse_status = _get_nyse_status(now_newyork)
+    ny_caption = f"ニューヨーク時間: {now_newyork.strftime('%Y-%m-%d %H:%M:%S')} （{nyse_status}）"
     st.caption(
         " / ".join(
             [
                 f"日本時間: {now_tokyo.strftime('%Y-%m-%d %H:%M:%S')}",
-                f"ニューヨーク時間: {now_newyork.strftime('%Y-%m-%d %H:%M:%S')}",
+                ny_caption,
             ]
         )
     )
