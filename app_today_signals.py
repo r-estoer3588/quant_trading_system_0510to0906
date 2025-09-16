@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 import platform
 import time
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import streamlit as st
@@ -66,6 +66,7 @@ from common.data_loader import load_price
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates
 from common.profit_protection import evaluate_positions
+from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
 from scripts.run_all_systems_today import compute_today_signals
@@ -91,46 +92,242 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     work = df.copy()
+    allowed_systems = {*(s.lower() for s in LONG_SYSTEMS), *(s.lower() for s in SHORT_SYSTEMS)}
 
-    def _norm_side(value: Any) -> str:
+    def _norm_side(value: Any) -> str | None:
         if isinstance(value, str):
             side = value.strip().lower()
             if side in {"long", "short"}:
                 return side
-        return "その他"
+        return None
 
-    def _norm_system(value: Any) -> str:
+    def _norm_system(value: Any) -> str | None:
         if isinstance(value, str):
             system = value.strip().lower()
-            if system:
+            if system in allowed_systems:
                 return system
-        return "その他"
+        return None
 
     work["side_norm"] = work["side"].map(_norm_side)
     work["system_norm"] = work["system"].map(_norm_system)
 
-    summary = (
-        work.groupby(["side_norm", "system_norm"]).size().unstack(fill_value=0)
-    )
+    invalid_side_mask = work["side_norm"].isna()
+    if invalid_side_mask.any():
+        invalid_values = sorted({str(v) for v in work.loc[invalid_side_mask, "side"].tolist()})
+        raise ValueError(f"未対応のsideが含まれています: {invalid_values}")
 
-    systems_order = [f"system{i}" for i in range(1, 8)]
-    other_cols = [col for col in summary.columns if col not in systems_order]
-    summary = summary.reindex(systems_order + other_cols, axis=1, fill_value=0)
+    invalid_system_mask = work["system_norm"].isna()
+    if invalid_system_mask.any():
+        invalid_values = sorted({str(v) for v in work.loc[invalid_system_mask, "system"].tolist()})
+        raise ValueError(f"未対応のsystemが含まれています: {invalid_values}")
 
-    summary["合計"] = summary.sum(axis=1)
+    long_conflict_mask = (work["side_norm"] == "long") & (~work["system_norm"].isin(LONG_SYSTEMS))
+    if long_conflict_mask.any():
+        conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].tolist()})
+        raise ValueError(f"Longサイドに想定外のsystemが含まれています: {conflict}")
 
-    main_rows = ["long", "short"]
-    additional_rows = [idx for idx in summary.index if idx not in main_rows]
-    summary = summary.reindex(main_rows + additional_rows, fill_value=0)
+    short_conflict_mask = (work["side_norm"] == "short") & (~work["system_norm"].isin(SHORT_SYSTEMS))
+    if short_conflict_mask.any():
+        conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].tolist()})
+        raise ValueError(f"Shortサイドに想定外のsystemが含まれています: {conflict}")
 
-    rename_map = {f"system{i}": f"System{i}" for i in range(1, 8)}
+    def _sorted_systems(systems: set[str]) -> list[str]:
+        def _key(name: str) -> tuple[int, int | str]:
+            base = name.strip().lower()
+            if base.startswith("system"):
+                suffix = base[6:]
+                if suffix.isdigit():
+                    return (0, int(suffix))
+            return (1, base)
+
+        return sorted({s.strip().lower() for s in systems if s}, key=_key)
+
+    long_order = _sorted_systems(LONG_SYSTEMS)
+    short_order = _sorted_systems(SHORT_SYSTEMS)
+    system_columns: list[str] = []
+    for name in [*long_order, *short_order]:
+        if name and name not in system_columns:
+            system_columns.append(name)
+    columns_all = [*system_columns, "合計"]
+
+    def _format_system_label(name: str) -> str:
+        base = name.strip().lower()
+        if base.startswith("system"):
+            suffix = base[6:]
+            if suffix.isdigit():
+                return f"System{int(suffix)}"
+        return name
+
+    def _build_row(side_key: str, allowed: list[str]) -> dict[str, int]:
+        subset = work[work["side_norm"] == side_key]
+        counts = subset["system_norm"].value_counts()
+        row = {col: 0 for col in columns_all}
+        for system_name in allowed:
+            row[system_name] = int(counts.get(system_name, 0))
+        row["合計"] = int(counts.sum())
+        return row
+
+    summary_rows: list[dict[str, int]] = []
+    index_labels: list[str] = []
+
+    summary_rows.append(_build_row("long", long_order))
+    index_labels.append("Long")
+    summary_rows.append(_build_row("short", short_order))
+    index_labels.append("Short")
+
+    summary = pd.DataFrame(summary_rows, index=index_labels)
+    summary = summary.reindex(columns=columns_all, fill_value=0)
+
+    rename_map = {name: _format_system_label(name) for name in system_columns}
+    rename_map["合計"] = "合計"
     summary = summary.rename(columns=rename_map)
-    summary = summary.rename(index={"long": "Long", "short": "Short"})
 
     summary.index.name = "side"
     summary.columns.name = None
 
     return summary.astype(int)
+
+
+def _normalize_price_history(df: pd.DataFrame, rows: int) -> pd.DataFrame | None:
+    """ロード済み株価データをUI用に正規化する。"""
+
+    try:
+        work = df.copy()
+    except Exception:
+        return None
+
+    try:
+        work.columns = [str(col) for col in work.columns]
+    except Exception:
+        work = pd.DataFrame(work)
+        work.columns = [str(col) for col in work.columns]
+
+    lower_map = {col.lower(): col for col in work.columns}
+
+    # 日付列を決定（存在しない場合は index から生成）
+    date_col = lower_map.get("date")
+    if date_col is not None:
+        work["date"] = pd.to_datetime(work[date_col], errors="coerce")
+    else:
+        try:
+            idx = pd.to_datetime(work.index, errors="coerce")
+            work = work.assign(date=idx)
+        except Exception:
+            return None
+
+    work = work.dropna(subset=["date"]).sort_values("date")
+
+    rename_src = {
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "volume": "volume",
+        "adj close": "adjusted_close",
+        "adjclose": "adjusted_close",
+    }
+    for key, target in rename_src.items():
+        col = lower_map.get(key)
+        if col is not None:
+            work.rename(columns={col: target}, inplace=True)
+
+    try:
+        work.columns = [str(col).lower() for col in work.columns]
+    except Exception:
+        work.columns = [str(col) for col in work.columns]
+
+    if "date" not in work.columns or "close" not in work.columns:
+        return None
+
+    # `date` を先頭に維持しつつ既知カラムを優先表示
+    known_order = ["date", "open", "high", "low", "close", "volume", "adjusted_close"]
+    ordered: list[str] = []
+    for col in known_order:
+        if col in work.columns:
+            ordered.append(col)
+    for col in work.columns:
+        if col not in ordered:
+            ordered.append(col)
+    work = work.loc[:, ordered]
+
+    if rows > 0:
+        work = work.tail(rows)
+
+    return work.reset_index(drop=True)
+
+
+def _collect_symbol_data(
+    symbols: list[str],
+    *,
+    rows: int,
+    log_fn: Callable[[str], None] | None = None,
+) -> dict[str, pd.DataFrame]:
+    """指定シンボルの株価履歴をまとめて取得する。"""
+
+    start_ts = time.time()
+    total = len(symbols)
+    if total == 0:
+        return {}
+
+    step = max(1, total // 20)
+    fetched: dict[str, pd.DataFrame] = {}
+    missing: list[str] = []
+    malformed: list[str] = []
+
+    for idx, sym in enumerate(symbols, start=1):
+        df: pd.DataFrame | None
+        try:
+            df = load_price(sym, cache_profile="rolling")
+        except Exception:
+            df = None
+        if (df is None or getattr(df, "empty", True)) and sym != "SPY":
+            try:
+                df = load_price(sym, cache_profile="full")
+            except Exception:
+                df = None
+
+        if df is None or getattr(df, "empty", True):
+            missing.append(sym)
+        else:
+            norm = _normalize_price_history(df, rows)
+            if norm is not None and not norm.empty:
+                fetched[sym] = norm
+            else:
+                malformed.append(sym)
+
+        if log_fn and (idx % step == 0 or idx == total):
+            try:
+                log_fn(f"📦 基礎データロード進捗: {idx}/{total}")
+            except Exception:
+                pass
+
+    if log_fn:
+        try:
+            elapsed = int(max(0, time.time() - start_ts))
+            minutes, seconds = divmod(elapsed, 60)
+            log_fn(
+                f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒"
+            )
+        except Exception:
+            pass
+        if missing:
+            sample = ", ".join(missing[:5])
+            if len(missing) > 5:
+                sample += f" ほか{len(missing) - 5}件"
+            try:
+                log_fn(f"⚠️ データ取得不可: {sample}")
+            except Exception:
+                pass
+        if malformed:
+            sample = ", ".join(malformed[:5])
+            if len(malformed) > 5:
+                sample += f" ほか{len(malformed) - 5}件"
+            try:
+                log_fn(f"⚠️ データ整形不可: {sample}")
+            except Exception:
+                pass
+
+    return fetched
 
 
 def _get_today_logger() -> logging.Logger:
@@ -552,10 +749,14 @@ if "positions_df" in st.session_state:
     if df_pos.empty:
         st.info("保有ポジションはありません。")
     else:
-        summary_df = _build_position_summary_table(df_pos)
-        if not summary_df.empty:
-            st.caption("ポジションサマリー（件数）")
-            st.dataframe(summary_df, use_container_width=True)
+        try:
+            summary_df = _build_position_summary_table(df_pos)
+        except ValueError as exc:
+            st.error(f"ポジションサマリーの集計に失敗しました: {exc}")
+        else:
+            if not summary_df.empty:
+                st.caption("ポジションサマリー（件数）")
+                st.dataframe(summary_df, use_container_width=True)
         st.dataframe(df_pos, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
@@ -938,6 +1139,43 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         # Slack通知の環境反映はチャンネル指定なし（既定設定を使用）
         do_notify = bool(use_slack_notify)
 
+        # 事前に必要日数分の株価データをロード（同一条件ならセッションキャッシュを再利用）
+        symbols_for_data = list(dict.fromkeys([*syms, "SPY"]))
+        buffer_days = max(20, int(max_days * 0.15))
+        rows_needed = max_days + buffer_days
+        cache_key = (tuple(symbols_for_data), rows_needed)
+        symbol_cache = st.session_state.get("today_symbol_cache")
+        symbol_data_map: dict[str, pd.DataFrame]
+        if (
+            isinstance(symbol_cache, dict)
+            and symbol_cache.get("key") == cache_key
+            and isinstance(symbol_cache.get("data"), dict)
+        ):
+            symbol_data_map = symbol_cache.get("data", {})
+            try:
+                count = len(symbol_data_map)
+            except Exception:
+                count = 0
+            _ui_log(
+                f"📦 基礎データロード再利用: {count}/{len(symbols_for_data)}件"
+                " (前回結果を使用)"
+            )
+        else:
+            _set_phase_label("対象読み込み")
+            _ui_log(
+                f"📦 基礎データロード開始: {len(symbols_for_data)} 銘柄"
+                f" (必要日数≒{rows_needed})"
+            )
+            symbol_data_map = _collect_symbol_data(
+                symbols_for_data,
+                rows=rows_needed,
+                log_fn=_ui_log,
+            )
+            st.session_state["today_symbol_cache"] = {
+                "key": cache_key,
+                "data": symbol_data_map,
+            }
+
         final_df, per_system = compute_today_signals(
             syms,
             capital_long=float(st.session_state["today_cap_long"]),
@@ -948,7 +1186,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             log_callback=_ui_log,
             progress_callback=_ui_progress,
             per_system_progress=_per_system_progress,
-            # 事前ロードは行わず、内部ローダに任せる
+            symbol_data=symbol_data_map,
             parallel=bool(run_parallel),
         )
 
@@ -1038,13 +1276,22 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     # ファイルにも終了ログ（件数付き）
     try:
         final_n = 0 if final_df is None or final_df.empty else int(len(final_df))
-        per_counts = []
+        per_counts_lines: list[str] = []
         try:
-            for name, df in per_system.items():
-                per_counts.append(f"{name}={0 if df is None or df.empty else len(df)}")
+            counts_map = {
+                str(name).strip().lower(): 0 if df is None or df.empty else int(len(df))
+                for name, df in per_system.items()
+                if str(name).strip()
+            }
+            if counts_map:
+                per_counts_lines = format_group_counts(counts_map)
         except Exception:
-            per_counts = []
-        detail = f" | システム別: {', '.join(per_counts)}" if per_counts else ""
+            per_counts_lines = []
+        detail = (
+            f" | Long/Short別: {', '.join(per_counts_lines)}"
+            if per_counts_lines
+            else ""
+        )
         _get_today_logger().info(
             f"✅ 本日のシグナル: シグナル検出処理終了 (経過 {m}分{s}秒, "
             f"最終候補 {final_n} 件){detail}"
@@ -1475,6 +1722,34 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     if final_df is None or final_df.empty:
         st.info("本日のシグナルはありません。")
     else:
+        summary_lines: list[str] = []
+        try:
+            if "system" in final_df.columns:
+                system_series = (
+                    final_df["system"].astype(str).str.strip().str.lower()
+                )
+                counts_map = system_series.value_counts().to_dict()
+                values_map: dict[str, float] = {}
+                if "position_value" in final_df.columns:
+                    values_series = (
+                        final_df.assign(_system=system_series)[
+                            ["_system", "position_value"]
+                        ]
+                        .groupby("_system")["position_value"]
+                        .sum()
+                    )
+                    values_map = values_series.to_dict()
+                if counts_map:
+                    if values_map:
+                        summary_lines = format_group_counts_and_values(
+                            counts_map, values_map
+                        )
+                    else:
+                        summary_lines = format_group_counts(counts_map)
+        except Exception:
+            summary_lines = []
+        if summary_lines:
+            st.caption("サマリー（Long/Short別）: " + " / ".join(summary_lines))
         st.dataframe(final_df, use_container_width=True)
         csv = final_df.to_csv(index=False).encode("utf-8")
         st.download_button(

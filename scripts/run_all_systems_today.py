@@ -19,6 +19,10 @@ from common.cache_manager import CacheManager, load_base_cache
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
+from common.system_groups import (
+    format_group_counts,
+    format_group_counts_and_values,
+)
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
 from config.settings import get_settings
 
@@ -2095,11 +2099,13 @@ def compute_today_signals(
             except Exception:
                 margin = 0.15
             need_map: dict[str, int] = {
-                "system1": int(200 * (1 + margin)),
+                "system1": int(220 * (1 + margin)),
                 "system2": int(120 * (1 + margin)),
-                "system3": int(60 * (1 + margin)),
-                "system4": int(80 * (1 + margin)),
-                "system5": int(120 * (1 + margin)),
+                # SMA150 を安定に計算するため 170 日程度を要求
+                "system3": int(170 * (1 + margin)),
+                # SMA200 系のため 220 日程度を要求
+                "system4": int(220 * (1 + margin)),
+                "system5": int(140 * (1 + margin)),
                 "system6": int(80 * (1 + margin)),
                 "system7": int(80 * (1 + margin)),
             }
@@ -2854,9 +2860,7 @@ def compute_today_signals(
                 profit_amt = max(end_equity_val - start_equity_val, 0.0)
                 loss_amt = max(start_equity_val - end_equity_val, 0.0)
                 total_entries = int(sum(final_counts.values()))
-                total_exits = int(
-                    sum(int(v) for v in exit_counts_map.values() if v is not None)
-                )
+                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
                 start_time_str = run_start_time.strftime("%H:%M:%S")
                 end_time_str = run_end_time.strftime("%H:%M:%S")
                 summary_pairs = [
@@ -2876,8 +2880,7 @@ def compute_today_signals(
                     ),
                 ]
                 summary_fields = [
-                    {"name": key, "value": value, "inline": True}
-                    for key, value in summary_pairs
+                    {"name": key, "value": value, "inline": True} for key, value in summary_pairs
                 ]
                 msg = "対象日: " + str(_td_str)
                 msg += "\n" + "\n".join(f"{k}: {v}" for k, v in summary_pairs)
@@ -2930,7 +2933,9 @@ def compute_today_signals(
     max_positions_per_system: dict[str, int] = {}
     for name, stg in strategies.items():
         try:
-            limit_val = int(getattr(stg, "config", {}).get("max_positions", settings.risk.max_positions))
+            limit_val = int(
+                getattr(stg, "config", {}).get("max_positions", settings.risk.max_positions)
+            )
         except Exception:
             limit_val = int(settings.risk.max_positions)
         max_positions_per_system[name] = max(0, limit_val)
@@ -3022,7 +3027,9 @@ def compute_today_signals(
             "🧮 枠配分（利用可能スロット/候補数）: "
             + ", ".join([_fmt_alloc(k, long_counts_available, long_counts_raw) for k in long_alloc])
             + " | "
-            + ", ".join([_fmt_alloc(k, short_counts_available, short_counts_raw) for k in short_alloc])
+            + ", ".join(
+                [_fmt_alloc(k, short_counts_available, short_counts_raw) for k in short_alloc]
+            )
         )
         long_slots = _distribute_slots(long_alloc, slots_long, long_counts_available)
         short_slots = _distribute_slots(short_alloc, slots_short, short_counts_available)
@@ -3165,14 +3172,29 @@ def compute_today_signals(
                 grp = (
                     final_df.groupby("system")["position_value"].agg(["count", "sum"]).reset_index()
                 )
-                parts = [
-                    f"{r['system']}: {int(r['count'])}件 / ${float(r['sum']):,.0f}"
+                counts_map = {
+                    str(r["system"]).strip().lower(): int(r["count"])
                     for _, r in grp.iterrows()
-                ]
-                _log("🧾 system別サマリ: " + ", ".join(parts))
+                    if str(r["system"]).strip()
+                }
+                values_map = {
+                    str(r["system"]).strip().lower(): float(r["sum"])
+                    for _, r in grp.iterrows()
+                    if str(r["system"]).strip()
+                }
+                summary_lines = format_group_counts_and_values(counts_map, values_map)
+                if summary_lines:
+                    _log("🧾 Long/Shortサマリ: " + ", ".join(summary_lines))
             else:
                 grp = final_df.groupby("system").size().to_dict()
-                _log("🧾 system別サマリ: " + ", ".join([f"{k}: {v}件" for k, v in grp.items()]))
+                counts_map = {
+                    str(key).strip().lower(): int(value)
+                    for key, value in grp.items()
+                    if str(key).strip()
+                }
+                summary_lines = format_group_counts(counts_map)
+                if summary_lines:
+                    _log("🧾 Long/Shortサマリ: " + ", ".join(summary_lines))
             # system ごとの最終エントリー数を出力
             try:
                 if isinstance(grp, dict):

@@ -11,8 +11,9 @@ import pandas as pd
 from config.settings import get_settings
 
 # --- サイド定義（売買区分）---
-LONG_SYSTEMS = {"system1", "system3", "system4", "system5"}
-SHORT_SYSTEMS = {"system2", "system6", "system7"}
+# System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
+LONG_SYSTEMS = {"system1", "system3", "system5"}
+SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
 
 
 @dataclass(frozen=True)
@@ -249,10 +250,41 @@ def get_today_signals_for_strategy(
     except Exception:
         sliced_dict = raw_data_dict
 
+    # スキップ理由の収集（systemごとに集計）
+    _skip_counts: dict[str, int] = {}
+    _skip_samples: dict[str, list[str]] = {}
+
+    def _on_skip(*args, **kwargs):
+        try:
+            if len(args) >= 2:
+                _sym = str(args[0])
+                _reason = str(args[1])
+            elif len(args) == 1:
+                # "SYM: reason" 形式から理由だけ抽出
+                txt = str(args[0])
+                _sym, _reason = (
+                    (txt.split(":", 1) + [""])[:2] if ":" in txt else ("", txt)
+                )
+                _sym = _sym.strip()
+                _reason = _reason.strip()
+            else:
+                _reason = str(kwargs.get("reason", "unknown"))
+                _sym = str(kwargs.get("symbol", ""))
+        except Exception:
+            _reason = "unknown"
+            _sym = ""
+        _skip_counts[_reason] = _skip_counts.get(_reason, 0) + 1
+        if _sym:
+            if _reason not in _skip_samples:
+                _skip_samples[_reason] = []
+            if len(_skip_samples[_reason]) < 5 and _sym not in _skip_samples[_reason]:
+                _skip_samples[_reason].append(_sym)
+
     prepared = strategy.prepare_data(
         sliced_dict,
         progress_callback=progress_callback,
         log_callback=log_callback,
+        skip_callback=_on_skip,
         use_process_pool=use_process_pool,
         max_workers=max_workers,
         lookback_days=lookback_days,
@@ -261,6 +293,23 @@ def get_today_signals_for_strategy(
         if log_callback:
             em, es = divmod(int(max(0, _t.time() - t0)), 60)
             log_callback(f"⏱️ フィルター/前処理 完了（経過 {em}分{es}秒）")
+    except Exception:
+        pass
+    # スキップ内訳の要約（存在時のみ）
+    try:
+        if log_callback and _skip_counts:
+            # 上位2件のみを簡潔に表示
+            sorted_items = sorted(
+                _skip_counts.items(), key=lambda x: x[1], reverse=True
+            )
+            top = sorted_items[:2]
+            details = ", ".join([f"{k}: {v}" for k, v in top])
+            log_callback(f"🧪 スキップ内訳: {details}")
+            # サンプル銘柄出力
+            for k, _ in top:
+                samples = _skip_samples.get(k) or []
+                if samples:
+                    log_callback(f"  ↳ 例({k}): {', '.join(samples)}")
     except Exception:
         pass
     # フィルター通過件数（NYSEカレンダーの前営業日を優先。無い場合は最終行）。

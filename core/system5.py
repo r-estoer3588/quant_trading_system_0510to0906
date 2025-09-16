@@ -33,8 +33,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             rename_map[low] = up
     if rename_map:
         df.rename(columns=rename_map, inplace=True)
-
+    # 型を数値へ強制（ta ライブラリの安定化）
+    for col in ("Open", "High", "Low", "Close", "Volume"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # 不正行の除外とインデックス整列
     x = df.copy()
+    x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
+    if not x.index.is_monotonic_increasing:
+        try:
+            x = x.sort_index()
+        except Exception:
+            pass
     if len(x) < 100:
         return symbol, None
     try:
@@ -44,9 +54,12 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         ).average_true_range()
         x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
         x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-        x["AvgVolume50"] = x["Volume"].rolling(50).mean()
-        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["ATR_Pct"] = x["ATR10"] / x["Close"]
+        # Volume 欠損は 0 扱い
+        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+        x["AvgVolume50"] = vol.rolling(50).mean()
+        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+        # 0 除算ガード
+        x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
         x["filter"] = (
             (x["AvgVolume50"] > 500_000)
             & (x["DollarVolume50"] > 2_500_000)
@@ -152,6 +165,17 @@ def prepare_data_vectorized_system5(
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
         x = src.copy()
+        # 型を数値へ強制
+        for col in ("Open", "High", "Low", "Close", "Volume"):
+            if col in x.columns:
+                x[col] = pd.to_numeric(x[col], errors="coerce")
+        # 不正行の除外と整列
+        x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
+        if not x.index.is_monotonic_increasing:
+            try:
+                x = x.sort_index()
+            except Exception:
+                pass
         if len(x) < 100:
             raise ValueError("insufficient rows")
         x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
@@ -160,9 +184,10 @@ def prepare_data_vectorized_system5(
         ).average_true_range()
         x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
         x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-        x["AvgVolume50"] = x["Volume"].rolling(50).mean()
-        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["ATR_Pct"] = x["ATR10"] / x["Close"]
+        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+        x["AvgVolume50"] = vol.rolling(50).mean()
+        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+        x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
         x["filter"] = (
             (x["AvgVolume50"] > 500_000)
             & (x["DollarVolume50"] > 2_500_000)
@@ -337,6 +362,26 @@ def prepare_data_vectorized_system5(
                     pass
             result_dict[sym] = result_df
             buffer.append(sym)
+        except ValueError as e:
+            skipped += 1
+            skipped_calc_errors += 1
+            # insufficient rows の ValueError を分類
+            try:
+                msg = str(e).lower()
+                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+            except Exception:
+                reason = "calc_error"
+            if reason == "insufficient_rows":
+                skipped_insufficient_rows += 1
+                skipped_calc_errors -= 1  # 調整
+            if skip_callback:
+                try:
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: {reason}")
+                    except Exception:
+                        pass
         except Exception:
             skipped += 1
             skipped_calc_errors += 1
