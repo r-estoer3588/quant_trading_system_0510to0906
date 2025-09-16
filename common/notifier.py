@@ -322,11 +322,6 @@ class Notifier:
                 text=text,
                 blocks=blocks,
             )
-            client.chat_postMessage(  # type: ignore
-                channel=channel,
-                text=text,
-                blocks=blocks,
-            )
             self.logger.info("sent via Slack Web API to channel=%s", channel)
             return True
         except SlackApiError as e:  # type: ignore[name-defined]

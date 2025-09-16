@@ -2402,6 +2402,8 @@ def compute_today_signals(
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
 
+    metrics_summary_context = None
+
     # 並列実行時はワーカースレッドからの UI 更新が抑制されるため、
     # メインスレッドで候補件数（TRDlist）を75%段階として通知する
     try:
@@ -2778,7 +2780,7 @@ def compute_today_signals(
                         return {}
                     return counts
 
-                exit_counts_map = _estimate_exit_counts_today()
+                exit_counts_map = _estimate_exit_counts_today() or {}
                 # UI へも Exit 件数を送る（早期に可視化）
                 try:
                     cb_exit = globals().get("_PER_SYSTEM_EXIT")
@@ -2814,78 +2816,12 @@ def compute_today_signals(
                     "system6": int(max(locals().get("s6_ret", 0), locals().get("s6_up2", 0))),
                     "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
                 }
-                final_counts = {}
-                try:
-                    _final_df = locals().get("final_df")
-                    if (
-                        _final_df is not None
-                        and not getattr(_final_df, "empty", True)
-                        and "system" in _final_df.columns
-                    ):
-                        final_counts = _final_df.groupby("system").size().to_dict()
-                except Exception:
-                    final_counts = {}
-                lines = []
-                for sys_name in order_1_7:
-                    tgt = tgt_base if sys_name != "system7" else 1
-                    fil = int(prefilter_map.get(sys_name, 0))
-                    stu = int(setup_map.get(sys_name, 0))
-                    try:
-                        _df_trd = per_system.get(sys_name, pd.DataFrame())
-                        trd = int(
-                            0
-                            if _df_trd is None or getattr(_df_trd, "empty", True)
-                            else len(_df_trd)
-                        )
-                    except Exception:
-                        trd = 0
-                    ent = int(final_counts.get(sys_name, 0))
-                    exv = exit_counts_map.get(sys_name)
-                    ex_txt = "-" if exv is None else str(int(exv))
-                    value = (
-                        f"Tgt {tgt} / FIL {fil} / STU {stu} / "
-                        f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
-                    )
-                    lines.append({"name": sys_name, "value": value})
-                title = "📈 本日の最終メトリクス（system別）"
-                _td = locals().get("today")
-                try:
-                    _td_str = str(getattr(_td, "date", lambda: None)() or _td)
-                except Exception:
-                    _td_str = ""
-                run_end_time = datetime.now()
-                end_equity = _get_account_equity()
-                start_equity_val = float(start_equity or 0.0)
-                end_equity_val = float(end_equity or 0.0)
-                profit_amt = max(end_equity_val - start_equity_val, 0.0)
-                loss_amt = max(start_equity_val - end_equity_val, 0.0)
-                total_entries = int(sum(final_counts.values()))
-                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
-                start_time_str = run_start_time.strftime("%H:%M:%S")
-                end_time_str = run_end_time.strftime("%H:%M:%S")
-                summary_pairs = [
-                    ("指定銘柄総数", f"{int(tgt_base):,}"),
-                    ("開始時間/完了時間", f"{start_time_str} / {end_time_str}"),
-                    (
-                        "開始時資産/完了時資産",
-                        f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
-                    ),
-                    (
-                        "エントリー銘柄数/エグジット銘柄数",
-                        f"{total_entries} / {total_exits}",
-                    ),
-                    (
-                        "利益額/損失額",
-                        f"${profit_amt:,.2f} / ${loss_amt:,.2f}",
-                    ),
-                ]
-                summary_fields = [
-                    {"name": key, "value": value, "inline": True} for key, value in summary_pairs
-                ]
-                msg = "対象日: " + str(_td_str)
-                msg += "\n" + "\n".join(f"{k}: {v}" for k, v in summary_pairs)
-                notifier = create_notifier(platform="auto", fallback=True)
-                notifier.send(title, msg, fields=summary_fields + lines)
+                metrics_summary_context = {
+                    "prefilter_map": dict(prefilter_map),
+                    "exit_counts_map": dict(exit_counts_map),
+                    "setup_map": dict(setup_map),
+                    "tgt_base": int(tgt_base),
+                }
             except Exception:
                 pass
         # 簡易ログ
@@ -3253,6 +3189,110 @@ def compute_today_signals(
                 )
                 _final_cnt = int(final_counts.get(_name, 0))
                 cb2(_name, 100, None, None, _cand_cnt, _final_cnt)
+        except Exception:
+            pass
+
+    if metrics_summary_context:
+        try:
+            prefilter_map = dict(metrics_summary_context.get("prefilter_map", {}))
+            exit_counts_map_ctx = metrics_summary_context.get("exit_counts_map", {})
+            exit_counts_map = (
+                {k: v for k, v in exit_counts_map_ctx.items()}
+                if isinstance(exit_counts_map_ctx, dict)
+                else {}
+            )
+            setup_map = dict(metrics_summary_context.get("setup_map", {}))
+            tgt_base = int(metrics_summary_context.get("tgt_base", 0))
+            final_counts = {}
+            try:
+                if (
+                    final_df is not None
+                    and not getattr(final_df, "empty", True)
+                    and "system" in final_df.columns
+                ):
+                    final_counts = (
+                        final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
+                    )
+            except Exception:
+                final_counts = {}
+            lines = []
+            for sys_name in order_1_7:
+                tgt = tgt_base if sys_name != "system7" else 1
+                fil = int(prefilter_map.get(sys_name, 0))
+                stu = int(setup_map.get(sys_name, 0))
+                try:
+                    _df_trd = per_system.get(sys_name, pd.DataFrame())
+                    trd = int(
+                        0
+                        if _df_trd is None or getattr(_df_trd, "empty", True)
+                        else len(_df_trd)
+                    )
+                except Exception:
+                    trd = 0
+                ent = int(final_counts.get(sys_name, 0))
+                exv = exit_counts_map.get(sys_name)
+                ex_txt = "-" if exv is None else str(int(exv))
+                value = (
+                    f"Tgt {tgt} / FIL {fil} / STU {stu} / "
+                    f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
+                )
+                lines.append({"name": sys_name, "value": value})
+            title = "📈 本日の最終メトリクス（system別）"
+            _td = locals().get("today")
+            try:
+                _td_str = str(getattr(_td, "date", lambda: None)() or _td)
+            except Exception:
+                _td_str = ""
+            run_end_time = datetime.now()
+            end_equity = _get_account_equity()
+            start_equity_val = float(start_equity or 0.0)
+            end_equity_val = float(end_equity or 0.0)
+            profit_amt = max(end_equity_val - start_equity_val, 0.0)
+            loss_amt = max(start_equity_val - end_equity_val, 0.0)
+            try:
+                total_entries = int(sum(int(v) for v in final_counts.values()))
+            except Exception:
+                total_entries = 0
+            try:
+                total_exits = int(
+                    sum(int(v) for v in exit_counts_map.values() if v is not None)
+                )
+            except Exception:
+                total_exits = 0
+            start_time_str = run_start_time.strftime("%H:%M:%S")
+            end_time_str = run_end_time.strftime("%H:%M:%S")
+            duration_seconds = max(
+                0, int((run_end_time - run_start_time).total_seconds())
+            )
+            hours, remainder = divmod(duration_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            summary_pairs = [
+                ("指定銘柄総数", f"{int(tgt_base):,}"),
+                (
+                    "開始時間/完了時間",
+                    f"{start_time_str} / {end_time_str} (所要: {duration_str})",
+                ),
+                (
+                    "開始時資産/完了時資産",
+                    f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
+                ),
+                (
+                    "エントリー銘柄数/エグジット銘柄数",
+                    f"{total_entries} / {total_exits}",
+                ),
+                (
+                    "利益額/損失額",
+                    f"${profit_amt:,.2f} / ${loss_amt:,.2f}",
+                ),
+            ]
+            summary_fields = [
+                {"name": key, "value": value, "inline": True} for key, value in summary_pairs
+            ]
+            msg = "対象日: " + str(_td_str)
+            msg += "\n" + "\n".join(f"{k}: {v}" for k, v in summary_pairs)
+            notifier = create_notifier(platform="auto", fallback=True)
+            notifier.send(title, msg, fields=summary_fields + lines)
         except Exception:
             pass
 
