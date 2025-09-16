@@ -34,6 +34,27 @@ def _compute_indicators(
         try:
             cached = pd.read_feather(cache_path)
             if cached is not None and not cached.isnull().any().any():
+                # 安全のため、日付インデックスを正規化し、昇順・重複除去
+                if "Date" in cached.columns:
+                    cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
+                    cached = (
+                        cached.dropna(subset=["Date"])  # type: ignore[arg-type]
+                        .sort_values("Date")
+                        .drop_duplicates("Date")
+                    )
+                    cached = cached.set_index("Date")
+                else:
+                    try:
+                        idx = pd.to_datetime(cached.index, errors="coerce").normalize()
+                        cached.index = pd.Index(idx)
+                        cached = cached[~cached.index.isna()].sort_index()
+                    except Exception:
+                        pass
+                try:
+                    if getattr(cached.index, "has_duplicates", False):
+                        cached = cached[~cached.index.duplicated(keep="last")]
+                except Exception:
+                    pass
                 return symbol, cached
         except Exception:
             pass
@@ -201,6 +222,23 @@ def prepare_data_vectorized_system1(
                 pass
         df.index = pd.Index(idx)
         df.index.name = "Date"
+        # 型・インデックスの健全化（重複や未整列での再インデックスエラー対策）
+        for col in ("Open", "High", "Low", "Close", "Volume"):
+            if col in df.columns:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                except Exception:
+                    pass
+        df = df.dropna(subset=[c for c in ("High", "Low", "Close") if c in df.columns])
+        try:
+            df = df.sort_index()
+        except Exception:
+            pass
+        try:
+            if getattr(df.index, "has_duplicates", False):
+                df = df[~df.index.duplicated(keep="last")]
+        except Exception:
+            pass
 
         # 必須列チェック（S1は Volume を用いるため必須に含める）
         needed = {"Open", "High", "Low", "Close", "Volume"}
@@ -228,8 +266,14 @@ def prepare_data_vectorized_system1(
         if reuse_indicators and os.path.exists(cache_path):
             try:
                 cached = pd.read_feather(cache_path)
-                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
+                cached = cached.dropna(subset=["Date"]).sort_values("Date").drop_duplicates("Date")
                 cached.set_index("Date", inplace=True)
+                try:
+                    if getattr(cached.index, "has_duplicates", False):
+                        cached = cached[~cached.index.duplicated(keep="last")]
+                except Exception:
+                    pass
             except Exception:
                 cached = None
 

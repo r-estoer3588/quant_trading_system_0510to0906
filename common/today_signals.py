@@ -289,6 +289,29 @@ def get_today_signals_for_strategy(
         max_workers=max_workers,
         lookback_days=lookback_days,
     )
+    # インデックスを正規化・昇順・重複除去（pandas の再インデックス関連エラー対策）
+    try:
+        if isinstance(prepared, dict):
+            _fixed: dict[str, pd.DataFrame] = {}
+            for _sym, _df in prepared.items():
+                try:
+                    x = _df.copy()
+                    if "Date" in x.columns:
+                        idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                    else:
+                        idx = pd.to_datetime(x.index, errors="coerce").normalize()
+                    x.index = pd.Index(idx)
+                    # 欠損・非単調・重複を整理
+                    x = x[~x.index.isna()]
+                    x = x.sort_index()
+                    if getattr(x.index, "has_duplicates", False):
+                        x = x[~x.index.duplicated(keep="last")]
+                    _fixed[_sym] = x
+                except Exception:
+                    _fixed[_sym] = _df
+            prepared = _fixed
+    except Exception:
+        pass
     try:
         if log_callback:
             em, es = divmod(int(max(0, _t.time() - t0)), 60)
@@ -325,12 +348,20 @@ def get_today_signals_for_strategy(
                     return False
                 # Date列があれば優先、無ければindexで比較
                 if "Date" in x.columns:
-                    dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                    sel = x.loc[dt == prev_trading_day, "filter"]
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
+                    mask = dt_vals == prev_trading_day
+                    sel = pd.Series(x.loc[mask, "filter"].values)
                 else:
-                    idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                    sel = x.loc[idx == prev_trading_day, "filter"]
-                if len(sel) > 0:
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
+                    mask = idx_vals == prev_trading_day
+                    sel = pd.Series(x.loc[mask, "filter"].values)
+                if sel.size > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
                 # フォールバック: 最終行
@@ -399,12 +430,20 @@ def get_today_signals_for_strategy(
                 if getattr(x, "empty", True) or "setup" not in x.columns:
                     return False
                 if "Date" in x.columns:
-                    dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                    sel = x.loc[dt == prev_trading_day, "setup"]
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
+                    mask = dt_vals == prev_trading_day
+                    sel = pd.Series(x.loc[mask, "setup"].values)
                 else:
-                    idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                    sel = x.loc[idx == prev_trading_day, "setup"]
-                if len(sel) > 0:
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
+                    mask = idx_vals == prev_trading_day
+                    sel = pd.Series(x.loc[mask, "setup"].values)
+                if sel.size > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
                 v = pd.Series(x["setup"]).tail(1).iloc[0]
@@ -426,11 +465,21 @@ def get_today_signals_for_strategy(
             def _last_row(x: pd.DataFrame) -> pd.Series | None:
                 try:
                     if "Date" in x.columns:
-                        dt = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                        rows = x.loc[dt == prev_trading_day]
+                        dt_vals = (
+                            pd.to_datetime(x["Date"], errors="coerce")
+                            .dt.normalize()
+                            .to_numpy()
+                        )
+                        mask = dt_vals == prev_trading_day
+                        rows = x.loc[mask]
                     else:
-                        idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                        rows = x.loc[idx == prev_trading_day]
+                        idx_vals = (
+                            pd.to_datetime(x.index, errors="coerce")
+                            .normalize()
+                            .to_numpy()
+                        )
+                        mask = idx_vals == prev_trading_day
+                        rows = x.loc[mask]
                     if len(rows) == 0:
                         rows = x.tail(1)
                     if len(rows) == 0:
