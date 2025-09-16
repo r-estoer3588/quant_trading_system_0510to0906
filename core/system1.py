@@ -23,10 +23,34 @@ def _compute_indicators(
     if df is None or df.empty:
         return symbol, None
 
-    if "Date" in df.columns:
-        date_series = pd.to_datetime(df["Date"]).dt.normalize()
-    else:
-        date_series = pd.to_datetime(df.index).normalize()
+    # 正規化: 日付インデックス・並び順・重複排除・型
+    try:
+        if "Date" in df.columns:
+            idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+        else:
+            idx = pd.to_datetime(df.index, errors="coerce").normalize()
+        df.index = pd.Index(idx)
+        df = df[~df.index.isna()].sort_index()
+        try:
+            if getattr(df.index, "has_duplicates", False):
+                df = df[~df.index.duplicated(keep="last")]
+        except Exception:
+            pass
+        # OHLCV を数値化
+        for col in ("Open", "High", "Low", "Close", "Volume"):
+            if col in df.columns:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                except Exception:
+                    pass
+    except Exception:
+        # 失敗時も最低限のフォールバック
+        try:
+            df = df.sort_index()
+        except Exception:
+            pass
+
+    date_series = pd.to_datetime(df.index, errors="coerce").normalize()
     latest_date = date_series.max()
     cache_path = os.path.join(cache_dir, f"{symbol}_{latest_date.date()}.feather")
 
@@ -180,86 +204,156 @@ def prepare_data_vectorized_system1(
     result_dict: dict[str, pd.DataFrame] = {}
 
     for sym, df in raw_data_dict.items():
-        # 正規化: 列名の大小文字差や date 列/インデックス差を吸収
-        df = df.copy()
-        # 1) まず OHLCV の列名を大文字に寄せる（lower な場合をケア）
-        rename_map = {}
-        for low, up in (
-            ("open", "Open"),
-            ("high", "High"),
-            ("low", "Low"),
-            ("close", "Close"),
-            ("volume", "Volume"),
-        ):
-            if low in df.columns and up not in df.columns:
-                rename_map[low] = up
-        if rename_map:
-            df.rename(columns=rename_map, inplace=True)
-
-        # 2) インデックス（日付）を決定
-        idx = None
-        if "Date" in df.columns:
-            idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
-        elif "date" in df.columns:
-            idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
-        else:
-            # 既存 index が日時ならそれを利用
-            try:
-                idx = pd.to_datetime(df.index, errors="coerce").normalize()
-            except Exception:
-                idx = None
-        # 日付が取れない、または全て欠損ならスキップ
-        if idx is None:
-            continue
         try:
-            if pd.isna(idx).all():
-                continue
-        except Exception:
-            try:
-                if idx.isnull().all():
-                    continue
-            except Exception:
-                pass
-        df.index = pd.Index(idx)
-        df.index.name = "Date"
-        # 型・インデックスの健全化（重複や未整列での再インデックスエラー対策）
-        for col in ("Open", "High", "Low", "Close", "Volume"):
-            if col in df.columns:
+            # 正規化: 列名の大小文字差や date 列/インデックス差を吸収
+            df = df.copy()
+            # 1) まず OHLCV の列名を大文字に寄せる（lower な場合をケア）
+            rename_map = {}
+            for low, up in (
+                ("open", "Open"),
+                ("high", "High"),
+                ("low", "Low"),
+                ("close", "Close"),
+                ("volume", "Volume"),
+            ):
+                if low in df.columns and up not in df.columns:
+                    rename_map[low] = up
+            if rename_map:
+                df.rename(columns=rename_map, inplace=True)
+
+            # 2) インデックス（日付）を決定
+            idx = None
+            if "Date" in df.columns:
+                idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+            elif "date" in df.columns:
+                idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+            else:
+                # 既存 index が日時ならそれを利用
                 try:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                    idx = pd.to_datetime(df.index, errors="coerce").normalize()
+                except Exception:
+                    idx = None
+            # 日付が取れない、または全て欠損ならスキップ
+            if idx is None:
+                raise ValueError("invalid_date_index")
+            try:
+                if pd.isna(idx).all():
+                    raise ValueError("invalid_date_index")
+            except Exception:
+                try:
+                    if idx.isnull().all():
+                        raise ValueError("invalid_date_index")
                 except Exception:
                     pass
-        df = df.dropna(subset=[c for c in ("High", "Low", "Close") if c in df.columns])
-        try:
-            df = df.sort_index()
-        except Exception:
-            pass
-        try:
-            if getattr(df.index, "has_duplicates", False):
-                df = df[~df.index.duplicated(keep="last")]
-        except Exception:
-            pass
-
-        # 必須列チェック（S1は Volume を用いるため必須に含める）
-        needed = {"Open", "High", "Low", "Close", "Volume"}
-        miss = [c for c in needed if c not in df.columns]
-        if miss:
-            if skip_callback:
-                try:
-                    skip_callback(sym, f"missing_cols:{','.join(miss)}")
-                except Exception:
+            df.index = pd.Index(idx)
+            df.index.name = "Date"
+            # 型・インデックスの健全化（重複や未整列での再インデックスエラー対策）
+            for col in ("Open", "High", "Low", "Close", "Volume"):
+                if col in df.columns:
                     try:
-                        skip_callback(f"{sym}: missing_cols:{','.join(miss)}")
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
                     except Exception:
                         pass
-            # スキップとしてカウント/進捗
+            df = df.dropna(subset=[c for c in ("High", "Low", "Close") if c in df.columns])
+            try:
+                df = df.sort_index()
+            except Exception:
+                pass
+            try:
+                if getattr(df.index, "has_duplicates", False):
+                    df = df[~df.index.duplicated(keep="last")]
+            except Exception:
+                pass
+
+            # 必須列チェック（S1は Volume を用いるため必須に含める）
+            needed = {"Open", "High", "Low", "Close", "Volume"}
+            miss = [c for c in needed if c not in df.columns]
+            if miss:
+                raise ValueError(f"missing_cols:{','.join(miss)}")
+
+            cache_path = os.path.join(cache_dir, f"{sym}.feather")
+            cached: pd.DataFrame | None = None
+            if reuse_indicators and os.path.exists(cache_path):
+                try:
+                    cached = pd.read_feather(cache_path)
+                    cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
+                    cached = (
+                        cached.dropna(subset=["Date"]).sort_values("Date").drop_duplicates("Date")
+                    )
+                    cached.set_index("Date", inplace=True)
+                    try:
+                        if getattr(cached.index, "has_duplicates", False):
+                            cached = cached[~cached.index.duplicated(keep="last")]
+                    except Exception:
+                        pass
+                except Exception:
+                    cached = None
+
+            def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+                dst = src.copy()
+                dst["SMA25"] = dst["Close"].rolling(25).mean()
+                dst["SMA50"] = dst["Close"].rolling(50).mean()
+                dst["ROC200"] = dst["Close"].pct_change(200) * 100
+                tr = pd.concat(
+                    [
+                        dst["High"] - dst["Low"],
+                        (dst["High"] - dst["Close"].shift()).abs(),
+                        (dst["Low"] - dst["Close"].shift()).abs(),
+                    ],
+                    axis=1,
+                ).max(axis=1)
+                dst["ATR20"] = tr.rolling(20).mean()
+                dst["DollarVolume20"] = (dst["Close"] * dst["Volume"]).rolling(20).mean()
+                dst["filter"] = (dst["Low"] >= 5) & (dst["DollarVolume20"] > 50_000_000)
+                dst["setup"] = dst["filter"] & (dst["SMA25"] > dst["SMA50"])
+                return dst
+
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = df[df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=200)
+                    recompute_src = df[df.index >= context_start]
+                    recomputed = _calc_indicators(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        # 正規化してから保存
+                        result_df = result_df.sort_index()
+                        if getattr(result_df.index, "has_duplicates", False):
+                            result_df = result_df[~result_df.index.duplicated(keep="last")]
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
+            else:
+                result_df = _calc_indicators(df)
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+
+            result_dict[sym] = result_df
+        except Exception as e:
+            # 1銘柄の失敗で全体を止めない
+            if skip_callback:
+                msg = str(e)
+                try:
+                    skip_callback(sym, f"calc_error:{msg}")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error:{msg}")
+                    except Exception:
+                        pass
+        finally:
             processed += 1
+            symbol_buffer.append(sym)
             if progress_callback:
                 try:
                     progress_callback(processed, total_symbols)
                 except Exception:
                     pass
-            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -315,16 +409,6 @@ def prepare_data_vectorized_system1(
             result_df = _calc_indicators(df)
             try:
                 result_df.reset_index().to_feather(cache_path)
-            except Exception:
-                pass
-
-        result_dict[sym] = result_df
-        processed += 1
-        symbol_buffer.append(sym)
-
-        if progress_callback:
-            try:
-                progress_callback(processed, total_symbols)
             except Exception:
                 pass
 

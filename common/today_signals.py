@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import inspect
 import time as _t
 from typing import Any
+import numpy as np
 
 import pandas as pd
 
@@ -354,13 +355,13 @@ def get_today_signals_for_strategy(
                         .to_numpy()
                     )
                     mask = dt_vals == prev_trading_day
-                    sel = pd.Series(x.loc[mask, "filter"].values)
+                    sel = pd.Series(np.asarray(x.loc[mask, "filter"]))
                 else:
                     idx_vals = (
                         pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
                     )
                     mask = idx_vals == prev_trading_day
-                    sel = pd.Series(x.loc[mask, "filter"].values)
+                    sel = pd.Series(np.asarray(x.loc[mask, "filter"]))
                 if sel.size > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
@@ -436,13 +437,13 @@ def get_today_signals_for_strategy(
                         .to_numpy()
                     )
                     mask = dt_vals == prev_trading_day
-                    sel = pd.Series(x.loc[mask, "setup"].values)
+                    sel = pd.Series(np.asarray(x.loc[mask, "setup"]))
                 else:
                     idx_vals = (
                         pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
                     )
                     mask = idx_vals == prev_trading_day
-                    sel = pd.Series(x.loc[mask, "setup"].values)
+                    sel = pd.Series(np.asarray(x.loc[mask, "setup"]))
                 if sel.size > 0:
                     v = sel.iloc[-1]
                     return bool(False if pd.isna(v) else bool(v))
