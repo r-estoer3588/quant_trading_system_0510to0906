@@ -8,19 +8,26 @@
 """
 
 from __future__ import annotations
-import streamlit as st
+
 import json
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
+
 import pandas as pd
 import pandas_market_calendars as mcal
+import streamlit as st
 
 try:  # pragma: no cover - optional dependency
-    import plotly.graph_objects as go
+    import plotly.graph_objects as go  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     go = None
+
+if TYPE_CHECKING:  # pragma: no cover - help type checkers
+    from plotly.graph_objects import Figure as PlotlyFigure
+else:  # pragma: no cover - runtime fallback when Plotly is missing
+    PlotlyFigure = Any
 
 from common import broker_alpaca as ba
 
@@ -34,67 +41,221 @@ HOLD_LIMITS: dict[str, int] = {
 }
 
 
+DASHBOARD_CSS = """
+<style>
+:root {
+  --bg: #0f1420;
+  --panel: #171c2a;
+  --panel-alt: #1c2335;
+  --text: #f5f7fa;
+  --muted: #9aa4b2;
+  --accent: #00e6a8;
+  --danger: #ff6b6b;
+  --warn: #ffd166;
+}
+body, .stApp {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+.main {
+  background: var(--bg) !important;
+}
+.block-container {
+  padding-top: 1.6rem !important;
+}
+
+.ap-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  margin: 0.6rem 0 1rem;
+}
+.ap-title .accent {
+  background: linear-gradient(90deg, var(--accent), #12b886);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.ap-section {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 1rem 0 0.6rem;
+  color: var(--text);
+}
+
+.ap-card {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.ap-card + .ap-card {
+  margin-top: 1rem;
+}
+
+.ap-metric {
+  background:
+    linear-gradient(var(--panel-alt), var(--panel-alt)) padding-box,
+    linear-gradient(
+      135deg,
+      rgba(0, 230, 168, 0.45),
+      rgba(18, 184, 134, 0.25)
+    ) border-box;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 1rem;
+  text-align: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: transform 0.08s ease-out;
+}
+.ap-metric:hover {
+  transform: translateY(-1px);
+}
+.ap-metric .label {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-bottom: 0.3rem;
+}
+.ap-metric .value {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.ap-metric .delta-pos {
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.ap-metric .delta-neg {
+  color: var(--danger);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.ap-badge {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #0b1625;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-right: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ap-badge.good {
+  color: var(--accent);
+  border-color: rgba(0, 230, 168, 0.4);
+}
+.ap-badge.warn {
+  color: var(--warn);
+  border-color: rgba(255, 209, 102, 0.35);
+}
+.ap-badge.danger {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.35);
+}
+.ap-badge.stat {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  margin-top: 0.25rem;
+}
+.ap-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.ap-badges .ap-badge {
+  margin-right: 0;
+}
+
+.stDataFrame {
+  background: var(--panel) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25) !important;
+}
+.stDataFrame [data-testid="StyledFullRow"] {
+  background: transparent !important;
+}
+.stDataFrame tbody tr td,
+.stDataFrame thead tr th {
+  color: var(--text) !important;
+}
+.stDataFrame tbody tr td a {
+  color: var(--accent) !important;
+}
+
+.ap-toolbar {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 20;
+  backdrop-filter: blur(6px);
+  background: rgba(23, 28, 42, 0.6);
+  border-radius: 12px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ap-caption {
+  white-space: nowrap;
+}
+
+.ap-ring {
+  --size: 92px;
+  --track: #0b1625;
+  --val: 0.0;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background:
+    conic-gradient(var(--accent) calc(var(--val) * 1%), rgba(255, 255, 255, 0.08) 0),
+    var(--track);
+  display: grid;
+  place-items: center;
+  margin: 0.25rem auto;
+}
+.ap-ring > span {
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+@keyframes apFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ap-fade {
+  animation: apFadeUp 0.28s ease-out;
+}
+.ap-card,
+.ap-metric,
+.stDataFrame,
+.stTabs {
+  animation: apFadeUp 0.28s ease-out;
+}
+
+.ap-toolbar .stButton > button {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    135deg,
+    rgba(0, 230, 168, 0.22),
+    rgba(18, 184, 134, 0.14)
+  );
+  color: var(--text);
+  font-weight: 700;
+}
+</style>
+"""
+
+
 def _inject_css() -> None:
-    st.markdown(
-        """
-        <style>
-        :root {
-          --bg: #0f1420; --panel: #171c2a; --panel-alt: #1c2335;
-          --text: #f5f7fa; --muted: #9aa4b2; --accent: #00e6a8;
-          --danger: #ff6b6b; --warn: #ffd166;
-        }
-        body, .stApp { background: var(--bg) !important; color: var(--text) !important; }
-        .main { background: var(--bg) !important; }
-        .block-container { padding-top: 1.6rem !important; }
-
-        .ap-title { font-size: 2.2rem; font-weight: 800; letter-spacing: .4px; margin: .6rem 0 1rem; }
-        .ap-title .accent { background: linear-gradient(90deg, var(--accent), #12b886); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .ap-section { font-size: 1.2rem; font-weight: 700; margin: 1rem 0 .6rem; color: var(--text); }
-
-        .ap-card { background: var(--panel); border-radius: 16px; padding: 1.0rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
-        .ap-card + .ap-card { margin-top: 1rem; }
-
-        .ap-metric { background: linear-gradient(var(--panel-alt), var(--panel-alt)) padding-box,
-                                 linear-gradient(135deg, rgba(0,230,168,.45), rgba(18,184,134,.25)) border-box;
-                      border: 1px solid transparent; border-radius: 16px; padding: 1rem; text-align: center;
-                      box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: transform .08s ease-out; }
-        .ap-metric:hover { transform: translateY(-1px); }
-        .ap-metric .label { color: var(--muted); font-size: .95rem; margin-bottom: .3rem; }
-        .ap-metric .value { font-size: 2.0rem; font-weight: 800; letter-spacing: .5px; }
-        .ap-metric .delta-pos { color: var(--accent); font-size: .9rem; font-weight: 700; }
-        .ap-metric .delta-neg { color: var(--danger); font-size: .9rem; font-weight: 700; }
-
-        .ap-badge { display: inline-block; padding: .25rem .6rem; border-radius: 999px; background: #0b1625; color: var(--muted); font-size: .78rem; margin-right: .4rem; border: 1px solid rgba(255,255,255,.08); }
-        .ap-badge.good { color: var(--accent); border-color: rgba(0,230,168,.4); }
-        .ap-badge.warn { color: var(--warn); border-color: rgba(255,209,102,.35); }
-        .ap-badge.danger { color: var(--danger); border-color: rgba(255,107,107,.35); }
-        .ap-badge.stat { background: rgba(255,255,255,.06); color: var(--text); margin-top: .25rem; }
-        .ap-badges { display:flex; flex-wrap: wrap; gap:.4rem; align-items:center; }
-        .ap-badges .ap-badge { margin-right: 0; }
-
-        .stDataFrame { background: var(--panel) !important; border-radius: 14px !important; box-shadow: 0 6px 18px rgba(0,0,0,.25) !important; }
-        .stDataFrame [data-testid="StyledFullRow"] { background: transparent !important; }
-        .stDataFrame tbody tr td, .stDataFrame thead tr th { color: var(--text) !important; }
-        .stDataFrame tbody tr td a { color: var(--accent) !important; }
-
-        .ap-toolbar { position: sticky; top: .5rem; z-index: 20; backdrop-filter: blur(6px); background: rgba(23,28,42,.6); border-radius: 12px; padding: .4rem .6rem; border: 1px solid rgba(255,255,255,.06); }
-        .ap-caption { white-space: nowrap; }
-
-        .ap-ring { --size: 92px; --track: #0b1625; --val: 0.0; width: var(--size); height: var(--size); border-radius: 50%;
-                   background: conic-gradient(var(--accent) calc(var(--val) * 1%), rgba(255,255,255,.08) 0), var(--track); display: grid; place-items: center; margin: .25rem auto; }
-        .ap-ring > span { font-weight: 800; font-size: 1.0rem; }
-
-        @keyframes apFadeUp { from { opacity: 0; transform: translateY(6px);} to { opacity:1; transform:none; } }
-        .ap-fade { animation: apFadeUp .28s ease-out; }
-        .ap-card, .ap-metric, .stDataFrame, .stTabs { animation: apFadeUp .28s ease-out; }
-
-        .ap-toolbar .stButton>button { width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
-                                       background: linear-gradient(135deg, rgba(0,230,168,.22), rgba(18,184,134,.14));
-                                       color: var(--text); font-weight: 700; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
 
 
 def _fmt_money(x: float | int | str | None, prefix: str = "$") -> str:
@@ -115,24 +276,6 @@ def _fmt_number(x: float | int | str | None) -> str:
         return f"{v:,.2f}"
     except Exception:
         return str(x)
-
-
-def _safe_float(value: Any) -> float | None:
-    """Convert a value to float safely."""
-
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-
-    try:
-        text = str(value).strip()
-        if not text or text in {"-", "nan", "NaN"}:
-            return None
-        cleaned = text.replace(",", "")
-        return float(cleaned)
-    except (TypeError, ValueError):
-        return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -242,7 +385,11 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
+                close_col = (
+                    cols.get("close")
+                    or cols.get("adj close")
+                    or cols.get("adj_close")
+                )
                 if close_col is None:
                     continue
                 s = df[close_col].astype(float).tail(max_points)
@@ -302,9 +449,11 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
     try:
         # ポジション数が多いときは点数を抑えて軽量化
         n_points = 20 if len(df) > 15 else 45
-        df["価格ミニ"] = [
-            (_load_recent_prices(sym, max_points=n_points) or []) for sym in df["銘柄"].astype(str)
+        price_series = [
+            _load_recent_prices(sym, max_points=n_points) or []
+            for sym in df["銘柄"].astype(str)
         ]
+        df["価格ミニ"] = price_series
     except Exception:
         pass
     return df
@@ -346,7 +495,8 @@ def main() -> None:
     now_tokyo = datetime.now(tz_tokyo)
     now_newyork = datetime.now(tz_newyork)
     nyse_status = _get_nyse_status(now_newyork)
-    ny_caption = f"ニューヨーク時間: {now_newyork.strftime('%Y-%m-%d %H:%M:%S')} （{nyse_status}）"
+    ny_time = now_newyork.strftime("%Y-%m-%d %H:%M:%S")
+    ny_caption = f"ニューヨーク時間: {ny_time} （{nyse_status}）"
     st.caption(
         " / ".join(
             [
@@ -484,7 +634,8 @@ def main() -> None:
         else:
             # システム絞り込み
             if "システム" in pos_df.columns:
-                systems = sorted([str(s) for s in pos_df["システム"].fillna("unknown").unique()])
+                raw_systems = pos_df["システム"].fillna("unknown").unique()
+                systems = sorted(str(s) for s in raw_systems)
                 selected = st.multiselect("システム絞り込み", systems, default=systems)
                 pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
 
@@ -674,8 +825,12 @@ def main() -> None:
                             labels = chart_df["銘柄"].astype(str)
                             if values.sum() <= 0:
                                 st.info("評価額が取得できませんでした。")
+                            elif go is None or not hasattr(go, "Figure"):
+                                st.info(
+                                    "Plotly がインストールされていないため、グラフを表示できません。"
+                                )
                             else:
-                                fig = go.Figure(
+                                fig: PlotlyFigure = go.Figure(
                                     data=[
                                         go.Pie(
                                             labels=labels.tolist(),
