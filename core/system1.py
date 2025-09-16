@@ -157,10 +157,26 @@ def prepare_data_vectorized_system1(
                 for sym in symbols
             }
             for i, fut in enumerate(as_completed(futures), 1):
-                sym, df = fut.result()
-                if df is not None:
-                    result_dict[sym] = df
-                    symbol_buffer.append(sym)
+                sym = futures[fut]
+                try:
+                    sym_r, df = fut.result()
+                    # 念のため返却シンボル優先
+                    sym = sym_r or sym
+                    if df is not None:
+                        result_dict[sym] = df
+                        symbol_buffer.append(sym)
+                except Exception as e:
+                    # 1件の失敗で全体を止めない
+                    if "skip_callback" in kwargs:
+                        try:
+                            cb = kwargs.get("skip_callback")
+                            if callable(cb):
+                                try:
+                                    cb(sym, f"calc_error:{e}")
+                                except Exception:
+                                    cb(f"{sym}: calc_error:{e}")
+                        except Exception:
+                            pass
 
                 if progress_callback:
                     try:

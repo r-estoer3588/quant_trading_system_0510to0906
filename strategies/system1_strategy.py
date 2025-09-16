@@ -38,15 +38,36 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             symbols = list(raw_data_or_symbols)
             raw_dict = None
 
-        return prepare_data_vectorized_system1(
-            raw_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
-            use_process_pool=use_process_pool,
-            symbols=symbols,
-            **kwargs,
-        )
+        try:
+            return prepare_data_vectorized_system1(
+                raw_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                use_process_pool=use_process_pool,
+                symbols=symbols,
+                **kwargs,
+            )
+        except Exception as e:
+            # フォールバック: プロセスプールを使わず・指標を再計算
+            if log_callback:
+                try:
+                    log_callback(
+                        f"⚠️ system1: prepare_data 失敗のためフォールバック再試行（非プール・再計算）: {e}"
+                    )
+                except Exception:
+                    pass
+            fb_kwargs = dict(kwargs)
+            fb_kwargs["reuse_indicators"] = False
+            return prepare_data_vectorized_system1(
+                raw_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                use_process_pool=False,
+                symbols=symbols,
+                **fb_kwargs,
+            )
 
     def generate_candidates(self, prepared_dict, market_df=None, **kwargs):
         # Pull top-N from YAML backtest config
@@ -83,7 +104,10 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         """翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定"""
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_ts = pd.to_datetime(candidate["entry_date"]).normalize()
+            # Use get_indexer to tolerate non-unique or non-exact match behavior
+            idxer = pd.to_datetime(df.index).normalize().get_indexer([entry_ts])
+            entry_idx = int(idxer[0]) if idxer.size > 0 else -1
         except Exception:
             return None
         if entry_idx <= 0 or entry_idx >= len(df):

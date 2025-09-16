@@ -281,15 +281,56 @@ def get_today_signals_for_strategy(
             if len(_skip_samples[_reason]) < 5 and _sym not in _skip_samples[_reason]:
                 _skip_samples[_reason].append(_sym)
 
-    prepared = strategy.prepare_data(
-        sliced_dict,
-        progress_callback=progress_callback,
-        log_callback=log_callback,
-        skip_callback=_on_skip,
-        use_process_pool=use_process_pool,
-        max_workers=max_workers,
-        lookback_days=lookback_days,
-    )
+    try:
+        prepared = strategy.prepare_data(
+            sliced_dict,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
+            skip_callback=_on_skip,
+            use_process_pool=use_process_pool,
+            max_workers=max_workers,
+            lookback_days=lookback_days,
+        )
+    except Exception as e:
+        # フォールバック: 非プール + 再計算（reuse_indicators=False）で再試行
+        try:
+            if log_callback:
+                log_callback(
+                    f"⚠️ {system_name}: 前処理失敗のためフォールバック（非プール・再計算）: {e}"
+                )
+        except Exception:
+            pass
+        try:
+            prepared = strategy.prepare_data(
+                sliced_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=_on_skip,
+                use_process_pool=False,
+                max_workers=None,
+                lookback_days=lookback_days,
+                reuse_indicators=False,
+            )
+        except Exception as e2:
+            # ここで失敗したら空の結果を返す（後段は0件で流れる）
+            try:
+                if log_callback:
+                    log_callback(f"⚠️ {system_name}: フォールバックも失敗（中断）: {e2}")
+            except Exception:
+                pass
+            return pd.DataFrame(
+                columns=[
+                    "symbol",
+                    "system",
+                    "side",
+                    "signal_type",
+                    "entry_date",
+                    "entry_price",
+                    "stop_price",
+                    "score_key",
+                    "score",
+                ]
+            )
     # インデックスを正規化・昇順・重複除去（pandas の再インデックス関連エラー対策）
     try:
         if isinstance(prepared, dict):
@@ -791,15 +832,21 @@ def get_today_signals_for_strategy(
             if sval is None or (isinstance(sval, float) and pd.isna(sval)):
                 try:
                     if signal_date_ts is not None:
-                        row = prepared[sym][
-                            pd.to_datetime(
-                                prepared[sym]["Date"]
-                                if "Date" in prepared[sym].columns
-                                else prepared[sym].index
+                        xdf = prepared[sym]
+                        if "Date" in xdf.columns:
+                            dt_vals = (
+                                pd.to_datetime(xdf["Date"], errors="coerce")
+                                .dt.normalize()
+                                .to_numpy()
                             )
-                            .normalize()
-                            .eq(signal_date_ts)
-                        ]
+                        else:
+                            dt_vals = (
+                                pd.to_datetime(xdf.index, errors="coerce")
+                                .normalize()
+                                .to_numpy()
+                            )
+                        mask = dt_vals == signal_date_ts
+                        row = xdf.loc[mask]
                         if not row.empty and skey in row.columns:
                             _v = row.iloc[0][skey]
                             if _v is not None and not pd.isna(_v):
@@ -824,15 +871,19 @@ def get_today_signals_for_strategy(
                     for psym, pdf in prepared.items():
                         try:
                             if "Date" in pdf.columns:
-                                row = pdf[
-                                    pd.to_datetime(pdf["Date"]).dt.normalize()
-                                    == signal_date_ts
-                                ]
+                                dt_vals = (
+                                    pd.to_datetime(pdf["Date"], errors="coerce")
+                                    .dt.normalize()
+                                    .to_numpy()
+                                )
                             else:
-                                row = pdf[
-                                    pd.to_datetime(pdf.index).normalize()
-                                    == signal_date_ts
-                                ]
+                                dt_vals = (
+                                    pd.to_datetime(pdf.index, errors="coerce")
+                                    .normalize()
+                                    .to_numpy()
+                                )
+                            mask = dt_vals == signal_date_ts
+                            row = pdf.loc[mask]
                             if not row.empty and skey in row.columns:
                                 v = row.iloc[0][skey]
                                 if v is not None and not pd.isna(v):
