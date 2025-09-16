@@ -15,9 +15,14 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-import plotly.express as px
+
+try:  # pragma: no cover - optional dependency
+    import plotly.graph_objects as go
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    go = None
+import streamlit as st
+import plotly.graph_objects as go
 
 from common import broker_alpaca as ba
 
@@ -105,6 +110,42 @@ def _fmt_number(x: float | int | str | None) -> str:
         return str(x)
 
 
+def _safe_float(value: Any) -> float | None:
+    """Convert a value to float safely."""
+
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    try:
+        text = str(value).strip()
+        if not text or text in {"-", "nan", "NaN"}:
+            return None
+        cleaned = text.replace(",", "")
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    """Convert a value to float safely."""
+
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    try:
+        text = str(value).strip()
+        if not text or text in {"-", "nan", "NaN"}:
+            return None
+        cleaned = text.replace(",", "")
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return None
+
+
 def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
     client = ba.get_client()
     account = client.get_account()
@@ -153,11 +194,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = (
-                    cols.get("close")
-                    or cols.get("adj close")
-                    or cols.get("adj_close")
-                )
+                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
                 if close_col is None:
                     continue
                 s = df[close_col].astype(float).tail(max_points)
@@ -220,8 +257,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         # ポジション数が多いときは点数を抑えて軽量化
         n_points = 20 if len(df) > 15 else 45
         df["価格ミニ"] = [
-            (_load_recent_prices(sym, max_points=n_points) or [])
-            for sym in df["銘柄"].astype(str)
+            (_load_recent_prices(sym, max_points=n_points) or []) for sym in df["銘柄"].astype(str)
         ]
     except Exception:
         pass
@@ -373,9 +409,7 @@ def main() -> None:
         else:
             # システム絞り込み
             if "システム" in pos_df.columns:
-                systems = sorted(
-                    [str(s) for s in pos_df["システム"].fillna("unknown").unique()]
-                )
+                systems = sorted([str(s) for s in pos_df["システム"].fillna("unknown").unique()])
                 selected = st.multiselect("システム絞り込み", systems, default=systems)
                 pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
 
@@ -429,6 +463,15 @@ def main() -> None:
                 pass
 
             styler = display_df.style.apply(_row_style, axis=1)
+            styler = styler.format(
+                {
+                    "数量": "{:,.0f}",
+                    "平均取得単価": "{:,.2f}",
+                    "現在値": "{:,.2f}",
+                    "含み損益": "{:,.2f}",
+                },
+                na_rep="-",
+            )
 
             # 表示（スパークライン列は LineChartColumn）
             try:
@@ -437,10 +480,6 @@ def main() -> None:
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "数量": st.column_config.NumberColumn(format=",.0f"),
-                        "平均取得単価": st.column_config.NumberColumn(format=",.2f"),
-                        "現在値": st.column_config.NumberColumn(format=",.2f"),
-                        "含み損益": st.column_config.NumberColumn(format=",.2f"),
                         "損益率(%)": st.column_config.ProgressColumn(
                             min_value=-20, max_value=20, format="%.1f%%"
                         ),
@@ -539,6 +578,7 @@ def main() -> None:
         st.markdown("<div class='ap-section'>システム別 配分</div>", unsafe_allow_html=True)
         mapping_path = Path("data/symbol_system_map.json")
         pos_df = _positions_to_df(positions, client)
+
         if not pos_df.empty and mapping_path.exists():
             try:
                 symbol_map = json.loads(mapping_path.read_text())
@@ -567,7 +607,8 @@ def main() -> None:
                                             values=values.tolist(),
                                             textinfo="percent",
                                             hovertemplate=(
-                                                "<b>%{label}</b><br>評価額: %{value:,.0f}" "<extra></extra>"
+                                                "<b>%{label}</b><br>評価額: %{value:,.0f}"
+                                                "<extra></extra>"
                                             ),
                                             hole=0.35,
                                         )
