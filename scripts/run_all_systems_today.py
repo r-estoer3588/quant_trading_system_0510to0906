@@ -41,6 +41,19 @@ _LOG_FILE_PATH: Path | None = None
 _LOG_FILE_MODE: str = "single"  # single | dated
 
 
+def _get_account_equity() -> float:
+    """Return current account equity via Alpaca API.
+
+    失敗した場合は 0.0 を返す（テスト環境など API 未設定時の安全対策）。
+    """
+    try:
+        client = ba.get_client(paper=True)
+        acct = client.get_account()
+        return float(getattr(acct, "equity", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
 def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) -> None:
     """today_signals 用のロガーファイルを構成する。
 
@@ -596,6 +609,9 @@ def compute_today_signals(
     cache_dir = cm.rolling_dir
     signals_dir = Path(settings.outputs.signals_dir)
     signals_dir.mkdir(parents=True, exist_ok=True)
+
+    run_start_time = datetime.now()
+    start_equity = _get_account_equity()
 
     # 前回結果の保存/読込ヘルパ
     def _prev_counts_path() -> Path:
@@ -2776,8 +2792,23 @@ def compute_today_signals(
                     _td_str = str(getattr(_td, "date", lambda: None)() or _td)
                 except Exception:
                     _td_str = ""
-                # fields に各systemのメトリクスを添付するため、本文は簡潔にする
-                msg = f"対象日: {_td_str}"
+                run_end_time = datetime.now()
+                end_equity = _get_account_equity()
+                profit_amt = max(end_equity - start_equity, 0.0)
+                loss_amt = max(start_equity - end_equity, 0.0)
+                total_entries = sum(final_counts.values())
+                total_exits = sum(
+                    int(v) for v in exit_counts_map.values() if v is not None
+                )
+                msg = (
+                    f"対象日: {_td_str}\n"
+                    f"指定銘柄総数: {tgt_base}\n"
+                    f"開始: {run_start_time.strftime('%H:%M:%S')} / "
+                    f"完了: {run_end_time.strftime('%H:%M:%S')}\n"
+                    f"開始資産: {start_equity:.2f} / 完了資産: {end_equity:.2f}\n"
+                    f"エントリー数: {total_entries} / エグジット数: {total_exits}\n"
+                    f"利益額: {profit_amt:.2f} / 損失額: {loss_amt:.2f}"
+                )
                 notifier = create_notifier(platform="auto", fallback=True)
                 notifier.send(title, msg, fields=lines)
             except Exception:
