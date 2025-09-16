@@ -126,7 +126,9 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
         conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].tolist()})
         raise ValueError(f"Longサイドに想定外のsystemが含まれています: {conflict}")
 
-    short_conflict_mask = (work["side_norm"] == "short") & (~work["system_norm"].isin(SHORT_SYSTEMS))
+    short_conflict_mask = (work["side_norm"] == "short") & (
+        ~work["system_norm"].isin(SHORT_SYSTEMS)
+    )
     if short_conflict_mask.any():
         conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].tolist()})
         raise ValueError(f"Shortサイドに想定外のsystemが含まれています: {conflict}")
@@ -305,9 +307,7 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(
-                f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒"
-            )
+            log_fn(f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒")
         except Exception:
             pass
         if missing:
@@ -1157,8 +1157,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             except Exception:
                 count = 0
             _ui_log(
-                f"📦 基礎データロード再利用: {count}/{len(symbols_for_data)}件"
-                " (前回結果を使用)"
+                f"📦 基礎データロード再利用: {count}/{len(symbols_for_data)}件" " (前回結果を使用)"
             )
         else:
             _set_phase_label("対象読み込み")
@@ -1287,11 +1286,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 per_counts_lines = format_group_counts(counts_map)
         except Exception:
             per_counts_lines = []
-        detail = (
-            f" | Long/Short別: {', '.join(per_counts_lines)}"
-            if per_counts_lines
-            else ""
-        )
+        detail = f" | Long/Short別: {', '.join(per_counts_lines)}" if per_counts_lines else ""
         _get_today_logger().info(
             f"✅ 本日のシグナル: シグナル検出処理終了 (経過 {m}分{s}秒, "
             f"最終候補 {final_n} 件){detail}"
@@ -1725,25 +1720,19 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         summary_lines: list[str] = []
         try:
             if "system" in final_df.columns:
-                system_series = (
-                    final_df["system"].astype(str).str.strip().str.lower()
-                )
+                system_series = final_df["system"].astype(str).str.strip().str.lower()
                 counts_map = system_series.value_counts().to_dict()
                 values_map: dict[str, float] = {}
                 if "position_value" in final_df.columns:
                     values_series = (
-                        final_df.assign(_system=system_series)[
-                            ["_system", "position_value"]
-                        ]
+                        final_df.assign(_system=system_series)[["_system", "position_value"]]
                         .groupby("_system")["position_value"]
                         .sum()
                     )
                     values_map = values_series.to_dict()
                 if counts_map:
                     if values_map:
-                        summary_lines = format_group_counts_and_values(
-                            counts_map, values_map
-                        )
+                        summary_lines = format_group_counts_and_values(counts_map, values_map)
                     else:
                         summary_lines = format_group_counts(counts_map)
         except Exception:
@@ -1835,8 +1824,9 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         while time.time() < end:
                             status_map = ba.get_orders_status_map(client, order_ids)
                             if status_map != last:
+                                # 詳細なJSONは非表示。更新があれば簡単な通知のみ。
                                 if status_map:
-                                    st.write(status_map)
+                                    st.caption("注文状況を更新しました（詳細はログ参照）")
                                 last = status_map
                             time.sleep(1.0)
             # 注文後に余力を自動更新（buying_power/cash を取得し、長短を半々に再設定）
@@ -1852,7 +1842,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         st.session_state["today_cap_long"] = round(bp / 2.0, 2)
                         st.session_state["today_cap_short"] = round(bp / 2.0, 2)
                         st.success(
-                            "約定反映後の余力で長短を再設定しました: "
+                            "約定反映後の資金余力でLong/Shortを再設定しました: "
                             f"${st.session_state['today_cap_long']} / "
                             f"${st.session_state['today_cap_short']}"
                         )
@@ -1905,14 +1895,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
             else:
                 # show dataframe (includes reason column if available)
                 st.dataframe(df, use_container_width=True)
-                csv2 = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    f"{name}のCSVをダウンロード",
-                    data=csv2,
-                    file_name=f"signals_{name}.csv",
-                    key=f"{name}_download_csv",
-                    on_click=_reset_shown_flag,
-                )
+                # ダウンロードボタンは不要のため非表示に変更（要望対応）
 
     # 追加: リラン後でも前回の結果が見えるように簡易再表示セクション
     # （上の詳細表示と同じ完全UIまでは再構築しないが、保存・DLは可能にする）
@@ -1941,13 +1924,7 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             st.markdown(f"#### {_name}")
                             st.dataframe(_df, use_container_width=True)
                             _csv_sys_prev = _df.to_csv(index=False).encode("utf-8")
-                            st.download_button(
-                                f"{_name}のCSVをダウンロード（前回）",
-                                data=_csv_sys_prev,
-                                file_name=f"signals_{_name}_prev.csv",
-                                key=f"download_prev_{_name}",
-                                on_click=_reset_shown_flag,
-                            )
+                            # per-system CSV（前回）のダウンロードボタンは非表示（要望対応）
     except Exception:
         pass
 

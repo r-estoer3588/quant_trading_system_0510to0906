@@ -273,16 +273,11 @@ def prepare_data_vectorized_system6(
                 pass
             buffer.clear()
 
-    if skipped > 0:
+    # 集計サマリーはログにのみ出力（skip_callback で集計を汚染しない）
+    if skipped > 0 and log_callback:
         msg = f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件"
         try:
-            if skip_callback:
-                try:
-                    skip_callback(msg)
-                except Exception:
-                    pass
-            elif log_callback:
-                log_callback(msg)
+            log_callback(msg)
         except Exception:
             pass
 
@@ -382,13 +377,11 @@ def generate_candidates_system6(
         )
         candidates_by_date[date] = ranked[: int(top_n)]
 
-    if skipped > 0:
+    # 候補抽出の集計サマリーはログにのみ出力
+    if skipped > 0 and log_callback:
         msg = f"⚠️ 候補抽出中にスキップ: {skipped} 件"
         try:
-            if skip_callback:
-                skip_callback(msg)
-            elif log_callback:
-                log_callback(msg)
+            log_callback(msg)
         except Exception:
             pass
     return candidates_by_date, None
