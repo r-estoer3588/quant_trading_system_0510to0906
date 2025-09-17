@@ -252,10 +252,14 @@ def _normalize_price_history(df: pd.DataFrame, rows: int) -> pd.DataFrame | None
     for col in known_order:
         if col in work.columns:
             ordered.append(col)
-    for col in work.columns:
-        if col not in ordered:
-            ordered.append(col)
-    work = work.loc[:, ordered]
+    if hasattr(work, "columns") and isinstance(work.columns, pd.Index):
+        for col in list(work.columns):
+            if col not in ordered:
+                ordered.append(col)
+        work = work.loc[:, ordered]
+    else:
+        # work.columns が存在しない場合や反復できない場合は空DataFrameを返す
+        return pd.DataFrame()
 
     if rows > 0:
         work = work.tail(rows)
@@ -2058,7 +2062,10 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                         # テーブル下部に注釈
                         st.caption(f"🚫 ショート不可で除外: {len(excluded_syms)}件")
                         st.write(
-                            f"<span style='color:red;font-size:0.95em;'>ショート不可: {', '.join(sorted(excluded_syms)[:10])}{' ...' if len(excluded_syms)>10 else ''}</span>",
+                            f"<span style='color:red;font-size:0.95em;'>"
+                            f"ショート不可: {', '.join(sorted(excluded_syms)[:10])}"
+                            f"{' ...' if len(excluded_syms) > 10 else ''}"
+                            f"</span>",
                             unsafe_allow_html=True,
                         )
                 st.dataframe(df_disp, use_container_width=True)

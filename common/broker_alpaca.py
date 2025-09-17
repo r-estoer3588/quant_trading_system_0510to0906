@@ -9,16 +9,20 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
-    from alpaca.trading.requests import (
+    from alpaca.trading.client import TradingClient # type: ignore
+
+    try:
+        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce # type: ignore
+    except ImportError:
+        from alpaca.trading.models.enums import OrderClass, OrderSide, TimeInForce # type: ignore
+    from alpaca.trading.requests import ( # type: ignore
         LimitOrderRequest,
         MarketOrderRequest,
         StopLossRequest,
         TakeProfitRequest,
         TrailingStopOrderRequest,
     )
-    from alpaca.trading.stream import TradingStream
+    from alpaca.trading.stream import TradingStream # type: ignore
 except Exception:  # pragma: no cover
     TradingClient = None  # type: ignore
     OrderSide = OrderClass = TimeInForce = None  # type: ignore

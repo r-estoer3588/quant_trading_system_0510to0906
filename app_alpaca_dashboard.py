@@ -25,7 +25,10 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     go = None
 
 if TYPE_CHECKING:  # pragma: no cover - help type checkers
-    from plotly.graph_objects import Figure as PlotlyFigure
+    try:
+        from plotly.graph_objects import Figure as PlotlyFigure # type: ignore
+    except (ModuleNotFoundError, ImportError):
+        PlotlyFigure = Any
 else:  # pragma: no cover - runtime fallback when Plotly is missing
     PlotlyFigure = Any
 
@@ -385,11 +388,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = (
-                    cols.get("close")
-                    or cols.get("adj close")
-                    or cols.get("adj_close")
-                )
+                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
                 if close_col is None:
                     continue
                 s = df[close_col].astype(float).tail(max_points)
@@ -450,8 +449,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         # ポジション数が多いときは点数を抑えて軽量化
         n_points = 20 if len(df) > 15 else 45
         price_series = [
-            _load_recent_prices(sym, max_points=n_points) or []
-            for sym in df["銘柄"].astype(str)
+            _load_recent_prices(sym, max_points=n_points) or [] for sym in df["銘柄"].astype(str)
         ]
         df["価格ミニ"] = price_series
     except Exception:
@@ -827,10 +825,10 @@ def main() -> None:
                                 st.info("評価額が取得できませんでした。")
                             elif go is None or not hasattr(go, "Figure"):
                                 st.info(
-                                    "Plotly がインストールされていないため、グラフを表示できません。"
+                                    "Plotly がインストールされていないため、グラフを表示できません。"  # noqa: E501
                                 )
                             else:
-                                fig: PlotlyFigure = go.Figure(
+                                fig = go.Figure(
                                     data=[
                                         go.Pie(
                                             labels=labels.tolist(),

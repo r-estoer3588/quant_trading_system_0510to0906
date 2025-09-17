@@ -30,7 +30,8 @@ class CacheUpdateInterrupted(KeyboardInterrupt):
 
 
 def _normalize_symbol(symbol: object) -> str:
-    if pd.isna(symbol):
+    # None や float('nan') などを明示的に判定
+    if symbol is None or (isinstance(symbol, float) and pd.isna(symbol)):
         return ""
     sym_norm = str(symbol).upper().strip()
     if not sym_norm:
