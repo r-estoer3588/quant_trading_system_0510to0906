@@ -1126,9 +1126,49 @@ def get_today_signals_for_strategy(
         pass
     return out
 
+def run_all_systems_today(
+    symbols: list[str] | None,
+    *,
+    slots_long: int | None = None,
+    slots_short: int | None = None,
+    capital_long: float | None = None,
+    capital_short: float | None = None,
+    save_csv: bool = False,
+    csv_name_mode: str | None = None,
+    notify: bool = True,
+    log_callback: Callable[[str], None] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    per_system_progress: Callable[[str, str], None] | None = None,
+    symbol_data: dict[str, pd.DataFrame] | None = None,
+    parallel: bool = False,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """scripts.run_all_systems_today.compute_today_signals のラッパー。"""
+    from scripts.run_all_systems_today import compute_today_signals as _compute
+
+    return _compute(
+        symbols,
+        slots_long=slots_long,
+        slots_short=slots_short,
+        capital_long=capital_long,
+        capital_short=capital_short,
+        save_csv=save_csv,
+        csv_name_mode=csv_name_mode,
+        notify=notify,
+        log_callback=log_callback,
+        progress_callback=progress_callback,
+        per_system_progress=per_system_progress,
+        symbol_data=symbol_data,
+        parallel=parallel,
+    )
+
+
+compute_today_signals = run_all_systems_today
+
 
 __all__ = [
     "get_today_signals_for_strategy",
     "LONG_SYSTEMS",
     "SHORT_SYSTEMS",
+    "run_all_systems_today",
+    "compute_today_signals",
 ]

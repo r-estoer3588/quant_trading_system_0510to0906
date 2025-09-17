@@ -79,7 +79,7 @@ from common.system_groups import (
 )
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
-from scripts.run_all_systems_today import compute_today_signals
+from common.today_signals import run_all_systems_today as compute_today_signals
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
