@@ -249,13 +249,37 @@ def prepare_data_vectorized_system3(
 
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-            if nan_rate > 0.05:
-                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            if base_cols:
+                base_nan_rate = df[base_cols].isnull().mean().mean()
+            else:
+                base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
+            if base_nan_rate >= 0.30:
+                msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
                 if skip_callback:
                     skip_callback(sym, msg)
+                skipped += 1
+                _on_symbol_done()
+                continue
+            if base_nan_rate > 0.10 and log_callback:
+                log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
+
+            indicator_cols = [
+                c
+                for c in df.columns
+                if c not in base_cols
+                and str(c).lower() not in {"date", "symbol"}
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if indicator_cols:
+                indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
+                if indicator_nan_rate > 0.45 and log_callback:
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
+                    )
+
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
                     if not pd.api.types.is_numeric_dtype(df[col]):
@@ -279,6 +303,9 @@ def prepare_data_vectorized_system3(
                 log_callback(msg)
             if skip_callback:
                 skip_callback(sym, msg)
+            skipped += 1
+            _on_symbol_done()
+            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None

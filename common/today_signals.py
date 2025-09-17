@@ -782,47 +782,99 @@ def get_today_signals_for_strategy(
                         except Exception:
                             continue
                 _ts = _ts.normalize()
-                # 同一日の複数キーがあっても最初を採用
                 if _ts not in key_map:
                     key_map[_ts] = _k
             except Exception:
                 continue
-        candidate_dates = sorted(list(key_map.keys()))
+        candidate_dates = sorted(list(key_map.keys()), reverse=True)
     except Exception:
         key_map = {}
         candidate_dates = []
-    # 対象日: 当日→直近のNYSE営業日（最大3営業日まで）に限定して選択（未来日は使わない）
-    target_date = None
+
+    target_date: pd.Timestamp | None = None
+    fallback_reason: str | None = None
+
+    def _collect_recent_days(
+        anchor: pd.Timestamp | None, count: int
+    ) -> list[pd.Timestamp]:
+        if anchor is None or count <= 0:
+            return []
+        out: list[pd.Timestamp] = []
+        seen: set[pd.Timestamp] = set()
+        cur = pd.Timestamp(anchor).normalize()
+        while len(out) < count:
+            if cur in seen:
+                break
+            out.append(cur)
+            seen.add(cur)
+            prev = get_latest_nyse_trading_day(cur - pd.Timedelta(days=1))
+            prev = pd.Timestamp(prev).normalize()
+            if prev >= cur:
+                break
+            cur = prev
+        return out
+
     try:
-        # 優先探索リストを作成（today, prev1, prev2）
-        search_days: list[pd.Timestamp] = []
-        if today is not None:
-            cur = pd.Timestamp(today).normalize()
-            for _ in range(3):
-                td = get_latest_nyse_trading_day(cur)
-                td = pd.Timestamp(td).normalize()
-                if len(search_days) == 0 or td != search_days[-1]:
-                    search_days.append(td)
-                # 次はその前日基準で探索
-                cur = td - pd.Timedelta(days=1)
-        # 候補に存在する最初の営業日を採用
-        for dt in search_days:
+        primary_days = _collect_recent_days(today, 3)
+        for dt in primary_days:
             if dt in candidate_dates:
                 target_date = dt
                 break
-        # 診断ログ: 探索日と候補日、採用日
+
+        if target_date is None:
+            try:
+                settings = get_settings(create_dirs=False)
+                cfg = getattr(settings, "cache", None)
+                rolling_cfg = getattr(cfg, "rolling", None)
+                stale_limit = int(
+                    getattr(rolling_cfg, "max_staleness_days", getattr(rolling_cfg, "max_stale_days", 2))
+                )
+            except Exception:
+                stale_limit = 2
+            fallback_window = max(len(primary_days), stale_limit + 3)
+            extended_days = _collect_recent_days(today, fallback_window)
+            for dt in extended_days:
+                if dt in candidate_dates:
+                    target_date = dt
+                    if dt not in primary_days:
+                        fallback_reason = "recent"
+                    break
+
+        if target_date is None and candidate_dates:
+            today_norm = pd.Timestamp(today).normalize() if today is not None else None
+            past_candidates = [
+                d for d in candidate_dates if today_norm is None or d <= today_norm
+            ]
+            if past_candidates:
+                target_date = max(past_candidates)
+                if fallback_reason is None:
+                    fallback_reason = "latest_past"
+            else:
+                target_date = max(candidate_dates)
+                if fallback_reason is None:
+                    fallback_reason = "latest_any"
+
         if log_callback:
             try:
                 _cands_str = ", ".join([str(d.date()) for d in candidate_dates[:5]])
-                _search_str = ", ".join([str(d.date()) for d in search_days])
+                _search_str = ", ".join([str(d.date()) for d in primary_days])
                 _chosen = str(target_date.date()) if target_date is not None else "None"
+                fallback_msg = ""
+                if fallback_reason:
+                    fallback_labels = {
+                        "recent": "直近営業日に候補が無いため過去日を採用",
+                        "latest_past": "探索範囲外の最新過去日を採用",
+                        "latest_any": "未来日しか存在しないため候補最終日を採用",
+                    }
+                    fallback_msg = f" | フォールバック: {fallback_labels.get(fallback_reason, fallback_reason)}"
                 log_callback(
-                    f"🗓️ 候補日(keys先頭5): {_cands_str} | 探索順: {_search_str} | 採用: {_chosen}"
+                    f"🗓️ 候補日（最新上位）: {_cands_str} | 探索順: {_search_str} | 採用: {_chosen}{fallback_msg}"
                 )
             except Exception:
                 pass
     except Exception:
         target_date = None
+        fallback_reason = None
     try:
         if target_date is not None and target_date in key_map:
             orig_key = key_map[target_date]
