@@ -1957,13 +1957,6 @@ def _log_system_filter_stats(
 
 
 
-def _prepare_system5_data(
-    basic_data: dict[str, pd.DataFrame],
-    system_symbols: list[str],
-) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
-    # ...existing code...
-
-
 # --- Rollingキャッシュ鮮度検証＆自動更新 ---
 
 # --- Rollingキャッシュ鮮度検証＆自動更新 ---
@@ -2005,79 +1998,6 @@ def _ensure_rolling_cache_fresh(
             cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
     return rolling_df
-    _log("?? ?????????????? (system1)?")
-    raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system1={len(raw_data)}??")
-    s1_filter = int(len(system_symbols))
-    s1_setup = 0
-    spy_ok: int | None = None
-    try:
-        try:
-            if "SPY" in (basic_data or {}):
-                _spy_df = get_spy_with_indicators(basic_data["SPY"])
-                if _spy_df is not None and not getattr(_spy_df, "empty", True):
-                    _last = _spy_df.iloc[-1]
-                    spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
-        except Exception:
-            spy_ok = None
-        for _sym, _df in (raw_data or {}).items():
-            if _df is None or getattr(_df, "empty", True):
-                continue
-            try:
-                last = _df.iloc[-1]
-            except Exception:
-                continue
-            try:
-                sma_pass = float(last.get("SMA25", float("nan"))) > float(
-                    last.get("SMA50", float("nan"))
-                )
-            except Exception:
-                sma_pass = False
-            if sma_pass:
-                s1_setup += 1
-        if spy_ok is None:
-            _log(
-                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: -, "
-                f"SMA25>SMA50: {s1_setup}"
-            )
-        else:
-            _log(
-                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: {spy_ok}, "
-                f"SMA25>SMA50: {s1_setup}"
-            )
-        try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-        except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            s1_setup_eff = int(s1_setup)
-            try:
-                if isinstance(spy_ok, int) and spy_ok == 0:
-                    s1_setup_eff = 0
-            except Exception:
-                pass
-            try:
-                cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
-            except Exception:
-                pass
-        try:
-            cb_note = globals().get("_PER_SYSTEM_NOTE")
-        except Exception:
-            cb_note = None
-        if cb_note and callable(cb_note):
-            try:
-                if spy_ok is None:
-                    cb_note("system1", "SPY>SMA100: -")
-                else:
-                    cb_note(
-                        "system1",
-                        "SPY>SMA100: OK" if int(spy_ok) == 1 else "SPY>SMA100: NG",
-                    )
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return raw_data, s1_filter, s1_setup, spy_ok
 
 
 def _prepare_system2_data(

@@ -15,6 +15,7 @@ from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import get_next_nyse_trading_day
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
