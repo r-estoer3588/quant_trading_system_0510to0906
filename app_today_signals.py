@@ -2052,9 +2052,17 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 # サイド列があれば、非該当側は「-」で埋める
                 if "side" in df_disp.columns and side_type:
                     mask = df_disp["side"].str.lower() != side_type
-                    for col in df_disp.columns:
-                        if col not in {"symbol", "side", "system"}:
-                            df_disp.loc[mask, col] = "-"
+                    if mask.any():
+                        fill_cols = [
+                            col
+                            for col in df_disp.columns
+                            if col not in {"symbol", "side", "system"}
+                        ]
+                        if fill_cols:
+                            df_disp.loc[:, fill_cols] = df_disp.loc[:, fill_cols].astype(
+                                "object"
+                            )
+                            df_disp.loc[mask, fill_cols] = "-"
                 # ショート不可バッジ付与（system2/6のみ）
                 if name in shortable_excluded_map:
                     excluded_syms = shortable_excluded_map[name]

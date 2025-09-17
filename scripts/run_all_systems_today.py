@@ -3455,7 +3455,7 @@ def compute_today_signals(
     return final_df, per_system
 
 
-def main():
+def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="全システム当日シグナル抽出・集約")
     parser.add_argument(
         "--symbols",
@@ -3549,9 +3549,15 @@ def main():
         action="store_true",
         help="手仕舞い計画の自動実行をドライランにする（既定は実発注）",
     )
-    args = parser.parse_args()
+    return parser
 
-    # ログ保存形式を決定（CLI > 環境変数 > 既定）
+
+def parse_cli_args() -> argparse.Namespace:
+    parser = build_cli_parser()
+    return parser.parse_args()
+
+
+def configure_logging_for_cli(args: argparse.Namespace) -> None:
     env_mode = os.environ.get("TODAY_SIGNALS_LOG_MODE", "").strip().lower()
     mode = args.log_file_mode or (env_mode if env_mode in {"single", "dated"} else None) or "dated"
     _configure_today_logger(mode=mode)
@@ -3561,7 +3567,9 @@ def main():
     except Exception:
         pass
 
-    final_df, per_system = compute_today_signals(
+
+def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    return compute_today_signals(
         args.symbols,
         slots_long=args.slots_long,
         slots_short=args.slots_short,
@@ -3572,51 +3580,64 @@ def main():
         parallel=args.parallel,
     )
 
+
+def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
     if final_df.empty:
         _log("📭 本日の最終候補はありません。")
-    else:
-        _log("\n=== 最終候補（推奨） ===")
-        cols = [
-            "symbol",
-            "system",
-            "side",
-            "signal_type",
-            "entry_date",
-            "entry_price",
-            "stop_price",
-            "shares",
-            "position_value",
-            "score_key",
-            "score",
-        ]
-        show = [c for c in cols if c in final_df.columns]
-        _log(final_df[show].to_string(index=False))
-        signals_for_merge = [
-            Signal(
-                system_id=int(str(r.get("system")).replace("system", "") or 0),
-                symbol=str(r.get("symbol")),
-                side="BUY" if str(r.get("side")).lower() == "long" else "SELL",
-                strength=float(r.get("score", 0.0)),
-                meta={},
-            )
-            for _, r in final_df.iterrows()
-        ]
-        merge_signals([signals_for_merge], portfolio_state={}, market_state={})
-        if args.alpaca_submit:
-            # CLIでも共通ヘルパーを使用
-            submit_orders_df(
-                final_df,
-                paper=(not args.live),
-                order_type=args.order_type,
-                system_order_type=None,
-                tif=args.tif,
-                retries=2,
-                delay=0.5,
-                log_callback=_log,
-                notify=True,
-            )
+        return []
 
-    # --- 手仕舞い計画の自動実行（任意） ---
+    _log("\n=== 最終候補（推奨） ===")
+    cols = [
+        "symbol",
+        "system",
+        "side",
+        "signal_type",
+        "entry_date",
+        "entry_price",
+        "stop_price",
+        "shares",
+        "position_value",
+        "score_key",
+        "score",
+    ]
+    show = [c for c in cols if c in final_df.columns]
+    _log(final_df[show].to_string(index=False))
+    signals_for_merge = [
+        Signal(
+            system_id=int(str(r.get("system")).replace("system", "") or 0),
+            symbol=str(r.get("symbol")),
+            side="BUY" if str(r.get("side")).lower() == "long" else "SELL",
+            strength=float(r.get("score", 0.0)),
+            meta={},
+        )
+        for _, r in final_df.iterrows()
+    ]
+    return signals_for_merge
+
+
+def merge_signals_for_cli(signals_for_merge: list[Signal]) -> None:
+    if not signals_for_merge:
+        return
+    merge_signals([signals_for_merge], portfolio_state={}, market_state={})
+
+
+def maybe_submit_orders(final_df: pd.DataFrame, args: argparse.Namespace) -> None:
+    if final_df.empty or not args.alpaca_submit:
+        return
+    submit_orders_df(
+        final_df,
+        paper=(not args.live),
+        order_type=args.order_type,
+        system_order_type=None,
+        tif=args.tif,
+        retries=2,
+        delay=0.5,
+        log_callback=_log,
+        notify=True,
+    )
+
+
+def maybe_run_planned_exits(args: argparse.Namespace) -> None:
     try:
         from schedulers.next_day_exits import submit_planned_exits as _run_planned
     except Exception:
@@ -3627,15 +3648,12 @@ def main():
         or (env_run if env_run in {"off", "open", "close", "auto"} else None)
         or "off"
     )
-    # 既定は実発注。--planned-exits-dry-run 指定時のみドライラン
     dry_run = True if args.planned_exits_dry_run else False
     if _run_planned and run_mode != "off":
-        # auto の場合はNY時間で判定
         sel = run_mode
         if run_mode == "auto":
             now = datetime.now(ZoneInfo("America/New_York"))
             hhmm = now.strftime("%H%M")
-            # 09:30-09:45 を open、15:50-16:00 を close とする
             sel = (
                 "open"
                 if ("0930" <= hhmm <= "0945")
@@ -3651,6 +3669,16 @@ def main():
                     _log("対象の手仕舞い計画はありません。", ui=False)
             except Exception as e:
                 _log(f"⚠️ 手仕舞い計画の自動実行に失敗: {e}")
+
+
+def main():
+    args = parse_cli_args()
+    configure_logging_for_cli(args)
+    final_df, _per_system = run_signal_pipeline(args)
+    signals_for_merge = log_final_candidates(final_df)
+    merge_signals_for_cli(signals_for_merge)
+    maybe_submit_orders(final_df, args)
+    maybe_run_planned_exits(args)
 
 
 if __name__ == "__main__":
