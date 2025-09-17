@@ -52,11 +52,16 @@ class CacheManager:
     def _detect_path(self, base_dir: Path, ticker: str) -> Path:
         csv_path = base_dir / f"{ticker}.csv"
         pq_path = base_dir / f"{ticker}.parquet"
-        if csv_path.exists():
-            return csv_path
-        if pq_path.exists():
+        feather_path = base_dir / f"{ticker}.feather"
+        for path in (csv_path, pq_path, feather_path):
+            if path.exists():
+                return path
+        fmt = (self.file_format or "auto").lower()
+        if fmt == "parquet":
             return pq_path
-        return csv_path if self.file_format in ("auto", "csv") else pq_path
+        if fmt == "feather":
+            return feather_path
+        return csv_path
 
     # ---------- IO ----------
     def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
@@ -244,6 +249,8 @@ class CacheManager:
         try:
             if path.suffix == ".parquet":
                 df.to_parquet(tmp, index=False)
+            elif path.suffix == ".feather":
+                df.reset_index(drop=True).to_feather(tmp)
             else:
                 df.to_csv(tmp, index=False)
             shutil.move(tmp, path)
