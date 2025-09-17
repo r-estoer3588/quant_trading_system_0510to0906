@@ -26,6 +26,10 @@ from common.system_groups import (
 )
 from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
 from config.settings import get_settings
+from core.system5 import (
+    DEFAULT_ATR_PCT_THRESHOLD,
+    format_atr_pct_threshold_label,
+)
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -533,7 +537,11 @@ def filter_system5(symbols, data):
                 continue
             if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 2_500_000:
                 continue
-            if atr_pct is None or pd.isna(atr_pct.iloc[-1]) or float(atr_pct.iloc[-1]) <= 0.04:
+            if (
+                atr_pct is None
+                or pd.isna(atr_pct.iloc[-1])
+                or float(atr_pct.iloc[-1]) <= DEFAULT_ATR_PCT_THRESHOLD
+            ):
                 continue
         except Exception:
             continue
@@ -1741,6 +1749,7 @@ def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
 def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
     """System5 ???????????????????"""
     try:
+        threshold_label = format_atr_pct_threshold_label()
         s5_total = len(symbols)
         s5_av = 0
         s5_dv = 0
@@ -1772,14 +1781,14 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
                 if (
                     _atrp is not None
                     and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > 0.04
+                    and float(_atrp.iloc[-1]) > DEFAULT_ATR_PCT_THRESHOLD
                 ):
                     s5_atr += 1
             except Exception:
                 continue
         _log(
             "?? system5???????: "
-            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
         )
     except Exception:
         pass
@@ -2542,8 +2551,9 @@ def compute_today_signals(
         _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
     except Exception:
         pass
-    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>4%）
+    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
     try:
+        threshold_label = format_atr_pct_threshold_label()
         s5_total = len(symbols)
         s5_av = 0
         s5_dv = 0
@@ -2575,14 +2585,14 @@ def compute_today_signals(
                 if (
                     _atrp is not None
                     and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > 0.04
+                    and float(_atrp.iloc[-1]) > DEFAULT_ATR_PCT_THRESHOLD
                 ):
                     s5_atr += 1
             except Exception:
                 continue
         _log(
             "🧪 system5内訳: "
-            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
         )
     except Exception:
         pass

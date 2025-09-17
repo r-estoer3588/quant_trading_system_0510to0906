@@ -16,11 +16,20 @@ from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
 
 
-def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
-    df = get_cached_data(symbol)
-    if df is None or df.empty:
-        return symbol, None
-    df = df.copy()
+def format_atr_pct_threshold_label(threshold: float | None = None) -> str:
+    """System5 の ATR_Pct フィルター閾値をラベル表示用に整形して返す。"""
+
+    try:
+        value = DEFAULT_ATR_PCT_THRESHOLD if threshold is None else float(threshold)
+    except Exception:
+        value = DEFAULT_ATR_PCT_THRESHOLD
+    if value < 0:
+        value = 0.0
+    return f"ATR_Pct>{value:.0%}"
+
+
+def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
     rename_map = {}
     for low, up in (
         ("open", "Open"),
@@ -29,51 +38,100 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         ("close", "Close"),
         ("volume", "Volume"),
     ):
-        if low in df.columns and up not in df.columns:
+        if low in x.columns and up not in x.columns:
             rename_map[low] = up
     if rename_map:
-        df.rename(columns=rename_map, inplace=True)
-    # 型を数値へ強制（ta ライブラリの安定化）
-    for col in ("Open", "High", "Low", "Close", "Volume"):
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    # 不正行の除外とインデックス整列
+        x.rename(columns=rename_map, inplace=True)
+    return x
+
+
+def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
+    if "Date" in df.columns:
+        idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+    elif "date" in df.columns:
+        idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    else:
+        idx = pd.to_datetime(df.index, errors="coerce").normalize()
+    if idx is None:
+        raise ValueError("invalid_date_index")
+    try:
+        if pd.isna(idx).all():  # type: ignore[attr-defined]
+            raise ValueError("invalid_date_index")
+    except Exception:
+        pass
     x = df.copy()
+    x.index = pd.Index(idx)
+    x.index.name = "Date"
+    x = x[~x.index.isna()]
+    try:
+        x = x.sort_index()
+    except Exception:
+        pass
+    try:
+        if getattr(x.index, "has_duplicates", False):
+            x = x[~x.index.duplicated(keep="last")]
+    except Exception:
+        pass
+    return x
+
+
+def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        raise ValueError("empty_frame")
+    x = _rename_ohlcv(df)
+    missing = [c for c in REQUIRED_COLUMNS if c not in x.columns]
+    if missing:
+        raise ValueError(f"missing_cols:{','.join(missing)}")
+    x = _normalize_index(x)
+    for col in REQUIRED_COLUMNS:
+        if col in x.columns:
+            x[col] = pd.to_numeric(x[col], errors="coerce")
     x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
-    if not x.index.is_monotonic_increasing:
-        try:
-            x = x.sort_index()
-        except Exception:
-            pass
-    if len(x) < 100:
+    if len(x) < MIN_ROWS:
+        raise ValueError("insufficient_rows")
+    return x
+
+
+def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
+    x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
+    x["ATR10"] = AverageTrueRange(
+        x["High"], x["Low"], x["Close"], window=10
+    ).average_true_range()
+    x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+    x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+    x["AvgVolume50"] = vol.rolling(50).mean()
+    x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+    x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
+    x["filter"] = (
+        (x["AvgVolume50"] > 500_000)
+        & (x["DollarVolume50"] > 2_500_000)
+        & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+    )
+    x["setup"] = (
+        x["filter"]
+        & (x["Close"] > x["SMA100"] + x["ATR10"])
+        & (x["ADX7"] > 55)
+        & (x["RSI3"] < 50)
+    ).astype(int)
+    return x
+
+
+def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    df = get_cached_data(symbol)
+    if df is None or df.empty:
         return symbol, None
     try:
-        x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-        x["ATR10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
-        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-        # Volume 欠損は 0 扱い
-        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-        x["AvgVolume50"] = vol.rolling(50).mean()
-        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
-        # 0 除算ガード
-        x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
-        x["filter"] = (
-            (x["AvgVolume50"] > 500_000)
-            & (x["DollarVolume50"] > 2_500_000)
-            & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-        )
-        x["setup"] = (
-            x["filter"]
-            & (x["Close"] > x["SMA100"] + x["ATR10"])
-            & (x["ADX7"] > 55)
-            & (x["RSI3"] < 50)
-        ).astype(int)
+        prepared = _prepare_source_frame(df)
+    except ValueError:
+        return symbol, None
     except Exception:
         return symbol, None
-    return symbol, x
+    try:
+        return symbol, _compute_indicators_frame(prepared)
+    except Exception:
+        return symbol, None
 
 
 def prepare_data_vectorized_system5(
@@ -163,270 +221,10 @@ def prepare_data_vectorized_system5(
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
 
-    def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        x = src.copy()
-        # 型を数値へ強制
-        for col in ("Open", "High", "Low", "Close", "Volume"):
-            if col in x.columns:
-                x[col] = pd.to_numeric(x[col], errors="coerce")
-        # 不正行の除外と整列
-        x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
-        if not x.index.is_monotonic_increasing:
-            try:
-                x = x.sort_index()
-            except Exception:
-                pass
-        if len(x) < 100:
-            raise ValueError("insufficient rows")
-        x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-        x["ATR10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
-        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-        x["AvgVolume50"] = vol.rolling(50).mean()
-        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
-        x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
-        x["filter"] = (
-            (x["AvgVolume50"] > 500_000)
-            & (x["DollarVolume50"] > 2_500_000)
-            & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-        )
-        x["setup"] = (
-            x["filter"]
-            & (x["Close"] > x["SMA100"] + x["ATR10"])
-            & (x["ADX7"] > 55)
-            & (x["RSI3"] < 50)
-        ).astype(int)
-        return x
-
-    for sym, df in raw_data_dict.items():
-        df = df.copy()
-        rename_map = {}
-        for low, up in (
-            ("open", "Open"),
-            ("high", "High"),
-            ("low", "Low"),
-            ("close", "Close"),
-            ("volume", "Volume"),
-        ):
-            if low in df.columns and up not in df.columns:
-                rename_map[low] = up
-        if rename_map:
-            df.rename(columns=rename_map, inplace=True)
-
-        # --- 健全性チェック: NaN・型不一致・異常値 ---
-        try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-            if nan_rate > 0.05:
-                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
-                if log_callback:
-                    log_callback(msg)
-                if skip_callback:
-                    skip_callback(sym, msg)
-            for col in ["Open", "High", "Low", "Close", "Volume"]:
-                if col in df.columns:
-                    if not pd.api.types.is_numeric_dtype(df[col]):
-                        msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
-                        if log_callback:
-                            log_callback(msg)
-                        if skip_callback:
-                            skip_callback(sym, msg)
-            for col in ["Close", "High", "Low"]:
-                if col in df.columns:
-                    vals = pd.to_numeric(df[col], errors="coerce")
-                    if (vals <= 0).all():
-                        msg = f"⚠️ {sym} cache: {col}全て非正値"
-                        if log_callback:
-                            log_callback(msg)
-                        if skip_callback:
-                            skip_callback(sym, msg)
-        except Exception as e:
-            msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
-            if log_callback:
-                log_callback(msg)
-            if skip_callback:
-                skip_callback(sym, msg)
-
-        if "Date" in df.columns:
-            df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
-        elif "date" in df.columns:
-            df.index = pd.Index(pd.to_datetime(df["date"]).dt.normalize())
-        else:
-            df.index = pd.Index(pd.to_datetime(df.index).normalize())
-
-        cache_path = os.path.join(cache_dir, f"{sym}.feather")
-        cached: pd.DataFrame | None = None
-        if reuse_indicators and os.path.exists(cache_path):
-            try:
-                cached = pd.read_feather(cache_path)
-                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
-                cached.set_index("Date", inplace=True)
-            except Exception:
-                cached = None
-
-        try:
-            # 事前チェック: 行数と必須列
-            if len(df) < 100:
-                skipped += 1
-                skipped_insufficient_rows += 1
-                if skip_callback:
-                    try:
-                        skip_callback(sym, "insufficient_rows")
-                    except Exception:
-                        try:
-                            skip_callback(f"{sym}: insufficient_rows")
-                        except Exception:
-                            pass
-                processed += 1
-                if progress_callback:
-                    try:
-                        progress_callback(processed, total)
-                    except Exception:
-                        pass
-                if (processed % batch_size == 0 or processed == total) and log_callback:
-                    elapsed = time.time() - start_time
-                    remain = (elapsed / processed) * (total - processed) if processed else 0
-                    em, es = divmod(int(elapsed), 60)
-                    rm, rs = divmod(int(remain), 60)
-                    msg = tr(
-                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                        "remain: ~{rm}m{rs}s",
-                        done=processed,
-                        total=total,
-                        em=em,
-                        es=es,
-                        rm=rm,
-                        rs=rs,
-                    )
-                    if buffer:
-                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-                    batch_duration = time.time() - batch_start
-                    batch_size = batch_monitor.update(batch_duration)
-                    batch_start = time.time()
-                    try:
-                        log_callback(msg)
-                        log_callback(
-                            tr(
-                                "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                                sec=batch_duration,
-                                size=batch_size,
-                            )
-                        )
-                    except Exception:
-                        pass
-                    buffer.clear()
-                continue
-            required_cols = ["Open", "High", "Low", "Close", "Volume"]
-            miss = [c for c in required_cols if c not in df.columns]
-            if miss:
-                skipped += 1
-                skipped_missing_cols += 1
-                for m in miss:
-                    missing_cols_examples[m] = missing_cols_examples.get(m, 0) + 1
-                if skip_callback:
-                    try:
-                        skip_callback(sym, f"missing_cols:{','.join(miss)}")
-                    except Exception:
-                        try:
-                            skip_callback(f"{sym}: missing_cols:{','.join(miss)}")
-                        except Exception:
-                            pass
-                processed += 1
-                if progress_callback:
-                    try:
-                        progress_callback(processed, total)
-                    except Exception:
-                        pass
-                if (processed % batch_size == 0 or processed == total) and log_callback:
-                    elapsed = time.time() - start_time
-                    remain = (elapsed / processed) * (total - processed) if processed else 0
-                    em, es = divmod(int(elapsed), 60)
-                    rm, rs = divmod(int(remain), 60)
-                    msg = tr(
-                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                        "remain: ~{rm}m{rs}s",
-                        done=processed,
-                        total=total,
-                        em=em,
-                        es=es,
-                        rm=rm,
-                        rs=rs,
-                    )
-                    if buffer:
-                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-                    batch_duration = time.time() - batch_start
-                    batch_size = batch_monitor.update(batch_duration)
-                    batch_start = time.time()
-                    try:
-                        log_callback(msg)
-                        log_callback(
-                            tr(
-                                "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                                sec=batch_duration,
-                                size=batch_size,
-                            )
-                        )
-                    except Exception:
-                        pass
-                    buffer.clear()
-                continue
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = df[df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
-                else:
-                    context_start = last_date - pd.Timedelta(days=100)
-                    recompute_src = df[df.index >= context_start]
-                    recomputed = _calc_indicators(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
-            else:
-                result_df = _calc_indicators(df)
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
-            result_dict[sym] = result_df
-            buffer.append(sym)
-        except ValueError as e:
-            skipped += 1
-            skipped_calc_errors += 1
-            # insufficient rows の ValueError を分類
-            try:
-                msg = str(e).lower()
-                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
-            except Exception:
-                reason = "calc_error"
-            if reason == "insufficient_rows":
-                skipped_insufficient_rows += 1
-                skipped_calc_errors -= 1  # 調整
-            if skip_callback:
-                try:
-                    skip_callback(sym, reason)
-                except Exception:
-                    try:
-                        skip_callback(f"{sym}: {reason}")
-                    except Exception:
-                        pass
-        except Exception:
-            skipped += 1
-            skipped_calc_errors += 1
-            if skip_callback:
-                try:
-                    skip_callback(sym, "calc_error")
-                except Exception:
-                    try:
-                        skip_callback(f"{sym}: calc_error")
-                    except Exception:
-                        pass
-
+    def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
+        nonlocal processed, batch_size, batch_start
+        if include_in_buffer and symbol:
+            buffer.append(symbol)
         processed += 1
         if progress_callback:
             try:
@@ -465,6 +263,140 @@ def prepare_data_vectorized_system5(
             except Exception:
                 pass
             buffer.clear()
+
+    for sym, df in raw_data_dict.items():
+        df = _rename_ohlcv(df)
+
+        # --- 健全性チェック: NaN・型不一致・異常値 ---
+        try:
+            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
+            if nan_rate > 0.05:
+                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+                if log_callback:
+                    log_callback(msg)
+                if skip_callback:
+                    skip_callback(sym, msg)
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col in df.columns:
+                    if not pd.api.types.is_numeric_dtype(df[col]):
+                        msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                        if log_callback:
+                            log_callback(msg)
+                        if skip_callback:
+                            skip_callback(sym, msg)
+            for col in ["Close", "High", "Low"]:
+                if col in df.columns:
+                    vals = pd.to_numeric(df[col], errors="coerce")
+                    if (vals <= 0).all():
+                        msg = f"⚠️ {sym} cache: {col}全て非正値"
+                        if log_callback:
+                            log_callback(msg)
+                        if skip_callback:
+                            skip_callback(sym, msg)
+        except Exception as e:
+            msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
+            if log_callback:
+                log_callback(msg)
+            if skip_callback:
+                skip_callback(sym, msg)
+
+        cache_path = os.path.join(cache_dir, f"{sym}.feather")
+        cached: pd.DataFrame | None = None
+        if reuse_indicators and os.path.exists(cache_path):
+            try:
+                cached = pd.read_feather(cache_path)
+                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+                cached.set_index("Date", inplace=True)
+            except Exception:
+                cached = None
+
+        try:
+            prepared_df = _prepare_source_frame(df)
+        except ValueError as exc:
+            skipped += 1
+            reason_raw = str(exc)
+            if reason_raw.startswith("missing_cols:"):
+                skipped_missing_cols += 1
+                missing = reason_raw.split(":", 1)[1]
+                for m in missing.split(","):
+                    m = m.strip()
+                    if m:
+                        missing_cols_examples[m] = missing_cols_examples.get(m, 0) + 1
+                reason = f"missing_cols:{missing}"
+            elif "insufficient" in reason_raw:
+                skipped_insufficient_rows += 1
+                reason = "insufficient_rows"
+            else:
+                skipped_calc_errors += 1
+                reason = "calc_error"
+            if skip_callback:
+                try:
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: {reason}")
+                    except Exception:
+                        pass
+            _on_symbol_done()
+            continue
+
+        try:
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = prepared_df[prepared_df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=100)
+                    recompute_src = prepared_df[prepared_df.index >= context_start]
+                    recomputed = _compute_indicators_frame(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
+            else:
+                result_df = _compute_indicators_frame(prepared_df)
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+            result_dict[sym] = result_df
+            _on_symbol_done(sym, include_in_buffer=True)
+        except ValueError as e:
+            skipped += 1
+            skipped_calc_errors += 1
+            # insufficient rows の ValueError を分類
+            try:
+                msg = str(e).lower()
+                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+            except Exception:
+                reason = "calc_error"
+            if reason == "insufficient_rows":
+                skipped_insufficient_rows += 1
+                skipped_calc_errors -= 1  # 調整
+            if skip_callback:
+                try:
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: {reason}")
+                    except Exception:
+                        pass
+            _on_symbol_done()
+        except Exception:
+            skipped += 1
+            skipped_calc_errors += 1
+            if skip_callback:
+                try:
+                    skip_callback(sym, "calc_error")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
+            _on_symbol_done()
 
     if skipped > 0 and log_callback:
         try:

@@ -1027,11 +1027,29 @@ def _display_per_system_logs(per_system_logs: dict[str, list[str]]) -> None:
             )
             if key == "system2":
                 _display_system2_filter_breakdown(logs)
+            elif key == "system5":
+                _display_system5_filter_breakdown(logs)
 
 
 def _display_system2_filter_breakdown(logs: list[str]) -> None:
     try:
         detail_lines = [x for x in logs if ("フィルタ内訳:" in x or "filter breakdown:" in x)]
+        if not detail_lines:
+            return
+        last_line = str(detail_lines[-1])
+        disp = last_line.split("] ", 1)[1] if "] " in last_line else last_line
+        st.caption(disp)
+    except Exception:
+        pass
+
+
+def _display_system5_filter_breakdown(logs: list[str]) -> None:
+    try:
+        detail_lines = [
+            x
+            for x in logs
+            if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
+        ]
         if not detail_lines:
             return
         last_line = str(detail_lines[-1])

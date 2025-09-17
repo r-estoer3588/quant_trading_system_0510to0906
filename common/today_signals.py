@@ -10,6 +10,10 @@ import numpy as np
 import pandas as pd
 
 from config.settings import get_settings
+from core.system5 import (
+    DEFAULT_ATR_PCT_THRESHOLD,
+    format_atr_pct_threshold_label,
+)
 
 # --- サイド定義（売買区分）---
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
@@ -666,6 +670,39 @@ def get_today_signals_for_strategy(
                 )
                 log_callback(msg)
             elif name == "system5":
+                threshold_label = format_atr_pct_threshold_label()
+                s5_total = len(prepared)
+                s5_av = 0
+                s5_dv = 0
+                s5_atr = 0
+                for df in prepared.values():
+                    row = _last_row(df)
+                    if row is None:
+                        continue
+                    try:
+                        av_val = row.get("AvgVolume50")
+                        if av_val is None or pd.isna(av_val) or float(av_val) <= 500_000:
+                            continue
+                        s5_av += 1
+                        dv_val = row.get("DollarVolume50")
+                        if dv_val is None or pd.isna(dv_val) or float(dv_val) <= 2_500_000:
+                            continue
+                        s5_dv += 1
+                        atr_pct_val = row.get("ATR_Pct")
+                        if (
+                            atr_pct_val is not None
+                            and not pd.isna(atr_pct_val)
+                            and float(atr_pct_val) > DEFAULT_ATR_PCT_THRESHOLD
+                        ):
+                            s5_atr += 1
+                    except Exception:
+                        continue
+                log_callback(
+                    "🧪 system5内訳: "
+                    + f"対象={s5_total}, AvgVol50>500k: {s5_av}, "
+                    + f"DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
+                )
+
                 price_pass = 0
                 adx_pass = 0
                 rsi_pass = 0
