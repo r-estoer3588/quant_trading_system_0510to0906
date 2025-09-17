@@ -129,10 +129,13 @@ def prepare_data_vectorized_system4(
     os.makedirs(cache_dir, exist_ok=True)
     result_dict: dict[str, pd.DataFrame] = {}
     raw_data_dict = raw_data_dict or {}
+
     if use_process_pool:
         if symbols is None:
             symbols = list(raw_data_dict.keys())
         total = len(symbols)
+        if total == 0:
+            return result_dict
         if batch_size is None:
             try:
                 from config.settings import get_settings
@@ -140,56 +143,80 @@ def prepare_data_vectorized_system4(
                 batch_size = get_settings(create_dirs=False).data.batch_size
             except Exception:
                 batch_size = 100
-            batch_size = resolve_batch_size(total, batch_size)
+        batch_size = resolve_batch_size(total, batch_size)
         buffer: list[str] = []
+        skipped_pool = 0
+        start_time = time.time()
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_compute_indicators, sym): sym for sym in symbols}
+            for i, fut in enumerate(as_completed(futures), 1):
+                sym = futures[fut]
+                sym_res, df = fut.result()
+                sym = sym_res or sym
+                if df is not None:
+                    result_dict[sym] = df
+                    buffer.append(sym)
+                else:
+                    skipped_pool += 1
+                    if skip_callback:
+                        try:
+                            skip_callback(sym, "pool_skipped")
+                        except Exception:
+                            try:
+                                skip_callback(f"{sym}: pool_skipped")
+                            except Exception:
+                                pass
+                if progress_callback:
+                    try:
+                        progress_callback(i, total)
+                    except Exception:
+                        pass
+                if (i % batch_size == 0 or i == total) and log_callback:
+                    elapsed = time.time() - start_time
+                    remain = (elapsed / i) * (total - i) if i else 0
+                    em, es = divmod(int(elapsed), 60)
+                    rm, rs = divmod(int(remain), 60)
+                    msg = tr(
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
+                        "remain: ~{rm}m{rs}s",
+                        done=i,
+                        total=total,
+                        em=em,
+                        es=es,
+                        rm=rm,
+                        rs=rs,
+                    )
+                    if buffer:
+                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                    try:
+                        log_callback(msg)
+                    except Exception:
+                        pass
+                    buffer.clear()
+        if skipped_pool > 0 and log_callback:
+            try:
+                log_callback(f"⚠️ プール処理でスキップ: {skipped_pool} 件")
+            except Exception:
+                pass
+        return result_dict
+
+    total = len(raw_data_dict)
+    if total == 0:
+        return result_dict
+
+    if batch_size is None:
+        try:
+            from config.settings import get_settings
+
+            batch_size = get_settings(create_dirs=False).data.batch_size
+        except Exception:
+            batch_size = 100
+    batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []
-
-    def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
-        nonlocal processed, batch_size, batch_start
-        if include_in_buffer and symbol:
-            buffer.append(symbol)
-        processed += 1
-        if progress_callback:
-            try:
-                progress_callback(processed, total)
-            except Exception:
-                pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-            try:
-                log_callback(msg)
-                log_callback(
-                    tr(
-                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                        sec=batch_duration,
-                        size=batch_size,
-                    )
-                )
-            except Exception:
-                pass
-            buffer.clear()
 
     def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
         nonlocal processed, batch_size, batch_start
@@ -287,8 +314,8 @@ def prepare_data_vectorized_system4(
                             log_callback(msg)
                         if skip_callback:
                             skip_callback(sym, msg)
-        except Exception as e:
-            msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
+        except Exception as exc:
+            msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({exc})"
             if log_callback:
                 log_callback(msg)
             if skip_callback:
@@ -365,7 +392,7 @@ def prepare_data_vectorized_system4(
                     except Exception:
                         pass
             _on_symbol_done()
-        except Exception as e:
+        except Exception:
             skipped += 1
             if skip_callback:
                 try:
