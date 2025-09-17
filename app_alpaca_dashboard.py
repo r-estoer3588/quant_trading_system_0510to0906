@@ -33,6 +33,7 @@ else:  # pragma: no cover - runtime fallback when Plotly is missing
     PlotlyFigure = Any
 
 from common import broker_alpaca as ba
+from common.position_age import fetch_entry_dates_from_alpaca
 
 
 # 経過日手仕切りの上限日数（システム別）
@@ -363,21 +364,6 @@ def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
     return int((today - dt.normalize()).days)
 
 
-def _fetch_entry_dates(client, symbols: list[str]) -> dict[str, pd.Timestamp]:
-    out: dict[str, pd.Timestamp] = {}
-    for sym in symbols:
-        try:
-            acts = client.get_activities(symbol=sym, activity_types="FILL")
-        except Exception:
-            continue
-        for act in sorted(acts, key=lambda a: getattr(a, "transaction_time", "")):
-            t = getattr(act, "transaction_time", None)
-            if t:
-                out[sym] = pd.Timestamp(t)
-                break
-    return out
-
-
 def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None:
     candidates = [
         Path("data_cache_recent") / f"{symbol}.csv",
@@ -403,22 +389,27 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
 
 
 def _positions_to_df(positions, client=None) -> pd.DataFrame:
-    symbols = [getattr(p, "symbol", "") for p in positions]
-    entry_map = _fetch_entry_dates(client, symbols) if client else {}
+    symbols = [str(getattr(p, "symbol", "")).upper() for p in positions]
+    entry_map = (
+        fetch_entry_dates_from_alpaca(client, symbols) if client else {}
+    )
 
     mapping_path = Path("data/symbol_system_map.json")
     symbol_map: dict[str, str] = {}
     if mapping_path.exists():
         try:
-            symbol_map = json.loads(mapping_path.read_text())
+            raw_map = json.loads(mapping_path.read_text())
+            symbol_map = {str(k).upper(): str(v) for k, v in raw_map.items()}
         except Exception:
             symbol_map = {}
 
     records: list[dict[str, object]] = []
     for pos in positions:
-        sym = getattr(pos, "symbol", "")
-        held = _days_held(entry_map.get(sym))
-        system_value = symbol_map.get(sym, "unknown")
+        sym_raw = getattr(pos, "symbol", "")
+        sym = str(sym_raw)
+        sym_key = sym.upper()
+        held = _days_held(entry_map.get(sym_key))
+        system_value = symbol_map.get(sym_key, "unknown")
         limit = HOLD_LIMITS.get(str(system_value).lower())
         exit_hint = ""
         if held is not None and limit and held >= limit:

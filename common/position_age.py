@@ -20,7 +20,9 @@ days have passed since the entry date.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -61,4 +63,72 @@ def days_held(entry_date: str | None) -> int | None:
         return None
 
 
-__all__ = ["load_entry_dates", "save_entry_dates", "days_held", "ENTRY_DATE_PATH"]
+def fetch_entry_dates_from_alpaca(
+    client: Any, symbols: Iterable[str]
+) -> dict[str, pd.Timestamp]:
+    """Fetch entry dates for ``symbols`` from Alpaca fill activities.
+
+    Parameters
+    ----------
+    client : Any
+        Alpaca REST client instance providing ``get_activities``.
+    symbols : Iterable[str]
+        Iterable of ticker symbols for which entry dates should be
+        retrieved. Duplicates and falsy values are ignored.
+
+    Returns
+    -------
+    dict[str, pd.Timestamp]
+        Mapping of upper-cased symbol strings to the earliest fill
+        timestamp returned by the API. Symbols that could not be
+        resolved are omitted.
+    """
+
+    if client is None:
+        return {}
+
+    out: dict[str, pd.Timestamp] = {}
+    seen: set[str] = set()
+    for symbol in symbols:
+        try:
+            sym = str(symbol).upper()
+        except Exception:
+            continue
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        try:
+            activities = client.get_activities(  # type: ignore[attr-defined]
+                symbol=sym, activity_types="FILL"
+            )
+        except Exception:
+            continue
+
+        # Alpaca returns most recent first; normalize to oldest fill.
+        try:
+            sorted_acts = sorted(
+                activities, key=lambda a: getattr(a, "transaction_time", "")
+            )
+        except Exception:
+            sorted_acts = list(activities)
+
+        for act in sorted_acts:
+            ts = getattr(act, "transaction_time", None)
+            if not ts:
+                continue
+            try:
+                out[sym] = pd.Timestamp(ts)
+                break
+            except Exception:
+                continue
+
+    return out
+
+
+__all__ = [
+    "load_entry_dates",
+    "save_entry_dates",
+    "days_held",
+    "fetch_entry_dates_from_alpaca",
+    "ENTRY_DATE_PATH",
+]
