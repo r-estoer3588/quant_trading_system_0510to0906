@@ -1859,11 +1859,55 @@ def _log_system_filter_stats(
     )
 
 
-def _prepare_system1_data(
+
+def _prepare_system5_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
-) -> tuple[dict[str, pd.DataFrame], int, int, int | None]:
-    """System1 ???????????????????"""
+) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
+    # ...existing code...
+
+
+# --- Rollingキャッシュ鮮度検証＆自動更新 ---
+
+# --- Rollingキャッシュ鮮度検証＆自動更新 ---
+
+def _ensure_rolling_cache_fresh(
+    symbol: str,
+    rolling_df: 'pd.DataFrame',
+    today: 'pd.Timestamp',
+    cache_manager: 'CacheManager',
+    base_rows: int = 320,
+    max_lag_days: int = 2,
+) -> 'pd.DataFrame':
+    """
+    rolling_dfの最終日付がtodayからmax_lag_days以上ズレている場合、
+    baseからrollingを再生成し、rollingへ書き戻す。
+    """
+    if rolling_df is None or getattr(rolling_df, 'empty', True):
+        # 欠損時はbaseから再生成
+        base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
+        if base_df is not None and not getattr(base_df, 'empty', True):
+            rolling_new = base_df.tail(base_rows).copy()
+            cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
+            return rolling_new
+        return rolling_df
+    last_date = None
+    try:
+        last_date = rolling_df.index[-1]
+        if isinstance(last_date, str):
+            import pandas as pd
+            last_date = pd.to_datetime(last_date)
+    except Exception:
+        return rolling_df
+    lag_days = (today - last_date).days
+    if lag_days > max_lag_days:
+        # 鮮度不足: baseからrolling再生成
+        base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
+        if base_df is not None and not getattr(base_df, 'empty', True):
+            rolling_new = base_df.tail(base_rows).copy()
+            cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
+            return rolling_new
+    return rolling_df
     _log("?? ?????????????? (system1)?")
     raw_data = _subset_data(basic_data, system_symbols)
     _log(f"?? ???????: system1={len(raw_data)}??")
