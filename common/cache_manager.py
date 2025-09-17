@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -35,6 +35,17 @@ class CacheManager:
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
         self._ui_prefix = "[CacheManager]"
 
+    self._warned: set[tuple[str, str, str]] = set()
+
+    def _warn_once(
+        self, ticker: str, profile: str, category: str, message: str
+    ) -> None:
+        key = (ticker, profile, category)
+        if key in self._warned:
+            return
+        self._warned.add(key)
+        logger.warning(message)
+
     # ---------- path/format detection ----------
     def _detect_path(self, base_dir: Path, ticker: str) -> Path:
         csv_path = base_dir / f"{ticker}.csv"
@@ -52,7 +63,46 @@ class CacheManager:
         if not path.exists():
             return None
         try:
-            if path.suffix == ".parquet":
+            if path.suffix == ".feather":
+                try:
+                    import feather
+
+                    df = feather.read_dataframe(str(path))
+                except Exception as e:
+                    self._warn_once(
+                        ticker,
+                        profile,
+                        "read_feather_fail",
+                        f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) → csvへフォールバック試行",
+                    )
+                    csv_path = path.with_suffix(".csv")
+                    if csv_path.exists():
+                        try:
+                            df = pd.read_csv(csv_path, parse_dates=["date"])
+                        except ValueError as e2:
+                            if (
+                                "Missing column provided to 'parse_dates': 'date'"
+                                in str(e2)
+                            ):
+                                df = pd.read_csv(csv_path)
+                                if "Date" in df.columns:
+                                    df = df.rename(columns={"Date": "date"})
+                                    df["date"] = pd.to_datetime(df["date"])
+                                else:
+                                    raise
+                            else:
+                                raise
+                        except Exception as e2:
+                            self._warn_once(
+                                ticker,
+                                profile,
+                                "read_csv_fail",
+                                f"{self._ui_prefix} csv読込も失敗: {csv_path.name} ({e2})",
+                            )
+                            return None
+                    else:
+                        return None
+            elif path.suffix == ".parquet":
                 df = pd.read_parquet(path)
             else:
                 try:
@@ -68,7 +118,13 @@ class CacheManager:
                     else:
                         raise
         except Exception as e:  # pragma: no cover - log and continue
-            logger.warning(f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})")
+            category = f"read_error:{path.name}:{type(e).__name__}:{str(e)}"
+            self._warn_once(
+                ticker,
+                profile,
+                category,
+                f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})",
+            )
             return None
         # 正規化: 列名を小文字化
         df.columns = [c.lower() for c in df.columns]
@@ -93,30 +149,87 @@ class CacheManager:
             )
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
+            nan_rate = 0
+            if df.size > 0:
+                if profile == "rolling":
+                    # 直近N営業日×主要指標列のみでNaN率判定
+                    N = (
+                        self.rolling_cfg.base_lookback_days
+                        + self.rolling_cfg.buffer_days
+                    )
+                    recent_df = df.tail(N)
+                    # 主要指標列リスト
+                    main_cols = [
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "SMA25",
+                        "SMA50",
+                        "SMA100",
+                        "SMA150",
+                        "SMA200",
+                        "ATR10",
+                        "ATR14",
+                        "ATR40",
+                        "ATR50",
+                        "ADX7",
+                        "RSI3",
+                        "RSI14",
+                        "ROC200",
+                        "HV50",
+                        "Return6D",
+                        "return_pct",
+                        "Drop3D",
+                    ]
+                    # 実際に存在する列のみ対象
+                    target_cols = [c for c in main_cols if c in recent_df.columns]
+                    if target_cols:
+                        nan_rate = recent_df[target_cols].isnull().mean().mean()
+                    else:
+                        nan_rate = 0
+                else:
+                    nan_rate = df.isnull().mean().mean()
             if nan_rate > 0.05:
-                logger.warning(
-                    f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: NaN率高 "
-                    f"({nan_rate:.2%})"
+                category = f"nan_rate:{round(float(nan_rate), 4)}"
+                self._warn_once(
+                    ticker,
+                    profile,
+                    category,
+                    f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 主要指標NaN率高 "
+                    f"({nan_rate:.2%})",
                 )
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
                     if not pd.api.types.is_numeric_dtype(df[col]):
-                        logger.warning(
+                        category = f"dtype:{col}:{df[col].dtype}"
+                        self._warn_once(
+                            ticker,
+                            profile,
+                            category,
                             f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}型不一致 "
-                            f"({df[col].dtype})"
+                            f"({df[col].dtype})",
                         )
             for col in ["close", "high", "low"]:
                 if col in df.columns:
                     vals = pd.to_numeric(df[col], errors="coerce")
                     if (vals <= 0).all():
-                        logger.warning(
-                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                        category = f"non_positive:{col}"
+                        self._warn_once(
+                            ticker,
+                            profile,
+                            category,
+                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値",
                         )
         except Exception as e:
-            logger.warning(
+            category = f"healthcheck_error:{type(e).__name__}:{str(e)}"
+            self._warn_once(
+                ticker,
+                profile,
+                category,
                 f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 "
-                f"({e})"
+                f"({e})",
             )
         return df
 
