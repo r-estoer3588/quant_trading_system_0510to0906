@@ -2,7 +2,9 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from collections.abc import Callable
+
+# from typing import Optional
 
 import pandas as pd
 import requests
@@ -41,7 +43,7 @@ def _normalize_symbol(symbol: object) -> str:
     return sym_norm
 
 
-def _resolve_code_series(df: pd.DataFrame) -> Optional[pd.Series]:
+def _resolve_code_series(df: pd.DataFrame) -> pd.Series | None:
     for col in df.columns:
         if str(col).lower() == "code":
             return df[col]
@@ -63,11 +65,8 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     return original_count, normalized_count
 
 
-def fetch_bulk_last_day() -> Optional[pd.DataFrame]:
-    url = (
-        "https://eodhistoricaldata.com/api/eod-bulk-last-day/US"
-        f"?api_token={API_KEY}&fmt=json"
-    )
+def fetch_bulk_last_day() -> pd.DataFrame | None:
+    url = "https://eodhistoricaldata.com/api/eod-bulk-last-day/US" f"?api_token={API_KEY}&fmt=json"
     try:
         response = requests.get(url, timeout=30)
     except requests.RequestException as exc:
@@ -88,7 +87,7 @@ def append_to_cache(
     df: pd.DataFrame,
     cm: CacheManager,
     *,
-    progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
     progress_step: int = PROGRESS_STEP_DEFAULT,
 ) -> tuple[int, int]:
     """
@@ -134,7 +133,7 @@ def append_to_cache(
             progress_callback(0, progress_target, 0)
         except Exception:
             pass
-    interrupt_exc: Optional[BaseException] = None
+    interrupt_exc: BaseException | None = None
     try:
         for sym, g in grouped:
             sym_norm = _normalize_symbol(sym)
@@ -163,9 +162,7 @@ def append_to_cache(
             if progress_callback:
                 effective_target = max(progress_target, total)
                 should_report = (
-                    total == effective_target
-                    or total - last_report >= step
-                    or total == 1
+                    total == effective_target or total - last_report >= step or total == 1
                 )
                 if should_report:
                     try:
@@ -250,9 +247,7 @@ def main():
     except CacheUpdateInterrupted as exc:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total_symbols = max(progress_state.get("total", 0), exc.processed)
-        print(
-            "🛑 ユーザーにより更新処理が中断されました", flush=True
-        )
+        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
         print(
             f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols}"
             f" 銘柄 / 更新済み: {exc.updated} 銘柄",

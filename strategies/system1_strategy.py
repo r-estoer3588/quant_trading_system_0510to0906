@@ -25,17 +25,17 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
 
-    def prepare_data(self, raw_data_or_symbols, **kwargs):
+    def prepare_data(self, raw_data_dict, **kwargs):
         progress_callback = kwargs.pop("progress_callback", None)
         log_callback = kwargs.pop("log_callback", None)
         skip_callback = kwargs.pop("skip_callback", None)
         use_process_pool = kwargs.pop("use_process_pool", False)
 
-        if isinstance(raw_data_or_symbols, dict):
-            symbols = list(raw_data_or_symbols.keys())
-            raw_dict = None if use_process_pool else raw_data_or_symbols
+        if isinstance(raw_data_dict, dict):
+            symbols = list(raw_data_dict.keys())
+            raw_dict = None if use_process_pool else raw_data_dict
         else:
-            symbols = list(raw_data_or_symbols)
+            symbols = list(raw_data_dict)
             raw_dict = None
 
         try:
@@ -53,7 +53,9 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             if log_callback:
                 try:
                     log_callback(
-                        f"⚠️ system1: prepare_data 失敗のためフォールバック再試行（非プール・再計算）: {e}"
+                        "⚠️ system1: prepare_data 失敗のためフォールバック再試行"
+                        "（非プール・再計算）: "
+                        f"{e}"
                     )
                 except Exception:
                     pass
@@ -69,7 +71,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
                 **fb_kwargs,
             )
 
-    def generate_candidates(self, prepared_dict, market_df=None, **kwargs):
+    def generate_candidates(self, data_dict, market_df=None, **kwargs):
         # Pull top-N from YAML backtest config
         try:
             from config.settings import get_settings
@@ -78,22 +80,24 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         except Exception:
             top_n = 10
         if market_df is None:
-            market_df = prepared_dict.get("SPY")
+            market_df = data_dict.get("SPY")
             if market_df is None:
-                raise ValueError("SPY data not found in prepared_dict.")
+                raise ValueError("SPY data not found in data_dict.")
         return generate_roc200_ranking_system1(
-            prepared_dict,
+            data_dict,
             market_df,
             top_n=top_n,
             **kwargs,
         )
 
     def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
+        self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
     ) -> pd.DataFrame:
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,
