@@ -1743,7 +1743,16 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
         except Exception:
             summary_lines = []
         if summary_lines:
-            st.caption("サマリー（Long/Short別）: " + " / ".join(summary_lines))
+            # サマリー（Long/Short別）: フォント統一（Noto Sans JP, Meiryo, sans-serif）
+            font_css = (
+                "font-family: 'Noto Sans JP', 'Meiryo', sans-serif; "
+                "font-size: 1rem; letter-spacing: 0.02em;"
+            )
+            html_summary = " / ".join(summary_lines)
+            st.markdown(
+                f'<div style="{font_css}">サマリー（Long/Short別）: {html_summary}</div>',
+                unsafe_allow_html=True,
+            )
         st.dataframe(final_df, use_container_width=True)
 
         # デバッグ: today_signals 側で保存したスキップ内訳CSVを表示/ダウンロード
@@ -1778,12 +1787,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                             except Exception:
                                 data_bytes = None
                             if data_bytes:
+                                import time
+
                                 st.download_button(
                                     label=f"{name} CSV",
                                     data=data_bytes,
                                     file_name=fp.name,
                                     mime="text/csv",
-                                    key=f"dl_skip_{name}",
+                                    key=f"dl_skip_{name}_{int(time.time()*1000)}",
                                 )
                     # 追加: per-symbol スキップ詳細（skip_details_*）の表示
                     _detail_files = []
@@ -1813,12 +1824,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 except Exception:
                                     b3 = None
                                 if b3:
+                                    import time
+
                                     st.download_button(
                                         label=f"{nm2} CSV",
                                         data=b3,
                                         file_name=fpd.name,
                                         mime="text/csv",
-                                        key=f"dl_skipdet_{nm2}",
+                                        key=f"dl_skipdet_{nm2}_{int(time.time()*1000)}",
                                     )
                     # 追加: ショート不可で除外された銘柄のCSV（system2/6）
                     _shortable_files = []
@@ -1848,12 +1861,14 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                                 except Exception:
                                     bytes2 = None
                                 if bytes2:
+                                    import time
+
                                     st.download_button(
                                         label=f"{name2} CSV",
                                         data=bytes2,
                                         file_name=fp2.name,
                                         mime="text/csv",
-                                        key=f"dl_short_exc_{name2}",
+                                        key=f"dl_short_exc_{name2}_{int(time.time()*1000)}",
                                     )
         except Exception:
             pass
@@ -1975,44 +1990,78 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
                 except Exception as e:
                     st.error(f"余力の自動更新に失敗: {e}")
     with st.expander("システム別詳細"):
+        # ショート不可除外銘柄の事前取得（system2/6）
+        from config.settings import get_settings as _gs
+
+        _stg = _gs(create_dirs=True)
+        _dir = Path(getattr(_stg.outputs, "results_csv_dir", "results_csv"))
+        shortable_excluded_map = {}
+        for i in (2, 6):
+            nm = f"system{i}"
+            fp2 = _dir / f"shortability_excluded_{nm}.csv"
+            if fp2.exists() and fp2.is_file():
+                try:
+                    df_exc = pd.read_csv(fp2)
+                    if df_exc is not None and not df_exc.empty:
+                        shortable_excluded_map[nm] = set(df_exc["symbol"].astype(str).str.upper())
+                except Exception:
+                    pass
         for name in system_order:
             df = per_system.get(name)
             st.markdown(f"#### {name}")
+            # サイド判定: long/short
+            side_type = None
+            if name in LONG_SYSTEMS:
+                side_type = "long"
+            elif name in SHORT_SYSTEMS:
+                side_type = "short"
+            # メトリクス表示（空の場合も）
+            sc = stage_counts.get(name, {})
+            tgt_txt = "-"
+            try:
+                if sc.get("target") is not None:
+                    tgt_txt = str(sc.get("target"))
+                elif sc.get("filter") is not None and sc.get("setup") is None:
+                    tgt_txt = str(sc.get("filter"))
+            except Exception:
+                tgt_txt = "-"
+
+            def _v(x):
+                return "-" if x is None else str(x)
+
+            metrics_line = "  ".join(
+                [
+                    f"Tgt {_v(tgt_txt)}",
+                    f"FILpass {_v(sc.get('filter'))}",
+                    f"STUpass {_v(sc.get('setup'))}",
+                    f"TRDlist {_v(sc.get('cand'))}",
+                    f"Entry {_v(sc.get('entry'))}",
+                    f"Exit {_v(sc.get('exit'))}",
+                ]
+            )
+            st.caption(metrics_line)
+            # データフレーム表示（long/short非該当側は「-」で埋める）
             if df is None or df.empty:
-                st.write("(空) 候補は0件です。メトリクスを表示します。")
-                try:
-                    # 段階メトリクス（filter/setup/cand/entry/exit）を1行で表示
-                    sc = stage_counts.get(name, {})
-                    tgt_txt = "-"
-                    try:
-                        if sc.get("target") is not None:
-                            tgt_txt = str(sc.get("target"))
-                        elif sc.get("filter") is not None and sc.get("setup") is None:
-                            tgt_txt = str(sc.get("filter"))
-                    except Exception:
-                        tgt_txt = "-"
-
-                    def _v(x):
-                        return "-" if x is None else str(x)
-
-                    metrics_line = "  ".join(
-                        [
-                            f"Tgt {_v(tgt_txt)}",
-                            f"FILpass {_v(sc.get('filter'))}",
-                            f"STUpass {_v(sc.get('setup'))}",
-                            f"TRDlist {_v(sc.get('cand'))}",
-                            f"Entry {_v(sc.get('entry'))}",
-                            f"Exit {_v(sc.get('exit'))}",
-                        ]
-                    )
-                    st.caption(metrics_line)
-                except Exception:
-                    pass
-                # 直近ログは表示しない（ユーザー要望）
+                st.write("(空) 候補は0件です。")
             else:
-                # show dataframe (includes reason column if available)
-                st.dataframe(df, use_container_width=True)
-                # ダウンロードボタンは不要のため非表示に変更（要望対応）
+                df_disp = df.copy()
+                # サイド列があれば、非該当側は「-」で埋める
+                if "side" in df_disp.columns and side_type:
+                    mask = df_disp["side"].str.lower() != side_type
+                    for col in df_disp.columns:
+                        if col not in {"symbol", "side", "system"}:
+                            df_disp.loc[mask, col] = "-"
+                # ショート不可バッジ付与（system2/6のみ）
+                if name in shortable_excluded_map:
+                    excluded_syms = shortable_excluded_map[name]
+                    if excluded_syms:
+                        # テーブル下部に注釈
+                        st.caption(f"🚫 ショート不可で除外: {len(excluded_syms)}件")
+                        st.write(
+                            f"<span style='color:red;font-size:0.95em;'>ショート不可: {', '.join(sorted(excluded_syms)[:10])}{' ...' if len(excluded_syms)>10 else ''}</span>",
+                            unsafe_allow_html=True,
+                        )
+                st.dataframe(df_disp, use_container_width=True)
 
     # 追加: リラン後でも前回の結果が見えるように簡易再表示セクション
     # （上の詳細表示と同じ完全UIまでは再構築しないが、保存・DLは可能にする）
