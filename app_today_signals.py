@@ -1388,7 +1388,8 @@ def _display_planned_exits_section(result: ExitAnalysisResult, trade_options: Tr
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
     st.dataframe(result.planned, use_container_width=True)
     planned_rows = [
-        {str(k): v for k, v in row.items()} for row in result.planned.to_dict(orient="records")
+        {str(k): v for k, v in row.items()}
+        for row in result.planned.to_dict(orient="records")
     ]
     _auto_save_planned_exits(planned_rows, show_success=False)
     if st.button("計画を保存（JSONL）"):
@@ -2202,7 +2203,72 @@ if "positions_df" in st.session_state:
             if not summary_df.empty:
                 st.caption("ポジションサマリー（件数）")
                 st.dataframe(summary_df, use_container_width=True)
-        st.dataframe(df_pos, use_container_width=True)
+        df_disp = df_pos.copy()
+        if "holding_days" in df_disp.columns:
+            def _normalize_days(value: Any) -> int | None:
+                try:
+                    if value in ("", None):
+                        return None
+                except Exception:
+                    return None
+                try:
+                    if pd.isna(value):
+                        return None
+                except Exception:
+                    pass
+                try:
+                    return int(value)
+                except Exception:
+                    return None
+
+            df_disp["holding_days"] = df_disp["holding_days"].apply(_normalize_days)
+        numeric_cols = [
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "unrealized_plpc_percent",
+        ]
+        for col in numeric_cols:
+            if col in df_disp.columns:
+                df_disp[col] = pd.to_numeric(df_disp[col], errors="coerce")
+        if "unrealized_plpc_percent" in df_disp.columns:
+            df_disp["unrealized_plpc_percent"] = (
+                df_disp["unrealized_plpc_percent"].round(2)
+            )
+        rename_map = {
+            "symbol": "銘柄",
+            "system": "システム",
+            "side": "サイド",
+            "qty": "数量",
+            "entry_date": "取得日",
+            "holding_days": "保有日数",
+            "avg_entry_price": "平均取得単価",
+            "current_price": "現在値",
+            "unrealized_pl": "含み損益",
+            "unrealized_plpc_percent": "含み損益率(%)",
+            "judgement": "判定",
+            "next_action": "次のアクション目安",
+            "rule_summary": "利確/損切りルール概要",
+        }
+        df_disp = df_disp.rename(columns=rename_map)
+        display_cols = [
+            "銘柄",
+            "システム",
+            "サイド",
+            "数量",
+            "取得日",
+            "保有日数",
+            "平均取得単価",
+            "現在値",
+            "含み損益",
+            "含み損益率(%)",
+            "判定",
+            "次のアクション目安",
+            "利確/損切りルール概要",
+        ]
+        df_disp = df_disp[[col for col in display_cols if col in df_disp.columns]]
+        st.dataframe(df_disp, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     artifacts = execute_today_signals(run_config)

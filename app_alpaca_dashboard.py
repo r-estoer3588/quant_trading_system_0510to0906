@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
 if TYPE_CHECKING:  # pragma: no cover - help type checkers
     try:
-        from plotly.graph_objects import Figure as PlotlyFigure # type: ignore
+        from plotly.graph_objects import Figure as PlotlyFigure  # type: ignore
     except (ModuleNotFoundError, ImportError):
         PlotlyFigure = Any
 else:  # pragma: no cover - runtime fallback when Plotly is missing
@@ -388,7 +388,11 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
+                close_col = (
+                    cols.get("close")
+                    or cols.get("adj close")
+                    or cols.get("adj_close")
+                )
                 if close_col is None:
                     continue
                 s = df[close_col].astype(float).tail(max_points)
@@ -416,9 +420,9 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         held = _days_held(entry_map.get(sym))
         system_value = symbol_map.get(sym, "unknown")
         limit = HOLD_LIMITS.get(str(system_value).lower())
-        exit_hint = (
-            f"{limit}日経過で手仕切り検討" if held is not None and limit and held >= limit else ""
-        )
+        exit_hint = ""
+        if held is not None and limit and held >= limit:
+            exit_hint = f"{limit}日経過で手仕切り検討"
         records.append(
             {
                 "銘柄": sym,
@@ -448,10 +452,12 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
     try:
         # ポジション数が多いときは点数を抑えて軽量化
         n_points = 20 if len(df) > 15 else 45
+        symbol_series = df["銘柄"].astype(str)
         price_series = [
-            _load_recent_prices(sym, max_points=n_points) or [] for sym in df["銘柄"].astype(str)
+            _load_recent_prices(sym, max_points=n_points) or []
+            for sym in symbol_series
         ]
-        df["価格ミニ"] = price_series
+        df["直近価格チャート"] = price_series
     except Exception:
         pass
     return df
@@ -707,7 +713,10 @@ def main() -> None:
                         "損益率(%)": st.column_config.ProgressColumn(
                             min_value=-20, max_value=20, format="%.1f%%"
                         ),
-                        "価格ミニ": st.column_config.LineChartColumn(width="small"),
+                        "直近価格チャート": st.column_config.LineChartColumn(
+                            width="small",
+                            help="過去数週間の終値推移をスパークラインで表示します。",
+                        ),
                     },
                 )
             except Exception:
