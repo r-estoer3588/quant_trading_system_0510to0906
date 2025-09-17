@@ -268,8 +268,22 @@ def _log(msg: str, ui: bool = True):
         ui_allowed = ui
 
     # CLI へは整形して出力
+    out = f"{prefix}{msg}"
     try:
-        print(f"{prefix}{msg}", flush=True)
+        print(out, flush=True)
+    except UnicodeEncodeError:
+        try:
+            import sys as _sys
+
+            encoding = getattr(_sys.stdout, "encoding", "") or "utf-8"
+            safe = out.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            print(safe, flush=True)
+        except Exception:
+            try:
+                safe = out.encode("ascii", errors="replace").decode("ascii", errors="replace")
+                print(safe, flush=True)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -343,9 +357,7 @@ def _load_prev_counts(signals_dir: Path) -> dict[str, int]:
         return {}
 
 
-def _save_prev_counts(
-    signals_dir: Path, per_system_map: dict[str, pd.DataFrame]
-) -> None:
+def _save_prev_counts(signals_dir: Path, per_system_map: dict[str, pd.DataFrame]) -> None:
     try:
         counts = {
             k: (0 if (v is None or v.empty) else int(len(v))) for k, v in per_system_map.items()
@@ -624,8 +636,7 @@ def _load_basic_data(
                     if k in x.columns:
                         x = x.rename(columns={k: v})
                 n = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 sliced = x.tail(n).reset_index(drop=True)
                 cache_manager.write_atomic(sliced, sym, "rolling")
@@ -750,8 +761,7 @@ def _load_indicator_data(
                     if k in x.columns:
                         x = x.rename(columns={k: v})
                 n = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
                 sliced = x.tail(n).reset_index(drop=True)
                 cache_manager.write_atomic(sliced, sym, "rolling")
@@ -797,9 +807,7 @@ def _load_indicator_data(
     return data
 
 
-def _subset_data(
-    basic_data: dict[str, pd.DataFrame], keys: list[str]
-) -> dict[str, pd.DataFrame]:
+def _subset_data(basic_data: dict[str, pd.DataFrame], keys: list[str]) -> dict[str, pd.DataFrame]:
     out = {}
     for s in keys or []:
         v = basic_data.get(s)
@@ -1191,9 +1199,7 @@ def _initialize_run_context(
     return ctx
 
 
-def _prepare_symbol_universe(
-    ctx: TodayRunContext, initial_symbols: list[str] | None
-) -> list[str]:
+def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | None) -> list[str]:
     """Determine today's symbol universe and emit initial run banners."""
 
     cache_dir = ctx.cache_dir
@@ -1222,7 +1228,6 @@ def _prepare_symbol_universe(
     if "SPY" not in symbols:
         symbols.append("SPY")
     ctx.symbol_universe = list(symbols)
-
 
     # Run start banner (CLI only)
     try:
@@ -1269,9 +1274,7 @@ def _prepare_symbol_universe(
     return symbols
 
 
-def _load_universe_basic_data(
-    ctx: TodayRunContext, symbols: list[str]
-) -> dict[str, pd.DataFrame]:
+def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[str, pd.DataFrame]:
     """Load rolling cache data for the prepared universe and ensure coverage."""
 
     cache_manager = ctx.cache_manager
@@ -1412,6 +1415,729 @@ def _precompute_shared_indicators_phase(
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")
     return basic_data
+
+
+def _ensure_cli_logger_configured() -> None:
+    """CLI ???????????????????"""
+    try:
+        if globals().get("_LOG_FILE_PATH") is None:
+            import os as _os
+
+            _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
+    except Exception:
+        pass
+
+
+def _silence_streamlit_cli_warnings() -> None:
+    """CLI ???? Streamlit ? bare mode ????????"""
+    try:
+        import logging as _lg
+        import os as _os
+
+        if _os.environ.get("STREAMLIT_SERVER_ENABLED"):
+            return
+
+        class _SilenceBareModeWarnings(_lg.Filter):
+            def filter(self, record: _lg.LogRecord) -> bool:  # type: ignore[override]
+                msg = str(record.getMessage())
+                if "missing ScriptRunContext" in msg:
+                    return False
+                if "Session state does not function" in msg:
+                    return False
+                return True
+
+        _names = [
+            "streamlit",
+            "streamlit.runtime",
+            "streamlit.runtime.scriptrunner_utils.script_run_context",
+            "streamlit.runtime.state.session_state_proxy",
+        ]
+        for _name in _names:
+            _logger = _lg.getLogger(_name)
+            _logger.addFilter(_SilenceBareModeWarnings())
+            try:
+                _logger.setLevel(_lg.ERROR)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _safe_progress_call(
+    callback: Callable[[int, int, str], None] | None,
+    current: int,
+    total: int,
+    label: str,
+) -> None:
+    """?????????????????"""
+    if not callback:
+        return
+    try:
+        callback(current, total, label)
+    except Exception:
+        pass
+
+
+def _log_previous_counts_summary(signals_dir: Path) -> None:
+    """?????????????????"""
+    try:
+        prev = _load_prev_counts(signals_dir)
+        if prev:
+            for i in range(1, 8):
+                key = f"system{i}"
+                v = int(prev.get(key, 0))
+                icon = "?" if v > 0 else "?"
+                suffix = " ??" if v == 0 else ""
+                _log(f"?? {icon} (????) {key}: {v} ?{suffix}")
+    except Exception:
+        pass
+
+
+def _apply_system_filters_and_update_ctx(
+    ctx: TodayRunContext,
+    symbols: list[str],
+    basic_data: dict[str, pd.DataFrame],
+) -> dict[str, list[str]]:
+    """????????????????????????"""
+    system1_syms = filter_system1(symbols, basic_data)
+    system2_syms = filter_system2(symbols, basic_data)
+    system3_syms = filter_system3(symbols, basic_data)
+    system4_syms = filter_system4(symbols, basic_data)
+    system5_syms = filter_system5(symbols, basic_data)
+    system6_syms = filter_system6(symbols, basic_data)
+    filters = {
+        "system1": system1_syms,
+        "system2": system2_syms,
+        "system3": system3_syms,
+        "system4": system4_syms,
+        "system5": system5_syms,
+        "system6": system6_syms,
+    }
+    ctx.system_filters = filters
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            cb2("system1", 25, len(system1_syms), None, None, None)
+            cb2("system2", 25, len(system2_syms), None, None, None)
+            cb2("system3", 25, len(system3_syms), None, None, None)
+            cb2("system4", 25, len(system4_syms), None, None, None)
+            cb2("system5", 25, len(system5_syms), None, None, None)
+            cb2("system6", 25, len(system6_syms), None, None, None)
+            cb2(
+                "system7",
+                25,
+                1 if "SPY" in (basic_data or {}) else 0,
+                None,
+                None,
+                None,
+            )
+        except Exception:
+            pass
+    return filters
+
+
+def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System1 ???????????????????"""
+    try:
+        s1_total = len(symbols)
+        s1_price = 0
+        s1_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
+                if last_close >= 5:
+                    s1_price += 1
+                else:
+                    continue
+                _c = _df["close"] if "close" in _df.columns else _df["Close"]
+                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
+                dv20 = float((_c * _v).tail(20).mean())
+                if dv20 >= 5e7:
+                    s1_dv += 1
+            except Exception:
+                continue
+        _log("?? system1???????: " + f"??={s1_total}, ??>=5: {s1_price}, DV20>=50M: {s1_dv}")
+    except Exception:
+        pass
+
+
+def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System2 ???????????????????"""
+    try:
+        s2_total = len(symbols)
+        c_price = 0
+        c_dv = 0
+        c_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last_close = float(_df["close"].iloc[-1])
+                if last_close >= 5:
+                    c_price += 1
+                else:
+                    continue
+                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
+                if dv >= 2.5e7:
+                    c_dv += 1
+                else:
+                    continue
+                if "high" in _df.columns and "low" in _df.columns:
+                    _tr = (_df["high"] - _df["low"]).tail(10)
+                    _atr = float(_tr.mean())
+                    if _atr >= last_close * 0.03:
+                        c_atr += 1
+            except Exception:
+                continue
+        _log(
+            "?? system2???????: "
+            + f"??={s2_total}, ??>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
+        )
+    except Exception:
+        pass
+
+
+def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System3 ???????????????????"""
+    try:
+        s3_total = len(symbols)
+        s3_low = 0
+        s3_av = 0
+        s3_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 1:
+                    s3_low += 1
+                else:
+                    continue
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) >= 1_000_000
+                ):
+                    s3_av += 1
+                else:
+                    continue
+                _atr_ratio = _df.get("ATR_Ratio")
+                if (
+                    _atr_ratio is not None
+                    and not pd.isna(_atr_ratio.iloc[-1])
+                    and float(_atr_ratio.iloc[-1]) >= 0.05
+                ):
+                    s3_atr += 1
+            except Exception:
+                continue
+        _log(
+            "?? system3???????: "
+            + f"??={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+        )
+    except Exception:
+        pass
+
+
+def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System4 ???????????????????"""
+    try:
+        s4_total = len(symbols)
+        s4_dv = 0
+        s4_hv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                _dv50 = _df.get("DollarVolume50")
+                _hv50 = _df.get("HV50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 100_000_000
+                ):
+                    s4_dv += 1
+                else:
+                    continue
+                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
+                    hv = float(_hv50.iloc[-1])
+                    if 10 <= hv <= 40:
+                        s4_hv += 1
+            except Exception:
+                continue
+        _log("?? system4???????: " + f"??={s4_total}, DV50>=100M: {s4_dv}, HV50 10?40: {s4_hv}")
+    except Exception:
+        pass
+
+
+def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System5 ???????????????????"""
+    try:
+        s5_total = len(symbols)
+        s5_av = 0
+        s5_dv = 0
+        s5_atr = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                _av50 = _df.get("AvgVolume50")
+                if (
+                    _av50 is not None
+                    and not pd.isna(_av50.iloc[-1])
+                    and float(_av50.iloc[-1]) > 500_000
+                ):
+                    s5_av += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 2_500_000
+                ):
+                    s5_dv += 1
+                else:
+                    continue
+                _atrp = _df.get("ATR_Pct")
+                if (
+                    _atrp is not None
+                    and not pd.isna(_atrp.iloc[-1])
+                    and float(_atrp.iloc[-1]) > 0.04
+                ):
+                    s5_atr += 1
+            except Exception:
+                continue
+        _log(
+            "?? system5???????: "
+            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, ATR_Pct>4%: {s5_atr}"
+        )
+    except Exception:
+        pass
+
+
+def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+    """System6 ???????????????????"""
+    try:
+        s6_total = len(symbols)
+        s6_low = 0
+        s6_dv = 0
+        for _sym in symbols:
+            _df = basic_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                _low_ser = _df.get("Low", _df.get("low"))
+                if _low_ser is None:
+                    continue
+                if float(_low_ser.iloc[-1]) >= 5:
+                    s6_low += 1
+                else:
+                    continue
+                _dv50 = _df.get("DollarVolume50")
+                if (
+                    _dv50 is not None
+                    and not pd.isna(_dv50.iloc[-1])
+                    and float(_dv50.iloc[-1]) > 10_000_000
+                ):
+                    s6_dv += 1
+            except Exception:
+                continue
+        _log("?? system6???????: " + f"??={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+    except Exception:
+        pass
+
+
+def _log_system7_filter_stats(basic_data: dict[str, pd.DataFrame]) -> None:
+    """System7 (SPY) ?????????????????"""
+    try:
+        spyp = (
+            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+        )
+        _log("?? system7???????: SPY?? | SPY??=" + str(spyp))
+    except Exception:
+        pass
+
+
+def _log_system_filter_stats(
+    symbols: list[str],
+    basic_data: dict[str, pd.DataFrame],
+    filters: dict[str, list[str]],
+) -> None:
+    """????????????????????????"""
+    _log("?? ?????????? (system1?system6)?")
+    _log_system1_filter_stats(symbols, basic_data)
+    _log_system2_filter_stats(symbols, basic_data)
+    _log_system3_filter_stats(symbols, basic_data)
+    _log_system4_filter_stats(symbols, basic_data)
+    _log_system5_filter_stats(symbols, basic_data)
+    _log_system6_filter_stats(symbols, basic_data)
+    _log_system7_filter_stats(basic_data)
+    system1_syms = filters.get("system1", [])
+    system2_syms = filters.get("system2", [])
+    system3_syms = filters.get("system3", [])
+    system4_syms = filters.get("system4", [])
+    system5_syms = filters.get("system5", [])
+    system6_syms = filters.get("system6", [])
+    _log(
+        "?? ???????: "
+        + f"system1={len(system1_syms)}?, "
+        + f"system2={len(system2_syms)}?, "
+        + f"system3={len(system3_syms)}?, "
+        + f"system4={len(system4_syms)}?, "
+        + f"system5={len(system5_syms)}?, "
+        + f"system6={len(system6_syms)}?"
+    )
+
+
+def _prepare_system1_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int, int | None]:
+    """System1 ???????????????????"""
+    _log("?? ?????????????? (system1)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system1={len(raw_data)}??")
+    s1_filter = int(len(system_symbols))
+    s1_setup = 0
+    spy_ok: int | None = None
+    try:
+        try:
+            if "SPY" in (basic_data or {}):
+                _spy_df = get_spy_with_indicators(basic_data["SPY"])
+                if _spy_df is not None and not getattr(_spy_df, "empty", True):
+                    _last = _spy_df.iloc[-1]
+                    spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
+        except Exception:
+            spy_ok = None
+        for _sym, _df in (raw_data or {}).items():
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                sma_pass = float(last.get("SMA25", float("nan"))) > float(
+                    last.get("SMA50", float("nan"))
+                )
+            except Exception:
+                sma_pass = False
+            if sma_pass:
+                s1_setup += 1
+        if spy_ok is None:
+            _log(
+                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: -, "
+                f"SMA25>SMA50: {s1_setup}"
+            )
+        else:
+            _log(
+                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: {spy_ok}, "
+                f"SMA25>SMA50: {s1_setup}"
+            )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            s1_setup_eff = int(s1_setup)
+            try:
+                if isinstance(spy_ok, int) and spy_ok == 0:
+                    s1_setup_eff = 0
+            except Exception:
+                pass
+            try:
+                cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
+            except Exception:
+                pass
+        try:
+            cb_note = globals().get("_PER_SYSTEM_NOTE")
+        except Exception:
+            cb_note = None
+        if cb_note and callable(cb_note):
+            try:
+                if spy_ok is None:
+                    cb_note("system1", "SPY>SMA100: -")
+                else:
+                    cb_note(
+                        "system1",
+                        "SPY>SMA100: OK" if int(spy_ok) == 1 else "SPY>SMA100: NG",
+                    )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s1_filter, s1_setup, spy_ok
+
+
+def _prepare_system2_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int, int]:
+    """System2 ???????????????????"""
+    _log("?? ?????????????? (system2)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system2={len(raw_data)}??")
+    s2_filter = int(len(system_symbols))
+    s2_rsi = 0
+    s2_up2 = 0
+    try:
+        for _sym in system_symbols or []:
+            _df = raw_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("RSI3", 0)) > 90:
+                    s2_rsi += 1
+            except Exception:
+                pass
+            try:
+                if bool(last.get("TwoDayUp", False)):
+                    s2_up2 += 1
+            except Exception:
+                pass
+        _log(
+            "?? system2????????: "
+            + f"??????={s2_filter}, RSI3>90: {s2_rsi}, "
+            + f"TwoDayUp: {s2_up2}"
+        )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            try:
+                cb2("system2", 50, int(s2_filter), int(max(s2_rsi, s2_up2)), None, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s2_filter, s2_rsi, s2_up2
+
+
+def _prepare_system3_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int, int]:
+    """System3 ???????????????????"""
+    _log("?? ?????????????? (system3)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system3={len(raw_data)}??")
+    s3_filter = int(len(system_symbols))
+    s3_close = 0
+    s3_drop = 0
+    try:
+        for _sym in system_symbols or []:
+            _df = raw_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA150", float("inf"))):
+                    s3_close += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("Drop3D", 0)) >= 0.125:
+                    s3_drop += 1
+            except Exception:
+                pass
+        _log(
+            "?? system3????????: "
+            + f"??????={s3_filter}, Close>SMA150: {s3_close}, "
+            + f"3????>=12.5%: {s3_drop}"
+        )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            try:
+                cb2("system3", 50, int(s3_filter), int(max(s3_close, s3_drop)), None, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s3_filter, s3_close, s3_drop
+
+
+def _prepare_system4_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int]:
+    """System4 ???????????????????"""
+    _log("?? ?????????????? (system4)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system4={len(raw_data)}??")
+    s4_filter = int(len(system_symbols))
+    s4_close = 0
+    try:
+        for _sym in system_symbols or []:
+            _df = raw_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA200", float("inf"))):
+                    s4_close += 1
+            except Exception:
+                pass
+        _log(f"?? system4????????: ??????={s4_filter}, Close>SMA200: {s4_close}")
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            try:
+                cb2("system4", 50, int(s4_filter), int(s4_close), None, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s4_filter, s4_close
+
+
+def _prepare_system5_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
+    """System5 ???????????????????"""
+    _log("?? ?????????????? (system5)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system5={len(raw_data)}??")
+    s5_filter = int(len(system_symbols))
+    s5_close = 0
+    s5_adx = 0
+    s5_rsi = 0
+    try:
+        for _sym in system_symbols or []:
+            _df = raw_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
+                    last.get("ATR10", 0)
+                ):
+                    s5_close += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("ADX7", 0)) > 55:
+                    s5_adx += 1
+            except Exception:
+                pass
+            try:
+                if float(last.get("RSI3", 100)) < 50:
+                    s5_rsi += 1
+            except Exception:
+                pass
+        _log(
+            "?? system5????????: "
+            + f"??????={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
+            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
+        )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            try:
+                cb2("system5", 50, int(s5_filter), int(s5_close), None, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s5_filter, s5_close, s5_adx, s5_rsi
+
+
+def _prepare_system6_data(
+    basic_data: dict[str, pd.DataFrame],
+    system_symbols: list[str],
+) -> tuple[dict[str, pd.DataFrame], int, int, int]:
+    """System6 ???????????????????"""
+    _log("?? ?????????????? (system6)?")
+    raw_data = _subset_data(basic_data, system_symbols)
+    _log(f"?? ???????: system6={len(raw_data)}??")
+    s6_filter = int(len(system_symbols))
+    s6_ret = 0
+    s6_up2 = 0
+    try:
+        for _sym in system_symbols or []:
+            _df = raw_data.get(_sym)
+            if _df is None or getattr(_df, "empty", True):
+                continue
+            try:
+                last = _df.iloc[-1]
+            except Exception:
+                continue
+            try:
+                if float(last.get("Return6D", 0)) > 0.20:
+                    s6_ret += 1
+            except Exception:
+                pass
+            try:
+                if bool(last.get("UpTwoDays", False)):
+                    s6_up2 += 1
+            except Exception:
+                pass
+        _log(
+            "?? system6????????: "
+            + f"??????={s6_filter}, Return6D>20%: {s6_ret}, "
+            + f"UpTwoDays: {s6_up2}"
+        )
+        try:
+            cb2 = globals().get("_PER_SYSTEM_STAGE")
+        except Exception:
+            cb2 = None
+        if cb2 and callable(cb2):
+            try:
+                cb2("system6", 50, int(s6_filter), int(max(s6_ret, s6_up2)), None, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return raw_data, s6_filter, s6_ret, s6_up2
+
+
+def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
+    """SPY ??????????????????"""
+    if "SPY" in basic_data:
+        try:
+            return get_spy_with_indicators(basic_data["SPY"])
+        except Exception:
+            return None
+    _log(
+        "?? SPY ?????????????? (base/full_backup/rolling ?????????)"
+        + " SPY.csv ? data_cache/base ???? data_cache/full_backup ?????????"
+    )
+    return None
 
 
 @no_type_check

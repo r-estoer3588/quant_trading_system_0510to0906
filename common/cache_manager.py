@@ -5,11 +5,12 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
 
-from common.utils import get_cached_data, safe_filename
+from common.utils import safe_filename
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ class CacheManager:
     - system5/6スタイルのコメント・進捗ログ粒度を踏襲
     """
 
+    _GLOBAL_WARNED: ClassVar[set[tuple[str, str, str]]] = set()
+
     def __init__(self, settings):
         self.settings = settings
         self.full_dir = Path(settings.cache.full_dir)
@@ -34,7 +37,7 @@ class CacheManager:
         self.full_dir.mkdir(parents=True, exist_ok=True)
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
         self._ui_prefix = "[CacheManager]"
-        self._warned: set[tuple[str, str, str]] = set()
+        self._warned = self._GLOBAL_WARNED
 
     def _warn_once(
         self, ticker: str, profile: str, category: str, message: str
@@ -500,8 +503,36 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
     return path
 
 
+_DEFAULT_CACHE_MANAGER: CacheManager | None = None
+
+
+def _get_default_cache_manager() -> CacheManager:
+    """モジュール共通で使い回す CacheManager を返す。"""
+
+    global _DEFAULT_CACHE_MANAGER
+    if _DEFAULT_CACHE_MANAGER is None:
+        settings = get_settings(create_dirs=False)
+        _DEFAULT_CACHE_MANAGER = CacheManager(settings)
+    return _DEFAULT_CACHE_MANAGER
+
+
+def _read_legacy_cache(symbol: str) -> pd.DataFrame | None:
+    """`data_cache/`直下の旧形式CSVを直接読み込む（互換目的）。"""
+
+    legacy_path = Path("data_cache") / f"{safe_filename(symbol)}.csv"
+    if not legacy_path.exists():
+        return None
+    try:
+        return pd.read_csv(legacy_path)
+    except Exception:
+        return None
+
+
 def load_base_cache(
-    symbol: str, *, rebuild_if_missing: bool = True
+    symbol: str,
+    *,
+    rebuild_if_missing: bool = True,
+    cache_manager: CacheManager | None = None,
 ) -> pd.DataFrame | None:  # noqa: E501
     """data_cache/base/{symbol}.csv を優先的に読み込む。
     無ければ CacheManager の full/rolling から再構築して保存（rebuild_if_missing=True）。
@@ -520,23 +551,23 @@ def load_base_cache(
     if not rebuild_if_missing:
         return None
 
-    # CacheManager から再構築（full -> rolling）
+    cm = cache_manager or _get_default_cache_manager()
     try:
-        from common.cache_manager import CacheManager  # 遅延importの循環回避
-        from config.settings import get_settings
-
-        cm = CacheManager(get_settings(create_dirs=False))
         raw = cm.read(symbol, "full") or cm.read(symbol, "rolling")
-        if raw is not None and not raw.empty:
-            # 列名の正規化（必要に応じて）
-            if "Date" not in raw.columns:
-                if "date" in raw.columns:
-                    raw = raw.rename(columns={"date": "Date"})
-                else:
-                    raw = raw.copy()
-                    raw["Date"] = pd.NaT
     except Exception:
-        raw = get_cached_data(symbol)
+        raw = None
+
+    if raw is not None and not raw.empty:
+        if "Date" not in raw.columns:
+            if "date" in raw.columns:
+                raw = raw.rename(columns={"date": "Date"})
+            else:
+                raw = raw.copy()
+                raw["Date"] = pd.NaT
+
+    if (raw is None or raw.empty) and rebuild_if_missing:
+        raw = _read_legacy_cache(symbol)
+
     if raw is None or raw.empty:
         return None
     out = compute_base_indicators(raw)
