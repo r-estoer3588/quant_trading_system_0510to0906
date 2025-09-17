@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import pandas as pd
 
 from common.cache_manager import CacheManager
-from scripts.update_from_bulk_last_day import append_to_cache
+import pytest
+
+from scripts.update_from_bulk_last_day import (
+    CacheUpdateInterrupted,
+    append_to_cache,
+)
 
 
 class DummyRolling(SimpleNamespace):
@@ -125,3 +130,71 @@ def test_append_to_cache_integrates_with_cache_manager(tmp_path):
         "2024-01-04",
         "2024-01-05",
     ]
+
+
+def test_append_to_cache_reports_progress(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    bulk = pd.DataFrame(
+        {
+            "code": ["AAA", "BBB"],
+            "date": ["2024-01-04", "2024-01-04"],
+            "open": [13.0, 20.0],
+            "high": [14.0, 21.0],
+            "low": [12.0, 19.0],
+            "close": [13.5, 20.5],
+            "adjusted_close": [13.4, 20.4],
+            "volume": [1300, 2000],
+        }
+    )
+
+    calls: list[tuple[int, int, int]] = []
+
+    def _progress(processed: int, total: int, updated: int) -> None:
+        calls.append((processed, total, updated))
+
+    total, updated = append_to_cache(
+        bulk,
+        cm,
+        progress_callback=_progress,
+        progress_step=1,
+    )
+
+    assert total == 2
+    assert updated == 2
+    assert calls
+    assert calls[0] == (0, 2, 0)
+    assert calls[1] == (1, 2, 1)
+    assert calls[-1] == (2, 2, 2)
+
+
+def test_append_to_cache_keyboard_interrupt(tmp_path, monkeypatch):
+    cm = _build_cache_manager(tmp_path)
+    bulk = pd.DataFrame(
+        {
+            "code": ["AAA", "BBB"],
+            "date": ["2024-01-04", "2024-01-04"],
+            "open": [13.0, 20.0],
+            "high": [14.0, 21.0],
+            "low": [12.0, 19.0],
+            "close": [13.5, 20.5],
+            "adjusted_close": [13.4, 20.4],
+            "volume": [1300, 2000],
+        }
+    )
+
+    call_count = {"count": 0}
+
+    def _interrupting_upsert(*args, **kwargs):
+        call_count["count"] += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cm, "upsert_both", _interrupting_upsert)
+
+    with pytest.raises(CacheUpdateInterrupted) as excinfo:
+        append_to_cache(bulk, cm, progress_step=1)
+
+    err = excinfo.value
+    assert err.processed == 1
+    assert err.updated == 0
+    # 中断までに一度 upsert を試行していることを確認
+    assert call_count["count"] == 1

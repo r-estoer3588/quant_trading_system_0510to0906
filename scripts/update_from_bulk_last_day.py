@@ -1,10 +1,12 @@
 import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Optional
+
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-from datetime import datetime
-import sys
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -15,21 +17,83 @@ from common.cache_manager import CacheManager  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
+PROGRESS_STEP_DEFAULT = 100
 
 
-def fetch_bulk_last_day():
-    url = f"https://eodhistoricaldata.com/api/eod-bulk-last-day/US?api_token={API_KEY}&fmt=json"
-    r = requests.get(url, timeout=30)
-    if r.status_code != 200:
-        print("Error fetching bulk data:", r.status_code)
+class CacheUpdateInterrupted(KeyboardInterrupt):
+    """KeyboardInterrupt に伴う進捗情報を保持する例外"""
+
+    def __init__(self, processed: int, updated: int) -> None:
+        super().__init__("cache update interrupted")
+        self.processed = processed
+        self.updated = updated
+
+
+def _normalize_symbol(symbol: object) -> str:
+    if pd.isna(symbol):
+        return ""
+    sym_norm = str(symbol).upper().strip()
+    if not sym_norm:
+        return ""
+    if sym_norm.endswith(".US"):
+        sym_norm = sym_norm.rsplit(".", 1)[0]
+    return sym_norm
+
+
+def _resolve_code_series(df: pd.DataFrame) -> Optional[pd.Series]:
+    for col in df.columns:
+        if str(col).lower() == "code":
+            return df[col]
+    return None
+
+
+def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
+    series = _resolve_code_series(df)
+    if series is None:
+        return 0, 0
+    codes = series.dropna().astype(str).str.strip()
+    codes = codes[codes != ""]
+    if codes.empty:
+        return 0, 0
+    normalized = codes.map(_normalize_symbol)
+    normalized = normalized[normalized != ""]
+    original_count = int(codes.nunique())
+    normalized_count = int(normalized.nunique())
+    return original_count, normalized_count
+
+
+def fetch_bulk_last_day() -> Optional[pd.DataFrame]:
+    url = (
+        "https://eodhistoricaldata.com/api/eod-bulk-last-day/US"
+        f"?api_token={API_KEY}&fmt=json"
+    )
+    try:
+        response = requests.get(url, timeout=30)
+    except requests.RequestException as exc:
+        print("Error fetching bulk data:", exc)
         return None
-    return pd.DataFrame(r.json())
+    if response.status_code != 200:
+        print("Error fetching bulk data:", response.status_code)
+        return None
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        print("Error parsing bulk data:", exc)
+        return None
+    return pd.DataFrame(payload)
 
 
-def append_to_cache(df: pd.DataFrame, cm: CacheManager) -> tuple[int, int]:
+def append_to_cache(
+    df: pd.DataFrame,
+    cm: CacheManager,
+    *,
+    progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    progress_step: int = PROGRESS_STEP_DEFAULT,
+) -> tuple[int, int]:
     """
     取得した1日分のデータを CacheManager の full/rolling にインクリメンタル反映する。
     戻り値: (対象銘柄数, upsert 成功数)
+    progress_callback: 処理済み銘柄数/総数/更新数を報告するコールバック
     """
     if df is None or df.empty:
         return 0, 0
@@ -52,57 +116,168 @@ def append_to_cache(df: pd.DataFrame, cm: CacheManager) -> tuple[int, int]:
         return 0, 0
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])  # 不正日時を除外
-    total = 0
-    updated = 0
     # シンボル列（code）が無い場合は更新対象なし
     if "code" not in df.columns:
         return 0, 0
-    for sym, g in df.groupby("code"):
-        total += 1
-        # 1日分（複数行が来てもそのまま渡せる）
-        keep_cols = [
-            "date",
-            "open",
-            "high",
-            "low",
-            "close",
-            "adjusted_close",
-            "volume",
-        ]
-        cols_exist = [c for c in keep_cols if c in g.columns]
-        if not cols_exist:
-            continue
-        rows = g[cols_exist].copy()
+    grouped = df.groupby("code")
+    original_count, normalized_count = _estimate_symbol_counts(df)
+    if original_count == 0 and normalized_count == 0 and grouped.ngroups == 0:
+        return 0, 0
+    progress_target = max(original_count, normalized_count, grouped.ngroups)
+    step = max(int(progress_step or 0), 1)
+    total = 0
+    updated = 0
+    last_report = 0
+    if progress_callback and progress_target:
         try:
-            sym_norm = str(sym).upper().strip()
-            if sym_norm.endswith(".US"):
-                sym_norm = sym_norm.rsplit(".", 1)[0]
-            cm.upsert_both(sym_norm, rows)
-            updated += 1
-        except Exception as e:
-            print(f"{sym}: upsert error - {e}")
+            progress_callback(0, progress_target, 0)
+        except Exception:
+            pass
+    interrupt_exc: Optional[BaseException] = None
+    try:
+        for sym, g in grouped:
+            sym_norm = _normalize_symbol(sym)
+            if not sym_norm:
+                continue
+            total += 1
+            keep_cols = [
+                "date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "adjusted_close",
+                "volume",
+            ]
+            cols_exist = [c for c in keep_cols if c in g.columns]
+            if not cols_exist:
+                continue
+            rows = g[cols_exist].copy()
+            try:
+                cm.upsert_both(sym_norm, rows)
+            except Exception as e:
+                print(f"{sym}: upsert error - {e}")
+            else:
+                updated += 1
+            if progress_callback:
+                effective_target = max(progress_target, total)
+                should_report = (
+                    total == effective_target
+                    or total - last_report >= step
+                    or total == 1
+                )
+                if should_report:
+                    try:
+                        progress_callback(total, effective_target, updated)
+                    except Exception:
+                        pass
+                    last_report = total
+    except KeyboardInterrupt as exc:  # pragma: no cover - 手動中断
+        interrupt_exc = exc
+    if interrupt_exc is not None:
+        if progress_callback and total and total != last_report:
+            effective_target = max(progress_target, total)
+            try:
+                progress_callback(total, effective_target, updated)
+            except Exception:
+                pass
+        raise CacheUpdateInterrupted(total, updated) from interrupt_exc
     # rolling のメンテナンス
     try:
         cm.prune_rolling_if_needed(anchor_ticker="SPY")
     except Exception:
         pass
+    if progress_callback and total and total != last_report:
+        effective_target = max(progress_target, total)
+        try:
+            progress_callback(total, effective_target, updated)
+        except Exception:
+            pass
     return total, updated
 
 
 def main():
     if not API_KEY:
-        print("EODHD_API_KEY が未設定です (.env を確認)")
+        print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
         return
+    print("🚀 EODHD Bulk Last Day 更新を開始します...", flush=True)
+    print("📡 API リクエストを送信中...", flush=True)
     data = fetch_bulk_last_day()
     if data is None or data.empty:
-        print("No data to update.")
+        print("No data to update.", flush=True)
         return
+
+    original_count, normalized_count = _estimate_symbol_counts(data)
+    estimated_symbols = max(original_count, normalized_count)
+    if estimated_symbols:
+        print(
+            f"📊 取得件数: {len(data)} 行 / 銘柄数(推定): {estimated_symbols}",
+            flush=True,
+        )
+    else:
+        print(f"📊 取得件数: {len(data)} 行", flush=True)
 
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
-    total, updated = append_to_cache(data, cm)
+
+    progress_state = {
+        "processed": 0,
+        "total": estimated_symbols,
+        "updated": 0,
+    }
+
+    def _report_progress(
+        processed: int,
+        total_symbols: int,
+        updated_count: int,
+    ) -> None:
+        progress_state["processed"] = processed
+        progress_state["total"] = total_symbols
+        progress_state["updated"] = updated_count
+        print(
+            f"  ⏳ 処理中: {processed}/{total_symbols} 銘柄 (更新 {updated_count})",
+            flush=True,
+        )
+
+    try:
+        total, updated = append_to_cache(
+            data,
+            cm,
+            progress_callback=_report_progress,
+            progress_step=PROGRESS_STEP_DEFAULT,
+        )
+    except CacheUpdateInterrupted as exc:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_symbols = max(progress_state.get("total", 0), exc.processed)
+        print(
+            "🛑 ユーザーにより更新処理が中断されました", flush=True
+        )
+        print(
+            f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols}"
+            f" 銘柄 / 更新済み: {exc.updated} 銘柄",
+            flush=True,
+        )
+        return
+    except KeyboardInterrupt:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_symbols = max(
+            progress_state.get("total", 0),
+            progress_state.get("processed", 0),
+        )
+        processed_count = progress_state.get("processed", 0)
+        updated_count = progress_state.get("updated", 0)
+        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
+        print(
+            f"   ↳ {now} 時点 | 処理済み: {processed_count}/{total_symbols}"
+            f" 銘柄 / 更新済み: {updated_count} 銘柄",
+            flush=True,
+        )
+        return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"✅ {now} | 対象: {total} 銘柄 / 更新: {updated} 銘柄（full/rolling へ反映）")
+    print(
+        f"✅ {now} | 対象: {total} 銘柄 / 更新: {updated} 銘柄（full/rolling へ反映）",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
