@@ -194,7 +194,7 @@ class CacheManager:
                         nan_rate = 0
                 else:
                     nan_rate = df.isnull().mean().mean()
-            if nan_rate > 0.05:
+            if nan_rate > 0.20:
                 category = f"nan_rate:{round(float(nan_rate), 4)}"
                 self._warn_once(
                     ticker,

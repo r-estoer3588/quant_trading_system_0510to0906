@@ -347,9 +347,25 @@ def generate_candidates_system2(
                 next_vals = idx[pos[mask]]
                 next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
             setup_df["entry_date"] = next_dates
-            setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         except Exception:
-            setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
+            setup_df["entry_date"] = pd.NaT
+
+        mask_missing = setup_df["entry_date"].isna()
+        if mask_missing.any():
+            base_index = pd.to_datetime(setup_df.index, errors="coerce")
+            fallback_values = []
+            for base_dt in base_index[mask_missing.to_numpy()]:
+                if pd.isna(base_dt):
+                    fallback_values.append(pd.NaT)
+                    continue
+                try:
+                    fallback = get_next_nyse_trading_day(pd.Timestamp(base_dt))
+                except Exception:
+                    fallback = pd.NaT
+                fallback_values.append(fallback)
+            setup_df.loc[mask_missing, "entry_date"] = fallback_values
+
+        setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         all_signals.append(setup_df)
 
     if not all_signals:

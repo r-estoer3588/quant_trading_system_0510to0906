@@ -235,6 +235,21 @@ def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timesta
     valid_days = pd.to_datetime(sched.index).normalize()
     return valid_days[valid_days <= today].max()
 
+def get_next_nyse_trading_day(current: pd.Timestamp | None = None) -> pd.Timestamp:
+    """NY証券取引所の翌営業日を返す。"""
+    nyse = mcal.get_calendar("NYSE")
+    if current is None:
+        current = pd.Timestamp.today().normalize()
+    current = pd.Timestamp(current).normalize()
+    sched = nyse.schedule(
+        start_date=current,
+        end_date=current + pd.Timedelta(days=10),
+    )
+    valid_days = pd.to_datetime(sched.index).normalize()
+    future_days = valid_days[valid_days > current]
+    if future_days.empty:
+        raise ValueError("No upcoming NYSE trading day found")
+    return future_days.min()
 
 def get_spy_data_cached(folder: str = "data_cache"):
     """

@@ -420,12 +420,15 @@ def generate_candidates_system6(
                 try:
                     idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
                     pos = idx.searchsorted(ts, side="right")
-                    if pos >= len(idx):
-                        continue
-                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
+                    entry_val = idx[pos] if pos < len(idx) else None
+                    if entry_val is not None:
+                        entry_date = pd.to_datetime(entry_val).tz_localize(None)
+                    else:
+                        entry_date = get_next_nyse_trading_day(pd.Timestamp(ts))
                 except Exception:
-                    entry_date = ts + pd.Timedelta(days=1)
-                    if entry_date not in df.index:
+                    try:
+                        entry_date = get_next_nyse_trading_day(pd.Timestamp(ts))
+                    except Exception:
                         continue
                 rec = {
                     "symbol": sym,

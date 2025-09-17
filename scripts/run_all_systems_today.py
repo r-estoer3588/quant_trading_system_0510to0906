@@ -557,6 +557,48 @@ def filter_system6(symbols, data):
     return result
 
 
+def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
+    if df is None or getattr(df, "empty", True):
+        return None
+    for col in ("date", "Date"):
+        if col in df.columns:
+            try:
+                values = pd.to_datetime(df[col], errors="coerce")
+                values = values.dropna()
+                if not values.empty:
+                    return pd.Timestamp(values.iloc[-1]).normalize()
+            except Exception:
+                continue
+    try:
+        idx = pd.to_datetime(df.index, errors="coerce")
+        mask = ~pd.isna(idx)
+        if mask.any():
+            return pd.Timestamp(idx[mask][-1]).normalize()
+    except Exception:
+        pass
+    return None
+
+
+def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.Timestamp]:
+    if today is None:
+        return []
+    out: list[pd.Timestamp] = []
+    seen: set[pd.Timestamp] = set()
+    current = pd.Timestamp(today).normalize()
+    steps = max(0, int(max_back))
+    for _ in range(steps + 1):
+        if current in seen:
+            break
+        out.append(current)
+        seen.add(current)
+        prev_candidate = get_latest_nyse_trading_day(current - pd.Timedelta(days=1))
+        prev_candidate = pd.Timestamp(prev_candidate).normalize()
+        if prev_candidate == current:
+            break
+        current = prev_candidate
+    return out
+
+
 def _load_basic_data(
     symbols: list[str],
     cache_manager: CacheManager,
@@ -572,6 +614,9 @@ def _load_basic_data(
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = None
+            rebuild_reason: str | None = None
+            last_seen_date: pd.Timestamp | None = None
+            gap_days: int | None = None
             try:
                 if symbol_data and sym in symbol_data:
                     df = symbol_data.get(sym)
@@ -613,6 +658,12 @@ def _load_basic_data(
             if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
                 base_df = load_base_cache(sym, rebuild_if_missing=True)
                 if base_df is None or base_df.empty:
+                    if rebuild_reason:
+                        reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
+                        _log(
+                            f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseキャッシュが見つかりません",
+                            ui=False,
+                        )
                     continue
                 x = base_df.copy()
                 if x.index.name is not None:
@@ -635,10 +686,15 @@ def _load_basic_data(
                 for k, v in list(col_map.items()):
                     if k in x.columns:
                         x = x.rename(columns={k: v})
-                n = int(
-                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-                )
-                sliced = x.tail(n).reset_index(drop=True)
+                sliced = x.tail(target_len).reset_index(drop=True)
+                if sliced.empty:
+                    if rebuild_reason:
+                        reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
+                        _log(
+                            f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseデータが空です",
+                            ui=False,
+                        )
+                    continue
                 cache_manager.write_atomic(sliced, sym, "rolling")
                 df = sliced
             if df is not None and not df.empty:

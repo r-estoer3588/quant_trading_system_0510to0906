@@ -70,8 +70,10 @@ class OutputConfig:
 class CacheRollingConfig:
     base_lookback_days: int = 200
     buffer_days: int = 100
+    max_staleness_days: int = 2
     prune_chunk_days: int = 30
     meta_file: str = "_meta.json"
+    max_stale_days: int = 2
 
 
 @dataclass(frozen=True)
@@ -325,6 +327,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             buffer_days=int(rolling_cfg.get("buffer_days", 40)),
             prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
+            max_stale_days=int(rolling_cfg.get("max_stale_days", 2)),
         ),
     )
 
