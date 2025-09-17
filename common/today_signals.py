@@ -207,8 +207,19 @@ def get_today_signals_for_strategy(
     # 取引日
     if today is None:
         today = get_latest_nyse_trading_day()
-    if isinstance(today, pd.Timestamp):
-        today = today.normalize()
+    try:
+        today_ts = pd.Timestamp(today)
+    except Exception:
+        today_ts = get_latest_nyse_trading_day()
+    if getattr(today_ts, "tzinfo", None) is not None:
+        try:
+            today_ts = today_ts.tz_convert(None)
+        except (TypeError, ValueError, AttributeError):
+            try:
+                today_ts = today_ts.tz_localize(None)
+            except Exception:
+                today_ts = pd.Timestamp(today_ts.to_pydatetime().replace(tzinfo=None))
+    today = today_ts.normalize()
 
     # 準備
     total_symbols = len(raw_data_dict)
@@ -1214,6 +1225,7 @@ def get_today_signals_for_strategy(
     except Exception:
         pass
     return out
+
 
 def run_all_systems_today(
     symbols: list[str] | None,
