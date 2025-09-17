@@ -70,7 +70,11 @@ from common import universe as univ
 from common.alpaca_order import submit_orders_df
 from common.data_loader import load_price
 from common.notifier import create_notifier
-from common.position_age import load_entry_dates
+from common.position_age import (
+    fetch_entry_dates_from_alpaca,
+    load_entry_dates,
+    save_entry_dates,
+)
 from common.profit_protection import evaluate_positions
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.system_groups import (
@@ -1126,7 +1130,28 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
     try:
         client_tmp = ba.get_client(paper=paper_mode)
         positions = list(client_tmp.get_all_positions())
-        entry_map = load_entry_dates()
+        raw_entry_map = load_entry_dates()
+        entry_map: dict[str, str] = {}
+        for key, value in raw_entry_map.items():
+            try:
+                entry_map[str(key).upper()] = str(value)
+            except Exception:
+                continue
+        missing: list[str] = []
+        for pos in positions:
+            sym = str(getattr(pos, "symbol", "")).upper()
+            if sym and sym not in entry_map:
+                missing.append(sym)
+        if missing:
+            fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            if fetched:
+                for sym, ts in fetched.items():
+                    if sym not in entry_map:
+                        entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                try:
+                    save_entry_dates(entry_map)
+                except Exception:
+                    pass
         symbol_system_map = _load_symbol_system_map(Path("data/symbol_system_map.json"))
         latest_trading_day = _latest_trading_day()
         strategy_classes = _strategy_class_map()
