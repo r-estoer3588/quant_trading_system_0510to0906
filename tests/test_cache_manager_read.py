@@ -7,8 +7,8 @@ from common.cache_manager import CacheManager
 
 
 class DummyRolling(SimpleNamespace):
-    base_lookback_days = 200
-    buffer_days = 100
+    base_lookback_days = 300
+    buffer_days = 30
     prune_chunk_days = 30
     meta_file = "_meta.json"
 
