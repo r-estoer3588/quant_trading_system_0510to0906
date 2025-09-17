@@ -224,32 +224,51 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         return None
 
 
+def _normalize_to_naive_day(ts: pd.Timestamp | None) -> pd.Timestamp:
+    """Normalize timestamp to tz-naive midnight."""
+
+    if ts is None:
+        ts = pd.Timestamp.today()
+    else:
+        ts = pd.Timestamp(ts)
+    tz = getattr(ts, "tzinfo", None)
+    if tz is not None:
+        try:
+            ts = ts.tz_convert(None)
+        except (TypeError, ValueError, AttributeError):
+            try:
+                ts = ts.tz_localize(None)
+            except Exception:
+                ts = pd.Timestamp(ts.to_pydatetime().replace(tzinfo=None))
+    return ts.normalize()
+
+
 def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timestamp:
     nyse = mcal.get_calendar("NYSE")
-    if today is None:
-        today = pd.Timestamp.today().normalize()
+    today_naive = _normalize_to_naive_day(today)
     sched = nyse.schedule(
-        start_date=today - pd.Timedelta(days=7),
-        end_date=today + pd.Timedelta(days=1),
+        start_date=today_naive - pd.Timedelta(days=7),
+        end_date=today_naive + pd.Timedelta(days=1),
     )
     valid_days = pd.to_datetime(sched.index).normalize()
-    return valid_days[valid_days <= today].max()
+    return valid_days[valid_days <= today_naive].max()
+
 
 def get_next_nyse_trading_day(current: pd.Timestamp | None = None) -> pd.Timestamp:
     """NY証券取引所の翌営業日を返す。"""
+
     nyse = mcal.get_calendar("NYSE")
-    if current is None:
-        current = pd.Timestamp.today().normalize()
-    current = pd.Timestamp(current).normalize()
+    current_naive = _normalize_to_naive_day(current)
     sched = nyse.schedule(
-        start_date=current,
-        end_date=current + pd.Timedelta(days=10),
+        start_date=current_naive,
+        end_date=current_naive + pd.Timedelta(days=10),
     )
     valid_days = pd.to_datetime(sched.index).normalize()
-    future_days = valid_days[valid_days > current]
+    future_days = valid_days[valid_days > current_naive]
     if future_days.empty:
         raise ValueError("No upcoming NYSE trading day found")
     return future_days.min()
+
 
 def get_spy_data_cached(folder: str = "data_cache"):
     """
