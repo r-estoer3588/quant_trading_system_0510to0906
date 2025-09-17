@@ -237,6 +237,39 @@ def prepare_data_vectorized_system1(
             if rename_map:
                 df.rename(columns=rename_map, inplace=True)
 
+            # --- 健全性チェック: NaN・型不一致・異常値 ---
+            try:
+                nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
+                if nan_rate > 0.05:
+                    msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+                    if log_callback:
+                        log_callback(msg)
+                    if skip_callback:
+                        skip_callback(sym, msg)
+                for col in ["Open", "High", "Low", "Close", "Volume"]:
+                    if col in df.columns:
+                        if not pd.api.types.is_numeric_dtype(df[col]):
+                            msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                            if log_callback:
+                                log_callback(msg)
+                            if skip_callback:
+                                skip_callback(sym, msg)
+                for col in ["Close", "High", "Low"]:
+                    if col in df.columns:
+                        vals = pd.to_numeric(df[col], errors="coerce")
+                        if (vals <= 0).all():
+                            msg = f"⚠️ {sym} cache: {col}全て非正値"
+                            if log_callback:
+                                log_callback(msg)
+                            if skip_callback:
+                                skip_callback(sym, msg)
+            except Exception as e:
+                msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
+                if log_callback:
+                    log_callback(msg)
+                if skip_callback:
+                    skip_callback(sym, msg)
+
             # 2) インデックス（日付）を決定
             idx = None
             if "Date" in df.columns:

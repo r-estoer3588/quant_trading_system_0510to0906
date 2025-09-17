@@ -91,6 +91,33 @@ class CacheManager:
                 .drop_duplicates("date")
                 .reset_index(drop=True)
             )
+        # --- 健全性チェック: NaN・型不一致・異常値 ---
+        try:
+            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
+            if nan_rate > 0.05:
+                logger.warning(
+                    f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: NaN率高 "
+                    f"({nan_rate:.2%})"
+                )
+            for col in ["open", "high", "low", "close", "volume"]:
+                if col in df.columns:
+                    if not pd.api.types.is_numeric_dtype(df[col]):
+                        logger.warning(
+                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}型不一致 "
+                            f"({df[col].dtype})"
+                        )
+            for col in ["close", "high", "low"]:
+                if col in df.columns:
+                    vals = pd.to_numeric(df[col], errors="coerce")
+                    if (vals <= 0).all():
+                        logger.warning(
+                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                        )
+        except Exception as e:
+            logger.warning(
+                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 "
+                f"({e})"
+            )
         return df
 
     def write_atomic(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
