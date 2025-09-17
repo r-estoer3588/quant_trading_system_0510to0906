@@ -2091,7 +2091,7 @@ def compute_today_signals(
                 )
             except Exception:
                 settings2 = None
-                lb_default = 240
+                lb_default = 300
             # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
             # ルックバックのマージン/最小日数は環境変数で上書き可能
             try:

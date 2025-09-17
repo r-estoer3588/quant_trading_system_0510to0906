@@ -102,7 +102,7 @@ DATA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DATA_CACHE_RECENT_DIR = DATA_CACHE_RECENT_DIR.resolve()
 DATA_CACHE_RECENT_DIR.mkdir(parents=True, exist_ok=True)
 
-RECENT_DAYS = 240
+RECENT_DAYS = 300
 
 
 # -----------------------------

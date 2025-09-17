@@ -345,6 +345,10 @@ def generate_candidates_system4(
                     continue
                 if int(spy_df.at[ts, "spy_filter"]) == 0:
                     continue
+                # last_price（直近終値）を取得
+                last_price = None
+                if "Close" in x.columns and not x["Close"].empty:
+                    last_price = x["Close"].iloc[-1]
                 # 翌営業日に補正
                 try:
                     idx = pd.DatetimeIndex(pd.to_datetime(x.index, errors="coerce").normalize())
@@ -361,6 +365,7 @@ def generate_candidates_system4(
                     "entry_date": entry_date,
                     "RSI4": row["RSI4"],
                     "ATR40": row["ATR40"],
+                    "entry_price": last_price,
                 }
                 candidates_by_date.setdefault(entry_date, []).append(rec)
         except Exception:

@@ -133,12 +133,20 @@ def generate_candidates_system7(
     df = prepared_dict["SPY"]
     setup_days = df[df["setup"] == 1]
     for date, row in setup_days.iterrows():
-        # get_loc は slice 等を返すことがあるので int にキャスト
         entry_idx = cast(int, df.index.get_loc(date))
         if entry_idx + 1 >= len(df):
             continue
         entry_date = df.index[entry_idx + 1]
-        rec = {"symbol": "SPY", "entry_date": entry_date, "ATR50": row["ATR50"]}
+        # last_price（直近終値）を取得
+        last_price = None
+        if "Close" in df.columns and not df["Close"].empty:
+            last_price = df["Close"].iloc[-1]
+        rec = {
+            "symbol": "SPY",
+            "entry_date": entry_date,
+            "ATR50": row["ATR50"],
+            "entry_price": last_price,
+        }
         candidates_by_date.setdefault(entry_date, []).append(rec)
     if log_callback:
         try:

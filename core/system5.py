@@ -500,6 +500,10 @@ def generate_candidates_system5(
                 continue
             for date, row in setup_days.iterrows():
                 ts = pd.to_datetime(pd.Index([date]))[0]
+                # last_price（直近終値）を取得
+                last_price = None
+                if "Close" in df.columns and not df["Close"].empty:
+                    last_price = df["Close"].iloc[-1]
                 # 翌営業日に補正
                 try:
                     idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
@@ -516,6 +520,7 @@ def generate_candidates_system5(
                     "entry_date": entry_date,
                     "ADX7": row["ADX7"],
                     "ATR10": row["ATR10"],
+                    "entry_price": last_price,
                 }
                 candidates_by_date.setdefault(entry_date, []).append(rec)
         except Exception:

@@ -332,7 +332,11 @@ def generate_candidates_system2(
             continue
         setup_df = df[df["setup"]].copy()
         setup_df["symbol"] = sym
-        # 翌営業日に補正（カレンダー+1ではなく、当該シンボルの次の取引日）
+        # last_price（直近終値）を取得
+        last_price = None
+        if "Close" in df.columns and not df["Close"].empty:
+            last_price = df["Close"].iloc[-1]
+        setup_df["entry_price"] = last_price
         try:
             idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
             base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
@@ -345,7 +349,6 @@ def generate_candidates_system2(
             setup_df["entry_date"] = next_dates
             setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         except Exception:
-            # フォールバック: 従来通り+1（存在しなければ後段で落ちる）
             setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
         all_signals.append(setup_df)
 

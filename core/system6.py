@@ -334,6 +334,21 @@ def generate_candidates_system6(
     buffer: list[str] = []
 
     for sym, df in prepared_dict.items():
+        # featherキャッシュの健全性チェック
+        if df is None or df.empty:
+            if log_callback:
+                log_callback(f"[警告] {sym} のデータが空です（featherキャッシュ欠損）")
+            skipped += 1
+            continue
+        if df.isnull().sum().sum() > 0:
+            if log_callback:
+                log_callback(
+                    f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）"
+                )
+        # last_price（直近終値）を取得
+        last_price = None
+        if "Close" in df.columns and not df["Close"].empty:
+            last_price = df["Close"].iloc[-1]
         try:
             if "setup" not in df.columns or not df["setup"].any():
                 skipped += 1
@@ -358,6 +373,7 @@ def generate_candidates_system6(
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
+                    "entry_price": last_price,
                     "Return6D": row["Return6D"],
                     "ATR10": row["ATR10"],
                 }

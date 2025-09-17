@@ -69,7 +69,7 @@ class OutputConfig:
 @dataclass(frozen=True)
 class CacheRollingConfig:
     base_lookback_days: int = 200
-    buffer_days: int = 40
+    buffer_days: int = 100
     prune_chunk_days: int = 30
     meta_file: str = "_meta.json"
 

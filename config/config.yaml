@@ -50,7 +50,7 @@ cache:
   file_format: "auto"
   rolling:
     base_lookback_days: 200
-    buffer_days: 40
+    buffer_days: 100
     prune_chunk_days: 30
     meta_file: "_meta.json"
 

@@ -338,7 +338,11 @@ def generate_candidates_system3(
             continue
         setup_df = df[df["setup"] == 1].copy()
         setup_df["symbol"] = sym
-        # 翌営業日に補正
+        # last_price（直近終値）を取得
+        last_price = None
+        if "Close" in df.columns and not df["Close"].empty:
+            last_price = df["Close"].iloc[-1]
+        setup_df["entry_price"] = last_price
         try:
             idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
             base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
@@ -352,7 +356,7 @@ def generate_candidates_system3(
             setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         except Exception:
             setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
-        setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10"]]
+        setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10", "entry_price"]]
         all_signals.append(setup_df)
         buffer.append(sym)
 
