@@ -612,6 +612,9 @@ def _load_basic_data(
     cache_manager: CacheManager,
     settings: Any,
     symbol_data: dict[str, pd.DataFrame] | None,
+    *,
+    today: pd.Timestamp | None = None,
+    freshness_tolerance: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     import time as _t
 
@@ -619,6 +622,42 @@ def _load_basic_data(
     total_syms = len(symbols)
     start_ts = _t.time()
     chunk = 500
+
+    if freshness_tolerance is None:
+        try:
+            freshness_tolerance = int(settings.cache.rolling.max_staleness_days)
+        except Exception:
+            freshness_tolerance = 2
+    freshness_tolerance = max(0, int(freshness_tolerance))
+
+    recent_allowed: set[pd.Timestamp] = set()
+    if today is not None and freshness_tolerance >= 0:
+        try:
+            recent_allowed = {
+                pd.Timestamp(d).normalize()
+                for d in _recent_trading_days(pd.Timestamp(today), freshness_tolerance)
+            }
+        except Exception:
+            recent_allowed = set()
+
+    gap_probe_days = max(freshness_tolerance + 5, 10)
+
+    def _estimate_gap_days(
+        today_dt: pd.Timestamp | None, last_dt: pd.Timestamp | None
+    ) -> int | None:
+        if today_dt is None or last_dt is None:
+            return None
+        try:
+            recent = _recent_trading_days(pd.Timestamp(today_dt), gap_probe_days)
+        except Exception:
+            recent = []
+        for offset, dt in enumerate(recent):
+            if dt == last_dt:
+                return offset
+        try:
+            return max(0, int((pd.Timestamp(today_dt) - pd.Timestamp(last_dt)).days))
+        except Exception:
+            return None
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = None
@@ -663,7 +702,36 @@ def _load_basic_data(
             target_len = int(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
-            if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
+            needs_rebuild = False
+            if df is None or df.empty or (
+                hasattr(df, "__len__") and len(df) < target_len
+            ):
+                needs_rebuild = True
+                if rebuild_reason is None and df is not None and not getattr(df, "empty", True):
+                    rebuild_reason = "length"
+            if df is not None and not getattr(df, "empty", True):
+                last_seen_date = _extract_last_cache_date(df)
+                if last_seen_date is None:
+                    rebuild_reason = rebuild_reason or "missing_date"
+                    needs_rebuild = True
+                else:
+                    last_seen_date = pd.Timestamp(last_seen_date).normalize()
+                    if today is not None and recent_allowed:
+                        if last_seen_date not in recent_allowed:
+                            rebuild_reason = "stale"
+                            gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
+                            needs_rebuild = True
+            if needs_rebuild:
+                if rebuild_reason == "stale":
+                    gap_label = (
+                        f"約{gap_days}営業日" if gap_days is not None else "不明"
+                    )
+                    last_label = (
+                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
+                    )
+                    _log(
+                        f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}"
+                    )
                 base_df = load_base_cache(sym, rebuild_if_missing=True)
                 if base_df is None or base_df.empty:
                     if rebuild_reason:
@@ -704,6 +772,20 @@ def _load_basic_data(
                         )
                     continue
                 cache_manager.write_atomic(sliced, sym, "rolling")
+                if rebuild_reason == "stale":
+                    new_last = _extract_last_cache_date(sliced)
+                    try:
+                        new_label = (
+                            str(pd.Timestamp(new_last).date())
+                            if new_last is not None
+                            else "不明"
+                        )
+                    except Exception:
+                        new_label = "不明"
+                    _log(
+                        f"✅ rolling更新完了: {sym} → 最終日={new_label}",
+                        ui=False,
+                    )
                 df = sliced
             if df is not None and not df.empty:
                 try:
@@ -1346,7 +1428,13 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
-    basic_data = _load_basic_data(symbols, cache_manager, settings, symbol_data)
+    basic_data = _load_basic_data(
+        symbols,
+        cache_manager,
+        settings,
+        symbol_data,
+        today=ctx.today,
+    )
     ctx.basic_data = basic_data
 
     if progress_callback:
