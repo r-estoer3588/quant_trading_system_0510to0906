@@ -1191,6 +1191,229 @@ def _initialize_run_context(
     return ctx
 
 
+def _prepare_symbol_universe(
+    ctx: TodayRunContext, initial_symbols: list[str] | None
+) -> list[str]:
+    """Determine today's symbol universe and emit initial run banners."""
+
+    cache_dir = ctx.cache_dir
+    log_callback = ctx.log_callback
+    progress_callback = ctx.progress_callback
+    run_id = ctx.run_id
+
+    if initial_symbols and len(initial_symbols) > 0:
+        symbols = [s.upper() for s in initial_symbols]
+    else:
+        from common.universe import build_universe_from_cache, load_universe_file
+
+        universe = load_universe_file()
+        if not universe:
+            universe = build_universe_from_cache(limit=None)
+        symbols = [s.upper() for s in universe]
+        if not symbols:
+            try:
+                files = list(cache_dir.glob("*.*"))
+                primaries = [p.stem for p in files if p.stem.upper() == "SPY"]
+                others = sorted({p.stem for p in files if len(p.stem) <= 5})[:200]
+                symbols = list(dict.fromkeys(primaries + others))
+            except Exception:
+                symbols = []
+
+    if "SPY" not in symbols:
+        symbols.append("SPY")
+    ctx.symbol_universe = list(symbols)
+
+
+    # Run start banner (CLI only)
+    try:
+        print("#" * 68, flush=True)
+    except Exception:
+        pass
+    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
+    try:
+        import time as _time
+
+        now_str = _time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        now_str = ""
+    try:
+        universe_total = sum(1 for s in symbols if str(s).upper() != "SPY")
+    except Exception:
+        universe_total = len(symbols)
+    _log(
+        f"# ⏱️ {now_str} | 銘柄数：{universe_total}　| RUN-ID: {run_id}",
+        ui=False,
+    )
+    try:
+        print("#" * 68 + "\n", flush=True)
+    except Exception:
+        pass
+
+    _log(
+        f"🎯 対象シンボル数: {len(symbols)}"
+        f" | サンプル: {', '.join(symbols[:10])}"
+        f"{'...' if len(symbols) > 10 else ''}"
+    )
+
+    if log_callback:
+        try:
+            log_callback("🧭 シンボル決定完了。基礎データのロードへ…")
+        except Exception:
+            pass
+    if progress_callback:
+        try:
+            progress_callback(1, 8, "対象読み込み:start")
+        except Exception:
+            pass
+
+    return symbols
+
+
+def _load_universe_basic_data(
+    ctx: TodayRunContext, symbols: list[str]
+) -> dict[str, pd.DataFrame]:
+    """Load rolling cache data for the prepared universe and ensure coverage."""
+
+    cache_manager = ctx.cache_manager
+    settings = ctx.settings
+    progress_callback = ctx.progress_callback
+    symbol_data = ctx.symbol_data
+
+    basic_data = _load_basic_data(symbols, cache_manager, settings, symbol_data)
+    ctx.basic_data = basic_data
+
+    if progress_callback:
+        try:
+            progress_callback(2, 8, "load_basic")
+        except Exception:
+            pass
+
+    try:
+        cov_have = len(basic_data)
+        cov_total = len(symbols)
+        cov_missing = max(0, cov_total - cov_have)
+        _log(
+            "🧮 データカバレッジ: "
+            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
+        )
+        if cov_missing > 0:
+            missing_syms = [s for s in symbols if s not in basic_data]
+            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            fixed = 0
+            for sym in missing_syms:
+                try:
+                    base_df = load_base_cache(sym, rebuild_if_missing=True)
+                    if base_df is None or base_df.empty:
+                        continue
+                    x = base_df.copy()
+                    if x.index.name is not None:
+                        x = x.reset_index()
+                    if "Date" in x.columns:
+                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    elif "date" in x.columns:
+                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    else:
+                        continue
+                    x = x.dropna(subset=["date"]).sort_values("date")
+                    col_map = {
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "AdjClose": "adjusted_close",
+                        "Volume": "volume",
+                    }
+                    for k, v in list(col_map.items()):
+                        if k in x.columns:
+                            x = x.rename(columns={k: v})
+                    n = int(
+                        settings.cache.rolling.base_lookback_days
+                        + settings.cache.rolling.buffer_days
+                    )
+                    sliced = x.tail(n).reset_index(drop=True)
+                    cache_manager.write_atomic(sliced, sym, "rolling")
+                    basic_data[sym] = _normalize_ohlcv(sliced)
+                    fixed += 1
+                except Exception:
+                    continue
+            if fixed:
+                _log(f"🛠 欠損データを {fixed} 銘柄で補完", ui=False)
+    except Exception:
+        pass
+
+    return basic_data
+
+
+def _precompute_shared_indicators_phase(
+    ctx: TodayRunContext, basic_data: dict[str, pd.DataFrame]
+) -> dict[str, pd.DataFrame]:
+    """Optionally pre-compute shared indicators for the loaded dataset."""
+
+    if not basic_data:
+        return basic_data
+
+    try:
+        import os as _os
+
+        from common.indicators_precompute import (
+            PRECOMPUTED_INDICATORS,
+            precompute_shared_indicators,
+        )
+
+        try:
+            thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
+        except Exception:
+            thr_syms = 300
+        if len(basic_data) < max(0, thr_syms):
+            _log(
+                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {thr_syms}）"
+            )
+            return basic_data
+
+        try:
+            _log(
+                "🧮 共有指標の前計算を開始: "
+                + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
+                + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
+            )
+        except Exception:
+            _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+
+        force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
+        try:
+            thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
+        except Exception:
+            thr_parallel = 1000
+        if force_parallel in ("1", "true", "yes"):
+            use_parallel = True
+        elif force_parallel in ("0", "false", "no"):
+            use_parallel = False
+        else:
+            use_parallel = len(basic_data) >= max(0, thr_parallel)
+
+        try:
+            st = get_settings(create_dirs=False)
+            pre_workers = int(getattr(st, "THREADS_DEFAULT", 12))
+        except Exception:
+            pre_workers = 12
+        if use_parallel:
+            try:
+                _log(f"🧵 前計算 並列ワーカー: {pre_workers}")
+            except Exception:
+                pass
+        basic_data = precompute_shared_indicators(
+            basic_data,
+            log=_log,
+            parallel=use_parallel,
+            max_workers=pre_workers if use_parallel else None,
+        )
+        ctx.basic_data = basic_data
+        _log("🧮 共有指標の前計算が完了")
+    except Exception as e:
+        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
+    return basic_data
+
+
 @no_type_check
 def compute_today_signals(
     symbols: list[str] | None,
@@ -1245,10 +1468,8 @@ def compute_today_signals(
 
     _run_id = ctx.run_id
     settings = ctx.settings
-    cm = ctx.cache_manager
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = ctx.log_callback
-    cache_dir = ctx.cache_dir
     signals_dir = ctx.signals_dir
 
     run_start_time = ctx.run_start_time
@@ -1263,7 +1484,6 @@ def compute_today_signals(
     log_callback = ctx.log_callback
     progress_callback = ctx.progress_callback
     per_system_progress = ctx.per_system_progress
-    symbol_data = ctx.symbol_data
     parallel = ctx.parallel
 
     # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
@@ -1320,231 +1540,10 @@ def compute_today_signals(
         except Exception:
             pass
 
-    # シンボル決定
-    if symbols and len(symbols) > 0:
-        symbols = [s.upper() for s in symbols]
-    else:
-        from common.universe import build_universe_from_cache, load_universe_file
+    symbols = _prepare_symbol_universe(ctx, symbols)
+    basic_data = _load_universe_basic_data(ctx, symbols)
 
-        universe = load_universe_file()
-        if not universe:
-            universe = build_universe_from_cache(limit=None)
-        symbols = [s.upper() for s in universe]
-        if not symbols:
-            try:
-                files = list(cache_dir.glob("*.*"))
-                primaries = [p.stem for p in files if p.stem.upper() == "SPY"]
-                others = sorted({p.stem for p in files if len(p.stem) <= 5})[:200]
-                symbols = list(dict.fromkeys(primaries + others))
-            except Exception:
-                symbols = []
-    if "SPY" not in symbols:
-        symbols.append("SPY")
-    ctx.symbol_universe = list(symbols)
-
-    # バナー（開始）: 罫線は print で出力してタイムスタンプを付けない
-    try:
-        print("#" * 68, flush=True)
-    except Exception:
-        pass
-    # CLI 専用の開始バナー（UI には出さない）
-    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
-    try:
-        import time as _time
-
-        _now = _time.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        _now = ""
-    try:
-        universe_total = sum(1 for s in symbols if str(s).upper() != "SPY")
-    except Exception:
-        universe_total = len(symbols)
-    _log(
-        f"# ⏱️ {_now} | 銘柄数：{universe_total}　| RUN-ID: {_run_id}",
-        ui=False,
-    )
-    try:
-        print("#" * 68 + "\n", flush=True)
-    except Exception:
-        pass
-
-    _log(
-        f"🎯 対象シンボル数: {len(symbols)}"
-        f"（例: {', '.join(symbols[:10])}"
-        f"{'...' if len(symbols) > 10 else ''}）"
-    )
-    if log_callback:
-        try:
-            log_callback("🧭 シンボル決定完了。基礎データのロードへ…")
-        except Exception:
-            pass
-    if progress_callback:
-        try:
-            # 直後に基礎データロードを開始するため、フェーズ名を明確化
-            progress_callback(1, 8, "対象読み込み:start")
-        except Exception:
-            pass
-
-    # データ読み込み
-    # --- フィルター条件で銘柄を絞り込み、
-    #     通過銘柄のみデータロード ---
-    # 1. まずフィルター条件に必要なデータ
-    #    （株価・売買代金・ATR等）を全銘柄分ロード
-    # --- フィルター・データロード関数を
-    #     ローカル関数として定義 ---
-
-    # 実行スコープで変数定義
-    # --- フィルター・データロード変数を
-    #     forループより前に定義 ---
-    basic_data = _load_basic_data(symbols, cm, settings, symbol_data)
-    ctx.basic_data = basic_data
-    if progress_callback:
-        try:
-            progress_callback(2, 8, "load_basic")
-        except Exception:
-            pass
-    # データカバレッジ内訳（rollingに存在する銘柄数）
-    try:
-        cov_have = len(basic_data)
-        cov_total = len(symbols)
-        cov_missing = max(0, cov_total - cov_have)
-        _log(
-            "🧮 データカバレッジ: "
-            + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-        )
-        if cov_missing > 0:
-            missing_syms = [s for s in symbols if s not in basic_data]
-            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
-            fixed = 0
-            for sym in missing_syms:
-                try:
-                    base_df = load_base_cache(sym, rebuild_if_missing=True)
-                    if base_df is None or base_df.empty:
-                        continue
-                    x = base_df.copy()
-                    if x.index.name is not None:
-                        x = x.reset_index()
-                    if "Date" in x.columns:
-                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                    elif "date" in x.columns:
-                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                    else:
-                        continue
-                    x = x.dropna(subset=["date"]).sort_values("date")
-                    col_map = {
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "AdjClose": "adjusted_close",
-                        "Volume": "volume",
-                    }
-                    for k, v in list(col_map.items()):
-                        if k in x.columns:
-                            x = x.rename(columns={k: v})
-                    n = int(
-                        settings.cache.rolling.base_lookback_days
-                        + settings.cache.rolling.buffer_days
-                    )
-                    sliced = x.tail(n).reset_index(drop=True)
-                    cm.write_atomic(sliced, sym, "rolling")
-                    df = _normalize_ohlcv(sliced)
-                    basic_data[sym] = df
-                    fixed += 1
-                except Exception:
-                    continue
-            try:
-                if fixed > 0:
-                    _log(f"🧩 補完書き戻し: rolling生成 {fixed}件")
-            except Exception:
-                pass
-            cov_have = len(basic_data)
-            cov_missing = max(0, cov_total - cov_have)
-            _log(
-                "🧮 データカバレッジ(補完後): "
-                + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
-            )
-            # 補完後の対象件数を UI の Tgt に即時反映（全system共通）
-            try:
-                cb2 = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2 = None
-            if cb2 and callable(cb2):
-                try:
-                    # Tgt はユニバース総数（SPY除外）を採用
-                    try:
-                        tgt_total = int(cov_total)
-                        if any(str(s).upper() == "SPY" for s in (symbols or [])):
-                            tgt_total = max(0, tgt_total - 1)
-                    except Exception:
-                        tgt_total = int(cov_total)
-                    for i in range(1, 8):
-                        cb2(f"system{i}", 0, tgt_total, None, None, None)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    # 共有指標の前計算（ATR/SMA/ADXなど）
-    try:
-        import os as _os
-
-        from common.indicators_precompute import (
-            PRECOMPUTED_INDICATORS,
-            precompute_shared_indicators,
-        )
-
-        # 実行しきい値（小規模ユニバースでは前計算をスキップしてオーバーヘッド削減）
-        try:
-            _thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
-        except Exception:
-            _thr_syms = 300
-        if len(basic_data) < max(0, _thr_syms):
-            _log(
-                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {_thr_syms}）"
-            )
-        else:
-            try:
-                _log(
-                    "🧮 共有指標の前計算を開始: "
-                    + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
-                    + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
-                )
-            except Exception:
-                _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
-            # 大規模ユニバース時は並列化（環境変数で強制ON/OFF可能）
-            force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
-            try:
-                _thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
-            except Exception:
-                _thr_parallel = 1000
-            if force_parallel in ("1", "true", "yes"):
-                use_parallel = True
-            elif force_parallel in ("0", "false", "no"):
-                use_parallel = False
-            else:
-                use_parallel = len(basic_data) >= max(0, _thr_parallel)
-
-            # 前計算のワーカー数は設定値に連動（環境変数の直接指定がある場合は別途関知）
-            try:
-                _st = get_settings(create_dirs=False)
-                _pre_workers = int(getattr(_st, "THREADS_DEFAULT", 12))
-            except Exception:
-                _pre_workers = 12
-            if use_parallel:
-                try:
-                    _log(f"🧵 前計算 並列ワーカー: {_pre_workers}")
-                except Exception:
-                    pass
-            basic_data = precompute_shared_indicators(
-                basic_data,
-                log=_log,
-                parallel=use_parallel,
-                max_workers=_pre_workers if use_parallel else None,
-            )
-            ctx.basic_data = basic_data
-            _log("🧮 共有指標の前計算が完了")
-    except Exception as e:
-        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
+    basic_data = _precompute_shared_indicators_phase(ctx, basic_data)
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
     system1_syms = filter_system1(symbols, basic_data)
     system2_syms = filter_system2(symbols, basic_data)

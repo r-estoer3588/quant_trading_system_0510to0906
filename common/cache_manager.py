@@ -34,8 +34,7 @@ class CacheManager:
         self.full_dir.mkdir(parents=True, exist_ok=True)
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
         self._ui_prefix = "[CacheManager]"
-
-    self._warned: set[tuple[str, str, str]] = set()
+        self._warned: set[tuple[str, str, str]] = set()
 
     def _warn_once(
         self, ticker: str, profile: str, category: str, message: str
@@ -65,15 +64,16 @@ class CacheManager:
         try:
             if path.suffix == ".feather":
                 try:
-                    import feather
-
-                    df = feather.read_dataframe(str(path))
+                    df = pd.read_feather(path)
                 except Exception as e:
                     self._warn_once(
                         ticker,
                         profile,
                         "read_feather_fail",
-                        f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) → csvへフォールバック試行",
+                        (
+                            f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) "
+                            "→ csvへフォールバック試行"
+                        ),
                     )
                     csv_path = path.with_suffix(".csv")
                     if csv_path.exists():

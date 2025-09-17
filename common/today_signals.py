@@ -730,10 +730,21 @@ def get_today_signals_for_strategy(
         cand_keys = list((candidates_by_date or {}).keys())
         for _k in cand_keys:
             try:
-                _ts = pd.to_datetime(_k, errors="coerce")
-                if pd.isna(_ts):
+                _raw_ts = pd.to_datetime(_k, errors="coerce")
+                if pd.isna(_raw_ts):
                     continue
-                _ts = pd.Timestamp(_ts).normalize()
+                _ts = pd.Timestamp(_raw_ts)
+                if getattr(_ts, "tzinfo", None) is not None:
+                    try:
+                        _ts = _ts.tz_localize(None)
+                    except Exception:
+                        try:
+                            _ts = pd.Timestamp(
+                                _ts.to_pydatetime().replace(tzinfo=None)
+                            )
+                        except Exception:
+                            continue
+                _ts = _ts.normalize()
                 # 同一日の複数キーがあっても最初を採用
                 if _ts not in key_map:
                     key_map[_ts] = _k
