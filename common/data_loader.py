@@ -95,19 +95,93 @@ def iter_load_symbols(
 
 
 def load_price(ticker: str, cache_profile: str = "full") -> pd.DataFrame:
-    """
-    cache_profile: "full" | "rolling"
-    読み出しは CacheManager 経由に統一。既存仕様で常にDataFrameを返す。
-    """
+    """CacheManager 経由で株価データを読み込む。"""
+
     from common.cache_manager import CacheManager
     from config.settings import get_settings
 
     settings = get_settings(create_dirs=False)
     cm = CacheManager(settings)
-    df = cm.read(ticker, cache_profile)
-    if df is None:
-        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
-    return df
+
+    def _profiles(profile: str) -> list[str]:
+        raw = (profile or "full").strip()
+        if not raw:
+            return ["full"]
+        parts = [raw.lower()]
+        if "/" in raw:
+            parts = [p.strip().lower() for p in raw.split("/") if p.strip()]
+            if not parts:
+                parts = ["full"]
+        # rolling/full のような指定では base を間に挟んでフォールバック順を明示する
+        if "rolling" in parts and "full" in parts and "base" not in parts:
+            try:
+                roll_idx = parts.index("rolling")
+            except ValueError:
+                roll_idx = -1
+            insert_at = roll_idx + 1 if roll_idx >= 0 else max(len(parts) - 1, 0)
+            parts.insert(insert_at, "base")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            if part not in {"rolling", "base", "full"}:
+                continue
+            if part in seen:
+                continue
+            normalized.append(part)
+            seen.add(part)
+        return normalized or ["full"]
+
+    def _normalize_df(df_in: pd.DataFrame | None) -> pd.DataFrame | None:
+        if df_in is None or df_in.empty:
+            return df_in
+        df_work = df_in.copy()
+        try:
+            if df_work.index.name and str(df_work.index.name).lower() == "date":
+                df_work = df_work.reset_index()
+        except Exception:
+            pass
+        rename_map = {}
+        for col in list(getattr(df_work, "columns", [])):
+            if str(col).lower() == "date":
+                rename_map[col] = "date"
+        if rename_map:
+            df_work = df_work.rename(columns=rename_map)
+        if "date" in df_work.columns:
+            df_work["date"] = pd.to_datetime(df_work["date"], errors="coerce")
+            df_work = (
+                df_work.dropna(subset=["date"])
+                .sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)
+            )
+        try:
+            df_work.columns = [str(col).lower() for col in df_work.columns]
+        except Exception:
+            df_work.columns = [str(col) for col in df_work.columns]
+        return df_work
+
+    result: pd.DataFrame | None = None
+    profiles = _profiles(str(cache_profile))
+    for profile in profiles:
+        profile_key = profile.strip().lower()
+        try:
+            if profile_key == "base":
+                base_df = load_base_cache(
+                    ticker,
+                    rebuild_if_missing=True,
+                    cache_manager=cm,
+                )
+                result = _normalize_df(base_df)
+            elif profile_key in {"rolling", "full"}:
+                result = _normalize_df(cm.read(ticker, profile_key))
+            else:
+                continue
+        except Exception:
+            result = None
+        if result is not None and not result.empty:
+            return result
+
+    return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
 
 __all__ = ["load_symbols", "load_price", "iter_load_symbols"]
