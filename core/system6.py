@@ -9,7 +9,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
-from common.utils_spy import get_next_nyse_trading_day
+from common.utils_spy import resolve_signal_entry_date
 
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
@@ -419,19 +419,9 @@ def generate_candidates_system6(
             for date, row in setup_days.iterrows():
                 ts = pd.to_datetime(pd.Index([date]))[0]
                 # 翌営業日に補正
-                try:
-                    idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-                    pos = idx.searchsorted(ts, side="right")
-                    entry_val = idx[pos] if pos < len(idx) else None
-                    if entry_val is not None:
-                        entry_date = pd.to_datetime(entry_val).tz_localize(None)
-                    else:
-                        entry_date = get_next_nyse_trading_day(pd.Timestamp(ts))
-                except Exception:
-                    try:
-                        entry_date = get_next_nyse_trading_day(pd.Timestamp(ts))
-                    except Exception:
-                        continue
+                entry_date = resolve_signal_entry_date(ts)
+                if pd.isna(entry_date):
+                    continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,

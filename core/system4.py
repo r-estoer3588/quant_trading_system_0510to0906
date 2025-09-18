@@ -13,6 +13,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 MIN_ROWS = 200
@@ -463,16 +464,9 @@ def generate_candidates_system4(
                 if "Close" in x.columns and not x["Close"].empty:
                     last_price = x["Close"].iloc[-1]
                 # 翌営業日に補正
-                try:
-                    idx = pd.DatetimeIndex(pd.to_datetime(x.index, errors="coerce").normalize())
-                    pos = idx.searchsorted(ts, side="right")
-                    if pos >= len(idx):
-                        continue
-                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
-                except Exception:
-                    entry_date = ts + pd.Timedelta(days=1)
-                    if entry_date not in x.index:
-                        continue
+                entry_date = resolve_signal_entry_date(ts)
+                if pd.isna(entry_date):
+                    continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
