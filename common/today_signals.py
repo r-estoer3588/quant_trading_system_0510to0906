@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import inspect
 import time as _t
 from typing import Any, cast
 import numpy as np
@@ -14,7 +13,9 @@ from core.system5 import (
     DEFAULT_ATR_PCT_THRESHOLD,
     format_atr_pct_threshold_label,
 )
-from common.utils_spy import get_spy_with_indicators
+from common.utils_spy import get_next_nyse_trading_day, get_spy_with_indicators
+
+SpyGate = Callable[[pd.Timestamp], bool]
 
 # --- サイド定義（売買区分）---
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
@@ -34,6 +35,22 @@ class TodaySignal:
     score_key: str | None = None
     score: float | None = None
     reason: str | None = None
+
+
+def _empty_signals_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "symbol",
+            "system",
+            "side",
+            "signal_type",
+            "entry_date",
+            "entry_price",
+            "stop_price",
+            "score_key",
+            "score",
+        ]
+    )
 
 
 def _infer_side(system_name: str) -> str:
@@ -172,6 +189,504 @@ def _compute_entry_stop(
     return round(entry, 4), round(stop, 4)
 
 
+def _normalize_symbol_frame(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    if df is None or getattr(df, "empty", True):
+        return None
+    try:
+        x = df.copy()
+        raw_dates = (
+            pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+            if "Date" in x.columns
+            else pd.to_datetime(x.index, errors="coerce").normalize()
+        )
+        date_series = pd.Series(raw_dates, index=x.index)
+        mask = ~date_series.isna()
+        if not mask.any():
+            return None
+        x = x.loc[mask].copy()
+        date_index = pd.DatetimeIndex(date_series.loc[mask])
+        if date_index.empty:
+            return None
+        x.index = date_index
+        x = x.sort_index()
+        if getattr(x.index, "has_duplicates", False):
+            x = x[~x.index.duplicated(keep="last")]
+        return x
+    except Exception:
+        return None
+
+
+def _row_on_or_before(df: pd.DataFrame, target: pd.Timestamp) -> pd.Series | None:
+    if df is None or getattr(df, "empty", True):
+        return None
+    try:
+        if target in df.index:
+            row = df.loc[target]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[-1]
+            return row
+    except Exception:
+        pass
+    try:
+        mask_arr = np.asarray(df.index <= target)
+        if mask_arr.any():
+            idx = int(np.nonzero(mask_arr)[0][-1])
+            return df.iloc[idx]
+    except Exception:
+        pass
+    try:
+        return df.iloc[-1]
+    except Exception:
+        return None
+
+
+def _build_latest_rows(
+    prepared: dict[str, pd.DataFrame], prev_day: pd.Timestamp
+) -> tuple[dict[str, pd.Series], int]:
+    latest_rows: dict[str, pd.Series] = {}
+    filter_pass = 0
+    for sym, df in prepared.items():
+        row = _row_on_or_before(df, prev_day)
+        if row is None:
+            continue
+        latest_rows[sym] = row
+        try:
+            if bool(row.get("filter")):
+                filter_pass += 1
+        except Exception:
+            continue
+    return latest_rows, filter_pass
+
+
+def _make_spy_gate(spy_df: pd.DataFrame | None, column: str) -> SpyGate:
+    if spy_df is None or getattr(spy_df, "empty", True) or column not in spy_df.columns:
+        return lambda _: True
+
+    def _gate(ts: pd.Timestamp) -> bool:
+        row = _row_on_or_before(spy_df, ts)
+        if row is None:
+            return True
+        try:
+            close_val = float(row.get("Close", float("nan")))
+            sma_val = float(row.get(column, float("nan")))
+            if np.isnan(close_val) or np.isnan(sma_val):
+                return True
+            return close_val > sma_val
+        except Exception:
+            return True
+
+    return _gate
+
+
+def _compute_setup_pass(
+    system_name: str,
+    latest_rows: dict[str, pd.Series],
+    filter_pass: int,
+    prev_day: pd.Timestamp,
+    log_callback: Callable[[str], None] | None,
+    spy_df: pd.DataFrame | None,
+) -> int:
+    rows_list = list(latest_rows.values())
+    name = system_name.lower()
+    setup_pass = 0
+
+    def _safe_float(val: Any) -> float:
+        try:
+            num = float(val)
+            if np.isnan(num):
+                raise ValueError
+            return num
+        except Exception:
+            return float("nan")
+
+    if name == "system1":
+        filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+
+        def _sma_ok(row: pd.Series) -> bool:
+            left = _safe_float(row.get("SMA25"))
+            right = _safe_float(row.get("SMA50"))
+            if np.isnan(left) or np.isnan(right):
+                return False
+            return left > right
+
+        sma_pass = sum(1 for row in filtered_rows if _sma_ok(row))
+        spy_gate: int | None = None
+        if spy_df is not None and not getattr(spy_df, "empty", True):
+            spy_row = _row_on_or_before(spy_df, prev_day)
+            if spy_row is not None:
+                close_val = _safe_float(spy_row.get("Close"))
+                sma_val = _safe_float(spy_row.get("SMA100"))
+                if not np.isnan(close_val) and not np.isnan(sma_val):
+                    spy_gate = 1 if close_val > sma_val else 0
+        setup_pass = sma_pass if spy_gate != 0 else 0
+        if log_callback:
+            spy_label = "-" if spy_gate is None else str(int(spy_gate))
+            try:
+                log_callback(
+                    "🧩 system1セットアップ内訳: "
+                    + f"フィルタ通過={filter_pass}, SPY>SMA100: {spy_label}, "
+                    + f"SMA25>SMA50: {sma_pass}"
+                )
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system2":
+        filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+
+        def _rsi_ok(row: pd.Series) -> bool:
+            val = _safe_float(row.get("RSI3"))
+            return not np.isnan(val) and val > 90
+
+        def _two_up(row: pd.Series) -> bool:
+            try:
+                return bool(row.get("TwoDayUp"))
+            except Exception:
+                return False
+
+        rsi_pass = sum(1 for row in filtered_rows if _rsi_ok(row))
+        two_up_pass = sum(1 for row in filtered_rows if _rsi_ok(row) and _two_up(row))
+        setup_pass = two_up_pass
+        if log_callback:
+            try:
+                log_callback(
+                    "🧩 system2セットアップ内訳: "
+                    + f"フィルタ通過={filter_pass}, RSI3>90: {rsi_pass}, "
+                    + f"TwoDayUp: {two_up_pass}"
+                )
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system3":
+        filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+
+        def _close_ok(row: pd.Series) -> bool:
+            close_val = _safe_float(row.get("Close"))
+            sma_val = _safe_float(row.get("SMA150"))
+            if np.isnan(close_val) or np.isnan(sma_val):
+                return False
+            return close_val > sma_val
+
+        def _drop_ok(row: pd.Series) -> bool:
+            drop_val = _safe_float(row.get("Drop3D"))
+            return not np.isnan(drop_val) and drop_val >= 0.125
+
+        close_pass = sum(1 for row in filtered_rows if _close_ok(row))
+        drop_pass = sum(1 for row in filtered_rows if _close_ok(row) and _drop_ok(row))
+        setup_pass = drop_pass
+        if log_callback:
+            try:
+                log_callback(
+                    "🧩 system3セットアップ内訳: "
+                    + f"フィルタ通過={filter_pass}, Close>SMA150: {close_pass}, "
+                    + f"3日下落率>=12.5%: {drop_pass}"
+                )
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system4":
+        def _above_sma(row: pd.Series) -> bool:
+            if not bool(row.get("filter")):
+                return False
+            close_val = _safe_float(row.get("Close"))
+            sma_val = _safe_float(row.get("SMA200"))
+            if np.isnan(close_val) or np.isnan(sma_val):
+                return False
+            return close_val > sma_val
+
+        above_sma = sum(1 for row in rows_list if _above_sma(row))
+        setup_pass = above_sma
+        if log_callback:
+            try:
+                log_callback(
+                    "🧩 system4セットアップ内訳: "
+                    + f"フィルタ通過={filter_pass}, Close>SMA200: {above_sma}"
+                )
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system5":
+        threshold_label = format_atr_pct_threshold_label()
+        rows_total = len(rows_list)
+        s5_av = 0
+        s5_dv = 0
+        s5_atr = 0
+        for row in rows_list:
+            av_val = _safe_float(row.get("AvgVolume50"))
+            if np.isnan(av_val) or av_val <= 500_000:
+                continue
+            s5_av += 1
+            dv_val = _safe_float(row.get("DollarVolume50"))
+            if np.isnan(dv_val) or dv_val <= 2_500_000:
+                continue
+            s5_dv += 1
+            atr_pct_val = _safe_float(row.get("ATR_Pct"))
+            if not np.isnan(atr_pct_val) and atr_pct_val > DEFAULT_ATR_PCT_THRESHOLD:
+                s5_atr += 1
+        if log_callback:
+            try:
+                log_callback(
+                    "🧪 system5内訳: "
+                    + f"対象={rows_total}, AvgVol50>500k: {s5_av}, "
+                    + f"DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
+                )
+            except Exception:
+                pass
+
+        def _price_ok(row: pd.Series) -> bool:
+            if not bool(row.get("filter")):
+                return False
+            close_val = _safe_float(row.get("Close"))
+            sma_val = _safe_float(row.get("SMA100"))
+            atr_val = _safe_float(row.get("ATR10"))
+            if any(np.isnan(v) for v in (close_val, sma_val, atr_val)):
+                return False
+            return close_val > sma_val + atr_val
+
+        def _adx_ok(row: pd.Series) -> bool:
+            val = _safe_float(row.get("ADX7"))
+            return not np.isnan(val) and val > 55
+
+        def _rsi_ok(row: pd.Series) -> bool:
+            val = _safe_float(row.get("RSI3"))
+            return not np.isnan(val) and val < 50
+
+        price_pass = sum(1 for row in rows_list if _price_ok(row))
+        adx_pass = sum(1 for row in rows_list if _price_ok(row) and _adx_ok(row))
+        rsi_pass = sum(
+            1 for row in rows_list if _price_ok(row) and _adx_ok(row) and _rsi_ok(row)
+        )
+        setup_pass = rsi_pass
+        if log_callback:
+            try:
+                log_callback(
+                    "🧩 system5セットアップ内訳: "
+                    + f"フィルタ通過={filter_pass}, Close>SMA100+ATR10: {price_pass}, "
+                    + f"ADX7>55: {adx_pass}, RSI3<50: {rsi_pass}"
+                )
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system6":
+        filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+
+        def _ret_ok(row: pd.Series) -> bool:
+            val = _safe_float(row.get("Return6D"))
+            return not np.isnan(val) and val > 0.20
+
+        def _up_two(row: pd.Series) -> bool:
+            try:
+                return bool(row.get("UpTwoDays"))
+            except Exception:
+                return False
+
+        ret_pass = sum(1 for row in filtered_rows if _ret_ok(row))
+        up_pass = sum(1 for row in filtered_rows if _ret_ok(row) and _up_two(row))
+        setup_pass = up_pass
+        if log_callback:
+            try:
+                msg = (
+                    "🧩 system6セットアップ内訳: "
+                    f"フィルタ通過={filter_pass}, "
+                    f"Return6D>20%: {ret_pass}, "
+                    f"UpTwoDays: {up_pass}"
+                )
+                log_callback(msg)
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    if name == "system7":
+        spy_present = 1 if "SPY" in latest_rows else 0
+        setup_pass = spy_present
+        if log_callback:
+            try:
+                msg = f"🧩 system7セットアップ内訳: SPY存在={spy_present}"
+                if spy_present:
+                    try:
+                        spy_row = latest_rows.get("SPY", pd.Series())
+                        setup_raw = spy_row.get("setup", 0)
+                        setup_flag = int(bool(setup_raw))
+                        msg += f", setup={setup_flag}"
+                    except Exception:
+                        pass
+                log_callback(msg)
+            except Exception:
+                pass
+        return int(setup_pass)
+
+    setup_pass = sum(1 for row in rows_list if bool(row.get("setup")))
+    return int(setup_pass)
+
+
+REQUIRED_CANDIDATE_COLUMNS: dict[str, tuple[str, ...]] = {
+    "system1": ("ROC200", "SMA25", "SMA50", "filter", "setup"),
+    "system2": ("ADX7", "RSI3", "TwoDayUp", "setup"),
+    "system3": ("Drop3D", "ATR10", "setup"),
+    "system4": ("RSI4", "ATR40", "setup"),
+    "system5": ("ADX7", "ATR10", "RSI3", "setup"),
+    "system6": ("Return6D", "ATR10", "UpTwoDays", "setup"),
+    "system7": ("ATR50", "setup"),
+}
+
+RANKING_CONFIG: dict[str, tuple[str | None, bool]] = {
+    "system1": ("ROC200", False),
+    "system2": ("ADX7", False),
+    "system3": ("Drop3D", False),
+    "system4": ("RSI4", True),
+    "system5": ("ADX7", False),
+    "system6": ("Return6D", False),
+    "system7": (None, False),
+}
+
+
+def _resolve_top_n(system_name: str) -> int:
+    try:
+        return int(get_settings(create_dirs=False).backtest.top_n_rank)
+    except Exception:
+        return 10
+
+
+def _is_fast_path_viable(
+    system_name: str, prepared: dict[str, pd.DataFrame], prev_day: pd.Timestamp
+) -> bool:
+    if not prepared:
+        return False
+    try:
+        prev_ts = pd.Timestamp(prev_day).normalize()
+    except Exception:
+        return False
+    name = (system_name or "").lower()
+    required_cols = set(REQUIRED_CANDIDATE_COLUMNS.get(name, tuple()))
+    available_cols: set[str] = set()
+    has_prev_setup = False
+    for df in prepared.values():
+        if df is None or getattr(df, "empty", True):
+            continue
+        try:
+            available_cols.update(map(str, df.columns))
+        except Exception:
+            pass
+        if "setup" in df.columns and prev_ts in df.index:
+            has_prev_setup = True
+    if required_cols and not required_cols.issubset(available_cols):
+        return False
+    return has_prev_setup
+
+
+def _collect_candidates_for_today(
+    system_name: str,
+    prepared: dict[str, pd.DataFrame],
+    today: pd.Timestamp,
+    prev_day: pd.Timestamp,
+    spy_df: pd.DataFrame | None,
+) -> dict[pd.Timestamp, list[dict]]:
+    name = system_name.lower()
+    gate = (lambda _ts: True)
+    if name == "system1":
+        gate = _make_spy_gate(spy_df, "SMA100")
+    elif name == "system4":
+        gate = _make_spy_gate(spy_df, "SMA200")
+
+    required_cols = REQUIRED_CANDIDATE_COLUMNS.get(name, tuple())
+    rank_key, asc = RANKING_CONFIG.get(name, (None, True))
+    top_n = _resolve_top_n(name)
+
+    entry_map: dict[pd.Timestamp, list[dict]] = {}
+
+    for sym, df in prepared.items():
+        if "setup" not in df.columns:
+            continue
+        if prev_day not in df.index:
+            continue
+        try:
+            row = df.loc[prev_day]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[-1]
+        except Exception:
+            continue
+        try:
+            setup_flag = bool(row.get("setup"))
+        except Exception:
+            setup_flag = False
+        if not setup_flag:
+            continue
+        if not gate(prev_day):
+            continue
+        try:
+            loc = df.index.get_loc(prev_day)
+        except Exception:
+            continue
+        if isinstance(loc, slice):
+            loc = loc.stop - 1
+        elif isinstance(loc, np.ndarray):
+            if len(loc) == 0:
+                continue
+            loc = int(loc[-1])
+        else:
+            loc = int(loc)
+        if loc < 0:
+            continue
+        if loc + 1 < len(df.index):
+            try:
+                entry_date_raw = pd.Timestamp(df.index[loc + 1])
+            except Exception:
+                continue
+        else:
+            try:
+                entry_date_raw = pd.Timestamp(get_next_nyse_trading_day(prev_day))
+            except Exception:
+                continue
+        try:
+            entry_date = entry_date_raw.normalize()
+        except Exception:
+            entry_date = entry_date_raw
+        if entry_date != today:
+            continue
+        candidate = {
+            "symbol": sym,
+            "entry_date": entry_date,
+            "Date": prev_day,
+        }
+        for col in required_cols:
+            if col in row.index:
+                candidate[col] = row[col]
+        entry_map.setdefault(entry_date, []).append(candidate)
+
+    if rank_key is not None:
+        for date, items in list(entry_map.items()):
+            def _sort_key(rec: dict) -> tuple[int, float, str]:
+                raw = rec.get(rank_key)
+                try:
+                    num = float(raw)
+                    if np.isnan(num):
+                        raise ValueError
+                except Exception:
+                    return (1, 0.0, str(rec.get("symbol", "")))
+                order_val = num if asc else -num
+                return (0, order_val, str(rec.get("symbol", "")))
+
+            sorted_items = sorted(items, key=_sort_key)
+            total_count = len(sorted_items)
+            for idx, rec in enumerate(sorted_items):
+                rec["_rank"] = idx + 1
+                rec["_total_candidates"] = total_count
+            entry_map[date] = sorted_items[:top_n]
+    else:
+        for date, items in list(entry_map.items()):
+            total_count = len(items)
+            for idx, rec in enumerate(items):
+                rec["_rank"] = idx + 1
+                rec["_total_candidates"] = total_count
+            entry_map[date] = items[:top_n]
+
+    return entry_map
+
+
 def get_today_signals_for_strategy(
     strategy,
     raw_data_dict: dict[str, pd.DataFrame],
@@ -267,230 +782,54 @@ def get_today_signals_for_strategy(
     except Exception:
         sliced_dict = raw_data_dict
 
-    # スキップ理由の収集（systemごとに集計）
-    _skip_counts: dict[str, int] = {}
-    _skip_samples: dict[str, list[str]] = {}
-    _skip_details: list[dict[str, str]] = []
-
-    def _on_skip(*args, **kwargs):
-        try:
-            if len(args) >= 2:
-                _sym = str(args[0])
-                _reason = str(args[1])
-            elif len(args) == 1:
-                # "SYM: reason" 形式から理由だけ抽出
-                txt = str(args[0])
-                _sym, _reason = (
-                    (txt.split(":", 1) + [""])[:2] if ":" in txt else ("", txt)
-                )
-                _sym = _sym.strip()
-                _reason = _reason.strip()
-            else:
-                _reason = str(kwargs.get("reason", "unknown"))
-                _sym = str(kwargs.get("symbol", ""))
-        except Exception:
-            _reason = "unknown"
-            _sym = ""
-        _skip_counts[_reason] = _skip_counts.get(_reason, 0) + 1
-        if _sym:
-            if _reason not in _skip_samples:
-                _skip_samples[_reason] = []
-            if len(_skip_samples[_reason]) < 5 and _sym not in _skip_samples[_reason]:
-                _skip_samples[_reason].append(_sym)
-        try:
-            _skip_details.append(
-                {"symbol": str(_sym or ""), "reason": str(_reason or "")}
-            )
-        except Exception:
-            pass
+    prepared: dict[str, pd.DataFrame] = {}
+    for sym, df in (sliced_dict or {}).items():
+        norm = _normalize_symbol_frame(df)
+        if norm is not None:
+            prepared[sym] = norm
 
     try:
-        prepared = strategy.prepare_data(
-            sliced_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=_on_skip,
-            use_process_pool=use_process_pool,
-            max_workers=max_workers,
-            lookback_days=lookback_days,
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
         )
-    except Exception as e:
-        # フォールバック: 非プール + 再計算（reuse_indicators=False）で再試行
+    except Exception:
+        prev_trading_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+
+    try:
+        prev_trading_day = pd.Timestamp(prev_trading_day).normalize()
+    except Exception:
+        prev_trading_day = pd.Timestamp(today) - pd.Timedelta(days=1)
+
+    if not prepared or not _is_fast_path_viable(
+        system_name, prepared, prev_trading_day
+    ):
         try:
-            if log_callback:
-                log_callback(
-                    f"⚠️ {system_name}: 前処理失敗のためフォールバック（非プール・再計算）: {e}"
-                )
+            if stage_progress:
+                stage_progress(25, 0, None, None, None)
+                stage_progress(50, 0, 0, None, None)
+                stage_progress(75, 0, 0, 0, None)
         except Exception:
             pass
-        try:
-            prepared = strategy.prepare_data(
-                sliced_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=_on_skip,
-                use_process_pool=False,
-                max_workers=None,
-                lookback_days=lookback_days,
-                reuse_indicators=False,
-            )
-        except Exception as e2:
-            # ここで失敗したら空の結果を返す（後段は0件で流れる）
+        if log_callback:
             try:
-                if log_callback:
-                    log_callback(f"⚠️ {system_name}: フォールバックも失敗（中断）: {e2}")
+                log_callback(
+                    "⚠️ 必要な指標が不足しているため候補抽出をスキップしました"
+                )
             except Exception:
                 pass
-            return pd.DataFrame(
-                columns=[
-                    "symbol",
-                    "system",
-                    "side",
-                    "signal_type",
-                    "entry_date",
-                    "entry_price",
-                    "stop_price",
-                    "score_key",
-                    "score",
-                ]
-            )
-    # インデックスを正規化・昇順・重複除去（pandas の再インデックス関連エラー対策）
-    try:
-        if isinstance(prepared, dict):
-            _fixed: dict[str, pd.DataFrame] = {}
-            for _sym, _df in prepared.items():
-                try:
-                    x = _df.copy()
-                    if "Date" in x.columns:
-                        idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
-                    else:
-                        idx = pd.to_datetime(x.index, errors="coerce").normalize()
-                    x.index = pd.Index(idx)
-                    # 欠損・非単調・重複を整理
-                    x = x[~x.index.isna()]
-                    x = x.sort_index()
-                    if getattr(x.index, "has_duplicates", False):
-                        x = x[~x.index.duplicated(keep="last")]
-                    _fixed[_sym] = x
-                except Exception:
-                    _fixed[_sym] = _df
-            prepared = _fixed
-    except Exception:
-        pass
+        return _empty_signals_frame()
+
     try:
         if log_callback:
             em, es = divmod(int(max(0, _t.time() - t0)), 60)
             log_callback(f"⏱️ フィルター/前処理 完了（経過 {em}分{es}秒）")
     except Exception:
         pass
-    # スキップ内訳の要約（存在時のみ）
-    try:
-        if log_callback and _skip_counts:
-            # 上位2件のみを簡潔に表示
-            sorted_items = sorted(
-                _skip_counts.items(), key=lambda x: x[1], reverse=True
-            )
-            top = sorted_items[:2]
-            details = ", ".join([f"{k}: {v}" for k, v in top])
-            log_callback(f"🧪 スキップ内訳: {details}")
-            # サンプル銘柄出力
-            for k, _ in top:
-                samples = _skip_samples.get(k) or []
-                if samples:
-                    log_callback(f"  ↳ 例({k}): {', '.join(samples)}")
-            # 追加: 全スキップのCSVを保存（デバッグ用）。UI/CLI両方でパスを出力。
-            try:
-                import pandas as _pd
-                from config.settings import get_settings as _gs
 
-                _rows = []
-                for _reason, _cnt in sorted_items:
-                    _rows.append(
-                        {
-                            "reason": _reason,
-                            "count": int(_cnt),
-                            "examples": ", ".join(_skip_samples.get(_reason, [])),
-                        }
-                    )
-                if _rows:
-                    _df = _pd.DataFrame(_rows)
-                    try:
-                        _settings = _gs(create_dirs=True)
-                        _dir = getattr(_settings.outputs, "results_csv_dir", None)
-                    except Exception:
-                        _dir = None
-                    import os as _os
+    latest_rows, filter_pass = _build_latest_rows(prepared, prev_trading_day)
+    if str(system_name).lower() == "system7":
+        filter_pass = 1 if "SPY" in prepared else 0
 
-                    _out_dir = str(_dir or "results_csv")
-                    try:
-                        _os.makedirs(_out_dir, exist_ok=True)
-                    except Exception:
-                        pass
-                    _fp = _os.path.join(_out_dir, f"skip_summary_{system_name}.csv")
-                    try:
-                        _df.to_csv(_fp, index=False, encoding="utf-8")
-                        log_callback(f"📝 スキップ内訳CSVを保存: {_fp}")
-                    except Exception:
-                        pass
-                    # per-symbol の詳細（symbol, reason）も保存
-                    try:
-                        if _skip_details:
-                            _df2 = _pd.DataFrame(_skip_details)
-                            _fp2 = _os.path.join(
-                                _out_dir, f"skip_details_{system_name}.csv"
-                            )
-                            _df2.to_csv(_fp2, index=False, encoding="utf-8")
-                            log_callback(f"📝 スキップ詳細CSVを保存: {_fp2}")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-    except Exception:
-        pass
-    # フィルター通過件数（NYSEカレンダーの前営業日を優先。無い場合は最終行）。
-    try:
-        # 前営業日（当日エントリーのシグナルは前営業日の終値で判定）
-        prev_trading_day = get_latest_nyse_trading_day(
-            pd.Timestamp(today) - pd.Timedelta(days=1)
-        )
-
-        def _last_filter_on_date(x: pd.DataFrame) -> bool:
-            try:
-                if getattr(x, "empty", True) or "filter" not in x.columns:
-                    return False
-                # Date列があれば優先、無ければindexで比較
-                if "Date" in x.columns:
-                    dt_vals = (
-                        pd.to_datetime(x["Date"], errors="coerce")
-                        .dt.normalize()
-                        .to_numpy()
-                    )
-                    mask = dt_vals == prev_trading_day
-                    sel = pd.Series(np.asarray(x.loc[mask, "filter"]))
-                else:
-                    idx_vals = (
-                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
-                    )
-                    mask = idx_vals == prev_trading_day
-                    sel = pd.Series(np.asarray(x.loc[mask, "filter"]))
-                if sel.size > 0:
-                    v = sel.iloc[-1]
-                    return bool(False if pd.isna(v) else bool(v))
-                # フォールバック: 最終行
-                v = pd.Series(x["filter"]).tail(1).iloc[0]
-                return bool(False if pd.isna(v) else bool(v))
-            except Exception:
-                return False
-
-        filter_pass = sum(int(_last_filter_on_date(df)) for df in prepared.values())
-        # System7 は SPY 固定のため、SPYが存在する場合はフィルタ通過=1として扱う
-        try:
-            if str(system_name).lower() == "system7":
-                filter_pass = 1 if ("SPY" in (prepared or {})) else 0
-        except Exception:
-            pass
-    except Exception:
-        filter_pass = 0
     if log_callback:
         try:
             log_callback(f"🧪 フィルターチェック完了：{filter_pass} 銘柄")
@@ -502,343 +841,64 @@ def get_today_signals_for_strategy(
     except Exception:
         pass
 
-    # 候補生成（market_df を必要とする実装に配慮）
-    gen_fn = strategy.generate_candidates  # type: ignore[attr-defined]
-    params = inspect.signature(gen_fn).parameters
+    spy_df_norm: pd.DataFrame | None = None
+    try:
+        sys_lower = str(system_name).lower()
+        if sys_lower in {"system1", "system4", "system7"}:
+            spy_source = (
+                market_df
+                if isinstance(market_df, pd.DataFrame)
+                else prepared.get("SPY")
+            )
+            base_spy = _normalize_symbol_frame(spy_source)
+            if sys_lower == "system1":
+                required_col: str | None = "SMA100"
+            elif sys_lower == "system4":
+                required_col = "SMA200"
+            else:
+                required_col = None
+            if base_spy is not None and (
+                required_col is None or required_col in base_spy.columns
+            ):
+                spy_df_norm = base_spy
+            elif spy_source is not None:
+                spy_full = get_spy_with_indicators(spy_source)
+                spy_df_norm = _normalize_symbol_frame(spy_full)
+            else:
+                spy_df_norm = base_spy
+    except Exception:
+        spy_df_norm = _normalize_symbol_frame(
+            market_df if isinstance(market_df, pd.DataFrame) else prepared.get("SPY")
+        )
+
+    setup_pass = _compute_setup_pass(
+        system_name,
+        latest_rows,
+        filter_pass,
+        prev_trading_day,
+        log_callback,
+        spy_df_norm,
+    )
+    try:
+        if stage_progress:
+            stage_progress(50, filter_pass, setup_pass, None, None)
+    except Exception:
+        pass
+
     if log_callback:
         try:
             log_callback(f"🧩 セットアップチェック開始：{filter_pass} 銘柄")
         except Exception:
             pass
+
     t1 = _t.time()
-    if "market_df" in params and market_df is not None:
-        candidates_by_date, _ = gen_fn(
-            prepared,
-            market_df=market_df,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-        )
-    else:
-        candidates_by_date, _ = gen_fn(
-            prepared,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-        )
+    candidates_by_date = _collect_candidates_for_today(
+        system_name, prepared, today, prev_trading_day, spy_df_norm
+    )
     try:
         if log_callback:
             em, es = divmod(int(max(0, _t.time() - t1)), 60)
             log_callback(f"⏱️ セットアップ/候補抽出 完了（経過 {em}分{es}秒）")
-    except Exception:
-        pass
-
-    # セットアップ通過件数（NYSEカレンダーの前営業日を優先。無ければ最終行）
-    try:
-        prev_trading_day = get_latest_nyse_trading_day(
-            pd.Timestamp(today) - pd.Timedelta(days=1)
-        )
-
-        def _last_row(x: pd.DataFrame) -> pd.Series | None:
-            try:
-                if "Date" in x.columns:
-                    dt_vals = (
-                        pd.to_datetime(x["Date"], errors="coerce")
-                        .dt.normalize()
-                        .to_numpy()
-                    )
-                    mask = dt_vals == prev_trading_day
-                    rows = x.loc[mask]
-                else:
-                    idx_vals = (
-                        pd.to_datetime(x.index, errors="coerce")
-                        .normalize()
-                        .to_numpy()
-                    )
-                    mask = idx_vals == prev_trading_day
-                    rows = x.loc[mask]
-                if len(rows) == 0:
-                    rows = x.tail(1)
-                if len(rows) == 0:
-                    return None
-                return rows.iloc[-1]
-            except Exception:
-                return None
-
-        if isinstance(prepared, dict):
-            items = list(prepared.items())
-        elif isinstance(prepared, pd.DataFrame):
-            items = [("", prepared)]
-        else:
-            items = []
-        latest_rows: dict[str, pd.Series] = {}
-        for sym, df in items:
-            if df is None or getattr(df, "empty", True):
-                continue
-            row = _last_row(df)
-            if row is None:
-                continue
-            latest_rows[str(sym)] = row
-
-        def _count_if(rows: list[pd.Series], fn: Callable[[pd.Series], bool]) -> int:
-            cnt = 0
-            for row in rows:
-                try:
-                    if fn(row):
-                        cnt += 1
-                except Exception:
-                    continue
-            return cnt
-
-        rows_list = list(latest_rows.values())
-        name = str(system_name).lower()
-        setup_pass = 0
-
-        if name == "system1":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
-
-            def _sma_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("SMA25", 0)) > float(row.get("SMA50", 0))
-                except Exception:
-                    return False
-
-            sma_pass = _count_if(filtered_rows, _sma_ok)
-            spy_source = market_df if market_df is not None else None
-            try:
-                spy_df = get_spy_with_indicators(spy_source)
-            except Exception:
-                spy_df = None
-
-            spy_gate: int | None
-            try:
-                if spy_df is None or getattr(spy_df, "empty", True):
-                    spy_gate = None
-                else:
-                    last_row = spy_df.iloc[-1]
-                    close_val = float(last_row.get("Close", float("nan")))
-                    sma_val = float(last_row.get("SMA100", float("nan")))
-                    if np.isnan(close_val) or np.isnan(sma_val):
-                        spy_gate = None
-                    else:
-                        spy_gate = 1 if close_val > sma_val else 0
-            except Exception:
-                spy_gate = None
-
-            setup_pass = sma_pass if spy_gate != 0 else 0
-
-            if log_callback:
-                spy_label = "-" if spy_gate is None else str(int(spy_gate))
-                try:
-                    log_callback(
-                        "🧩 system1セットアップ内訳: "
-                        + f"フィルタ通過={filter_pass}, SPY>SMA100: {spy_label}, "
-                        + f"SMA25>SMA50: {sma_pass}"
-                    )
-                except Exception:
-                    pass
-        elif name == "system2":
-            def _rsi_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("RSI3", 0)) > 90
-                except Exception:
-                    return False
-
-            def _two_up_ok(row: pd.Series) -> bool:
-                return bool(row.get("TwoDayUp"))
-
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
-            rsi_pass = _count_if(filtered_rows, _rsi_ok)
-            two_up_pass = _count_if(
-                filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r)
-            )
-            setup_pass = two_up_pass
-            if log_callback:
-                try:
-                    log_callback(
-                        "🧩 system2セットアップ内訳: "
-                        + f"フィルタ通過={filter_pass}, RSI3>90: {rsi_pass}, "
-                        + f"TwoDayUp: {two_up_pass}"
-                    )
-                except Exception:
-                    pass
-        elif name == "system3":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
-
-            def _close_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("Close", 0)) > float(row.get("SMA150", 0))
-                except Exception:
-                    return False
-
-            def _drop_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("Drop3D", 0)) >= 0.125
-                except Exception:
-                    return False
-
-            close_pass = _count_if(filtered_rows, _close_ok)
-            drop_pass = _count_if(
-                filtered_rows, lambda r: _close_ok(r) and _drop_ok(r)
-            )
-            setup_pass = drop_pass
-            if log_callback:
-                try:
-                    log_callback(
-                        "🧩 system3セットアップ内訳: "
-                        + f"フィルタ通過={filter_pass}, Close>SMA150: {close_pass}, "
-                        + f"3日下落率>=12.5%: {drop_pass}"
-                    )
-                except Exception:
-                    pass
-        elif name == "system4":
-            def _above_sma(row: pd.Series) -> bool:
-                try:
-                    return bool(row.get("filter")) and (
-                        float(row.get("Close", 0)) > float(row.get("SMA200", 0))
-                    )
-                except Exception:
-                    return False
-
-            above_sma = _count_if(rows_list, _above_sma)
-            setup_pass = above_sma
-            if log_callback:
-                try:
-                    log_callback(
-                        "🧩 system4セットアップ内訳: "
-                        + f"フィルタ通過={filter_pass}, Close>SMA200: {above_sma}"
-                    )
-                except Exception:
-                    pass
-        elif name == "system5":
-            threshold_label = format_atr_pct_threshold_label()
-            s5_total = len(rows_list)
-            s5_av = 0
-            s5_dv = 0
-            s5_atr = 0
-            for row in rows_list:
-                try:
-                    av_val = row.get("AvgVolume50")
-                    if av_val is None or pd.isna(av_val) or float(av_val) <= 500_000:
-                        continue
-                    s5_av += 1
-                    dv_val = row.get("DollarVolume50")
-                    if dv_val is None or pd.isna(dv_val) or float(dv_val) <= 2_500_000:
-                        continue
-                    s5_dv += 1
-                    atr_pct_val = row.get("ATR_Pct")
-                    if (
-                        atr_pct_val is not None
-                        and not pd.isna(atr_pct_val)
-                        and float(atr_pct_val) > DEFAULT_ATR_PCT_THRESHOLD
-                    ):
-                        s5_atr += 1
-                except Exception:
-                    continue
-            if log_callback:
-                try:
-                    log_callback(
-                        "🧪 system5内訳: "
-                        + f"対象={s5_total}, AvgVol50>500k: {s5_av}, "
-                        + f"DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
-                    )
-                except Exception:
-                    pass
-
-            def _price_ok(row: pd.Series) -> bool:
-                try:
-                    return bool(row.get("filter")) and (
-                        float(row.get("Close", 0))
-                        > float(row.get("SMA100", 0)) + float(row.get("ATR10", 0))
-                    )
-                except Exception:
-                    return False
-
-            def _adx_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("ADX7", 0)) > 55
-                except Exception:
-                    return False
-
-            def _rsi_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("RSI3", 100)) < 50
-                except Exception:
-                    return False
-
-            price_pass = _count_if(rows_list, _price_ok)
-            adx_pass = _count_if(rows_list, lambda r: _price_ok(r) and _adx_ok(r))
-            rsi_pass = _count_if(
-                rows_list, lambda r: _price_ok(r) and _adx_ok(r) and _rsi_ok(r)
-            )
-            setup_pass = rsi_pass
-            if log_callback:
-                try:
-                    log_callback(
-                        "🧩 system5セットアップ内訳: "
-                        + f"フィルタ通過={filter_pass}, Close>SMA100+ATR10: {price_pass}, "
-                        + f"ADX7>55: {adx_pass}, RSI3<50: {rsi_pass}"
-                    )
-                except Exception:
-                    pass
-        elif name == "system6":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
-
-            def _ret_ok(row: pd.Series) -> bool:
-                try:
-                    return float(row.get("Return6D", 0)) > 0.20
-                except Exception:
-                    return False
-
-            def _up_two(row: pd.Series) -> bool:
-                return bool(row.get("UpTwoDays"))
-
-            ret_pass = _count_if(filtered_rows, _ret_ok)
-            up_pass = _count_if(filtered_rows, lambda r: _ret_ok(r) and _up_two(r))
-            setup_pass = up_pass
-            if log_callback:
-                try:
-                    msg = (
-                        "🧩 system6セットアップ内訳: "
-                        f"フィルタ通過={filter_pass}, "
-                        f"Return6D>20%: {ret_pass}, "
-                        f"UpTwoDays: {up_pass}"
-                    )
-                    log_callback(msg)
-                except Exception:
-                    pass
-        elif name == "system7":
-            spy_present = 1 if "SPY" in latest_rows else 0
-            setup_pass = spy_present
-            if log_callback:
-                try:
-                    msg = f"🧩 system7セットアップ内訳: SPY存在={spy_present}"
-                    if spy_present:
-                        try:
-                            val = latest_rows.get("SPY", pd.Series())
-                            if isinstance(val, pd.Series):
-                                setup_flag = bool(val.get("setup", 0))
-                            else:
-                                setup_flag = False
-                            msg += f", setup={int(setup_flag)}"
-                        except Exception:
-                            pass
-                    log_callback(msg)
-                except Exception:
-                    pass
-        else:
-            setup_pass = _count_if(
-                rows_list,
-                lambda r: bool(r.get("setup")) if "setup" in r else False,
-            )
-
-        try:
-            setup_pass = int(setup_pass)
-        except Exception:
-            setup_pass = 0
-    except Exception:
-        setup_pass = 0
-    try:
-        if stage_progress:
-            stage_progress(50, filter_pass, setup_pass, None, None)
     except Exception:
         pass
     # トレード候補件数（当日のみ）→ UI表示は最大ポジション数に合わせて上限10に丸める
@@ -1001,19 +1061,7 @@ def get_today_signals_for_strategy(
             pass
 
     if not candidates_by_date:
-        return pd.DataFrame(
-            columns=[
-                "symbol",
-                "system",
-                "side",
-                "signal_type",
-                "entry_date",
-                "entry_price",
-                "stop_price",
-                "score_key",
-                "score",
-            ]
-        )
+        return _empty_signals_frame()
 
     # 当日または直近過去日の候補のみ抽出
     if target_date is not None and target_date in key_map:
@@ -1024,19 +1072,7 @@ def get_today_signals_for_strategy(
     else:
         today_candidates = cast(list[dict], [])
     if not today_candidates:
-        return pd.DataFrame(
-            columns=[
-                "symbol",
-                "system",
-                "side",
-                "signal_type",
-                "entry_date",
-                "entry_price",
-                "stop_price",
-                "score_key",
-                "score",
-            ]
-        )
+        return _empty_signals_frame()
     rows: list[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
@@ -1058,112 +1094,38 @@ def get_today_signals_for_strategy(
         except Exception:
             pass
 
-        # signal 日（通常は entry_date の前営業日を想定）
-        signal_date_ts: pd.Timestamp | None = None
-        try:
-            # candidate["Date"] があれば優先
-            if "Date" in c and c.get("Date") is not None:
-                date_arg: Any = c.get("Date")
-                tmp = pd.to_datetime(date_arg, errors="coerce")
-                if not pd.isna(tmp):
-                    signal_date_ts = pd.Timestamp(tmp).normalize()
-        except Exception:
-            # フォールバックは後段の entry_date 補完に任せる
-            pass
-        if signal_date_ts is None:
+        if skey is not None and (
+            sval is None or (isinstance(sval, float) and pd.isna(sval))
+        ):
             try:
-                ed_arg: Any = c.get("entry_date")
-                ed = pd.to_datetime(ed_arg, errors="coerce")
-                if isinstance(ed, pd.Timestamp) and not pd.isna(ed):
-                    # エントリー日の前「NYSE営業日」を推定
-                    signal_date_ts = get_latest_nyse_trading_day(
-                        pd.Timestamp(ed).normalize() - pd.Timedelta(days=1)
-                    )
+                raw_val = c.get(skey)
+                if raw_val is not None:
+                    num = float(raw_val)
+                    if not np.isnan(num):
+                        sval = num
             except Exception:
-                signal_date_ts = None
+                pass
 
-        # 欠損スコアの補完（まず値、次に順位）
         rank_val: int | None = None
-        total_for_rank: int = 0
-        if skey is not None:
-            # 1) 欠損なら prepared から同日値を補完
-            if sval is None or (isinstance(sval, float) and pd.isna(sval)):
-                try:
-                    if signal_date_ts is not None:
-                        xdf = prepared[sym]
-                        if "Date" in xdf.columns:
-                            dt_vals = (
-                                pd.to_datetime(xdf["Date"], errors="coerce")
-                                .dt.normalize()
-                                .to_numpy()
-                            )
-                        else:
-                            dt_vals = (
-                                pd.to_datetime(xdf.index, errors="coerce")
-                                .normalize()
-                                .to_numpy()
-                            )
-                        mask = dt_vals == signal_date_ts
-                        row = xdf.loc[mask]
-                        if not row.empty and skey in row.columns:
-                            _v = row.iloc[0][skey]
-                            if _v is not None and not pd.isna(_v):
-                                sval = float(_v)
-                except Exception:
-                    pass
-            # System1 用のフォールバック（前日が見つからない場合は直近値）
-            if (system_name == "system1") and (
-                sval is None or (isinstance(sval, float) and pd.isna(sval))
-            ):
-                try:
-                    if skey in prepared[sym].columns:
-                        _v = pd.Series(prepared[sym][skey]).dropna().tail(1).iloc[0]
-                        sval = float(_v)
-                except Exception:
-                    pass
+        try:
+            rank_raw = c.get("_rank")
+            if rank_raw is not None and not pd.isna(rank_raw):
+                rank_val = int(rank_raw)
+        except Exception:
+            rank_val = None
 
-            # 2) 値がまだ欠損なら、同日全銘柄の順位を算出してスコアに設定
+        try:
+            total_for_rank = int(c.get("_total_candidates", 0))
+        except Exception:
+            total_for_rank = 0
+        if total_for_rank <= 0:
+            total_for_rank = len(today_candidates)
+
+        if (
+            sval is None or (isinstance(sval, float) and pd.isna(sval))
+        ) and rank_val is not None:
             try:
-                if signal_date_ts is not None:
-                    vals: list[tuple[str, float]] = []
-                    for psym, pdf in prepared.items():
-                        try:
-                            if "Date" in pdf.columns:
-                                dt_vals = (
-                                    pd.to_datetime(pdf["Date"], errors="coerce")
-                                    .dt.normalize()
-                                    .to_numpy()
-                                )
-                            else:
-                                dt_vals = (
-                                    pd.to_datetime(pdf.index, errors="coerce")
-                                    .normalize()
-                                    .to_numpy()
-                                )
-                            mask = dt_vals == signal_date_ts
-                            row = pdf.loc[mask]
-                            if not row.empty and skey in row.columns:
-                                v = row.iloc[0][skey]
-                                if v is not None and not pd.isna(v):
-                                    vals.append((psym, float(v)))
-                        except Exception:
-                            continue
-                    total_for_rank = len(vals)
-                    if total_for_rank:
-                        # 並び順: system の昇降順推定に合わせる（ROC200 などは降順）
-                        reverse = not _asc
-                        # 値が同一のときはシンボルで安定ソート
-                        vals_sorted = sorted(
-                            vals, key=lambda t: (t[1], t[0]), reverse=reverse
-                        )
-                        # 自銘柄の順位を決定
-                        symbols_sorted = [s for s, _ in vals_sorted]
-                        if sym in symbols_sorted:
-                            rank_val = symbols_sorted.index(sym) + 1
-                        # スコアが欠損なら順位をそのままスコアに採用
-                        if sval is None or (isinstance(sval, float) and pd.isna(sval)):
-                            if rank_val is not None:
-                                sval = float(rank_val)
+                sval = float(rank_val)
             except Exception:
                 pass
 

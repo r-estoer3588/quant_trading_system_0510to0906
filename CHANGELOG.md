@@ -17,3 +17,4 @@
 - シグナル通知に推奨銘柄の日足チャート画像を添付
 - `run_all_systems_today.py` の文字列連結を改善
 - Today Signals に保有ポジションと利益保護判定を追加
+- Today Signals の軽量化ロジックから prepare_data/generate_candidates のフォールバック再計算を排除し、前段で準備済みのデータだけで候補抽出できるようにした
