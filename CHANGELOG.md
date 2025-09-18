@@ -18,3 +18,4 @@
 - `run_all_systems_today.py` の文字列連結を改善
 - Today Signals に保有ポジションと利益保護判定を追加
 - `load_price` で `cache_profile="rolling/full"` 指定時に base キャッシュを自動的に挟み、フォールバック順を rolling→base→full に統一
+- System5/6 の利食い・時間退出ロジックを仕様どおりに修正しテストを追加
