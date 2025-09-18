@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from threading import Lock
 import json
 import logging
 from pathlib import Path
@@ -52,6 +53,72 @@ _LOG_FILE_MODE: str = "single"  # single | dated
 
 
 @dataclass(slots=True)
+class BaseCachePool:
+    """base キャッシュの共有辞書をスレッドセーフに管理する補助クラス。"""
+
+    cache_manager: CacheManager
+    shared: dict[str, pd.DataFrame] | None = None
+    hits: int = 0
+    loads: int = 0
+    failures: int = 0
+    _lock: Lock = field(default_factory=Lock, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.shared is None:
+            self.shared = {}
+
+    def get(
+        self,
+        symbol: str,
+        *,
+        rebuild_if_missing: bool = True,
+    ) -> tuple[pd.DataFrame | None, bool]:
+        """base キャッシュを取得し、辞書に保持する。"""
+
+        with self._lock:
+            if self.shared is not None and symbol in self.shared:
+                value = self.shared[symbol]
+                self.hits += 1
+                return value, True
+
+        df = load_base_cache(
+            symbol,
+            rebuild_if_missing=rebuild_if_missing,
+            cache_manager=self.cache_manager,
+        )
+
+        with self._lock:
+            if self.shared is not None:
+                self.shared[symbol] = df
+            self.loads += 1
+            if df is None or getattr(df, "empty", True):
+                self.failures += 1
+
+        return df, False
+
+    def sync_to(self, target: dict[str, pd.DataFrame] | None) -> None:
+        """既存の外部辞書へ共有キャッシュを反映する。"""
+
+        if target is None or self.shared is None or target is self.shared:
+            return
+        with self._lock:
+            try:
+                target.update(self.shared)
+            except Exception:
+                pass
+
+    def snapshot_stats(self) -> dict[str, int]:
+        with self._lock:
+            size = len(self.shared or {})
+            return {
+                "hits": self.hits,
+                "loads": self.loads,
+                "failures": self.failures,
+                "size": size,
+            }
+
+
+@dataclass(slots=True)
 class TodayRunContext:
     """保持共有状態とコールバックを集約した当日シグナル実行用コンテキスト。"""
 
@@ -77,6 +144,7 @@ class TodayRunContext:
     today: pd.Timestamp | None = None
     symbol_universe: list[str] = field(default_factory=list)
     basic_data: dict[str, pd.DataFrame] = field(default_factory=dict)
+    base_cache: dict[str, pd.DataFrame] = field(default_factory=dict)
     system_filters: dict[str, list[str]] = field(default_factory=dict)
     per_system_frames: dict[str, pd.DataFrame] = field(default_factory=dict)
     final_signals: pd.DataFrame | None = None
@@ -607,6 +675,55 @@ def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.T
     return out
 
 
+def _build_rolling_from_base(
+    symbol: str,
+    base_df: pd.DataFrame,
+    target_len: int,
+    cache_manager: CacheManager | None = None,
+) -> pd.DataFrame | None:
+    """Convert base cache dataframe to rolling window and optionally persist it."""
+
+    if base_df is None or getattr(base_df, "empty", True):
+        return None
+    try:
+        work = base_df.copy()
+    except Exception:
+        work = base_df
+    if work.index.name is not None:
+        work = work.reset_index()
+    if "Date" in work.columns:
+        work["date"] = pd.to_datetime(work["Date"], errors="coerce")
+    elif "date" in work.columns:
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+    else:
+        return None
+    work = work.dropna(subset=["date"]).sort_values("date")
+    col_map = {
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "AdjClose": "adjusted_close",
+        "Adj Close": "adjusted_close",
+        "Volume": "volume",
+    }
+    try:
+        for src, dst in list(col_map.items()):
+            if src in work.columns:
+                work = work.rename(columns={src: dst})
+    except Exception:
+        pass
+    sliced = work.tail(int(target_len)).reset_index(drop=True)
+    if sliced.empty:
+        return None
+    if cache_manager is not None:
+        try:
+            cache_manager.write_atomic(sliced, symbol, "rolling")
+        except Exception:
+            pass
+    return sliced
+
+
 def _load_basic_data(
     symbols: list[str],
     cache_manager: CacheManager,
@@ -615,12 +732,14 @@ def _load_basic_data(
     *,
     today: pd.Timestamp | None = None,
     freshness_tolerance: int | None = None,
+    base_cache: dict[str, pd.DataFrame] | None = None,
+    base_cache_pool: BaseCachePool | None = None,
 ) -> dict[str, pd.DataFrame]:
-    import time as _t
+    from time import perf_counter
 
     data: dict[str, pd.DataFrame] = {}
     total_syms = len(symbols)
-    start_ts = _t.time()
+    start_ts = perf_counter()
     chunk = 500
 
     if freshness_tolerance is None:
@@ -629,6 +748,28 @@ def _load_basic_data(
         except Exception:
             freshness_tolerance = 2
     freshness_tolerance = max(0, int(freshness_tolerance))
+
+    try:
+        target_len = int(
+            settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+        )
+    except Exception:
+        target_len = 0
+
+    base_pool = base_cache_pool or BaseCachePool(cache_manager, base_cache)
+    stats_lock = Lock()
+    stats: dict[str, int] = {}
+
+    def _record_stat(key: str) -> None:
+        with stats_lock:
+            stats[key] = stats.get(key, 0) + 1
+
+    def _get_base_cache(symbol: str) -> tuple[pd.DataFrame | None, bool]:
+        base_df, cached_hit = base_pool.get(symbol)
+        _record_stat("base_cache_hit" if cached_hit else "base_cache_miss")
+        if base_df is None or getattr(base_df, "empty", True):
+            _record_stat("base_missing")
+        return base_df, cached_hit
 
     recent_allowed: set[pd.Timestamp] = set()
     if today is not None and freshness_tolerance >= 0:
@@ -658,57 +799,120 @@ def _load_basic_data(
             return max(0, int((pd.Timestamp(today_dt) - pd.Timestamp(last_dt)).days))
         except Exception:
             return None
-    for idx, sym in enumerate(symbols, start=1):
+
+    def _pick_symbol_data(sym: str) -> pd.DataFrame | None:
         try:
-            df = None
+            if not symbol_data or sym not in symbol_data:
+                return None
+            df = symbol_data.get(sym)
+            if df is None or getattr(df, "empty", True):
+                return None
+            x = df.copy()
+            if x.index.name is not None:
+                x = x.reset_index()
+            if "date" in x.columns:
+                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+            elif "Date" in x.columns:
+                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+            else:
+                return None
+            col_map = {
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "close",
+                "Adj Close": "adjusted_close",
+                "AdjClose": "adjusted_close",
+                "Volume": "volume",
+            }
+            for k, v in list(col_map.items()):
+                if k in x.columns:
+                    x = x.rename(columns={k: v})
+            required = {"date", "close"}
+            if not required.issubset(set(x.columns)):
+                return None
+            x = x.dropna(subset=["date"]).sort_values("date")
+            return x
+        except Exception:
+            return None
+
+    def _normalize_loaded(df: pd.DataFrame | None) -> pd.DataFrame | None:
+        if df is None or getattr(df, "empty", True):
+            return None
+        try:
+            if "Date" not in df.columns:
+                work = df.copy()
+                if "date" in work.columns:
+                    work["Date"] = pd.to_datetime(work["date"], errors="coerce")
+                else:
+                    work["Date"] = pd.to_datetime(work.index, errors="coerce")
+                df = work
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+        except Exception:
+            pass
+        return _normalize_ohlcv(df)
+
+    env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
+    try:
+        env_parallel_threshold = int(
+            os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200")
+        )
+    except Exception:
+        env_parallel_threshold = 200
+    if env_parallel in ("1", "true", "yes"):
+        use_parallel = total_syms > 1
+    elif env_parallel in ("0", "false", "no"):
+        use_parallel = False
+    else:
+        use_parallel = total_syms >= max(0, env_parallel_threshold)
+
+    max_workers: int | None = None
+    if use_parallel and total_syms > 0:
+        try:
+            env_workers = (os.environ.get("BASIC_DATA_MAX_WORKERS", "") or "").strip()
+            if env_workers:
+                max_workers = int(env_workers)
+        except Exception:
+            max_workers = None
+        if max_workers is None:
+            try:
+                cfg_workers = getattr(settings.cache.rolling, "load_max_workers", None)
+                if cfg_workers:
+                    max_workers = int(cfg_workers)
+            except Exception:
+                pass
+        if max_workers is None:
+            cpu_count = os.cpu_count() or 4
+            max_workers = max(4, cpu_count * 2)
+        max_workers = max(1, min(int(max_workers), total_syms))
+        try:
+            _log(f"🧵 基礎データロード並列化: workers={max_workers}")
+        except Exception:
+            pass
+
+    def _load_one(sym: str) -> tuple[str, pd.DataFrame | None]:
+        try:
+            source: str | None = None
+            df = _pick_symbol_data(sym)
             rebuild_reason: str | None = None
             last_seen_date: pd.Timestamp | None = None
             gap_days: int | None = None
-            try:
-                if symbol_data and sym in symbol_data:
-                    df = symbol_data.get(sym)
-                    if df is not None and not df.empty:
-                        x = df.copy()
-                        if x.index.name is not None:
-                            x = x.reset_index()
-                        if "date" in x.columns:
-                            x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                        elif "Date" in x.columns:
-                            x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                        col_map = {
-                            "Open": "open",
-                            "High": "high",
-                            "Low": "low",
-                            "Close": "close",
-                            "Adj Close": "adjusted_close",
-                            "AdjClose": "adjusted_close",
-                            "Volume": "volume",
-                        }
-                        for k, v in list(col_map.items()):
-                            if k in x.columns:
-                                x = x.rename(columns={k: v})
-                        required = {"date", "close"}
-                        if required.issubset(set(x.columns)):
-                            x = x.dropna(subset=["date"]).sort_values("date")
-                            df = x
-                        else:
-                            df = None
-                    else:
-                        df = None
-            except Exception:
-                df = None
-            if df is None or df.empty:
+            if df is None or getattr(df, "empty", True):
                 df = cache_manager.read(sym, "rolling")
-            target_len = int(
-                settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-            )
-            needs_rebuild = False
-            if df is None or df.empty or (
+            else:
+                source = "prefetched"
+            if df is None or getattr(df, "empty", True):
+                source = None
+            if df is None or getattr(df, "empty", True) or (
                 hasattr(df, "__len__") and len(df) < target_len
             ):
+                if df is not None and not getattr(df, "empty", True):
+                    rebuild_reason = rebuild_reason or "length"
                 needs_rebuild = True
-                if rebuild_reason is None and df is not None and not getattr(df, "empty", True):
-                    rebuild_reason = "length"
+            else:
+                needs_rebuild = False
+            if df is not None and not getattr(df, "empty", True) and source is None:
+                source = "rolling"
             if df is not None and not getattr(df, "empty", True):
                 last_seen_date = _extract_last_cache_date(df)
                 if last_seen_date is None:
@@ -716,11 +920,10 @@ def _load_basic_data(
                     needs_rebuild = True
                 else:
                     last_seen_date = pd.Timestamp(last_seen_date).normalize()
-                    if today is not None and recent_allowed:
-                        if last_seen_date not in recent_allowed:
-                            rebuild_reason = "stale"
-                            gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
-                            needs_rebuild = True
+                    if today is not None and recent_allowed and last_seen_date not in recent_allowed:
+                        rebuild_reason = "stale"
+                        gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
+                        needs_rebuild = True
             if needs_rebuild:
                 if rebuild_reason == "stale":
                     gap_label = (
@@ -732,46 +935,25 @@ def _load_basic_data(
                     _log(
                         f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}"
                     )
-                base_df = load_base_cache(sym, rebuild_if_missing=True)
-                if base_df is None or base_df.empty:
+                base_df, cached_hit = _get_base_cache(sym)
+                if base_df is None or getattr(base_df, "empty", True):
                     if rebuild_reason:
                         reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
                         _log(
                             f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseキャッシュが見つかりません",
                             ui=False,
                         )
-                    continue
-                x = base_df.copy()
-                if x.index.name is not None:
-                    x = x.reset_index()
-                if "Date" in x.columns:
-                    x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                elif "date" in x.columns:
-                    x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                else:
-                    continue
-                x = x.dropna(subset=["date"]).sort_values("date")
-                col_map = {
-                    "Open": "open",
-                    "High": "high",
-                    "Low": "low",
-                    "Close": "close",
-                    "AdjClose": "adjusted_close",
-                    "Volume": "volume",
-                }
-                for k, v in list(col_map.items()):
-                    if k in x.columns:
-                        x = x.rename(columns={k: v})
-                sliced = x.tail(target_len).reset_index(drop=True)
-                if sliced.empty:
+                    return sym, None
+                sliced = _build_rolling_from_base(sym, base_df, target_len, cache_manager)
+                if sliced is None or getattr(sliced, "empty", True):
                     if rebuild_reason:
                         reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
                         _log(
                             f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseデータが空です",
                             ui=False,
                         )
-                    continue
-                cache_manager.write_atomic(sliced, sym, "rolling")
+                    _record_stat("base_missing")
+                    return sym, None
                 if rebuild_reason == "stale":
                     new_last = _extract_last_cache_date(sliced)
                     try:
@@ -787,44 +969,98 @@ def _load_basic_data(
                         ui=False,
                     )
                 df = sliced
-            if df is not None and not df.empty:
-                try:
-                    if "Date" not in df.columns:
-                        if "date" in df.columns:
-                            df = df.copy()
-                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
-                        else:
-                            df = df.copy()
-                            df["Date"] = pd.to_datetime(df.index, errors="coerce")
-                    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
-                except Exception:
-                    pass
-                df = _normalize_ohlcv(df)
-                data[sym] = df
+                source = "rebuilt"
+            normalized = _normalize_loaded(df)
+            if normalized is not None and not getattr(normalized, "empty", True):
+                _record_stat(source or "rolling")
+                return sym, normalized
+            _record_stat("failed")
+            return sym, None
         except Exception:
-            continue
-        if idx % chunk == 0:
-            try:
-                elapsed = max(0.001, _t.time() - start_ts)
-                rate = idx / elapsed
-                remain = max(0, total_syms - idx)
-                eta_sec = int(remain / rate) if rate > 0 else 0
-                m, s = divmod(eta_sec, 60)
-                msg = f"📦 基礎データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
-                _log(msg, ui=False)
-                _emit_ui_log(msg)
-            except Exception:
-                _log(f"📦 基礎データロード進捗: {idx}/{total_syms}", ui=False)
-                _emit_ui_log(f"📦 基礎データロード進捗: {idx}/{total_syms}")
+            _record_stat("failed")
+            return sym, None
+
+    def _report_progress(done: int) -> None:
+        if done <= 0 or chunk <= 0:
+            return
+        if done % chunk != 0:
+            return
+        try:
+            elapsed = max(0.001, perf_counter() - start_ts)
+            rate = done / elapsed
+            remain = max(0, total_syms - done)
+            eta_sec = int(remain / rate) if rate > 0 else 0
+            m, s = divmod(eta_sec, 60)
+            msg = f"📦 基礎データロード進捗: {done}/{total_syms} | ETA {m}分{s}秒"
+            _log(msg, ui=False)
+            _emit_ui_log(msg)
+        except Exception:
+            _log(f"📦 基礎データロード進捗: {done}/{total_syms}", ui=False)
+            _emit_ui_log(f"📦 基礎データロード進捗: {done}/{total_syms}")
+
+    processed = 0
+    if use_parallel and max_workers and total_syms > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_load_one, sym): sym for sym in symbols}
+            for fut in as_completed(futures):
+                try:
+                    sym, df = fut.result()
+                except Exception:
+                    sym, df = futures[fut], None
+                if df is not None and not getattr(df, "empty", True):
+                    data[sym] = df
+                processed += 1
+                _report_progress(processed)
+    else:
+        for sym in symbols:
+            sym, df = _load_one(sym)
+            if df is not None and not getattr(df, "empty", True):
+                data[sym] = df
+            processed += 1
+            _report_progress(processed)
+
     try:
-        total_elapsed = int(max(0, _t.time() - start_ts))
-        m, s = divmod(total_elapsed, 60)
-        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        total_elapsed = max(0.0, perf_counter() - start_ts)
+        total_int = int(total_elapsed)
+        m, s = divmod(total_int, 60)
+        done_msg = (
+            f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            + (" | 並列=ON" if use_parallel and max_workers else " | 並列=OFF")
+        )
         _log(done_msg)
         _emit_ui_log(done_msg)
     except Exception:
         _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
         _emit_ui_log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+
+    try:
+        summary_map = {
+            "prefetched": "事前供給",
+            "rolling": "rolling再利用",
+            "rebuilt": "base再構築",
+            "base_cache_hit": "base辞書Hit",
+            "base_cache_miss": "base辞書Miss",
+            "base_missing": "base欠損",
+            "failed": "失敗",
+        }
+        summary_parts = [
+            f"{label}={stats.get(key, 0)}"
+            for key, label in summary_map.items()
+            if stats.get(key)
+        ]
+        if summary_parts:
+            _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
+        pool_stats = base_pool.snapshot_stats()
+        if pool_stats["hits"] or pool_stats["loads"] or pool_stats["size"]:
+            _log(
+                "📦 baseキャッシュ辞書: "
+                + f"保持={pool_stats['size']} | hit={pool_stats['hits']} | load={pool_stats['loads']} | 欠損={pool_stats['failures']}",
+                ui=False,
+            )
+    except Exception:
+        pass
+
+    base_pool.sync_to(base_cache)
     return data
 
 
@@ -882,7 +1118,11 @@ def _load_indicator_data(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
             if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
-                base_df = load_base_cache(sym, rebuild_if_missing=True)
+                base_df = load_base_cache(
+                    sym,
+                    rebuild_if_missing=True,
+                    cache_manager=cache_manager,
+                )
                 if base_df is None or base_df.empty:
                     continue
                 x = base_df.copy()
@@ -1428,12 +1668,16 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
+    base_pool = BaseCachePool(cache_manager, ctx.base_cache)
+
     basic_data = _load_basic_data(
         symbols,
         cache_manager,
         settings,
         symbol_data,
         today=ctx.today,
+        base_cache=ctx.base_cache,
+        base_cache_pool=base_pool,
     )
     ctx.basic_data = basic_data
 
@@ -1454,47 +1698,52 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         if cov_missing > 0:
             missing_syms = [s for s in symbols if s not in basic_data]
             _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
+            from time import perf_counter as _perf
+
+            repair_start = _perf()
             fixed = 0
+            try:
+                target_len = int(
+                    settings.cache.rolling.base_lookback_days
+                    + settings.cache.rolling.buffer_days
+                )
+            except Exception:
+                target_len = 0
             for sym in missing_syms:
                 try:
-                    base_df = load_base_cache(sym, rebuild_if_missing=True)
-                    if base_df is None or base_df.empty:
-                        continue
-                    x = base_df.copy()
-                    if x.index.name is not None:
-                        x = x.reset_index()
-                    if "Date" in x.columns:
-                        x["date"] = pd.to_datetime(x["Date"], errors="coerce")
-                    elif "date" in x.columns:
-                        x["date"] = pd.to_datetime(x["date"], errors="coerce")
-                    else:
-                        continue
-                    x = x.dropna(subset=["date"]).sort_values("date")
-                    col_map = {
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "AdjClose": "adjusted_close",
-                        "Volume": "volume",
-                    }
-                    for k, v in list(col_map.items()):
-                        if k in x.columns:
-                            x = x.rename(columns={k: v})
-                    n = int(
-                        settings.cache.rolling.base_lookback_days
-                        + settings.cache.rolling.buffer_days
+                    base_df, _ = base_pool.get(
+                        sym, rebuild_if_missing=True
                     )
-                    sliced = x.tail(n).reset_index(drop=True)
-                    cache_manager.write_atomic(sliced, sym, "rolling")
-                    basic_data[sym] = _normalize_ohlcv(sliced)
+                    if base_df is None or getattr(base_df, "empty", True):
+                        continue
+                    sliced = _build_rolling_from_base(sym, base_df, target_len, cache_manager)
+                    if sliced is None or getattr(sliced, "empty", True):
+                        continue
+                    try:
+                        if "Date" not in sliced.columns:
+                            work = sliced.copy()
+                            work["Date"] = pd.to_datetime(work.get("date"), errors="coerce")
+                        else:
+                            work = sliced
+                        work["Date"] = pd.to_datetime(work["Date"], errors="coerce").dt.normalize()
+                    except Exception:
+                        work = sliced
+                    basic_data[sym] = _normalize_ohlcv(work)
                     fixed += 1
                 except Exception:
                     continue
             if fixed:
-                _log(f"🛠 欠損データを {fixed} 銘柄で補完", ui=False)
+                elapsed = int(max(0, _perf() - repair_start))
+                m, s = divmod(elapsed, 60)
+                _log(
+                    f"🛠 欠損データを {fixed} 銘柄で補完 | 所要 {m}分{s}秒",
+                    ui=False,
+                )
     except Exception:
         pass
+
+    if base_pool.shared is not None:
+        ctx.base_cache = base_pool.shared
 
     return basic_data
 
@@ -1536,9 +1785,9 @@ def _precompute_shared_indicators_phase(
 
         force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
         try:
-            thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "1000"))
+            thr_parallel = int(_os.environ.get("PRECOMPUTE_PARALLEL_THRESHOLD", "200"))
         except Exception:
-            thr_parallel = 1000
+            thr_parallel = 200
         if force_parallel in ("1", "true", "yes"):
             use_parallel = True
         elif force_parallel in ("0", "false", "no"):
@@ -1552,18 +1801,27 @@ def _precompute_shared_indicators_phase(
         except Exception:
             pre_workers = 12
         if use_parallel:
+            max_workers = max(1, min(int(pre_workers), len(basic_data)))
             try:
-                _log(f"🧵 前計算 並列ワーカー: {pre_workers}")
+                _log(f"🧵 前計算 並列ワーカー: {max_workers}")
             except Exception:
                 pass
+        else:
+            max_workers = None
+        from time import perf_counter as _perf
+
+        pre_start = _perf()
         basic_data = precompute_shared_indicators(
             basic_data,
             log=_log,
             parallel=use_parallel,
-            max_workers=pre_workers if use_parallel else None,
+            max_workers=max_workers,
         )
         ctx.basic_data = basic_data
-        _log("🧮 共有指標の前計算が完了")
+        elapsed = int(max(0, _perf() - pre_start))
+        m, s = divmod(elapsed, 60)
+        mode_label = "ON" if use_parallel else "OFF"
+        _log(f"🧮 共有指標の前計算が完了 | 所要 {m}分{s}秒 | 並列={mode_label}")
     except Exception as e:
         _log(f"⚠️ 共有指標の前計算に失敗: {e}")
     return basic_data
@@ -1954,20 +2212,6 @@ def _log_system_filter_stats(
         + f"system5={len(system5_syms)}?, "
         + f"system6={len(system6_syms)}?"
     )
-
-
-
-def _prepare_system5_data(
-    basic_data: dict[str, pd.DataFrame],
-    system_symbols: list[str],
-) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
-    # ...existing code...
-
-
-# --- Rollingキャッシュ鮮度検証＆自動更新 ---
-
-# --- Rollingキャッシュ鮮度検証＆自動更新 ---
-
 def _ensure_rolling_cache_fresh(
     symbol: str,
     rolling_df: 'pd.DataFrame',
@@ -3111,8 +3355,10 @@ def compute_today_signals(
             elif env_pp in ("1", "true", "yes"):
                 use_process_pool = True
             else:
-                # 既定はプロセスプール無効（UIログ/コールバックを優先）
-                use_process_pool = False
+                prefer_pool = getattr(stg, "PREFER_PROCESS_POOL", False)
+                use_process_pool = bool(prefer_pool)
+                if use_process_pool:
+                    _local_log("⚙️ プロセスプールを優先設定で有効化")
             # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
