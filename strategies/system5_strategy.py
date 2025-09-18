@@ -16,6 +16,7 @@ from core.system5 import (
 
 class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
+    PREFER_PROCESS_POOL = True
 
     def __init__(self):
         super().__init__()
