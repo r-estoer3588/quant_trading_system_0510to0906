@@ -11,6 +11,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
@@ -497,16 +498,9 @@ def generate_candidates_system5(
                 if "Close" in df.columns and not df["Close"].empty:
                     last_price = df["Close"].iloc[-1]
                 # 翌営業日に補正
-                try:
-                    idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-                    pos = idx.searchsorted(ts, side="right")
-                    if pos >= len(idx):
-                        continue
-                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
-                except Exception:
-                    entry_date = ts + pd.Timedelta(days=1)
-                    if entry_date not in df.index:
-                        continue
+                entry_date = resolve_signal_entry_date(ts)
+                if pd.isna(entry_date):
+                    continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,

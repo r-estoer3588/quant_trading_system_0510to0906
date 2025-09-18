@@ -5,10 +5,11 @@ run_backtest は strategy 側にカスタム実装が残る。
 """
 
 import os
-from typing import cast
 
 import pandas as pd
 from ta.volatility import AverageTrueRange
+
+from common.utils_spy import resolve_signal_entry_date
 
 
 def prepare_data_vectorized_system7(
@@ -133,10 +134,9 @@ def generate_candidates_system7(
     df = prepared_dict["SPY"]
     setup_days = df[df["setup"] == 1]
     for date, row in setup_days.iterrows():
-        entry_idx = cast(int, df.index.get_loc(date))
-        if entry_idx + 1 >= len(df):
+        entry_date = resolve_signal_entry_date(date)
+        if pd.isna(entry_date):
             continue
-        entry_date = df.index[entry_idx + 1]
         # last_price（直近終値）を取得
         last_price = None
         if "Close" in df.columns and not df["Close"].empty:

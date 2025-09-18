@@ -15,7 +15,7 @@ from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
-from common.utils_spy import get_next_nyse_trading_day
+from common.utils_spy import resolve_signal_entry_date
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -338,34 +338,8 @@ def generate_candidates_system2(
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         setup_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
-            pos = idx.searchsorted(base, side="right")
-            next_dates = pd.Series(pd.NaT, index=setup_df.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if getattr(mask, "any", lambda: False)():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            setup_df["entry_date"] = next_dates
-        except Exception:
-            setup_df["entry_date"] = pd.NaT
-
-        mask_missing = setup_df["entry_date"].isna()
-        if mask_missing.any():
-            base_index = pd.to_datetime(setup_df.index, errors="coerce")
-            fallback_values = []
-            for base_dt in base_index[mask_missing.to_numpy()]:
-                if pd.isna(base_dt):
-                    fallback_values.append(pd.NaT)
-                    continue
-                try:
-                    fallback = get_next_nyse_trading_day(pd.Timestamp(base_dt))
-                except Exception:
-                    fallback = pd.NaT
-                fallback_values.append(fallback)
-            setup_df.loc[mask_missing, "entry_date"] = fallback_values
-
+        base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
+        setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
         setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         all_signals.append(setup_df)
 

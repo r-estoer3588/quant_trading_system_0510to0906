@@ -9,6 +9,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 
@@ -512,19 +513,8 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         sig_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base_dates = pd.to_datetime(sig_df["Date"], errors="coerce").dt.normalize()
-            pos = idx.searchsorted(base_dates, side="right")
-            next_dates = pd.Series(pd.NaT, index=base_dates.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if mask.any():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            sig_df["entry_date"] = next_dates
-            sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
-        except Exception:
-            pass
+        sig_df["entry_date"] = sig_df["Date"].map(resolve_signal_entry_date)
+        sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         all_signals.append(sig_df.reset_index(drop=True))
 
     if not all_signals:

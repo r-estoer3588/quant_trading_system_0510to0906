@@ -10,6 +10,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_RATIO_THRESHOLD = 0.05  # 5% ATR ratio threshold for filtering
@@ -430,19 +431,9 @@ def generate_candidates_system3(
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         setup_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
-            pos = idx.searchsorted(base, side="right")
-            next_dates = pd.Series(pd.NaT, index=setup_df.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if getattr(mask, "any", lambda: False)():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            setup_df["entry_date"] = next_dates
-            setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
-        except Exception:
-            setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
+        base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
+        setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
+        setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10", "entry_price"]]
         all_signals.append(setup_df)
         buffer.append(sym)

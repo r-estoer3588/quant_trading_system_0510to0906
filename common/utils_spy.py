@@ -270,6 +270,36 @@ def get_next_nyse_trading_day(current: pd.Timestamp | None = None) -> pd.Timesta
     return future_days.min()
 
 
+def resolve_signal_entry_date(base_date) -> pd.Timestamp | pd.NaT:
+    """シグナル日から翌営業日（取引予定日）を算出する。
+
+    - base_date が欠損・変換不可の場合は NaT を返す。
+    - get_next_nyse_trading_day の結果は常に tz-naive な日付に正規化する。
+    """
+
+    if base_date is None or (isinstance(base_date, float) and pd.isna(base_date)):
+        return pd.NaT
+    try:
+        ts = pd.Timestamp(base_date)
+    except Exception:
+        return pd.NaT
+    if pd.isna(ts):
+        return pd.NaT
+    ts = _normalize_to_naive_day(ts)
+    try:
+        entry_candidate = get_next_nyse_trading_day(ts)
+    except Exception:
+        return pd.NaT
+    if pd.isna(entry_candidate):
+        return pd.NaT
+    entry_ts = pd.Timestamp(entry_candidate)
+    try:
+        entry_ts = entry_ts.tz_localize(None)
+    except Exception:
+        pass
+    return entry_ts.normalize()
+
+
 def get_spy_data_cached(folder: str = "data_cache"):
     """
     旧バージョンの SPY キャッシュ読み込み関数。
