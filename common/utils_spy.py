@@ -283,13 +283,70 @@ def get_spy_data_cached(folder: str = "data_cache"):
         return get_spy_data_cached_v2(folder)
 
 
+def _find_spy_csv(dir_path: Path) -> Path | None:
+    try:
+        if not dir_path.exists():
+            return None
+        for fn in os.listdir(dir_path):
+            if fn.lower() == "spy.csv":
+                return dir_path / fn
+    except Exception:
+        return None
+    return None
+
+
+def _persist_spy_with_indicators(spy_df: pd.DataFrame) -> None:
+    """Persist augmented SPY data to rolling/base cache for reuse."""
+
+    if spy_df is None or getattr(spy_df, "empty", True):
+        return
+    try:
+        settings = get_settings(create_dirs=True)
+        root = Path(settings.DATA_CACHE_DIR)
+        rolling_dir = Path(getattr(settings.cache, "rolling_dir", root / "rolling"))
+        base_dir = root / "base"
+    except Exception:
+        root = Path("data_cache")
+        rolling_dir = root / "rolling"
+        base_dir = root / "base"
+
+    for target_dir in (rolling_dir, base_dir):
+        path = _find_spy_csv(target_dir)
+        if path is None or not path.exists():
+            continue
+        try:
+            df_to_save = spy_df.copy()
+            if "Date" in df_to_save.columns:
+                df_to_save["Date"] = pd.to_datetime(
+                    df_to_save["Date"], errors="coerce"
+                ).dt.normalize()
+                df_to_save = df_to_save.dropna(subset=["Date"]).sort_values("Date")
+                df_to_save.to_csv(path, index=False)
+            else:
+                idx = pd.to_datetime(df_to_save.index, errors="coerce").normalize()
+                df_to_save = df_to_save.loc[~idx.isna()].copy()
+                df_to_save.index = pd.Index(idx[~idx.isna()])
+                df_to_save.sort_index(inplace=True)
+                df_to_save.to_csv(path, index_label="Date")
+        except Exception:
+            continue
+        else:
+            break
+
+
 def get_spy_with_indicators(spy_df=None):
     """
     SPY に SMA100 / SMA200 を付与（フィルターは戦略側で判定する）
     """
+
+    loaded_from_cache = False
     if spy_df is None:
-        # より堅牢な v2 を使用
-        spy_df = get_spy_data_cached_v2()
+        # Prefer today cache (rolling) for the latest values, fallback to base/full.
+        loaded_from_cache = True
+        spy_df = get_spy_data_cached_v2(mode="today")
+        if spy_df is None:
+            spy_df = get_spy_data_cached_v2()
+
     if spy_df is not None and not getattr(spy_df, "empty", True):
         # Close 列名のゆらぎに対応（close/AdjClose/adjusted_close 等）
         if "Close" not in spy_df.columns:
@@ -322,4 +379,11 @@ def get_spy_with_indicators(spy_df=None):
             pd.to_numeric(spy_df["Close"], errors="coerce"),
             window=200,
         ).sma_indicator()
+
+        if loaded_from_cache:
+            try:
+                _persist_spy_with_indicators(spy_df)
+            except Exception:
+                pass
+
     return spy_df
