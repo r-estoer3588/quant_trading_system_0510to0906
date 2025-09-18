@@ -102,6 +102,9 @@ scheduler:
     - name: build_metrics_report
       cron: "55 8 * * 1-5" # 平日 08:55（確認用レポート）
       task: build_metrics_report
+    - name: daily_run
+      cron: "15 6 * * 2-6" # 米国市場クローズ後の朝に日次バッチを実行
+      task: daily_run
 
 ui:
   default_capital: 100000

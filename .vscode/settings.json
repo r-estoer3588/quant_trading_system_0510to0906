@@ -26,5 +26,15 @@
     "tests"
   ],
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
+  "python.testing.pytestEnabled": true,
+  "mcp.servers": {
+    "quant-trading-mcp": {
+      "command": "python",
+      "args": [
+        "-m",
+        "tools.mcp_server"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
 }
