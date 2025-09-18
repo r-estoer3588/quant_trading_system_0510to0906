@@ -21,6 +21,9 @@ from common.utils_spy import get_spy_with_indicators
 LONG_SYSTEMS = {"system1", "system3", "system5"}
 SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
 
+# fast-path 判定に使用する必須列
+_FAST_PATH_REQUIRED_COLUMNS = {"filter", "setup"}
+
 
 @dataclass(frozen=True)
 class TodaySignal:
@@ -34,6 +37,41 @@ class TodaySignal:
     score_key: str | None = None
     score: float | None = None
     reason: str | None = None
+
+
+def _missing_fast_path_columns(data_dict: dict[str, pd.DataFrame]) -> set[str]:
+    """高速経路に必要な列が揃っているかを判定し、不足集合を返す。"""
+
+    if not isinstance(data_dict, dict) or not data_dict:
+        return set(_FAST_PATH_REQUIRED_COLUMNS)
+
+    missing: set[str] = set()
+    has_valid_frame = False
+    for df in data_dict.values():
+        if df is None or getattr(df, "empty", True):
+            continue
+        has_valid_frame = True
+        try:
+            cols = {str(c).strip().lower() for c in df.columns}
+        except Exception:
+            missing.update(_FAST_PATH_REQUIRED_COLUMNS)
+            continue
+        for col in _FAST_PATH_REQUIRED_COLUMNS:
+            if col not in cols:
+                missing.add(col)
+
+    if not has_valid_frame:
+        return set(_FAST_PATH_REQUIRED_COLUMNS)
+    return missing
+
+
+def _is_fast_path_viable(
+    data_dict: dict[str, pd.DataFrame]
+) -> tuple[bool, set[str]]:
+    """高速経路で candidate 抽出が可能か判定し、(bool, 不足列) を返す。"""
+
+    missing = _missing_fast_path_columns(data_dict)
+    return len(missing) == 0, missing
 
 
 def _infer_side(system_name: str) -> str:
@@ -267,6 +305,28 @@ def get_today_signals_for_strategy(
     except Exception:
         sliced_dict = raw_data_dict
 
+    prepared_dict: dict[str, pd.DataFrame] | None = None
+    fast_path_used = False
+    fast_missing: set[str] = set()
+    try:
+        fast_ok, fast_missing = _is_fast_path_viable(sliced_dict)
+    except Exception:
+        fast_ok = False
+        fast_missing = set()
+    if fast_ok:
+        try:
+            prepared_dict = {
+                sym: df.copy()
+                for sym, df in sliced_dict.items()
+                if df is not None and not getattr(df, "empty", True)
+            }
+            fast_path_used = True
+            if log_callback:
+                log_callback("⚡ 高速パス: 既存インジケーターを再利用します")
+        except Exception:
+            prepared_dict = None
+            fast_path_used = False
+
     # スキップ理由の収集（systemごとに集計）
     _skip_counts: dict[str, int] = {}
     _skip_samples: dict[str, list[str]] = {}
@@ -304,61 +364,77 @@ def get_today_signals_for_strategy(
         except Exception:
             pass
 
-    try:
-        prepared = strategy.prepare_data(
-            sliced_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=_on_skip,
-            use_process_pool=use_process_pool,
-            max_workers=max_workers,
-            lookback_days=lookback_days,
-        )
-    except Exception as e:
-        # フォールバック: 非プール + 再計算（reuse_indicators=False）で再試行
-        try:
-            if log_callback:
+    if not fast_path_used or prepared_dict is None:
+        if fast_missing and log_callback:
+            try:
+                missing_list = ", ".join(sorted(fast_missing))
                 log_callback(
-                    f"⚠️ {system_name}: 前処理失敗のためフォールバック（非プール・再計算）: {e}"
+                    "⚠️ 高速パスを利用できません（必須列不足: "
+                    + (missing_list or "不明")
+                    + "）。再計算します。"
                 )
-        except Exception:
-            pass
+            except Exception:
+                pass
         try:
-            prepared = strategy.prepare_data(
+            prepared_dict = strategy.prepare_data(
                 sliced_dict,
                 progress_callback=progress_callback,
                 log_callback=log_callback,
                 skip_callback=_on_skip,
-                use_process_pool=False,
-                max_workers=None,
+                use_process_pool=use_process_pool,
+                max_workers=max_workers,
                 lookback_days=lookback_days,
-                reuse_indicators=False,
             )
-        except Exception as e2:
-            # ここで失敗したら空の結果を返す（後段は0件で流れる）
+        except Exception as e:
+            # フォールバック: 非プール + 再計算（reuse_indicators=False）で再試行
             try:
                 if log_callback:
-                    log_callback(f"⚠️ {system_name}: フォールバックも失敗（中断）: {e2}")
+                    log_callback(
+                        f"⚠️ {system_name}: 前処理失敗のためフォールバック（非プール・再計算）: {e}"
+                    )
             except Exception:
                 pass
-            return pd.DataFrame(
-                columns=[
-                    "symbol",
-                    "system",
-                    "side",
-                    "signal_type",
-                    "entry_date",
-                    "entry_price",
-                    "stop_price",
-                    "score_key",
-                    "score",
-                ]
-            )
+            try:
+                prepared_dict = strategy.prepare_data(
+                    sliced_dict,
+                    progress_callback=progress_callback,
+                    log_callback=log_callback,
+                    skip_callback=_on_skip,
+                    use_process_pool=False,
+                    max_workers=None,
+                    lookback_days=lookback_days,
+                    reuse_indicators=False,
+                )
+            except Exception as e2:
+                # ここで失敗したら空の結果を返す（後段は0件で流れる）
+                try:
+                    if log_callback:
+                        log_callback(
+                            f"⚠️ {system_name}: フォールバックも失敗（中断）: {e2}"
+                        )
+                except Exception:
+                    pass
+                return pd.DataFrame(
+                    columns=[
+                        "symbol",
+                        "system",
+                        "side",
+                        "signal_type",
+                        "entry_date",
+                        "entry_price",
+                        "stop_price",
+                        "score_key",
+                        "score",
+                    ]
+                )
+    if prepared_dict is None:
+        prepared_dict = {}
+
     # インデックスを正規化・昇順・重複除去（pandas の再インデックス関連エラー対策）
     try:
-        if isinstance(prepared, dict):
+        if isinstance(prepared_dict, dict):
             _fixed: dict[str, pd.DataFrame] = {}
-            for _sym, _df in prepared.items():
+            for _sym, _df in prepared_dict.items():
                 try:
                     x = _df.copy()
                     if "Date" in x.columns:
@@ -374,9 +450,11 @@ def get_today_signals_for_strategy(
                     _fixed[_sym] = x
                 except Exception:
                     _fixed[_sym] = _df
-            prepared = _fixed
+            prepared_dict = _fixed
     except Exception:
         pass
+
+    prepared = prepared_dict
     try:
         if log_callback:
             em, es = divmod(int(max(0, _t.time() - t0)), 60)
