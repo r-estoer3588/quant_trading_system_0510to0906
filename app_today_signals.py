@@ -442,6 +442,25 @@ def _rebuild_rolling_cache_from_base(
     if "date" not in base_reset.columns:
         return None, "date_missing", err_note
     base_reset = base_reset.copy()
+    cols_list = list(base_reset.columns)
+    date_positions = [idx for idx, col in enumerate(cols_list) if str(col).lower() == "date"]
+    if not date_positions:
+        return None, "date_missing", err_note
+    primary_pos = date_positions[0]
+    date_series = base_reset.iloc[:, primary_pos]
+    for pos in date_positions[1:]:
+        other_series = base_reset.iloc[:, pos]
+        date_series = date_series.combine_first(other_series)
+    if len(date_positions) > 1:
+        keep_positions = [idx for idx in range(len(cols_list)) if idx not in date_positions[1:]]
+        base_reset = base_reset.iloc[:, keep_positions]
+        primary_index = keep_positions.index(primary_pos)
+    else:
+        primary_index = primary_pos
+    primary_label = base_reset.columns[primary_index]
+    base_reset.iloc[:, primary_index] = date_series
+    if str(primary_label).lower() != "date" or primary_label != "date":
+        base_reset = base_reset.rename(columns={primary_label: "date"})
     base_reset["date"] = pd.to_datetime(base_reset["date"], errors="coerce")
     base_reset = (
         base_reset.dropna(subset=["date"])
