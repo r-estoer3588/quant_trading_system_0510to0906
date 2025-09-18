@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from strategies.constants import MAX_HOLD_DAYS_DEFAULT
 from strategies.system6_strategy import System6Strategy
 
 
@@ -64,3 +65,83 @@ def test_entry_rule_limit_short():
     candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
     entry = strategy.compute_entry(df, candidate, current_capital=10_000)
     assert entry == (105.0, 108.0)
+
+
+def test_system6_profit_target_exits_next_close():
+    strategy = System6Strategy()
+    dates = pd.date_range("2024-01-01", periods=5, freq="B")
+    df = pd.DataFrame(
+        {
+            "Open": [100] * 5,
+            "High": [100, 100, 107, 100, 100],
+            "Low": [99, 99, 97, 95, 95],
+            "Close": [100, 100, 99, 95, 95],
+            "ATR10": [1] * 5,
+        },
+        index=dates,
+    )
+    candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
+    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
+    entry_idx = df.index.get_loc(dates[1])
+
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
+
+    assert exit_date == dates[3]
+    assert exit_price == pytest.approx(float(df.iloc[3]["Close"]))
+
+
+def test_system6_stop_exit_same_day_at_stop_price():
+    strategy = System6Strategy()
+    dates = pd.date_range("2024-01-01", periods=4, freq="B")
+    df = pd.DataFrame(
+        {
+            "Open": [100] * 4,
+            "High": [100, 100, 110, 100],
+            "Low": [99] * 4,
+            "Close": [100, 100, 104, 100],
+            "ATR10": [1] * 4,
+        },
+        index=dates,
+    )
+    candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
+    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
+    entry_idx = df.index.get_loc(dates[1])
+
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
+
+    assert exit_date == dates[2]
+    assert exit_price == pytest.approx(stop_price)
+
+
+def test_system6_time_exit_after_max_days_close():
+    strategy = System6Strategy()
+    max_days = strategy.config.get(
+        "profit_take_max_days", MAX_HOLD_DAYS_DEFAULT
+    )
+    periods = max_days + 3
+    dates = pd.date_range("2024-01-01", periods=periods, freq="B")
+    df = pd.DataFrame(
+        {
+            "Open": [100] * periods,
+            "High": [100, 100] + [107] * (periods - 2),
+            "Low": [99] * periods,
+            "Close": [100, 100] + [103] * (periods - 2),
+            "ATR10": [1] * periods,
+        },
+        index=dates,
+    )
+    candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
+    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
+    entry_idx = df.index.get_loc(dates[1])
+
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
+
+    expected_idx = entry_idx + max_days
+    assert exit_date == dates[expected_idx]
+    assert exit_price == pytest.approx(float(df.iloc[expected_idx]["Close"]))
