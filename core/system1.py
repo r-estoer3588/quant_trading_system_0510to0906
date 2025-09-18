@@ -9,6 +9,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 
@@ -330,13 +331,36 @@ def prepare_data_vectorized_system1(
         df = _rename_ohlcv(df)
 
         try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-            if nan_rate > 0.05:
-                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            if base_cols:
+                base_nan_rate = df[base_cols].isnull().mean().mean()
+            else:
+                base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
+            if base_nan_rate >= 0.30:
+                msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
                 if skip_callback:
                     skip_callback(sym, msg)
+                _on_symbol_done()
+                continue
+            if base_nan_rate > 0.10 and log_callback:
+                log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
+
+            indicator_cols = [
+                c
+                for c in df.columns
+                if c not in base_cols
+                and str(c).lower() not in {"date", "symbol"}
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if indicator_cols:
+                indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
+                if indicator_nan_rate > 0.45 and log_callback:
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
+                    )
+
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
                     msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
@@ -359,6 +383,8 @@ def prepare_data_vectorized_system1(
                 log_callback(msg)
             if skip_callback:
                 skip_callback(sym, msg)
+            _on_symbol_done()
+            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -487,19 +513,8 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         sig_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base_dates = pd.to_datetime(sig_df["Date"], errors="coerce").dt.normalize()
-            pos = idx.searchsorted(base_dates, side="right")
-            next_dates = pd.Series(pd.NaT, index=base_dates.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if mask.any():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            sig_df["entry_date"] = next_dates
-            sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
-        except Exception:
-            pass
+        sig_df["entry_date"] = sig_df["Date"].map(resolve_signal_entry_date)
+        sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         all_signals.append(sig_df.reset_index(drop=True))
 
     if not all_signals:

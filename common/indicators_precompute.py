@@ -207,39 +207,55 @@ def precompute_shared_indicators(
                         ).normalize()
                         src = src.reset_index(drop=True)
                         src["Date"] = src_dates
-                    if "Date" in cached.columns:
+                    cached_local = cached.copy()
+                    if "Date" in cached_local.columns:
                         cached_dates = pd.to_datetime(
-                            cached["Date"], errors="coerce"
+                            cached_local["Date"], errors="coerce"
                         ).dt.normalize()
                     else:
                         cached_dates = pd.to_datetime(
-                            cached.index, errors="coerce"
+                            cached_local.index, errors="coerce"
                         ).normalize()
+                        cached_local = cached_local.reset_index(drop=True)
+                        cached_local["Date"] = cached_dates
                     last = cached_dates.max()
-                    # 安全に文脈を付けて再計算（最大の必要窓は 200 と想定 + 10% 余裕）
-                    ctx_days = 220
-                    src_recent = src[
-                        src["Date"] >= (last - pd.Timedelta(days=ctx_days))
-                    ]
-                    # 差分再計算
-                    recomputed = add_indicators(src_recent)
-                    # 以前の最終日より新しい行だけを採用
-                    recomputed_new = recomputed[recomputed["Date"] > last]
-                    # FutureWarning 回避: 空/全NAのフレームは concat から除外
-                    is_empty = recomputed_new is None or getattr(
-                        recomputed_new, "empty", True
+                    src_latest = src_dates.max()
+                    use_cached_only = (
+                        pd.notna(last)
+                        and pd.notna(src_latest)
+                        and src_latest <= last
+                        and len(cached_local) == len(src)
                     )
-                    is_all_na = False
-                    try:
-                        if not is_empty:
-                            is_all_na = bool(recomputed_new.count().sum() == 0)
-                    except Exception:
-                        is_all_na = False
-                    if is_empty or is_all_na:
-                        ind_df = cached
+                    if use_cached_only:
+                        ind_df = cached_local
+                        ind_df.attrs["_precompute_skip_cache"] = True
                     else:
-                        merged = pd.concat([cached, recomputed_new], ignore_index=True)
-                        ind_df = merged
+                        # 安全に文脈を付けて再計算（最大の必要窓は 200 と想定 + 10% 余裕）
+                        ctx_days = 220
+                        src_recent = src[
+                            src["Date"] >= (last - pd.Timedelta(days=ctx_days))
+                        ]
+                        # 差分再計算
+                        recomputed = add_indicators(src_recent)
+                        # 以前の最終日より新しい行だけを採用
+                        recomputed_new = recomputed[recomputed["Date"] > last]
+                        # FutureWarning 回避: 空/全NAのフレームは concat から除外
+                        is_empty = recomputed_new is None or getattr(
+                            recomputed_new, "empty", True
+                        )
+                        is_all_na = False
+                        try:
+                            if not is_empty:
+                                is_all_na = bool(recomputed_new.count().sum() == 0)
+                        except Exception:
+                            is_all_na = False
+                        if is_empty or is_all_na:
+                            ind_df = cached_local
+                        else:
+                            merged = pd.concat(
+                                [cached_local, recomputed_new], ignore_index=True
+                            )
+                            ind_df = merged
                 except Exception:
                     ind_df = add_indicators(work)
             else:
@@ -249,6 +265,11 @@ def precompute_shared_indicators(
                 merged = df.copy()
                 for c in new_cols:
                     merged[c] = ind_df[c]
+                if getattr(ind_df, "attrs", {}).get("_precompute_skip_cache"):
+                    try:
+                        merged.attrs["_precompute_skip_cache"] = True
+                    except Exception:
+                        pass
                 return sym, merged
             return sym, df
         except Exception:
@@ -266,7 +287,17 @@ def precompute_shared_indicators(
                 out[sym] = res
                 # キャッシュ書き込み（新規列も含むテーブル）
                 try:
-                    if res is not None and not getattr(res, "empty", True):
+                    skip_cache = bool(
+                        getattr(res, "attrs", {}).get("_precompute_skip_cache")
+                    )
+                except Exception:
+                    skip_cache = False
+                try:
+                    if (
+                        not skip_cache
+                        and res is not None
+                        and not getattr(res, "empty", True)
+                    ):
                         _write_cache(sym, res)
                 except Exception:
                     pass
@@ -289,7 +320,17 @@ def precompute_shared_indicators(
             sym, res = _calc(item)
             out[sym] = res
             try:
-                if res is not None and not getattr(res, "empty", True):
+                skip_cache = bool(
+                    getattr(res, "attrs", {}).get("_precompute_skip_cache")
+                )
+            except Exception:
+                skip_cache = False
+            try:
+                if (
+                    not skip_cache
+                    and res is not None
+                    and not getattr(res, "empty", True)
+                ):
                     _write_cache(sym, res)
             except Exception:
                 pass

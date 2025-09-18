@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import json
@@ -612,6 +612,9 @@ def _load_basic_data(
     cache_manager: CacheManager,
     settings: Any,
     symbol_data: dict[str, pd.DataFrame] | None,
+    *,
+    today: pd.Timestamp | None = None,
+    freshness_tolerance: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     import time as _t
 
@@ -619,6 +622,42 @@ def _load_basic_data(
     total_syms = len(symbols)
     start_ts = _t.time()
     chunk = 500
+
+    if freshness_tolerance is None:
+        try:
+            freshness_tolerance = int(settings.cache.rolling.max_staleness_days)
+        except Exception:
+            freshness_tolerance = 2
+    freshness_tolerance = max(0, int(freshness_tolerance))
+
+    recent_allowed: set[pd.Timestamp] = set()
+    if today is not None and freshness_tolerance >= 0:
+        try:
+            recent_allowed = {
+                pd.Timestamp(d).normalize()
+                for d in _recent_trading_days(pd.Timestamp(today), freshness_tolerance)
+            }
+        except Exception:
+            recent_allowed = set()
+
+    gap_probe_days = max(freshness_tolerance + 5, 10)
+
+    def _estimate_gap_days(
+        today_dt: pd.Timestamp | None, last_dt: pd.Timestamp | None
+    ) -> int | None:
+        if today_dt is None or last_dt is None:
+            return None
+        try:
+            recent = _recent_trading_days(pd.Timestamp(today_dt), gap_probe_days)
+        except Exception:
+            recent = []
+        for offset, dt in enumerate(recent):
+            if dt == last_dt:
+                return offset
+        try:
+            return max(0, int((pd.Timestamp(today_dt) - pd.Timestamp(last_dt)).days))
+        except Exception:
+            return None
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = None
@@ -663,7 +702,36 @@ def _load_basic_data(
             target_len = int(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
-            if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
+            needs_rebuild = False
+            if df is None or df.empty or (
+                hasattr(df, "__len__") and len(df) < target_len
+            ):
+                needs_rebuild = True
+                if rebuild_reason is None and df is not None and not getattr(df, "empty", True):
+                    rebuild_reason = "length"
+            if df is not None and not getattr(df, "empty", True):
+                last_seen_date = _extract_last_cache_date(df)
+                if last_seen_date is None:
+                    rebuild_reason = rebuild_reason or "missing_date"
+                    needs_rebuild = True
+                else:
+                    last_seen_date = pd.Timestamp(last_seen_date).normalize()
+                    if today is not None and recent_allowed:
+                        if last_seen_date not in recent_allowed:
+                            rebuild_reason = "stale"
+                            gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
+                            needs_rebuild = True
+            if needs_rebuild:
+                if rebuild_reason == "stale":
+                    gap_label = (
+                        f"約{gap_days}営業日" if gap_days is not None else "不明"
+                    )
+                    last_label = (
+                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
+                    )
+                    _log(
+                        f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}"
+                    )
                 base_df = load_base_cache(sym, rebuild_if_missing=True)
                 if base_df is None or base_df.empty:
                     if rebuild_reason:
@@ -704,6 +772,20 @@ def _load_basic_data(
                         )
                     continue
                 cache_manager.write_atomic(sliced, sym, "rolling")
+                if rebuild_reason == "stale":
+                    new_last = _extract_last_cache_date(sliced)
+                    try:
+                        new_label = (
+                            str(pd.Timestamp(new_last).date())
+                            if new_last is not None
+                            else "不明"
+                        )
+                    except Exception:
+                        new_label = "不明"
+                    _log(
+                        f"✅ rolling更新完了: {sym} → 最終日={new_label}",
+                        ui=False,
+                    )
                 df = sliced
             if df is not None and not df.empty:
                 try:
@@ -880,20 +962,22 @@ def _subset_data(basic_data: dict[str, pd.DataFrame], keys: list[str]) -> dict[s
     return out
 
 
-def _load_active_positions_by_system() -> dict[str, int]:
-    """Return current active position counts grouped by system name.
+@dataclass(frozen=True)
+class _StrategyAllocationMeta:
+    calc_fn: Callable[..., Any] | None
+    risk_pct: float
+    max_pct: float
+    max_positions: int
 
-    Alpaca の保有ポジションと `data/symbol_system_map.json` を突き合わせ、
-    system1〜7 のどの戦略で保有しているかを推定する。
-    失敗した場合は空 dict を返す。
-    """
 
-    counts: dict[str, int] = {}
+def _fetch_positions_and_symbol_map() -> tuple[list[Any], dict[str, str]]:
+    """Fetch Alpaca positions and cached symbol-to-system mapping once."""
+
     try:
         client = ba.get_client(paper=True)
         positions = list(client.get_all_positions())
     except Exception:
-        return counts
+        positions = []
 
     try:
         mapping_path = Path("data/symbol_system_map.json")
@@ -902,6 +986,30 @@ def _load_active_positions_by_system() -> dict[str, int]:
         else:
             symbol_system_map = {}
     except Exception:
+        symbol_system_map = {}
+
+    return positions, symbol_system_map
+
+
+def _load_active_positions_by_system(
+    positions: Sequence[object] | None = None,
+    symbol_system_map: Mapping[str, str] | None = None,
+) -> dict[str, int]:
+    """Return current active position counts grouped by system name.
+
+    Alpaca の保有ポジションと `data/symbol_system_map.json` を突き合わせ、
+    system1〜7 のどの戦略で保有しているかを推定する。
+    失敗した場合は空 dict を返す。
+    """
+
+    counts: dict[str, int] = {}
+
+    if positions is None or symbol_system_map is None:
+        positions, symbol_system_map = _fetch_positions_and_symbol_map()
+
+    if positions is None:
+        positions = []
+    if symbol_system_map is None:
         symbol_system_map = {}
 
     for pos in positions:
@@ -918,7 +1026,10 @@ def _load_active_positions_by_system() -> dict[str, int]:
         if qty <= 0:
             continue
         side = str(getattr(pos, "side", "")).lower()
-        system_name = str(symbol_system_map.get(sym, "")).lower()
+        mapped = symbol_system_map.get(sym)
+        if mapped is None and sym.lower() in symbol_system_map:
+            mapped = symbol_system_map.get(sym.lower())
+        system_name = str(mapped or "").lower()
         if not system_name:
             if sym == "SPY" and side == "short":
                 system_name = "system7"
@@ -939,114 +1050,136 @@ def _amount_pick(
     """資金配分に基づいて候補を採用。
     shares と position_value を付与して返す。
     """
-    chosen = []
-    chosen_symbols = set()
+    chosen: list[dict[str, Any]] = []
+    chosen_symbols: set[str] = set()
 
     active_positions = active_positions or {}
 
     # システムごとの割当予算
     budgets = {
         name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
-    }  # noqa: E501
+    }
     remaining = budgets.copy()
 
     # システム名の順序を固定（system1..system7）
     sys_order = [f"system{i}" for i in range(1, 8)]
     ordered_names = [n for n in sys_order if n in weights]
-    # 各システムの最大ポジション上限（設定 max_positions、既定10）と採用カウンタ
-    max_pos_by_system: dict[str, int] = {}
-    for _n in ordered_names:
+
+    strategy_meta: dict[str, _StrategyAllocationMeta] = {}
+    candidates_by_system: dict[str, list[dict[str, Any]]] = {}
+    candidate_index: dict[str, int] = {}
+
+    for name in ordered_names:
+        stg = strategies.get(name)
+        config = getattr(stg, "config", {}) if stg is not None else {}
+        calc_fn = getattr(stg, "calculate_position_size", None)
+        if not callable(calc_fn):
+            calc_fn = None
         try:
-            _stg = strategies.get(_n)
-            _lim = int(getattr(_stg, "config", {}).get("max_positions", 10))
+            risk_pct = float(config.get("risk_pct", 0.02))
         except Exception:
-            _lim = 10
-        taken = int(active_positions.get(_n, 0))
-        max_pos_by_system[_n] = max(0, _lim - taken)
+            risk_pct = 0.02
+        try:
+            max_pct = float(config.get("max_pct", 0.10))
+        except Exception:
+            max_pct = 0.10
+        try:
+            max_positions = int(config.get("max_positions", 10))
+        except Exception:
+            max_positions = 10
+
+        strategy_meta[name] = _StrategyAllocationMeta(
+            calc_fn=calc_fn,
+            risk_pct=risk_pct,
+            max_pct=max_pct,
+            max_positions=max_positions,
+        )
+
+        df = per_system.get(name, pd.DataFrame())
+        if df is None or getattr(df, "empty", True):
+            candidates_by_system[name] = []
+        else:
+            candidates_by_system[name] = df.to_dict("records")
+        candidate_index[name] = 0
+
+    max_pos_by_system = {
+        name: max(0, strategy_meta[name].max_positions - int(active_positions.get(name, 0)))
+        for name in ordered_names
+    }
     count_by_system: dict[str, int] = {k: 0 for k in ordered_names}
+
+    def _normalize_shares(value: Any) -> int:
+        try:
+            return int(float(value))
+        except Exception:
+            return 0
+
     # システムごとにスコア順で採用。複数周回して1件ずつ拾う（偏りを軽減）
     still = True
     while still:
         still = False
         for name in ordered_names:
-            df = per_system.get(name, pd.DataFrame())
+            records = candidates_by_system.get(name, [])
             if (
-                df is None
-                or df.empty
+                not records
                 or remaining.get(name, 0.0) <= 0.0
                 or count_by_system.get(name, 0) >= max_pos_by_system.get(name, 0)
+                or candidate_index.get(name, 0) >= len(records)
             ):
                 continue
-            stg = strategies[name]
-            # 順に探索
-            for _, row in df.iterrows():
-                sym = row["symbol"]
-                if sym in chosen_symbols:
-                    continue
-                entry = (
-                    float(row["entry_price"])
-                    if not pd.isna(row.get("entry_price"))
-                    else None  # noqa: E501
-                )
-                stop = (
-                    float(row["stop_price"])
-                    if not pd.isna(row.get("stop_price"))
-                    else None  # noqa: E501
-                )
-                if not entry or not stop or entry <= 0:
+
+            meta = strategy_meta[name]
+            idx = candidate_index[name]
+
+            while idx < len(records):
+                row = records[idx]
+                idx += 1
+                candidate_index[name] = idx
+
+                sym = str(row.get("symbol", "")).upper()
+                if not sym or sym in chosen_symbols:
                     continue
 
-                # 望ましい枚数（全システム割当基準）
+                entry_raw = row.get("entry_price")
+                stop_raw = row.get("stop_price")
                 try:
-                    # stg may be typed as object; call via cast to avoid
-                    # static type errors. Call calculate_position_size if available.
-                    calc_fn = getattr(stg, "calculate_position_size", None)
-                    if callable(calc_fn):
-                        try:
-                            ds = calc_fn(
-                                budgets[name],
-                                entry,
-                                stop,
-                                risk_pct=float(
-                                    getattr(stg, "config", {}).get("risk_pct", 0.02)
-                                ),  # noqa: E501
-                                max_pct=float(
-                                    getattr(stg, "config", {}).get("max_pct", 0.10)
-                                ),  # noqa: E501
-                            )
-                            if ds is None:
-                                desired_shares = 0
-                            else:
-                                try:
-                                    if isinstance(ds, (int | float | str)):
-                                        try:
-                                            desired_shares = int(float(ds))
-                                        except Exception:
-                                            desired_shares = 0
-                                    else:
-                                        desired_shares = 0
-                                except Exception:
-                                    desired_shares = 0
-                        except Exception:
-                            desired_shares = 0
-                    else:
-                        desired_shares = 0
+                    entry = float(entry_raw)
                 except Exception:
-                    desired_shares = 0
+                    entry = None
+                try:
+                    stop = float(stop_raw)
+                except Exception:
+                    stop = None
+                if entry is None or stop is None or entry <= 0:
+                    continue
+
+                desired_shares = 0
+                if meta.calc_fn is not None:
+                    try:
+                        ds = meta.calc_fn(
+                            budgets[name],
+                            entry,
+                            stop,
+                            risk_pct=meta.risk_pct,
+                            max_pct=meta.max_pct,
+                        )
+                        desired_shares = _normalize_shares(ds)
+                    except Exception:
+                        desired_shares = 0
+
                 if desired_shares <= 0:
                     continue
 
-                # 予算内に収まるよう調整
-                max_by_cash = int(remaining[name] // abs(entry))
+                max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
                 shares = min(desired_shares, max_by_cash)
                 if shares <= 0:
                     continue
+
                 position_value = shares * abs(entry)
                 if position_value <= 0:
                     continue
 
-                # 採用
-                rec = row.to_dict()
+                rec = dict(row)
                 rec["shares"] = int(shares)
                 rec["position_value"] = float(round(position_value, 2))
                 # 採用直前の残余を system_budget に表示（見た目が減っていく）
@@ -1057,7 +1190,7 @@ def _amount_pick(
                 remaining[name] -= position_value
                 count_by_system[name] = count_by_system.get(name, 0) + 1
                 still = True
-                break  # 1件ずつ拾って次のシステムへ
+                break
 
     if not chosen:
         return pd.DataFrame()
@@ -1346,7 +1479,13 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
-    basic_data = _load_basic_data(symbols, cache_manager, settings, symbol_data)
+    basic_data = _load_basic_data(
+        symbols,
+        cache_manager,
+        settings,
+        symbol_data,
+        today=ctx.today,
+    )
     ctx.basic_data = basic_data
 
     if progress_callback:
@@ -1869,13 +2008,6 @@ def _log_system_filter_stats(
 
 
 
-def _prepare_system5_data(
-    basic_data: dict[str, pd.DataFrame],
-    system_symbols: list[str],
-) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
-    # ...existing code...
-
-
 # --- Rollingキャッシュ鮮度検証＆自動更新 ---
 
 # --- Rollingキャッシュ鮮度検証＆自動更新 ---
@@ -1917,79 +2049,6 @@ def _ensure_rolling_cache_fresh(
             cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
     return rolling_df
-    _log("?? ?????????????? (system1)?")
-    raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system1={len(raw_data)}??")
-    s1_filter = int(len(system_symbols))
-    s1_setup = 0
-    spy_ok: int | None = None
-    try:
-        try:
-            if "SPY" in (basic_data or {}):
-                _spy_df = get_spy_with_indicators(basic_data["SPY"])
-                if _spy_df is not None and not getattr(_spy_df, "empty", True):
-                    _last = _spy_df.iloc[-1]
-                    spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
-        except Exception:
-            spy_ok = None
-        for _sym, _df in (raw_data or {}).items():
-            if _df is None or getattr(_df, "empty", True):
-                continue
-            try:
-                last = _df.iloc[-1]
-            except Exception:
-                continue
-            try:
-                sma_pass = float(last.get("SMA25", float("nan"))) > float(
-                    last.get("SMA50", float("nan"))
-                )
-            except Exception:
-                sma_pass = False
-            if sma_pass:
-                s1_setup += 1
-        if spy_ok is None:
-            _log(
-                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: -, "
-                f"SMA25>SMA50: {s1_setup}"
-            )
-        else:
-            _log(
-                f"?? system1????????: ??????={s1_filter}, SPY>SMA100: {spy_ok}, "
-                f"SMA25>SMA50: {s1_setup}"
-            )
-        try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-        except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            s1_setup_eff = int(s1_setup)
-            try:
-                if isinstance(spy_ok, int) and spy_ok == 0:
-                    s1_setup_eff = 0
-            except Exception:
-                pass
-            try:
-                cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
-            except Exception:
-                pass
-        try:
-            cb_note = globals().get("_PER_SYSTEM_NOTE")
-        except Exception:
-            cb_note = None
-        if cb_note and callable(cb_note):
-            try:
-                if spy_ok is None:
-                    cb_note("system1", "SPY>SMA100: -")
-                else:
-                    cb_note(
-                        "system1",
-                        "SPY>SMA100: OK" if int(spy_ok) == 1 else "SPY>SMA100: NG",
-                    )
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return raw_data, s1_filter, s1_setup, spy_ok
 
 
 def _prepare_system2_data(
@@ -3568,6 +3627,9 @@ def compute_today_signals(
     except Exception:
         pass
 
+    positions_cache: list[Any] | None = None
+    symbol_system_map_cache: dict[str, str] | None = None
+
     # --- 日次メトリクス（事前フィルタ通過数・候補数）の保存 ---
     try:
         metrics_rows = []
@@ -3628,7 +3690,13 @@ def compute_today_signals(
                         pass
 
                 # Exit 件数を簡易推定（Alpaca の保有ポジションと各 Strategy の compute_exit を利用）
-                def _estimate_exit_counts_today() -> dict[str, int]:
+                if positions_cache is None or symbol_system_map_cache is None:
+                    positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
+
+                def _estimate_exit_counts_today(
+                    positions0: Sequence[object],
+                    symbol_system_map0: Mapping[str, str],
+                ) -> dict[str, int]:
                     counts: dict[str, int] = {}
                     try:
                         # 価格ロード関数は共通ローダーを利用
@@ -3643,28 +3711,11 @@ def compute_today_signals(
                         except Exception:
                             latest_trading_day = None
 
-                        # Alpaca ポジション取得（失敗時は空）
-                        try:
-                            client0 = ba.get_client(paper=True)
-                            positions0 = list(client0.get_all_positions())
-                        except Exception:
-                            positions0 = []
-
                         # エントリー日のローカル記録と system 推定マップ
                         entry_map0 = load_entry_dates()
-                        sym_map_path0 = Path("data/symbol_system_map.json")
-                        try:
-                            import json as _json
+                        symbol_map_local = symbol_system_map0 or {}
 
-                            symbol_system_map0 = (
-                                _json.loads(sym_map_path0.read_text(encoding="utf-8"))
-                                if sym_map_path0.exists()
-                                else {}
-                            )
-                        except Exception:
-                            symbol_system_map0 = {}
-
-                        for pos in positions0:
+                        for pos in positions0 or []:
                             try:
                                 sym = str(getattr(pos, "symbol", "")).upper()
                                 if not sym:
@@ -3673,8 +3724,10 @@ def compute_today_signals(
                                 if qty <= 0:
                                     continue
                                 pos_side = str(getattr(pos, "side", "")).lower()
-                                # system の推定
-                                system0 = str(symbol_system_map0.get(sym, "")).lower()
+                                mapped = symbol_map_local.get(sym)
+                                if mapped is None and sym.lower() in symbol_map_local:
+                                    mapped = symbol_map_local.get(sym.lower())
+                                system0 = str(mapped or "").lower()
                                 if not system0:
                                     if sym == "SPY" and pos_side == "short":
                                         system0 = "system7"
@@ -3824,7 +3877,9 @@ def compute_today_signals(
                         return {}
                     return counts
 
-                exit_counts_map = _estimate_exit_counts_today() or {}
+                exit_counts_map = _estimate_exit_counts_today(
+                    positions_cache or [], symbol_system_map_cache or {}
+                ) or {}
                 # UI へも Exit 件数を送る（早期に可視化）
                 try:
                     cb_exit = globals().get("_PER_SYSTEM_EXIT")
@@ -3886,6 +3941,9 @@ def compute_today_signals(
     except Exception:
         _log("⚠️ メトリクス集計で例外が発生しました（処理続行）")
 
+    if positions_cache is None or symbol_system_map_cache is None:
+        positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
+
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
         try:
@@ -3909,7 +3967,9 @@ def compute_today_signals(
     long_alloc = _normalize_alloc(settings_alloc_long, defaults_long)
     short_alloc = _normalize_alloc(settings_alloc_short, defaults_short)
 
-    active_positions_map = _load_active_positions_by_system()
+    active_positions_map = _load_active_positions_by_system(
+        positions_cache, symbol_system_map_cache
+    )
     max_positions_per_system: dict[str, int] = {}
     for name, stg in strategies.items():
         try:

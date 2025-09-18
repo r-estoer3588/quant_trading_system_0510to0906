@@ -17,3 +17,4 @@
 - シグナル通知に推奨銘柄の日足チャート画像を添付
 - `run_all_systems_today.py` の文字列連結を改善
 - Today Signals に保有ポジションと利益保護判定を追加
+- `load_price` で `cache_profile="rolling/full"` 指定時に base キャッシュを自動的に挟み、フォールバック順を rolling→base→full に統一

@@ -10,6 +10,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_RATIO_THRESHOLD = 0.05  # 5% ATR ratio threshold for filtering
@@ -249,13 +250,37 @@ def prepare_data_vectorized_system3(
 
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-            if nan_rate > 0.05:
-                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            if base_cols:
+                base_nan_rate = df[base_cols].isnull().mean().mean()
+            else:
+                base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
+            if base_nan_rate >= 0.30:
+                msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
                 if skip_callback:
                     skip_callback(sym, msg)
+                skipped += 1
+                _on_symbol_done()
+                continue
+            if base_nan_rate > 0.10 and log_callback:
+                log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
+
+            indicator_cols = [
+                c
+                for c in df.columns
+                if c not in base_cols
+                and str(c).lower() not in {"date", "symbol"}
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if indicator_cols:
+                indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
+                if indicator_nan_rate > 0.45 and log_callback:
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
+                    )
+
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
                     if not pd.api.types.is_numeric_dtype(df[col]):
@@ -279,6 +304,9 @@ def prepare_data_vectorized_system3(
                 log_callback(msg)
             if skip_callback:
                 skip_callback(sym, msg)
+            skipped += 1
+            _on_symbol_done()
+            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -403,19 +431,9 @@ def generate_candidates_system3(
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         setup_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base = pd.DatetimeIndex(pd.to_datetime(setup_df.index, errors="coerce").normalize())
-            pos = idx.searchsorted(base, side="right")
-            next_dates = pd.Series(pd.NaT, index=setup_df.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if getattr(mask, "any", lambda: False)():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            setup_df["entry_date"] = next_dates
-            setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
-        except Exception:
-            setup_df["entry_date"] = pd.to_datetime(setup_df.index) + pd.Timedelta(days=1)
+        base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
+        setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
+        setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10", "entry_price"]]
         all_signals.append(setup_df)
         buffer.append(sym)

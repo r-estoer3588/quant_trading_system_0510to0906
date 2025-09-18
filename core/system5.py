@@ -11,6 +11,7 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
@@ -269,13 +270,37 @@ def prepare_data_vectorized_system5(
 
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-            if nan_rate > 0.05:
-                msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            if base_cols:
+                base_nan_rate = df[base_cols].isnull().mean().mean()
+            else:
+                base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
+            if base_nan_rate >= 0.30:
+                msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
                 if skip_callback:
                     skip_callback(sym, msg)
+                skipped += 1
+                _on_symbol_done()
+                continue
+            if base_nan_rate > 0.10 and log_callback:
+                log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
+
+            indicator_cols = [
+                c
+                for c in df.columns
+                if c not in base_cols
+                and str(c).lower() not in {"date", "symbol"}
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if indicator_cols:
+                indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
+                if indicator_nan_rate > 0.45 and log_callback:
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
+                    )
+
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
                     if not pd.api.types.is_numeric_dtype(df[col]):
@@ -299,6 +324,9 @@ def prepare_data_vectorized_system5(
                 log_callback(msg)
             if skip_callback:
                 skip_callback(sym, msg)
+            skipped += 1
+            _on_symbol_done()
+            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -470,16 +498,9 @@ def generate_candidates_system5(
                 if "Close" in df.columns and not df["Close"].empty:
                     last_price = df["Close"].iloc[-1]
                 # 翌営業日に補正
-                try:
-                    idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-                    pos = idx.searchsorted(ts, side="right")
-                    if pos >= len(idx):
-                        continue
-                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
-                except Exception:
-                    entry_date = ts + pd.Timedelta(days=1)
-                    if entry_date not in df.index:
-                        continue
+                entry_date = resolve_signal_entry_date(ts)
+                if pd.isna(entry_date):
+                    continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
