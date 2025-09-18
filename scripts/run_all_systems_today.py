@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from threading import Lock
