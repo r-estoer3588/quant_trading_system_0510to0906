@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -33,7 +35,8 @@ else:  # pragma: no cover - runtime fallback when Plotly is missing
     PlotlyFigure = Any
 
 from common import broker_alpaca as ba
-from common.position_age import fetch_entry_dates_from_alpaca
+from common.cache_manager import load_base_cache
+from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates
 
 
 # 経過日手仕切りの上限日数（システム別）
@@ -365,6 +368,34 @@ def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
 
 
 def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None:
+    if not symbol:
+        return None
+    try:
+        df = load_base_cache(symbol, rebuild_if_missing=False)
+    except Exception:
+        df = None
+
+    if df is not None and not getattr(df, "empty", True):
+        for col in ("Close", "close", "Adj Close", "adj_close", "adj close"):
+            if col in df.columns:
+                try:
+                    series = pd.to_numeric(df[col], errors="coerce").dropna().tail(max_points)
+                except Exception:
+                    continue
+                if not series.empty:
+                    return list(series.values)
+        try:
+            numeric_cols = df.select_dtypes(include=["number"])
+        except Exception:
+            numeric_cols = None
+        if numeric_cols is not None and not numeric_cols.empty:
+            try:
+                series = pd.to_numeric(numeric_cols.iloc[:, 0], errors="coerce").dropna().tail(max_points)
+            except Exception:
+                series = pd.Series(dtype=float)
+            if not series.empty:
+                return list(series.values)
+
     candidates = [
         Path("data_cache_recent") / f"{symbol}.csv",
         Path("data_cache") / f"{symbol}.csv",
@@ -381,18 +412,204 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
                 )
                 if close_col is None:
                     continue
-                s = df[close_col].astype(float).tail(max_points)
-                return list(s.values)
+                series = pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
+                if series.empty:
+                    continue
+                return list(series.values)
             except Exception:
                 continue
     return None
 
 
+
+def _extract_order_prices(order: Any) -> tuple[list[float], list[float], list[str]]:
+    stops: list[float] = []
+    limits: list[float] = []
+    trails: list[str] = []
+
+    def _maybe_add_price(value: Any, bucket: list[float]) -> None:
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(price):
+            return
+        bucket.append(price)
+
+    _maybe_add_price(getattr(order, "stop_price", None), stops)
+    _maybe_add_price(getattr(order, "limit_price", None), limits)
+
+    take_profit = getattr(order, "take_profit", None)
+    if take_profit is not None:
+        _maybe_add_price(getattr(take_profit, "limit_price", None), limits)
+
+    stop_loss = getattr(order, "stop_loss", None)
+    if stop_loss is not None:
+        _maybe_add_price(getattr(stop_loss, "stop_price", None), stops)
+
+    trail_price = getattr(order, "trail_price", None)
+    _maybe_add_price(trail_price, stops)
+
+    trail_percent = getattr(order, "trail_percent", None)
+    if trail_percent not in (None, ""):
+        try:
+            perc = float(trail_percent)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if math.isfinite(perc):
+                trails.append(f"Trail {perc:g}%")
+
+    legs = getattr(order, "legs", None)
+    if legs:
+        try:
+            iterator = list(legs)
+        except TypeError:
+            iterator = []
+        for leg in iterator:
+            sub_stops, sub_limits, sub_trails = _extract_order_prices(leg)
+            stops.extend(sub_stops)
+            limits.extend(sub_limits)
+            trails.extend(sub_trails)
+
+    return stops, limits, trails
+
+
+def _collect_open_exit_levels(client: Any) -> dict[str, dict[str, list[Any]]]:
+    if client is None:
+        return {}
+    try:
+        orders_obj = client.get_orders(status="open")
+    except Exception:
+        return {}
+
+    try:
+        orders = list(orders_obj)
+    except TypeError:
+        try:
+            orders = list(iter(orders_obj))
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+
+    levels: dict[str, dict[str, set[Any]]] = {}
+    for order in orders:
+        sym_raw = getattr(order, "symbol", "")
+        try:
+            sym_key = str(sym_raw).upper()
+        except Exception:
+            continue
+        if not sym_key:
+            continue
+        stops, limits, trails = _extract_order_prices(order)
+        if not stops and not limits and not trails:
+            continue
+        bucket = levels.setdefault(sym_key, {"stops": set(), "limits": set(), "trail": set()})
+        for price in stops:
+            bucket["stops"].add(price)
+        for price in limits:
+            bucket["limits"].add(price)
+        for note in trails:
+            if note:
+                bucket["trail"].add(str(note))
+
+    result: dict[str, dict[str, list[Any]]] = {}
+    for sym_key, data in levels.items():
+        result[sym_key] = {
+            "stops": sorted(data["stops"]),
+            "limits": sorted(data["limits"]),
+            "trail": sorted(data["trail"]),
+        }
+    return result
+
+
+def _format_exit_prices(values: Iterable[float] | None) -> str:
+    if not values:
+        return "-"
+    cleaned: list[float] = []
+    for value in values:
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(price):
+            continue
+        cleaned.append(price)
+    if not cleaned:
+        return "-"
+    dedup: dict[float, float] = {}
+    for price in cleaned:
+        key = round(price, 6)
+        dedup.setdefault(key, price)
+    ordered = [dedup[key] for key in sorted(dedup)]
+    formatted: list[str] = []
+    for price in ordered:
+        abs_price = abs(price)
+        fmt = "{:,.4f}" if abs_price < 1 else "{:,.2f}"
+        formatted.append(fmt.format(price))
+    return " / ".join(formatted)
+
+
+def _render_stop_cell(info: dict[str, list[Any]] | None) -> str:
+    if not info:
+        return "-"
+    parts: list[str] = []
+    price_part = _format_exit_prices(info.get("stops"))
+    if price_part != "-":
+        parts.append(price_part)
+    trail_notes = [str(n) for n in info.get("trail", []) if n]
+    if trail_notes:
+        parts.append(", ".join(sorted(set(trail_notes))))
+    return " ・ ".join(parts) if parts else "-"
+
+
+def _render_limit_cell(info: dict[str, list[Any]] | None) -> str:
+    if not info:
+        return "-"
+    return _format_exit_prices(info.get("limits"))
+
+
+def _attach_exit_levels(pos_df: pd.DataFrame, client: Any) -> pd.DataFrame:
+    if pos_df.empty or "銘柄" not in pos_df.columns:
+        return pos_df
+    try:
+        levels = _collect_open_exit_levels(client)
+    except Exception:
+        levels = {}
+    pos_df = pos_df.copy()
+    symbols = pos_df["銘柄"].astype(str).str.upper()
+    pos_df["ストップ価格"] = [
+        _render_stop_cell(levels.get(sym)) for sym in symbols
+    ]
+    pos_df["リミット価格"] = [
+        _render_limit_cell(levels.get(sym)) for sym in symbols
+    ]
+    return pos_df
+
+
 def _positions_to_df(positions, client=None) -> pd.DataFrame:
-    symbols = [str(getattr(p, "symbol", "")).upper() for p in positions]
-    entry_map = (
-        fetch_entry_dates_from_alpaca(client, symbols) if client else {}
-    )
+    symbols_upper = [str(getattr(p, "symbol", "")).upper() for p in positions]
+    symbol_set = {s for s in symbols_upper if s}
+    entry_map: dict[str, Any] = {}
+    if client and symbol_set:
+        try:
+            entry_map.update(fetch_entry_dates_from_alpaca(client, list(symbol_set)))
+        except Exception:
+            entry_map = {}
+    try:
+        cached_entries = load_entry_dates()
+    except Exception:
+        cached_entries = {}
+    for sym, value in cached_entries.items():
+        try:
+            key = str(sym).upper()
+        except Exception:
+            continue
+        if not key or key not in symbol_set:
+            continue
+        if key not in entry_map or entry_map[key] is None:
+            entry_map[key] = value
 
     mapping_path = Path("data/symbol_system_map.json")
     symbol_map: dict[str, str] = {}
@@ -619,6 +836,7 @@ def main() -> None:
             items = ", ".join(f"{k}={v}日" for k, v in HOLD_LIMITS.items())
         st.caption(f"経過日手仕切り（上限日数）: {items}")
         pos_df = _positions_to_df(positions, client)
+        pos_df = _attach_exit_levels(pos_df, client)
         if not pos_df.empty:
             numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
             for col in numeric_cols:
@@ -683,16 +901,14 @@ def main() -> None:
             except Exception:
                 pass
 
+            format_columns = {
+                "数量": "{:,.0f}",
+                "平均取得単価": "{:,.2f}",
+                "現在値": "{:,.2f}",
+                "含み損益": "{:,.2f}",
+            }
             styler = display_df.style.apply(_row_style, axis=1)
-            styler = styler.format(
-                {
-                    "数量": "{:,.0f}",
-                    "平均取得単価": "{:,.2f}",
-                    "現在値": "{:,.2f}",
-                    "含み損益": "{:,.2f}",
-                },
-                na_rep="-",
-            )
+            styler = styler.format(format_columns)
 
             # 表示（スパークライン列は LineChartColumn）
             try:
@@ -701,10 +917,23 @@ def main() -> None:
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "数量": st.column_config.NumberColumn(format="%.0f"),
+                        "平均取得単価": st.column_config.NumberColumn(format="%.2f"),
+                        "現在値": st.column_config.NumberColumn(format="%.2f"),
+                        "含み損益": st.column_config.NumberColumn(format="%.2f"),
                         "損益率(%)": st.column_config.ProgressColumn(
                             min_value=-20, max_value=20, format="%.1f%%"
                         ),
+                        "ストップ価格": st.column_config.Column(
+                            width="medium",
+                            help="未約定のストップ系注文価格（複数は / 区切り表示）。",
+                        ),
+                        "リミット価格": st.column_config.Column(
+                            width="medium",
+                            help="未約定のリミット/テイクプロフィット注文価格（複数は / 区切り表示）。",
+                        ),
                         "直近価格チャート": st.column_config.LineChartColumn(
+                            label="直近価格チャート",
                             width="small",
                             help="過去数週間の終値推移をスパークラインで表示します。",
                         ),

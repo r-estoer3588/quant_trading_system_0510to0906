@@ -37,6 +37,9 @@ TODAY_SIGNAL_COLUMNS = [
     "reason",
 ]
 
+# fast-path 判定に使用する必須列
+_FAST_PATH_REQUIRED_COLUMNS = {"filter", "setup"}
+
 
 @dataclass(frozen=True)
 class TodaySignal:

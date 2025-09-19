@@ -648,8 +648,11 @@ def load_base_cache(
         return df
 
     cm = cache_manager or _get_default_cache_manager()
+    raw = None
     try:
-        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling")
+        raw = cm.read(symbol, "full")
+        if raw is None or getattr(raw, "empty", False):
+            raw = cm.read(symbol, "rolling")
     except Exception:
         raw = None
 
