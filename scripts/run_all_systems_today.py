@@ -72,19 +72,70 @@ class BaseCachePool:
         symbol: str,
         *,
         rebuild_if_missing: bool = True,
+        min_last_date: pd.Timestamp | None = None,
+        allowed_recent_dates: set[pd.Timestamp] | None = None,
     ) -> tuple[pd.DataFrame | None, bool]:
-        """base キャッシュを取得し、辞書に保持する。"""
+        """base 繧ｭ繝｣繝・す繝･繧貞叙蠕励＠縲∬ｾ樊嶌縺ｫ菫晄戟縺吶ｋ縲・"""
+
+        allowed_set = set(allowed_recent_dates or ())
+        if min_last_date is not None:
+            try:
+                min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
+            except Exception:
+                min_norm = None
+        else:
+            min_norm = None
+
+        def _detect_last(frame: pd.DataFrame | None) -> pd.Timestamp | None:
+            if frame is None or getattr(frame, "empty", True):
+                return None
+            try:
+                if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
+                    return pd.Timestamp(frame.index[-1]).normalize()
+            except Exception:
+                pass
+            try:
+                idx = pd.to_datetime(frame.index, errors="coerce")
+                idx = idx[~pd.isna(idx)]
+                if len(idx):
+                    return pd.Timestamp(idx[-1]).normalize()
+            except Exception:
+                pass
+            try:
+                series = frame.get("Date") if frame is not None else None
+                if series is not None:
+                    series = pd.to_datetime(series, errors="coerce").dropna()
+                    if not series.empty:
+                        return pd.Timestamp(series.iloc[-1]).normalize()
+            except Exception:
+                pass
+            return None
 
         with self._lock:
             if self.shared is not None and symbol in self.shared:
                 value = self.shared[symbol]
-                self.hits += 1
-                return value, True
+                last_date = _detect_last(value)
+                stale = False
+                if allowed_set and (last_date is None or last_date not in allowed_set):
+                    stale = True
+                if not stale and min_norm is not None:
+                    if last_date is None or last_date < min_norm:
+                        stale = True
+                if not stale:
+                    self.hits += 1
+                    return value, True
+                try:
+                    if self.shared is not None:
+                        self.shared.pop(symbol, None)
+                except Exception:
+                    pass
 
         df = load_base_cache(
             symbol,
             rebuild_if_missing=rebuild_if_missing,
             cache_manager=self.cache_manager,
+            min_last_date=min_last_date,
+            allowed_recent_dates=allowed_set or None,
         )
 
         with self._lock:
@@ -765,7 +816,12 @@ def _load_basic_data(
             stats[key] = stats.get(key, 0) + 1
 
     def _get_base_cache(symbol: str) -> tuple[pd.DataFrame | None, bool]:
-        base_df, cached_hit = base_pool.get(symbol)
+        base_df, cached_hit = base_pool.get(
+            symbol,
+            rebuild_if_missing=True,
+            min_last_date=min_recent_allowed,
+            allowed_recent_dates=recent_allowed or None,
+        )
         _record_stat("base_cache_hit" if cached_hit else "base_cache_miss")
         if base_df is None or getattr(base_df, "empty", True):
             _record_stat("base_missing")
@@ -780,6 +836,13 @@ def _load_basic_data(
             }
         except Exception:
             recent_allowed = set()
+
+    min_recent_allowed: pd.Timestamp | None = None
+    if recent_allowed:
+        try:
+            min_recent_allowed = min(recent_allowed)
+        except Exception:
+            min_recent_allowed = None
 
     gap_probe_days = max(freshness_tolerance + 5, 10)
 
@@ -850,7 +913,24 @@ def _load_basic_data(
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
         except Exception:
             pass
-        return _normalize_ohlcv(df)
+        normalized = _normalize_ohlcv(df)
+        try:
+            fill_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns]
+            if fill_cols:
+                normalized = normalized.copy()
+                try:
+                    filled = normalized[fill_cols].apply(pd.to_numeric, errors="coerce")
+                except Exception:
+                    filled = normalized[fill_cols]
+                normalized.loc[:, fill_cols] = filled.ffill().bfill()
+        except Exception:
+            pass
+        try:
+            if "Date" in normalized.columns:
+                normalized = normalized.dropna(subset=["Date"])
+        except Exception:
+            pass
+        return normalized
 
     env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
     try:

@@ -42,16 +42,27 @@ tools/mcp_server/
 
 ## VS Code 連携
 - `.vscode/settings.json` に以下のエントリを追加済みです。
+- `.vscode/settings.json` では、以下のように自作サーバーに加えてブラウザ・ファイル操作系の MCP サーバーも登録しています。
   ```json
   "mcp.servers": {
     "quant-trading-mcp": {
       "command": "python",
       "args": ["-m", "tools.mcp_server"],
       "cwd": "${workspaceFolder}"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"],
+      "cwd": "${workspaceFolder}"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"],
+      "cwd": "${workspaceFolder}"
     }
   }
   ```
-- VS Code の **MCP: Use Tool** から `hello` や `run_backtest` を呼び出してレスポンスを確認できます。
+- VS Code の **MCP: Use Tool** から `hello` や `run_backtest` を呼び出してレスポンスを確認できます。`playwright` サーバーを使うとブラウザ自動化、`filesystem` サーバーで安全なファイル操作が可能です。
 
 ## セットアップ手順とコマンド例
 ```bash

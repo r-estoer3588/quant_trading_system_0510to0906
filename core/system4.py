@@ -272,7 +272,7 @@ def prepare_data_vectorized_system4(
                 base_nan_rate = df[base_cols].isnull().mean().mean()
             else:
                 base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
-            if base_nan_rate >= 0.30:
+            if base_nan_rate >= 0.45:
                 msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
@@ -281,7 +281,7 @@ def prepare_data_vectorized_system4(
                 skipped += 1
                 _on_symbol_done()
                 continue
-            if base_nan_rate > 0.10 and log_callback:
+            if base_nan_rate > 0.20 and log_callback:
                 log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
 
             indicator_cols = [
@@ -293,7 +293,7 @@ def prepare_data_vectorized_system4(
             ]
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
-                if indicator_nan_rate > 0.45 and log_callback:
+                if indicator_nan_rate > 0.60 and log_callback:
                     log_callback(
                         f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
                     )

@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from collections.abc import Iterable
 from typing import ClassVar
 
 import numpy as np
@@ -540,23 +541,111 @@ def load_base_cache(
     *,
     rebuild_if_missing: bool = True,
     cache_manager: CacheManager | None = None,
+    min_last_date: pd.Timestamp | None = None,
+    allowed_recent_dates: Iterable[object] | None = None,
 ) -> pd.DataFrame | None:  # noqa: E501
-    """data_cache/base/{symbol}.csv を優先的に読み込む。
-    無ければ CacheManager の full/rolling から再構築して保存（rebuild_if_missing=True）。
-    いずれも無ければ None。
+    """Load base cache with optional freshness validation.
+
+    When ``allowed_recent_dates`` or ``min_last_date`` is provided, the on-disk cache
+    is considered stale if it does not contain a recent trading day. Stale caches are
+    rebuilt from the latest full/rolling dataset when ``rebuild_if_missing`` is True.
     """
-    path = base_cache_path(symbol)
-    if path.exists():
+
+    def _detect_last_date(frame: pd.DataFrame | None) -> pd.Timestamp | None:
+        if frame is None or getattr(frame, "empty", True):
+            return None
         try:
-            df = pd.read_csv(path, parse_dates=["Date"]) if path.exists() else None
-            if df is not None:
-                df = df.sort_values("Date").set_index("Date")
-            return df
+            if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
+                return pd.Timestamp(frame.index[-1]).normalize()
         except Exception:
             pass
+        for col in ("Date", "date"):
+            if col in frame.columns:
+                try:
+                    series = pd.to_datetime(frame[col], errors="coerce").dropna()
+                    if not series.empty:
+                        return pd.Timestamp(series.iloc[-1]).normalize()
+                except Exception:
+                    continue
+        return None
+
+    allowed_set: set[pd.Timestamp] = set()
+    if allowed_recent_dates:
+        for candidate in allowed_recent_dates:
+            try:
+                ts = pd.Timestamp(candidate)
+            except Exception:
+                continue
+            if pd.isna(ts):
+                continue
+            allowed_set.add(ts.normalize())
+
+    if min_last_date is not None:
+        try:
+            min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
+        except Exception:
+            min_norm = None
+    else:
+        min_norm = None
+
+    path = base_cache_path(symbol)
+    df: pd.DataFrame | None = None
+    if path.exists():
+        try:
+            df = pd.read_csv(path, parse_dates=["Date"])
+        except ValueError as exc:
+            if "Missing column provided to 'parse_dates': 'Date'" in str(exc):
+                try:
+                    df = pd.read_csv(path)
+                except Exception:
+                    df = None
+                else:
+                    if df is not None:
+                        if "Date" in df.columns:
+                            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+                        elif "date" in df.columns:
+                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            df = df.drop(columns=["date"], errors="ignore")
+                        else:
+                            df = None
+            else:
+                df = None
+        except Exception:
+            df = None
+        if df is not None:
+            try:
+                df = df.dropna(subset=["Date"])
+                df = df.sort_values("Date").set_index("Date")
+            except Exception:
+                df = None
+
+    if df is not None:
+        last_date = _detect_last_date(df)
+        stale = False
+        if allowed_set and (last_date is None or last_date not in allowed_set):
+            stale = True
+        if not stale and min_norm is not None:
+            if last_date is None or last_date < min_norm:
+                stale = True
+        if stale:
+            if rebuild_if_missing:
+                try:
+                    logger.info(
+                        "%s base cache stale -> rebuild: %s (last=%s)",
+                        __name__,
+                        symbol,
+                        last_date.date() if last_date is not None else "None",
+                    )
+                except Exception:
+                    pass
+                df = None
+            else:
+                return df
+        else:
+            return df
 
     if not rebuild_if_missing:
-        return None
+        return df
 
     cm = cache_manager or _get_default_cache_manager()
     try:
