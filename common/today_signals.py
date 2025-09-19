@@ -14,12 +14,25 @@ from core.system5 import (
     DEFAULT_ATR_PCT_THRESHOLD,
     format_atr_pct_threshold_label,
 )
-from common.utils_spy import get_spy_with_indicators
+from common.utils_spy import get_spy_with_indicators, resolve_signal_entry_date
 
 # --- サイド定義（売買区分）---
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
 LONG_SYSTEMS = {"system1", "system3", "system5"}
 SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
+
+TODAY_SIGNAL_COLUMNS = [
+    "symbol",
+    "system",
+    "side",
+    "signal_type",
+    "entry_date",
+    "entry_price",
+    "stop_price",
+    "score_key",
+    "score",
+    "reason",
+]
 
 
 @dataclass(frozen=True)
@@ -34,6 +47,164 @@ class TodaySignal:
     score_key: str | None = None
     score: float | None = None
     reason: str | None = None
+
+
+def _empty_today_signals_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=TODAY_SIGNAL_COLUMNS)
+
+
+def _normalize_daily_index(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
+    if "Date" in x.columns:
+        idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+        x.index = pd.Index(idx)
+    else:
+        x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+    x = x[~x.index.isna()]
+    try:
+        x = x.sort_index()
+    except Exception:
+        pass
+    try:
+        if getattr(x.index, "has_duplicates", False):
+            x = x[~x.index.duplicated(keep="last")]
+    except Exception:
+        pass
+    return x
+
+
+def _make_spy_gate(spy_df: pd.DataFrame | None) -> bool | None:
+    if spy_df is None or getattr(spy_df, "empty", True):
+        return None
+    try:
+        last_row = spy_df.iloc[-1]
+    except Exception:
+        return None
+    try:
+        close_val = pd.to_numeric(
+            pd.Series([last_row.get("Close")]), errors="coerce"
+        ).iloc[0]
+        sma_val = pd.to_numeric(
+            pd.Series([last_row.get("SMA200")]), errors="coerce"
+        ).iloc[0]
+    except Exception:
+        return None
+    if pd.isna(close_val) or pd.isna(sma_val):
+        return None
+    try:
+        return bool(float(close_val) > float(sma_val))
+    except Exception:
+        return None
+
+
+def _collect_candidates_for_today(
+    prepared: dict[str, pd.DataFrame],
+    *,
+    spy_df: pd.DataFrame,
+    top_n: int,
+) -> dict[pd.Timestamp, list[dict]] | None:
+    try:
+        spy_norm = _normalize_daily_index(spy_df)
+    except Exception:
+        return None
+    if spy_norm.empty or "Close" not in spy_norm.columns:
+        return None
+    if "SMA200" not in spy_norm.columns:
+        return None
+    spy_norm = spy_norm.copy()
+    spy_close = pd.to_numeric(spy_norm["Close"], errors="coerce")
+    spy_sma = pd.to_numeric(spy_norm["SMA200"], errors="coerce")
+    spy_norm["spy_filter"] = (spy_close > spy_sma).astype(int)
+    spy_filter = spy_norm["spy_filter"]
+
+    candidates: dict[pd.Timestamp, list[dict]] = {}
+    required_cols = {
+        "Close",
+        "DollarVolume50",
+        "HV50",
+        "SMA200",
+        "RSI4",
+        "ATR40",
+    }
+
+    for sym, df in prepared.items():
+        if str(sym).upper() == "SPY":
+            continue
+        if not isinstance(df, pd.DataFrame) or getattr(df, "empty", True):
+            continue
+        try:
+            norm = _normalize_daily_index(df)
+        except Exception:
+            return None
+        if required_cols - set(norm.columns):
+            return None
+
+        close = pd.to_numeric(norm["Close"], errors="coerce")
+        sma200 = pd.to_numeric(norm["SMA200"], errors="coerce")
+        dv50 = pd.to_numeric(norm["DollarVolume50"], errors="coerce")
+        hv50 = pd.to_numeric(norm["HV50"], errors="coerce")
+
+        setup_mask = (dv50 > 100_000_000) & hv50.between(10, 40) & (close > sma200)
+        setup_mask = setup_mask.fillna(False)
+        if not setup_mask.any():
+            continue
+
+        try:
+            last_close_series = close.dropna()
+            last_close = (
+                float(last_close_series.iloc[-1])
+                if not last_close_series.empty
+                else None
+            )
+        except Exception:
+            last_close = None
+
+        for ts in norm.index[setup_mask]:
+            ts_norm = pd.Timestamp(ts).normalize()
+            if ts_norm not in spy_filter.index:
+                continue
+            try:
+                gate_val = spy_filter.loc[ts_norm]
+                if isinstance(gate_val, pd.Series):
+                    gate_val = gate_val.iloc[-1]
+            except Exception:
+                continue
+            if pd.isna(gate_val) or int(gate_val) == 0:
+                continue
+            entry_date = resolve_signal_entry_date(ts_norm)
+            if pd.isna(entry_date):
+                continue
+            row = norm.loc[ts_norm]
+            candidate = {
+                "symbol": sym,
+                "entry_date": entry_date,
+                "RSI4": row.get("RSI4"),
+                "ATR40": row.get("ATR40"),
+            }
+            if last_close is not None and not pd.isna(last_close):
+                candidate["entry_price"] = last_close
+            candidates.setdefault(entry_date, []).append(candidate)
+
+    if not candidates:
+        return {}
+
+    limited: dict[pd.Timestamp, list[dict]] = {}
+    try:
+        limit_n = max(0, int(top_n))
+    except Exception:
+        limit_n = 0
+    for dt, rows in candidates.items():
+        sorted_rows = sorted(
+            rows,
+            key=lambda c: (
+                float("inf")
+                if c.get("RSI4") is None or pd.isna(c.get("RSI4"))
+                else float(c["RSI4"]),
+                str(c.get("symbol") or ""),
+            ),
+        )
+        limited[dt] = sorted_rows[:limit_n]
+    return limited
 
 
 def _infer_side(system_name: str) -> str:
@@ -341,19 +512,7 @@ def get_today_signals_for_strategy(
                     log_callback(f"⚠️ {system_name}: フォールバックも失敗（中断）: {e2}")
             except Exception:
                 pass
-            return pd.DataFrame(
-                columns=[
-                    "symbol",
-                    "system",
-                    "side",
-                    "signal_type",
-                    "entry_date",
-                    "entry_price",
-                    "stop_price",
-                    "score_key",
-                    "score",
-                ]
-            )
+            return _empty_today_signals_frame()
     # インデックスを正規化・昇順・重複除去（pandas の再インデックス関連エラー対策）
     try:
         if isinstance(prepared, dict):
@@ -505,31 +664,150 @@ def get_today_signals_for_strategy(
     # 候補生成（market_df を必要とする実装に配慮）
     gen_fn = strategy.generate_candidates  # type: ignore[attr-defined]
     params = inspect.signature(gen_fn).parameters
-    if log_callback:
+    needs_market_df = "market_df" in params
+    market_df_arg = market_df
+    candidates_by_date: dict | None = None
+    used_fast_path = False
+
+    if str(system_name).lower() == "system4" and isinstance(prepared, dict):
         try:
-            log_callback(f"🧩 セットアップチェック開始：{filter_pass} 銘柄")
+            top_n_fast = int(get_settings(create_dirs=False).backtest.top_n_rank)
+        except Exception:
+            top_n_fast = 10
+
+        spy_source: pd.DataFrame | None
+        if isinstance(market_df_arg, pd.DataFrame) and not getattr(
+            market_df_arg, "empty", False
+        ):
+            spy_source = market_df_arg.copy()
+        else:
+            maybe_spy = prepared.get("SPY")
+            spy_source = (
+                maybe_spy.copy()
+                if isinstance(maybe_spy, pd.DataFrame)
+                and not getattr(maybe_spy, "empty", True)
+                else None
+            )
+        try:
+            spy_with_ind = get_spy_with_indicators(spy_source)
+        except Exception:
+            spy_with_ind = None
+        if spy_with_ind is not None and not getattr(spy_with_ind, "empty", True):
+            spy_norm = _normalize_daily_index(spy_with_ind)
+        else:
+            spy_norm = None
+
+        fast_path_message: str | None = None
+        gate_state = _make_spy_gate(spy_norm)
+        if gate_state is None:
+            fast_path_message = "⚠️ System4 fast path: SPYデータ不足のため従来経路へフォールバックします"
+        elif gate_state is False:
+            used_fast_path = True
+            candidates_by_date = {}
+            if spy_norm is not None:
+                market_df = spy_norm
+                market_df_arg = spy_norm
+            fast_path_message = "🚫 System4 fast path: SPYがSMA200を下回るため候補は0件です"
+        else:
+            fast_candidates = _collect_candidates_for_today(
+                prepared,
+                spy_df=spy_norm,
+                top_n=top_n_fast,
+            )
+            if fast_candidates is None:
+                fast_path_message = "⚠️ System4 fast path: 必要列不足のため従来経路へフォールバックします"
+            else:
+                used_fast_path = True
+                candidates_by_date = fast_candidates
+                if spy_norm is not None:
+                    market_df = spy_norm
+                    market_df_arg = spy_norm
+                fast_path_message = "⚡ System4 fast path: SPYゲート通過の軽量抽出を適用しました"
+
+        if fast_path_message and log_callback:
+            try:
+                log_callback(fast_path_message)
+            except Exception:
+                pass
+
+    if not used_fast_path:
+        if needs_market_df and system_name == "system4":
+            needs_fallback = market_df_arg is None or getattr(
+                market_df_arg, "empty", False
+            )
+            if needs_fallback and isinstance(prepared, dict):
+                maybe_spy = prepared.get("SPY")
+                if isinstance(maybe_spy, pd.DataFrame) and not getattr(
+                    maybe_spy, "empty", True
+                ):
+                    market_df_arg = maybe_spy
+                    needs_fallback = False
+            if needs_fallback:
+                try:
+                    cached_spy = get_spy_with_indicators()
+                except Exception:
+                    cached_spy = None
+                if cached_spy is not None and not getattr(cached_spy, "empty", True):
+                    market_df_arg = cached_spy
+                    market_df = cached_spy
+                    if log_callback:
+                        try:
+                            log_callback("🛟 System4: SPYデータをキャッシュから補完しました")
+                        except Exception:
+                            pass
+            if market_df_arg is None or getattr(market_df_arg, "empty", False):
+                if log_callback:
+                    try:
+                        log_callback(
+                            "⚠️ System4: SPYデータが見つからないため候補抽出をスキップします"
+                        )
+                    except Exception:
+                        pass
+                try:
+                    if stage_progress:
+                        stage_progress(75, filter_pass, None, None, None)
+                        stage_progress(100, filter_pass, None, 0, 0)
+                except Exception:
+                    pass
+                return _empty_today_signals_frame()
+        if log_callback:
+            try:
+                log_callback(f"🧩 セットアップチェック開始：{filter_pass} 銘柄")
+            except Exception:
+                pass
+        t1 = _t.time()
+        if needs_market_df and market_df_arg is not None:
+            market_df = market_df_arg
+            candidates_by_date, _ = gen_fn(
+                prepared,
+                market_df=market_df_arg,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+            )
+        elif needs_market_df:
+            candidates_by_date, _ = gen_fn(
+                prepared,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+            )
+        else:
+            candidates_by_date, _ = gen_fn(
+                prepared,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+            )
+        try:
+            if log_callback:
+                em, es = divmod(int(max(0, _t.time() - t1)), 60)
+                log_callback(f"⏱️ セットアップ/候補抽出 完了（経過 {em}分{es}秒）")
         except Exception:
             pass
-    t1 = _t.time()
-    if "market_df" in params and market_df is not None:
-        candidates_by_date, _ = gen_fn(
-            prepared,
-            market_df=market_df,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-        )
     else:
-        candidates_by_date, _ = gen_fn(
-            prepared,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-        )
-    try:
         if log_callback:
-            em, es = divmod(int(max(0, _t.time() - t1)), 60)
-            log_callback(f"⏱️ セットアップ/候補抽出 完了（経過 {em}分{es}秒）")
-    except Exception:
-        pass
+            try:
+                log_callback("⏱️ セットアップ/候補抽出 完了（軽量経路）")
+            except Exception:
+                pass
 
     # セットアップ通過件数（NYSEカレンダーの前営業日を優先。無ければ最終行）
     try:
@@ -1001,19 +1279,7 @@ def get_today_signals_for_strategy(
             pass
 
     if not candidates_by_date:
-        return pd.DataFrame(
-            columns=[
-                "symbol",
-                "system",
-                "side",
-                "signal_type",
-                "entry_date",
-                "entry_price",
-                "stop_price",
-                "score_key",
-                "score",
-            ]
-        )
+        return _empty_today_signals_frame()
 
     # 当日または直近過去日の候補のみ抽出
     if target_date is not None and target_date in key_map:
@@ -1024,19 +1290,7 @@ def get_today_signals_for_strategy(
     else:
         today_candidates = cast(list[dict], [])
     if not today_candidates:
-        return pd.DataFrame(
-            columns=[
-                "symbol",
-                "system",
-                "side",
-                "signal_type",
-                "entry_date",
-                "entry_price",
-                "stop_price",
-                "score_key",
-                "score",
-            ]
-        )
+        return _empty_today_signals_frame()
     rows: list[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
