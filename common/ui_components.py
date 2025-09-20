@@ -735,9 +735,7 @@ def run_backtest_app(
         try:
             import os as _os  # local alias to avoid top imports churn
 
-            if not (
-                _os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")
-            ):
+            if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")):
                 st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
         except Exception:
             pass
