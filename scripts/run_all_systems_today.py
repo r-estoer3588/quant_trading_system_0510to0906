@@ -4523,12 +4523,13 @@ def compute_today_signals(
 
         # 各システムの最大ポジション上限=10 を厳格化
         if not final_df.empty and "system" in final_df.columns:
-            final_df = (
-                final_df.sort_values(["system", "score"], ascending=[True, True])
-                .groupby("system", as_index=False, group_keys=False)
-                .head(int(get_settings(create_dirs=False).risk.max_positions))
-                .reset_index(drop=True)
-            )
+            max_positions = int(get_settings(create_dirs=False).risk.max_positions)
+            if max_positions > 0:
+                final_df = (
+                    final_df.groupby("system", sort=False, group_keys=False)
+                    .head(max_positions)
+                    .reset_index(drop=True)
+                )
 
     if not final_df.empty:
         # 並びは side → system番号 → 各systemのスコア方向（RSI系のみ昇順、それ以外は降順）

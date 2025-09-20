@@ -208,6 +208,7 @@ class PrepareDataResult:
     fast_missing: set[str]
     skip_stats: SkipStats
     early_exit_frame: pd.DataFrame | None = None
+    early_exit_reason: str | None = None
 
 
 @dataclass
@@ -381,27 +382,23 @@ def _prepare_strategy_data(
                     reuse_indicators=False,
                 )
             except Exception as exc2:
+                reason_code = "prepare_fail: 入力不備のため処理中断"
                 try:
                     if log_callback:
                         log_callback(
-                            f"⚠️ {system_name}: フォールバックも失敗（中断）。 {exc2}"
+                            f"🛑 {system_name}: {reason_code} ({exc2})"
                         )
                 except Exception:
                     pass
-                empty = pd.DataFrame(
-                    columns=[
-                        "symbol",
-                        "system",
-                        "side",
-                        "signal_type",
-                        "entry_date",
-                        "entry_price",
-                        "stop_price",
-                        "score_key",
-                        "score",
-                    ]
+                empty = _empty_today_signals_frame(reason_code)
+                return PrepareDataResult(
+                    {},
+                    False,
+                    fast_missing,
+                    skip_stats,
+                    empty,
+                    reason_code,
                 )
-                return PrepareDataResult({}, False, fast_missing, skip_stats, empty)
 
     prepared_dict = prepared_dict or {}
     normalized = _normalize_prepared_dict(prepared_dict)
@@ -1392,22 +1389,7 @@ def _build_today_signals_dataframe(
         )
 
     if not rows:
-        return (
-            pd.DataFrame(
-                columns=[
-                    "symbol",
-                    "system",
-                    "side",
-                    "signal_type",
-                    "entry_date",
-                    "entry_price",
-                    "stop_price",
-                    "score_key",
-                    "score",
-                ]
-            ),
-            0,
-        )
+        return _empty_today_signals_frame(), 0
 
     out = pd.DataFrame([r.__dict__ for r in rows])
 
@@ -1475,8 +1457,14 @@ def _is_fast_path_viable(data_dict: dict[str, pd.DataFrame]) -> tuple[bool, set[
     return len(missing) == 0, missing
 
 
-def _empty_today_signals_frame() -> pd.DataFrame:
-    return pd.DataFrame(columns=TODAY_SIGNAL_COLUMNS)
+def _empty_today_signals_frame(reason: str | None = None) -> pd.DataFrame:
+    frame = pd.DataFrame(columns=TODAY_SIGNAL_COLUMNS)
+    if reason is not None:
+        try:
+            frame.attrs["zero_reason"] = str(reason)
+        except Exception:
+            frame.attrs["zero_reason"] = "unknown"
+    return frame
 
 
 def _normalize_daily_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -1965,6 +1953,13 @@ def get_today_signals_for_strategy(
         lookback_days=lookback_days,
     )
     if prepare_result.early_exit_frame is not None:
+        if log_callback and prepare_result.early_exit_reason:
+            try:
+                log_callback(
+                    f"🛈 中断理由コード: {prepare_result.early_exit_reason}"
+                )
+            except Exception:
+                pass
         return prepare_result.early_exit_frame
 
     prepared = prepare_result.prepared
