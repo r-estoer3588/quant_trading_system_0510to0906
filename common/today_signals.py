@@ -385,9 +385,7 @@ def _prepare_strategy_data(
                 reason_code = "prepare_fail: 入力不備のため処理中断"
                 try:
                     if log_callback:
-                        log_callback(
-                            f"🛑 {system_name}: {reason_code} ({exc2})"
-                        )
+                        log_callback(f"🛑 {system_name}: {reason_code} ({exc2})")
                 except Exception:
                     pass
                 empty = _empty_today_signals_frame(reason_code)
@@ -1955,9 +1953,7 @@ def get_today_signals_for_strategy(
     if prepare_result.early_exit_frame is not None:
         if log_callback and prepare_result.early_exit_reason:
             try:
-                log_callback(
-                    f"🛈 中断理由コード: {prepare_result.early_exit_reason}"
-                )
+                log_callback(f"🛈 中断理由コード: {prepare_result.early_exit_reason}")
             except Exception:
                 pass
         return prepare_result.early_exit_frame

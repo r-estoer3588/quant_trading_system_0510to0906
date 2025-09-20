@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Any, no_type_check
+from typing import Any, no_type_check, cast
 import os
 
 import pandas as pd
@@ -40,6 +40,7 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
+from collections.abc import Mapping, Sequence
 
 # ワーカー側で観測した cand_cnt(=TRDlist) を保存し、メインスレッドで参照するためのスナップショット
 _CAND_COUNT_SNAPSHOT: dict[str, int] = {}
@@ -95,7 +96,7 @@ class BaseCachePool:
             except Exception:
                 pass
             try:
-                idx = pd.to_datetime(frame.index, errors="coerce")
+                idx = pd.to_datetime(frame.index.to_numpy(), errors="coerce")
                 idx = idx[~pd.isna(idx)]
                 if len(idx):
                     return pd.Timestamp(idx[-1]).normalize()
@@ -104,9 +105,22 @@ class BaseCachePool:
             try:
                 series = frame.get("Date") if frame is not None else None
                 if series is not None:
-                    series = pd.to_datetime(series, errors="coerce").dropna()
-                    if not series.empty:
-                        return pd.Timestamp(series.iloc[-1]).normalize()
+                    # convert to numpy array to match pandas.to_datetime overloads
+                    series = pd.to_datetime(series.to_numpy(), errors="coerce")
+                    if hasattr(series, "dropna"):
+                        series = series.dropna()
+                    if getattr(series, "size", 0):
+                        # ensure we have an indexable array/series
+                        try:
+                            if isinstance(series, pd.DatetimeIndex):
+                                return pd.Timestamp(series[-1]).normalize()
+                            # pandas Series/Index support iloc; fallback to index access
+                            try:
+                                return pd.Timestamp(series.iloc[-1]).normalize()
+                            except Exception:
+                                return pd.Timestamp(series[-1]).normalize()
+                        except Exception:
+                            pass
             except Exception:
                 pass
             return None
@@ -139,7 +153,8 @@ class BaseCachePool:
         )
 
         with self._lock:
-            if self.shared is not None:
+            if self.shared is not None and df is not None:
+                # only store when df is a real DataFrame
                 self.shared[symbol] = df
             self.loads += 1
             if df is None or getattr(df, "empty", True):
@@ -520,7 +535,16 @@ def _pick_series(df: pd.DataFrame, names: list[str]):
                 s = df[nm]
                 if isinstance(s, pd.DataFrame):
                     try:
-                        s = s.iloc[:, 0]
+                        # only try 2D iloc if DataFrame-like
+                        if getattr(s, "ndim", None) == 2 and hasattr(s, "iloc"):
+                            s = cast(pd.Series, cast(Any, s).iloc[:, 0])
+                        else:
+                            # fallback: convert to first column via list of columns
+                            cols = list(s.columns or [])
+                            if cols:
+                                s = s[cols[0]]
+                            else:
+                                continue
                     except Exception:
                         continue
                 try:
@@ -690,14 +714,14 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     for col in ("date", "Date"):
         if col in df.columns:
             try:
-                values = pd.to_datetime(df[col], errors="coerce")
+                values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
                 values = values.dropna()
                 if not values.empty:
-                    return pd.Timestamp(values.iloc[-1]).normalize()
+                    return pd.Timestamp(values[-1]).normalize()
             except Exception:
                 continue
     try:
-        idx = pd.to_datetime(df.index, errors="coerce")
+        idx = pd.to_datetime(df.index.to_numpy(), errors="coerce")
         mask = ~pd.isna(idx)
         if mask.any():
             return pd.Timestamp(idx[mask][-1]).normalize()
@@ -743,9 +767,9 @@ def _build_rolling_from_base(
     if work.index.name is not None:
         work = work.reset_index()
     if "Date" in work.columns:
-        work["date"] = pd.to_datetime(work["Date"], errors="coerce")
+        work["date"] = pd.to_datetime(work["Date"].to_numpy(), errors="coerce")
     elif "date" in work.columns:
-        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work["date"] = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
     else:
         return None
     work = work.dropna(subset=["date"]).sort_values("date")
@@ -874,9 +898,9 @@ def _load_basic_data(
             if x.index.name is not None:
                 x = x.reset_index()
             if "date" in x.columns:
-                x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
             elif "Date" in x.columns:
-                x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
             else:
                 return None
             col_map = {
@@ -906,11 +930,11 @@ def _load_basic_data(
             if "Date" not in df.columns:
                 work = df.copy()
                 if "date" in work.columns:
-                    work["Date"] = pd.to_datetime(work["date"], errors="coerce")
+                    work["Date"] = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
                 else:
-                    work["Date"] = pd.to_datetime(work.index, errors="coerce")
+                    work["Date"] = pd.to_datetime(work.index.to_numpy(), errors="coerce")
                 df = work
-            df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+            df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
         except Exception:
             pass
         normalized = _normalize_ohlcv(df)
@@ -1016,13 +1040,19 @@ def _load_basic_data(
                     last_label = (
                         str(last_seen_date.date()) if last_seen_date is not None else "不明"
                     )
-                    _log(f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}")
+                    _log(
+                        "♻️ rolling再構築: "
+                        + f"{sym} 最終日={last_label} | "
+                        + f"ギャップ={gap_label}"
+                    )
                 base_df, cached_hit = _get_base_cache(sym)
                 if base_df is None or getattr(base_df, "empty", True):
                     if rebuild_reason:
                         reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
                         _log(
-                            f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseキャッシュが見つかりません",
+                            "⚠️ rolling再構築失敗: "
+                            + f"{sym} {reason_label}。"
+                            + "baseキャッシュが見つかりません",
                             ui=False,
                         )
                     return sym, None
@@ -1131,7 +1161,8 @@ def _load_basic_data(
         if pool_stats["hits"] or pool_stats["loads"] or pool_stats["size"]:
             _log(
                 "📦 baseキャッシュ辞書: "
-                + f"保持={pool_stats['size']} | hit={pool_stats['hits']} | load={pool_stats['loads']} | 欠損={pool_stats['failures']}",
+                + f"保持={pool_stats['size']} | hit={pool_stats['hits']}"
+                + f" | load={pool_stats['loads']} | 欠損={pool_stats['failures']}",
                 ui=False,
             )
     except Exception:
@@ -1164,9 +1195,9 @@ def _load_indicator_data(
                         if x.index.name is not None:
                             x = x.reset_index()
                         if "date" in x.columns:
-                            x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                            x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
                         elif "Date" in x.columns:
-                            x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                            x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
                         col_map = {
                             "Open": "open",
                             "High": "high",
@@ -1206,9 +1237,9 @@ def _load_indicator_data(
                 if x.index.name is not None:
                     x = x.reset_index()
                 if "Date" in x.columns:
-                    x["date"] = pd.to_datetime(x["Date"], errors="coerce")
+                    x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
                 elif "date" in x.columns:
-                    x["date"] = pd.to_datetime(x["date"], errors="coerce")
+                    x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
                 else:
                     continue
                 x = x.dropna(subset=["date"]).sort_values("date")
@@ -1234,11 +1265,11 @@ def _load_indicator_data(
                     if "Date" not in df.columns:
                         if "date" in df.columns:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            df["Date"] = pd.to_datetime(df["date"].to_numpy(), errors="coerce")
                         else:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df.index, errors="coerce")
-                    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                            df["Date"] = pd.to_datetime(df.index.to_numpy(), errors="coerce")
+                    df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
                 except Exception:
                     pass
                 df = _normalize_ohlcv(df)
@@ -1324,6 +1355,7 @@ def _load_active_positions_by_system(
     if positions is None or symbol_system_map is None:
         positions, symbol_system_map = _fetch_positions_and_symbol_map()
 
+    # normalize to concrete types for static analysis
     if positions is None:
         positions = []
     if symbol_system_map is None:
@@ -1414,7 +1446,8 @@ def _amount_pick(
         if df is None or getattr(df, "empty", True):
             candidates_by_system[name] = []
         else:
-            candidates_by_system[name] = df.to_dict("records")
+            # df.to_dict can return list[dict[Hashable, Any]]; cast to expected type
+            candidates_by_system[name] = cast(list[dict[str, Any]], df.to_dict("records"))
         candidate_index[name] = 0
 
     max_pos_by_system = {
@@ -1457,12 +1490,16 @@ def _amount_pick(
 
                 entry_raw = row.get("entry_price")
                 stop_raw = row.get("stop_price")
+                entry: float | None = None
+                stop: float | None = None
                 try:
-                    entry = float(entry_raw)
+                    if entry_raw is not None and entry_raw != "":
+                        entry = float(entry_raw)
                 except Exception:
                     entry = None
                 try:
-                    stop = float(stop_raw)
+                    if stop_raw is not None and stop_raw != "":
+                        stop = float(stop_raw)
                 except Exception:
                     stop = None
                 if entry is None or stop is None or entry <= 0:
@@ -1845,10 +1882,22 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
                     try:
                         if "Date" not in sliced.columns:
                             work = sliced.copy()
-                            work["Date"] = pd.to_datetime(work.get("date"), errors="coerce")
+                            d = work.get("date")
+                            if d is None:
+                                work["Date"] = pd.NaT
+                            else:
+                                arr = d.to_numpy() if hasattr(d, "to_numpy") else d
+                                work["Date"] = pd.to_datetime(
+                                    arr,
+                                    errors="coerce",
+                                )
                         else:
                             work = sliced
-                        work["Date"] = pd.to_datetime(work["Date"], errors="coerce").dt.normalize()
+                        # normalize dates; pd.to_datetime on array returns DatetimeIndex
+                        v = work["Date"]
+                        arr2 = v.to_numpy() if hasattr(v, "to_numpy") else v
+                        dt_idx = pd.to_datetime(arr2, errors="coerce")
+                        work["Date"] = cast(Any, dt_idx).normalize()
                     except Exception:
                         work = sliced
                     basic_data[sym] = _normalize_ohlcv(work)
@@ -2257,7 +2306,8 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
                 continue
         _log(
             "?? system5???????: "
-            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
+            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
+            + f", {threshold_label}: {s5_atr}"
         )
     except Exception:
         pass
@@ -2339,40 +2389,39 @@ def _log_system_filter_stats(
 
 def _ensure_rolling_cache_fresh(
     symbol: str,
-    rolling_df: "pd.DataFrame",
-    today: "pd.Timestamp",
-    cache_manager: "CacheManager",
+    rolling_df: pd.DataFrame,
+    today: pd.Timestamp,
+    cache_manager: CacheManager,
     base_rows: int = 320,
     max_lag_days: int = 2,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """
     rolling_dfの最終日付がtodayからmax_lag_days以上ズレている場合、
     baseからrollingを再生成し、rollingへ書き戻す。
     """
     if rolling_df is None or getattr(rolling_df, "empty", True):
         # 欠損時はbaseから再生成
-        base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
+        base_df = cast(Any, cache_manager).read(symbol, layer="base", rows=base_rows)
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
-            cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
+            cast(Any, cache_manager).write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
         return rolling_df
     last_date = None
     try:
         last_date = rolling_df.index[-1]
         if isinstance(last_date, str):
-            import pandas as pd
-
-            last_date = pd.to_datetime(last_date)
+            # wrap scalar into list to satisfy type checker overloads
+            last_date = pd.to_datetime([last_date])[0]
     except Exception:
         return rolling_df
     lag_days = (today - last_date).days
     if lag_days > max_lag_days:
         # 鮮度不足: baseからrolling再生成
-        base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
+        base_df = cast(Any, cache_manager).read(symbol, layer="base", rows=base_rows)
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
-            cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
+            cast(Any, cache_manager).write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
     return rolling_df
 
@@ -2635,7 +2684,7 @@ def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame 
 
 
 @no_type_check
-def compute_today_signals(
+def compute_today_signals(  # type: ignore[analysis]
     symbols: list[str] | None,
     *,
     slots_long: int | None = None,
@@ -2982,7 +3031,8 @@ def compute_today_signals(
                 continue
         _log(
             "🧪 system5内訳: "
-            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, {threshold_label}: {s5_atr}"
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
+            + f", {threshold_label}: {s5_atr}"
         )
     except Exception:
         pass
@@ -3959,7 +4009,7 @@ def compute_today_signals(
                 if "entry_date" in _df.columns and not _df.empty:
                     uniq = sorted(
                         {
-                            pd.to_datetime(v).date()
+                            pd.to_datetime([v])[0].date()
                             for v in _df["entry_date"].tolist()
                             if v is not None
                         }
@@ -4056,7 +4106,9 @@ def compute_today_signals(
                         try:
                             spy_df0 = _load_price("SPY", cache_profile="rolling")
                             if spy_df0 is not None and not spy_df0.empty:
-                                latest_trading_day = pd.to_datetime(spy_df0.index[-1]).normalize()
+                                latest_trading_day = pd.to_datetime([spy_df0.index[-1]])[
+                                    0
+                                ].normalize()
                         except Exception:
                             latest_trading_day = None
 
@@ -4095,20 +4147,22 @@ def compute_today_signals(
                                     dfp2 = dfp.copy(deep=False)
                                     if "Date" in dfp2.columns:
                                         dfp2.index = pd.Index(
-                                            pd.to_datetime(dfp2["Date"]).dt.normalize()
+                                            pd.to_datetime(dfp2["Date"].to_numpy()).normalize()
                                         )
                                     else:
                                         dfp2.index = pd.Index(
-                                            pd.to_datetime(dfp2.index).normalize()
+                                            pd.to_datetime(dfp2.index.to_numpy()).normalize()
                                         )
                                 except Exception:
                                     continue
                                 if latest_trading_day is None and len(dfp2.index) > 0:
-                                    latest_trading_day = pd.to_datetime(dfp2.index[-1]).normalize()
+                                    latest_trading_day = pd.to_datetime([dfp2.index[-1]])[
+                                        0
+                                    ].normalize()
                                 # エントリー日のインデックス
                                 try:
                                     idx = dfp2.index
-                                    ent_dt = pd.to_datetime(entry_date_str0).normalize()
+                                    ent_dt = pd.to_datetime([entry_date_str0])[0].normalize()
                                     if ent_dt in idx:
                                         ent_arr = idx.get_indexer([ent_dt])
                                     else:
@@ -4208,11 +4262,11 @@ def compute_today_signals(
                                     )
                                 except Exception:
                                     continue
-                                today_norm0 = pd.to_datetime(dfp2.index[-1]).normalize()
+                                today_norm0 = pd.to_datetime([dfp2.index[-1]])[0].normalize()
                                 if latest_trading_day is not None:
                                     today_norm0 = latest_trading_day
                                 is_today_exit0 = (
-                                    pd.to_datetime(exit_date0).normalize() == today_norm0
+                                    pd.to_datetime([exit_date0])[0].normalize() == today_norm0
                                 )
                                 if is_today_exit0:
                                     if system0 == "system5":
