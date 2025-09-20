@@ -5,11 +5,13 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from collections.abc import Iterable
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
 
-from common.utils import get_cached_data, safe_filename
+from common.utils import safe_filename
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ class CacheManager:
     - system5/6スタイルのコメント・進捗ログ粒度を踏襲
     """
 
+    _GLOBAL_WARNED: ClassVar[set[tuple[str, str, str]]] = set()
+
     def __init__(self, settings):
         self.settings = settings
         self.full_dir = Path(settings.cache.full_dir)
@@ -34,7 +38,7 @@ class CacheManager:
         self.full_dir.mkdir(parents=True, exist_ok=True)
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
         self._ui_prefix = "[CacheManager]"
-        self._warned: set[tuple[str, str, str]] = set()
+        self._warned = self._GLOBAL_WARNED
 
     def _warn_once(
         self, ticker: str, profile: str, category: str, message: str
@@ -49,11 +53,16 @@ class CacheManager:
     def _detect_path(self, base_dir: Path, ticker: str) -> Path:
         csv_path = base_dir / f"{ticker}.csv"
         pq_path = base_dir / f"{ticker}.parquet"
-        if csv_path.exists():
-            return csv_path
-        if pq_path.exists():
+        feather_path = base_dir / f"{ticker}.feather"
+        for path in (csv_path, pq_path, feather_path):
+            if path.exists():
+                return path
+        fmt = (self.file_format or "auto").lower()
+        if fmt == "parquet":
             return pq_path
-        return csv_path if self.file_format in ("auto", "csv") else pq_path
+        if fmt == "feather":
+            return feather_path
+        return csv_path
 
     # ---------- IO ----------
     def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
@@ -191,7 +200,7 @@ class CacheManager:
                         nan_rate = 0
                 else:
                     nan_rate = df.isnull().mean().mean()
-            if nan_rate > 0.05:
+            if nan_rate > 0.20:
                 category = f"nan_rate:{round(float(nan_rate), 4)}"
                 self._warn_once(
                     ticker,
@@ -241,6 +250,8 @@ class CacheManager:
         try:
             if path.suffix == ".parquet":
                 df.to_parquet(tmp, index=False)
+            elif path.suffix == ".feather":
+                df.reset_index(drop=True).to_feather(tmp)
             else:
                 df.to_csv(tmp, index=False)
             shutil.move(tmp, path)
@@ -500,43 +511,162 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
     return path
 
 
-def load_base_cache(
-    symbol: str, *, rebuild_if_missing: bool = True
-) -> pd.DataFrame | None:  # noqa: E501
-    """data_cache/base/{symbol}.csv を優先的に読み込む。
-    無ければ CacheManager の full/rolling から再構築して保存（rebuild_if_missing=True）。
-    いずれも無ければ None。
-    """
-    path = base_cache_path(symbol)
-    if path.exists():
-        try:
-            df = pd.read_csv(path, parse_dates=["Date"]) if path.exists() else None
-            if df is not None:
-                df = df.sort_values("Date").set_index("Date")
-            return df
-        except Exception:
-            pass
+_DEFAULT_CACHE_MANAGER: CacheManager | None = None
 
-    if not rebuild_if_missing:
+
+def _get_default_cache_manager() -> CacheManager:
+    """モジュール共通で使い回す CacheManager を返す。"""
+
+    global _DEFAULT_CACHE_MANAGER
+    if _DEFAULT_CACHE_MANAGER is None:
+        settings = get_settings(create_dirs=False)
+        _DEFAULT_CACHE_MANAGER = CacheManager(settings)
+    return _DEFAULT_CACHE_MANAGER
+
+
+def _read_legacy_cache(symbol: str) -> pd.DataFrame | None:
+    """`data_cache/`直下の旧形式CSVを直接読み込む（互換目的）。"""
+
+    legacy_path = Path("data_cache") / f"{safe_filename(symbol)}.csv"
+    if not legacy_path.exists():
+        return None
+    try:
+        return pd.read_csv(legacy_path)
+    except Exception:
         return None
 
-    # CacheManager から再構築（full -> rolling）
-    try:
-        from common.cache_manager import CacheManager  # 遅延importの循環回避
-        from config.settings import get_settings
 
-        cm = CacheManager(get_settings(create_dirs=False))
-        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling")
-        if raw is not None and not raw.empty:
-            # 列名の正規化（必要に応じて）
-            if "Date" not in raw.columns:
-                if "date" in raw.columns:
-                    raw = raw.rename(columns={"date": "Date"})
+def load_base_cache(
+    symbol: str,
+    *,
+    rebuild_if_missing: bool = True,
+    cache_manager: CacheManager | None = None,
+    min_last_date: pd.Timestamp | None = None,
+    allowed_recent_dates: Iterable[object] | None = None,
+) -> pd.DataFrame | None:  # noqa: E501
+    """Load base cache with optional freshness validation.
+
+    When ``allowed_recent_dates`` or ``min_last_date`` is provided, the on-disk cache
+    is considered stale if it does not contain a recent trading day. Stale caches are
+    rebuilt from the latest full/rolling dataset when ``rebuild_if_missing`` is True.
+    """
+
+    def _detect_last_date(frame: pd.DataFrame | None) -> pd.Timestamp | None:
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        try:
+            if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
+                return pd.Timestamp(frame.index[-1]).normalize()
+        except Exception:
+            pass
+        for col in ("Date", "date"):
+            if col in frame.columns:
+                try:
+                    series = pd.to_datetime(frame[col], errors="coerce").dropna()
+                    if not series.empty:
+                        return pd.Timestamp(series.iloc[-1]).normalize()
+                except Exception:
+                    continue
+        return None
+
+    allowed_set: set[pd.Timestamp] = set()
+    if allowed_recent_dates:
+        for candidate in allowed_recent_dates:
+            try:
+                ts = pd.Timestamp(candidate)
+            except Exception:
+                continue
+            if pd.isna(ts):
+                continue
+            allowed_set.add(ts.normalize())
+
+    if min_last_date is not None:
+        try:
+            min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
+        except Exception:
+            min_norm = None
+    else:
+        min_norm = None
+
+    path = base_cache_path(symbol)
+    df: pd.DataFrame | None = None
+    if path.exists():
+        try:
+            df = pd.read_csv(path, parse_dates=["Date"])
+        except ValueError as exc:
+            if "Missing column provided to 'parse_dates': 'Date'" in str(exc):
+                try:
+                    df = pd.read_csv(path)
+                except Exception:
+                    df = None
                 else:
-                    raw = raw.copy()
-                    raw["Date"] = pd.NaT
+                    if df is not None:
+                        if "Date" in df.columns:
+                            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+                        elif "date" in df.columns:
+                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
+                            df = df.drop(columns=["date"], errors="ignore")
+                        else:
+                            df = None
+            else:
+                df = None
+        except Exception:
+            df = None
+        if df is not None:
+            try:
+                df = df.dropna(subset=["Date"])
+                df = df.sort_values("Date").set_index("Date")
+            except Exception:
+                df = None
+
+    if df is not None:
+        last_date = _detect_last_date(df)
+        stale = False
+        if allowed_set and (last_date is None or last_date not in allowed_set):
+            stale = True
+        if not stale and min_norm is not None:
+            if last_date is None or last_date < min_norm:
+                stale = True
+        if stale:
+            if rebuild_if_missing:
+                try:
+                    logger.info(
+                        "%s base cache stale -> rebuild: %s (last=%s)",
+                        __name__,
+                        symbol,
+                        last_date.date() if last_date is not None else "None",
+                    )
+                except Exception:
+                    pass
+                df = None
+            else:
+                return df
+        else:
+            return df
+
+    if not rebuild_if_missing:
+        return df
+
+    cm = cache_manager or _get_default_cache_manager()
+    raw = None
+    try:
+        raw = cm.read(symbol, "full")
+        if raw is None or getattr(raw, "empty", False):
+            raw = cm.read(symbol, "rolling")
     except Exception:
-        raw = get_cached_data(symbol)
+        raw = None
+
+    if raw is not None and not raw.empty:
+        if "Date" not in raw.columns:
+            if "date" in raw.columns:
+                raw = raw.rename(columns={"date": "Date"})
+            else:
+                raw = raw.copy()
+                raw["Date"] = pd.NaT
+
+    if (raw is None or raw.empty) and rebuild_if_missing:
+        raw = _read_legacy_cache(symbol)
+
     if raw is None or raw.empty:
         return None
     out = compute_base_indicators(raw)

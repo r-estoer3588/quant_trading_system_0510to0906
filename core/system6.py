@@ -9,6 +9,91 @@ from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
+
+
+SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+SYSTEM6_FEATURE_COLUMNS = [
+    "ATR10",
+    "DollarVolume50",
+    "Return6D",
+    "UpTwoDays",
+    "filter",
+    "setup",
+]
+SYSTEM6_ALL_COLUMNS = SYSTEM6_BASE_COLUMNS + SYSTEM6_FEATURE_COLUMNS
+SYSTEM6_NUMERIC_COLUMNS = ["ATR10", "DollarVolume50", "Return6D"]
+
+
+def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
+    missing = [col for col in SYSTEM6_BASE_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"missing columns: {', '.join(missing)}")
+    x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
+    x = x.sort_index()
+    if len(x) < 50:
+        raise ValueError("insufficient rows")
+    try:
+        x["ATR10"] = AverageTrueRange(
+            x["High"], x["Low"], x["Close"], window=10
+        ).average_true_range()
+        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+        x["Return6D"] = x["Close"].pct_change(6)
+        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
+            x["Close"].shift(1) > x["Close"].shift(2)
+        )
+        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
+        x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
+    except Exception as exc:
+        raise ValueError("calc_error") from exc
+    x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
+    if x.empty:
+        raise ValueError("insufficient rows")
+    x = x.loc[~x.index.duplicated()].sort_index()
+    x.index = pd.to_datetime(x.index).tz_localize(None)
+    x.index.name = "Date"
+    return x
+
+
+def _load_system6_cache(cache_path: str) -> pd.DataFrame | None:
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        cached = pd.read_feather(cache_path)
+    except Exception:
+        return None
+    for col in ("Date", "date", "index"):
+        if col in cached.columns:
+            cached = cached.rename(columns={col: "Date"})
+            break
+    else:
+        return None
+    try:
+        cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
+        cached.set_index("Date", inplace=True)
+    except Exception:
+        return None
+    cached = cached.sort_index()
+    if not set(SYSTEM6_ALL_COLUMNS).issubset(cached.columns):
+        return None
+    cached = cached.loc[:, SYSTEM6_ALL_COLUMNS].copy()
+    cached = cached.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
+    if cached.empty:
+        return None
+    cached = cached.loc[~cached.index.duplicated()].sort_index()
+    cached.index = pd.to_datetime(cached.index).tz_localize(None)
+    cached.index.name = "Date"
+    return cached
+
+
+def _save_system6_cache(cache_path: str, df: pd.DataFrame) -> None:
+    try:
+        out = df.loc[:, SYSTEM6_ALL_COLUMNS].copy()
+        out.index = pd.to_datetime(out.index).tz_localize(None)
+        out.index.name = "Date"
+        out.reset_index().to_feather(cache_path)
+    except Exception:
+        pass
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -28,24 +113,13 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             rename_map[low] = up
     if rename_map:
         df.rename(columns=rename_map, inplace=True)
-
-    x = df.copy()
-    if len(x) < 50:
-        return symbol, None
     try:
-        x["ATR10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
-        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["Return6D"] = x["Close"].pct_change(6)
-        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-            x["Close"].shift(1) > x["Close"].shift(2)
-        )
-        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
-        x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
+        prepared = _compute_indicators_from_frame(df)
+    except ValueError:
+        return symbol, None
     except Exception:
         return symbol, None
-    return symbol, x
+    return symbol, prepared
 
 
 def prepare_data_vectorized_system6(
@@ -143,20 +217,7 @@ def prepare_data_vectorized_system6(
     buffer: list[str] = []
 
     def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        x = src.copy()
-        if len(x) < 50:
-            raise ValueError("insufficient rows")
-        x["ATR10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
-        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["Return6D"] = x["Close"].pct_change(6)
-        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-            x["Close"].shift(1) > x["Close"].shift(2)
-        )
-        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
-        x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
-        return x
+        return _compute_indicators_from_frame(src)
 
     for sym, df in raw_data_dict.items():
         df = df.copy()
@@ -183,12 +244,7 @@ def prepare_data_vectorized_system6(
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
         if reuse_indicators and os.path.exists(cache_path):
-            try:
-                cached = pd.read_feather(cache_path)
-                cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
-                cached.set_index("Date", inplace=True)
-            except Exception:
-                cached = None
+            cached = _load_system6_cache(cache_path)
 
         try:
             if cached is not None and not cached.empty:
@@ -202,16 +258,10 @@ def prepare_data_vectorized_system6(
                     recomputed = _calc_indicators(recompute_src)
                     recomputed = recomputed[recomputed.index > last_date]
                     result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
+                    result_df = result_df.loc[~result_df.index.duplicated(keep="last")].sort_index()
             else:
                 result_df = _calc_indicators(df)
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
+            _save_system6_cache(cache_path, result_df)
             result_dict[sym] = result_df
             buffer.append(sym)
         except ValueError as e:
@@ -331,6 +381,7 @@ def generate_candidates_system6(
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     processed, skipped = 0, 0
+    skipped_missing_cols = 0
     buffer: list[str] = []
 
     for sym, df in prepared_dict.items():
@@ -340,11 +391,19 @@ def generate_candidates_system6(
                 log_callback(f"[警告] {sym} のデータが空です（featherキャッシュ欠損）")
             skipped += 1
             continue
-        if df.isnull().sum().sum() > 0:
+        missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
+        if missing_cols:
+            if log_callback:
+                log_callback(f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}")
+            skipped += 1
+            skipped_missing_cols += 1
+            continue
+        if df[SYSTEM6_NUMERIC_COLUMNS].isnull().any().any():
             if log_callback:
                 log_callback(
                     f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）"
                 )
+
         # last_price（直近終値）を取得
         last_price = None
         if "Close" in df.columns and not df["Close"].empty:
@@ -360,16 +419,9 @@ def generate_candidates_system6(
             for date, row in setup_days.iterrows():
                 ts = pd.to_datetime(pd.Index([date]))[0]
                 # 翌営業日に補正
-                try:
-                    idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-                    pos = idx.searchsorted(ts, side="right")
-                    if pos >= len(idx):
-                        continue
-                    entry_date = pd.to_datetime(idx[pos]).tz_localize(None)
-                except Exception:
-                    entry_date = ts + pd.Timedelta(days=1)
-                    if entry_date not in df.index:
-                        continue
+                entry_date = resolve_signal_entry_date(ts)
+                if pd.isna(entry_date):
+                    continue
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
@@ -421,9 +473,12 @@ def generate_candidates_system6(
 
     # 候補抽出の集計サマリーはログにのみ出力
     if skipped > 0 and log_callback:
-        msg = f"⚠️ 候補抽出中にスキップ: {skipped} 件"
+        summary_lines = [f"⚠️ 候補抽出中にスキップ: {skipped} 件"]
+        if skipped_missing_cols:
+            summary_lines.append(f"  └─ 必須列欠落: {skipped_missing_cols} 件")
         try:
-            log_callback(msg)
+            for line in summary_lines:
+                log_callback(line)
         except Exception:
             pass
     return candidates_by_date, None

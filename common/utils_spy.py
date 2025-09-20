@@ -224,16 +224,80 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         return None
 
 
+def _normalize_to_naive_day(ts: pd.Timestamp | None) -> pd.Timestamp:
+    """Normalize timestamp to tz-naive midnight."""
+
+    if ts is None:
+        ts = pd.Timestamp.today()
+    else:
+        ts = pd.Timestamp(ts)
+    tz = getattr(ts, "tzinfo", None)
+    if tz is not None:
+        try:
+            ts = ts.tz_convert(None)
+        except (TypeError, ValueError, AttributeError):
+            try:
+                ts = ts.tz_localize(None)
+            except Exception:
+                ts = pd.Timestamp(ts.to_pydatetime().replace(tzinfo=None))
+    return ts.normalize()
+
+
 def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timestamp:
     nyse = mcal.get_calendar("NYSE")
-    if today is None:
-        today = pd.Timestamp.today().normalize()
+    today_naive = _normalize_to_naive_day(today)
     sched = nyse.schedule(
-        start_date=today - pd.Timedelta(days=7),
-        end_date=today + pd.Timedelta(days=1),
+        start_date=today_naive - pd.Timedelta(days=7),
+        end_date=today_naive + pd.Timedelta(days=1),
     )
     valid_days = pd.to_datetime(sched.index).normalize()
-    return valid_days[valid_days <= today].max()
+    return valid_days[valid_days <= today_naive].max()
+
+
+def get_next_nyse_trading_day(current: pd.Timestamp | None = None) -> pd.Timestamp:
+    """NY証券取引所の翌営業日を返す。"""
+
+    nyse = mcal.get_calendar("NYSE")
+    current_naive = _normalize_to_naive_day(current)
+    sched = nyse.schedule(
+        start_date=current_naive,
+        end_date=current_naive + pd.Timedelta(days=10),
+    )
+    valid_days = pd.to_datetime(sched.index).normalize()
+    future_days = valid_days[valid_days > current_naive]
+    if future_days.empty:
+        raise ValueError("No upcoming NYSE trading day found")
+    return future_days.min()
+
+
+def resolve_signal_entry_date(base_date) -> pd.Timestamp | pd.NaT:
+    """シグナル日から翌営業日（取引予定日）を算出する。
+
+    - base_date が欠損・変換不可の場合は NaT を返す。
+    - get_next_nyse_trading_day の結果は常に tz-naive な日付に正規化する。
+    """
+
+    if base_date is None or (isinstance(base_date, float) and pd.isna(base_date)):
+        return pd.NaT
+    try:
+        ts = pd.Timestamp(base_date)
+    except Exception:
+        return pd.NaT
+    if pd.isna(ts):
+        return pd.NaT
+    ts = _normalize_to_naive_day(ts)
+    try:
+        entry_candidate = get_next_nyse_trading_day(ts)
+    except Exception:
+        return pd.NaT
+    if pd.isna(entry_candidate):
+        return pd.NaT
+    entry_ts = pd.Timestamp(entry_candidate)
+    try:
+        entry_ts = entry_ts.tz_localize(None)
+    except Exception:
+        pass
+    return entry_ts.normalize()
 
 
 def get_spy_data_cached(folder: str = "data_cache"):
@@ -249,13 +313,70 @@ def get_spy_data_cached(folder: str = "data_cache"):
         return get_spy_data_cached_v2(folder)
 
 
+def _find_spy_csv(dir_path: Path) -> Path | None:
+    try:
+        if not dir_path.exists():
+            return None
+        for fn in os.listdir(dir_path):
+            if fn.lower() == "spy.csv":
+                return dir_path / fn
+    except Exception:
+        return None
+    return None
+
+
+def _persist_spy_with_indicators(spy_df: pd.DataFrame) -> None:
+    """Persist augmented SPY data to rolling/base cache for reuse."""
+
+    if spy_df is None or getattr(spy_df, "empty", True):
+        return
+    try:
+        settings = get_settings(create_dirs=True)
+        root = Path(settings.DATA_CACHE_DIR)
+        rolling_dir = Path(getattr(settings.cache, "rolling_dir", root / "rolling"))
+        base_dir = root / "base"
+    except Exception:
+        root = Path("data_cache")
+        rolling_dir = root / "rolling"
+        base_dir = root / "base"
+
+    for target_dir in (rolling_dir, base_dir):
+        path = _find_spy_csv(target_dir)
+        if path is None or not path.exists():
+            continue
+        try:
+            df_to_save = spy_df.copy()
+            if "Date" in df_to_save.columns:
+                df_to_save["Date"] = pd.to_datetime(
+                    df_to_save["Date"], errors="coerce"
+                ).dt.normalize()
+                df_to_save = df_to_save.dropna(subset=["Date"]).sort_values("Date")
+                df_to_save.to_csv(path, index=False)
+            else:
+                idx = pd.to_datetime(df_to_save.index, errors="coerce").normalize()
+                df_to_save = df_to_save.loc[~idx.isna()].copy()
+                df_to_save.index = pd.Index(idx[~idx.isna()])
+                df_to_save.sort_index(inplace=True)
+                df_to_save.to_csv(path, index_label="Date")
+        except Exception:
+            continue
+        else:
+            break
+
+
 def get_spy_with_indicators(spy_df=None):
     """
     SPY に SMA100 / SMA200 を付与（フィルターは戦略側で判定する）
     """
+
+    loaded_from_cache = False
     if spy_df is None:
-        # より堅牢な v2 を使用
-        spy_df = get_spy_data_cached_v2()
+        # Prefer today cache (rolling) for the latest values, fallback to base/full.
+        loaded_from_cache = True
+        spy_df = get_spy_data_cached_v2(mode="today")
+        if spy_df is None:
+            spy_df = get_spy_data_cached_v2()
+
     if spy_df is not None and not getattr(spy_df, "empty", True):
         # Close 列名のゆらぎに対応（close/AdjClose/adjusted_close 等）
         if "Close" not in spy_df.columns:
@@ -288,4 +409,11 @@ def get_spy_with_indicators(spy_df=None):
             pd.to_numeric(spy_df["Close"], errors="coerce"),
             window=200,
         ).sma_indicator()
+
+        if loaded_from_cache:
+            try:
+                _persist_spy_with_indicators(spy_df)
+            except Exception:
+                pass
+
     return spy_df

@@ -16,6 +16,7 @@ from core.system5 import (
 
 class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
+    PREFER_PROCESS_POOL = True
 
     def __init__(self):
         super().__init__()
@@ -129,15 +130,20 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
     def compute_exit(
         self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
     ):
+        """System5 の利確・損切り・時間退出ロジック。
+
+        - 利益目標: 過去10日ATR×設定倍率を上回ったら翌営業日の寄り付きで決済
+        - 損切り: 当日の安値がストップ以下になった時点でストップ価格で決済
+        - 時間退出: 6営業日経過後も未決済なら7日目の寄り付きで決済
+        """
+
         atr = getattr(self, "_last_entry_atr", None)
         if atr is None:
             try:
                 atr = float(df.iloc[entry_idx - 1]["ATR10"])
             except Exception:
                 atr = 0.0
-        target_mult = float(
-            getattr(self, "config", {}).get("target_atr_multiple", 1.0)
-        )
+        target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
         target_price = entry_price + target_mult * atr
         fallback_days = int(
             getattr(self, "config", {}).get(
@@ -145,42 +151,36 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             )
         )
 
-        offset = 1
-        while offset <= fallback_days and entry_idx + offset < len(df):
-            row = df.iloc[entry_idx + offset]
-            if float(row["High"]) >= target_price:
-                exit_idx = min(entry_idx + offset + 1, len(df) - 1)
-                exit_date = df.index[exit_idx]
-                exit_price = float(df.iloc[exit_idx]["Open"])
-                return exit_price, exit_date
-            if float(row["Low"]) <= stop_price:
-                if entry_idx + offset < len(df) - 1:
-                    prev_close2 = float(df.iloc[entry_idx + offset]["Close"])
-                    ratio = float(
-                        getattr(self, "config", {}).get(
-                            "entry_price_ratio_vs_prev_close", 0.97
-                        )
-                    )
-                    entry_price = round(prev_close2 * ratio, 2)
-                    atr2 = float(df.iloc[entry_idx + offset]["ATR10"])
-                    stop_mult = float(
-                        getattr(self, "config", {}).get(
-                            "stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT
-                        )
-                    )
-                    stop_price = entry_price - stop_mult * atr2
-                    target_price = entry_price + target_mult * atr2
-                    entry_idx = entry_idx + offset
-                    offset = 0
-                else:
-                    exit_date = df.index[entry_idx + offset]
-                    exit_price = float(stop_price)
-                    return exit_price, exit_date
-            offset += 1
+        last_idx = len(df) - 1
 
-        idx2 = min(entry_idx + fallback_days, len(df) - 1)
-        exit_date = df.index[idx2]
-        exit_price = float(df.iloc[idx2]["Open"])
+        for offset in range(1, fallback_days + 1):
+            idx = entry_idx + offset
+            if idx >= len(df):
+                break
+            row = df.iloc[idx]
+
+            if float(row["Low"]) <= stop_price:
+                return float(stop_price), df.index[idx]
+
+            if float(row["High"]) >= target_price:
+                exit_idx = idx + 1
+                if exit_idx < len(df):
+                    exit_price = float(df.iloc[exit_idx]["Open"])
+                    exit_date = df.index[exit_idx]
+                else:
+                    exit_price = float(df.iloc[idx]["Close"])
+                    exit_date = df.index[idx]
+                return exit_price, exit_date
+
+        fallback_exit_idx = entry_idx + fallback_days + 1
+        if fallback_exit_idx < len(df):
+            exit_price = float(df.iloc[fallback_exit_idx]["Open"])
+            exit_date = df.index[fallback_exit_idx]
+        else:
+            fallback_idx = min(entry_idx + fallback_days, last_idx)
+            exit_price = float(df.iloc[fallback_idx]["Close"])
+            exit_date = df.index[fallback_idx]
+
         return exit_price, exit_date
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:

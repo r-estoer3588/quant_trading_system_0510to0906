@@ -6,16 +6,16 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 SYSTEM_SIDE_GROUPS: dict[str, tuple[str, ...]] = {
-    "long": ("system1", "system3", "system4", "system5"),
-    "short": ("system2", "system6", "system7"),
+    "long": ("system1", "system3", "system5"),
+    "short": ("system2", "system4", "system6", "system7"),
 }
 
 # 明示的に表示順を制御する（long → short）。
 GROUP_ORDER: tuple[str, ...] = tuple(SYSTEM_SIDE_GROUPS.keys())
 
 GROUP_DISPLAY_NAMES: dict[str, str] = {
-    "long": "Long (System1,3,4,5)",
-    "short": "Short (System2,6,7)",
+    "long": "Long (System1,3,5)",
+    "short": "Short (System2,4,6,7)",
 }
 
 

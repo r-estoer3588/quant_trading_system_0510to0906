@@ -9,6 +9,91 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 
 from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils_spy import resolve_signal_entry_date
+
+REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
+
+
+def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
+    rename_map = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in x.columns and up not in x.columns:
+            rename_map[low] = up
+    if rename_map:
+        x.rename(columns=rename_map, inplace=True)
+    return x
+
+
+def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
+    if "Date" in df.columns:
+        idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+    elif "date" in df.columns:
+        idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    else:
+        idx = pd.to_datetime(df.index, errors="coerce").normalize()
+    if idx is None:
+        raise ValueError("invalid_date_index")
+    try:
+        if pd.isna(idx).all():  # type: ignore[attr-defined]
+            raise ValueError("invalid_date_index")
+    except Exception:
+        pass
+    x = df.copy()
+    x.index = pd.Index(idx)
+    x.index.name = "Date"
+    x = x[~x.index.isna()]
+    try:
+        x = x.sort_index()
+    except Exception:
+        pass
+    try:
+        if getattr(x.index, "has_duplicates", False):
+            x = x[~x.index.duplicated(keep="last")]
+    except Exception:
+        pass
+    return x
+
+
+def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        raise ValueError("empty_frame")
+    x = _rename_ohlcv(df)
+    missing = [c for c in REQUIRED_COLUMNS if c not in x.columns]
+    if missing:
+        raise ValueError(f"missing_cols:{','.join(missing)}")
+    x = _normalize_index(x)
+    for col in REQUIRED_COLUMNS:
+        if col in x.columns:
+            x[col] = pd.to_numeric(x[col], errors="coerce")
+    x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
+    return x
+
+
+def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy()
+    x["SMA25"] = x["Close"].rolling(25).mean()
+    x["SMA50"] = x["Close"].rolling(50).mean()
+    x["ROC200"] = x["Close"].pct_change(200) * 100
+    tr = pd.concat(
+        [
+            x["High"] - x["Low"],
+            (x["High"] - x["Close"].shift()).abs(),
+            (x["Low"] - x["Close"].shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    x["ATR20"] = tr.rolling(20).mean()
+    x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(20).mean()
+    x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 50_000_000)
+    x["setup"] = x["filter"] & (x["SMA25"] > x["SMA50"])
+    return x
 
 
 def _compute_indicators(
@@ -83,31 +168,22 @@ def _compute_indicators(
         except Exception:
             pass
 
-    df = df.copy()
-    df["SMA25"] = df["Close"].rolling(25).mean()
-    df["SMA50"] = df["Close"].rolling(50).mean()
-    df["ROC200"] = df["Close"].pct_change(200) * 100
-    tr = pd.concat(
-        [
-            df["High"] - df["Low"],
-            (df["High"] - df["Close"].shift()).abs(),
-            (df["Low"] - df["Close"].shift()).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    df["ATR20"] = tr.rolling(20).mean()
-    df["DollarVolume20"] = (df["Close"] * df["Volume"]).rolling(20).mean()
+    try:
+        prepared = _prepare_source_frame(df)
+    except ValueError:
+        return symbol, None
+    except Exception:
+        return symbol, None
 
-    df["filter"] = (df["Low"] >= 5) & (df["DollarVolume20"] > 50_000_000)
-    df["setup"] = df["filter"] & (df["SMA25"] > df["SMA50"])
+    prepared = _compute_indicators_frame(prepared)
 
-    latest_df = df[date_series == latest_date]
+    latest_df = prepared[date_series == latest_date]
     try:
         latest_df.reset_index(drop=True).to_feather(cache_path)
     except Exception:
         pass
 
-    return symbol, df
+    return symbol, prepared
 
 
 def prepare_data_vectorized_system1(
@@ -219,190 +295,96 @@ def prepare_data_vectorized_system1(
     batch_start = time.time()
     result_dict: dict[str, pd.DataFrame] = {}
 
-    for sym, df in raw_data_dict.items():
-        try:
-            # 正規化: 列名の大小文字差や date 列/インデックス差を吸収
-            df = df.copy()
-            # 1) まず OHLCV の列名を大文字に寄せる（lower な場合をケア）
-            rename_map = {}
-            for low, up in (
-                ("open", "Open"),
-                ("high", "High"),
-                ("low", "Low"),
-                ("close", "Close"),
-                ("volume", "Volume"),
-            ):
-                if low in df.columns and up not in df.columns:
-                    rename_map[low] = up
-            if rename_map:
-                df.rename(columns=rename_map, inplace=True)
-
-            # --- 健全性チェック: NaN・型不一致・異常値 ---
+    def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
+        nonlocal processed, batch_size, batch_start
+        if include_in_buffer and symbol:
+            symbol_buffer.append(symbol)
+        processed += 1
+        if progress_callback:
             try:
-                nan_rate = df.isnull().mean().mean() if df.size > 0 else 0
-                if nan_rate > 0.05:
-                    msg = f"⚠️ {sym} cache: NaN率高 ({nan_rate:.2%})"
-                    if log_callback:
-                        log_callback(msg)
-                    if skip_callback:
-                        skip_callback(sym, msg)
-                for col in ["Open", "High", "Low", "Close", "Volume"]:
-                    if col in df.columns:
-                        if not pd.api.types.is_numeric_dtype(df[col]):
-                            msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
-                            if log_callback:
-                                log_callback(msg)
-                            if skip_callback:
-                                skip_callback(sym, msg)
-                for col in ["Close", "High", "Low"]:
-                    if col in df.columns:
-                        vals = pd.to_numeric(df[col], errors="coerce")
-                        if (vals <= 0).all():
-                            msg = f"⚠️ {sym} cache: {col}全て非正値"
-                            if log_callback:
-                                log_callback(msg)
-                            if skip_callback:
-                                skip_callback(sym, msg)
-            except Exception as e:
-                msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
+                progress_callback(processed, total_symbols)
+            except Exception:
+                pass
+        if (processed % batch_size == 0 or processed == total_symbols) and log_callback:
+            elapsed = time.time() - start_time
+            remaining = (elapsed / processed) * (total_symbols - processed) if processed else 0
+            em, es = divmod(int(elapsed), 60)
+            rm, rs = divmod(int(remaining), 60)
+            joined_syms = ", ".join(symbol_buffer)
+            try:
+                log_callback(
+                    f"📊 指標計算: {processed}/{total_symbols} 件 完了",
+                    f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒\n",
+                    f"銘柄: {joined_syms}",
+                )
+                log_callback(
+                    f"⏱️ バッチ時間: {time.time() - batch_start:.2f}秒 | 次バッチサイズ: {batch_monitor.batch_size}"
+                )
+            except Exception:
+                pass
+            batch_duration = time.time() - batch_start
+            batch_size = batch_monitor.update(batch_duration)
+            batch_start = time.time()
+            symbol_buffer.clear()
+
+    for sym, df in raw_data_dict.items():
+        df = _rename_ohlcv(df)
+
+        try:
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            if base_cols:
+                base_nan_rate = df[base_cols].isnull().mean().mean()
+            else:
+                base_nan_rate = df.isnull().mean().mean() if df.size > 0 else 0.0
+            if base_nan_rate >= 0.45:
+                msg = f"⚠️ {sym} cache: OHLCV欠損率高 ({base_nan_rate:.2%})"
                 if log_callback:
                     log_callback(msg)
                 if skip_callback:
                     skip_callback(sym, msg)
+                _on_symbol_done()
+                continue
+            if base_nan_rate > 0.20 and log_callback:
+                log_callback(f"⚠️ {sym} cache: OHLCV欠損率注意 ({base_nan_rate:.2%})")
 
-            # 2) インデックス（日付）を決定
-            idx = None
-            if "Date" in df.columns:
-                idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
-            elif "date" in df.columns:
-                idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
-            else:
-                # 既存 index が日時ならそれを利用
-                try:
-                    idx = pd.to_datetime(df.index, errors="coerce").normalize()
-                except Exception:
-                    idx = None
-            # 日付が取れない、または全て欠損ならスキップ
-            if idx is None:
-                raise ValueError("invalid_date_index")
-            try:
-                if pd.isna(idx).all():
-                    raise ValueError("invalid_date_index")
-            except Exception:
-                try:
-                    if idx.isnull().all():
-                        raise ValueError("invalid_date_index")
-                except Exception:
-                    pass
-            df.index = pd.Index(idx)
-            df.index.name = "Date"
-            # 型・インデックスの健全化（重複や未整列での再インデックスエラー対策）
-            for col in ("Open", "High", "Low", "Close", "Volume"):
-                if col in df.columns:
-                    try:
-                        df[col] = pd.to_numeric(df[col], errors="coerce")
-                    except Exception:
-                        pass
-            df = df.dropna(subset=[c for c in ("High", "Low", "Close") if c in df.columns])
-            try:
-                df = df.sort_index()
-            except Exception:
-                pass
-            try:
-                if getattr(df.index, "has_duplicates", False):
-                    df = df[~df.index.duplicated(keep="last")]
-            except Exception:
-                pass
-
-            # 必須列チェック（S1は Volume を用いるため必須に含める）
-            needed = {"Open", "High", "Low", "Close", "Volume"}
-            miss = [c for c in needed if c not in df.columns]
-            if miss:
-                raise ValueError(f"missing_cols:{','.join(miss)}")
-
-            cache_path = os.path.join(cache_dir, f"{sym}.feather")
-            cached: pd.DataFrame | None = None
-            if reuse_indicators and os.path.exists(cache_path):
-                try:
-                    cached = pd.read_feather(cache_path)
-                    cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
-                    cached = (
-                        cached.dropna(subset=["Date"]).sort_values("Date").drop_duplicates("Date")
+            indicator_cols = [
+                c
+                for c in df.columns
+                if c not in base_cols
+                and str(c).lower() not in {"date", "symbol"}
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if indicator_cols:
+                indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
+                if indicator_nan_rate > 0.60 and log_callback:
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
                     )
-                    cached.set_index("Date", inplace=True)
-                    try:
-                        if getattr(cached.index, "has_duplicates", False):
-                            cached = cached[~cached.index.duplicated(keep="last")]
-                    except Exception:
-                        pass
-                except Exception:
-                    cached = None
 
-            def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-                dst = src.copy()
-                dst["SMA25"] = dst["Close"].rolling(25).mean()
-                dst["SMA50"] = dst["Close"].rolling(50).mean()
-                dst["ROC200"] = dst["Close"].pct_change(200) * 100
-                tr = pd.concat(
-                    [
-                        dst["High"] - dst["Low"],
-                        (dst["High"] - dst["Close"].shift()).abs(),
-                        (dst["Low"] - dst["Close"].shift()).abs(),
-                    ],
-                    axis=1,
-                ).max(axis=1)
-                dst["ATR20"] = tr.rolling(20).mean()
-                dst["DollarVolume20"] = (dst["Close"] * dst["Volume"]).rolling(20).mean()
-                dst["filter"] = (dst["Low"] >= 5) & (dst["DollarVolume20"] > 50_000_000)
-                dst["setup"] = dst["filter"] & (dst["SMA25"] > dst["SMA50"])
-                return dst
-
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = df[df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
-                else:
-                    context_start = last_date - pd.Timedelta(days=200)
-                    recompute_src = df[df.index >= context_start]
-                    recomputed = _calc_indicators(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        # 正規化してから保存
-                        result_df = result_df.sort_index()
-                        if getattr(result_df.index, "has_duplicates", False):
-                            result_df = result_df[~result_df.index.duplicated(keep="last")]
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
-            else:
-                result_df = _calc_indicators(df)
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
-
-            result_dict[sym] = result_df
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
+                    msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                    if log_callback:
+                        log_callback(msg)
+                    if skip_callback:
+                        skip_callback(sym, msg)
+            for col in ["Close", "High", "Low"]:
+                if col in df.columns:
+                    vals = pd.to_numeric(df[col], errors="coerce")
+                    if (vals <= 0).all():
+                        msg = f"⚠️ {sym} cache: {col}全て非正値"
+                        if log_callback:
+                            log_callback(msg)
+                        if skip_callback:
+                            skip_callback(sym, msg)
         except Exception as e:
-            # 1銘柄の失敗で全体を止めない
+            msg = f"⚠️ {sym} cache: 健全性チェック失敗 ({e})"
+            if log_callback:
+                log_callback(msg)
             if skip_callback:
-                msg = str(e)
-                try:
-                    skip_callback(sym, f"calc_error:{msg}")
-                except Exception:
-                    try:
-                        skip_callback(f"{sym}: calc_error:{msg}")
-                    except Exception:
-                        pass
-        finally:
-            processed += 1
-            symbol_buffer.append(sym)
-            if progress_callback:
-                try:
-                    progress_callback(processed, total_symbols)
-                except Exception:
-                    pass
+                skip_callback(sym, msg)
+            _on_symbol_done()
+            continue
 
         cache_path = os.path.join(cache_dir, f"{sym}.feather")
         cached: pd.DataFrame | None = None
@@ -412,80 +394,92 @@ def prepare_data_vectorized_system1(
                 cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
                 cached = cached.dropna(subset=["Date"]).sort_values("Date").drop_duplicates("Date")
                 cached.set_index("Date", inplace=True)
-                try:
-                    if getattr(cached.index, "has_duplicates", False):
-                        cached = cached[~cached.index.duplicated(keep="last")]
-                except Exception:
-                    pass
+                if getattr(cached.index, "has_duplicates", False):
+                    cached = cached[~cached.index.duplicated(keep="last")]
             except Exception:
                 cached = None
 
-        def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-            dst = src.copy()
-            dst["SMA25"] = dst["Close"].rolling(25).mean()
-            dst["SMA50"] = dst["Close"].rolling(50).mean()
-            dst["ROC200"] = dst["Close"].pct_change(200) * 100
-            tr = pd.concat(
-                [
-                    dst["High"] - dst["Low"],
-                    (dst["High"] - dst["Close"].shift()).abs(),
-                    (dst["Low"] - dst["Close"].shift()).abs(),
-                ],
-                axis=1,
-            ).max(axis=1)
-            dst["ATR20"] = tr.rolling(20).mean()
-            dst["DollarVolume20"] = (dst["Close"] * dst["Volume"]).rolling(20).mean()
-            dst["filter"] = (dst["Low"] >= 5) & (dst["DollarVolume20"] > 50_000_000)
-            dst["setup"] = dst["filter"] & (dst["SMA25"] > dst["SMA50"])
-            return dst
+        try:
+            prepared_df = _prepare_source_frame(df)
+        except ValueError as exc:
+            if skip_callback:
+                reason_raw = str(exc)
+                if reason_raw.startswith("missing_cols:"):
+                    reason = reason_raw
+                elif "invalid_date_index" in reason_raw:
+                    reason = "invalid_date_index"
+                else:
+                    reason = "calc_error"
+                try:
+                    skip_callback(sym, reason)
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: {reason}")
+                    except Exception:
+                        pass
+            _on_symbol_done()
+            continue
+        except Exception as exc:
+            if skip_callback:
+                try:
+                    skip_callback(sym, f"calc_error:{exc}")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
+            _on_symbol_done()
+            continue
 
-        if cached is not None and not cached.empty:
-            last_date = cached.index.max()
-            new_rows = df[df.index > last_date]
-            if new_rows.empty:
-                result_df = cached
+        try:
+            if cached is not None and not cached.empty:
+                last_date = cached.index.max()
+                new_rows = prepared_df[prepared_df.index > last_date]
+                if new_rows.empty:
+                    result_df = cached
+                else:
+                    context_start = last_date - pd.Timedelta(days=200)
+                    recompute_src = prepared_df[prepared_df.index >= context_start]
+                    recomputed = _compute_indicators_frame(recompute_src)
+                    recomputed = recomputed[recomputed.index > last_date]
+                    result_df = pd.concat([cached, recomputed])
+                    try:
+                        result_df = result_df.sort_index()
+                        if getattr(result_df.index, "has_duplicates", False):
+                            result_df = result_df[~result_df.index.duplicated(keep="last")]
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
             else:
-                context_start = last_date - pd.Timedelta(days=200)
-                recompute_src = df[df.index >= context_start]
-                recomputed = _calc_indicators(recompute_src)
-                recomputed = recomputed[recomputed.index > last_date]
-                result_df = pd.concat([cached, recomputed])
+                result_df = _compute_indicators_frame(prepared_df)
                 try:
                     result_df.reset_index().to_feather(cache_path)
                 except Exception:
                     pass
-        else:
-            result_df = _calc_indicators(df)
-            try:
-                result_df.reset_index().to_feather(cache_path)
-            except Exception:
-                pass
-
-        if processed % batch_size == 0 or processed == total_symbols:
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-
-            if log_callback:
-                elapsed = time.time() - start_time
-                remaining = (elapsed / processed) * (total_symbols - processed)
-                elapsed_min, elapsed_sec = divmod(int(elapsed), 60)
-                remain_min, remain_sec = divmod(int(remaining), 60)
-                joined_syms = ", ".join(symbol_buffer)
+            result_dict[sym] = result_df
+            _on_symbol_done(sym, include_in_buffer=True)
+        except ValueError as exc:
+            if skip_callback:
                 try:
-                    log_callback(
-                        f"📊 指標計算: {processed}/{total_symbols} 件 完了",
-                        f" | 経過: {elapsed_min}分{elapsed_sec}秒 / ",
-                        f"残り: 約 {remain_min}分{remain_sec}秒\n",
-                        f"銘柄: {joined_syms}",
-                    )
-                    log_callback(
-                        f"⏱️ バッチ時間: {batch_duration:.2f}秒 | 次バッチサイズ: {batch_size}"
-                    )
+                    msg = str(exc).lower()
+                    reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+                    skip_callback(sym, reason)
                 except Exception:
-                    pass
-                symbol_buffer.clear()
-
+                    try:
+                        skip_callback(f"{sym}: insufficient_rows")
+                    except Exception:
+                        pass
+            _on_symbol_done()
+        except Exception as exc:
+            if skip_callback:
+                try:
+                    skip_callback(sym, f"calc_error:{exc}")
+                except Exception:
+                    try:
+                        skip_callback(f"{sym}: calc_error")
+                    except Exception:
+                        pass
+            _on_symbol_done()
     return result_dict
 
 
@@ -519,19 +513,8 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
         sig_df["entry_price"] = last_price
-        try:
-            idx = pd.DatetimeIndex(pd.to_datetime(df.index, errors="coerce").normalize())
-            base_dates = pd.to_datetime(sig_df["Date"], errors="coerce").dt.normalize()
-            pos = idx.searchsorted(base_dates, side="right")
-            next_dates = pd.Series(pd.NaT, index=base_dates.index, dtype="datetime64[ns]")
-            mask = (pos >= 0) & (pos < len(idx))
-            if mask.any():
-                next_vals = idx[pos[mask]]
-                next_dates.loc[mask] = pd.to_datetime(next_vals).tz_localize(None)
-            sig_df["entry_date"] = next_dates
-            sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
-        except Exception:
-            pass
+        sig_df["entry_date"] = sig_df["Date"].map(resolve_signal_entry_date)
+        sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
         all_signals.append(sig_df.reset_index(drop=True))
 
     if not all_signals:

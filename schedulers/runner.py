@@ -108,6 +108,17 @@ def task_build_metrics_report():
         logging.exception("build_metrics_report タスクが失敗しました")
 
 
+def task_daily_run():
+    try:
+        from scripts.daily_run import main as daily_main
+
+        exit_code = daily_main()
+        if exit_code != 0:
+            logging.error("daily_run タスクが異常終了しました (code=%s)", exit_code)
+    except Exception:
+        logging.exception("daily_run タスクが失敗しました")
+
+
 def task_run_today_signals():
     try:
         from scripts.run_all_systems_today import compute_today_signals
@@ -164,6 +175,7 @@ TASKS: dict[str, Callable[[], None]] = {
     "precompute_shared_indicators": task_precompute_shared_indicators,
     "notify_metrics": task_notify_metrics,
     "build_metrics_report": task_build_metrics_report,
+    "daily_run": task_daily_run,
 }
 
 

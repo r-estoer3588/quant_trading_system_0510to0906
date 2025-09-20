@@ -91,6 +91,63 @@ def _days_held(entry_date: Any) -> int | None:
         return None
 
 
+def _format_entry_date(entry_date: Any) -> str:
+    """Return ``entry_date`` formatted as YYYY-MM-DD when possible."""
+
+    if not entry_date:
+        return ""
+    try:
+        dt = pd.to_datetime(entry_date)
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return str(entry_date)
+
+
+def _next_action_hint(
+    system: str, side_lower: str, held: int | None, plpc: float
+) -> str:
+    """Build a short description about the next likely exit trigger."""
+
+    system_norm = (system or "").lower()
+    if system_norm == "system7":
+        return "70日高値を更新すると翌日寄りで手仕舞い"
+
+    hints: list[str] = []
+    if side_lower == "short":
+        if plpc < 0.05:
+            hints.append("含み益5%で翌日大引け手仕舞い")
+        if plpc < 0.04:
+            hints.append("含み益4%で翌日大引け手仕舞い")
+        if held is not None:
+            if held < 2:
+                hints.append("2日経過で大引け手仕舞い")
+            if held < 3:
+                hints.append("3日経過で大引け手仕舞い")
+    elif side_lower == "long":
+        if plpc < 0.04:
+            hints.append("含み益4%で翌日大引け手仕舞い")
+        if held is not None:
+            if held < 3:
+                hints.append("3日経過で翌日大引け手仕舞い")
+            if held < 6:
+                hints.append("6日経過で翌日寄り手仕舞い")
+
+    return " / ".join(hints)
+
+
+def _rule_summary(system: str, side_lower: str) -> str:
+    """Return a high level summary of profit/loss handling for the system."""
+
+    system_norm = (system or "").lower()
+    if system_norm == "system7":
+        return "SPYヘッジ: 70日高値で翌日寄り決済"
+    if side_lower == "short":
+        return "含み益4%-5%または2-3日経過で手仕舞い"
+    if side_lower == "long":
+        return "含み益4%または3・6日経過で手仕舞い"
+    return "含み益と経過日数で手仕舞いを判断"
+
+
 def _position_close_price(position: Any) -> float | str:
     """Return the last-day close for ``position`` when available."""
 
@@ -145,6 +202,7 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         side_lower = str(side).lower()
         plpc = float(getattr(pos, "unrealized_plpc", 0) or 0)
         held = _days_held(getattr(pos, "entry_date", None))
+        entry_date = _format_entry_date(getattr(pos, "entry_date", None))
         system = symbol_system_map.get(symbol_key, "")
         if not system and symbol_key == "SPY" and side_lower == "short":
             system = "system7"
@@ -180,7 +238,14 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
                 "side": side,
                 "qty": qty,
                 "current_price": current,
+                "avg_entry_price": getattr(pos, "avg_entry_price", ""),
+                "entry_date": entry_date,
+                "holding_days": held,
+                "unrealized_pl": getattr(pos, "unrealized_pl", ""),
+                "unrealized_plpc_percent": round(plpc * 100, 2),
                 "judgement": judgement,
+                "next_action": _next_action_hint(system, side_lower, held, plpc),
+                "rule_summary": _rule_summary(system, side_lower),
             }
         )
 

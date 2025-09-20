@@ -68,9 +68,14 @@ except Exception:
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
+from common.cache_manager import CacheManager, load_base_cache
 from common.data_loader import load_price
 from common.notifier import create_notifier
-from common.position_age import load_entry_dates
+from common.position_age import (
+    fetch_entry_dates_from_alpaca,
+    load_entry_dates,
+    save_entry_dates,
+)
 from common.profit_protection import evaluate_positions
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.system_groups import (
@@ -283,44 +288,291 @@ def _normalize_price_history(df: pd.DataFrame, rows: int) -> pd.DataFrame | None
     return work.reset_index(drop=True)
 
 
+_ROLLING_REQUIRED_COLUMNS = [
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "sma25",
+    "sma50",
+    "sma100",
+    "sma150",
+    "sma200",
+    "atr20",
+    "roc200",
+]
+
+_ROLLING_IMPORTANT_COLUMNS = [
+    "ema20",
+    "ema50",
+    "atr10",
+    "atr14",
+    "atr40",
+    "atr50",
+    "adx7",
+    "rsi3",
+    "rsi14",
+    "hv50",
+    "return6d",
+    "drop3d",
+]
+
+_ROLLING_NAN_THRESHOLD = 0.20
+
+
+def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]]:
+    if df is None or df.empty:
+        return False, {"status": "rolling_missing"}
+    try:
+        columns = list(df.columns)
+    except Exception:
+        columns = []
+    col_map = {str(col).lower(): col for col in columns}
+    missing_required = [col for col in _ROLLING_REQUIRED_COLUMNS if col not in col_map]
+    missing_optional = [col for col in _ROLLING_IMPORTANT_COLUMNS if col not in col_map]
+    nan_columns: list[tuple[str, float]] = []
+    for name in {*_ROLLING_REQUIRED_COLUMNS, *_ROLLING_IMPORTANT_COLUMNS}:
+        actual = col_map.get(name)
+        if actual is None:
+            continue
+        try:
+            ratio = float(pd.to_numeric(df[actual], errors="coerce").isna().mean())
+        except Exception:
+            continue
+        if ratio > _ROLLING_NAN_THRESHOLD:
+            nan_columns.append((name, ratio))
+    issues: dict[str, Any] = {}
+    if missing_required:
+        issues["missing_required"] = missing_required
+    if missing_optional:
+        issues["missing_optional"] = missing_optional
+    if nan_columns:
+        issues["nan_columns"] = nan_columns
+    if issues:
+        issues.setdefault(
+            "status",
+            "missing_required" if missing_required else "nan_columns",
+        )
+        return False, issues
+    return True, {}
+
+
+def _format_nan_columns(values: list[tuple[str, float]]) -> str:
+    if not values:
+        return ""
+    return ", ".join(f"{name}:{ratio:.1%}" for name, ratio in values)
+
+
+def _issues_to_note(issues: dict[str, Any]) -> str:
+    if not issues:
+        return ""
+    parts: list[str] = []
+    missing_required = issues.get("missing_required") or []
+    if missing_required:
+        parts.append("required=" + ", ".join(str(x) for x in missing_required))
+    missing_optional = issues.get("missing_optional") or []
+    if missing_optional:
+        parts.append("optional=" + ", ".join(str(x) for x in missing_optional))
+    nan_columns = issues.get("nan_columns") or []
+    if nan_columns:
+        parts.append("nan=" + _format_nan_columns(list(nan_columns)))
+    return "; ".join(parts)
+
+
+def _merge_note(base: str, addition: str) -> str:
+    parts = [part for part in [base, addition] if part]
+    return " / ".join(parts)
+
+
+def _build_missing_detail(
+    symbol: str,
+    issues: dict[str, Any],
+    rows_before: int,
+) -> dict[str, Any]:
+    missing_required = issues.get("missing_required") or []
+    missing_optional = issues.get("missing_optional") or []
+    nan_columns = issues.get("nan_columns") or []
+    return {
+        "symbol": symbol,
+        "status": issues.get("status", "missing"),
+        "missing_required": ", ".join(str(x) for x in missing_required),
+        "missing_optional": ", ".join(str(x) for x in missing_optional),
+        "nan_columns": _format_nan_columns(list(nan_columns)),
+        "rows_before": int(rows_before),
+        "rows_after": 0,
+        "action": "",
+        "resolved": False,
+        "note": "",
+    }
+
+
+def _rebuild_rolling_cache_from_base(
+    symbol: str,
+    rows: int,
+    cache_manager: CacheManager,
+    log_fn: Callable[[str], None] | None = None,
+) -> tuple[pd.DataFrame | None, str, str]:
+    err_note = ""
+    try:
+        base_df = load_base_cache(
+            symbol,
+            rebuild_if_missing=True,
+            cache_manager=cache_manager,
+        )
+    except Exception as exc:  # noqa: BLE001
+        base_df = None
+        err_note = str(exc)
+    if base_df is None or base_df.empty:
+        if log_fn:
+            try:
+                log_fn(f"⚠️ {symbol}: baseキャッシュ未整備のためrolling再生成不可")
+            except Exception:
+                pass
+        return None, "base_unavailable", err_note
+
+    base_reset = base_df.reset_index() if base_df.index.name else base_df
+    rename_map = {}
+    for col in list(getattr(base_reset, "columns", [])):
+        if str(col).lower() == "date":
+            rename_map[col] = "date"
+    if rename_map:
+        base_reset = base_reset.rename(columns=rename_map)
+    if "date" not in base_reset.columns:
+        return None, "date_missing", err_note
+    base_reset = base_reset.copy()
+    cols_list = list(base_reset.columns)
+    date_positions = [idx for idx, col in enumerate(cols_list) if str(col).lower() == "date"]
+    if not date_positions:
+        return None, "date_missing", err_note
+    primary_pos = date_positions[0]
+    date_series = base_reset.iloc[:, primary_pos]
+    for pos in date_positions[1:]:
+        other_series = base_reset.iloc[:, pos]
+        date_series = date_series.combine_first(other_series)
+    if len(date_positions) > 1:
+        keep_positions = [idx for idx in range(len(cols_list)) if idx not in date_positions[1:]]
+        base_reset = base_reset.iloc[:, keep_positions]
+        primary_index = keep_positions.index(primary_pos)
+    else:
+        primary_index = primary_pos
+    primary_label = base_reset.columns[primary_index]
+    base_reset.iloc[:, primary_index] = date_series
+    if str(primary_label).lower() != "date" or primary_label != "date":
+        base_reset = base_reset.rename(columns={primary_label: "date"})
+    base_reset["date"] = pd.to_datetime(base_reset["date"], errors="coerce")
+    base_reset = (
+        base_reset.dropna(subset=["date"])
+        .sort_values("date")
+        .drop_duplicates("date")
+        .reset_index(drop=True)
+    )
+    try:
+        base_reset.columns = [str(col).lower() for col in base_reset.columns]
+    except Exception:
+        base_reset.columns = [str(col) for col in base_reset.columns]
+    target_len = max(
+        rows,
+        int(getattr(cache_manager, "_rolling_target_len", len(base_reset))),
+    )
+    trimmed = base_reset.tail(target_len).reset_index(drop=True)
+    try:
+        cache_manager.write_atomic(trimmed, symbol, "rolling")
+    except Exception as exc:  # noqa: BLE001
+        if log_fn:
+            try:
+                log_fn(f"⚠️ {symbol}: rolling書き込み失敗 ({exc})")
+            except Exception:
+                pass
+        return None, "write_failed", _merge_note(err_note, str(exc))
+    if log_fn:
+        try:
+            log_fn(f"♻️ rolling再生成: {symbol} ({len(trimmed)}行, base)")
+        except Exception:
+            pass
+    try:
+        refreshed = cache_manager.read(symbol, "rolling")
+    except Exception:
+        refreshed = None
+    return refreshed, "rebuilt_from_base", err_note
+
+
 def _collect_symbol_data(
     symbols: list[str],
     *,
     rows: int,
     log_fn: Callable[[str], None] | None = None,
-) -> dict[str, pd.DataFrame]:
-    """指定シンボルの株価履歴をまとめて取得する。"""
+    debug_scan: bool = False,
+) -> tuple[dict[str, pd.DataFrame], list[dict[str, Any]]]:
+    """指定シンボルの株価履歴をまとめて取得し、欠損も記録する。"""
 
     start_ts = time.time()
     total = len(symbols)
     if total == 0:
-        return {}
+        return {}, []
 
     step = max(1, total // 20)
     fetched: dict[str, pd.DataFrame] = {}
-    missing: list[str] = []
     malformed: list[str] = []
+    missing_details: list[dict[str, Any]] = []
+    cache_manager = CacheManager(settings)
 
     for idx, sym in enumerate(symbols, start=1):
-        df: pd.DataFrame | None
         try:
             df = load_price(sym, cache_profile="rolling")
         except Exception:
             df = None
-        if (df is None or getattr(df, "empty", True)) and sym != "SPY":
-            try:
-                df = load_price(sym, cache_profile="full")
-            except Exception:
+        rows_before = 0 if df is None else int(len(df))
+        ok, issues = _analyze_rolling_cache(df)
+        detail: dict[str, Any] | None = None
+        if not ok:
+            detail = _build_missing_detail(sym, issues, rows_before)
+            if debug_scan:
+                detail["action"] = "debug_scan"
+                missing_details.append(detail)
                 df = None
-
-        if df is None or getattr(df, "empty", True):
-            missing.append(sym)
-        else:
-            norm = _normalize_price_history(df, rows)
-            if norm is not None and not norm.empty:
-                fetched[sym] = norm
             else:
-                malformed.append(sym)
+                df_after, action, note = _rebuild_rolling_cache_from_base(
+                    sym,
+                    rows,
+                    cache_manager,
+                    log_fn,
+                )
+                detail["action"] = action
+                detail["note"] = note or ""
+                if df_after is not None and not df_after.empty:
+                    detail["rows_after"] = int(len(df_after))
+                    ok_after, issues_after = _analyze_rolling_cache(df_after)
+                    if ok_after:
+                        detail["resolved"] = True
+                        df = df_after
+                    else:
+                        detail["note"] = _merge_note(
+                            detail.get("note", ""),
+                            _issues_to_note(issues_after),
+                        )
+                        df = None
+                else:
+                    df = None
+                missing_details.append(detail)
+        if df is None or getattr(df, "empty", True):
+            # 欠損時は記録済み。debugモードで detail 未追加の場合のみ追加。
+            if detail is None and debug_scan:
+                fallback_detail = _build_missing_detail(
+                    sym,
+                    {"status": "rolling_missing"},
+                    0,
+                )
+                fallback_detail["action"] = "debug_scan"
+                missing_details.append(fallback_detail)
+            continue
+
+        norm = _normalize_price_history(df, rows)
+        if norm is not None and not norm.empty:
+            fetched[sym] = norm
+        else:
+            malformed.append(sym)
 
         if log_fn and (idx % step == 0 or idx == total):
             try:
@@ -332,13 +584,33 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒")
+            log_fn(
+                f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒"
+            )
         except Exception:
             pass
-        if missing:
-            sample = ", ".join(missing[:5])
-            if len(missing) > 5:
-                sample += f" ほか{len(missing) - 5}件"
+        unresolved = [
+            detail["symbol"]
+            for detail in missing_details
+            if not detail.get("resolved", False)
+        ]
+        resolved = [
+            detail["symbol"]
+            for detail in missing_details
+            if detail.get("resolved", False)
+        ]
+        if resolved and not debug_scan:
+            sample = ", ".join(resolved[:5])
+            if len(resolved) > 5:
+                sample += f" ほか{len(resolved) - 5}件"
+            try:
+                log_fn(f"♻️ ローリング再生成済み: {sample}")
+            except Exception:
+                pass
+        if unresolved:
+            sample = ", ".join(unresolved[:5])
+            if len(unresolved) > 5:
+                sample += f" ほか{len(unresolved) - 5}件"
             try:
                 log_fn(f"⚠️ データ取得不可: {sample}")
             except Exception:
@@ -351,8 +623,16 @@ def _collect_symbol_data(
                 log_fn(f"⚠️ データ整形不可: {sample}")
             except Exception:
                 pass
+        if debug_scan:
+            try:
+                if missing_details:
+                    log_fn(f"🧪 欠損洗い出し検出: {len(missing_details)}件")
+                else:
+                    log_fn("🧪 欠損洗い出し: 問題は検出されませんでした")
+            except Exception:
+                pass
 
-    return fetched
+    return fetched, missing_details
 
 
 def _get_today_logger() -> logging.Logger:
@@ -456,6 +736,7 @@ class RunConfig:
     csv_name_mode: str
     notify: bool
     run_parallel: bool
+    scan_missing_only: bool = False
 
 
 @dataclass
@@ -858,6 +1139,9 @@ class RunArtifacts:
     total_elapsed: float
     stage_tracker: StageTracker
     logger: UILogger
+    debug_mode: bool = False
+    missing_report_path: Path | None = None
+    missing_details: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -892,11 +1176,14 @@ def _prepare_symbol_data(
     symbols: list[str],
     rows: int,
     logger: UILogger,
-) -> dict[str, pd.DataFrame]:
+    *,
+    debug_scan: bool = False,
+) -> tuple[dict[str, pd.DataFrame], list[dict[str, Any]]]:
     cache_key = (tuple(symbols), rows)
     symbol_cache = st.session_state.get("today_symbol_cache")
     if (
-        isinstance(symbol_cache, dict)
+        not debug_scan
+        and isinstance(symbol_cache, dict)
         and symbol_cache.get("key") == cache_key
         and isinstance(symbol_cache.get("data"), dict)
     ):
@@ -905,13 +1192,47 @@ def _prepare_symbol_data(
             count = len(data_map)
         except Exception:
             count = 0
-        logger.log(f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)")
-        return data_map
+        logger.log(
+            f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)"
+        )
+        return data_map, []
 
-    logger.log(f"📦 基礎データロード開始: {len(symbols)} 銘柄 (必要日数≒{rows})")
-    data_map = _collect_symbol_data(symbols, rows=rows, log_fn=logger.log)
-    st.session_state["today_symbol_cache"] = {"key": cache_key, "data": data_map}
-    return data_map
+    logger.log(
+        f"📦 基礎データロード開始: {len(symbols)} 銘柄 (必要日数≒{rows})"
+    )
+    data_map, missing_details = _collect_symbol_data(
+        symbols,
+        rows=rows,
+        log_fn=logger.log,
+        debug_scan=debug_scan,
+    )
+    if not debug_scan:
+        st.session_state["today_symbol_cache"] = {"key": cache_key, "data": data_map}
+    return data_map, missing_details
+
+
+def _save_missing_report(missing_details: list[dict[str, Any]]) -> Path | None:
+    if not missing_details:
+        return None
+    try:
+        base_dir = Path(settings.LOGS_DIR)
+    except Exception:
+        base_dir = Path("logs")
+    target_dir = base_dir / "debug"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    try:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+    except Exception:
+        timestamp = str(int(time.time()))
+    path = target_dir / f"rolling_cache_missing_{timestamp}.csv"
+    try:
+        pd.DataFrame(missing_details).to_csv(path, index=False)
+    except Exception:
+        return None
+    return path
 
 
 def _store_run_results(final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]) -> None:  # noqa: E501
@@ -1027,11 +1348,29 @@ def _display_per_system_logs(per_system_logs: dict[str, list[str]]) -> None:
             )
             if key == "system2":
                 _display_system2_filter_breakdown(logs)
+            elif key == "system5":
+                _display_system5_filter_breakdown(logs)
 
 
 def _display_system2_filter_breakdown(logs: list[str]) -> None:
     try:
         detail_lines = [x for x in logs if ("フィルタ内訳:" in x or "filter breakdown:" in x)]
+        if not detail_lines:
+            return
+        last_line = str(detail_lines[-1])
+        disp = last_line.split("] ", 1)[1] if "] " in last_line else last_line
+        st.caption(disp)
+    except Exception:
+        pass
+
+
+def _display_system5_filter_breakdown(logs: list[str]) -> None:
+    try:
+        detail_lines = [
+            x
+            for x in logs
+            if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
+        ]
         if not detail_lines:
             return
         last_line = str(detail_lines[-1])
@@ -1073,21 +1412,59 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     rows_needed = max_days + buffer_days
     symbols_for_data = list(dict.fromkeys([*run_config.symbols, "SPY"]))
     progress_ui.set_label("対象読み込み")
+    final_df: pd.DataFrame | None = None
+    per_system: dict[str, pd.DataFrame] = {}
+    debug_result: RunArtifacts | None = None
     with st.spinner("実行中... (経過時間表示あり)"):
-        symbol_data_map = _prepare_symbol_data(symbols_for_data, rows_needed, logger)
-        final_df, per_system = compute_today_signals(
-            run_config.symbols,
-            capital_long=run_config.capital_long,
-            capital_short=run_config.capital_short,
-            save_csv=run_config.save_csv,
-            notify=run_config.notify,
-            csv_name_mode=run_config.csv_name_mode,
-            log_callback=callbacks.ui_log,
-            progress_callback=callbacks.overall_progress,
-            per_system_progress=callbacks.per_system_progress,
-            symbol_data=symbol_data_map,
-            parallel=run_config.run_parallel,
+        symbol_data_map, missing_details = _prepare_symbol_data(
+            symbols_for_data,
+            rows_needed,
+            logger,
+            debug_scan=run_config.scan_missing_only,
         )
+        if run_config.scan_missing_only:
+            total_elapsed = max(0.0, time.time() - start_time)
+            report_path = _save_missing_report(missing_details)
+            if missing_details:
+                if report_path is not None:
+                    logger.log(
+                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV: {report_path})"
+                    )
+                else:
+                    logger.log(
+                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV保存に失敗)"
+                    )
+            else:
+                logger.log("🧪 欠損洗い出し: 欠損は検出されませんでした")
+            stage_tracker.finalize_counts(pd.DataFrame(), {})
+            debug_result = RunArtifacts(
+                final_df=pd.DataFrame(),
+                per_system={},
+                log_lines=logger.log_lines,
+                total_elapsed=total_elapsed,
+                stage_tracker=stage_tracker,
+                logger=logger,
+                debug_mode=True,
+                missing_report_path=report_path,
+                missing_details=missing_details,
+            )
+        else:
+            final_df, per_system = compute_today_signals(
+                run_config.symbols,
+                capital_long=run_config.capital_long,
+                capital_short=run_config.capital_short,
+                save_csv=run_config.save_csv,
+                notify=run_config.notify,
+                csv_name_mode=run_config.csv_name_mode,
+                log_callback=callbacks.ui_log,
+                progress_callback=callbacks.overall_progress,
+                per_system_progress=callbacks.per_system_progress,
+                symbol_data=symbol_data_map,
+                parallel=run_config.run_parallel,
+            )
+    if debug_result is not None:
+        return debug_result
+    assert final_df is not None  # 安全策: debugモードでは既にreturn済み
     total_elapsed = max(0.0, time.time() - start_time)
     stage_tracker.finalize_counts(final_df, per_system)
     _store_run_results(final_df, per_system)
@@ -1108,7 +1485,28 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
     try:
         client_tmp = ba.get_client(paper=paper_mode)
         positions = list(client_tmp.get_all_positions())
-        entry_map = load_entry_dates()
+        raw_entry_map = load_entry_dates()
+        entry_map: dict[str, str] = {}
+        for key, value in raw_entry_map.items():
+            try:
+                entry_map[str(key).upper()] = str(value)
+            except Exception:
+                continue
+        missing: list[str] = []
+        for pos in positions:
+            sym = str(getattr(pos, "symbol", "")).upper()
+            if sym and sym not in entry_map:
+                missing.append(sym)
+        if missing:
+            fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            if fetched:
+                for sym, ts in fetched.items():
+                    if sym not in entry_map:
+                        entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                try:
+                    save_entry_dates(entry_map)
+                except Exception:
+                    pass
         symbol_system_map = _load_symbol_system_map(Path("data/symbol_system_map.json"))
         latest_trading_day = _latest_trading_day()
         strategy_classes = _strategy_class_map()
@@ -1388,7 +1786,8 @@ def _display_planned_exits_section(result: ExitAnalysisResult, trade_options: Tr
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
     st.dataframe(result.planned, use_container_width=True)
     planned_rows = [
-        {str(k): v for k, v in row.items()} for row in result.planned.to_dict(orient="records")
+        {str(k): v for k, v in row.items()}
+        for row in result.planned.to_dict(orient="records")
     ]
     _auto_save_planned_exits(planned_rows, show_success=False)
     if st.button("計画を保存（JSONL）"):
@@ -1456,6 +1855,9 @@ def render_today_signals_results(
     run_config: RunConfig,
     trade_options: TradeOptions,
 ) -> None:
+    if artifacts.debug_mode:
+        _render_missing_debug_results(artifacts)
+        return
     final_df, per_system = _postprocess_results(artifacts.final_df, artifacts.per_system)  # noqa: E501
     artifacts.stage_tracker.finalize_counts(final_df, per_system)
     _show_total_elapsed(artifacts.total_elapsed)
@@ -1476,6 +1878,42 @@ def render_today_signals_results(
         artifacts.logger,
     )
     _render_system_details(per_system, artifacts.stage_tracker)
+    _render_previous_results_section()
+    _render_previous_run_logs(artifacts.log_lines)
+
+
+def _render_missing_debug_results(artifacts: RunArtifacts) -> None:
+    st.subheader("🧪 欠損洗い出しモードの結果")
+    details = artifacts.missing_details or []
+    if details:
+        st.write(f"検出された銘柄: {len(details)}件")
+        try:
+            df_details = pd.DataFrame(details)
+        except Exception:
+            df_details = None
+        if df_details is not None and not df_details.empty:
+            st.dataframe(df_details, use_container_width=True)
+        else:
+            st.json(details)
+    else:
+        st.success("ローリングキャッシュの欠損は検出されませんでした。")
+    report_path = artifacts.missing_report_path
+    if report_path:
+        path_obj = Path(report_path)
+        st.info(f"レポート: {path_obj}")
+        try:
+            data_bytes = path_obj.read_bytes()
+        except Exception:
+            data_bytes = None
+        if data_bytes:
+            st.download_button(
+                "欠損レポートをダウンロード",
+                data=data_bytes,
+                file_name=path_obj.name,
+                mime="text/csv",
+                key=f"missing_report_{int(time.time()*1000)}",
+            )
+    st.info("このモードでは基礎データの欠損確認のみを実施しました。シグナル計算は行っていません。")
     _render_previous_results_section()
     _render_previous_run_logs(artifacts.log_lines)
 
@@ -2000,6 +2438,15 @@ with st.sidebar:
     run_parallel_default = True
     run_parallel = st.checkbox("並列実行（システム横断）", value=run_parallel_default)
 
+    st.header("デバッグ")
+    scan_missing_only = st.checkbox(
+        "🧪 欠損洗い出しモード（ローリングキャッシュ）",
+        key="today_scan_missing_only",
+        help="rolling キャッシュからの読み込み時に欠損を検出し、CSVに書き出して終了します。",
+    )
+    if scan_missing_only:
+        st.caption("※ このモードではシグナル計算を行いません。欠損レポートのみ出力します。")
+
     # 通知（Slack Bot Token）設定（チャンネル指定フォームは廃止）
     st.header("通知設定（Slack Bot Token）")
     st.session_state.setdefault("use_slack_notify", True)
@@ -2160,6 +2607,7 @@ with st.sidebar:
         csv_name_mode=str(csv_name_mode),
         notify=bool(use_slack_notify),
         run_parallel=bool(run_parallel),
+        scan_missing_only=bool(scan_missing_only),
     )
     trade_options = TradeOptions(
         paper_mode=bool(paper_mode),
@@ -2202,7 +2650,72 @@ if "positions_df" in st.session_state:
             if not summary_df.empty:
                 st.caption("ポジションサマリー（件数）")
                 st.dataframe(summary_df, use_container_width=True)
-        st.dataframe(df_pos, use_container_width=True)
+        df_disp = df_pos.copy()
+        if "holding_days" in df_disp.columns:
+            def _normalize_days(value: Any) -> int | None:
+                try:
+                    if value in ("", None):
+                        return None
+                except Exception:
+                    return None
+                try:
+                    if pd.isna(value):
+                        return None
+                except Exception:
+                    pass
+                try:
+                    return int(value)
+                except Exception:
+                    return None
+
+            df_disp["holding_days"] = df_disp["holding_days"].apply(_normalize_days)
+        numeric_cols = [
+            "qty",
+            "avg_entry_price",
+            "current_price",
+            "unrealized_pl",
+            "unrealized_plpc_percent",
+        ]
+        for col in numeric_cols:
+            if col in df_disp.columns:
+                df_disp[col] = pd.to_numeric(df_disp[col], errors="coerce")
+        if "unrealized_plpc_percent" in df_disp.columns:
+            df_disp["unrealized_plpc_percent"] = (
+                df_disp["unrealized_plpc_percent"].round(2)
+            )
+        rename_map = {
+            "symbol": "銘柄",
+            "system": "システム",
+            "side": "サイド",
+            "qty": "数量",
+            "entry_date": "取得日",
+            "holding_days": "保有日数",
+            "avg_entry_price": "平均取得単価",
+            "current_price": "現在値",
+            "unrealized_pl": "含み損益",
+            "unrealized_plpc_percent": "含み損益率(%)",
+            "judgement": "判定",
+            "next_action": "次のアクション目安",
+            "rule_summary": "利確/損切りルール概要",
+        }
+        df_disp = df_disp.rename(columns=rename_map)
+        display_cols = [
+            "銘柄",
+            "システム",
+            "サイド",
+            "数量",
+            "取得日",
+            "保有日数",
+            "平均取得単価",
+            "現在値",
+            "含み損益",
+            "含み損益率(%)",
+            "判定",
+            "次のアクション目安",
+            "利確/損切りルール概要",
+        ]
+        df_disp = df_disp[[col for col in display_cols if col in df_disp.columns]]
+        st.dataframe(df_disp, use_container_width=True)
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     artifacts = execute_today_signals(run_config)
