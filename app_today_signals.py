@@ -131,33 +131,31 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
 
     invalid_side_mask = work["side_norm"].isna()
     if invalid_side_mask.any():
-        invalid_values = sorted({str(v) for v in work.loc[invalid_side_mask, "side"].tolist()})  # noqa: E501
+        invalid_values = sorted(
+            {str(v) for v in work.loc[invalid_side_mask, "side"].tolist()}
+        )  # noqa: E501
         raise ValueError(f"未対応のsideが含まれています: {invalid_values}")
 
     invalid_system_mask = work["system_norm"].isna()
     if invalid_system_mask.any():
-        invalid_values = sorted({str(v) for v in work.loc[invalid_system_mask, "system"].tolist()})  # noqa: E501
+        invalid_values = sorted(
+            {str(v) for v in work.loc[invalid_system_mask, "system"].tolist()}
+        )  # noqa: E501
         raise ValueError(f"未対応のsystemが含まれています: {invalid_values}")
 
-    long_conflict_mask = (work["side_norm"] == "long") & (~work["system_norm"].isin(LONG_SYSTEMS))  # noqa: E501
+    long_conflict_mask = (work["side_norm"] == "long") & (
+        ~work["system_norm"].isin(LONG_SYSTEMS)
+    )  # noqa: E501
     if long_conflict_mask.any():
-        conflict = sorted(
-            {str(v) for v in work.loc[long_conflict_mask, "system"].tolist()}
-        )
-        raise ValueError(
-            f"Longサイドに想定外のsystemが含まれています: {conflict}"
-        )
+        conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].tolist()})
+        raise ValueError(f"Longサイドに想定外のsystemが含まれています: {conflict}")
 
     short_conflict_mask = (work["side_norm"] == "short") & (
         ~work["system_norm"].isin(SHORT_SYSTEMS)
     )
     if short_conflict_mask.any():
-        conflict = sorted(
-            {str(v) for v in work.loc[short_conflict_mask, "system"].tolist()}
-        )
-        raise ValueError(
-            f"Shortサイドに想定外のsystemが含まれています: {conflict}"
-        )
+        conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].tolist()})
+        raise ValueError(f"Shortサイドに想定外のsystemが含まれています: {conflict}")
 
     def _sorted_systems(systems: set[str]) -> list[str]:
         def _key(name: str) -> tuple[int, int | str]:
@@ -584,21 +582,13 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(
-                f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒"
-            )
+            log_fn(f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒")
         except Exception:
             pass
         unresolved = [
-            detail["symbol"]
-            for detail in missing_details
-            if not detail.get("resolved", False)
+            detail["symbol"] for detail in missing_details if not detail.get("resolved", False)
         ]
-        resolved = [
-            detail["symbol"]
-            for detail in missing_details
-            if detail.get("resolved", False)
-        ]
+        resolved = [detail["symbol"] for detail in missing_details if detail.get("resolved", False)]
         if resolved and not debug_scan:
             sample = ", ".join(resolved[:5])
             if len(resolved) > 5:
@@ -719,7 +709,9 @@ def _get_today_logger() -> logging.Logger:
     if not has_handler:
         try:
             fh = logging.FileHandler(str(log_path), encoding="utf-8")
-            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")  # noqa: E501
+            fmt = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
+            )  # noqa: E501
             fh.setFormatter(fmt)
             logger.addHandler(fh)
         except Exception:
@@ -851,6 +843,8 @@ class StageTracker:
     def __init__(self, ui_vis: dict[str, Any], progress_ui: ProgressUI):
         self.progress_ui = progress_ui
         self.show_ui = bool(ui_vis.get("per_system_progress", True)) and _has_st_ctx()
+        # グローバルなユニバース総数（Tgt）を保持。None なら従来動作。
+        self.universe_target: int | None = None
         self.bars: dict[str, Any] = {}
         self.stage_txt: dict[str, Any] = {}
         self.metrics_txt: dict[str, Any] = {}
@@ -866,6 +860,7 @@ class StageTracker:
             }
             for i in range(1, 8)
         }
+        self.universe_total: int | None = None
         if self.show_ui:
             sys_cols = st.columns(7)
             sys_labels = [f"System{i}" for i in range(1, 8)]
@@ -876,18 +871,8 @@ class StageTracker:
                     self.bars[key] = col.progress(0)
                     self.stage_txt[key] = col.empty()
                     self.metrics_txt[key] = col.empty()
-                    self.metrics_txt[key].text(
-                        "  ".join(
-                            [
-                                "Tgt -",
-                                "FILpass -",
-                                "STUpass -",
-                                "TRDlist -",
-                                "Entry -",
-                                "Exit -",
-                            ]
-                        )
-                    )
+                    self._ensure_counts(key)
+                    self._render_metrics(key)
                 except Exception:
                     self.show_ui = False
                     break
@@ -920,20 +905,42 @@ class StageTracker:
     ) -> None:
         key = str(name).lower()
         counts = self._ensure_counts(key)
+        # filter_cnt は常に 'filter' に格納する。
+        # グローバルなTgtは別途 set_universe_target で設定される。
         if filter_cnt is not None:
-            if value == 0:
-                counts["target"] = int(filter_cnt)
-            else:
-                counts["filter"] = int(filter_cnt)
+            try:
+                if value == 0:
+                    counts["target"] = int(filter_cnt)
+                    self.universe_total = int(filter_cnt)
+                else:
+                    counts["filter"] = int(filter_cnt)
+            except Exception:
+                counts["filter"] = counts.get("filter")
         if setup_cnt is not None:
             counts["setup"] = int(setup_cnt)
         if cand_cnt is not None:
-            counts["cand"] = int(cand_cnt)
+            counts["cand"] = self._clamp_trdlist(cand_cnt)
         if final_cnt is not None:
             counts["entry"] = int(final_cnt)
         self._update_bar(key, value)
         self.progress_ui.update_label_for_stage(value)
         self._render_metrics(key)
+
+    def set_universe_target(self, tgt: int | None) -> None:
+        """全体ユニバース（Tgt）を設定。UI に即時反映する。
+
+        - 引数が None の場合は既定動作（各 system の target/filter を表示）に戻る。
+        - 整数が与えられた場合、各 system の表示上の `Tgt` はこの値を表示する。
+        """
+        try:
+            if tgt is None:
+                self.universe_target = None
+            else:
+                self.universe_target = int(tgt)
+        except Exception:
+            self.universe_target = None
+        # 全 system の表示を更新
+        self.refresh_all()
 
     def update_exit(self, name: str, count: int) -> None:
         key = str(name).lower()
@@ -941,7 +948,9 @@ class StageTracker:
         counts["exit"] = int(count)
         self._render_metrics(key)
 
-    def finalize_counts(self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]) -> None:  # noqa: E501
+    def finalize_counts(
+        self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
+    ) -> None:  # noqa: E501
         try:
             system_series = (
                 final_df["system"].astype(str).str.strip().str.lower()
@@ -953,14 +962,20 @@ class StageTracker:
         for name, counts in self.stage_counts.items():
             if counts.get("cand") is None:
                 df_sys = per_system.get(name)
-                counts["cand"] = 0 if df_sys is None or df_sys.empty else int(len(df_sys))  # noqa: E501
+                if df_sys is None or df_sys.empty:
+                    counts["cand"] = 0
+                else:
+                    counts["cand"] = self._clamp_trdlist(len(df_sys))
             if counts.get("entry") is None and not system_series.empty:
                 try:
                     counts["entry"] = int((system_series == name).sum())
                 except Exception:
                     counts["entry"] = counts.get("entry")
-            if counts.get("target") is None and counts.get("filter") is not None:
-                counts["target"] = counts.get("filter")
+            if counts.get("target") is None:
+                if self.universe_total is not None:
+                    counts["target"] = self.universe_total
+                elif counts.get("filter") is not None and counts.get("setup") is None:
+                    counts["target"] = counts.get("filter")
         self.refresh_all()
 
     def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
@@ -994,14 +1009,21 @@ class StageTracker:
         if placeholder is None:
             return
         counts = self.stage_counts.get(key, {})
+        # 設計に従い、Tgt はグローバルなユニバース値を優先表示する
+        tgt_display = None
+        if self.universe_target is not None:
+            tgt_display = self.universe_target
+        else:
+            tgt_display = self._target_value(counts)
+
         text = "  ".join(
             [
-                f"Tgt {self._format_value(self._target_value(counts))}",
-                f"FILpass {self._format_value(counts.get('filter'))}",
-                f"STUpass {self._format_value(counts.get('setup'))}",
-                f"TRDlist {self._format_value(counts.get('cand'))}",
-                f"Entry {self._format_value(counts.get('entry'))}",
-                f"Exit {self._format_value(counts.get('exit'))}",
+                f"Tgt→{self._format_value(tgt_display)}",
+                f"FILpass→{self._format_value(counts.get('filter'))}",
+                f"STUpass→{self._format_value(counts.get('setup'))}",
+                f"TRDlist→{self._format_trdlist(counts.get('cand'))}",
+                f"Entry→{self._format_value(counts.get('entry'))}",
+                f"Exit→{self._format_value(counts.get('exit'))}",
             ]
         )
         try:
@@ -1012,6 +1034,8 @@ class StageTracker:
     def _target_value(self, counts: dict[str, int | None]) -> int | None:
         if counts.get("target") is not None:
             return counts["target"]
+        if self.universe_total is not None:
+            return self.universe_total
         if counts.get("filter") is not None and counts.get("setup") is None:
             return counts["filter"]
         return None
@@ -1019,6 +1043,23 @@ class StageTracker:
     @staticmethod
     def _format_value(value: Any) -> str:
         return "-" if value is None else str(value)
+
+    @staticmethod
+    def _clamp_trdlist(value: Any) -> int | None:
+        try:
+            if value is None:
+                return None
+            return max(0, min(10, int(value)))
+        except Exception:
+            return None
+
+    def _format_trdlist(self, value: Any) -> str:
+        if value is None:
+            return "-"
+        try:
+            return str(self._clamp_trdlist(value))
+        except Exception:
+            return "-"
 
     def _ensure_counts(self, key: str) -> dict[str, int | None]:
         return self.stage_counts.setdefault(
@@ -1095,7 +1136,9 @@ class UILogger:
 class RunCallbacks:
     """run_all_systems_today へ渡すコールバックをまとめる。"""
 
-    def __init__(self, logger: UILogger, progress_ui: ProgressUI, tracker: StageTracker):  # noqa: E501
+    def __init__(
+        self, logger: UILogger, progress_ui: ProgressUI, tracker: StageTracker
+    ):  # noqa: E501
         self.logger = logger
         self.progress_ui = progress_ui
         self.tracker = tracker
@@ -1118,7 +1161,9 @@ class RunCallbacks:
         cand_cnt: int | None = None,
         final_cnt: int | None = None,
     ) -> None:
-        self.tracker.update_stage(name, value, filter_cnt, setup_cnt, cand_cnt, final_cnt)  # noqa: E501
+        self.tracker.update_stage(
+            name, value, filter_cnt, setup_cnt, cand_cnt, final_cnt
+        )  # noqa: E501
 
     def per_system_exit(self, name: str, count: int) -> None:
         self.tracker.update_exit(name, count)
@@ -1127,6 +1172,8 @@ class RunCallbacks:
         try:
             _run_today_mod._PER_SYSTEM_STAGE = self.per_system_stage  # type: ignore[attr-defined]  # noqa: E501
             _run_today_mod._PER_SYSTEM_EXIT = self.per_system_exit  # type: ignore[attr-defined]  # noqa: E501
+            # Universe target setter for display alignment
+            _run_today_mod._SET_STAGE_UNIVERSE_TARGET = self.tracker.set_universe_target  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -1192,14 +1239,10 @@ def _prepare_symbol_data(
             count = len(data_map)
         except Exception:
             count = 0
-        logger.log(
-            f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)"
-        )
+        logger.log(f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)")
         return data_map, []
 
-    logger.log(
-        f"📦 基礎データロード開始: {len(symbols)} 銘柄 (必要日数≒{rows})"
-    )
+    logger.log(f"📦 基礎データロード開始: {len(symbols)} 銘柄 (必要日数≒{rows})")
     data_map, missing_details = _collect_symbol_data(
         symbols,
         rows=rows,
@@ -1235,10 +1278,14 @@ def _save_missing_report(missing_details: list[dict[str, Any]]) -> Path | None:
     return path
 
 
-def _store_run_results(final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]) -> None:  # noqa: E501
+def _store_run_results(
+    final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
+) -> None:  # noqa: E501
     try:
         st.session_state["today_final_df"] = final_df.copy()
-        st.session_state["today_per_system"] = {k: v.copy() for k, v in per_system.items()}  # noqa: E501
+        st.session_state["today_per_system"] = {
+            k: v.copy() for k, v in per_system.items()
+        }  # noqa: E501
     except Exception:
         pass
 
@@ -1262,7 +1309,9 @@ def _sort_final_df(final_df: pd.DataFrame) -> pd.DataFrame:
         return final_df
     try:
         tmp = final_df.copy()
-        tmp["_system_no"] = tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)  # noqa: E501
+        tmp["_system_no"] = (
+            tmp["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
+        )  # noqa: E501
         sort_cols = [c for c in ["side", "_system_no"] if c in tmp.columns]
         tmp = tmp.sort_values(sort_cols, kind="stable").drop(
             columns=["_system_no"], errors="ignore"
@@ -1286,7 +1335,9 @@ def _log_run_completion(
         }
         if counts_map:
             per_counts_lines = format_group_counts(counts_map)
-        detail = f" | Long/Short別: {', '.join(per_counts_lines)}" if per_counts_lines else ""  # noqa: E501
+        detail = (
+            f" | Long/Short別: {', '.join(per_counts_lines)}" if per_counts_lines else ""
+        )  # noqa: E501
         _get_today_logger().info(
             f"✅ 本日のシグナル: シグナル検出処理終了 "
             f"(経過 {m}分{s}秒, 最終候補 {final_n} 件)"
@@ -1367,9 +1418,7 @@ def _display_system2_filter_breakdown(logs: list[str]) -> None:
 def _display_system5_filter_breakdown(logs: list[str]) -> None:
     try:
         detail_lines = [
-            x
-            for x in logs
-            if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
+            x for x in logs if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
         ]
         if not detail_lines:
             return
@@ -1427,13 +1476,9 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
             report_path = _save_missing_report(missing_details)
             if missing_details:
                 if report_path is not None:
-                    logger.log(
-                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV: {report_path})"
-                    )
+                    logger.log(f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV: {report_path})")
                 else:
-                    logger.log(
-                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV保存に失敗)"
-                    )
+                    logger.log(f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV保存に失敗)")
             else:
                 logger.log("🧪 欠損洗い出し: 欠損は検出されませんでした")
             stage_tracker.finalize_counts(pd.DataFrame(), {})
@@ -1780,14 +1825,15 @@ def _display_exit_orders_table(
             st.dataframe(res, use_container_width=True)
 
 
-def _display_planned_exits_section(result: ExitAnalysisResult, trade_options: TradeOptions) -> None:  # noqa: E501
+def _display_planned_exits_section(
+    result: ExitAnalysisResult, trade_options: TradeOptions
+) -> None:  # noqa: E501
     if result.planned.empty:
         return
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
     st.dataframe(result.planned, use_container_width=True)
     planned_rows = [
-        {str(k): v for k, v in row.items()}
-        for row in result.planned.to_dict(orient="records")
+        {str(k): v for k, v in row.items()} for row in result.planned.to_dict(orient="records")
     ]
     _auto_save_planned_exits(planned_rows, show_success=False)
     if st.button("計画を保存（JSONL）"):
@@ -1807,7 +1853,9 @@ def _display_planned_exits_section(result: ExitAnalysisResult, trade_options: Tr
             _run_planned_exit_scheduler("close", dry_run_plan)
 
 
-def _auto_save_planned_exits(planned_rows: list[dict[str, Any]], show_success: bool) -> None:  # noqa: E501
+def _auto_save_planned_exits(
+    planned_rows: list[dict[str, Any]], show_success: bool
+) -> None:  # noqa: E501
     import json as _json
 
     plan_path = Path("data/planned_exits.jsonl")
@@ -1858,7 +1906,9 @@ def render_today_signals_results(
     if artifacts.debug_mode:
         _render_missing_debug_results(artifacts)
         return
-    final_df, per_system = _postprocess_results(artifacts.final_df, artifacts.per_system)  # noqa: E501
+    final_df, per_system = _postprocess_results(
+        artifacts.final_df, artifacts.per_system
+    )  # noqa: E501
     artifacts.stage_tracker.finalize_counts(final_df, per_system)
     _show_total_elapsed(artifacts.total_elapsed)
     _log_run_completion(final_df, per_system, artifacts.total_elapsed)
@@ -1960,14 +2010,18 @@ def _render_final_summary(final_df: pd.DataFrame) -> None:
             values_map: dict[str, float] = {}
             if "position_value" in final_df.columns:
                 values_series = (
-                    final_df.assign(_system=system_series)[["_system", "position_value"]]  # noqa: E501
+                    final_df.assign(_system=system_series)[
+                        ["_system", "position_value"]
+                    ]  # noqa: E501
                     .groupby("_system")["position_value"]
                     .sum()
                 )
                 values_map = values_series.to_dict()
             if counts_map:
                 if values_map:
-                    summary_lines = format_group_counts_and_values(counts_map, values_map)  # noqa: E501
+                    summary_lines = format_group_counts_and_values(
+                        counts_map, values_map
+                    )  # noqa: E501
                 else:
                     summary_lines = format_group_counts(counts_map)
     except Exception:
@@ -2124,7 +2178,9 @@ def _execute_auto_trading(
     )
     if results_df is not None and not results_df.empty:
         st.dataframe(results_df, use_container_width=True)
-        if trade_options.poll_status and any(results_df["order_id"].fillna("").astype(str)):  # noqa: E501
+        if trade_options.poll_status and any(
+            results_df["order_id"].fillna("").astype(str)
+        ):  # noqa: E501
             _poll_order_status(results_df, trade_options)
     if trade_options.update_bp_after:
         _update_buying_power(trade_options)
@@ -2177,7 +2233,9 @@ def _render_system_details(
 ) -> None:
     with st.expander("システム別詳細"):
         settings_local = get_settings(create_dirs=True)
-        results_dir = Path(getattr(settings_local.outputs, "results_csv_dir", "results_csv"))  # noqa: E501
+        results_dir = Path(
+            getattr(settings_local.outputs, "results_csv_dir", "results_csv")
+        )  # noqa: E501
         shortable_excluded_map = {}
         for i in (2, 6):
             name = f"system{i}"
@@ -2186,7 +2244,9 @@ def _render_system_details(
                 try:
                     df_exc = pd.read_csv(fp)
                     if df_exc is not None and not df_exc.empty:
-                        shortable_excluded_map[name] = set(df_exc["symbol"].astype(str).str.upper())  # noqa: E501
+                        shortable_excluded_map[name] = set(
+                            df_exc["symbol"].astype(str).str.upper()
+                        )  # noqa: E501
                 except Exception:
                     pass
         system_order = [f"system{i}" for i in range(1, 8)]
@@ -2218,10 +2278,14 @@ def _render_system_details(
                 mask = df_disp["side"].str.lower() != side_type
                 if mask.any():
                     fill_cols = [
-                        col for col in df_disp.columns if col not in {"symbol", "side", "system"}  # noqa: E501
+                        col
+                        for col in df_disp.columns
+                        if col not in {"symbol", "side", "system"}  # noqa: E501
                     ]
                     if fill_cols:
-                        df_disp.loc[:, fill_cols] = df_disp.loc[:, fill_cols].astype("object")  # noqa: E501
+                        df_disp.loc[:, fill_cols] = df_disp.loc[:, fill_cols].astype(
+                            "object"
+                        )  # noqa: E501
                         df_disp.loc[mask, fill_cols] = "-"
             if name in shortable_excluded_map:
                 excluded_syms = shortable_excluded_map[name]
@@ -2330,8 +2394,12 @@ with st.sidebar:
             acct = client.get_account()
             # 口座情報を保存（表示用）
             try:
-                st.session_state["alpaca_acct_type"] = getattr(acct, "account_type", None)  # noqa: E501
-                st.session_state["alpaca_multiplier"] = getattr(acct, "multiplier", None)  # noqa: E501
+                st.session_state["alpaca_acct_type"] = getattr(
+                    acct, "account_type", None
+                )  # noqa: E501
+                st.session_state["alpaca_multiplier"] = getattr(
+                    acct, "multiplier", None
+                )  # noqa: E501
                 st.session_state["alpaca_shorting_enabled"] = getattr(
                     acct, "shorting_enabled", None
                 )
@@ -2345,7 +2413,9 @@ with st.sidebar:
                 bp = float(bp_raw)
                 st.session_state["alpaca_buying_power"] = bp
                 try:
-                    st.session_state["alpaca_cash"] = float(getattr(acct, "cash", None) or 0.0)  # noqa: E501
+                    st.session_state["alpaca_cash"] = float(
+                        getattr(acct, "cash", None) or 0.0
+                    )  # noqa: E501
                 except Exception:
                     pass
                 st.session_state["today_cap_long"] = round(bp / 2.0, 2)
@@ -2370,7 +2440,9 @@ with st.sidebar:
             )
             st.session_state["alpaca_cash"] = float(getattr(acct, "cash", 0.0))
             st.session_state["alpaca_multiplier"] = getattr(acct, "multiplier", None)
-            st.session_state["alpaca_shorting_enabled"] = getattr(acct, "shorting_enabled", None)  # noqa: E501
+            st.session_state["alpaca_shorting_enabled"] = getattr(
+                acct, "shorting_enabled", None
+            )  # noqa: E501
             st.session_state["alpaca_status"] = getattr(acct, "status", None)
             st.success("口座情報を更新しました（表示のみ）")
         except Exception as e:
@@ -2537,7 +2609,9 @@ with st.sidebar:
                     for _i, r in df_open.iterrows():
                         col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
                         with col1:
-                            st.write(f"{r.get('symbol')}  {r.get('side')}  qty={r.get('qty')}")  # noqa: E501
+                            st.write(
+                                f"{r.get('symbol')}  {r.get('side')}  qty={r.get('qty')}"
+                            )  # noqa: E501
                         with col2:
                             st.write(f"status: {r.get('status')}")
                         with col3:
@@ -2568,11 +2642,17 @@ with st.sidebar:
                                         try:
                                             rows2.append(
                                                 {
-                                                    "order_id": str(getattr(o2, "id", "")),  # noqa: E501
-                                                    "symbol": getattr(o2, "symbol", None),  # noqa: E501
+                                                    "order_id": str(
+                                                        getattr(o2, "id", "")
+                                                    ),  # noqa: E501
+                                                    "symbol": getattr(
+                                                        o2, "symbol", None
+                                                    ),  # noqa: E501
                                                     "side": getattr(o2, "side", None),
                                                     "qty": getattr(o2, "qty", None),
-                                                    "status": getattr(o2, "status", None),  # noqa: E501
+                                                    "status": getattr(
+                                                        o2, "status", None
+                                                    ),  # noqa: E501
                                                     "submitted_at": str(
                                                         getattr(
                                                             o2,
@@ -2581,7 +2661,9 @@ with st.sidebar:
                                                         )
                                                     ),
                                                     "type": getattr(o2, "type", None),
-                                                    "limit_price": getattr(o2, "limit_price", None),  # noqa: E501
+                                                    "limit_price": getattr(
+                                                        o2, "limit_price", None
+                                                    ),  # noqa: E501
                                                     "time_in_force": getattr(
                                                         o2, "time_in_force", None
                                                     ),
@@ -2652,6 +2734,7 @@ if "positions_df" in st.session_state:
                 st.dataframe(summary_df, use_container_width=True)
         df_disp = df_pos.copy()
         if "holding_days" in df_disp.columns:
+
             def _normalize_days(value: Any) -> int | None:
                 try:
                     if value in ("", None):
@@ -2680,9 +2763,7 @@ if "positions_df" in st.session_state:
             if col in df_disp.columns:
                 df_disp[col] = pd.to_numeric(df_disp[col], errors="coerce")
         if "unrealized_plpc_percent" in df_disp.columns:
-            df_disp["unrealized_plpc_percent"] = (
-                df_disp["unrealized_plpc_percent"].round(2)
-            )
+            df_disp["unrealized_plpc_percent"] = df_disp["unrealized_plpc_percent"].round(2)
         rename_map = {
             "symbol": "銘柄",
             "system": "システム",

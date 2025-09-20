@@ -915,7 +915,9 @@ def _load_basic_data(
             pass
         normalized = _normalize_ohlcv(df)
         try:
-            fill_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns]
+            fill_cols = [
+                c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns
+            ]
             if fill_cols:
                 normalized = normalized.copy()
                 try:
@@ -934,9 +936,7 @@ def _load_basic_data(
 
     env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
     try:
-        env_parallel_threshold = int(
-            os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200")
-        )
+        env_parallel_threshold = int(os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200"))
     except Exception:
         env_parallel_threshold = 200
     if env_parallel in ("1", "true", "yes"):
@@ -983,8 +983,10 @@ def _load_basic_data(
                 source = "prefetched"
             if df is None or getattr(df, "empty", True):
                 source = None
-            if df is None or getattr(df, "empty", True) or (
-                hasattr(df, "__len__") and len(df) < target_len
+            if (
+                df is None
+                or getattr(df, "empty", True)
+                or (hasattr(df, "__len__") and len(df) < target_len)
             ):
                 if df is not None and not getattr(df, "empty", True):
                     rebuild_reason = rebuild_reason or "length"
@@ -1000,21 +1002,21 @@ def _load_basic_data(
                     needs_rebuild = True
                 else:
                     last_seen_date = pd.Timestamp(last_seen_date).normalize()
-                    if today is not None and recent_allowed and last_seen_date not in recent_allowed:
+                    if (
+                        today is not None
+                        and recent_allowed
+                        and last_seen_date not in recent_allowed
+                    ):
                         rebuild_reason = "stale"
                         gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
                         needs_rebuild = True
             if needs_rebuild:
                 if rebuild_reason == "stale":
-                    gap_label = (
-                        f"約{gap_days}営業日" if gap_days is not None else "不明"
-                    )
+                    gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
                     last_label = (
                         str(last_seen_date.date()) if last_seen_date is not None else "不明"
                     )
-                    _log(
-                        f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}"
-                    )
+                    _log(f"♻️ rolling再構築: {sym} 最終日={last_label} | ギャップ={gap_label}")
                 base_df, cached_hit = _get_base_cache(sym)
                 if base_df is None or getattr(base_df, "empty", True):
                     if rebuild_reason:
@@ -1038,9 +1040,7 @@ def _load_basic_data(
                     new_last = _extract_last_cache_date(sliced)
                     try:
                         new_label = (
-                            str(pd.Timestamp(new_last).date())
-                            if new_last is not None
-                            else "不明"
+                            str(pd.Timestamp(new_last).date()) if new_last is not None else "不明"
                         )
                     except Exception:
                         new_label = "不明"
@@ -1103,9 +1103,8 @@ def _load_basic_data(
         total_elapsed = max(0.0, perf_counter() - start_ts)
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
-        done_msg = (
-            f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
-            + (" | 並列=ON" if use_parallel and max_workers else " | 並列=OFF")
+        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒" + (
+            " | 並列=ON" if use_parallel and max_workers else " | 並列=OFF"
         )
         _log(done_msg)
         _emit_ui_log(done_msg)
@@ -1124,9 +1123,7 @@ def _load_basic_data(
             "failed": "失敗",
         }
         summary_parts = [
-            f"{label}={stats.get(key, 0)}"
-            for key, label in summary_map.items()
-            if stats.get(key)
+            f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
         ]
         if summary_parts:
             _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
@@ -1376,9 +1373,7 @@ def _amount_pick(
     active_positions = active_positions or {}
 
     # システムごとの割当予算
-    budgets = {
-        name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
-    }
+    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
     remaining = budgets.copy()
 
     # システム名の順序を固定（system1..system7）
@@ -1835,16 +1830,13 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
             fixed = 0
             try:
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days
-                    + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
                 )
             except Exception:
                 target_len = 0
             for sym in missing_syms:
                 try:
-                    base_df, _ = base_pool.get(
-                        sym, rebuild_if_missing=True
-                    )
+                    base_df, _ = base_pool.get(sym, rebuild_if_missing=True)
                     if base_df is None or getattr(base_df, "empty", True):
                         continue
                     sliced = _build_rolling_from_base(sym, base_df, target_len, cache_manager)
@@ -2343,22 +2335,24 @@ def _log_system_filter_stats(
         + f"system5={len(system5_syms)}?, "
         + f"system6={len(system6_syms)}?"
     )
+
+
 def _ensure_rolling_cache_fresh(
     symbol: str,
-    rolling_df: 'pd.DataFrame',
-    today: 'pd.Timestamp',
-    cache_manager: 'CacheManager',
+    rolling_df: "pd.DataFrame",
+    today: "pd.Timestamp",
+    cache_manager: "CacheManager",
     base_rows: int = 320,
     max_lag_days: int = 2,
-) -> 'pd.DataFrame':
+) -> "pd.DataFrame":
     """
     rolling_dfの最終日付がtodayからmax_lag_days以上ズレている場合、
     baseからrollingを再生成し、rollingへ書き戻す。
     """
-    if rolling_df is None or getattr(rolling_df, 'empty', True):
+    if rolling_df is None or getattr(rolling_df, "empty", True):
         # 欠損時はbaseから再生成
         base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
-        if base_df is not None and not getattr(base_df, 'empty', True):
+        if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
             cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
@@ -2368,6 +2362,7 @@ def _ensure_rolling_cache_fresh(
         last_date = rolling_df.index[-1]
         if isinstance(last_date, str):
             import pandas as pd
+
             last_date = pd.to_datetime(last_date)
     except Exception:
         return rolling_df
@@ -2375,7 +2370,7 @@ def _ensure_rolling_cache_fresh(
     if lag_days > max_lag_days:
         # 鮮度不足: baseからrolling再生成
         base_df = cache_manager.read(symbol, layer="base", rows=base_rows)
-        if base_df is not None and not getattr(base_df, 'empty', True):
+        if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
             cache_manager.write_atomic(symbol, rolling_new, layer="rolling")
             return rolling_new
@@ -4210,9 +4205,12 @@ def compute_today_signals(
                         return {}
                     return counts
 
-                exit_counts_map = _estimate_exit_counts_today(
-                    positions_cache or [], symbol_system_map_cache or {}
-                ) or {}
+                exit_counts_map = (
+                    _estimate_exit_counts_today(
+                        positions_cache or [], symbol_system_map_cache or {}
+                    )
+                    or {}
+                )
                 # UI へも Exit 件数を送る（早期に可視化）
                 try:
                     cb_exit = globals().get("_PER_SYSTEM_EXIT")
@@ -4254,6 +4252,16 @@ def compute_today_signals(
                     "setup_map": dict(setup_map),
                     "tgt_base": int(tgt_base),
                 }
+                # UI が StageTracker を登録していれば、ユニバース総数を通知して表示を揃える
+                try:
+                    cb_stage_set = globals().get("_SET_STAGE_UNIVERSE_TARGET")
+                except Exception:
+                    cb_stage_set = None
+                if cb_stage_set and callable(cb_stage_set):
+                    try:
+                        cb_stage_set(int(tgt_base))
+                    except Exception:
+                        pass
             except Exception:
                 pass
         # 簡易ログ
