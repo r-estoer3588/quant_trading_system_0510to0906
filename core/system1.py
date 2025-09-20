@@ -210,6 +210,15 @@ def prepare_data_vectorized_system1(
     cache_dir = "data_cache/indicators_system1_cache"
     os.makedirs(cache_dir, exist_ok=True)
 
+    # normalize inputs for both branches
+    raw_data_dict = raw_data_dict or {}
+    default_total_symbols = len(raw_data_dict)
+    # ensure total_symbols is defined for progress callbacks in either branch
+    if symbols is not None and len(symbols) > 0:
+        total_symbols = len(symbols)
+    else:
+        total_symbols = default_total_symbols
+
     if use_process_pool:
         if symbols is None:
             symbols = list(raw_data_dict.keys()) if raw_data_dict else []
@@ -260,35 +269,41 @@ def prepare_data_vectorized_system1(
                     except Exception:
                         pass
 
-                if (i % batch_size == 0 or i == total_symbols) and log_callback:
+                # ensure batch_size is int for modulus
+                try:
+                    _bs = int(batch_size) if batch_size is not None else 0
+                except Exception:
+                    _bs = 0
+                if (_bs and (i % _bs == 0 or i == total_symbols)) and log_callback:
                     elapsed = time.time() - start_time
                     remaining = (elapsed / i) * (total_symbols - i) if i else 0
                     em, es = divmod(int(elapsed), 60)
                     rm, rs = divmod(int(remaining), 60)
                     joined_syms = ", ".join(symbol_buffer)
                     try:
-                        log_callback(
-                            f"📊 指標計算: {i}/{total_symbols} 件 完了",
-                            f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒\n",
-                            f"銘柄: {joined_syms}",
-                        )
+                        # split into multiple shorter calls to avoid long single-line strings
+                        log_callback(f"📊 指標計算: {i}/{total_symbols} 件 完了")
+                        log_callback(f"経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒")
+                        log_callback(f"銘柄: {joined_syms}")
                     except Exception:
                         pass
                     symbol_buffer.clear()
-
-        return result_dict
-
-    raw_data_dict = raw_data_dict or {}
-    total_symbols = len(raw_data_dict)
-    if batch_size is None:
-        try:
-            from config.settings import get_settings
-
-            batch_size = get_settings(create_dirs=False).data.batch_size
-        except Exception:
-            batch_size = 100
-        batch_size = resolve_batch_size(total_symbols, batch_size)
-    batch_monitor = BatchSizeMonitor(batch_size)
+            if log_callback:
+                try:
+                    elapsed = time.time() - start_time
+                    em, es = divmod(int(elapsed), 60)
+                    log_callback(f"📊 指標計算: {len(result_dict)}/{total_symbols} 件 完了")
+                    log_callback(f"経過: {em}分{es}秒")
+                except Exception:
+                    pass
+    # batch monitor to adjust batch sizes over time in non-parallel mode
+    try:
+        _init_bs = int(batch_size) if batch_size is not None else 0
+    except Exception:
+        _init_bs = 0
+    batch_monitor = BatchSizeMonitor(_init_bs)
+    if not use_process_pool:
+        total_symbols = default_total_symbols
     processed = 0
     symbol_buffer: list[str] = []
     start_time = time.time()
@@ -305,25 +320,27 @@ def prepare_data_vectorized_system1(
                 progress_callback(processed, total_symbols)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total_symbols) and log_callback:
+        try:
+            _bs = int(batch_size) if batch_size is not None else 0
+        except Exception:
+            _bs = 0
+        if (_bs and (processed % _bs == 0 or processed == total_symbols)) and log_callback:
             elapsed = time.time() - start_time
             remaining = (elapsed / processed) * (total_symbols - processed) if processed else 0
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remaining), 60)
             joined_syms = ", ".join(symbol_buffer)
             try:
-                log_callback(
-                    f"📊 指標計算: {processed}/{total_symbols} 件 完了",
-                    f" | 経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒\n",
-                    f"銘柄: {joined_syms}",
-                )
-                log_callback(
-                    f"⏱️ バッチ時間: {time.time() - batch_start:.2f}秒 | 次バッチサイズ: {batch_monitor.batch_size}"
-                )
+                log_callback(f"📊 指標計算: {processed}/{total_symbols} 件 完了")
+                log_callback(f"経過: {em}分{es}秒 / 残り: 約 {rm}分{rs}秒")
+                log_callback(f"銘柄: {joined_syms}")
             except Exception:
                 pass
             batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
+            try:
+                batch_size = batch_monitor.update(batch_duration)
+            except Exception:
+                pass
             batch_start = time.time()
             symbol_buffer.clear()
 
@@ -357,9 +374,7 @@ def prepare_data_vectorized_system1(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(
-                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
-                    )
+                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
@@ -571,7 +586,9 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         left_on="Date",
         right_on="date",
     )
-    merged = merged[merged["Close_SPY"] > merged["SMA100_SPY"]].copy()
+    # NOTE: SPY のトレンド判定 (Close_SPY > SMA100_SPY) は
+    # 戦略の「セットアップ」フェーズで評価するため、ここでは候補抽出
+    # 側での絞り込みを行わない（UI/前処理側でセットアップ判定する）。
 
     merged["entry_date_norm"] = merged["entry_date"].dt.normalize()
     grouped = merged.groupby("entry_date_norm")

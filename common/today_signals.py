@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import inspect
+import math
 import time as _t
 from typing import Any, cast
 import numpy as np
@@ -19,6 +20,25 @@ from common.utils_spy import (
     get_spy_with_indicators,
     resolve_signal_entry_date,
 )
+
+
+# --- CLI用デフォルトログ関数 -----------------------------------------------
+def _default_cli_log(message: str) -> None:
+    """log_callback未指定時にCLIへ確実に出力するための簡易プリンタ。
+
+    - 文字化け/エンコード例外を避けるため、失敗時はフォールバックして出力。
+    - flush=True でリアルタイムに表示。
+    """
+    try:
+        print(str(message), flush=True)
+    except Exception:
+        try:
+            # 最低限のASCIIにフォールバック
+            safe = str(message).encode("ascii", errors="replace").decode("ascii")
+            print(safe, flush=True)
+        except Exception:
+            pass
+
 
 # --- サイド定義（売買区分）---
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
@@ -57,8 +77,6 @@ class TodaySignal:
     score_key: str | None = None
     score: float | None = None
     reason: str | None = None
-
-
 
 
 @dataclass
@@ -174,7 +192,9 @@ class SkipStats:
             return
         details_path = os.path.join(out_dir, f"skip_details_{system_name}.csv")
         try:
-            _pd.DataFrame(self.details).to_csv(details_path, index=False, encoding="utf-8")
+            _pd.DataFrame(self.details).to_csv(
+                details_path, index=False, encoding="utf-8"
+            )
             if log_callback:
                 log_callback(f"📝 スキップ詳細CSVを保存 {details_path}")
         except Exception:
@@ -196,6 +216,7 @@ class CandidateExtraction:
     market_df: pd.DataFrame | None
     used_fast_path: bool
     early_exit_frame: pd.DataFrame | None = None
+    zero_reason: str | None = None
 
 
 @dataclass
@@ -204,6 +225,7 @@ class CandidateSelection:
     target_date: pd.Timestamp | None
     fallback_reason: str | None
     total_candidates_today: int
+    zero_reason: str | None = None
 
 
 def _normalize_today(today: pd.Timestamp | None) -> pd.Timestamp:
@@ -312,7 +334,7 @@ def _prepare_strategy_data(
             }
             fast_path_used = True
             if log_callback:
-                log_callback('⚡ 高速パス: 既存インジケーターを再利用します')
+                log_callback("⚡ 高速パス: 既存インジケーターを再利用します")
         except Exception:
             prepared_dict = None
             fast_path_used = False
@@ -320,11 +342,11 @@ def _prepare_strategy_data(
     if prepared_dict is None:
         if fast_missing and log_callback:
             try:
-                missing_list = ', '.join(sorted(fast_missing))
+                missing_list = ", ".join(sorted(fast_missing))
                 log_callback(
-                    '⚠️ 高速パスを利用できません。必須列不足: '
-                    + (missing_list or '不明')
-                    + '。再計算します'
+                    "⚠️ 高速パスを利用できません。必須列不足: "
+                    + (missing_list or "不明")
+                    + "。再計算します"
                 )
             except Exception:
                 pass
@@ -339,11 +361,11 @@ def _prepare_strategy_data(
                 lookback_days=lookback_days,
             )
         except Exception as exc:
-            system_name = str(getattr(strategy, 'SYSTEM_NAME', ''))
+            system_name = str(getattr(strategy, "SYSTEM_NAME", ""))
             try:
                 if log_callback:
                     log_callback(
-                        f'⚠️ {system_name}: 前処理失敗のためフォールバックを再試行します ({exc})'
+                        f"⚠️ {system_name}: 前処理失敗のためフォールバックを再試行します ({exc})"
                     )
             except Exception:
                 pass
@@ -362,21 +384,21 @@ def _prepare_strategy_data(
                 try:
                     if log_callback:
                         log_callback(
-                            f'⚠️ {system_name}: フォールバックも失敗（中断）。 {exc2}'
+                            f"⚠️ {system_name}: フォールバックも失敗（中断）。 {exc2}"
                         )
                 except Exception:
                     pass
                 empty = pd.DataFrame(
                     columns=[
-                        'symbol',
-                        'system',
-                        'side',
-                        'signal_type',
-                        'entry_date',
-                        'entry_price',
-                        'stop_price',
-                        'score_key',
-                        'score',
+                        "symbol",
+                        "system",
+                        "side",
+                        "signal_type",
+                        "entry_date",
+                        "entry_price",
+                        "stop_price",
+                        "score_key",
+                        "score",
                     ]
                 )
                 return PrepareDataResult({}, False, fast_missing, skip_stats, empty)
@@ -425,9 +447,7 @@ def _compute_filter_pass(
                     rows = x.loc[mask]
                 else:
                     idx_vals = (
-                        pd.to_datetime(x.index, errors="coerce")
-                        .normalize()
-                        .to_numpy()
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
                     )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
@@ -447,7 +467,9 @@ def _compute_filter_pass(
             filter_pass = 0
         try:
             if str(system_name).lower() == "system7":
-                filter_pass = 1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                filter_pass = (
+                    1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                )
         except Exception:
             pass
     except Exception:
@@ -477,6 +499,7 @@ def _generate_candidates_for_system(
     market_df_arg = market_df
     candidates_by_date: dict | None = None
     used_fast_path = False
+    fast_zero_reason: str | None = None
 
     if str(system_name).lower() == "system4" and isinstance(prepared, dict):
         try:
@@ -515,10 +538,14 @@ def _generate_candidates_for_system(
         elif gate_state is False:
             used_fast_path = True
             candidates_by_date = {}
+            # fast path: SPY below SMA200 -> explicit zero reason
+            fast_zero_reason = "fast_path: SPY below SMA200"
             if spy_norm is not None:
                 market_df_local = spy_norm
                 market_df_arg = spy_norm
-            fast_path_message = "🚫 System4 fast path: SPYがSMA200を下回るため候補は0件です"
+            fast_path_message = (
+                "🚫 System4 fast path: SPYがSMA200を下回るため候補は0件です"
+            )
         else:
             fast_candidates = None
             if spy_norm is not None:
@@ -528,19 +555,35 @@ def _generate_candidates_for_system(
                     top_n=top_n_fast,
                 )
             if fast_candidates is None:
-                fast_path_message = (
-                    "⚠️ System4 fast path: 必須列不足のため従来経路へフォールバックします"
-                )
+                fast_path_message = "⚠️ System4 fast path: 必須列不足のため従来経路へフォールバックします"
             else:
                 used_fast_path = True
                 candidates_by_date = fast_candidates
                 market_df_local = spy_norm
                 market_df_arg = spy_norm
-                fast_path_message = "⚡ System4 fast path: SPYゲート通過の軽量抽出を適用しました"
+                fast_path_message = (
+                    "⚡ System4 fast path: SPYゲート通過の軽量抽出を適用しました"
+                )
 
         if fast_path_message and log_callback:
             try:
                 log_callback(fast_path_message)
+            except Exception:
+                pass
+        # return early with zero reason if fast-path produced empty candidates
+        if (
+            used_fast_path
+            and isinstance(candidates_by_date, dict)
+            and not candidates_by_date
+        ):
+            try:
+                return CandidateExtraction(
+                    candidates_by_date,
+                    market_df_local,
+                    used_fast_path,
+                    None,
+                    fast_zero_reason,
+                )
             except Exception:
                 pass
 
@@ -566,7 +609,9 @@ def _generate_candidates_for_system(
                     market_df_local = cached_spy
                     if log_callback:
                         try:
-                            log_callback("🛟 System4: SPYデータをキャッシュから補完しました")
+                            log_callback(
+                                "🛟 System4: SPYデータをキャッシュから補完しました"
+                            )
                         except Exception:
                             pass
             if market_df_arg is None or getattr(market_df_arg, "empty", False):
@@ -609,6 +654,22 @@ def _generate_candidates_for_system(
                 progress_callback=progress_callback,
                 log_callback=log_callback,
             )
+        # if no candidates were produced, return with a reason for diagnostics
+        if not candidates_by_date:
+            zero_reason = "no_candidates_generated"
+            if log_callback:
+                try:
+                    log_callback("⚠️ 候補が1件も生成されませんでした（戦略抽出側）")
+                except Exception:
+                    pass
+            return CandidateExtraction(
+                candidates_by_date,
+                market_df_local,
+                used_fast_path,
+                None,
+                zero_reason,
+            )
+
         _log_elapsed(log_callback, "⏱️ セットアップ/候補抽出 完了", t1)
     else:
         if log_callback:
@@ -645,9 +706,7 @@ def _compute_setup_pass(
                     rows = x.loc[mask]
                 else:
                     idx_vals = (
-                        pd.to_datetime(x.index, errors="coerce")
-                        .normalize()
-                        .to_numpy()
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
                     )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
@@ -732,6 +791,7 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system2":
+
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
                     return float(row.get("RSI3", 0)) > 90
@@ -772,9 +832,7 @@ def _compute_setup_pass(
                     return False
 
             close_pass = _count_if(filtered_rows, _close_ok)
-            drop_pass = _count_if(
-                filtered_rows, lambda r: _close_ok(r) and _drop_ok(r)
-            )
+            drop_pass = _count_if(filtered_rows, lambda r: _close_ok(r) and _drop_ok(r))
             setup_pass = drop_pass
             if log_callback:
                 try:
@@ -786,6 +844,7 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system4":
+
             def _above_sma(row: pd.Series) -> bool:
                 try:
                     return bool(row.get("filter")) and (
@@ -956,9 +1015,7 @@ def _select_candidate_date(
                         _ts = _ts.tz_localize(None)
                     except Exception:
                         try:
-                            _ts = pd.Timestamp(
-                                _ts.to_pydatetime().replace(tzinfo=None)
-                            )
+                            _ts = pd.Timestamp(_ts.to_pydatetime().replace(tzinfo=None))
                         except Exception:
                             continue
                 _ts = _ts.normalize()
@@ -1025,9 +1082,7 @@ def _select_candidate_date(
 
         if target_date is None and candidate_dates:
             today_norm = pd.Timestamp(today).normalize()
-            past_candidates = [
-                d for d in candidate_dates if d <= today_norm
-            ]
+            past_candidates = [d for d in candidate_dates if d <= today_norm]
             if past_candidates:
                 target_date = max(past_candidates)
                 if fallback_reason is None:
@@ -1089,7 +1144,31 @@ def _select_candidate_date(
         except Exception:
             pass
 
-    return CandidateSelection(key_map, target_date, fallback_reason, int(total_candidates_today))
+    # If there are no candidates, try to infer a reason for diagnostics
+    zero_reason: str | None = None
+    try:
+        if int(total_candidates_today) == 0:
+            if not key_map:
+                zero_reason = "no_candidate_dates"
+            else:
+                zero_reason = "no_candidates_on_target_date"
+    except Exception:
+        zero_reason = None
+
+    if int(total_candidates_today) == 0 and log_callback:
+        try:
+            if zero_reason:
+                log_callback(f"ℹ️ 候補0件理由: {zero_reason}")
+        except Exception:
+            pass
+
+    return CandidateSelection(
+        key_map,
+        target_date,
+        fallback_reason,
+        int(total_candidates_today),
+        zero_reason,
+    )
 
 
 def _build_today_signals_dataframe(
@@ -1222,7 +1301,9 @@ def _build_today_signals_dataframe(
                     if vals:
                         vals_sorted = sorted(vals, key=lambda x: x[1], reverse=not _asc)
                         total_for_rank = len(vals_sorted)
-                        ranks = {name: idx + 1 for idx, (name, _) in enumerate(vals_sorted)}
+                        ranks = {
+                            name: idx + 1 for idx, (name, _) in enumerate(vals_sorted)
+                        }
                         rank_val = ranks.get(str(sym))
                         if sval is None and rank_val is not None:
                             sval = float(vals_sorted[rank_val - 1][1])
@@ -1359,6 +1440,8 @@ def _build_today_signals_dataframe(
             pass
 
     return out, final_count
+
+
 def _missing_fast_path_columns(data_dict: dict[str, pd.DataFrame]) -> set[str]:
     """高速経路に必要な列が揃っているかを判定し、不足集合を返す。"""
 
@@ -1385,9 +1468,7 @@ def _missing_fast_path_columns(data_dict: dict[str, pd.DataFrame]) -> set[str]:
     return missing
 
 
-def _is_fast_path_viable(
-    data_dict: dict[str, pd.DataFrame]
-) -> tuple[bool, set[str]]:
+def _is_fast_path_viable(data_dict: dict[str, pd.DataFrame]) -> tuple[bool, set[str]]:
     """高速経路で candidate 抽出が可能か判定し、(bool, 不足列) を返す。"""
 
     missing = _missing_fast_path_columns(data_dict)
@@ -1542,9 +1623,11 @@ def _collect_candidates_for_today(
         sorted_rows = sorted(
             rows,
             key=lambda c: (
-                float("inf")
-                if c.get("RSI4") is None or pd.isna(c.get("RSI4"))
-                else float(c["RSI4"]),
+                (
+                    float("inf")
+                    if c.get("RSI4") is None or pd.isna(c.get("RSI4"))
+                    else float(c["RSI4"])
+                ),
                 str(c.get("symbol") or ""),
             ),
         )
@@ -1661,32 +1744,163 @@ def _compute_entry_stop(
             pass
 
     # フォールバック: 当日始値 ± 3*ATR
-    try:
-        entry_ts = pd.Timestamp(candidate["entry_date"])
-    except Exception:
-        return None
-    try:
-        idxer = df.index.get_indexer([entry_ts])
-        entry_idx = int(idxer[0]) if len(idxer) else -1
-    except Exception:
-        return None
-    if entry_idx <= 0 or entry_idx >= len(df):
-        return None
-    try:
-        entry = float(df.iloc[entry_idx]["Open"])
-    except Exception:
-        return None
-    atr_col = _pick_atr_col(df)
-    if not atr_col:
-        return None
-    try:
-        atr = float(df.iloc[entry_idx - 1][atr_col])
-    except Exception:
-        return None
-    mult = 3.0
-    stop = entry - mult * atr if side == "long" else entry + mult * atr
-    return round(entry, 4), round(stop, 4)
+    def _as_positive(value: Any) -> float | None:
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(val) or val <= 0:
+            return None
+        return val
 
+    def _latest_positive(series: pd.Series | None) -> float | None:
+        if series is None:
+            return None
+        try:
+            numeric = pd.to_numeric(series, errors="coerce").dropna()
+        except Exception:
+            return None
+        numeric = numeric[numeric > 0]
+        if numeric.empty:
+            return None
+        val = float(numeric.iloc[-1])
+        if not math.isfinite(val) or val <= 0:
+            return None
+        return val
+
+    def _infer_atr_window(name: str | None, default: int = 14) -> int:
+        if not name:
+            return default
+        digits = "".join(ch for ch in str(name) if ch.isdigit())
+        if not digits:
+            return default
+        try:
+            window = int(digits)
+        except ValueError:
+            return default
+        return max(1, window)
+
+    def _fallback_atr(frame: pd.DataFrame, window: int) -> float | None:
+        required = {"High", "Low", "Close"}
+        if frame is None or frame.empty:
+            return None
+        if any(col not in frame.columns for col in required):
+            return None
+        try:
+            high = pd.to_numeric(frame["High"], errors="coerce")
+            low = pd.to_numeric(frame["Low"], errors="coerce")
+            close = pd.to_numeric(frame["Close"], errors="coerce")
+        except Exception:
+            return None
+        tr = pd.concat(
+            [
+                high - low,
+                (high - close.shift()).abs(),
+                (low - close.shift()).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        if tr.empty:
+            return None
+        window = max(1, int(window or 14))
+        min_periods = min(window, max(2, min(5, len(tr))))
+        atr_series = tr.rolling(window, min_periods=min_periods).mean()
+        return _latest_positive(atr_series)
+
+    entry_ts = None
+    if isinstance(candidate, dict):
+        try:
+            raw = candidate.get("entry_date")
+            if raw is not None:
+                tmp = pd.to_datetime(raw, errors="coerce")
+                if not pd.isna(tmp):
+                    entry_ts = tmp
+        except Exception:
+            entry_ts = None
+    else:
+        try:
+            tmp = pd.to_datetime(candidate, errors="coerce")
+            if not pd.isna(tmp):
+                entry_ts = tmp
+        except Exception:
+            entry_ts = None
+
+    entry_idx = -1
+    if entry_ts is not None:
+        try:
+            idxer = df.index.get_indexer([entry_ts])
+            entry_idx = int(idxer[0]) if len(idxer) else -1
+        except Exception:
+            entry_idx = -1
+
+    atr_candidates = [
+        col
+        for col in getattr(df, "columns", [])
+        if isinstance(col, str) and col.upper().startswith("ATR")
+    ]
+    atr_column = atr_candidates[0] if atr_candidates else None
+    atr_window = _infer_atr_window(atr_column)
+
+    entry = None
+    atr_val = None
+    if 0 <= entry_idx < len(df):
+        row = df.iloc[entry_idx]
+        try:
+            entry = _as_positive(row.get("Open"))
+        except Exception:
+            entry = None
+        if entry_idx > 0:
+            prev_row = df.iloc[max(entry_idx - 1, 0)]
+            for col in atr_candidates:
+                try:
+                    candidate_val = _as_positive(prev_row.get(col))
+                except Exception:
+                    candidate_val = None
+                if candidate_val is not None:
+                    atr_val = candidate_val
+                    atr_column = col
+                    atr_window = _infer_atr_window(col, atr_window)
+                    break
+
+    if isinstance(candidate, dict):
+        if entry is None:
+            for key in ("entry_price", "open", "close", "price", "last_price"):
+                if key in candidate:
+                    entry_candidate = _as_positive(candidate.get(key))
+                    if entry_candidate is not None:
+                        entry = entry_candidate
+                        break
+        if atr_val is None:
+            for key, value in candidate.items():
+                if not isinstance(key, str):
+                    continue
+                if "atr" not in key.lower():
+                    continue
+                atr_candidate = _as_positive(value)
+                if atr_candidate is not None:
+                    atr_val = atr_candidate
+                    atr_window = _infer_atr_window(key, atr_window)
+                    break
+
+    if entry is None:
+        entry = _latest_positive(df.get("Close"))
+    if entry is None:
+        entry = _latest_positive(df.get("Open"))
+
+    if atr_val is None and atr_column:
+        atr_val = _latest_positive(df.get(atr_column))
+    if atr_val is None:
+        atr_val = _fallback_atr(df, atr_window)
+
+    if entry is None or atr_val is None:
+        return None
+
+    mult = 3.0
+    stop = entry - mult * atr_val if side == "long" else entry + mult * atr_val
+    if (side == "long" and stop >= entry) or (side == "short" and stop <= entry):
+        return None
+
+    return round(entry, 4), round(stop, 4)
 
 
 def get_today_signals_for_strategy(
@@ -1719,6 +1933,10 @@ def get_today_signals_for_strategy(
         system_name = ""
     side = _infer_side(system_name)
     signal_type = "sell" if side == "short" else "buy"
+
+    # CLI実行時などでlog_callback未指定の場合は、標準出力へ出すデフォルトを適用
+    if log_callback is None:
+        log_callback = _default_cli_log
 
     today_ts = _normalize_today(today)
 
@@ -1803,6 +2021,51 @@ def get_today_signals_for_strategy(
         setup_pass,
         log_callback,
     )
+
+    # If setup_pass is zero, try to derive a more specific zero reason (e.g. SPY gate)
+    try:
+        if int(setup_pass) == 0:
+            setup_zero_reason: str | None = None
+            # If there were filter passes but setup failed, check SPY gate for system1
+            try:
+                if int(filter_pass) > 0 and str(system_name).lower() == "system1":
+                    spy_source = (
+                        market_df
+                        if isinstance(market_df, pd.DataFrame)
+                        else (
+                            prepared.get("SPY") if isinstance(prepared, dict) else None
+                        )
+                    )
+                    try:
+                        spy_with = get_spy_with_indicators(spy_source)
+                    except Exception:
+                        spy_with = None
+                    gate = _make_spy_gate(
+                        _normalize_daily_index(spy_with)
+                        if spy_with is not None
+                        else None
+                    )
+                    if gate is False:
+                        setup_zero_reason = "setup_fail: SPY close <= SMA100"
+            except Exception:
+                setup_zero_reason = None
+
+            if setup_zero_reason is not None:
+                # attach to selection for downstream logging
+                selection = CandidateSelection(
+                    selection.key_map,
+                    selection.target_date,
+                    selection.fallback_reason,
+                    selection.total_candidates_today,
+                    setup_zero_reason,
+                )
+                if log_callback:
+                    try:
+                        log_callback(f"🛈 セットアップ不成立: {setup_zero_reason}")
+                    except Exception:
+                        pass
+    except Exception:
+        pass
     try:
         if stage_progress:
             stage_progress(
@@ -1825,6 +2088,25 @@ def get_today_signals_for_strategy(
         signal_type,
         log_callback,
     )
+
+    # Emit diagnostic log if selection or extraction indicated zero candidates
+    try:
+        if getattr(selection, "zero_reason", None):
+            if log_callback:
+                try:
+                    log_callback(f"🛈 選定結果: 候補0件理由: {selection.zero_reason}")
+                except Exception:
+                    pass
+        elif hasattr(candidates, "zero_reason") and getattr(
+            candidates, "zero_reason", None
+        ):
+            if log_callback:
+                try:
+                    log_callback(f"🛈 抽出結果: 候補0件理由: {candidates.zero_reason}")
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     try:
         if stage_progress:
@@ -1859,6 +2141,10 @@ def run_all_systems_today(
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """scripts.run_all_systems_today.compute_today_signals のラッパー。"""
     from scripts.run_all_systems_today import compute_today_signals as _compute
+
+    # log_callback が未指定なら CLI へ出すデフォルトを使う
+    if log_callback is None:
+        log_callback = _default_cli_log
 
     return _compute(
         symbols,

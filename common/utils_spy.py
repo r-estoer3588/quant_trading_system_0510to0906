@@ -378,7 +378,29 @@ def get_spy_with_indicators(spy_df=None):
             spy_df = get_spy_data_cached_v2()
 
     if spy_df is not None and not getattr(spy_df, "empty", True):
-        # Close 列名のゆらぎに対応（close/AdjClose/adjusted_close 等）
+        if isinstance(spy_df, pd.Series):
+            spy_df = spy_df.to_frame().T
+        elif not isinstance(spy_df, pd.DataFrame):
+            try:
+                spy_df = pd.DataFrame(spy_df)
+            except Exception:
+                return spy_df
+
+        spy_df = spy_df.copy()
+
+        if isinstance(spy_df.columns, pd.MultiIndex):
+            flattened_cols: list[str] = []
+            for col in spy_df.columns:
+                if isinstance(col, tuple):
+                    flattened = next((part for part in col if part not in (None, "")), None)
+                    if flattened is None:
+                        flattened = col[-1] if col else ""
+                    flattened_cols.append(flattened)
+                else:
+                    flattened_cols.append(col)
+            spy_df.columns = flattened_cols
+
+        # Close 列名のばらつきに対応（close/AdjClose/adjusted_close 等）
         if "Close" not in spy_df.columns:
             if "close" in spy_df.columns:
                 spy_df["Close"] = spy_df["close"]
@@ -401,12 +423,36 @@ def get_spy_with_indicators(spy_df=None):
                     pass
                 return spy_df
 
+        close_series = spy_df["Close"]
+        if isinstance(close_series, pd.DataFrame):
+            try:
+                close_series = close_series.iloc[:, 0]
+            except Exception:
+                close_series = close_series.squeeze(axis=1)
+
+        if isinstance(close_series, pd.Series):
+            if len(close_series) == len(spy_df.index):
+                close_series = pd.Series(close_series.to_numpy(), index=spy_df.index)
+            else:
+                close_series = close_series.reindex(spy_df.index)
+        else:
+            try:
+                close_series = pd.Series(close_series, index=spy_df.index)
+            except Exception:
+                close_series = pd.Series(close_series)
+                if len(close_series) == len(spy_df.index):
+                    close_series.index = spy_df.index
+                else:
+                    return spy_df
+
+        close_numeric = pd.to_numeric(close_series, errors="coerce")
+
         spy_df["SMA100"] = SMAIndicator(
-            pd.to_numeric(spy_df["Close"], errors="coerce"),
+            close_numeric,
             window=100,
         ).sma_indicator()
         spy_df["SMA200"] = SMAIndicator(
-            pd.to_numeric(spy_df["Close"], errors="coerce"),
+            close_numeric,
             window=200,
         ).sma_indicator()
 
