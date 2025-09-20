@@ -1032,6 +1032,29 @@ def show_signal_trade_summary(
     return summary_df
 
 
+def extract_zero_reason_from_logs(logs: list[str] | None) -> str | None:
+    """ログ配列から候補0件の理由を抽出して返す（見つからなければ None）。
+
+    対応パターン:
+    - "候補0件理由: ..."
+    - "セットアップ不成立: ..."
+    """
+    if not logs:
+        return None
+    import re as _re
+
+    for ln in reversed(list(logs)):
+        if not ln:
+            continue
+        m = _re.search(r"候補0件理由[:：]\s*(.+)$", ln)
+        if m:
+            return m.group(1).strip()
+        m2 = _re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
+        if m2:
+            return m2.group(1).strip()
+    return None
+
+
 def display_roc200_ranking(
     ranking_df: pd.DataFrame,
     years: int = 5,

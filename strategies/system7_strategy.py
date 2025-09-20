@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 
 import pandas as pd
@@ -96,10 +97,14 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         max_pct = float(self.config.get("max_pct", 0.20))
         if "single_mode" in self.config:
             single_mode = (
-                bool(self.config.get("single_mode", False)) if not single_mode else single_mode
+                bool(self.config.get("single_mode", False))
+                if not single_mode
+                else single_mode
             )
 
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -134,7 +139,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = capital_current if single_mode else capital_current * max_pct
+                max_position_value = (
+                    capital_current if single_mode else capital_current * max_pct
+                )
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -158,7 +165,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     exit_price = float(df.iloc[-1]["Close"])
 
                 exit_price_safe = (
-                    float(exit_price) if exit_price is not None else float(df.iloc[-1]["Close"])
+                    float(exit_price)
+                    if exit_price is not None
+                    else float(df.iloc[-1]["Close"])
                 )
                 pnl = (entry_price - exit_price_safe) * shares
                 return_pct = pnl / capital_current * 100 if capital_current else 0.0
@@ -190,6 +199,79 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
         return pd.DataFrame(results)
 
+    @staticmethod
+    def _safe_positive(value: object) -> float | None:
+        try:
+            out = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(out) or out <= 0:
+            return None
+        return out
+
+    @staticmethod
+    def _latest_positive(series: pd.Series | None) -> float | None:
+        if series is None:
+            return None
+        try:
+            numeric = pd.to_numeric(series, errors="coerce").dropna()
+        except Exception:
+            return None
+        numeric = numeric[numeric > 0]
+        if numeric.empty:
+            return None
+        val = float(numeric.iloc[-1])
+        if not math.isfinite(val) or val <= 0:
+            return None
+        return val
+
+    @staticmethod
+    def _infer_atr_window(name: str | None, default: int = 50) -> int:
+        if not name:
+            return default
+        digits = "".join(ch for ch in str(name) if ch.isdigit())
+        if not digits:
+            return default
+        try:
+            val = int(digits)
+        except ValueError:
+            return default
+        return max(1, val)
+
+    @staticmethod
+    def _detect_atr_columns(df: pd.DataFrame) -> list[str]:
+        return [
+            col
+            for col in getattr(df, "columns", [])
+            if isinstance(col, str) and col.upper().startswith("ATR")
+        ]
+
+    @staticmethod
+    def _fallback_atr(df: pd.DataFrame, window: int) -> float | None:
+        required = {"High", "Low", "Close"}
+        if df is None or df.empty or any(col not in df.columns for col in required):
+            return None
+        try:
+            high = pd.to_numeric(df["High"], errors="coerce")
+            low = pd.to_numeric(df["Low"], errors="coerce")
+            close = pd.to_numeric(df["Close"], errors="coerce")
+        except Exception:
+            return None
+        tr = pd.concat(
+            [
+                high - low,
+                (high - close.shift()).abs(),
+                (low - close.shift()).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        if tr.empty:
+            return None
+        window = max(1, int(window or 50))
+        min_periods = min(window, max(2, min(5, len(tr))))
+        atr_series = tr.rolling(window, min_periods=min_periods).mean()
+        return System7Strategy._latest_positive(atr_series)
+
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         key = candidate.get("entry_date")
         if key is None:
@@ -198,27 +280,88 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             key_ts = pd.Timestamp(key)
         except Exception:
             return None
-        idxers = df.index.get_indexer([key_ts])
-        if len(idxers) == 0 or int(idxers[0]) == -1:
+        if df is None or df.empty:
             return None
-        entry_idx = int(idxers[0])
-        if entry_idx <= 0 or entry_idx >= len(df):
-            return None
-        entry_price = float(df.iloc[entry_idx]["Open"])
-        atr_val = None
+
+        entry_price: float | None = None
+        atr_val: float | None = None
+        entry_idx = -1
         try:
-            atr_val = candidate.get("ATR50") if isinstance(candidate, dict) else None
+            idxers = df.index.get_indexer([key_ts])
+            if len(idxers) > 0:
+                entry_idx = int(idxers[0])
         except Exception:
-            atr_val = None
-        if atr_val is None:
+            entry_idx = -1
+
+        atr_columns = self._detect_atr_columns(df)
+        atr_column = atr_columns[0] if atr_columns else "ATR50"
+        atr_window = self._infer_atr_window(atr_column, 50)
+
+        if 0 <= entry_idx < len(df):
+            row = df.iloc[entry_idx]
             try:
-                atr_val = df.iloc[entry_idx - 1]["ATR50"]
+                entry_price = self._safe_positive(row.get("Open"))
             except Exception:
-                return None
-        if atr_val is None or pd.isna(atr_val):
+                entry_price = None
+            if entry_idx > 0:
+                prev_row = df.iloc[max(entry_idx - 1, 0)]
+                for col in atr_columns:
+                    try:
+                        candidate_val = self._safe_positive(prev_row.get(col))
+                    except Exception:
+                        candidate_val = None
+                    if candidate_val is not None:
+                        atr_val = candidate_val
+                        atr_column = col
+                        atr_window = self._infer_atr_window(col, atr_window)
+                        break
+
+        if isinstance(candidate, dict):
+            if entry_price is None:
+                entry_candidate = self._safe_positive(candidate.get("entry_price"))
+                if entry_candidate is not None:
+                    entry_price = entry_candidate
+            if entry_price is None:
+                for key in ("open", "close", "price", "last_price"):
+                    if key in candidate:
+                        entry_candidate = self._safe_positive(candidate.get(key))
+                        if entry_candidate is not None:
+                            entry_price = entry_candidate
+                            break
+            if atr_val is None:
+                atr_candidate = self._safe_positive(candidate.get("ATR50"))
+                if atr_candidate is not None:
+                    atr_val = atr_candidate
+                    atr_window = self._infer_atr_window("ATR50", atr_window)
+            if atr_val is None:
+                for key, value in candidate.items():
+                    if not isinstance(key, str):
+                        continue
+                    if "atr" not in key.lower():
+                        continue
+                    atr_candidate = self._safe_positive(value)
+                    if atr_candidate is not None:
+                        atr_val = atr_candidate
+                        atr_window = self._infer_atr_window(key, atr_window)
+                        break
+
+        if entry_price is None:
+            entry_price = self._latest_positive(df.get("Close"))
+        if entry_price is None:
+            entry_price = self._latest_positive(df.get("Open"))
+
+        if atr_val is None and atr_column:
+            atr_val = self._latest_positive(df.get(atr_column))
+        if atr_val is None:
+            atr_val = self._fallback_atr(df, atr_window)
+
+        if entry_price is None or atr_val is None:
             return None
+
         atr = float(atr_val)
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None

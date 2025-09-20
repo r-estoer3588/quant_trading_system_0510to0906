@@ -1927,7 +1927,7 @@ def render_today_signals_results(
         trade_options,
         artifacts.logger,
     )
-    _render_system_details(per_system, artifacts.stage_tracker)
+    _render_system_details(per_system, artifacts.stage_tracker, per_system_logs)
     _render_previous_results_section()
     _render_previous_run_logs(artifacts.log_lines)
 
@@ -2229,7 +2229,9 @@ def _update_buying_power(trade_options: TradeOptions) -> None:
 
 
 def _render_system_details(
-    per_system: dict[str, pd.DataFrame], stage_tracker: StageTracker
+    per_system: dict[str, pd.DataFrame],
+    stage_tracker: StageTracker,
+    per_system_logs: dict[str, list[str]] | None = None,
 ) -> None:
     with st.expander("システム別詳細"):
         settings_local = get_settings(create_dirs=True)
@@ -2266,7 +2268,30 @@ def _render_system_details(
             st.caption(metrics_line)
             df = per_system.get(name)
             if df is None or df.empty:
+                # Try to extract explicit zero-reason from per-system logs if available
+                reason_text: str | None = None
+                try:
+                    if per_system_logs and name in per_system_logs:
+                        import re as _re
+
+                        logs = per_system_logs.get(name) or []
+                        for ln in reversed(logs):
+                            if not ln:
+                                continue
+                            m = _re.search(r"候補0件理由[:：]\s*(.+)$", ln)
+                            if m:
+                                reason_text = m.group(1).strip()
+                                break
+                            m2 = _re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
+                            if m2:
+                                reason_text = m2.group(1).strip()
+                                break
+                except Exception:
+                    reason_text = None
+
                 st.write("(空) 候補は0件です。")
+                if reason_text:
+                    st.info(f"候補0件理由: {reason_text}")
                 continue
             df_disp = df.copy()
             side_type = None

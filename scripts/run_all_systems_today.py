@@ -2676,6 +2676,11 @@ def compute_today_signals(
         parallel=parallel,
     )
 
+    try:
+        _CAND_COUNT_SNAPSHOT.clear()
+    except Exception:
+        pass
+
     # CLI 経由で未設定の場合（UI 等）、既定で日付別ログに切替
     try:
         if globals().get("_LOG_FILE_PATH") is None:
@@ -3638,9 +3643,16 @@ def compute_today_signals(
                             _mx = int(get_settings(create_dirs=False).risk.max_positions)
                         except Exception:
                             _mx = 10
-                        _cand_cnt = (
-                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                        )
+                        _cand_cnt: int | None
+                        try:
+                            snap_val = _CAND_COUNT_SNAPSHOT.get(name)
+                            _cand_cnt = None if snap_val is None else int(snap_val)
+                        except Exception:
+                            _cand_cnt = None
+                        if _cand_cnt is None:
+                            _cand_cnt = (
+                                0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                            )
                         if _mx > 0:
                             _cand_cnt = min(int(_cand_cnt), int(_mx))
                         cb2(name, 75, None, None, int(_cand_cnt), None)
@@ -3712,7 +3724,16 @@ def compute_today_signals(
                         _mx = int(get_settings(create_dirs=False).risk.max_positions)
                     except Exception:
                         _mx = 10
-                    _cand_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                    _cand_cnt: int | None
+                    try:
+                        snap_val = _CAND_COUNT_SNAPSHOT.get(name)
+                        _cand_cnt = None if snap_val is None else int(snap_val)
+                    except Exception:
+                        _cand_cnt = None
+                    if _cand_cnt is None:
+                        _cand_cnt = (
+                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                        )
                     if _mx > 0:
                         _cand_cnt = min(int(_cand_cnt), int(_mx))
                     cb2(name, 75, None, None, int(_cand_cnt), None)
@@ -4628,10 +4649,17 @@ def compute_today_signals(
             except Exception:
                 final_counts = {}
             for _name in order_1_7:
-                _df_sys = per_system.get(_name, pd.DataFrame())
-                _cand_cnt = int(
-                    0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
-                )
+                _cand_cnt: int | None
+                try:
+                    snap_val = _CAND_COUNT_SNAPSHOT.get(_name)
+                    _cand_cnt = None if snap_val is None else int(snap_val)
+                except Exception:
+                    _cand_cnt = None
+                if _cand_cnt is None:
+                    _df_sys = per_system.get(_name, pd.DataFrame())
+                    _cand_cnt = int(
+                        0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
+                    )
                 _final_cnt = int(final_counts.get(_name, 0))
                 cb2(_name, 100, None, None, _cand_cnt, _final_cnt)
         except Exception:
