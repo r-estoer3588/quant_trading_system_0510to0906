@@ -3363,9 +3363,9 @@ def compute_today_signals(
         elif name == "system6":
             base = raw_data_system6
         elif name == "system7":
-            base = {"SPY": basic_data.get("SPY")} if "basic_data" in locals() else {}
+            base = {"SPY": basic_data.get("SPY")}
         else:
-            base = basic_data if "basic_data" in locals() else {}
+            base = basic_data
         if name == "system4" and spy_df is None:
             _local_log(
                 "⚠️ System4 は SPY 指標が必要ですが "
