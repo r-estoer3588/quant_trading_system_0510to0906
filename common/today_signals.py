@@ -550,7 +550,7 @@ def _generate_candidates_for_system(
                     top_n=top_n_fast,
                 )
             if fast_candidates is None:
-                fast_path_message = "⚠️ System4 fast path: 必須列不足のため従来経路へフォールバックします"
+                fast_path_message = "⚠️ System4 fast path: 必須列不足のため従来経路へフォールバックします"  # noqa: E501
             else:
                 used_fast_path = True
                 candidates_by_date = fast_candidates
