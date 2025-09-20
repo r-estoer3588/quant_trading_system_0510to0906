@@ -20,6 +20,23 @@ from common.utils_spy import (
     resolve_signal_entry_date,
 )
 
+# --- CLI用デフォルトログ関数 -----------------------------------------------
+def _default_cli_log(message: str) -> None:
+    """log_callback未指定時にCLIへ確実に出力するための簡易プリンタ。
+
+    - 文字化け/エンコード例外を避けるため、失敗時はフォールバックして出力。
+    - flush=True でリアルタイムに表示。
+    """
+    try:
+        print(str(message), flush=True)
+    except Exception:
+        try:
+            # 最低限のASCIIにフォールバック
+            safe = str(message).encode("ascii", errors="replace").decode("ascii")
+            print(safe, flush=True)
+        except Exception:
+            pass
+
 # --- サイド定義（売買区分）---
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
 LONG_SYSTEMS = {"system1", "system3", "system5"}
@@ -1720,6 +1737,10 @@ def get_today_signals_for_strategy(
     side = _infer_side(system_name)
     signal_type = "sell" if side == "short" else "buy"
 
+    # CLI実行時などでlog_callback未指定の場合は、標準出力へ出すデフォルトを適用
+    if log_callback is None:
+        log_callback = _default_cli_log
+
     today_ts = _normalize_today(today)
 
     total_symbols = len(raw_data_dict)
@@ -1859,6 +1880,10 @@ def run_all_systems_today(
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """scripts.run_all_systems_today.compute_today_signals のラッパー。"""
     from scripts.run_all_systems_today import compute_today_signals as _compute
+
+    # log_callback が未指定なら CLI へ出すデフォルトを使う
+    if log_callback is None:
+        log_callback = _default_cli_log
 
     return _compute(
         symbols,
