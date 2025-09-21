@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -80,3 +81,49 @@ def test_write_atomic_feather(tmp_path):
     saved = pd.read_feather(tmp_path / "BBB.feather")
     assert list(saved.columns)[:5] == ["date", "open", "high", "low", "close"]
     assert len(saved) == len(df)
+
+
+def test_nan_rate_ignores_leading_window(tmp_path, caplog):
+    cm = _build_cm(tmp_path)
+    periods = 260
+    dates = pd.date_range("2023-01-02", periods=periods, freq="B")
+    sma200 = [np.nan] * 200 + list(np.linspace(150, 160, periods - 200))
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": np.linspace(100, 120, periods),
+            "high": np.linspace(101, 121, periods),
+            "low": np.linspace(99, 119, periods),
+            "close": np.linspace(100.5, 120.5, periods),
+            "volume": np.linspace(1_000_000, 1_200_000, periods),
+            "sma200": sma200,
+        }
+    )
+    df.to_csv(tmp_path / "AAA.csv", index=False)
+
+    with caplog.at_level("WARNING", logger="common.cache_manager"):
+        cm.read("AAA", "full")
+
+    assert not any("NaN率高" in message for message in caplog.messages)
+
+
+def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
+    cm = _build_cm(tmp_path)
+    dates = pd.date_range("2023-01-02", periods=20, freq="B")
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100.5,
+            "volume": 1_000_000,
+            "sma25": [np.nan] * len(dates),
+        }
+    )
+    df.to_csv(tmp_path / "BBB.csv", index=False)
+
+    with caplog.at_level("WARNING", logger="common.cache_manager"):
+        cm.read("BBB", "full")
+
+    assert any("NaN率高" in message for message in caplog.messages)

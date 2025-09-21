@@ -18,6 +18,43 @@ logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
 
+# 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
+MAIN_INDICATOR_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "sma25",
+    "sma50",
+    "sma100",
+    "sma150",
+    "sma200",
+    "ema20",
+    "ema50",
+    "atr10",
+    "atr14",
+    "atr20",
+    "atr40",
+    "atr50",
+    "adx7",
+    "rsi3",
+    "rsi4",
+    "rsi14",
+    "roc200",
+    "hv50",
+    "dollarvolume20",
+    "dollarvolume50",
+    "avgvolume50",
+    "return_3d",
+    "6d_return",
+    "return6d",
+    "return_pct",
+    "drop3d",
+    "atr_ratio",
+    "atr_pct",
+)
+
 
 class CacheManager:
     """
@@ -158,48 +195,55 @@ class CacheManager:
             )
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            nan_rate = 0
+            nan_rate = 0.0
             if df.size > 0:
+                try:
+                    base_days = int(self.rolling_cfg.base_lookback_days)
+                except Exception:
+                    base_days = 300
+                try:
+                    buffer_days = int(self.rolling_cfg.buffer_days)
+                except Exception:
+                    buffer_days = 30
+                window = max(1, base_days + buffer_days)
                 if profile == "rolling":
-                    # 直近N営業日×主要指標列のみでNaN率判定
-                    N = (
-                        self.rolling_cfg.base_lookback_days
-                        + self.rolling_cfg.buffer_days
-                    )
-                    recent_df = df.tail(N)
-                    # 主要指標列リスト
-                    main_cols = [
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                        "SMA25",
-                        "SMA50",
-                        "SMA100",
-                        "SMA150",
-                        "SMA200",
-                        "ATR10",
-                        "ATR14",
-                        "ATR40",
-                        "ATR50",
-                        "ADX7",
-                        "RSI3",
-                        "RSI14",
-                        "ROC200",
-                        "HV50",
-                        "Return6D",
-                        "return_pct",
-                        "Drop3D",
-                    ]
-                    # 実際に存在する列のみ対象
-                    target_cols = [c for c in main_cols if c in recent_df.columns]
-                    if target_cols:
-                        nan_rate = recent_df[target_cols].isnull().mean().mean()
-                    else:
-                        nan_rate = 0
+                    recent_df = df.tail(window)
                 else:
-                    nan_rate = df.isnull().mean().mean()
+                    recent_df = df.tail(max(window, 252))
+                target_cols = [
+                    col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns
+                ]
+                if not target_cols:
+                    target_cols = list(recent_df.columns)
+                col_rates: list[float] = []
+                for col in target_cols:
+                    series_like = recent_df[col]
+                    if not isinstance(series_like, pd.Series):
+                        series_like = pd.Series(series_like)
+                    if series_like.dropna().empty:
+                        col_rates.append(1.0)
+                        continue
+                    first_valid = series_like.first_valid_index()
+                    if first_valid is None:
+                        col_rates.append(1.0)
+                        continue
+                    try:
+                        trimmed = series_like.loc[first_valid:]
+                    except Exception:
+                        try:
+                            loc = series_like.index.get_loc(first_valid)
+                        except Exception:
+                            loc = 0
+                        trimmed = series_like.iloc[loc:]
+                    if trimmed.empty:
+                        col_rates.append(1.0)
+                        continue
+                    col_rates.append(float(trimmed.isna().mean()))
+                if col_rates:
+                    if any(rate >= 1.0 for rate in col_rates):
+                        nan_rate = 1.0
+                    else:
+                        nan_rate = float(np.mean(col_rates))
             if nan_rate > 0.20:
                 category = f"nan_rate:{round(float(nan_rate), 4)}"
                 self._warn_once(
@@ -231,7 +275,10 @@ class CacheManager:
                             ticker,
                             profile,
                             category,
-                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値",
+                            (
+                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: "
+                                f"{col}全て非正値"
+                            ),
                         )
         except Exception as e:
             category = f"healthcheck_error:{type(e).__name__}:{str(e)}"

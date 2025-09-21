@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 scripts/round_cache.py
-既存の data_cache/full_backup と data_cache/rolling のファイルを
-設定 `cache.round_decimals` に従って丸めて上書きするユーティリティ。
+既存の data_cache/full_backup と data_cache/rolling、および data_cache/base の
+ファイルを設定 `cache.round_decimals` に従って丸めて上書きするユーティリティ。
 デフォルトはドライラン。`--apply` を付けると上書きします。
 
 使用例:
@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 import pandas as pd
 from config.settings import get_settings
+from common.cache_manager import BASE_SUBDIR
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -76,7 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         "--only",
         type=str,
         default=None,
-        help="特定サブフォルダ: full|rolling を指定",
+        choices=("full", "rolling", "base"),
+        help="特定サブフォルダ: full|rolling|base を指定",
     )
     args = parser.parse_args(argv)
 
@@ -97,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         targets += find_cache_files(Path(settings.cache.full_dir))
     if args.only in (None, "rolling"):
         targets += find_cache_files(Path(settings.cache.rolling_dir))
+    if args.only in (None, "base"):
+        base_dir = Path(settings.DATA_CACHE_DIR) / BASE_SUBDIR
+        if base_dir.exists():
+            targets += find_cache_files(base_dir)
+        else:
+            print(f"base ディレクトリが存在しません: {base_dir}")
 
     print(f"対象ファイル数: {len(targets)} (decimals={cfg_round})")
 
