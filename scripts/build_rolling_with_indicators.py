@@ -29,10 +29,12 @@ import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 import requests  # noqa: E402
 
 from common.cache_manager import CacheManager  # noqa: E402
+from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.symbols_manifest import (  # noqa: E402
     MANIFEST_FILENAME,
     load_symbol_manifest,
 )
+from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 from indicators_common import add_indicators  # noqa: E402
 
@@ -220,6 +222,39 @@ def _resolve_symbol_universe(
 
         _log_message("⚠️ full_backup ディレクトリから処理対象を検出できませんでした", log)
         return []
+
+    # cache_daily_data と同一ロジックで銘柄集合を構築
+    try:
+        settings = getattr(cache_manager, "settings", None)
+        fetched = build_symbol_universe_from_settings(settings, logger=LOGGER)
+    except Exception as exc:  # pragma: no cover - ログのみ
+        _log_message(f"⚠️ NASDAQ/EODHD ユニバース取得に失敗: {exc}", log)
+        fetched = []
+
+    if fetched:
+        safe_symbols = list(dict.fromkeys(safe_filename(sym) for sym in fetched))
+        available = _discover_symbols(cache_manager.full_dir)
+        if available:
+            available_set = {sym.upper() for sym in available}
+            filtered = [
+                sym for sym in safe_symbols if sym.upper() in available_set
+            ]
+            missing = len(safe_symbols) - len(filtered)
+            if missing:
+                _log_message(
+                    (
+                        "ℹ️ NASDAQ/EODHD ユニバース {total} 件のうち "
+                        "{missing} 件が full_backup に存在しないため除外します"
+                    ).format(total=len(safe_symbols), missing=missing),
+                    log,
+                )
+            if filtered:
+                return filtered
+        _log_message(
+            f"ℹ️ NASDAQ/EODHD ユニバース {len(safe_symbols)} 銘柄を処理対象とします",
+            log,
+        )
+        return safe_symbols
 
     discovered = _discover_symbols(cache_manager.full_dir)
     _log_message(
