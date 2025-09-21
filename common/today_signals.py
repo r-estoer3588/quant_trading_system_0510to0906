@@ -1443,10 +1443,11 @@ def _build_today_signals_dataframe(
         if not sym:
             entry_skip_stats.record("", "missing_symbol")
             continue
-        if sym not in prepared:
+        # Guard against prepared being None or containing None entries
+        if not isinstance(prepared, dict) or sym not in prepared:
             entry_skip_stats.record(str(sym), "missing_prepared_frame")
             continue
-        df = prepared[sym]
+        df = prepared.get(sym)
         if df is None or getattr(df, "empty", True):
             entry_skip_stats.record(str(sym), "prepared_frame_empty")
             continue
@@ -1563,7 +1564,7 @@ def _build_today_signals_dataframe(
                             val = row.iloc[0][skey]
                             if val is None or pd.isna(val):
                                 continue
-                            vals.append((psym, float(val)))
+                            vals.append((str(psym), float(val)))
                         except Exception:
                             continue
                     if vals:
