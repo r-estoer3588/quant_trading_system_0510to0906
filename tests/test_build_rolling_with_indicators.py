@@ -3,8 +3,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from common.cache_manager import CacheManager
+from common.symbols_manifest import save_symbol_manifest
 from scripts.build_rolling_with_indicators import extract_rolling_from_full
 
 
@@ -13,13 +15,16 @@ class DummyRolling(SimpleNamespace):
     buffer_days = 30
     prune_chunk_days = 30
     meta_file = "_meta.json"
+    max_symbols = None
 
 
 def _build_cache_manager(tmp_path) -> CacheManager:
+    rolling = DummyRolling()
+
     cache = SimpleNamespace(
         full_dir=tmp_path / "full",
         rolling_dir=tmp_path / "rolling",
-        rolling=DummyRolling(),
+        rolling=rolling,
         file_format="csv",
     )
     settings = SimpleNamespace(cache=cache)
@@ -108,3 +113,66 @@ def test_extract_subset_and_target_days(tmp_path):
     assert stats.updated_symbols == 1
     rolling_df = cm.read("XYZ", "rolling")
     assert len(rolling_df) == 40
+
+
+def test_extract_uses_symbol_manifest(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+    cm.write_atomic(df, "BBB", "full")
+    cm.write_atomic(df, "CCC", "full")
+
+    save_symbol_manifest(["AAA", "CCC", "ZZZ"], cm.full_dir)
+
+    stats = extract_rolling_from_full(cm)
+
+    assert stats.total_symbols == 2
+    assert stats.updated_symbols == 2
+    assert stats.errors == {}
+    assert stats.skipped_no_data == 0
+    assert cm.read("AAA", "rolling") is not None
+    assert cm.read("BBB", "rolling") is None
+    assert cm.read("CCC", "rolling") is not None
+    assert cm.read("ZZZ", "rolling") is None
+
+
+def test_extract_manifest_missing_symbols_falls_back(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+
+    save_symbol_manifest(["ZZZ"], cm.full_dir)
+
+    stats = extract_rolling_from_full(cm)
+
+    assert stats.total_symbols == 1
+    assert stats.updated_symbols == 1
+    assert stats.errors == {}
+    assert stats.skipped_no_data == 0
+    assert cm.read("AAA", "rolling") is not None
+
+
+def test_extract_records_reference_count(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+
+    captured: list[str] = []
+
+    call_counter = {"count": 0}
+
+    def fake_fetch(cache_manager, log, *, exchanges=None):
+        call_counter["count"] += 1
+        assert cache_manager is cm
+        return 2
+
+    monkeypatch.setattr(
+        "scripts.build_rolling_with_indicators._fetch_eodhd_symbol_count",
+        fake_fetch,
+    )
+
+    stats = extract_rolling_from_full(cm, log=captured.append)
+
+    assert call_counter["count"] == 1
+    assert stats.reference_symbol_count == 2
+    assert any("EODHD参照銘柄数" in msg and "不一致" in msg for msg in captured)

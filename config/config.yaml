@@ -53,6 +53,7 @@ cache:
     buffer_days: 30
     prune_chunk_days: 30
     meta_file: "_meta.json"
+    max_symbols: 11000
 
 backtest:
   start_date: 2018-01-01

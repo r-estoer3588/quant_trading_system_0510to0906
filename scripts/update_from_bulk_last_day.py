@@ -2,7 +2,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 # from typing import Optional
 
@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 
 from config.settings import get_settings  # noqa: E402
 from common.cache_manager import CacheManager  # noqa: E402
+from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -63,6 +64,46 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     original_count = int(codes.nunique())
     normalized_count = int(normalized.nunique())
     return original_count, normalized_count
+
+
+def _filter_bulk_data_by_universe(
+    df: pd.DataFrame, symbols: Iterable[str]
+) -> tuple[pd.DataFrame, dict[str, int | bool]]:
+    """Filter the bulk-last-day payload by the provided symbol universe."""
+
+    normalized_set = {
+        str(sym).upper().strip() for sym in symbols if str(sym).strip()
+    }
+    stats: dict[str, int | bool] = {
+        "allowed": len(normalized_set),
+        "matched_rows": 0,
+        "removed_rows": 0,
+        "matched_symbols": 0,
+        "missing_symbols": 0,
+        "code_column_found": False,
+    }
+    if not normalized_set or df is None or df.empty:
+        return df, stats
+
+    series = _resolve_code_series(df)
+    if series is None:
+        return df, stats
+
+    stats["code_column_found"] = True
+    normalized_codes = series.map(_normalize_symbol)
+    mask = normalized_codes.isin(normalized_set)
+    matched_rows = int(mask.sum())
+    stats["matched_rows"] = matched_rows
+    stats["removed_rows"] = int(len(mask) - matched_rows)
+    matched_symbols = {sym for sym in normalized_codes[mask] if sym}
+    stats["matched_symbols"] = len(matched_symbols)
+    stats["missing_symbols"] = len(normalized_set - matched_symbols)
+
+    if matched_rows == len(df):
+        return df, stats
+
+    filtered = df.loc[mask].copy()
+    return filtered, stats
 
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
@@ -205,6 +246,62 @@ def main():
         print("No data to update.", flush=True)
         return
 
+    settings = get_settings(create_dirs=True)
+
+    universe_error = False
+    try:
+        universe = build_symbol_universe_from_settings(settings)
+    except Exception as exc:
+        print(
+            "⚠️ 銘柄ユニバース取得に失敗したためフィルタリングをスキップします:"
+            f" {exc}",
+            flush=True,
+        )
+        universe = []
+        universe_error = True
+
+    data, filter_stats = _filter_bulk_data_by_universe(data, universe)
+    allowed_count = int(filter_stats.get("allowed", 0))
+    if allowed_count:
+        print(
+            f"🎯 フィルタ済みユニバース参照数: {allowed_count} 銘柄",
+            flush=True,
+        )
+        if not filter_stats.get("code_column_found"):
+            print(
+                "  ↳ 取得データに code 列が無いためフィルタリングを適用できませんでした",
+                flush=True,
+            )
+        else:
+            matched_symbols = int(filter_stats.get("matched_symbols", 0))
+            matched_rows = int(filter_stats.get("matched_rows", 0))
+            removed_rows = int(filter_stats.get("removed_rows", 0))
+            missing_symbols = int(filter_stats.get("missing_symbols", 0))
+            print(
+                "  ↳ Bulk データ一致:"
+                f" {matched_symbols} 銘柄 / {matched_rows} 行",
+                flush=True,
+            )
+            if removed_rows:
+                print(
+                    f"  ↳ フィルタで除外: {removed_rows} 行",
+                    flush=True,
+                )
+            if missing_symbols:
+                print(
+                    f"  ↳ Bulk データに存在しない銘柄: {missing_symbols} 件",
+                    flush=True,
+                )
+    elif not universe_error:
+        print(
+            "⚠️ 銘柄ユニバース取得結果が空だったためフィルタリングをスキップします",
+            flush=True,
+        )
+
+    if data.empty:
+        print("⚠️ フィルタ後の対象データが 0 件のため処理を終了します。", flush=True)
+        return
+
     original_count, normalized_count = _estimate_symbol_counts(data)
     estimated_symbols = max(original_count, normalized_count)
     if estimated_symbols:
@@ -215,7 +312,6 @@ def main():
     else:
         print(f"📊 取得件数: {len(data)} 行", flush=True)
 
-    settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
 
     progress_state = {

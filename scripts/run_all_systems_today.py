@@ -39,6 +39,7 @@ from common.utils_spy import (
     get_signal_target_trading_day,
     get_spy_with_indicators,
 )
+from common.symbol_universe import build_symbol_universe_from_settings
 from config.settings import get_settings
 from core.final_allocation import (
     AllocationSummary,
@@ -1749,18 +1750,56 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     else:
         from common.universe import build_universe_from_cache, load_universe_file
 
-        universe = load_universe_file()
-        if not universe:
-            universe = build_universe_from_cache(limit=None)
-        symbols = [s.upper() for s in universe]
-        if not symbols:
+        settings = getattr(ctx, "settings", None)
+        log = _get_today_logger()
+        try:
+            fetched = build_symbol_universe_from_settings(settings, logger=log)
+        except Exception as exc:  # pragma: no cover - ネットワーク例外のみログ
+            fetched = []
+            msg = f"⚠️ NASDAQ/EODHD銘柄リストの取得に失敗しました: {exc}"
+            _log(msg)
+            if log_callback:
+                try:
+                    log_callback(msg)
+                except Exception:
+                    pass
+
+        if fetched:
+            limit_val: int | None = None
+            limit_src = ""
             try:
-                files = list(cache_dir.glob("*.*"))
-                primaries = [p.stem for p in files if p.stem.upper() == "SPY"]
-                others = sorted({p.stem for p in files if len(p.stem) <= 5})[:200]
-                symbols = list(dict.fromkeys(primaries + others))
+                env_limit = os.getenv("TODAY_SYMBOL_LIMIT", "").strip()
+                if env_limit:
+                    parsed = int(env_limit)
+                    if parsed > 0:
+                        limit_val = parsed
+                        limit_src = "TODAY_SYMBOL_LIMIT"
             except Exception:
-                symbols = []
+                limit_val = None
+            if limit_val is not None and len(fetched) > limit_val:
+                fetched = fetched[:limit_val]
+                label = limit_src or "TODAY_SYMBOL_LIMIT"
+                info = f"🎯 シンボル数を制限 ({label}={limit_val})"
+                _log(info)
+                if log_callback:
+                    try:
+                        log_callback(info)
+                    except Exception:
+                        pass
+            symbols = [s.upper() for s in fetched]
+        else:
+            universe = load_universe_file()
+            if not universe:
+                universe = build_universe_from_cache(limit=None)
+            symbols = [s.upper() for s in universe]
+            if not symbols:
+                try:
+                    files = list(cache_dir.glob("*.*"))
+                    primaries = [p.stem for p in files if p.stem.upper() == "SPY"]
+                    others = sorted({p.stem for p in files if len(p.stem) <= 5})[:200]
+                    symbols = list(dict.fromkeys(primaries + others))
+                except Exception:
+                    symbols = []
 
     if "SPY" not in symbols:
         symbols.append("SPY")

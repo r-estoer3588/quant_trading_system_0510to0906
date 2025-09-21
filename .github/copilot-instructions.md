@@ -41,18 +41,50 @@ AI エージェントが初手から迷わないための要点を 1 枚に凝�
 - 実行ログ: `TODAY_SIGNALS_LOG_MODE=dated` で `today_signals_YYYYMMDD_HHMM.log` を使用（`scripts/run_all_systems_today.py`）。
 - タイムゾーン: ログ/通知は JST。スケジューラ既定は `America/New_York`。
 
-## 変更時に見る場所（ファイルの勘所）
+```markdown
+# Copilot instructions — quick reference
 
-- データ系: `common/cache_manager.py`（IO/rolling/prune）、`common/data_loader.py`、`common/utils.py::get_cached_data`。
-- 新戦略: `core/systemX.py` → `strategies/systemX_strategy.py`（`prepare_data`/`generate_candidates`/サイズ計算）。UI の分岐は `common/ui_components.py`。
-- バックテスト統合: `common/integrated_backtest.py::run_integrated_backtest` と `DEFAULT_ALLOCATIONS`（long 4 系列=各 25%、short 系列=2/6=40%、7=20%）。
-- 今日の実行: `common/today_signals.py` と `scripts/run_all_systems_today.py`（UI は `common/ui_tabs.py` 経由）。
+This file gives an AI coding agent the minimal, project-specific knowledge
+to be productive immediately. See `AGENTS.md` and `README.md` for more.
 
-## レビュー観点（壊しやすい箇所）
+Architecture (big picture):
+- Entry/UI: `app_integrated.py` (Streamlit). Tabs implemented in `common/ui_tabs.py`, components in `common/ui_components.py`.
+- Strategy split: pure logic in `core/system{1..7}.py`, strategy wrappers in `strategies/system{1..7}_strategy.py`.
+- Backtest & orchestration: `common/integrated_backtest.py` (StrategyProtocol, allocations, fallback entry/exit logic).
+- Data/cache: three-layer cache under `data_cache/` — `full_backup/` (raw), `base/` (indicators added), `rolling/` (recent window). Use `common/cache_manager.py::CacheManager` and `load_base_cache()` only.
 
-- 書き込み先は `get_settings()` 配下（`results_csv/`・`logs/`・`data_cache/`）に限定。
-- 長短バケット配分・System7 の SPY 固定・long/short 集合を崩さない。
-- 日本語の文言（コメント/ログ/通知）は変形しない。
-- テストはオフライン・決定性（`common/testing.py::set_test_determinism`）。
+Key project conventions (do not change):
+- Naming: PEP8 — files/functions `snake_case`, classes `PascalCase`. Keep Japanese strings in UTF-8.
+- Cache resolution order (must follow):
+  - backtest: `base` → `full_backup` (never use `rolling`).
+  - today: `rolling` → `base` → `full_backup` (`rolling` may be generated from `base`).
+- Never read CSVs directly from `data_cache/` — always go through `CacheManager.read()`.
 
-不足や不明点は遠慮なく聞いてください。必要に応じてこの文書を追補します。
+Important implementation notes (examples):
+- Entry/exit: strategies may override `compute_entry` / `compute_exit`. If absent, integrated_backtest falls back to ATR-based stop levels (see `common/integrated_backtest.py`).
+- Today signals ordering: scoring keys differ per system (e.g., s1 uses ROC200 desc, s4 uses RSI4 asc). See `_score_from_candidate` and `_asc_by_score_key` in `common/today_signals.py`.
+- Indicator generation: `compute_base_indicators()` normalizes column names and prefers adjusted Close; skip if H/L/C missing (`common/cache_manager.py`).
+
+Developer workflows / useful commands:
+- Install deps: `pip install -r requirements.txt` (dev: `requirements-dev.txt`).
+- Run UI: `streamlit run app_integrated.py`.
+- Update daily cache: `python scripts/cache_daily_data.py` (requires `EODHD_API_KEY`).
+- Run today's pipeline: `python scripts/run_all_systems_today.py` (used by UI and schedulers).
+- Tests: `pytest -q` — tests are offline/deterministic. Example: `pytest tests/test_headless_app.py tests/test_utils.py -q`.
+- Pre-commit: `pre-commit install` (runs `ruff/black/isort/mypy`).
+
+Editing & review guidance for AI edits:
+- Respect `get_settings()` paths — write files only under the settings-controlled dirs (`results_csv/`, `logs/`, `data_cache/`).
+- Avoid changing allocation logic (DEFAULT_ALLOCATIONS) and System7's SPY anchor unless explicitly requested. See `common/integrated_backtest.py`.
+- When adding or modifying indicators/caches, update `compute_base_indicators()` and ensure `CacheManager` is used for IO and `prune_rolling_if_needed()` for rolling maintenance.
+
+Testing & CI expectations:
+- Tests must run offline — mock network and use cached data (`common/testing.py::set_test_determinism`).
+- CI runs `ruff/black/isort/mypy/bandit/pip-audit/pytest` on Python 3.10–3.12.
+
+Post-edit required step (automated quality scan):
+- After editing repository files, run the Codacy analyze tool for each edited file. If unavailable, notify maintainers and suggest resetting the MCP server or checking VSCode Copilot MCP settings.
+
+If anything in this file is unclear or you need an example change (small PR), ask and include the target file and intent.
+
+``` 

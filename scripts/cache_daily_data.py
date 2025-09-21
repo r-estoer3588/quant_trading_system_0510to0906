@@ -63,6 +63,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from indicators_common import add_indicators  # noqa: E402
 
 from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from common.symbol_universe import build_symbol_universe  # noqa: E402
+from common.symbols_manifest import save_symbol_manifest  # noqa: E402
 
 BASE_SUBDIR_NAME = "base"
 
@@ -275,24 +277,19 @@ def remove_recovered_symbols(succeeded: Iterable[str]) -> None:
 
 
 def get_all_symbols() -> list[str]:
-    urls = [
-        "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
-        "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
-    ]
-    symbols: set[str] = set()
-    for url in urls:
-        try:
-            r = requests.get(url, timeout=REQUEST_TIMEOUT)
-            r.raise_for_status()
-            lines = r.text.splitlines()
-            for line in lines[1:]:
-                if "|" in line:
-                    parts = line.split("|")
-                    if parts[0].isalpha():
-                        symbols.add(parts[0].upper())
-        except Exception as e:
-            logging.error(f"取得失敗: {url} - {e}")
-    return sorted(symbols)
+    try:
+        symbols = build_symbol_universe(
+            API_BASE,
+            API_KEY,
+            timeout=REQUEST_TIMEOUT,
+            logger=logging.getLogger(__name__),
+        )
+    except Exception as exc:  # pragma: no cover - ネットワーク異常時は空集合
+        logging.error("銘柄ユニバースの取得に失敗: %s", exc)
+        return []
+
+    logging.info("NASDAQ/EODHD フィルタ後の銘柄数: %s", len(symbols))
+    return symbols
 
 
 def get_with_retry(url: str, retries: int = DOWNLOAD_RETRIES, delay: float = 2.0):
@@ -499,6 +496,11 @@ def cache_data(
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
+    # rolling 再構築でも同一リストを利用できるようマニフェストを保存
+    try:
+        save_symbol_manifest((safe_filename(s) for s in symbols), DATA_CACHE_DIR)
+    except Exception as exc:  # pragma: no cover - logging only
+        logging.warning("シンボルマニフェストの保存に失敗: %s", exc)
     print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
     cache_data(symbols, output_dir=DATA_CACHE_DIR, base_dir=BASE_CACHE_DIR)
     print("データのキャッシュが完了しました。")
