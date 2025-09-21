@@ -1,21 +1,44 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from pathlib import Path
 import os
 import platform
 import sys
 import time
-from typing import Any
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-# Streamlit のコンテキスト外で実行された場合は警告を抑止して終了する
-if get_script_run_ctx(suppress_warning=True) is None:
+
+def _running_in_streamlit() -> bool:
+    try:
+        if get_script_run_ctx(suppress_warning=True) is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        flag = (os.environ.get("STREAMLIT_SERVER_ENABLED") or "").strip().lower()
+        if flag in {"1", "true", "yes"}:
+            return True
+    except Exception:
+        pass
+    try:
+        argv_text = " ".join(sys.argv).lower()
+        if "streamlit" in argv_text:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+_IS_STREAMLIT_RUNTIME = _running_in_streamlit()
+
+if not _IS_STREAMLIT_RUNTIME:
     if __name__ == "__main__":
         print(
             "このスクリプトはStreamlitで実行してください: " "`streamlit run app_today_signals.py`"
@@ -29,6 +52,8 @@ try:
     )
 
     def _has_st_ctx() -> bool:
+        if not _IS_STREAMLIT_RUNTIME:
+            return False
         try:
             return _st_get_ctx() is not None
         except Exception:
@@ -37,7 +62,7 @@ try:
 except Exception:
 
     def _has_st_ctx() -> bool:  # type: ignore
-        return False
+        return _IS_STREAMLIT_RUNTIME
 
 
 # Streamlit checkbox の重複ID対策（key未指定時に自動で一意キーを付与）
@@ -78,16 +103,21 @@ from common.position_age import (
     load_entry_dates,
     save_entry_dates,
 )
+from common.stage_metrics import GLOBAL_STAGE_METRICS, StageSnapshot
 from common.profit_protection import evaluate_positions
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+from common.stage_metrics import DEFAULT_SYSTEM_ORDER, StageMetricsStore
 from common.system_groups import (
     format_group_counts,
     format_group_counts_and_values,
 )
+from common.today_signals import (
+    LONG_SYSTEMS,
+    SHORT_SYSTEMS,
+    run_all_systems_today as compute_today_signals,
+)
+from common.utils_spy import get_latest_nyse_trading_day
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
-from common.today_signals import run_all_systems_today as compute_today_signals
-from common.utils_spy import get_latest_nyse_trading_day
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -477,7 +507,13 @@ def _rebuild_rolling_cache_from_base(
         rows,
         int(getattr(cache_manager, "_rolling_target_len", len(base_reset))),
     )
+    available_rows = int(len(base_reset))
     trimmed = base_reset.tail(target_len).reset_index(drop=True)
+    actual_rows = int(len(trimmed))
+    shortage_note = ""
+    if available_rows < target_len:
+        shortage_note = f"base不足: {available_rows}/{target_len}行"
+        err_note = _merge_note(err_note, shortage_note)
     try:
         cache_manager.write_atomic(trimmed, symbol, "rolling")
     except Exception as exc:  # noqa: BLE001
@@ -489,7 +525,13 @@ def _rebuild_rolling_cache_from_base(
         return None, "write_failed", _merge_note(err_note, str(exc))
     if log_fn:
         try:
-            log_fn(f"♻️ rolling再生成: {symbol} ({len(trimmed)}行, base)")
+            if shortage_note:
+                log_fn(
+                    f"♻️ rolling再生成: {symbol} ({actual_rows}行, base; "
+                    f"目標{target_len}行, base保有{available_rows}行)"
+                )
+            else:
+                log_fn(f"♻️ rolling再生成: {symbol} ({actual_rows}行, base)")
         except Exception:
             pass
     try:
@@ -846,24 +888,11 @@ class StageTracker:
     def __init__(self, ui_vis: dict[str, Any], progress_ui: ProgressUI):
         self.progress_ui = progress_ui
         self.show_ui = bool(ui_vis.get("per_system_progress", True)) and _has_st_ctx()
-        # グローバルなユニバース総数（Tgt）を保持。None なら従来動作。
-        self.universe_target: int | None = None
         self.bars: dict[str, Any] = {}
         self.stage_txt: dict[str, Any] = {}
         self.metrics_txt: dict[str, Any] = {}
         self.states: dict[str, int] = {}
-        self.stage_counts: dict[str, dict[str, int | None]] = {
-            f"system{i}": {
-                "target": None,
-                "filter": None,
-                "setup": None,
-                "cand": None,
-                "entry": None,
-                "exit": None,
-            }
-            for i in range(1, 8)
-        }
-        self.universe_total: int | None = None
+        self.metrics_store = StageMetricsStore(DEFAULT_SYSTEM_ORDER)
         if self.show_ui:
             sys_cols = st.columns(7)
             sys_labels = [f"System{i}" for i in range(1, 8)]
@@ -874,11 +903,11 @@ class StageTracker:
                     self.bars[key] = col.progress(0)
                     self.stage_txt[key] = col.empty()
                     self.metrics_txt[key] = col.empty()
-                    self._ensure_counts(key)
                     self._render_metrics(key)
                 except Exception:
                     self.show_ui = False
                     break
+        self._initialize_from_store()
 
     def update_progress(self, name: str, phase: str) -> None:
         if not self.show_ui:
@@ -897,6 +926,61 @@ class StageTracker:
         except Exception:
             pass
 
+    def _initialize_from_store(self) -> None:
+        try:
+            stored_target = GLOBAL_STAGE_METRICS.get_universe_target()
+            if stored_target is not None:
+                self.universe_target = int(stored_target)
+        except Exception:
+            pass
+        try:
+            snapshots = GLOBAL_STAGE_METRICS.all_snapshots()
+        except Exception:
+            snapshots = {}
+        for sys_name, snapshot in snapshots.items():
+            try:
+                self._apply_snapshot(sys_name, snapshot)
+            except Exception:
+                continue
+
+    def _apply_snapshot(self, name: str, snapshot: StageSnapshot) -> None:
+        key = str(name).lower()
+        counts = self._ensure_counts(key)
+        if snapshot.target is not None:
+            try:
+                counts["target"] = int(snapshot.target)
+                self.universe_total = int(snapshot.target)
+            except Exception:
+                pass
+        if snapshot.filter_pass is not None:
+            try:
+                counts["filter"] = int(snapshot.filter_pass)
+            except Exception:
+                pass
+        if snapshot.setup_pass is not None:
+            try:
+                counts["setup"] = int(snapshot.setup_pass)
+            except Exception:
+                pass
+        if snapshot.candidate_count is not None:
+            try:
+                counts["cand"] = self._clamp_trdlist(snapshot.candidate_count)
+            except Exception:
+                pass
+        if snapshot.entry_count is not None:
+            try:
+                counts["entry"] = int(snapshot.entry_count)
+            except Exception:
+                pass
+        if snapshot.exit_count is not None:
+            try:
+                counts["exit"] = int(snapshot.exit_count)
+            except Exception:
+                pass
+        self._update_bar(key, snapshot.progress)
+        self.progress_ui.update_label_for_stage(snapshot.progress)
+        self._render_metrics(key)
+
     def update_stage(
         self,
         name: str,
@@ -907,9 +991,23 @@ class StageTracker:
         final_cnt: int | None = None,
     ) -> None:
         key = str(name).lower()
+        snapshot: StageSnapshot | None
+        try:
+            snapshot = GLOBAL_STAGE_METRICS.record_stage(
+                key,
+                value,
+                filter_cnt,
+                setup_cnt,
+                cand_cnt,
+                final_cnt,
+                emit_event=False,
+            )
+        except Exception:
+            snapshot = None
+        if snapshot is not None:
+            self._apply_snapshot(key, snapshot)
+            return
         counts = self._ensure_counts(key)
-        # filter_cnt は常に 'filter' に格納する。
-        # グローバルなTgtは別途 set_universe_target で設定される。
         if filter_cnt is not None:
             try:
                 if value == 0:
@@ -940,13 +1038,28 @@ class StageTracker:
                 self.universe_target = None
             else:
                 self.universe_target = int(tgt)
+            GLOBAL_STAGE_METRICS.set_universe_target(self.universe_target)
         except Exception:
             self.universe_target = None
+            try:
+                GLOBAL_STAGE_METRICS.set_universe_target(None)
+            except Exception:
+                pass
         # 全 system の表示を更新
         self.refresh_all()
 
     def update_exit(self, name: str, count: int) -> None:
         key = str(name).lower()
+        snapshot: StageSnapshot | None
+        try:
+            snapshot = GLOBAL_STAGE_METRICS.record_exit(
+                key, count, emit_event=False
+            )
+        except Exception:
+            snapshot = None
+        if snapshot is not None:
+            self._apply_snapshot(key, snapshot)
+            return
         counts = self._ensure_counts(key)
         counts["exit"] = int(count)
         self._render_metrics(key)
@@ -979,16 +1092,39 @@ class StageTracker:
                     counts["target"] = self.universe_total
                 elif counts.get("filter") is not None and counts.get("setup") is None:
                     counts["target"] = counts.get("filter")
+            try:
+                GLOBAL_STAGE_METRICS.record_stage(
+                    name,
+                    int(self.states.get(name, 100 if counts.get("entry") is not None else 0)),
+                    counts.get("filter"),
+                    counts.get("setup"),
+                    counts.get("cand"),
+                    counts.get("entry"),
+                    emit_event=False,
+                )
+            except Exception:
+                pass
         self.refresh_all()
 
     def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
         for name, cnt in exit_counts.items():
-            if cnt:
+            if not cnt:
+                continue
+            snapshot: StageSnapshot | None
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.record_exit(
+                    name, cnt, emit_event=False
+                )
+            except Exception:
+                snapshot = None
+            if snapshot is not None:
+                self._apply_snapshot(name, snapshot)
+            else:
                 self._ensure_counts(name)["exit"] = int(cnt)
         self.refresh_all()
 
     def refresh_all(self) -> None:
-        for name in list(self.stage_counts.keys()):
+        for name in self.metrics_store.systems():
             self._render_metrics(name)
 
     def _update_bar(self, key: str, value: int) -> None:
@@ -1011,22 +1147,15 @@ class StageTracker:
         placeholder = self.metrics_txt.get(key)
         if placeholder is None:
             return
-        counts = self.stage_counts.get(key, {})
-        # 設計に従い、Tgt はグローバルなユニバース値を優先表示する
-        tgt_display = None
-        if self.universe_target is not None:
-            tgt_display = self.universe_target
-        else:
-            tgt_display = self._target_value(counts)
-
+        display = self.metrics_store.get_display_metrics(key)
         text = "  ".join(
             [
-                f"Tgt {self._format_value(tgt_display)}",
-                f"FILpass {self._format_value(counts.get('filter'))}",
-                f"STUpass {self._format_value(counts.get('setup'))}",
-                f"TRDlist {self._format_trdlist(counts.get('cand'))}",
-                f"Entry {self._format_value(counts.get('entry'))}",
-                f"Exit {self._format_value(counts.get('exit'))}",
+                f"Tgt {self._format_value(display.get('target'))}",
+                f"FILpass {self._format_value(display.get('filter'))}",
+                f"STUpass {self._format_value(display.get('setup'))}",
+                f"TRDlist {self._format_trdlist(display.get('cand'))}",
+                f"Entry {self._format_value(display.get('entry'))}",
+                f"Exit {self._format_value(display.get('exit'))}",
             ]
         )
         try:
@@ -1034,14 +1163,9 @@ class StageTracker:
         except Exception:
             pass
 
-    def _target_value(self, counts: dict[str, int | None]) -> int | None:
-        if counts.get("target") is not None:
-            return counts["target"]
-        if self.universe_total is not None:
-            return self.universe_total
-        if counts.get("filter") is not None and counts.get("setup") is None:
-            return counts["filter"]
-        return None
+    def get_display_metrics(self, name: str) -> dict[str, int | None]:
+        key = str(name).lower()
+        return self.metrics_store.get_display_metrics(key)
 
     @staticmethod
     def _format_value(value: Any) -> str:
@@ -1049,12 +1173,7 @@ class StageTracker:
 
     @staticmethod
     def _clamp_trdlist(value: Any) -> int | None:
-        try:
-            if value is None:
-                return None
-            return max(0, min(10, int(value)))
-        except Exception:
-            return None
+        return StageMetricsStore.clamp_trdlist(value)
 
     def _format_trdlist(self, value: Any) -> str:
         if value is None:
@@ -1063,19 +1182,6 @@ class StageTracker:
             return str(self._clamp_trdlist(value))
         except Exception:
             return "-"
-
-    def _ensure_counts(self, key: str) -> dict[str, int | None]:
-        return self.stage_counts.setdefault(
-            key,
-            {
-                "target": None,
-                "filter": None,
-                "setup": None,
-                "cand": None,
-                "entry": None,
-                "exit": None,
-            },
-        )
 
 
 class UILogger:
@@ -2304,15 +2410,15 @@ def _render_system_details(
         system_order = [f"system{i}" for i in range(1, 8)]
         for name in system_order:
             st.markdown(f"#### {name}")
-            counts = stage_tracker.stage_counts.get(name, {})
+            display_metrics = stage_tracker.get_display_metrics(name)
             metrics_line = "  ".join(
                 [
-                    f"Tgt {StageTracker._format_value(stage_tracker._target_value(counts))}",  # noqa: E501
-                    f"FILpass {StageTracker._format_value(counts.get('filter'))}",
-                    f"STUpass {StageTracker._format_value(counts.get('setup'))}",
-                    f"TRDlist {StageTracker._format_value(counts.get('cand'))}",
-                    f"Entry {StageTracker._format_value(counts.get('entry'))}",
-                    f"Exit {StageTracker._format_value(counts.get('exit'))}",
+                    f"Tgt {StageTracker._format_value(display_metrics.get('target'))}",  # noqa: E501
+                    f"FILpass {StageTracker._format_value(display_metrics.get('filter'))}",
+                    f"STUpass {StageTracker._format_value(display_metrics.get('setup'))}",
+                    f"TRDlist {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
+                    f"Entry {StageTracker._format_value(display_metrics.get('entry'))}",
+                    f"Exit {StageTracker._format_value(display_metrics.get('exit'))}",
                 ]
             )
             st.caption(metrics_line)

@@ -3,6 +3,7 @@ import logging
 import re
 from collections.abc import Callable, Hashable
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -34,6 +35,41 @@ RESERVED_WORDS = {
 
 
 logger = logging.getLogger(__name__)
+
+
+def describe_dtype(value: Any, *, max_columns: int = 5) -> str:
+    """Return a human readable dtype string for pandas-like objects.
+
+    DataFrame objects expose ``.dtypes`` instead of ``.dtype``. When the
+    target is a Series-like object (Series/Index/ndarray), ``.dtype`` should be
+    used to avoid pandas raising ``AttributeError``. This helper performs the
+    necessary type checks and returns a compact string representation that is
+    suitable for logging.
+    """
+
+    if isinstance(value, pd.DataFrame):
+        try:
+            dtype_items = list(value.dtypes.items())
+        except Exception:
+            return "DataFrame"
+        if not dtype_items:
+            return "DataFrame[]"
+        parts: list[str] = []
+        for idx, (col, dtype) in enumerate(dtype_items):
+            if idx >= max_columns:
+                remaining = len(dtype_items) - max_columns
+                parts.append(f"…(+{remaining})")
+                break
+            parts.append(f"{col}:{dtype}")
+        return f"DataFrame[{', '.join(parts)}]"
+
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None:
+        try:
+            return str(dtype)
+        except Exception:
+            return type(value).__name__
+    return type(value).__name__
 
 
 def safe_filename(symbol: str) -> str:

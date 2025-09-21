@@ -10,7 +10,12 @@ from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils import (
+    BatchSizeMonitor,
+    describe_dtype,
+    get_cached_data,
+    resolve_batch_size,
+)
 from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
@@ -303,8 +308,10 @@ def prepare_data_vectorized_system5(
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
-                    if not pd.api.types.is_numeric_dtype(df[col]):
-                        msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                    series_like = df[col]
+                    if not pd.api.types.is_numeric_dtype(series_like):
+                        dtype_repr = describe_dtype(series_like)
+                        msg = f"⚠️ {sym} cache: {col}型不一致 ({dtype_repr})"
                         if log_callback:
                             log_callback(msg)
                         if skip_callback:

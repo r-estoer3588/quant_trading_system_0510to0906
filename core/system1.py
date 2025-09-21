@@ -10,6 +10,7 @@ import pandas as pd
 
 from common.utils import (
     BatchSizeMonitor,
+    describe_dtype,
     drop_duplicate_columns,
     get_cached_data,
     resolve_batch_size,
@@ -382,8 +383,11 @@ def prepare_data_vectorized_system1(
                     log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
-                if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
-                    msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                if col in df.columns:
+                    series_like = df[col]
+                    if not pd.api.types.is_numeric_dtype(series_like):
+                        dtype_repr = describe_dtype(series_like)
+                        msg = f"⚠️ {sym} cache: {col}型不一致 ({dtype_repr})"
                     if log_callback:
                         log_callback(msg)
                     if skip_callback:

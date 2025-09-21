@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    Future,
+    ThreadPoolExecutor,
+    as_completed,
+    wait,
+)
 from threading import Lock
 import json
 import logging
@@ -22,6 +29,7 @@ from common.cache_manager import CacheManager, load_base_cache
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
+from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
 from common.system_groups import (
     format_group_counts,
     format_group_counts_and_values,
@@ -52,9 +60,6 @@ from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from collections.abc import Mapping, Sequence
-
-# ワーカー側で観測した cand_cnt(=TRDlist) を保存し、メインスレッドで参照するためのスナップショット
-_CAND_COUNT_SNAPSHOT: dict[str, int] = {}
 
 _LOG_CALLBACK = None
 _LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
@@ -409,6 +414,43 @@ def _emit_ui_log(message: str) -> None:
     except Exception:
         # UI コールバック未設定や例外は黙って無視（CLI 実行時を考慮）
         pass
+
+
+def _drain_stage_event_queue() -> None:
+    """メインスレッドでステージ進捗イベントを処理し、UI 表示を更新する。"""
+
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+
+    events: list[StageEvent] = GLOBAL_STAGE_METRICS.drain_events()
+
+    if not events:
+        return
+
+    if not cb2 or not callable(cb2):
+        return
+
+    for event in events:
+        try:
+            cb2(
+                event.system,
+                event.progress,
+                event.filter_count,
+                event.setup_count,
+                event.candidate_count,
+                event.entry_count,
+            )
+        except Exception:
+            continue
+
+
+def _get_stage_snapshot(system: str) -> StageSnapshot | None:
+    try:
+        return GLOBAL_STAGE_METRICS.get_snapshot(system)
+    except Exception:
+        return None
 
 
 def _log(msg: str, ui: bool = True):
@@ -2047,8 +2089,12 @@ def _save_and_notify_phase(
         for name in order_1_7:
             cand_cnt: int | None
             try:
-                snap_val = _CAND_COUNT_SNAPSHOT.get(name)
-                cand_cnt = None if snap_val is None else int(snap_val)
+                snapshot = _get_stage_snapshot(name)
+                cand_cnt = (
+                    None
+                    if snapshot is None or snapshot.candidate_count is None
+                    else int(snapshot.candidate_count)
+                )
             except Exception:
                 cand_cnt = None
             if cand_cnt is None:
@@ -2845,7 +2891,7 @@ def compute_today_signals(  # type: ignore[analysis]
     )
 
     try:
-        _CAND_COUNT_SNAPSHOT.clear()
+        GLOBAL_STAGE_METRICS.reset()
     except Exception:
         pass
 
@@ -3530,6 +3576,118 @@ def compute_today_signals(  # type: ignore[analysis]
         df = pd.DataFrame()
         try:
             # 段階進捗: 0/25/50/75/100 を UI 側に橋渡し
+            stage_state: dict[int, tuple[int | None, int | None, int | None, int | None]] = {}
+            phase_names = {
+                0: "フィルターフェーズ",
+                25: "セットアップフェーズ",
+                50: "トレード候補フェーズ",
+                75: "エントリーフェーズ",
+            }
+            prev_phase_map = {25: 0, 50: 25, 75: 50, 100: 75}
+            phase_started: set[int] = set()
+            phase_completed: set[int] = set()
+
+            def _safe_stage_int(value: int | float | None) -> int | None:
+                try:
+                    if value is None:
+                        return None
+                    return int(value)
+                except Exception:
+                    return None
+
+            def _format_stage_message(
+                progress: int,
+                filter_count: int | None,
+                setup_count: int | None,
+                candidate_count: int | None,
+                final_count: int | None,
+            ) -> str | None:
+                filter_int = _safe_stage_int(filter_count)
+                setup_int = _safe_stage_int(setup_count)
+                candidate_int = _safe_stage_int(candidate_count)
+                final_int = _safe_stage_int(final_count)
+
+                if progress == 0:
+                    if filter_int is not None:
+                        return f"🧪 {name}: フィルターチェック開始 (対象 {filter_int} 銘柄)"
+                    return f"🧪 {name}: フィルターチェックを開始"
+                if progress == 25:
+                    if filter_int is not None:
+                        return f"🧪 {name}: フィルター通過 {filter_int} 銘柄"
+                    return f"🧪 {name}: フィルター処理が完了"
+                if progress == 50:
+                    if filter_int is not None and setup_int is not None:
+                        return (
+                            "🧩 "
+                            + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
+                        )
+                    if setup_int is not None:
+                        return f"🧩 {name}: セットアップ通過 {setup_int} 銘柄"
+                    return f"🧩 {name}: セットアップ判定が完了"
+                if progress == 75:
+                    if candidate_int is not None:
+                        return f"🧮 {name}: 候補抽出中 (当日候補 {candidate_int} 銘柄)"
+                    return f"🧮 {name}: 候補抽出を実行中"
+                if progress == 100:
+                    if final_int is not None:
+                        parts: list[str] = []
+                        if candidate_int is not None:
+                            parts.append(f"候補 {candidate_int} 銘柄")
+                        parts.append(f"エントリー {final_int} 銘柄")
+                        joined = " / ".join(parts)
+                        return f"✅ {name}: エントリーステージ完了 ({joined})"
+                    return f"✅ {name}: エントリーステージ完了"
+                return None
+
+            def _format_phase_completion(
+                prev_stage: int,
+                filter_int: int | None,
+                setup_int: int | None,
+                candidate_int: int | None,
+                final_int: int | None,
+            ) -> str | None:
+                label = phase_names.get(prev_stage)
+                if not label:
+                    return None
+                if prev_stage == 0:
+                    if filter_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(通過 {filter_int} 銘柄)"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 25:
+                    if setup_int is not None and filter_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(セットアップ通過 {setup_int}/{filter_int} 銘柄)"
+                        )
+                    if setup_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(セットアップ通過 {setup_int} 銘柄)"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 50:
+                    if candidate_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(当日候補 {candidate_int} 銘柄)"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 75:
+                    if final_int is not None:
+                        parts: list[str] = [f"エントリー {final_int} 銘柄"]
+                        if candidate_int is not None:
+                            parts.append(f"候補 {candidate_int} 銘柄")
+                        joined = " / ".join(parts)
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"({joined})"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                return None
+
             def _stage(
                 v: int,
                 f: int | None = None,
@@ -3537,21 +3695,76 @@ def compute_today_signals(  # type: ignore[analysis]
                 c: int | None = None,
                 fin: int | None = None,
             ) -> None:
+                progress_val = max(0, min(100, int(v)))
+                f_int = _safe_stage_int(f)
+                s_int = _safe_stage_int(s)
+                c_int = _safe_stage_int(c)
+                fin_int = _safe_stage_int(fin)
                 try:
                     cb2 = globals().get("_PER_SYSTEM_STAGE")
                 except Exception:
                     cb2 = None
                 if cb2 and callable(cb2):
                     try:
-                        cb2(name, max(0, min(100, int(v))), f, s, c, fin)
+                        cb2(name, progress_val, f_int, s_int, c_int, fin_int)
                     except Exception:
                         pass
                 # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
-                try:
-                    if c is not None:
-                        _CAND_COUNT_SNAPSHOT[name] = int(c)
-                except Exception:
-                    pass
+                if use_process_pool:
+                    try:
+                        key = (f_int, s_int, c_int, fin_int)
+                        prev = stage_state.get(progress_val)
+                        if prev != key:
+                            stage_state[progress_val] = key
+                            try:
+                                GLOBAL_STAGE_METRICS.record_stage(
+                                    name,
+                                    progress_val,
+                                    f_int,
+                                    s_int,
+                                    c_int,
+                                    fin_int,
+                                )
+                            except Exception:
+                                pass
+                            prev_stage_val = prev_phase_map.get(progress_val)
+                            if (
+                                prev_stage_val is not None
+                                and prev_stage_val not in phase_completed
+                            ):
+                                completion_msg = _format_phase_completion(
+                                    prev_stage_val, f_int, s_int, c_int, fin_int
+                                )
+                                if completion_msg:
+                                    _local_log(completion_msg)
+                                phase_completed.add(prev_stage_val)
+                            msg = _format_stage_message(
+                                progress_val, f_int, s_int, c_int, fin_int
+                            )
+                            if msg:
+                                _local_log(msg)
+                            if (
+                                progress_val in phase_names
+                                and progress_val not in phase_started
+                            ):
+                                _local_log(
+                                    f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始"
+                                )
+                                phase_started.add(progress_val)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        GLOBAL_STAGE_METRICS.record_stage(
+                            name,
+                            progress_val,
+                            f_int,
+                            s_int,
+                            c_int,
+                            fin_int,
+                        )
+                    except Exception:
+                        pass
 
             import os as _os
 
@@ -3633,14 +3846,18 @@ def compute_today_signals(  # type: ignore[analysis]
             min_required = custom_need or need_map.get(name, lb_default)
             lookback_days = min(lb_default, max(min_floor, int(min_required)))
             _t0 = __import__("time").time()
-            # プロセスプール使用時は stage_progress を渡さない（pickle/__main__問題を回避）
-            _stage_cb = None if use_process_pool else _stage
+            # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
+            _stage_cb = _stage
             _log_cb = None if use_process_pool else _local_log
             if use_process_pool:
                 workers_label = str(max_workers) if max_workers is not None else "auto"
                 _local_log(
                     f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
                     + f" (workers={workers_label})"
+                    + " | 並列化: インジケーター計算/前処理"
+                )
+                _local_log(
+                    f"🧭 {name}: フィルター・セットアップ・候補抽出はメインプロセスで進行状況を記録します"
                 )
             df = stg.get_today_signals(
                 base,
@@ -3797,70 +4014,98 @@ def compute_today_signals(  # type: ignore[analysis]
                     pass
                 fut = executor.submit(_run_strategy, name, stg)
                 futures[fut] = name
-            for _idx, fut in enumerate(as_completed(futures), start=1):
-                name, df, msg, logs = fut.result()
-                per_system[name] = df
-                # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
-                try:
-                    cb2 = globals().get("_PER_SYSTEM_STAGE")
-                except Exception:
-                    cb2 = None
-                if cb2 and callable(cb2):
+            pending: set[Future] = set(futures.keys())
+            completed_count = 0
+            while pending:
+                done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+                _drain_stage_event_queue()
+                if not done:
+                    continue
+                for fut in done:
+                    name, df, msg, logs = fut.result()
+                    per_system[name] = df
                     try:
+                        cb2 = globals().get("_PER_SYSTEM_STAGE")
+                    except Exception:
+                        cb2 = None
+                    if cb2 and callable(cb2):
                         try:
-                            _mx = int(get_settings(create_dirs=False).risk.max_positions)
+                            try:
+                                _mx = int(get_settings(create_dirs=False).risk.max_positions)
+                            except Exception:
+                                _mx = 10
+                            _cand_cnt: int | None
+                            try:
+                                snapshot = _get_stage_snapshot(name)
+                                _cand_cnt = (
+                                    None
+                                    if snapshot is None or snapshot.candidate_count is None
+                                    else int(snapshot.candidate_count)
+                                )
+                            except Exception:
+                                _cand_cnt = None
+                            if _cand_cnt is None:
+                                _cand_cnt = (
+                                    0
+                                    if (df is None or getattr(df, "empty", True))
+                                    else int(len(df))
+                                )
+                            if _mx > 0:
+                                _cand_cnt = min(int(_cand_cnt), int(_mx))
+                            _entry_cnt: int
+                            try:
+                                _entry_cnt = (
+                                    0
+                                    if (df is None or getattr(df, "empty", True))
+                                    else int(len(df))
+                                )
+                            except Exception:
+                                _entry_cnt = 0
+                            if _mx > 0:
+                                _entry_cnt = min(int(_entry_cnt), int(_mx))
+                            try:
+                                GLOBAL_STAGE_METRICS.record_stage(
+                                    name,
+                                    100,
+                                    None,
+                                    None,
+                                    _cand_cnt,
+                                    _entry_cnt,
+                                    emit_event=False,
+                                )
+                            except Exception:
+                                pass
+                            cb2(name, 75, None, None, int(_cand_cnt), None)
+                            cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
                         except Exception:
-                            _mx = 10
-                        _cand_cnt: int | None
+                            pass
+                    for line in _filter_logs(logs, ui=False):
+                        _log(f"[{name}] {line}", ui=False)
+                    if per_system_progress:
                         try:
-                            snap_val = _CAND_COUNT_SNAPSHOT.get(name)
-                            _cand_cnt = None if snap_val is None else int(snap_val)
+                            per_system_progress(name, "done")
                         except Exception:
-                            _cand_cnt = None
-                        if _cand_cnt is None:
-                            _cand_cnt = (
-                                0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                            )
-                        if _mx > 0:
-                            _cand_cnt = min(int(_cand_cnt), int(_mx))
-                        _entry_cnt: int
-                        try:
-                            _entry_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                        except Exception:
-                            _entry_cnt = 0
-                        if _mx > 0:
-                            _entry_cnt = min(int(_entry_cnt), int(_mx))
-                        cb2(name, 75, None, None, int(_cand_cnt), None)
-                        cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
+                            pass
+                    try:
+                        _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                    except Exception:
+                        _cnt = -1
+                    try:
+                        _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
                     except Exception:
                         pass
-                # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
-                # （UI にはワーカー実行中に逐次送信済みのため、ここでの再送は行わない）
-                # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
-                for line in _filter_logs(logs, ui=False):
-                    _log(f"[{name}] {line}", ui=False)
-                # UI コールバックがある場合は何もしない（重複防止）
-                # 完了通知
-                if per_system_progress:
+                    if progress_callback:
+                        try:
+                            progress_callback(5 + min(completed_count + 1, 1), 8, name)
+                        except Exception:
+                            pass
+                    completed_count += 1
                     try:
-                        per_system_progress(name, "done")
+                        del futures[fut]
                     except Exception:
                         pass
-                # CLI専用: 完了を簡潔表示（件数付き。失敗時は件数不明でも続行）
-                try:
-                    _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                except Exception:
-                    _cnt = -1
-                try:
-                    _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
-                except Exception:
-                    pass
-                # 前回結果は開始時にまとめて出力するため、ここでは出さない
-                if progress_callback:
-                    try:
-                        progress_callback(5 + min(_idx, 1), 8, name)
-                    except Exception:
-                        pass
+                    _drain_stage_event_queue()
+            _drain_stage_event_queue()
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")
@@ -3886,6 +4131,7 @@ def compute_today_signals(  # type: ignore[analysis]
                 pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
+            _drain_stage_event_queue()
             # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
             for line in _filter_logs(logs, ui=False):
                 _log(f"[{name}] {line}", ui=False)
@@ -3902,8 +4148,12 @@ def compute_today_signals(  # type: ignore[analysis]
                         _mx = 10
                     _cand_cnt: int | None
                     try:
-                        snap_val = _CAND_COUNT_SNAPSHOT.get(name)
-                        _cand_cnt = None if snap_val is None else int(snap_val)
+                        snapshot = _get_stage_snapshot(name)
+                        _cand_cnt = (
+                            None
+                            if snapshot is None or snapshot.candidate_count is None
+                            else int(snapshot.candidate_count)
+                        )
                     except Exception:
                         _cand_cnt = None
                     if _cand_cnt is None:
@@ -3914,11 +4164,27 @@ def compute_today_signals(  # type: ignore[analysis]
                         _cand_cnt = min(int(_cand_cnt), int(_mx))
                     _entry_cnt: int
                     try:
-                        _entry_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                        _entry_cnt = (
+                            0
+                            if (df is None or getattr(df, "empty", True))
+                            else int(len(df))
+                        )
                     except Exception:
                         _entry_cnt = 0
                     if _mx > 0:
                         _entry_cnt = min(int(_entry_cnt), int(_mx))
+                    try:
+                        GLOBAL_STAGE_METRICS.record_stage(
+                            name,
+                            100,
+                            None,
+                            None,
+                            _cand_cnt,
+                            _entry_cnt,
+                            emit_event=False,
+                        )
+                    except Exception:
+                        pass
                     cb2(name, 75, None, None, int(_cand_cnt), None)
                     cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
                 except Exception:
@@ -3937,6 +4203,7 @@ def compute_today_signals(  # type: ignore[analysis]
                 _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
             except Exception:
                 pass
+        _drain_stage_event_queue()
             # 即時の75%再通知は行わない（メインスレッド側で一括通知）
             # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:
@@ -3969,7 +4236,9 @@ def compute_today_signals(  # type: ignore[analysis]
                 # ワーカーからのスナップショットがあれば優先（型ゆらぎ等を超えて信頼できる値）
                 _cand_cnt = None
                 try:
-                    _cand_cnt = int(_CAND_COUNT_SNAPSHOT.get(_name))
+                    snapshot = _get_stage_snapshot(_name)
+                    if snapshot is not None and snapshot.candidate_count is not None:
+                        _cand_cnt = int(snapshot.candidate_count)
                 except Exception:
                     _cand_cnt = None
                 if _cand_cnt is None:
@@ -4367,11 +4636,45 @@ def compute_today_signals(  # type: ignore[analysis]
                     try:
                         for _nm, _cnt in (exit_counts_map or {}).items():
                             try:
+                                GLOBAL_STAGE_METRICS.record_exit(
+                                    _nm, _cnt, emit_event=False
+                                )
+                            except Exception:
+                                pass
+                        for _nm, _cnt in (exit_counts_map or {}).items():
+                            try:
                                 cb_exit(_nm, int(_cnt))
                             except Exception:
                                 pass
                     except Exception:
                         pass
+                # エグジット件数を UI ログへも要約表示
+                try:
+                    exit_counts_norm = {
+                        str(k).strip().lower(): int(v)
+                        for k, v in (exit_counts_map or {}).items()
+                        if k is not None
+                    }
+                except Exception:
+                    exit_counts_norm = {}
+                exit_logged = False
+                for _sys_name in order_1_7:
+                    try:
+                        cnt_val = int(exit_counts_norm.get(_sys_name, 0))
+                    except Exception:
+                        cnt_val = 0
+                    if cnt_val:
+                        try:
+                            GLOBAL_STAGE_METRICS.record_exit(
+                                _sys_name, cnt_val, emit_event=False
+                            )
+                        except Exception:
+                            pass
+                    if cnt_val > 0:
+                        _log(f"🚪 {_sys_name}: 本日エグジット予定 {cnt_val} 件")
+                        exit_logged = True
+                if not exit_logged:
+                    _log("🚪 本日エグジット予定はありません")
                 # 既に集計済みの値を再構成
                 setup_map = {
                     "system1": int(
@@ -4402,6 +4705,10 @@ def compute_today_signals(  # type: ignore[analysis]
                         cb_stage_set(int(tgt_base))
                     except Exception:
                         pass
+                try:
+                    GLOBAL_STAGE_METRICS.set_universe_target(int(tgt_base))
+                except Exception:
+                    pass
             except Exception:
                 pass
         # 簡易ログ

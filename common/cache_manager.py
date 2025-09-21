@@ -11,7 +11,7 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from common.utils import safe_filename
+from common.utils import describe_dtype, safe_filename
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -211,14 +211,16 @@ class CacheManager:
                 )
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
-                    if not pd.api.types.is_numeric_dtype(df[col]):
-                        category = f"dtype:{col}:{df[col].dtype}"
+                    series_like = df[col]
+                    if not pd.api.types.is_numeric_dtype(series_like):
+                        dtype_repr = describe_dtype(series_like)
+                        category = f"dtype:{col}:{dtype_repr}"
                         self._warn_once(
                             ticker,
                             profile,
                             category,
                             f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}型不一致 "
-                            f"({df[col].dtype})",
+                            f"({dtype_repr})",
                         )
             for col in ["close", "high", "low"]:
                 if col in df.columns:
