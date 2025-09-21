@@ -54,6 +54,12 @@ cache:
     prune_chunk_days: 30
     meta_file: "_meta.json"
     max_symbols: 11000
+  # キャッシュ書き出し時の小数丸め桁数
+  # 例: 2 -> 小数第2位まで丸める
+  round_decimals: 2
+  rolling:
+    # rolling キャッシュ固有の丸め桁数 (null でグローバル設定を使う)
+    round_decimals: 2
 
 backtest:
   start_date: 2018-01-01
