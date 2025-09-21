@@ -112,10 +112,19 @@ class UIConfig:
     default_long_ratio: float = 0.5
     # システム別配分（long/short で独立に定義可能）。値は比率で合計1とは限らない（使用側で正規化）。
     long_allocations: dict[str, float] = field(
-        default_factory=lambda: {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+        default_factory=lambda: {
+            "system1": 0.25,
+            "system3": 0.25,
+            "system4": 0.25,
+            "system5": 0.25,
+        }
     )
     short_allocations: dict[str, float] = field(
-        default_factory=lambda: {"system2": 0.40, "system6": 0.40, "system7": 0.20}
+        default_factory=lambda: {
+            "system2": 0.40,
+            "system6": 0.40,
+            "system7": 0.20,
+        }
     )
     auto_tickers: tuple[str, ...] = tuple()
     debug_mode: bool = False
@@ -300,7 +309,9 @@ def get_settings(create_dirs: bool = False) -> Settings:
     # YAML -> dataclass 変換 + .env 上書き
     risk = RiskConfig(
         risk_pct=float(os.getenv("RISK_PCT", risk_cfg.get("risk_pct", 0.02))),
-        max_positions=int(os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))),
+        max_positions=int(
+            os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))
+        ),
         max_pct=float(os.getenv("MAX_PCT", risk_cfg.get("max_pct", 0.10))),
     )
 
@@ -325,8 +336,14 @@ def get_settings(create_dirs: bool = False) -> Settings:
         ),
         max_workers=_env_int("THREADS_DEFAULT", int(data_cfg.get("max_workers", 8))),
         batch_size=_env_int("BATCH_SIZE", int(data_cfg.get("batch_size", 100))),
-        request_timeout=_env_int("REQUEST_TIMEOUT", int(data_cfg.get("request_timeout", 10))),
-        download_retries=_env_int("DOWNLOAD_RETRIES", int(data_cfg.get("download_retries", 3))),
+        request_timeout=_env_int(
+            "REQUEST_TIMEOUT",
+            int(data_cfg.get("request_timeout", 10)),
+        ),
+        download_retries=_env_int(
+            "DOWNLOAD_RETRIES",
+            int(data_cfg.get("download_retries", 3)),
+        ),
         api_throttle_seconds=_env_float(
             "API_THROTTLE_SECONDS",
             float(data_cfg.get("api_throttle_seconds", 1.5)),
@@ -371,8 +388,14 @@ def get_settings(create_dirs: bool = False) -> Settings:
             root,
             os.getenv("RESULTS_DIR", outputs_cfg.get("results_csv_dir", "results_csv")),
         ),
-        logs_dir=_as_path(root, os.getenv("LOGS_DIR", outputs_cfg.get("logs_dir", "logs"))),
-        signals_dir=_as_path(root, outputs_cfg.get("signals_dir", "data_cache/signals")),
+        logs_dir=_as_path(
+            root,
+            os.getenv("LOGS_DIR", outputs_cfg.get("logs_dir", "logs")),
+        ),
+        signals_dir=_as_path(
+            root,
+            outputs_cfg.get("signals_dir", "data_cache/signals"),
+        ),
     )
 
     logging = LoggingConfig(
@@ -385,15 +408,10 @@ def get_settings(create_dirs: bool = False) -> Settings:
 
     # 長短比率の読み込み（0〜1にクランプ）
     try:
-        _dlr_raw = os.getenv("DEFAULT_LONG_RATIO", str(ui_cfg.get("default_long_ratio", 0.5)))
-        _dlr = float(_dlr_raw)
-    except Exception:
-        _dlr = 0.5
-    _dlr = 0.0 if _dlr < 0.0 else 1.0 if _dlr > 1.0 else _dlr
-
-    # 長短比率の読み込み（0〜1にクランプ）
-    try:
-        _dlr_raw = os.getenv("DEFAULT_LONG_RATIO", str(ui_cfg.get("default_long_ratio", 0.5)))
+        _dlr_raw = os.getenv(
+            "DEFAULT_LONG_RATIO",
+            str(ui_cfg.get("default_long_ratio", 0.5)),
+        )
         _dlr = float(_dlr_raw)
     except Exception:
         _dlr = 0.5
@@ -415,15 +433,26 @@ def get_settings(create_dirs: bool = False) -> Settings:
             return default_map
 
     ui = UIConfig(
-        default_capital=int(os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))),
+        default_capital=int(
+            os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))
+        ),
         default_long_ratio=_dlr,
         long_allocations=_as_alloc_map(
             ui_cfg.get("long_allocations", {}),
-            {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25},
+            {
+                "system1": 0.25,
+                "system3": 0.25,
+                "system4": 0.25,
+                "system5": 0.25,
+            },
         ),
         short_allocations=_as_alloc_map(
             ui_cfg.get("short_allocations", {}),
-            {"system2": 0.40, "system6": 0.40, "system7": 0.20},
+            {
+                "system2": 0.40,
+                "system6": 0.40,
+                "system7": 0.20,
+            },
         ),
         auto_tickers=tuple(ui_cfg.get("auto_tickers", ()) or ()),
         debug_mode=bool(

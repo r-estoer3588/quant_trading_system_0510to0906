@@ -27,6 +27,10 @@ if str(ROOT_DIR) not in sys.path:
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 
 from common.cache_manager import CacheManager  # noqa: E402
+from common.symbols_manifest import (  # noqa: E402
+    MANIFEST_FILENAME,
+    load_symbol_manifest,
+)
 from config.settings import get_settings  # noqa: E402
 from indicators_common import add_indicators  # noqa: E402
 
@@ -166,6 +170,36 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     return enriched.loc[:, cols]
 
 
+def _resolve_symbol_universe(
+    cache_manager: CacheManager,
+    symbols: Iterable[str] | None,
+    log: Callable[[str], None] | None,
+) -> list[str]:
+    if symbols is not None:
+        return [s for s in (sym.strip() for sym in symbols) if s]
+
+    manifest_symbols = load_symbol_manifest(cache_manager.full_dir)
+    if manifest_symbols:
+        _log_message(
+            (
+                "ℹ️ cache_daily_data マニフェスト({file}) から "
+                "{count} 銘柄を読み込みました"
+            ).format(file=MANIFEST_FILENAME, count=len(manifest_symbols)),
+            log,
+        )
+        return manifest_symbols
+
+    discovered = _discover_symbols(cache_manager.full_dir)
+    _log_message(
+        (
+            "ℹ️ マニフェスト未検出のため full_backup を走査して "
+            "{count} 銘柄を検出しました"
+        ).format(count=len(discovered)),
+        log,
+    )
+    return discovered
+
+
 def extract_rolling_from_full(
     cache_manager: CacheManager,
     *,
@@ -192,10 +226,7 @@ def extract_rolling_from_full(
             target_days = 330
     target_days = max(1, int(target_days))
 
-    if symbols is None:
-        symbol_list = _discover_symbols(cache_manager.full_dir)
-    else:
-        symbol_list = [s for s in (sym.strip() for sym in symbols) if s]
+    symbol_list = _resolve_symbol_universe(cache_manager, symbols, log)
 
     initial_total = len(symbol_list)
 
@@ -285,7 +316,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--symbols",
         nargs="+",
-        help="処理対象シンボル（未指定時は full_backup の全銘柄）",
+        help="処理対象シンボル（未指定時は cache_daily_data マニフェスト/全銘柄）",
     )
     parser.add_argument(
         "--target-days",

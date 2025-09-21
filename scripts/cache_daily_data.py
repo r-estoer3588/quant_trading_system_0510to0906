@@ -63,6 +63,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from indicators_common import add_indicators  # noqa: E402
 
 from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from common.symbols_manifest import save_symbol_manifest  # noqa: E402
 
 BASE_SUBDIR_NAME = "base"
 
@@ -499,6 +500,11 @@ def cache_data(
 def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
+    # rolling 再構築でも同一リストを利用できるようマニフェストを保存
+    try:
+        save_symbol_manifest((safe_filename(s) for s in symbols), DATA_CACHE_DIR)
+    except Exception as exc:  # pragma: no cover - logging only
+        logging.warning("シンボルマニフェストの保存に失敗: %s", exc)
     print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
     cache_data(symbols, output_dir=DATA_CACHE_DIR, base_dir=BASE_CACHE_DIR)
     print("データのキャッシュが完了しました。")

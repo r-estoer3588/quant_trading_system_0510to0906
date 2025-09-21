@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from common.cache_manager import CacheManager
+from common.symbols_manifest import save_symbol_manifest
 from scripts.build_rolling_with_indicators import extract_rolling_from_full
 
 
@@ -16,11 +17,8 @@ class DummyRolling(SimpleNamespace):
     max_symbols = None
 
 
-def _build_cache_manager(tmp_path, rolling_overrides: dict | None = None) -> CacheManager:
+def _build_cache_manager(tmp_path) -> CacheManager:
     rolling = DummyRolling()
-    if rolling_overrides:
-        for key, value in rolling_overrides.items():
-            setattr(rolling, key, value)
 
     cache = SimpleNamespace(
         full_dir=tmp_path / "full",
@@ -116,12 +114,14 @@ def test_extract_subset_and_target_days(tmp_path):
     assert len(rolling_df) == 40
 
 
-def test_extract_respects_max_symbols(tmp_path):
-    cm = _build_cache_manager(tmp_path, {"max_symbols": 2})
+def test_extract_uses_symbol_manifest(tmp_path):
+    cm = _build_cache_manager(tmp_path)
     df = _sample_full_df(days=120)
     cm.write_atomic(df, "AAA", "full")
     cm.write_atomic(df, "BBB", "full")
     cm.write_atomic(df, "CCC", "full")
+
+    save_symbol_manifest(["AAA", "CCC"], cm.full_dir)
 
     stats = extract_rolling_from_full(cm)
 
@@ -129,5 +129,5 @@ def test_extract_respects_max_symbols(tmp_path):
     assert stats.updated_symbols == 2
     assert stats.errors == {}
     assert cm.read("AAA", "rolling") is not None
-    assert cm.read("BBB", "rolling") is not None
-    assert cm.read("CCC", "rolling") is None
+    assert cm.read("BBB", "rolling") is None
+    assert cm.read("CCC", "rolling") is not None
