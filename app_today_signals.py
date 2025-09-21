@@ -106,10 +106,12 @@ from common.position_age import (
 from common.stage_metrics import GLOBAL_STAGE_METRICS, StageSnapshot
 from common.profit_protection import evaluate_positions
 from common.stage_metrics import DEFAULT_SYSTEM_ORDER, StageMetricsStore
+from common.symbol_universe import build_symbol_universe_from_settings
 from common.system_groups import (
     format_group_counts,
     format_group_counts_and_values,
 )
+from common.symbol_universe import build_symbol_universe_from_settings
 from common.today_signals import (
     LONG_SYSTEMS,
     SHORT_SYSTEMS,
@@ -2545,7 +2547,15 @@ def _render_previous_run_logs(log_lines: list[str]) -> None:
 
 with st.sidebar:
     st.header("ユニバース")
-    universe = univ.load_universe_file()
+    universe: list[str] = []
+    try:
+        logger = logging.getLogger("today_signals.ui")
+        universe = build_symbol_universe_from_settings(settings, logger=logger)
+    except Exception as exc:
+        universe = []
+        st.warning(f"NASDAQ/EODHDの銘柄取得に失敗しました: {exc}")
+    if not universe:
+        universe = univ.load_universe_file()
     if not universe:
         universe = univ.build_universe_from_cache(limit=None)
         univ.save_universe_file(universe)
