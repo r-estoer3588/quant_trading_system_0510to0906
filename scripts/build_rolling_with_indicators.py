@@ -187,7 +187,35 @@ def _resolve_symbol_universe(
             ).format(file=MANIFEST_FILENAME, count=len(manifest_symbols)),
             log,
         )
-        return manifest_symbols
+
+        available = _discover_symbols(cache_manager.full_dir)
+        available_set = {sym.upper() for sym in available}
+        filtered = [sym for sym in manifest_symbols if sym.upper() in available_set]
+
+        if filtered:
+            missing = len(manifest_symbols) - len(filtered)
+            if missing:
+                _log_message(
+                    (
+                        "ℹ️ full_backup に未存在の {missing} 銘柄を除外し "
+                        "{count} 銘柄を処理対象とします"
+                    ).format(missing=missing, count=len(filtered)),
+                    log,
+                )
+            return filtered
+
+        if available:
+            _log_message(
+                (
+                    "⚠️ マニフェスト銘柄が full_backup に存在しないため "
+                    "full_backup を走査した {count} 銘柄を利用します"
+                ).format(count=len(available)),
+                log,
+            )
+            return available
+
+        _log_message("⚠️ full_backup ディレクトリから処理対象を検出できませんでした", log)
+        return []
 
     discovered = _discover_symbols(cache_manager.full_dir)
     _log_message(
@@ -227,26 +255,6 @@ def extract_rolling_from_full(
     target_days = max(1, int(target_days))
 
     symbol_list = _resolve_symbol_universe(cache_manager, symbols, log)
-
-    initial_total = len(symbol_list)
-
-    limit_override = _normalize_positive_int(max_symbols)
-    if limit_override is None:
-        limit_override = _normalize_positive_int(
-            getattr(cache_manager.rolling_cfg, "max_symbols", None)
-        )
-
-    if limit_override is not None and limit_override < initial_total:
-        symbol_list = symbol_list[:limit_override]
-        _log_message(
-            (
-                "ℹ️ 処理上限 {limit} 銘柄のため "
-                "{total} 件中 {current} 件を対象にします"
-            ).format(
-                limit=limit_override, total=initial_total, current=len(symbol_list)
-            ),
-            log,
-        )
 
     stats = ExtractionStats(total_symbols=len(symbol_list))
 

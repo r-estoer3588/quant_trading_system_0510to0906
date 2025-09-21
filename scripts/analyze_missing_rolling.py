@@ -23,22 +23,22 @@ def fmt_md_table(df, cols=None, limit=100):
     lines.append("| " + " | ".join(cols) + " |")
     lines.append("|" + "---|" * len(cols))
     for _, r in df.head(limit).iterrows():
-        lines.append("| " + " | ".join(str(r.get(c, '')) for c in cols) + " |")
+        lines.append("| " + " | ".join(str(r.get(c, "")) for c in cols) + " |")
     return "\n".join(lines)
 
 
 def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
     df = pd.read_csv(path)
 
-    now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if out_dir is None:
-        out_dir = Path('data_cache') / 'rolling' / '_missing_reports'
+        out_dir = Path("data_cache") / "rolling" / "_missing_reports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f'summary_{now}.md'
+    out_path = out_dir / f"summary_{now}.md"
 
     rows = len(df)
     symbol_col = None
-    for c in ['Symbol', 'symbol', 'Ticker']:
+    for c in ["Symbol", "symbol", "Ticker"]:
         if c in df.columns:
             symbol_col = c
             break
@@ -48,22 +48,22 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
     top_symbols = None
     if symbol_col:
         top_symbols = df[symbol_col].value_counts().head(top_n).reset_index()
-        top_symbols.columns = [symbol_col, 'count']
+        top_symbols.columns = [symbol_col, "count"]
 
-    date_cols = [c for c in ['Date', 'StartDate', 'EndDate'] if c in df.columns]
+    date_cols = [c for c in ["Date", "StartDate", "EndDate"] if c in df.columns]
     date_ranges = {}
     for c in date_cols:
         try:
-            s = pd.to_datetime(df[c], errors='coerce')
-            date_ranges[c] = {'min': s.min(), 'max': s.max(), 'na': int(s.isna().sum())}
+            s = pd.to_datetime(df[c], errors="coerce")
+            date_ranges[c] = {"min": s.min(), "max": s.max(), "na": int(s.isna().sum())}
         except Exception:
-            date_ranges[c] = {'min': None, 'max': None, 'na': int(df[c].isna().sum())}
+            date_ranges[c] = {"min": None, "max": None, "na": int(df[c].isna().sum())}
 
     # date distribution if Date exists
     date_dist = None
-    if 'Date' in df.columns:
+    if "Date" in df.columns:
         try:
-            s = pd.to_datetime(df['Date'], errors='coerce')
+            s = pd.to_datetime(df["Date"], errors="coerce")
             date_dist = s.dt.date.value_counts().sort_index()
         except Exception:
             date_dist = None
@@ -74,8 +74,9 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
     # - single-letter tickers (like 'A') get 500
     # - otherwise default 1
     if symbol_col:
+
         def liquidity_proxy(sym: str) -> int:
-            if sym == 'SPY':
+            if sym == "SPY":
                 return 1000
             if len(sym) == 1:
                 return 500
@@ -84,11 +85,9 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
         counts = df[symbol_col].value_counts()
         impact_df = counts.reset_index()
         # ensure columns are named consistently: [symbol_col, 'missing_count']
-        impact_df.columns = [symbol_col, 'missing_count']
-        impact_df['liquidity_proxy'] = impact_df[symbol_col].apply(liquidity_proxy)
-        impact_df['impact_score'] = (
-            impact_df['missing_count'] * impact_df['liquidity_proxy']
-        )
+        impact_df.columns = [symbol_col, "missing_count"]
+        impact_df["liquidity_proxy"] = impact_df[symbol_col].apply(liquidity_proxy)
+        impact_df["impact_score"] = impact_df["missing_count"] * impact_df["liquidity_proxy"]
     else:
         impact_df = None
 
@@ -120,8 +119,8 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
         lines.append("| Column | Min | Max | NaN Count |")
         lines.append("|---|---|---|---:|")
         for c, v in date_ranges.items():
-            minv = v['min'] if v['min'] is not pd.NaT and v['min'] is not None else ''
-            maxv = v['max'] if v['max'] is not pd.NaT and v['max'] is not None else ''
+            minv = v["min"] if v["min"] is not pd.NaT and v["min"] is not None else ""
+            maxv = v["max"] if v["max"] is not pd.NaT and v["max"] is not None else ""
             lines.append(f"| {c} | {minv} | {maxv} | {v['na']} |")
         lines.append("")
 
@@ -141,9 +140,7 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
         sample_syms = top_symbols[symbol_col].head(10).tolist()
         sample_df = df[df[symbol_col].isin(sample_syms)].copy()
         cols = [symbol_col] + [
-            c
-            for c in ['Date', 'StartDate', 'EndDate', 'Reason']
-            if c in df.columns
+            c for c in ["Date", "StartDate", "EndDate", "Reason"] if c in df.columns
         ]
         if not cols:
             cols = df.columns.tolist()[:10]
@@ -154,17 +151,15 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
     lines.append("## Top N missing symbols sample (N=500)")
     lines.append("")
     if impact_df is not None:
-        top500 = impact_df.sort_values('missing_count', ascending=False).head(500)
+        top500 = impact_df.sort_values("missing_count", ascending=False).head(500)
         lines.append("| Symbol | Missing Count | Liquidity Proxy | Impact Score |")
         lines.append("|---|---:|---:|---:|")
         for _, r in top500.iterrows():
             sym = r.iloc[0]
-            missing = int(r['missing_count'])
-            lp = int(r['liquidity_proxy'])
-            impact = int(r['impact_score'])
-            lines.append(
-                f"| {sym} | {missing} | {lp} | {impact} |"
-            )
+            missing = int(r["missing_count"])
+            lp = int(r["liquidity_proxy"])
+            impact = int(r["impact_score"])
+            lines.append(f"| {sym} | {missing} | {lp} | {impact} |")
     else:
         lines.append("No symbol data available for top N sample.")
     lines.append("")
@@ -173,43 +168,41 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
     if impact_df is not None:
         lines.append("## Highest estimated market-impact symbols")
         lines.append("")
-        top_impact = impact_df.sort_values('impact_score', ascending=False).head(20)
+        top_impact = impact_df.sort_values("impact_score", ascending=False).head(20)
         lines.append("| Symbol | Missing Count | Liquidity Proxy | Impact Score |")
         lines.append("|---|---:|---:|---:|")
         for _, r in top_impact.iterrows():
             sym = r.iloc[0]
-            missing = int(r['missing_count'])
-            lp = int(r['liquidity_proxy'])
-            impact = int(r['impact_score'])
-            lines.append(
-                f"| {sym} | {missing} | {lp} | {impact} |"
-            )
+            missing = int(r["missing_count"])
+            lp = int(r["liquidity_proxy"])
+            impact = int(r["impact_score"])
+            lines.append(f"| {sym} | {missing} | {lp} | {impact} |")
         lines.append("")
 
     lines.append("---")
     lines.append(f"Generated by `scripts/analyze_missing_rolling.py` on {now}")
 
-    with open(out_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(str(x) for x in lines))
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(str(x) for x in lines))
 
-    print(f'Analysis written to: {out_path}')
+    print(f"Analysis written to: {out_path}")
 
 
 def main_cli():
-    p = argparse.ArgumentParser(description='Analyze rolling cache missing CSV')
-    p.add_argument('--input', '-i', required=True, help='CSV file path')
-    p.add_argument('--top', '-n', type=int, default=20, help='Top N symbols')
-    p.add_argument('--outdir', help='Output directory for markdown report')
+    p = argparse.ArgumentParser(description="Analyze rolling cache missing CSV")
+    p.add_argument("--input", "-i", required=True, help="CSV file path")
+    p.add_argument("--top", "-n", type=int, default=20, help="Top N symbols")
+    p.add_argument("--outdir", help="Output directory for markdown report")
     args = p.parse_args()
 
     path = Path(args.input)
     if not path.exists():
-        print(f'ERROR: input file not found: {path}', file=sys.stderr)
+        print(f"ERROR: input file not found: {path}", file=sys.stderr)
         sys.exit(2)
 
     outdir = Path(args.outdir) if args.outdir else None
     analyze(path, top_n=args.top, out_dir=outdir)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main_cli()

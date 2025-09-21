@@ -121,13 +121,31 @@ def test_extract_uses_symbol_manifest(tmp_path):
     cm.write_atomic(df, "BBB", "full")
     cm.write_atomic(df, "CCC", "full")
 
-    save_symbol_manifest(["AAA", "CCC"], cm.full_dir)
+    save_symbol_manifest(["AAA", "CCC", "ZZZ"], cm.full_dir)
 
     stats = extract_rolling_from_full(cm)
 
     assert stats.total_symbols == 2
     assert stats.updated_symbols == 2
     assert stats.errors == {}
+    assert stats.skipped_no_data == 0
     assert cm.read("AAA", "rolling") is not None
     assert cm.read("BBB", "rolling") is None
     assert cm.read("CCC", "rolling") is not None
+    assert cm.read("ZZZ", "rolling") is None
+
+
+def test_extract_manifest_missing_symbols_falls_back(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+
+    save_symbol_manifest(["ZZZ"], cm.full_dir)
+
+    stats = extract_rolling_from_full(cm)
+
+    assert stats.total_symbols == 1
+    assert stats.updated_symbols == 1
+    assert stats.errors == {}
+    assert stats.skipped_no_data == 0
+    assert cm.read("AAA", "rolling") is not None
