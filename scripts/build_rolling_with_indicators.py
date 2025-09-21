@@ -64,6 +64,16 @@ def _log_message(message: str, log: Callable[[str], None] | None) -> None:
     LOGGER.info(message)
 
 
+def _normalize_positive_int(value: Any | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _discover_symbols(full_dir: Path) -> list[str]:
     """Detect available symbols from the full backup directory."""
 
@@ -161,9 +171,16 @@ def extract_rolling_from_full(
     *,
     symbols: Iterable[str] | None = None,
     target_days: int | None = None,
+    max_symbols: int | None = None,
     log: Callable[[str], None] | None = None,
 ) -> ExtractionStats:
-    """Extract rolling window slices from full backup cache and persist them."""
+    """Extract rolling window slices from full backup cache and persist them.
+
+    ``max_symbols`` can be used to cap the number of symbols processed.  When
+    not provided explicitly the method falls back to
+    ``cache_manager.rolling_cfg.max_symbols`` if it is configured with a
+    positive integer value.
+    """
 
     if target_days is None:
         try:
@@ -179,6 +196,26 @@ def extract_rolling_from_full(
         symbol_list = _discover_symbols(cache_manager.full_dir)
     else:
         symbol_list = [s for s in (sym.strip() for sym in symbols) if s]
+
+    initial_total = len(symbol_list)
+
+    limit_override = _normalize_positive_int(max_symbols)
+    if limit_override is None:
+        limit_override = _normalize_positive_int(
+            getattr(cache_manager.rolling_cfg, "max_symbols", None)
+        )
+
+    if limit_override is not None and limit_override < initial_total:
+        symbol_list = symbol_list[:limit_override]
+        _log_message(
+            (
+                "ℹ️ 処理上限 {limit} 銘柄のため "
+                "{total} 件中 {current} 件を対象にします"
+            ).format(
+                limit=limit_override, total=initial_total, current=len(symbol_list)
+            ),
+            log,
+        )
 
     stats = ExtractionStats(total_symbols=len(symbol_list))
 
@@ -255,6 +292,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="ローリングに保持する営業日数（既定: 設定値 base+buffer）",
     )
+    parser.add_argument(
+        "--max-symbols",
+        type=int,
+        help="処理上限銘柄数（0 以下で無制限。既定: 設定値 rolling.max_symbols）",
+    )
     return parser
 
 
@@ -273,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
         cache_manager,
         symbols=args.symbols,
         target_days=args.target_days,
+        max_symbols=args.max_symbols,
         log=_console_log,
     )
 

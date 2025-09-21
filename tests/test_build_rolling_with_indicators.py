@@ -13,13 +13,19 @@ class DummyRolling(SimpleNamespace):
     buffer_days = 30
     prune_chunk_days = 30
     meta_file = "_meta.json"
+    max_symbols = None
 
 
-def _build_cache_manager(tmp_path) -> CacheManager:
+def _build_cache_manager(tmp_path, rolling_overrides: dict | None = None) -> CacheManager:
+    rolling = DummyRolling()
+    if rolling_overrides:
+        for key, value in rolling_overrides.items():
+            setattr(rolling, key, value)
+
     cache = SimpleNamespace(
         full_dir=tmp_path / "full",
         rolling_dir=tmp_path / "rolling",
-        rolling=DummyRolling(),
+        rolling=rolling,
         file_format="csv",
     )
     settings = SimpleNamespace(cache=cache)
@@ -108,3 +114,20 @@ def test_extract_subset_and_target_days(tmp_path):
     assert stats.updated_symbols == 1
     rolling_df = cm.read("XYZ", "rolling")
     assert len(rolling_df) == 40
+
+
+def test_extract_respects_max_symbols(tmp_path):
+    cm = _build_cache_manager(tmp_path, {"max_symbols": 2})
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+    cm.write_atomic(df, "BBB", "full")
+    cm.write_atomic(df, "CCC", "full")
+
+    stats = extract_rolling_from_full(cm)
+
+    assert stats.total_symbols == 2
+    assert stats.updated_symbols == 2
+    assert stats.errors == {}
+    assert cm.read("AAA", "rolling") is not None
+    assert cm.read("BBB", "rolling") is not None
+    assert cm.read("CCC", "rolling") is None

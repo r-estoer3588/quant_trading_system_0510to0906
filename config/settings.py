@@ -74,6 +74,7 @@ class CacheRollingConfig:
     prune_chunk_days: int = 30
     meta_file: str = "_meta.json"
     max_stale_days: int = 2
+    max_symbols: int | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,20 @@ def _env_float(name: str, default: float) -> float:
         return float(os.getenv(name, default))
     except Exception:
         return default
+
+
+def _positive_int_or_none(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _as_path(base: Path, p: str | os.PathLike) -> Path:
@@ -318,6 +333,15 @@ def get_settings(create_dirs: bool = False) -> Settings:
         ),
     )
 
+    max_symbols_cfg = _positive_int_or_none(rolling_cfg.get("max_symbols"))
+    env_override_raw = os.getenv("ROLLING_MAX_SYMBOLS")
+    if env_override_raw is not None:
+        override_val = _positive_int_or_none(env_override_raw)
+        if override_val is None and env_override_raw.strip() not in {"", "0"}:
+            pass
+        else:
+            max_symbols_cfg = override_val
+
     cache = CacheConfig(
         full_dir=_as_path(root, cache_cfg.get("full_dir", "data_cache/full_backup")),
         rolling_dir=_as_path(root, cache_cfg.get("rolling_dir", "data_cache/rolling")),
@@ -328,6 +352,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
             max_stale_days=int(rolling_cfg.get("max_stale_days", 2)),
+            max_symbols=max_symbols_cfg,
         ),
     )
 
