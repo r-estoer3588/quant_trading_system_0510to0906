@@ -13,7 +13,10 @@ processing has started.
 from dataclasses import dataclass
 from threading import Lock
 from collections import deque
-from typing import Deque, Dict
+from typing import Deque, Dict, Iterable
+
+
+DEFAULT_SYSTEM_ORDER = tuple(f"system{i}" for i in range(1, 8))
 
 
 def _normalize_count(value: object | None) -> int | None:
@@ -85,11 +88,23 @@ class StageSnapshot:
 class StageMetricsStore:
     """Thread-safe store for stage progress snapshots and queued events."""
 
-    def __init__(self) -> None:
+    _DISPLAY_KEYS = ("target", "filter", "setup", "cand", "entry", "exit")
+
+    def __init__(self, system_order: Iterable[str] | None = None) -> None:
         self._snapshots: Dict[str, StageSnapshot] = {}
         self._events: Deque[StageEvent] = deque()
         self._lock = Lock()
         self._universe_target: int | None = None
+        self.stage_counts: Dict[str, dict[str, int | None]] = {}
+        self._display_order: list[str] = []
+
+        if system_order is not None:
+            for name in system_order:
+                key = self._normalize_system_name(name)
+                if key not in self._display_order:
+                    self._display_order.append(key)
+                if key not in self.stage_counts:
+                    self.stage_counts[key] = self._new_display_bucket()
 
     # ------------------------------------------------------------------
     # lifecycle helpers
@@ -128,9 +143,7 @@ class StageMetricsStore:
     ) -> StageSnapshot:
         """Update a system snapshot and optionally queue a stage event."""
 
-        system_key = str(system or "").strip().lower()
-        if not system_key:
-            system_key = "unknown"
+        system_key = self._normalize_system_name(system)
 
         try:
             progress_int = int(progress)
@@ -179,9 +192,7 @@ class StageMetricsStore:
     ) -> StageSnapshot:
         """Update the exit count for a system and return the snapshot."""
 
-        system_key = str(system or "").strip().lower()
-        if not system_key:
-            system_key = "unknown"
+        system_key = self._normalize_system_name(system)
         exit_int = _normalize_count(exit_count)
 
         with self._lock:
@@ -196,7 +207,7 @@ class StageMetricsStore:
     def get_snapshot(self, system: str) -> StageSnapshot | None:
         """Return a copy of the snapshot for ``system`` if present."""
 
-        system_key = str(system or "").strip().lower()
+        system_key = self._normalize_system_name(system)
         with self._lock:
             snapshot = self._snapshots.get(system_key)
             return snapshot.copy() if snapshot is not None else None
@@ -224,10 +235,78 @@ class StageMetricsStore:
         with self._lock:
             return self._universe_target
 
+    # ------------------------------------------------------------------
+    # display helpers for Streamlit UI
+    # ------------------------------------------------------------------
+    def ensure_display_metrics(self, system: object) -> dict[str, int | None]:
+        """Return a mutable metrics bucket for ``system`` creating it on demand."""
+
+        system_key = self._normalize_system_name(system)
+        with self._lock:
+            bucket = self._ensure_display_bucket_locked(system_key)
+        return bucket
+
+    def get_display_metrics(self, system: object) -> dict[str, int | None]:
+        """Return a copy of the display metrics for ``system``."""
+
+        system_key = self._normalize_system_name(system)
+        with self._lock:
+            bucket = self._ensure_display_bucket_locked(system_key)
+            return dict(bucket)
+
+    def systems(self) -> list[str]:
+        """Return systems known to the display store preserving configured order."""
+
+        with self._lock:
+            ordered = list(self._display_order)
+            extras = [name for name in self.stage_counts if name not in ordered]
+        extras.sort()
+        return ordered + extras
+
+    @staticmethod
+    def clamp_trdlist(value: object | None) -> int | None:
+        """Normalize the TRDlist count for display (non-negative, bounded)."""
+
+        if value is None:
+            return None
+        try:
+            count = int(value)
+        except Exception:
+            try:
+                count = int(float(value))
+            except Exception:
+                return None
+        if count < 0:
+            return 0
+        return min(count, 9999)
+
+    @staticmethod
+    def _normalize_system_name(system: object) -> str:
+        try:
+            system_key = str(system or "").strip().lower()
+        except Exception:
+            system_key = ""
+        return system_key or "unknown"
+
+    def _new_display_bucket(self) -> dict[str, int | None]:
+        return {key: None for key in self._DISPLAY_KEYS}
+
+    def _ensure_display_bucket_locked(
+        self, system_key: str
+    ) -> dict[str, int | None]:
+        bucket = self.stage_counts.get(system_key)
+        if bucket is None:
+            bucket = self._new_display_bucket()
+            self.stage_counts[system_key] = bucket
+        if system_key not in self._display_order:
+            self._display_order.append(system_key)
+        return bucket
+
 
 GLOBAL_STAGE_METRICS = StageMetricsStore()
 
 __all__ = [
+    "DEFAULT_SYSTEM_ORDER",
     "GLOBAL_STAGE_METRICS",
     "StageEvent",
     "StageMetricsStore",

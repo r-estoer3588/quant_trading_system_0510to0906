@@ -893,6 +893,9 @@ class StageTracker:
         self.metrics_txt: dict[str, Any] = {}
         self.states: dict[str, int] = {}
         self.metrics_store = StageMetricsStore(DEFAULT_SYSTEM_ORDER)
+        self.stage_counts = self.metrics_store.stage_counts
+        self.universe_total: int | None = None
+        self.universe_target: int | None = None
         if self.show_ui:
             sys_cols = st.columns(7)
             sys_labels = [f"System{i}" for i in range(1, 8)]
@@ -1148,9 +1151,14 @@ class StageTracker:
         if placeholder is None:
             return
         display = self.metrics_store.get_display_metrics(key)
+        target_value = (
+            self.universe_target
+            if self.universe_target is not None
+            else display.get("target")
+        )
         text = "  ".join(
             [
-                f"Tgt {self._format_value(display.get('target'))}",
+                f"Tgt {self._format_value(target_value)}",
                 f"FILpass {self._format_value(display.get('filter'))}",
                 f"STUpass {self._format_value(display.get('setup'))}",
                 f"TRDlist {self._format_trdlist(display.get('cand'))}",
@@ -1166,6 +1174,9 @@ class StageTracker:
     def get_display_metrics(self, name: str) -> dict[str, int | None]:
         key = str(name).lower()
         return self.metrics_store.get_display_metrics(key)
+
+    def _ensure_counts(self, name: str) -> dict[str, int | None]:
+        return self.metrics_store.ensure_display_metrics(name)
 
     @staticmethod
     def _format_value(value: Any) -> str:
