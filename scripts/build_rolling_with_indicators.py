@@ -15,6 +15,7 @@ import argparse
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -25,6 +26,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
+import requests  # noqa: E402
 
 from common.cache_manager import CacheManager  # noqa: E402
 from common.symbols_manifest import (  # noqa: E402
@@ -48,6 +50,7 @@ class ExtractionStats:
     updated_symbols: int = 0
     skipped_no_data: int = 0
     errors: dict[str, str] = field(default_factory=dict)
+    reference_symbol_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -56,6 +59,7 @@ class ExtractionStats:
             "updated_symbols": self.updated_symbols,
             "skipped_no_data": self.skipped_no_data,
             "errors": dict(self.errors),
+            "reference_symbol_count": self.reference_symbol_count,
         }
 
 
@@ -228,6 +232,139 @@ def _resolve_symbol_universe(
     return discovered
 
 
+def _fetch_eodhd_symbol_count(
+    cache_manager: CacheManager,
+    log: Callable[[str], None] | None,
+    *,
+    exchanges: Iterable[str] | None = None,
+) -> int | None:
+    """Fetch the reference symbol count from EODHD exchange endpoints."""
+
+    if exchanges is None:
+        exchanges = ("NYSE", "NASDAQ", "AMEX")
+
+    try:
+        settings = cache_manager.settings
+    except AttributeError:
+        settings = None
+
+    if settings is None:
+        return None
+
+    base_url = (
+        getattr(settings, "API_EODHD_BASE", None)
+        or getattr(getattr(settings, "data", None), "eodhd_base", None)
+    )
+    if not base_url:
+        return None
+    base_url = str(base_url).rstrip("/")
+
+    api_key = getattr(settings, "EODHD_API_KEY", None) or ""
+    if not api_key:
+        data_cfg = getattr(settings, "data", None)
+        if data_cfg is not None:
+            env_name = getattr(data_cfg, "api_key_env", "EODHD_API_KEY")
+            api_key = os.getenv(env_name, "")
+    if not api_key:
+        api_key = os.getenv("EODHD_API_KEY", "")
+    if not api_key:
+        return None
+
+    try:
+        timeout = int(getattr(settings, "REQUEST_TIMEOUT", 10))
+    except Exception:
+        timeout = 10
+
+    discovered: set[str] = set()
+    successful: list[str] = []
+    errors: list[str] = []
+
+    for exchange in exchanges:
+        if not exchange:
+            continue
+        exch = str(exchange).strip().upper()
+        if not exch:
+            continue
+        url = (
+            f"{base_url}/api/exchange-symbol-list/{exch}?"
+            f"api_token={api_key}&fmt=json"
+        )
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+        except Exception as exc:  # pragma: no cover - logging only
+            errors.append(f"{exch}:{type(exc).__name__}")
+            _log_message(
+                f"⚠️ EODHD {exch}: 銘柄一覧取得に失敗 ({exc})",
+                log,
+            )
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+
+        if isinstance(payload, dict):
+            for key in ("data", "symbols", "items", "results"):
+                if key in payload and isinstance(payload[key], list):
+                    payload = payload[key]
+                    break
+
+        if not isinstance(payload, list):
+            errors.append(f"{exch}:invalid_payload")
+            _log_message(
+                f"⚠️ EODHD {exch}: 銘柄一覧が無効な形式でした",
+                log,
+            )
+            continue
+
+        before = len(discovered)
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            code = (
+                row.get("Code")
+                or row.get("code")
+                or row.get("Symbol")
+                or row.get("symbol")
+            )
+            if not code:
+                continue
+            ticker = str(code).strip().upper()
+            if ticker:
+                discovered.add(ticker)
+
+        added = len(discovered) - before
+        if added > 0:
+            successful.append(f"{exch}:{added}")
+        else:
+            errors.append(f"{exch}:empty")
+            _log_message(
+                f"⚠️ EODHD {exch}: 銘柄が検出できませんでした",
+                log,
+            )
+
+    if discovered:
+        summary = ", ".join(successful) if successful else "unknown"
+        _log_message(
+            (
+                "ℹ️ EODHD参照銘柄数チェック: {count}件 "
+                "(重複除外, 内訳={summary})"
+            ).format(count=len(discovered), summary=summary),
+            log,
+        )
+        return len(discovered)
+
+    if errors:
+        _log_message(
+            "⚠️ EODHD 銘柄数チェックに失敗しました: " + ", ".join(errors),
+            log,
+        )
+
+    return None
+
+
 def extract_rolling_from_full(
     cache_manager: CacheManager,
     *,
@@ -257,6 +394,25 @@ def extract_rolling_from_full(
     symbol_list = _resolve_symbol_universe(cache_manager, symbols, log)
 
     stats = ExtractionStats(total_symbols=len(symbol_list))
+
+    if symbols is None:
+        reference_count = _fetch_eodhd_symbol_count(cache_manager, log)
+        if reference_count is not None:
+            stats.reference_symbol_count = reference_count
+            diff = reference_count - len(symbol_list)
+            if diff:
+                _log_message(
+                    (
+                        "⚠️ EODHD参照銘柄数 {ref}件と rolling 対象 {target}件が"
+                        " 不一致です (差分={diff:+d})"
+                    ).format(ref=reference_count, target=len(symbol_list), diff=diff),
+                    log,
+                )
+            else:
+                _log_message(
+                    f"ℹ️ EODHD参照銘柄数と rolling 対象が一致 ({len(symbol_list)} 銘柄)",
+                    log,
+                )
 
     if not symbol_list:
         _log_message("対象シンボルが見つかりませんでした。", log)

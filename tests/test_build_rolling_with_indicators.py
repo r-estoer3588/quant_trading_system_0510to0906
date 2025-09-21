@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from common.cache_manager import CacheManager
 from common.symbols_manifest import save_symbol_manifest
@@ -149,3 +150,29 @@ def test_extract_manifest_missing_symbols_falls_back(tmp_path):
     assert stats.errors == {}
     assert stats.skipped_no_data == 0
     assert cm.read("AAA", "rolling") is not None
+
+
+def test_extract_records_reference_count(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    df = _sample_full_df(days=120)
+    cm.write_atomic(df, "AAA", "full")
+
+    captured: list[str] = []
+
+    call_counter = {"count": 0}
+
+    def fake_fetch(cache_manager, log, *, exchanges=None):
+        call_counter["count"] += 1
+        assert cache_manager is cm
+        return 2
+
+    monkeypatch.setattr(
+        "scripts.build_rolling_with_indicators._fetch_eodhd_symbol_count",
+        fake_fetch,
+    )
+
+    stats = extract_rolling_from_full(cm, log=captured.append)
+
+    assert call_counter["count"] == 1
+    assert stats.reference_symbol_count == 2
+    assert any("EODHD参照銘柄数" in msg and "不一致" in msg for msg in captured)
