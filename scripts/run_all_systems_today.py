@@ -3526,6 +3526,8 @@ def compute_today_signals(  # type: ignore[analysis]
             )
             return name, pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
         _local_log(f"🔎 {name}: シグナル抽出を開始")
+        pool_outcome: str | None = None
+        df = pd.DataFrame()
         try:
             # 段階進捗: 0/25/50/75/100 を UI 側に橋渡し
             def _stage(
@@ -3554,16 +3556,20 @@ def compute_today_signals(  # type: ignore[analysis]
             import os as _os
 
             # プロセスプール利用可否（環境変数で上書き可）
-            env_pp = _os.environ.get("USE_PROCESS_POOL", "").lower()
-            if env_pp in ("0", "false", "no"):
-                use_process_pool = False
-            elif env_pp in ("1", "true", "yes"):
+            env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
+            env_pp = env_pp_raw.strip().lower()
+            if env_pp in {"1", "true", "yes", "on"}:
                 use_process_pool = True
+            elif env_pp in {"0", "false", "no", "off"}:
+                use_process_pool = False
             else:
-                prefer_pool = getattr(stg, "PREFER_PROCESS_POOL", False)
-                use_process_pool = bool(prefer_pool)
-                if use_process_pool:
-                    _local_log("⚙️ プロセスプールを優先設定で有効化")
+                use_process_pool = False
+                if env_pp:
+                    _local_log(
+                        "⚠️ "
+                        + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません。"
+                        + "プロセスプールを無効化します。"
+                    )
             # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
@@ -3630,6 +3636,12 @@ def compute_today_signals(  # type: ignore[analysis]
             # プロセスプール使用時は stage_progress を渡さない（pickle/__main__問題を回避）
             _stage_cb = None if use_process_pool else _stage
             _log_cb = None if use_process_pool else _local_log
+            if use_process_pool:
+                workers_label = str(max_workers) if max_workers is not None else "auto"
+                _local_log(
+                    f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
+                    + f" (workers={workers_label})"
+                )
             df = stg.get_today_signals(
                 base,
                 market_df=spy_df,
@@ -3641,6 +3653,8 @@ def compute_today_signals(  # type: ignore[analysis]
                 max_workers=max_workers,
                 lookback_days=lookback_days,
             )
+            if use_process_pool:
+                pool_outcome = "success"
             _elapsed = int(max(0, __import__("time").time() - _t0))
             _m, _s = divmod(_elapsed, 60)
             _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
@@ -3651,6 +3665,8 @@ def compute_today_signals(  # type: ignore[analysis]
                 msg = str(e).lower()
             except Exception:
                 msg = ""
+            if use_process_pool and pool_outcome is None:
+                pool_outcome = "error"
             needs_fallback = any(
                 k in msg
                 for k in [
@@ -3679,11 +3695,25 @@ def compute_today_signals(  # type: ignore[analysis]
                     _elapsed_b = int(max(0, __import__("time").time() - _t0b))
                     _m2, _s2 = divmod(_elapsed_b, 60)
                     _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                    if use_process_pool:
+                        pool_outcome = "fallback"
                 except Exception as e2:  # noqa: BLE001
                     _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
+                    if use_process_pool:
+                        pool_outcome = "error"
                     df = pd.DataFrame()
             else:
                 df = pd.DataFrame()
+        finally:
+            if use_process_pool:
+                if pool_outcome == "success":
+                    _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
+                elif pool_outcome == "fallback":
+                    _local_log(
+                        f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）"
+                    )
+                else:
+                    _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
         if not df.empty:
             if "score_key" in df.columns and len(df):
                 first_key = df["score_key"].iloc[0]

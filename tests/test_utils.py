@@ -4,7 +4,12 @@ import pytest
 
 import pandas as pd
 
-from common.utils import BatchSizeMonitor, clamp01, _merge_ohlcv_variants
+from common.utils import (
+    BatchSizeMonitor,
+    clamp01,
+    drop_duplicate_columns,
+    _merge_ohlcv_variants,
+)
 
 
 @pytest.mark.parametrize(
@@ -78,3 +83,29 @@ def test_merge_ohlcv_variants_unifies_adjclose_variants() -> None:
 
     assert list(merged.columns) == ["AdjClose"]
     assert merged["AdjClose"].tolist() == [100.0, 102.0]
+
+
+def test_drop_duplicate_columns_keeps_most_complete_series() -> None:
+    df = pd.DataFrame(
+        [
+            [1.0, 10.0, 2.0],
+            [None, 11.0, 3.0],
+            [None, 12.0, 4.0],
+        ],
+        columns=["A", "B", "A"],
+    )
+    logs: list[str] = []
+
+    result = drop_duplicate_columns(df, log_callback=logs.append, context="test")
+
+    assert list(result.columns) == ["B", "A"]
+    assert result["A"].tolist() == [2.0, 3.0, 4.0]
+    assert logs and "'A'" in logs[0]
+
+
+def test_drop_duplicate_columns_returns_original_when_unique() -> None:
+    df = pd.DataFrame([[1, 2], [3, 4]], columns=["A", "B"])
+
+    result = drop_duplicate_columns(df)
+
+    assert result.equals(df)

@@ -20,7 +20,6 @@ from core.system6 import (
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
-    PREFER_PROCESS_POOL = True
 
     def __init__(self):
         super().__init__()

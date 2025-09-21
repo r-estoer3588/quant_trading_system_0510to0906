@@ -8,7 +8,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 
-from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils import (
+    BatchSizeMonitor,
+    drop_duplicate_columns,
+    get_cached_data,
+    resolve_batch_size,
+)
 from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
@@ -515,6 +520,8 @@ def get_total_days_system1(data_dict):
 
 def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwargs):
     """Generate daily ROC200 ranking filtered by SPY trend."""
+    on_progress = kwargs.get("on_progress")
+    on_log = kwargs.get("on_log")
     all_signals = []
     for symbol, df in data_dict.items():
         if "setup" not in df.columns or df["setup"].sum() == 0:
@@ -579,6 +586,12 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
         # date が無空Eならマージ不能なので空返却
         return {}, pd.DataFrame()
     spy = spy[["date", "Close", "SMA100"]].sort_values("date")
+    log_duplicates = (lambda message: on_log(message)) if callable(on_log) else None
+    spy = drop_duplicate_columns(
+        spy,
+        log_callback=log_duplicates,
+        context="System1 ROC200: SPY系列",
+    )
 
     merged = pd.merge_asof(
         all_signals_df.sort_values("Date"),
@@ -591,16 +604,27 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
     # 側での絞り込みを行わない（UI/前処理側でセットアップ判定する）。
 
     merged["entry_date_norm"] = merged["entry_date"].dt.normalize()
+
+    merged = drop_duplicate_columns(
+        merged,
+        log_callback=log_duplicates,
+        context="System1 ROC200: merge結果",
+    )
+
     grouped = merged.groupby("entry_date_norm")
     total_days = len(grouped)
     start_time = time.time()
-    on_progress = kwargs.get("on_progress")
-    on_log = kwargs.get("on_log")
 
     candidates_by_date = {}
     top_n = int(kwargs.get("top_n", 10))
     for i, (date, group) in enumerate(grouped, 1):
         top_df = group.nlargest(top_n, "ROC200")
+        date_repr = date.date() if hasattr(date, "date") else date
+        top_df = drop_duplicate_columns(
+            top_df,
+            log_callback=log_duplicates,
+            context=f"System1 ROC200: {date_repr} Top{top_n}",
+        )
         candidates_by_date[date] = top_df.to_dict("records")
 
         if on_progress:

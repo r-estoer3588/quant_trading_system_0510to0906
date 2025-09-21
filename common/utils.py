@@ -1,8 +1,7 @@
 # common/utils.py
 import logging
-import os
 import re
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from pathlib import Path
 
 import pandas as pd
@@ -200,6 +199,100 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
     merged.columns = result_columns
     merged.index = original.index
     return merged
+
+
+def drop_duplicate_columns(
+    df: pd.DataFrame,
+    *,
+    log_callback: Callable[[str], None] | None = None,
+    context: str | None = None,
+) -> pd.DataFrame:
+    """Return *df* with duplicate column labels removed.
+
+    When duplicated labels exist, the column whose series contains the most
+    non-null values is preserved. Ties fall back to the left-most column in
+    order to maintain historical behaviour.
+
+    Parameters
+    ----------
+    df:
+        Source DataFrame that may contain duplicate column names.
+    log_callback:
+        Optional callable used for logging. When provided, the function will
+        emit a human-readable summary once duplicates are resolved. When
+        omitted, the module logger is used instead.
+    context:
+        Optional textual identifier that is prepended to log messages to help
+        trace the origin of duplicated columns.
+    """
+
+    if df is None or getattr(df, "empty", False):
+        return df
+
+    try:
+        columns = list(df.columns)
+    except Exception:
+        return df
+
+    duplicate_positions: dict[Hashable, list[int]] = {}
+    for pos, label in enumerate(columns):
+        duplicate_positions.setdefault(label, []).append(pos)
+
+    duplicates = {
+        label: positions
+        for label, positions in duplicate_positions.items()
+        if len(positions) > 1
+    }
+    if not duplicates:
+        return df
+
+    keep_mask = [True] * len(columns)
+    log_details: list[str] = []
+
+    for label, positions in duplicates.items():
+        non_null_counts: list[int] = []
+        for pos in positions:
+            try:
+                series = pd.Series(df.iloc[:, pos])
+            except Exception:
+                series = pd.Series(dtype="float64")
+            non_null_counts.append(int(series.notna().sum()))
+
+        best_pos = max(
+            range(len(positions)),
+            key=lambda idx: (non_null_counts[idx], -idx),
+        )
+
+        for idx, col_pos in enumerate(positions):
+            keep_mask[col_pos] = idx == best_pos
+
+        counts_repr = ", ".join(str(count) for count in non_null_counts)
+        detail = (
+            f"{label!r}×{len(positions)} "
+            f"(非NaN数: [{counts_repr}] → keep #{best_pos + 1})"
+        )
+        log_details.append(detail)
+
+    try:
+        deduped = df.loc[:, keep_mask].copy()
+    except Exception:
+        deduped = df.loc[:, ~df.columns.duplicated()].copy()
+
+    message_prefix = f"{context}: " if context else ""
+    message = (
+        f"⚠️ {message_prefix}重複カラムを検出し解消しました -> "
+        f"{', '.join(log_details)}"
+    )
+
+    if log_callback is not None:
+        try:
+            log_callback(message)
+        except Exception:
+            logger.warning(message)
+    else:
+        logger.warning(message)
+
+    return deduped
 
 
 def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:
