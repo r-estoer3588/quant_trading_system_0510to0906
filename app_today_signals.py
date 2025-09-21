@@ -1066,6 +1066,45 @@ class StageTracker:
     def finalize_counts(
         self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
     ) -> None:  # noqa: E501
+        for name, counts in self.stage_counts.items():
+            snapshot: StageSnapshot | None
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(name)
+            except Exception:
+                snapshot = None
+            if snapshot is not None:
+                if counts.get("target") is None and snapshot.target is not None:
+                    try:
+                        counts["target"] = int(snapshot.target)
+                        if self.universe_total is None:
+                            self.universe_total = int(snapshot.target)
+                    except Exception:
+                        pass
+                if counts.get("filter") is None and snapshot.filter_pass is not None:
+                    try:
+                        counts["filter"] = int(snapshot.filter_pass)
+                    except Exception:
+                        pass
+                if counts.get("setup") is None and snapshot.setup_pass is not None:
+                    try:
+                        counts["setup"] = int(snapshot.setup_pass)
+                    except Exception:
+                        pass
+                if counts.get("cand") is None and snapshot.candidate_count is not None:
+                    try:
+                        counts["cand"] = self._clamp_trdlist(snapshot.candidate_count)
+                    except Exception:
+                        pass
+                if counts.get("entry") is None and snapshot.entry_count is not None:
+                    try:
+                        counts["entry"] = int(snapshot.entry_count)
+                    except Exception:
+                        pass
+                if counts.get("exit") is None and snapshot.exit_count is not None:
+                    try:
+                        counts["exit"] = int(snapshot.exit_count)
+                    except Exception:
+                        pass
         try:
             system_series = (
                 final_df["system"].astype(str).str.strip().str.lower()
