@@ -164,9 +164,7 @@ class SkipStats:
             try:
                 details = ", ".join([f"{k}: {v}" for k, v in top])
                 prefix = f"{system_label}: " if system_label else ""
-                log_callback(
-                    f"🧪 {prefix}スキップ統計 (計{total}件): {details}"
-                )
+                log_callback(f"🧪 {prefix}スキップ統計 (計{total}件): {details}")
                 for key, _ in top:
                     samples = self.samples.get(key) or []
                     if samples:
@@ -493,7 +491,8 @@ def _filter_by_data_freshness(
             suffix = f" (例: {preview})" if preview else ""
             ref_label = str(pd.Timestamp(prev_trading_day).date())
             log_callback(
-                "⚠️ データ鮮度警告: 直近営業日" f"({ref_label})のデータ未更新: "
+                "⚠️ データ鮮度警告: 直近営業日"
+                f"({ref_label})のデータ未更新: "
                 f"{len(stale_alerts)} 銘柄{suffix}"
             )
         except Exception:
@@ -570,9 +569,7 @@ def _apply_shortability_filter(
 
     try:
         settings = get_settings(create_dirs=True)
-        results_dir = Path(
-            getattr(settings.outputs, "results_csv_dir", "results_csv")
-        )
+        results_dir = Path(getattr(settings.outputs, "results_csv_dir", "results_csv"))
     except Exception:
         results_dir = Path("results_csv")
 
@@ -693,7 +690,9 @@ def _generate_candidates_for_system(
                 market_df_local = cached_spy
                 if log_callback:
                     try:
-                        log_callback("🛟 System4: SPYデータをキャッシュから補完しました")
+                        log_callback(
+                            "🛟 System4: SPYデータをキャッシュから補完しました"
+                        )
                     except Exception:
                         pass
         if market_df_arg is None or getattr(market_df_arg, "empty", False):
@@ -949,9 +948,7 @@ def _compute_setup_pass(
                 spy_with = None
             try:
                 spy_gate = _make_spy_gate(
-                    _normalize_daily_index(spy_with)
-                    if spy_with is not None
-                    else None
+                    _normalize_daily_index(spy_with) if spy_with is not None else None
                 )
                 if spy_gate is False:
                     spy_gate = 0
@@ -1139,11 +1136,9 @@ def _diagnose_setup_zero_reason(
     except Exception:
         spy_with = None
 
+    column = "SMA100" if system_lower == "system1" else "SMA200"
     try:
-        normalized = (
-            _normalize_daily_index(spy_with) if spy_with is not None else None
-        )
-        column = "SMA100" if system_lower == "system1" else "SMA200"
+        normalized = _normalize_daily_index(spy_with) if spy_with is not None else None
         gate = _make_spy_gate(normalized, column=column)
     except Exception:
         gate = None
@@ -1385,9 +1380,7 @@ def _log_entry_skip_summary(
         summary = ", ".join([f"{key}: {count}" for key, count in top])
         if summary:
             prefix = f"{system_label}: " if system_label else ""
-            log_callback(
-                f"⚠️ {prefix}エントリー計算で候補除外 (計{total}件): {summary}"
-            )
+            log_callback(f"⚠️ {prefix}エントリー計算で候補除外 (計{total}件): {summary}")
         for key, _ in top:
             samples = stats.samples.get(key) or []
             if samples:
@@ -1419,7 +1412,7 @@ def _attach_entry_skip_attrs(frame: pd.DataFrame, stats: SkipStats) -> None:
 
 def _build_today_signals_dataframe(
     strategy,
-    prepared: dict[str, pd.DataFrame],
+    prepared: dict[str, pd.DataFrame] | pd.DataFrame | None,
     candidates_by_date: dict | None,
     selection: CandidateSelection,
     system_name: str,
@@ -1545,9 +1538,7 @@ def _build_today_signals_dataframe(
 
             try:
                 needs_rank_eval = (
-                    rank_val is None
-                    or total_for_rank == 0
-                    or sval is None
+                    rank_val is None or total_for_rank == 0 or sval is None
                 )
                 if signal_date_ts is not None and needs_rank_eval:
                     vals: list[tuple[str, float]] = []
@@ -1635,7 +1626,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ADXが強く、反発期待のため"]
         elif system_name == "system6":
             if rank_val is not None:
-                formatted = _format_rank_reason("過去6日騰落率", rank_val, total_for_rank)
+                formatted = _format_rank_reason(
+                    "過去6日騰落率", rank_val, total_for_rank
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1692,11 +1685,7 @@ def _build_today_signals_dataframe(
                     else float(sval)
                 ),
                 score_rank=None if rank_val is None else int(rank_val),
-                score_rank_total=(
-                    None
-                    if total_for_rank <= 0
-                    else int(total_for_rank)
-                ),
+                score_rank_total=(None if total_for_rank <= 0 else int(total_for_rank)),
                 reason=reason_text,
             )
         )
@@ -1782,9 +1771,7 @@ def _normalize_daily_index(df: pd.DataFrame) -> pd.DataFrame:
     return x
 
 
-def _make_spy_gate(
-    spy_df: pd.DataFrame | None, column: str = "SMA200"
-) -> bool | None:
+def _make_spy_gate(spy_df: pd.DataFrame | None, column: str = "SMA200") -> bool | None:
     if spy_df is None or getattr(spy_df, "empty", True):
         return None
     try:
@@ -1906,9 +1893,7 @@ def _format_rank_reason(
     base_label = str(label or "スコア")
     if total_val > 0:
         if nuance:
-            return (
-                f"{base_label}が{rank_val}位（全{total_val}銘柄中、{nuance}）のため"
-            )
+            return f"{base_label}が{rank_val}位（全{total_val}銘柄中、{nuance}）のため"
         return f"{base_label}が{rank_val}位（全{total_val}銘柄中）のため"
     if nuance:
         return f"{base_label}が{rank_val}位（{nuance}）のため"
@@ -1920,9 +1905,7 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
-def _atr_column_candidates(
-    df: pd.DataFrame, system_name: str | None
-) -> list[str]:
+def _atr_column_candidates(df: pd.DataFrame, system_name: str | None) -> list[str]:
     def _is_numeric_atr(col: str) -> bool:
         return col.upper().startswith("ATR") and any(ch.isdigit() for ch in col)
 
@@ -2431,7 +2414,8 @@ def get_today_signals_for_strategy(
                 if setup_zero_reason:
                     log_callback(f"🛈 セットアップ不成立: {setup_zero_reason}")
                 log_callback(
-                    "⏭️ セットアップ0件のためエントリー処理をスキップし、エグジット判定のみ実施します"
+                    "⏭️ セットアップ0件のためエントリー処理をスキップし、"
+                    "エグジット判定のみ実施します"
                 )
             except Exception:
                 pass
@@ -2445,9 +2429,7 @@ def get_today_signals_for_strategy(
                 stage_progress(100, filter_pass, setup_pass, 0, 0)
         except Exception:
             pass
-        empty_frame = _empty_today_signals_frame(
-            setup_zero_reason or "setup_pass_zero"
-        )
+        empty_frame = _empty_today_signals_frame(setup_zero_reason or "setup_pass_zero")
         return empty_frame
 
     selection = _select_candidate_date(

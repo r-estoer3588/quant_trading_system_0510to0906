@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import logging
 import os
 import platform
@@ -9,10 +8,37 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
+from common import broker_alpaca as ba
+from common import universe as univ
+from common.alpaca_order import submit_orders_df
+from common.cache_manager import CacheManager, load_base_cache
+from common.exit_planner import decide_exit_schedule
+from common.data_loader import load_price
+from common.notifier import create_notifier
+from common.position_age import (
+    fetch_entry_dates_from_alpaca,
+    load_entry_dates,
+    save_entry_dates,
+)
+from common.stage_metrics import GLOBAL_STAGE_METRICS, StageSnapshot
+from common.profit_protection import evaluate_positions
+from common.stage_metrics import DEFAULT_SYSTEM_ORDER, StageMetricsStore
+from common.system_groups import (
+    format_group_counts,
+    format_group_counts_and_values,
+)
+from common.symbol_universe import build_symbol_universe_from_settings
+from common.today_signals import (
+    LONG_SYSTEMS,
+    SHORT_SYSTEMS,
+    run_all_systems_today as compute_today_signals,
+)
+from common.utils_spy import get_latest_nyse_trading_day
+from config.settings import get_settings
+import scripts.run_all_systems_today as _run_today_mod
 
 
 def _running_in_streamlit() -> bool:
@@ -90,36 +116,6 @@ try:
 except Exception:
     # 失敗しても従来動作のまま進める
     pass
-
-from common import broker_alpaca as ba
-from common import universe as univ
-from common.alpaca_order import submit_orders_df
-from common.cache_manager import CacheManager, load_base_cache
-from common.exit_planner import decide_exit_schedule
-from common.data_loader import load_price
-from common.notifier import create_notifier
-from common.position_age import (
-    fetch_entry_dates_from_alpaca,
-    load_entry_dates,
-    save_entry_dates,
-)
-from common.stage_metrics import GLOBAL_STAGE_METRICS, StageSnapshot
-from common.profit_protection import evaluate_positions
-from common.stage_metrics import DEFAULT_SYSTEM_ORDER, StageMetricsStore
-from common.symbol_universe import build_symbol_universe_from_settings
-from common.system_groups import (
-    format_group_counts,
-    format_group_counts_and_values,
-)
-from common.symbol_universe import build_symbol_universe_from_settings
-from common.today_signals import (
-    LONG_SYSTEMS,
-    SHORT_SYSTEMS,
-    run_all_systems_today as compute_today_signals,
-)
-from common.utils_spy import get_latest_nyse_trading_day
-from config.settings import get_settings
-import scripts.run_all_systems_today as _run_today_mod
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -1057,9 +1053,7 @@ class StageTracker:
         key = str(name).lower()
         snapshot: StageSnapshot | None
         try:
-            snapshot = GLOBAL_STAGE_METRICS.record_exit(
-                key, count, emit_event=False
-            )
+            snapshot = GLOBAL_STAGE_METRICS.record_exit(key, count, emit_event=False)
         except Exception:
             snapshot = None
         if snapshot is not None:
@@ -1117,9 +1111,7 @@ class StageTracker:
                 continue
             snapshot: StageSnapshot | None
             try:
-                snapshot = GLOBAL_STAGE_METRICS.record_exit(
-                    name, cnt, emit_event=False
-                )
+                snapshot = GLOBAL_STAGE_METRICS.record_exit(name, cnt, emit_event=False)
             except Exception:
                 snapshot = None
             if snapshot is not None:
@@ -1154,9 +1146,7 @@ class StageTracker:
             return
         display = self.metrics_store.get_display_metrics(key)
         target_value = (
-            self.universe_target
-            if self.universe_target is not None
-            else display.get("target")
+            self.universe_target if self.universe_target is not None else display.get("target")
         )
         text = "  ".join(
             [
@@ -1270,9 +1260,7 @@ class UILogger:
         except UnicodeEncodeError:
             try:
                 encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
-                safe = line.encode(encoding, errors="replace").decode(
-                    encoding, errors="replace"
-                )
+                safe = line.encode(encoding, errors="replace").decode(encoding, errors="replace")
                 print(safe, flush=True)
                 return
             except Exception:
@@ -1280,9 +1268,7 @@ class UILogger:
         except Exception:
             pass
         try:
-            fallback = line.encode("ascii", errors="replace").decode(
-                "ascii", errors="replace"
-            )
+            fallback = line.encode("ascii", errors="replace").decode("ascii", errors="replace")
             print(fallback, flush=True)
         except Exception:
             pass
