@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from pandas.tseries.offsets import BDay
 
 from common.profit_protection import evaluate_positions
 
@@ -36,16 +37,20 @@ def test_evaluate_positions(monkeypatch):
         lambda: {"AAA": "system3", "EEE": "System2"},
     )
 
-    now = pd.Timestamp.utcnow().normalize()
+    now = pd.Timestamp("2023-01-10")
+    monkeypatch.setattr(
+        "common.profit_protection.get_latest_nyse_trading_day",
+        lambda *_args, **_kwargs: now,
+    )
     positions = [
         DummyPos("SPY", side="short"),
         DummyPos("AAA", side="long", plpc=0.05),
         DummyPos("BBB", side="short", plpc=0.04),
-        DummyPos("CCC", side="long", entry_date=now - pd.Timedelta(days=3)),
-        DummyPos("DDD", side="long", entry_date=now - pd.Timedelta(days=6)),
+        DummyPos("CCC", side="long", entry_date=now - BDay(3)),
+        DummyPos("DDD", side="long", entry_date=now - BDay(6)),
         DummyPos("EEE", side="short", plpc=0.05),
-        DummyPos("FFF", side="short", entry_date=now - pd.Timedelta(days=3)),
-        DummyPos("GGG", side="short", entry_date=now - pd.Timedelta(days=2)),
+        DummyPos("FFF", side="short", entry_date=now - BDay(3)),
+        DummyPos("GGG", side="short", entry_date=now - BDay(2)),
     ]
 
     df = evaluate_positions(positions)

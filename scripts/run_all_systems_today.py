@@ -63,6 +63,25 @@ _LOG_FILE_PATH: Path | None = None
 _LOG_FILE_MODE: str = "single"  # single | dated
 
 
+def _prepare_concat_frames(
+    frames: Sequence[pd.DataFrame | None],
+) -> list[pd.DataFrame]:
+    """Drop全NA列を除去し、空データを連結対象から外す。"""
+
+    cleaned: list[pd.DataFrame] = []
+    for frame in frames:
+        if frame is None or getattr(frame, "empty", True):
+            continue
+        try:
+            cleaned_frame = frame.dropna(axis=1, how="all")
+        except Exception:
+            cleaned_frame = frame
+        if getattr(cleaned_frame, "empty", True):
+            continue
+        cleaned.append(cleaned_frame)
+    return cleaned
+
+
 @dataclass(slots=True)
 class BaseCachePool:
     """base キャッシュの共有辞書をスレッドセーフに管理する補助クラス。"""
@@ -2518,7 +2537,7 @@ def _prepare_system2_data(
     _log(f"?? ???????: system2={len(raw_data)}??")
     s2_filter = int(len(system_symbols))
     s2_rsi = 0
-    s2_up2 = 0
+    s2_combo = 0
     try:
         for _sym in system_symbols or []:
             _df = raw_data.get(_sym)
@@ -2529,19 +2548,21 @@ def _prepare_system2_data(
             except Exception:
                 continue
             try:
-                if float(last.get("RSI3", 0)) > 90:
-                    s2_rsi += 1
+                rsi_pass = float(last.get("RSI3", 0)) > 90
             except Exception:
-                pass
+                rsi_pass = False
+            if not rsi_pass:
+                continue
+            s2_rsi += 1
             try:
                 if bool(last.get("TwoDayUp", False)):
-                    s2_up2 += 1
+                    s2_combo += 1
             except Exception:
                 pass
         _log(
             "?? system2????????: "
             + f"??????={s2_filter}, RSI3>90: {s2_rsi}, "
-            + f"TwoDayUp: {s2_up2}"
+            + f"TwoDayUp: {s2_combo}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -2549,12 +2570,12 @@ def _prepare_system2_data(
             cb2 = None
         if cb2 and callable(cb2):
             try:
-                cb2("system2", 50, int(s2_filter), int(max(s2_rsi, s2_up2)), None, None)
+                cb2("system2", 50, int(s2_filter), int(s2_combo), None, None)
             except Exception:
                 pass
     except Exception:
         pass
-    return raw_data, s2_filter, s2_rsi, s2_up2
+    return raw_data, s2_filter, s2_rsi, s2_combo
 
 
 def _prepare_system3_data(
@@ -2567,7 +2588,7 @@ def _prepare_system3_data(
     _log(f"?? ???????: system3={len(raw_data)}??")
     s3_filter = int(len(system_symbols))
     s3_close = 0
-    s3_drop = 0
+    s3_combo = 0
     try:
         for _sym in system_symbols or []:
             _df = raw_data.get(_sym)
@@ -2578,19 +2599,23 @@ def _prepare_system3_data(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA150", float("inf"))):
-                    s3_close += 1
+                close_pass = float(last.get("Close", 0)) > float(
+                    last.get("SMA150", float("inf"))
+                )
             except Exception:
-                pass
+                close_pass = False
+            if not close_pass:
+                continue
+            s3_close += 1
             try:
                 if float(last.get("Drop3D", 0)) >= 0.125:
-                    s3_drop += 1
+                    s3_combo += 1
             except Exception:
                 pass
         _log(
             "?? system3????????: "
             + f"??????={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3????>=12.5%: {s3_drop}"
+            + f"3????>=12.5%: {s3_combo}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -2598,12 +2623,12 @@ def _prepare_system3_data(
             cb2 = None
         if cb2 and callable(cb2):
             try:
-                cb2("system3", 50, int(s3_filter), int(max(s3_close, s3_drop)), None, None)
+                cb2("system3", 50, int(s3_filter), int(s3_combo), None, None)
             except Exception:
                 pass
     except Exception:
         pass
-    return raw_data, s3_filter, s3_close, s3_drop
+    return raw_data, s3_filter, s3_close, s3_combo
 
 
 def _prepare_system4_data(
@@ -2656,7 +2681,7 @@ def _prepare_system5_data(
     s5_filter = int(len(system_symbols))
     s5_close = 0
     s5_adx = 0
-    s5_rsi = 0
+    s5_combo = 0
     try:
         for _sym in system_symbols or []:
             _df = raw_data.get(_sym)
@@ -2667,26 +2692,30 @@ def _prepare_system5_data(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
+                price_pass = float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
                     last.get("ATR10", 0)
-                ):
-                    s5_close += 1
+                )
             except Exception:
-                pass
+                price_pass = False
+            if not price_pass:
+                continue
+            s5_close += 1
             try:
-                if float(last.get("ADX7", 0)) > 55:
-                    s5_adx += 1
+                adx_pass = float(last.get("ADX7", 0)) > 55
             except Exception:
-                pass
+                adx_pass = False
+            if not adx_pass:
+                continue
+            s5_adx += 1
             try:
                 if float(last.get("RSI3", 100)) < 50:
-                    s5_rsi += 1
+                    s5_combo += 1
             except Exception:
                 pass
         _log(
             "?? system5????????: "
             + f"??????={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
-            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
+            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_combo}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -2694,12 +2723,12 @@ def _prepare_system5_data(
             cb2 = None
         if cb2 and callable(cb2):
             try:
-                cb2("system5", 50, int(s5_filter), int(s5_close), None, None)
+                cb2("system5", 50, int(s5_filter), int(s5_combo), None, None)
             except Exception:
                 pass
     except Exception:
         pass
-    return raw_data, s5_filter, s5_close, s5_adx, s5_rsi
+    return raw_data, s5_filter, s5_close, s5_adx, s5_combo
 
 
 def _prepare_system6_data(
@@ -2712,7 +2741,7 @@ def _prepare_system6_data(
     _log(f"?? ???????: system6={len(raw_data)}??")
     s6_filter = int(len(system_symbols))
     s6_ret = 0
-    s6_up2 = 0
+    s6_combo = 0
     try:
         for _sym in system_symbols or []:
             _df = raw_data.get(_sym)
@@ -2723,19 +2752,21 @@ def _prepare_system6_data(
             except Exception:
                 continue
             try:
-                if float(last.get("Return6D", 0)) > 0.20:
-                    s6_ret += 1
+                ret_pass = float(last.get("Return6D", 0)) > 0.20
             except Exception:
-                pass
+                ret_pass = False
+            if not ret_pass:
+                continue
+            s6_ret += 1
             try:
                 if bool(last.get("UpTwoDays", False)):
-                    s6_up2 += 1
+                    s6_combo += 1
             except Exception:
                 pass
         _log(
             "?? system6????????: "
             + f"??????={s6_filter}, Return6D>20%: {s6_ret}, "
-            + f"UpTwoDays: {s6_up2}"
+            + f"UpTwoDays: {s6_combo}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -2743,12 +2774,12 @@ def _prepare_system6_data(
             cb2 = None
         if cb2 and callable(cb2):
             try:
-                cb2("system6", 50, int(s6_filter), int(max(s6_ret, s6_up2)), None, None)
+                cb2("system6", 50, int(s6_filter), int(s6_combo), None, None)
             except Exception:
                 pass
     except Exception:
         pass
-    return raw_data, s6_filter, s6_ret, s6_up2
+    return raw_data, s6_filter, s6_ret, s6_combo
 
 
 def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
@@ -3124,11 +3155,14 @@ def compute_today_signals(  # type: ignore[analysis]
     raw_data_system1 = _subset_data(basic_data, system1_syms)
     _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
     # System1 セットアップ内訳（最新日の setup 判定数）を CLI に出力
+    s1_setup = None
+    s1_setup_eff = None
+    s1_spy_gate = None
     try:
         # フィルタ通過は事前フィルター結果（system1_syms）由来で確定
         s1_filter = int(len(system1_syms))
         # 直近日の SMA25>SMA50 を集計（事前計算済み列を参照）
-        s1_setup = 0
+        s1_setup_calc = 0
         # 市場条件（SPYのClose>SMA100）を先に判定
         _spy_ok = None
         try:
@@ -3153,7 +3187,8 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 sma_pass = False
             if sma_pass:
-                s1_setup += 1
+                s1_setup_calc += 1
+        s1_setup = int(s1_setup_calc)
         # 出力順: フィルタ通過 → SPY>SMA100 → SMA25>SMA50
         if _spy_ok is None:
             _log(
@@ -3195,16 +3230,20 @@ def compute_today_signals(  # type: ignore[analysis]
                     pass
         except Exception:
             pass
+        if s1_setup_eff is None:
+            s1_setup_eff = s1_setup
+        s1_spy_gate = _spy_ok
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system2)…")
     raw_data_system2 = _subset_data(basic_data, system2_syms)
     _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
     # System2 セットアップ内訳: フィルタ通過, RSI3>90, TwoDayUp
+    s2_setup = None
     try:
         s2_filter = int(len(system2_syms))
         s2_rsi = 0
-        s2_up2 = 0
+        s2_combo = 0
         for _sym in system2_syms or []:
             _df = raw_data_system2.get(_sym)
             if _df is None or getattr(_df, "empty", True):
@@ -3214,24 +3253,27 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 continue
             try:
-                if float(last.get("RSI3", 0)) > 90:
-                    s2_rsi += 1
+                rsi_pass = float(last.get("RSI3", 0)) > 90
             except Exception:
-                pass
+                rsi_pass = False
+            if not rsi_pass:
+                continue
+            s2_rsi += 1
             try:
                 if bool(last.get("TwoDayUp", False)):
-                    s2_up2 += 1
+                    s2_combo += 1
             except Exception:
                 pass
+        s2_setup = int(s2_combo)
         _log(
             "🧩 system2セットアップ内訳: "
             + f"フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, "
-            + f"TwoDayUp: {s2_up2}"
+            + f"TwoDayUp: {s2_setup}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                cb2("system2", 50, int(s2_filter), int(max(s2_rsi, s2_up2)), None, None)
+                cb2("system2", 50, int(s2_filter), int(s2_setup), None, None)
         except Exception:
             pass
     except Exception:
@@ -3240,10 +3282,11 @@ def compute_today_signals(  # type: ignore[analysis]
     raw_data_system3 = _subset_data(basic_data, system3_syms)
     _log(f"🧮 指標データ: system3={len(raw_data_system3)}銘柄")
     # System3 セットアップ内訳: フィルタ通過, Close>SMA150, 3日下落率>=12.5%
+    s3_setup = None
     try:
         s3_filter = int(len(system3_syms))
         s3_close = 0
-        s3_drop = 0
+        s3_combo = 0
         for _sym in system3_syms or []:
             _df = raw_data_system3.get(_sym)
             if _df is None or getattr(_df, "empty", True):
@@ -3253,24 +3296,30 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA150", float("inf"))):
-                    s3_close += 1
+                close_pass = float(last.get("Close", 0)) > float(
+                    last.get("SMA150", float("inf"))
+                )
             except Exception:
-                pass
+                close_pass = False
+            if not close_pass:
+                continue
+            s3_close += 1
             try:
-                if float(last.get("Drop3D", 0)) >= 0.125:
-                    s3_drop += 1
+                drop_pass = float(last.get("Drop3D", 0)) >= 0.125
             except Exception:
-                pass
+                drop_pass = False
+            if drop_pass:
+                s3_combo += 1
+        s3_setup = int(s3_combo)
         _log(
             "🧩 system3セットアップ内訳: "
             + f"フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3日下落率>=12.5%: {s3_drop}"
+            + f"3日下落率>=12.5%: {s3_setup}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                cb2("system3", 50, int(s3_filter), int(max(s3_close, s3_drop)), None, None)
+                cb2("system3", 50, int(s3_filter), int(s3_setup), None, None)
         except Exception:
             pass
     except Exception:
@@ -3308,11 +3357,12 @@ def compute_today_signals(  # type: ignore[analysis]
     raw_data_system5 = _subset_data(basic_data, system5_syms)
     _log(f"🧮 指標データ: system5={len(raw_data_system5)}銘柄")
     # System5 セットアップ内訳: フィルタ通過, Close>SMA100+ATR10, ADX7>55, RSI3<50
+    s5_setup = None
     try:
         s5_filter = int(len(system5_syms))
         s5_close = 0
         s5_adx = 0
-        s5_rsi = 0
+        s5_combo = 0
         for _sym in system5_syms or []:
             _df = raw_data_system5.get(_sym)
             if _df is None or getattr(_df, "empty", True):
@@ -3322,31 +3372,37 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
+                price_pass = float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
                     last.get("ATR10", 0)
-                ):
-                    s5_close += 1
+                )
             except Exception:
-                pass
+                price_pass = False
+            if not price_pass:
+                continue
+            s5_close += 1
             try:
-                if float(last.get("ADX7", 0)) > 55:
-                    s5_adx += 1
+                adx_pass = float(last.get("ADX7", 0)) > 55
             except Exception:
-                pass
+                adx_pass = False
+            if not adx_pass:
+                continue
+            s5_adx += 1
             try:
-                if float(last.get("RSI3", 100)) < 50:
-                    s5_rsi += 1
+                rsi_pass = float(last.get("RSI3", 100)) < 50
             except Exception:
-                pass
+                rsi_pass = False
+            if rsi_pass:
+                s5_combo += 1
+        s5_setup = int(s5_combo)
         _log(
             "🧩 system5セットアップ内訳: "
             + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
-            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_rsi}"
+            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_setup}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                cb2("system5", 50, int(s5_filter), int(s5_close), None, None)
+                cb2("system5", 50, int(s5_filter), int(s5_setup), None, None)
         except Exception:
             pass
     except Exception:
@@ -3355,10 +3411,11 @@ def compute_today_signals(  # type: ignore[analysis]
     raw_data_system6 = _subset_data(basic_data, system6_syms)
     _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
     # System6 セットアップ内訳: フィルタ通過, Return6D>20%, UpTwoDays
+    s6_setup = None
     try:
         s6_filter = int(len(system6_syms))
         s6_ret = 0
-        s6_up2 = 0
+        s6_combo = 0
         for _sym in system6_syms or []:
             _df = raw_data_system6.get(_sym)
             if _df is None or getattr(_df, "empty", True):
@@ -3368,24 +3425,27 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 continue
             try:
-                if float(last.get("Return6D", 0)) > 0.20:
-                    s6_ret += 1
+                ret_pass = float(last.get("Return6D", 0)) > 0.20
             except Exception:
-                pass
+                ret_pass = False
+            if not ret_pass:
+                continue
+            s6_ret += 1
             try:
                 if bool(last.get("UpTwoDays", False)):
-                    s6_up2 += 1
+                    s6_combo += 1
             except Exception:
                 pass
+        s6_setup = int(s6_combo)
         _log(
             "🧩 system6セットアップ内訳: "
             + f"フィルタ通過={s6_filter}, Return6D>20%: {s6_ret}, "
-            + f"UpTwoDays: {s6_up2}"
+            + f"UpTwoDays: {s6_setup}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                cb2("system6", 50, int(s6_filter), int(max(s6_ret, s6_up2)), None, None)
+                cb2("system6", 50, int(s6_filter), int(s6_setup), None, None)
         except Exception:
             pass
     except Exception:
@@ -3637,21 +3697,12 @@ def compute_today_signals(  # type: ignore[analysis]
     try:
         setup_summary = []
         for name, val in (
-            ("system1", locals().get("s1_setup")),
-            (
-                "system2",
-                max(locals().get("s2_rsi", 0), locals().get("s2_up2", 0)),
-            ),
-            (
-                "system3",
-                max(locals().get("s3_close", 0), locals().get("s3_drop", 0)),
-            ),
+            ("system1", s1_setup_eff if s1_setup_eff is not None else s1_setup),
+            ("system2", s2_setup),
+            ("system3", s3_setup),
             ("system4", locals().get("s4_close")),
-            ("system5", locals().get("s5_close")),
-            (
-                "system6",
-                max(locals().get("s6_ret", 0), locals().get("s6_up2", 0)),
-            ),
+            ("system5", s5_setup),
+            ("system6", s6_setup),
             ("system7", 1 if ("SPY" in (basic_data or {})) else 0),
         ):
             try:
@@ -3922,26 +3973,30 @@ def compute_today_signals(  # type: ignore[analysis]
                 x["_sort_val"] = 0.0
             all_rows.append(x)
         if all_rows:
-            merged = pd.concat(all_rows, ignore_index=True)
-            merged = merged.sort_values("_sort_val", kind="stable", na_position="last")
-            top10 = merged.head(10).drop(columns=["_sort_val"], errors="ignore")
+            concat_rows = _prepare_concat_frames(all_rows)
             _log("📝 事前トレードリスト(Top10, メトリクス保存前)")
-            cols = [
-                c
-                for c in [
-                    "symbol",
-                    "system",
-                    "side",
-                    "entry_date",
-                    "entry_price",
-                    "stop_price",
-                    "score_key",
-                    "score",
+            if concat_rows:
+                merged = pd.concat(concat_rows, ignore_index=True)
+                merged = merged.sort_values("_sort_val", kind="stable", na_position="last")
+                top10 = merged.head(10).drop(columns=["_sort_val"], errors="ignore")
+                cols = [
+                    c
+                    for c in [
+                        "symbol",
+                        "system",
+                        "side",
+                        "entry_date",
+                        "entry_price",
+                        "stop_price",
+                        "score_key",
+                        "score",
+                    ]
+                    if c in top10.columns
                 ]
-                if c in top10.columns
-            ]
-            if not top10.empty:
-                _log(top10[cols].to_string(index=False))
+                if not top10.empty:
+                    _log(top10[cols].to_string(index=False))
+                else:
+                    _log("(候補なし)")
             else:
                 _log("(候補なし)")
         # 追加: システム別のTop10を個別に出力（system2〜system6）
@@ -4283,25 +4338,18 @@ def compute_today_signals(  # type: ignore[analysis]
                         pass
                 # 既に集計済みの値を再構成
                 setup_map = {
-                    # System1 は SPY ゲート（Close>SMA100）が偽なら 0 扱い
                     "system1": int(
-                        (
-                            locals().get("s1_setup")
-                            if (
-                                (locals().get("_spy_ok") is None)
-                                or (int(locals().get("_spy_ok", 0)) == 1)
-                            )
-                            else 0
-                        )
-                        or 0
+                        (s1_setup_eff if s1_setup_eff is not None else (s1_setup or 0)) or 0
                     ),
-                    "system2": int(max(locals().get("s2_rsi", 0), locals().get("s2_up2", 0))),
-                    "system3": int(max(locals().get("s3_close", 0), locals().get("s3_drop", 0))),
+                    "system2": int(s2_setup or 0),
+                    "system3": int(s3_setup or 0),
                     "system4": int(locals().get("s4_close") or 0),
-                    "system5": int(locals().get("s5_close") or 0),
-                    "system6": int(max(locals().get("s6_ret", 0), locals().get("s6_up2", 0))),
+                    "system5": int(s5_setup or 0),
+                    "system6": int(s6_setup or 0),
                     "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
                 }
+                if isinstance(s1_spy_gate, int) and s1_spy_gate == 0:
+                    setup_map["system1"] = 0
                 metrics_summary_context = {
                     "prefilter_map": dict(prefilter_map),
                     "exit_counts_map": dict(exit_counts_map),
@@ -4475,7 +4523,9 @@ def compute_today_signals(  # type: ignore[analysis]
                         asc = False
                     g = g.sort_values("score", ascending=asc, na_position="last", kind="stable")
                 parts2.append(g)
-            tmp = pd.concat(parts2, ignore_index=True)
+            concat_parts2 = _prepare_concat_frames(parts2)
+            if concat_parts2:
+                tmp = pd.concat(concat_parts2, ignore_index=True)
         except Exception:
             pass
         tmp = tmp.drop(columns=["_system_no"], errors="ignore")

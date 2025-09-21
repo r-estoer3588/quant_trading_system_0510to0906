@@ -21,6 +21,12 @@ from common.utils_spy import (
     get_signal_target_trading_day,
     get_spy_with_indicators,
 )
+from strategies.constants import (
+    STOP_ATR_MULTIPLE_DEFAULT,
+    STOP_ATR_MULTIPLE_SYSTEM1,
+    STOP_ATR_MULTIPLE_SYSTEM3,
+    STOP_ATR_MULTIPLE_SYSTEM4,
+)
 
 
 # --- CLI用デフォルトログ関数 -----------------------------------------------
@@ -45,6 +51,16 @@ def _default_cli_log(message: str) -> None:
 # System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
 LONG_SYSTEMS = {"system1", "system3", "system5"}
 SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
+
+STOP_MULTIPLIER_BY_SYSTEM = {
+    "system1": STOP_ATR_MULTIPLE_SYSTEM1,
+    "system2": STOP_ATR_MULTIPLE_DEFAULT,
+    "system3": STOP_ATR_MULTIPLE_SYSTEM3,
+    "system4": STOP_ATR_MULTIPLE_SYSTEM4,
+    "system5": STOP_ATR_MULTIPLE_DEFAULT,
+    "system6": STOP_ATR_MULTIPLE_DEFAULT,
+    "system7": STOP_ATR_MULTIPLE_DEFAULT,
+}
 
 TODAY_SIGNAL_COLUMNS = [
     "symbol",
@@ -1389,7 +1405,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ボラティリティが高く条件一致のため"]
         elif system_name == "system4":
             if rank_val is not None:
-                formatted = _format_rank_reason("RSI4", rank_val, total_for_rank, nuance="低水準")
+                formatted = _format_rank_reason(
+                    "RSI4", rank_val, total_for_rank, nuance="低水準"
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1674,16 +1692,76 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
-def _pick_atr_col(df: pd.DataFrame) -> str | None:
-    for col in ("ATR20", "ATR10", "ATR40", "ATR50", "ATR14"):
-        if col in df.columns:
-            return col
-    return None
+def _atr_column_candidates(
+    df: pd.DataFrame, system_name: str | None
+) -> list[str]:
+    def _is_numeric_atr(col: str) -> bool:
+        return col.upper().startswith("ATR") and any(ch.isdigit() for ch in col)
+
+    base_order = ("ATR20", "ATR10", "ATR40", "ATR50", "ATR14")
+    system_specific = {
+        "system1": ("ATR20", "ATR10", "ATR14", "ATR40", "ATR50"),
+        "system2": ("ATR10", "ATR20", "ATR14", "ATR40", "ATR50"),
+        "system3": ("ATR10", "ATR20", "ATR14", "ATR40", "ATR50"),
+        "system4": ("ATR40", "ATR20", "ATR10", "ATR50", "ATR14"),
+        "system5": ("ATR10", "ATR20", "ATR14", "ATR40", "ATR50"),
+        "system6": ("ATR10", "ATR20", "ATR14", "ATR40", "ATR50"),
+        "system7": ("ATR50", "ATR40", "ATR20", "ATR10", "ATR14"),
+    }
+
+    name = (system_name or "").lower()
+    preferred = system_specific.get(name, base_order)
+    ordered: list[str] = []
+    for col in preferred:
+        if isinstance(col, str) and col in df.columns and _is_numeric_atr(col):
+            ordered.append(col)
+    for col in df.columns:
+        if not isinstance(col, str):
+            continue
+        if col in ordered or not col.upper().startswith("ATR"):
+            continue
+        if not any(ch.isdigit() for ch in col):
+            continue
+        ordered.append(col)
+    return ordered
+
+
+def _resolve_stop_atr_multiple(strategy, system_name: str) -> float:
+    name = (system_name or "").lower()
+    try:
+        config = getattr(strategy, "config", None)
+    except Exception:
+        config = None
+    if config is not None:
+        candidate = None
+        try:
+            if isinstance(config, dict):
+                candidate = config.get("stop_atr_multiple")
+            elif hasattr(config, "get"):
+                candidate = config.get("stop_atr_multiple")  # type: ignore[call-arg]
+            else:
+                candidate = getattr(config, "stop_atr_multiple", None)
+        except Exception:
+            candidate = getattr(config, "stop_atr_multiple", None)
+        if candidate is not None:
+            try:
+                value = float(candidate)
+            except (TypeError, ValueError):
+                value = None
+            else:
+                if math.isfinite(value) and value > 0:
+                    return value
+    return STOP_MULTIPLIER_BY_SYSTEM.get(name, STOP_ATR_MULTIPLE_DEFAULT)
 
 
 def _compute_entry_stop(
     strategy, df: pd.DataFrame, candidate: dict, side: str
 ) -> tuple[float, float] | None:
+    try:
+        system_name = str(getattr(strategy, "SYSTEM_NAME", "")).lower()
+    except Exception:
+        system_name = ""
+
     # strategy 独自の compute_entry があれば優先
     try:
         _fn = strategy.compute_entry  # type: ignore[attr-defined]
@@ -1702,7 +1780,7 @@ def _compute_entry_stop(
         except Exception:
             pass
 
-    # フォールバック: 当日始値 ± 3*ATR
+    # フォールバック: 当日始値 ± stop_atr_multiple * ATR
     def _as_positive(value: Any) -> float | None:
         try:
             val = float(value)
@@ -1792,11 +1870,7 @@ def _compute_entry_stop(
         except Exception:
             entry_idx = -1
 
-    atr_candidates = [
-        col
-        for col in getattr(df, "columns", [])
-        if isinstance(col, str) and col.upper().startswith("ATR")
-    ]
+    atr_candidates = _atr_column_candidates(df, system_name)
     atr_column = atr_candidates[0] if atr_candidates else None
     atr_window = _infer_atr_window(atr_column)
 
@@ -1854,7 +1928,7 @@ def _compute_entry_stop(
     if entry is None or atr_val is None:
         return None
 
-    mult = 3.0
+    mult = _resolve_stop_atr_multiple(strategy, system_name)
     stop = entry - mult * atr_val if side == "long" else entry + mult * atr_val
     if (side == "long" and stop >= entry) or (side == "short" and stop <= entry):
         return None

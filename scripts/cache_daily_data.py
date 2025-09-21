@@ -22,16 +22,16 @@ def _migrate_root_csv_to_full() -> None:
 
     旧バージョンでは ``data_cache/`` や ``data_cache_recent/`` 直下に
     シンボルごとの CSV を配置していた。現在は ``CacheManager`` により
-    ``data_cache/full_backup/`` と ``data_cache/rolling/`` に整理されているため、
+    ``data_cache/full_backup/`` と ``data_cache/base/`` に整理されているため、
     既存ファイルがあればこの関数で移動する。移行に失敗してもログを
     出力するのみで処理を継続する。
     """
 
-    global DATA_CACHE_DIR, DATA_CACHE_RECENT_DIR
+    global DATA_CACHE_DIR, BASE_CACHE_DIR
 
     try:
         full_dir = cm.full_dir
-        rolling_dir = cm.rolling_dir
+        base_dir = BASE_CACHE_DIR
     except Exception:  # pragma: no cover - セットアップ失敗時は移行不要
         return
 
@@ -53,7 +53,8 @@ def _migrate_root_csv_to_full() -> None:
         return dest_dir
 
     DATA_CACHE_DIR = _move_csv(DATA_CACHE_DIR, full_dir)
-    DATA_CACHE_RECENT_DIR = _move_csv(DATA_CACHE_RECENT_DIR, rolling_dir)
+    if LEGACY_RECENT_DIR is not None:
+        BASE_CACHE_DIR = _move_csv(LEGACY_RECENT_DIR, base_dir)
 
 
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
@@ -61,7 +62,9 @@ def _migrate_root_csv_to_full() -> None:
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
 
-from common.cache_manager import CacheManager  # noqa: E402
+from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+
+BASE_SUBDIR_NAME = "base"
 
 # -----------------------------
 # 設定/環境
@@ -77,7 +80,8 @@ try:
     cm = CacheManager(_settings)
     LOG_DIR = Path(_settings.LOGS_DIR)
     DATA_CACHE_DIR = Path(_settings.DATA_CACHE_DIR)
-    DATA_CACHE_RECENT_DIR = Path(_settings.DATA_CACHE_RECENT_DIR)
+    LEGACY_RECENT_DIR = Path(_settings.DATA_CACHE_RECENT_DIR)
+    BASE_CACHE_DIR = Path(_settings.DATA_CACHE_DIR) / BASE_SUBDIR_NAME
     THREADS_DEFAULT = int(_settings.THREADS_DEFAULT)
     REQUEST_TIMEOUT = int(_settings.REQUEST_TIMEOUT)
     DOWNLOAD_RETRIES = int(_settings.DOWNLOAD_RETRIES)
@@ -88,7 +92,10 @@ except Exception:
     # フォールバック（settings が読めない場合）
     LOG_DIR = Path(os.path.dirname(__file__)) / "logs"
     DATA_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache"
-    DATA_CACHE_RECENT_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache_recent"
+    LEGACY_RECENT_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache_recent"
+    BASE_CACHE_DIR = (
+        Path(os.path.dirname(__file__)) / ".." / "data_cache" / BASE_SUBDIR_NAME
+    )
     THREADS_DEFAULT = int(os.getenv("THREADS_DEFAULT", 8))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 10))
     DOWNLOAD_RETRIES = int(os.getenv("DOWNLOAD_RETRIES", 3))
@@ -99,10 +106,12 @@ except Exception:
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_CACHE_DIR = DATA_CACHE_DIR.resolve()
 DATA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-DATA_CACHE_RECENT_DIR = DATA_CACHE_RECENT_DIR.resolve()
-DATA_CACHE_RECENT_DIR.mkdir(parents=True, exist_ok=True)
-
-RECENT_DAYS = 300
+try:
+    LEGACY_RECENT_DIR = LEGACY_RECENT_DIR.resolve()
+except Exception:
+    LEGACY_RECENT_DIR = None
+BASE_CACHE_DIR = BASE_CACHE_DIR.resolve()
+BASE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # -----------------------------
@@ -366,47 +375,62 @@ def safe_filename(symbol: str) -> str:
 def cache_single(
     symbol: str,
     output_dir: Path,
-    recent_dir: Path | None = None,
-    recent_days: int = RECENT_DAYS,
+    base_dir: Path | None = None,
 ) -> tuple[str, bool, bool]:
     """指定シンボルをキャッシュ。
     戻り値: (message, used_api, success)
     """
     safe_symbol = safe_filename(symbol)
     filepath = output_dir / f"{safe_symbol}.csv"
-    recentpath = recent_dir / f"{safe_symbol}.csv" if recent_dir else None
+    basepath = base_dir / f"{safe_symbol}.csv" if base_dir else None
 
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
-    if recent_dir is not None and not isinstance(recent_dir, Path):
-        recent_dir = Path(recent_dir)
+    if base_dir is not None and not isinstance(base_dir, Path):
+        base_dir = Path(base_dir)
     if filepath.exists():
         mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
         if mod_time.date() == datetime.today().date():
-            if recentpath:
-                if recent_dir is not None:
-                    recent_dir.mkdir(parents=True, exist_ok=True)
-                if not recentpath.exists():
-                    try:
-                        existing_df = pd.read_csv(filepath)
-                        existing_df.tail(recent_days).to_csv(recentpath, index=False)
-                    except Exception as e:  # pragma: no cover - logging only
-                        logging.warning(
-                            "%s: failed to write recent cache from existing data - %s",
-                            symbol,
-                            e,
-                        )
+            if basepath and not basepath.exists():
+                try:
+                    existing_df = pd.read_csv(filepath)
+                    base_df = compute_base_indicators(existing_df)
+                except Exception as exc:  # pragma: no cover - logging only
+                    logging.warning(
+                        "%s: 既存データからのbase再構築に失敗 (%s)",
+                        symbol,
+                        exc,
+                    )
+                    base_df = None
+                if base_df is not None and not base_df.empty:
+                    if base_dir is not None:
+                        base_dir.mkdir(parents=True, exist_ok=True)
+                    base_df.reset_index().to_csv(basepath, index=False)
             return (f"{symbol}: already cached", False, True)
     df = get_eodhd_data(symbol)
     if df is not None and not df.empty:
-        df = add_indicators(df)
-        df_reset = df.reset_index().rename(columns=str.lower)
+        base_saved = False
+        try:
+            full_df = add_indicators(df.copy())
+        except Exception:
+            full_df = add_indicators(df)
+        df_reset = full_df.reset_index().rename(columns=str.lower)
         df_reset.to_csv(filepath, index=False)
-        if recentpath:
-            if recent_dir is not None:
-                recent_dir.mkdir(parents=True, exist_ok=True)
-            df_reset.tail(recent_days).to_csv(recentpath, index=False)
-        return (f"{symbol}: saved", True, True)
+
+        if basepath:
+            if base_dir is not None:
+                base_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                base_df = compute_base_indicators(df)
+            except Exception as exc:
+                logging.warning("%s: base計算に失敗 (%s)", symbol, exc)
+                base_df = None
+            if base_df is not None and not base_df.empty:
+                base_reset = base_df.reset_index()
+                base_reset.to_csv(basepath, index=False)
+                base_saved = True
+        msg_suffix = " (base saved)" if base_saved else ""
+        return (f"{symbol}: saved{msg_suffix}", True, True)
     else:
         return (f"{symbol}: failed to fetch", True, False)
 
@@ -414,15 +438,14 @@ def cache_single(
 def cache_data(
     symbols: list[str],
     output_dir: Path | str = DATA_CACHE_DIR,
-    recent_dir: Path | None = DATA_CACHE_RECENT_DIR,
-    recent_days: int = RECENT_DAYS,
+    base_dir: Path | None = BASE_CACHE_DIR,
     max_workers: int | None = None,
 ) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if recent_dir is not None:
-        recent_dir = Path(recent_dir)
-        recent_dir.mkdir(parents=True, exist_ok=True)
+    if base_dir is not None:
+        base_dir = Path(base_dir)
+        base_dir.mkdir(parents=True, exist_ok=True)
 
     max_workers = int(max_workers or THREADS_DEFAULT)
 
@@ -441,8 +464,7 @@ def cache_data(
                 cache_single,
                 symbol,
                 output_dir,
-                recent_dir,
-                recent_days,
+                base_dir,
             ): symbol
             for symbol in symbols_to_fetch
         }
@@ -465,8 +487,6 @@ def cache_data(
     if succeeded:
         remove_recovered_symbols(succeeded)
 
-    cm.prune_rolling_if_needed(anchor_ticker="SPY")
-
     # 統計の出力
     cached_count = sum(1 for _, _, used_api in results_list if not used_api)
     api_count = sum(1 for _, _, used_api in results_list if used_api)
@@ -480,7 +500,7 @@ def _cli_main() -> None:
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
     print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
-    cache_data(symbols, output_dir=DATA_CACHE_DIR, recent_dir=DATA_CACHE_RECENT_DIR)
+    cache_data(symbols, output_dir=DATA_CACHE_DIR, base_dir=BASE_CACHE_DIR)
     print("データのキャッシュが完了しました。")
 
 

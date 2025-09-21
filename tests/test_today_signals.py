@@ -8,6 +8,7 @@ import pytest
 import common.today_signals as today_signals
 import common.utils_spy as utils_spy
 from common.exit_planner import decide_exit_schedule
+from strategies.system2_strategy import System2Strategy
 from strategies.system4_strategy import System4Strategy
 
 
@@ -62,6 +63,68 @@ def _patch_calendar(monkeypatch: pytest.MonkeyPatch, base_day: pd.Timestamp) -> 
 
     monkeypatch.setattr(utils_spy, "get_latest_nyse_trading_day", stub_latest)
     monkeypatch.setattr(utils_spy, "get_next_nyse_trading_day", stub_next)
+
+
+def _make_atr_frame(atr_col: str, atr_value: float = 2.0) -> pd.DataFrame:
+    idx = pd.date_range("2024-06-03", periods=2, freq="B")
+    data = {
+        "Open": [100.0, 101.0],
+        "High": [101.0, 102.0],
+        "Low": [99.0, 100.0],
+        "Close": [100.0, 101.0],
+        atr_col: [atr_value, atr_value],
+    }
+    return pd.DataFrame(data, index=idx)
+
+
+@pytest.mark.parametrize(
+    ("system", "side", "atr_col", "expected_mult"),
+    [
+        ("system1", "long", "ATR20", 5.0),
+        ("system2", "short", "ATR10", 3.0),
+        ("system3", "long", "ATR10", 2.5),
+        ("system4", "long", "ATR40", 1.5),
+    ],
+)
+def test_compute_entry_stop_uses_system_specific_multiplier(
+    system: str, side: str, atr_col: str, expected_mult: float
+) -> None:
+    df = _make_atr_frame(atr_col)
+    entry_date = df.index[-1]
+    candidate = {"entry_date": entry_date}
+    strategy = SimpleNamespace(SYSTEM_NAME=system, config={})
+
+    result = today_signals._compute_entry_stop(strategy, df, candidate, side)
+
+    assert result is not None
+    entry_price, stop_price = result
+    expected_entry = float(df.iloc[-1]["Open"])
+    assert entry_price == pytest.approx(expected_entry)
+
+    atr_value = float(df.iloc[-2][atr_col])
+    if side == "long":
+        expected_stop = entry_price - expected_mult * atr_value
+    else:
+        expected_stop = entry_price + expected_mult * atr_value
+    assert stop_price == pytest.approx(expected_stop)
+
+
+def test_compute_entry_stop_prefers_config_multiplier() -> None:
+    df = _make_atr_frame("ATR10", atr_value=1.0)
+    entry_date = df.index[-1]
+    candidate = {"entry_date": entry_date}
+    strategy = SimpleNamespace(
+        SYSTEM_NAME="system3", config={"stop_atr_multiple": "4"}
+    )
+
+    result = today_signals._compute_entry_stop(strategy, df, candidate, "long")
+
+    assert result is not None
+    entry_price, stop_price = result
+    expected_entry = float(df.iloc[-1]["Open"])
+    assert entry_price == pytest.approx(expected_entry)
+    expected_stop = entry_price - 4.0 * float(df.iloc[-2]["ATR10"])
+    assert stop_price == pytest.approx(expected_stop)
 
 
 def test_system4_spy_gate_blocks_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,9 +203,9 @@ def test_system2_shortability_filter_excludes_symbols(
         today=base_day,
     )
 
-    assert not result.empty
+    assert result.empty
     assert set(result.columns) == set(today_signals.TODAY_SIGNAL_COLUMNS)
-    assert result.iloc[0]["symbol"] == "AAA"
+    assert result.attrs.get("zero_reason") == "setup_pass_zero"
 
 
 def test_decide_exit_schedule_marks_due_for_past_date() -> None:
