@@ -27,10 +27,10 @@
 | SMA100 | System1, System5 | 列として実装済 (`SMA100`) |
 | SMA150 | System3 | 列として実装済 (`SMA150`) |
 | SMA200 | System4 | 列として実装済 (`SMA200`) |
-| ATR3 | System2, System5, System6, System7 | 未実装（`ATR`列の3倍で計算） |
-| ATR1.5 | System4 | 未実装（`ATR`列の1.5倍で計算） |
-| ATR1 | System5 | 未実装（`ATR`列を使用） |
-| ATR2.5 | System3 | 未実装（`ATR`列の2.5倍で計算） |
+| ATR3 | System2, System5, System6, System7 | ストップ計算で `stop_atr_multiple=3` を使用 |
+| ATR1.5 | System4 | ストップ計算で `stop_atr_multiple=1.5` を使用 |
+| ATR1 | System5 | `Close > SMA100 + ATR10` 判定で使用 |
+| ATR2.5 | System3 | ストップ計算で `stop_atr_multiple=2.5` を使用 |
 | ATR（10日・20日・40日・50日など） | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`ATR10` 等) |
 | ADX7 | System2, System5 | 列として実装済 (`ADX7`) |
 | Return6D（旧称 RETURN6） | System6 | 列として実装済 (`Return6D`) |

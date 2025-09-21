@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from datetime import time as dtime
 from pathlib import Path
-from collections.abc import Iterable
 import sys
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -13,6 +14,9 @@ from ta.trend import SMAIndicator
 
 from common.i18n import tr
 from config.settings import get_settings
+
+
+_NY_TIMEZONE = ZoneInfo("America/New_York")
 
 
 def _ui_enabled() -> bool:
@@ -228,16 +232,25 @@ def _normalize_to_naive_day(ts: pd.Timestamp | None) -> pd.Timestamp:
     """Normalize timestamp to tz-naive midnight."""
 
     if ts is None:
-        ts = pd.Timestamp.today()
+        ts = pd.Timestamp.now(tz=_NY_TIMEZONE)
     else:
         ts = pd.Timestamp(ts)
+        tz = getattr(ts, "tzinfo", None)
+        if tz is not None:
+            try:
+                ts = ts.tz_convert(_NY_TIMEZONE)
+            except (TypeError, ValueError, AttributeError):
+                try:
+                    ts = pd.Timestamp(ts.to_pydatetime().astimezone(_NY_TIMEZONE))
+                except Exception:
+                    ts = pd.Timestamp(ts.to_pydatetime().replace(tzinfo=None))
     tz = getattr(ts, "tzinfo", None)
     if tz is not None:
         try:
-            ts = ts.tz_convert(None)
+            ts = ts.tz_localize(None)
         except (TypeError, ValueError, AttributeError):
             try:
-                ts = ts.tz_localize(None)
+                ts = ts.tz_convert(None)
             except Exception:
                 ts = pd.Timestamp(ts.to_pydatetime().replace(tzinfo=None))
     return ts.normalize()
@@ -268,6 +281,65 @@ def get_next_nyse_trading_day(current: pd.Timestamp | None = None) -> pd.Timesta
     if future_days.empty:
         raise ValueError("No upcoming NYSE trading day found")
     return future_days.min()
+
+
+def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    """Determine the trading day to target when running today's signal extraction."""
+
+    def _ensure_ny_timestamp(ts: pd.Timestamp | None) -> pd.Timestamp:
+        if ts is None:
+            return pd.Timestamp.now(tz="America/New_York")
+        raw = pd.Timestamp(ts)
+        tzinfo = getattr(raw, "tzinfo", None)
+        if tzinfo is None:
+            try:
+                localized = raw.tz_localize(
+                    "America/New_York", ambiguous="NaT", nonexistent="NaT"
+                )
+                if pd.isna(localized):  # type: ignore[truthy-bool]
+                    raise ValueError
+                return localized
+            except Exception:
+                return raw.tz_localize("UTC").tz_convert("America/New_York")
+        try:
+            return raw.tz_convert("America/New_York")
+        except Exception:
+            return raw.tz_localize("America/New_York")
+
+    try:
+        ny_now = _ensure_ny_timestamp(now)
+    except Exception:
+        ny_now = pd.Timestamp.now(tz="America/New_York")
+
+    latest = get_latest_nyse_trading_day(ny_now)
+    target = latest
+
+    try:
+        ny_date = ny_now.date()
+    except Exception:
+        ny_date = None
+    try:
+        latest_date = pd.Timestamp(latest).date()
+    except Exception:
+        latest_date = None
+    try:
+        ny_time = ny_now.time()
+    except Exception:
+        ny_time = None
+
+    need_next = False
+    if ny_date is not None and latest_date is not None and ny_date > latest_date:
+        need_next = True
+    if ny_time is not None and ny_time >= dtime(16, 0):
+        need_next = True
+
+    if need_next:
+        try:
+            target = get_next_nyse_trading_day(latest)
+        except Exception:
+            target = latest
+
+    return pd.Timestamp(target).normalize()
 
 
 def resolve_signal_entry_date(base_date) -> pd.Timestamp | pd.NaT:

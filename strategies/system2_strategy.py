@@ -69,12 +69,19 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     # 候補生成（共通コアへ委譲）
     # -------------------------------
     def generate_candidates(self, prepared_dict, **kwargs):
-        try:
-            from config.settings import get_settings
+        top_n_override = kwargs.pop("top_n", None)
+        if top_n_override is not None:
+            try:
+                top_n = max(0, int(top_n_override))
+            except Exception:
+                top_n = 10
+        else:
+            try:
+                from config.settings import get_settings
 
-            top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-        except Exception:
-            top_n = 10
+                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
+            except Exception:
+                top_n = 10
         return generate_candidates_system2(prepared_dict, top_n=top_n)
 
     # -------------------------------

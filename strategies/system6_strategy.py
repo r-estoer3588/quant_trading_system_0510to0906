@@ -20,7 +20,6 @@ from core.system6 import (
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
-    PREFER_PROCESS_POOL = True
 
     def __init__(self):
         super().__init__()
@@ -67,13 +66,21 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         log_callback=None,
         skip_callback=None,
         batch_size: int | None = None,
+        *,
+        top_n: int | None = None,
     ):
-        try:
-            from config.settings import get_settings
+        if top_n is None:
+            try:
+                from config.settings import get_settings
 
-            top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-        except Exception:
-            top_n = 10
+                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
+            except Exception:
+                top_n = 10
+        else:
+            try:
+                top_n = max(0, int(top_n))
+            except Exception:
+                top_n = 10
         if batch_size is None:
             try:
                 from config.settings import get_settings

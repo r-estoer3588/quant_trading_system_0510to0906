@@ -10,7 +10,12 @@ from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils import (
+    BatchSizeMonitor,
+    describe_dtype,
+    get_cached_data,
+    resolve_batch_size,
+)
 from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
@@ -303,8 +308,10 @@ def prepare_data_vectorized_system5(
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
-                    if not pd.api.types.is_numeric_dtype(df[col]):
-                        msg = f"⚠️ {sym} cache: {col}型不一致 ({df[col].dtype})"
+                    series_like = df[col]
+                    if not pd.api.types.is_numeric_dtype(series_like):
+                        dtype_repr = describe_dtype(series_like)
+                        msg = f"⚠️ {sym} cache: {col}型不一致 ({dtype_repr})"
                         if log_callback:
                             log_callback(msg)
                         if skip_callback:
@@ -542,9 +549,22 @@ def generate_candidates_system5(
                 pass
             buffer.clear()
 
+    limit_n = int(top_n)
     for date in list(candidates_by_date.keys()):
-        ranked = sorted(candidates_by_date[date], key=lambda r: r["ADX7"], reverse=True)
-        candidates_by_date[date] = ranked[: int(top_n)]
+        rows = candidates_by_date.get(date, [])
+        if not rows:
+            candidates_by_date[date] = []
+            continue
+        df = pd.DataFrame(rows)
+        if df.empty:
+            candidates_by_date[date] = []
+            continue
+        df = df.sort_values("ADX7", ascending=False)
+        total = len(df)
+        df.loc[:, "rank"] = range(1, total + 1)
+        df.loc[:, "rank_total"] = total
+        limited = df.head(limit_n)
+        candidates_by_date[date] = limited.to_dict("records")
 
     if skipped > 0 and log_callback:
         try:

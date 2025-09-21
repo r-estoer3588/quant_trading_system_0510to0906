@@ -37,6 +37,7 @@ else:  # pragma: no cover - runtime fallback when Plotly is missing
 from common import broker_alpaca as ba
 from common.cache_manager import load_base_cache
 from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates
+from common.profit_protection import calculate_business_holding_days
 
 
 # 経過日手仕切りの上限日数（システム別）
@@ -352,19 +353,7 @@ def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
 
 
 def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
-    if entry_dt is None:
-        return None
-    if isinstance(entry_dt, pd.Timestamp):
-        dt = entry_dt
-    else:
-        try:
-            dt = pd.to_datetime(entry_dt, errors="coerce")
-            if pd.isna(dt):
-                return None
-        except Exception:
-            return None
-    today = pd.Timestamp(datetime.utcnow()).normalize()
-    return int((today - dt.normalize()).days)
+    return calculate_business_holding_days(entry_dt)
 
 
 def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None:

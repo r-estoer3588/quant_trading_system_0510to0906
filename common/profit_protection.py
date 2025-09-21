@@ -13,9 +13,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from common.data_loader import load_price
+from common.utils_spy import get_latest_nyse_trading_day
 
 
 _SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
@@ -78,17 +80,63 @@ def is_new_70day_high(symbol: str = "SPY") -> bool | None:
         return None
 
 
-def _days_held(entry_date: Any) -> int | None:
-    """Compute days held from entry_date to today."""
+def calculate_business_holding_days(
+    entry_date: Any, *, reference_date: pd.Timestamp | None = None
+) -> int | None:
+    """Return holding days counted as NYSE business days."""
 
     if not entry_date:
         return None
+
     try:
-        entry = pd.to_datetime(entry_date)
-        today = pd.Timestamp.utcnow().normalize()
-        return int((today - entry.normalize()).days)
+        entry_ts = pd.to_datetime(entry_date, errors="coerce")
     except Exception:
+        entry_ts = None
+    if entry_ts is None or pd.isna(entry_ts):
         return None
+
+    entry = pd.Timestamp(entry_ts)
+    tz = getattr(entry, "tzinfo", None)
+    if tz is not None:
+        try:
+            entry = entry.tz_convert(None)
+        except Exception:
+            entry = entry.tz_localize(None)
+    entry_norm = entry.normalize()
+
+    if reference_date is None:
+        today_candidate = pd.Timestamp.utcnow()
+    else:
+        today_candidate = pd.Timestamp(reference_date)
+
+    try:
+        latest_trading = get_latest_nyse_trading_day(today_candidate)
+    except Exception:
+        latest_trading = today_candidate
+
+    latest = pd.Timestamp(latest_trading)
+    tz_latest = getattr(latest, "tzinfo", None)
+    if tz_latest is not None:
+        try:
+            latest = latest.tz_convert(None)
+        except Exception:
+            latest = latest.tz_localize(None)
+    latest_norm = latest.normalize()
+
+    if latest_norm < entry_norm:
+        return 0
+
+    try:
+        held = int(np.busday_count(entry_norm.date(), latest_norm.date()))
+    except Exception:
+        held = int(max((latest_norm - entry_norm).days, 0))
+    return held
+
+
+def _days_held(entry_date: Any) -> int | None:
+    """Compute days held from entry_date to today as business days."""
+
+    return calculate_business_holding_days(entry_date)
 
 
 def _format_entry_date(entry_date: Any) -> str:
