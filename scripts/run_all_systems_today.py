@@ -25,12 +25,22 @@ from common.system_groups import (
     format_group_counts,
     format_group_counts_and_values,
 )
-from common.utils_spy import get_latest_nyse_trading_day, get_spy_with_indicators
+from common.utils_spy import (
+    get_latest_nyse_trading_day,
+    get_signal_target_trading_day,
+    get_spy_with_indicators,
+)
 from config.settings import get_settings
+from core.final_allocation import (
+    AllocationSummary,
+    finalize_allocation,
+    load_symbol_system_map,
+)
 from core.system5 import (
     DEFAULT_ATR_PCT_THRESHOLD,
     format_atr_pct_threshold_label,
 )
+from tools.notify_metrics import send_metrics_notification
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -569,26 +579,219 @@ def _last_scalar(series):
         return None
 
 
+def _calc_dollar_volume_from_series(close_series, volume_series, window: int) -> float | None:
+    if close_series is None or volume_series is None:
+        return None
+    try:
+        product = close_series * volume_series
+    except Exception:
+        return None
+    try:
+        tail = product.tail(window) if hasattr(product, "tail") else product
+    except Exception:
+        tail = product
+    try:
+        tail = pd.to_numeric(tail, errors="coerce")
+    except Exception:
+        pass
+    try:
+        if hasattr(tail, "dropna"):
+            tail = tail.dropna()
+        if getattr(tail, "empty", False):
+            return None
+        return float(tail.mean())
+    except Exception:
+        return None
+
+
+def _calc_average_volume_from_series(volume_series, window: int) -> float | None:
+    if volume_series is None:
+        return None
+    try:
+        tail = volume_series.tail(window) if hasattr(volume_series, "tail") else volume_series
+    except Exception:
+        tail = volume_series
+    try:
+        tail = pd.to_numeric(tail, errors="coerce")
+    except Exception:
+        pass
+    try:
+        if hasattr(tail, "dropna"):
+            tail = tail.dropna()
+        if getattr(tail, "empty", False):
+            return None
+        return float(tail.mean())
+    except Exception:
+        return None
+
+
+def _resolve_atr_ratio(
+    df: pd.DataFrame,
+    close_series=None,
+    last_close: float | None = None,
+) -> float | None:
+    ratio_series = _pick_series(df, ["ATR_Ratio", "ATR_Pct"])
+    ratio_val = _last_scalar(ratio_series)
+    if ratio_val is not None:
+        return ratio_val
+
+    atr_series = _pick_series(df, ["ATR10", "ATR20"])
+    atr_val = _last_scalar(atr_series)
+    if atr_val is None:
+        high_series = _pick_series(df, ["High", "high"])
+        low_series = _pick_series(df, ["Low", "low"])
+        if high_series is not None and low_series is not None:
+            try:
+                tr = high_series - low_series
+                if hasattr(tr, "dropna"):
+                    tr = tr.dropna()
+                tr_tail = tr.tail(10) if hasattr(tr, "tail") else tr
+                if getattr(tr_tail, "empty", False):
+                    atr_val = None
+                else:
+                    atr_val = float(tr_tail.mean())
+            except Exception:
+                atr_val = None
+    if atr_val is None:
+        return None
+
+    if last_close is None:
+        try:
+            close_series = close_series or _pick_series(df, ["Close", "close"])
+        except Exception:
+            close_series = None
+        last_close = _last_scalar(close_series)
+    try:
+        if last_close is None:
+            return None
+        close_val = float(last_close)
+        if close_val == 0:
+            return None
+    except Exception:
+        return None
+
+    try:
+        return float(atr_val) / close_val
+    except Exception:
+        return None
+
+
+def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
+    close_series = _pick_series(df, ["Close", "close"])
+    last_close = _last_scalar(close_series)
+    price_ok = bool(last_close is not None and last_close >= 5)
+
+    dv_series = _pick_series(df, ["DollarVolume20"])
+    dv20 = _last_scalar(dv_series)
+    if dv20 is None:
+        volume_series = _pick_series(df, ["Volume", "volume"])
+        dv20 = _calc_dollar_volume_from_series(close_series, volume_series, 20)
+    dv_ok = bool(dv20 is not None and dv20 >= 50_000_000)
+
+    return price_ok, dv_ok
+
+
+def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
+    close_series = _pick_series(df, ["Close", "close"])
+    last_close = _last_scalar(close_series)
+    price_ok = bool(last_close is not None and last_close >= 5)
+
+    dv_series = _pick_series(df, ["DollarVolume20"])
+    dv20 = _last_scalar(dv_series)
+    if dv20 is None:
+        volume_series = _pick_series(df, ["Volume", "volume"])
+        dv20 = _calc_dollar_volume_from_series(close_series, volume_series, 20)
+    dv_ok = bool(dv20 is not None and dv20 >= 25_000_000)
+
+    atr_ratio = _resolve_atr_ratio(df, close_series, last_close)
+    atr_ok = bool(atr_ratio is not None and atr_ratio >= 0.03)
+
+    return price_ok, dv_ok, atr_ok
+
+
+def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
+    low_series = _pick_series(df, ["Low", "low"])
+    low_val = _last_scalar(low_series)
+    low_ok = bool(low_val is not None and low_val >= 1)
+
+    av_series = _pick_series(df, ["AvgVolume50"])
+    av_val = _last_scalar(av_series)
+    if av_val is None:
+        volume_series = _pick_series(df, ["Volume", "volume"])
+        av_val = _calc_average_volume_from_series(volume_series, 50)
+    av_ok = bool(av_val is not None and av_val >= 1_000_000)
+
+    atr_ratio = _resolve_atr_ratio(df)
+    atr_ok = bool(atr_ratio is not None and atr_ratio >= 0.05)
+
+    return low_ok, av_ok, atr_ok
+
+
+def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
+    close_series = _pick_series(df, ["Close", "close"])
+    volume_series = _pick_series(df, ["Volume", "volume"])
+    dv_series = _pick_series(df, ["DollarVolume50"])
+    dv50 = _last_scalar(dv_series)
+    if dv50 is None:
+        dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+    dv_ok = bool(dv50 is not None and dv50 > 100_000_000)
+
+    hv_series = _pick_series(df, ["HV50"])
+    hv_val = _last_scalar(hv_series)
+    hv_ok = bool(hv_val is not None and 10 <= hv_val <= 40)
+
+    return dv_ok, hv_ok
+
+
+def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
+    volume_series = _pick_series(df, ["Volume", "volume"])
+    av_series = _pick_series(df, ["AvgVolume50"])
+    av_val = _last_scalar(av_series)
+    if av_val is None:
+        av_val = _calc_average_volume_from_series(volume_series, 50)
+    av_ok = bool(av_val is not None and av_val > 500_000)
+
+    close_series = _pick_series(df, ["Close", "close"])
+    dv_series = _pick_series(df, ["DollarVolume50"])
+    dv50 = _last_scalar(dv_series)
+    if dv50 is None:
+        dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+    dv_ok = bool(dv50 is not None and dv50 > 2_500_000)
+
+    atr_series = _pick_series(df, ["ATR_Pct", "ATR_Ratio"])
+    atr_val = _last_scalar(atr_series)
+    if atr_val is None:
+        atr_val = _resolve_atr_ratio(df, close_series)
+    atr_ok = bool(atr_val is not None and atr_val > DEFAULT_ATR_PCT_THRESHOLD)
+
+    return av_ok, dv_ok, atr_ok
+
+
+def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
+    low_series = _pick_series(df, ["Low", "low"])
+    low_val = _last_scalar(low_series)
+    low_ok = bool(low_val is not None and low_val >= 5)
+
+    close_series = _pick_series(df, ["Close", "close"])
+    volume_series = _pick_series(df, ["Volume", "volume"])
+    dv_series = _pick_series(df, ["DollarVolume50"])
+    dv50 = _last_scalar(dv_series)
+    if dv50 is None:
+        dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+    dv_ok = bool(dv50 is not None and dv50 > 10_000_000)
+
+    return low_ok, dv_ok
+
+
 def filter_system1(symbols, data):
     result = []
     for sym in symbols:
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
-        last_close = _last_scalar(close_s)
-        if last_close is None or last_close < 5:
-            continue
-        vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
-        if vol_s is None or close_s is None:
-            continue
-        try:
-            dollar_vol = (close_s * vol_s).dropna()
-        except Exception:
-            continue
-        if dollar_vol.tail(20).mean() < 5e7:
-            continue
-        result.append(sym)
+        price_ok, dv_ok = _system1_conditions(df)
+        if price_ok and dv_ok:
+            result.append(sym)
     return result
 
 
@@ -598,30 +801,9 @@ def filter_system2(symbols, data):
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        close_s = _pick_series(df, ["close", "Close", "Adj Close", "adj_close"])
-        last_close = _last_scalar(close_s)
-        if last_close is None or last_close < 5:
-            continue
-        vol_s = _pick_series(df, ["volume", "Volume", "Vol", "vol"])
-        if vol_s is None or close_s is None:
-            continue
-        try:
-            dollar_vol = (close_s * vol_s).dropna()
-        except Exception:
-            continue
-        if dollar_vol.tail(20).mean() < 2.5e7:
-            continue
-        high_s = _pick_series(df, ["high", "High"]) if df is not None else None
-        low_s = _pick_series(df, ["low", "Low"]) if df is not None else None
-        if high_s is not None and low_s is not None and close_s is not None:
-            try:
-                tr = (high_s - low_s).dropna().tail(10)
-                atr = tr.mean()
-            except Exception:
-                atr = None
-            if atr is not None and atr < (last_close * 0.03):
-                continue
-        result.append(sym)
+        price_ok, dv_ok, atr_ok = _system2_conditions(df)
+        if price_ok and dv_ok and atr_ok:
+            result.append(sym)
     return result
 
 
@@ -631,16 +813,9 @@ def filter_system3(symbols, data):
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        low = df.get("Low", df.get("low"))
-        if low is None or float(low.iloc[-1]) < 1:
-            continue
-        av50 = df.get("AvgVolume50")
-        if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) < 1_000_000:
-            continue
-        atr_ratio = df.get("ATR_Ratio")
-        if atr_ratio is None or pd.isna(atr_ratio.iloc[-1]) or float(atr_ratio.iloc[-1]) < 0.05:
-            continue
-        result.append(sym)
+        low_ok, av_ok, atr_ok = _system3_conditions(df)
+        if low_ok and av_ok and atr_ok:
+            result.append(sym)
     return result
 
 
@@ -650,19 +825,9 @@ def filter_system4(symbols, data):
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        dv50 = df.get("DollarVolume50")
-        hv50 = df.get("HV50")
-        try:
-            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 100_000_000:
-                continue
-            if hv50 is None or pd.isna(hv50.iloc[-1]):
-                continue
-            hv = float(hv50.iloc[-1])
-            if hv < 10 or hv > 40:
-                continue
-        except Exception:
-            continue
-        result.append(sym)
+        dv_ok, hv_ok = _system4_conditions(df)
+        if dv_ok and hv_ok:
+            result.append(sym)
     return result
 
 
@@ -672,23 +837,9 @@ def filter_system5(symbols, data):
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        av50 = df.get("AvgVolume50")
-        dv50 = df.get("DollarVolume50")
-        atr_pct = df.get("ATR_Pct")
-        try:
-            if av50 is None or pd.isna(av50.iloc[-1]) or float(av50.iloc[-1]) <= 500_000:
-                continue
-            if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 2_500_000:
-                continue
-            if (
-                atr_pct is None
-                or pd.isna(atr_pct.iloc[-1])
-                or float(atr_pct.iloc[-1]) <= DEFAULT_ATR_PCT_THRESHOLD
-            ):
-                continue
-        except Exception:
-            continue
-        result.append(sym)
+        av_ok, dv_ok, atr_ok = _system5_conditions(df)
+        if av_ok and dv_ok and atr_ok:
+            result.append(sym)
     return result
 
 
@@ -698,13 +849,9 @@ def filter_system6(symbols, data):
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        low = df.get("Low", df.get("low"))
-        if low is None or float(low.iloc[-1]) < 5:
-            continue
-        dv50 = df.get("DollarVolume50")
-        if dv50 is None or pd.isna(dv50.iloc[-1]) or float(dv50.iloc[-1]) <= 10_000_000:
-            continue
-        result.append(sym)
+        low_ok, dv_ok = _system6_conditions(df)
+        if low_ok and dv_ok:
+            result.append(sym)
     return result
 
 
@@ -1310,14 +1457,6 @@ def _subset_data(basic_data: dict[str, pd.DataFrame], keys: list[str]) -> dict[s
     return out
 
 
-@dataclass(frozen=True)
-class _StrategyAllocationMeta:
-    calc_fn: Callable[..., Any] | None
-    risk_pct: float
-    max_pct: float
-    max_positions: int
-
-
 def _fetch_positions_and_symbol_map() -> tuple[list[Any], dict[str, str]]:
     """Fetch Alpaca positions and cached symbol-to-system mapping once."""
 
@@ -1328,229 +1467,11 @@ def _fetch_positions_and_symbol_map() -> tuple[list[Any], dict[str, str]]:
         positions = []
 
     try:
-        mapping_path = Path("data/symbol_system_map.json")
-        if mapping_path.exists():
-            symbol_system_map = json.loads(mapping_path.read_text(encoding="utf-8"))
-        else:
-            symbol_system_map = {}
+        symbol_system_map = load_symbol_system_map()
     except Exception:
         symbol_system_map = {}
 
     return positions, symbol_system_map
-
-
-def _load_active_positions_by_system(
-    positions: Sequence[object] | None = None,
-    symbol_system_map: Mapping[str, str] | None = None,
-) -> dict[str, int]:
-    """Return current active position counts grouped by system name.
-
-    Alpaca の保有ポジションと `data/symbol_system_map.json` を突き合わせ、
-    system1〜7 のどの戦略で保有しているかを推定する。
-    失敗した場合は空 dict を返す。
-    """
-
-    counts: dict[str, int] = {}
-
-    if positions is None or symbol_system_map is None:
-        positions, symbol_system_map = _fetch_positions_and_symbol_map()
-
-    # normalize to concrete types for static analysis
-    if positions is None:
-        positions = []
-    if symbol_system_map is None:
-        symbol_system_map = {}
-
-    for pos in positions:
-        try:
-            sym = str(getattr(pos, "symbol", "")).upper()
-        except Exception:
-            continue
-        if not sym:
-            continue
-        try:
-            qty = abs(float(getattr(pos, "qty", 0)) or 0.0)
-        except Exception:
-            qty = 0.0
-        if qty <= 0:
-            continue
-        side = str(getattr(pos, "side", "")).lower()
-        mapped = symbol_system_map.get(sym)
-        if mapped is None and sym.lower() in symbol_system_map:
-            mapped = symbol_system_map.get(sym.lower())
-        system_name = str(mapped or "").lower()
-        if not system_name:
-            if sym == "SPY" and side == "short":
-                system_name = "system7"
-            else:
-                continue
-        counts[system_name] = counts.get(system_name, 0) + 1
-    return counts
-
-
-def _amount_pick(
-    per_system: dict[str, pd.DataFrame],
-    strategies: dict[str, object],
-    total_budget: float,
-    weights: dict[str, float],
-    side: str,
-    active_positions: dict[str, int] | None = None,
-) -> pd.DataFrame:
-    """資金配分に基づいて候補を採用。
-    shares と position_value を付与して返す。
-    """
-    chosen: list[dict[str, Any]] = []
-    chosen_symbols: set[str] = set()
-
-    active_positions = active_positions or {}
-
-    # システムごとの割当予算
-    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
-    remaining = budgets.copy()
-
-    # システム名の順序を固定（system1..system7）
-    sys_order = [f"system{i}" for i in range(1, 8)]
-    ordered_names = [n for n in sys_order if n in weights]
-
-    strategy_meta: dict[str, _StrategyAllocationMeta] = {}
-    candidates_by_system: dict[str, list[dict[str, Any]]] = {}
-    candidate_index: dict[str, int] = {}
-
-    for name in ordered_names:
-        stg = strategies.get(name)
-        config = getattr(stg, "config", {}) if stg is not None else {}
-        calc_fn = getattr(stg, "calculate_position_size", None)
-        if not callable(calc_fn):
-            calc_fn = None
-        try:
-            risk_pct = float(config.get("risk_pct", 0.02))
-        except Exception:
-            risk_pct = 0.02
-        try:
-            max_pct = float(config.get("max_pct", 0.10))
-        except Exception:
-            max_pct = 0.10
-        try:
-            max_positions = int(config.get("max_positions", 10))
-        except Exception:
-            max_positions = 10
-
-        strategy_meta[name] = _StrategyAllocationMeta(
-            calc_fn=calc_fn,
-            risk_pct=risk_pct,
-            max_pct=max_pct,
-            max_positions=max_positions,
-        )
-
-        df = per_system.get(name, pd.DataFrame())
-        if df is None or getattr(df, "empty", True):
-            candidates_by_system[name] = []
-        else:
-            # df.to_dict can return list[dict[Hashable, Any]]; cast to expected type
-            candidates_by_system[name] = cast(list[dict[str, Any]], df.to_dict("records"))
-        candidate_index[name] = 0
-
-    max_pos_by_system = {
-        name: max(0, strategy_meta[name].max_positions - int(active_positions.get(name, 0)))
-        for name in ordered_names
-    }
-    count_by_system: dict[str, int] = {k: 0 for k in ordered_names}
-
-    def _normalize_shares(value: Any) -> int:
-        try:
-            return int(float(value))
-        except Exception:
-            return 0
-
-    # システムごとにスコア順で採用。複数周回して1件ずつ拾う（偏りを軽減）
-    still = True
-    while still:
-        still = False
-        for name in ordered_names:
-            records = candidates_by_system.get(name, [])
-            if (
-                not records
-                or remaining.get(name, 0.0) <= 0.0
-                or count_by_system.get(name, 0) >= max_pos_by_system.get(name, 0)
-                or candidate_index.get(name, 0) >= len(records)
-            ):
-                continue
-
-            meta = strategy_meta[name]
-            idx = candidate_index[name]
-
-            while idx < len(records):
-                row = records[idx]
-                idx += 1
-                candidate_index[name] = idx
-
-                sym = str(row.get("symbol", "")).upper()
-                if not sym or sym in chosen_symbols:
-                    continue
-
-                entry_raw = row.get("entry_price")
-                stop_raw = row.get("stop_price")
-                entry: float | None = None
-                stop: float | None = None
-                try:
-                    if entry_raw is not None and entry_raw != "":
-                        entry = float(entry_raw)
-                except Exception:
-                    entry = None
-                try:
-                    if stop_raw is not None and stop_raw != "":
-                        stop = float(stop_raw)
-                except Exception:
-                    stop = None
-                if entry is None or stop is None or entry <= 0:
-                    continue
-
-                desired_shares = 0
-                if meta.calc_fn is not None:
-                    try:
-                        ds = meta.calc_fn(
-                            budgets[name],
-                            entry,
-                            stop,
-                            risk_pct=meta.risk_pct,
-                            max_pct=meta.max_pct,
-                        )
-                        desired_shares = _normalize_shares(ds)
-                    except Exception:
-                        desired_shares = 0
-
-                if desired_shares <= 0:
-                    continue
-
-                max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
-                shares = min(desired_shares, max_by_cash)
-                if shares <= 0:
-                    continue
-
-                position_value = shares * abs(entry)
-                if position_value <= 0:
-                    continue
-
-                rec = dict(row)
-                rec["shares"] = int(shares)
-                rec["position_value"] = float(round(position_value, 2))
-                # 採用直前の残余を system_budget に表示（見た目が減っていく）
-                rec["system_budget"] = float(round(remaining[name], 2))
-                rec["remaining_after"] = float(round(remaining[name] - position_value, 2))
-                chosen.append(rec)
-                chosen_symbols.add(sym)
-                remaining[name] -= position_value
-                count_by_system[name] = count_by_system.get(name, 0) + 1
-                still = True
-                break
-
-    if not chosen:
-        return pd.DataFrame()
-    out = pd.DataFrame(chosen)
-    out["side"] = side
-    return out
-
-
 def _submit_orders(
     final_df: pd.DataFrame,
     *,
@@ -2061,6 +1982,214 @@ def _safe_progress_call(
         pass
 
 
+def _save_and_notify_phase(
+    ctx: TodayRunContext,
+    *,
+    final_df: pd.DataFrame | None,
+    per_system: Mapping[str, pd.DataFrame],
+    order_1_7: Sequence[str],
+    metrics_summary_context: Mapping[str, Any] | None,
+) -> None:
+    """保存および通知フェーズを担当する補助関数。"""
+
+    signals_dir = ctx.signals_dir
+    notify = ctx.notify
+    save_csv = ctx.save_csv
+    csv_name_mode = ctx.csv_name_mode or "date"
+    progress_callback = ctx.progress_callback
+    run_start_time = ctx.run_start_time
+    start_equity = ctx.start_equity
+    today = ctx.today or get_latest_nyse_trading_day().normalize()
+    run_id = ctx.run_id
+
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    if cb2 and callable(cb2):
+        try:
+            final_counts: dict[str, int] = {}
+            if (
+                final_df is not None
+                and not getattr(final_df, "empty", True)
+                and "system" in final_df.columns
+            ):
+                final_counts = (
+                    final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
+                )
+        except Exception:
+            final_counts = {}
+        for name in order_1_7:
+            cand_cnt: int | None
+            try:
+                snap_val = _CAND_COUNT_SNAPSHOT.get(name)
+                cand_cnt = None if snap_val is None else int(snap_val)
+            except Exception:
+                cand_cnt = None
+            if cand_cnt is None:
+                df_sys = per_system.get(name)
+                cand_cnt = int(
+                    0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys)
+                )
+            final_cnt = int(final_counts.get(name, 0))
+            try:
+                cb2(name, 100, None, None, cand_cnt, final_cnt)
+            except Exception:
+                pass
+
+    if metrics_summary_context:
+        try:
+            prefilter_map = dict(metrics_summary_context.get("prefilter_map", {}))
+            exit_counts_map_ctx = metrics_summary_context.get("exit_counts_map", {})
+            exit_counts_map = (
+                {k: v for k, v in exit_counts_map_ctx.items()}
+                if isinstance(exit_counts_map_ctx, dict)
+                else {}
+            )
+            setup_map = dict(metrics_summary_context.get("setup_map", {}))
+            tgt_base = int(metrics_summary_context.get("tgt_base", 0))
+            final_counts = {}
+            if (
+                final_df is not None
+                and not getattr(final_df, "empty", True)
+                and "system" in final_df.columns
+            ):
+                final_counts = (
+                    final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
+                )
+            lines = []
+            for sys_name in order_1_7:
+                tgt = tgt_base if sys_name != "system7" else 1
+                fil = int(prefilter_map.get(sys_name, 0))
+                stu = int(setup_map.get(sys_name, 0))
+                try:
+                    df_trd = per_system.get(sys_name, pd.DataFrame())
+                    trd = int(
+                        0 if df_trd is None or getattr(df_trd, "empty", True) else len(df_trd)
+                    )
+                except Exception:
+                    trd = 0
+                ent = int(final_counts.get(sys_name, 0))
+                exv = exit_counts_map.get(sys_name)
+                ex_txt = "-" if exv is None else str(int(exv))
+                value = (
+                    f"Tgt {tgt} / FIL {fil} / STU {stu} / "
+                    f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
+                )
+                lines.append({"name": sys_name, "value": value})
+            title = "📈 本日の最終メトリクス（system別）"
+            td = ctx.today
+            try:
+                td_str = str(getattr(td, "date", lambda: None)() or td)
+            except Exception:
+                td_str = ""
+            run_end_time = datetime.now()
+            end_equity = _get_account_equity()
+            start_equity_val = float(start_equity or 0.0)
+            end_equity_val = float(end_equity or 0.0)
+            profit_amt = max(end_equity_val - start_equity_val, 0.0)
+            loss_amt = max(start_equity_val - end_equity_val, 0.0)
+            try:
+                total_entries = int(sum(int(v) for v in final_counts.values()))
+            except Exception:
+                total_entries = 0
+            try:
+                total_exits = int(
+                    sum(int(v) for v in exit_counts_map.values() if v is not None)
+                )
+            except Exception:
+                total_exits = 0
+            start_time_str = run_start_time.strftime("%H:%M:%S")
+            end_time_str = run_end_time.strftime("%H:%M:%S")
+            duration_seconds = max(0, int((run_end_time - run_start_time).total_seconds()))
+            hours, remainder = divmod(duration_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            summary_pairs = [
+                ("指定銘柄総数", f"{int(tgt_base):,}"),
+                (
+                    "開始時間/完了時間",
+                    f"{start_time_str} / {end_time_str} (所要: {duration_str})",
+                ),
+                (
+                    "開始時資産/完了時資産",
+                    f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
+                ),
+                (
+                    "エントリー銘柄数/エグジット銘柄数",
+                    f"{total_entries} / {total_exits}",
+                ),
+                ("利益額/損失額", f"${profit_amt:,.2f} / ${loss_amt:,.2f}"),
+            ]
+            summary_fields = [
+                {"name": key, "value": value, "inline": True}
+                for key, value in summary_pairs
+            ]
+            send_metrics_notification(
+                day_str=str(td_str),
+                fields=summary_fields + lines,
+                summary_pairs=summary_pairs,
+                title=title,
+            )
+        except Exception:
+            pass
+
+    if notify:
+        try:
+            from tools.notify_signals import send_signal_notification
+
+            send_signal_notification(final_df)
+        except Exception:
+            _log("⚠️ 通知に失敗しました。")
+
+    if save_csv and final_df is not None and not final_df.empty:
+        mode = (csv_name_mode or "date").lower()
+        date_str = today.strftime("%Y-%m-%d")
+        suffix = date_str
+        if mode == "datetime":
+            try:
+                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            except Exception:
+                jst_now = datetime.now()
+            suffix = f"{date_str}_{jst_now.strftime('%H%M')}"
+        elif mode == "runid":
+            suffix = f"{date_str}_{run_id}" if run_id else date_str
+
+        out_all = signals_dir / f"signals_final_{suffix}.csv"
+        final_df.to_csv(out_all, index=False)
+        for name, df in per_system.items():
+            if df is None or getattr(df, "empty", True):
+                continue
+            out = signals_dir / f"signals_{name}_{suffix}.csv"
+            df.to_csv(out, index=False)
+        _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
+
+    _safe_progress_call(progress_callback, 8, 8, "done")
+
+    try:
+        cnt = 0 if final_df is None else len(final_df)
+        _log(f"✅ シグナル検出処理 終了 | 最終候補 {cnt} 件")
+    except Exception:
+        pass
+
+    try:
+        import time as _time
+
+        end_txt = _time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        end_txt = ""
+    try:
+        print("#" * 68, flush=True)
+    except Exception:
+        pass
+    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False)
+    _log(f"# ⏱️ {end_txt} | RUN-ID: {run_id}", ui=False)
+    try:
+        print("#" * 68 + "\n", flush=True)
+    except Exception:
+        pass
+
+
 def _log_previous_counts_summary(signals_dir: Path) -> None:
     """?????????????????"""
     try:
@@ -2133,18 +2262,15 @@ def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
-                if last_close >= 5:
-                    s1_price += 1
-                else:
-                    continue
-                _c = _df["close"] if "close" in _df.columns else _df["Close"]
-                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
-                dv20 = float((_c * _v).tail(20).mean())
-                if dv20 >= 5e7:
-                    s1_dv += 1
+                price_ok, dv_ok = _system1_conditions(_df)
             except Exception:
                 continue
+            if price_ok:
+                s1_price += 1
+            else:
+                continue
+            if dv_ok:
+                s1_dv += 1
         _log("?? system1???????: " + f"??={s1_total}, ??>=5: {s1_price}, DV20>=50M: {s1_dv}")
     except Exception:
         pass
@@ -2162,26 +2288,22 @@ def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                last_close = float(_df["close"].iloc[-1])
-                if last_close >= 5:
-                    c_price += 1
-                else:
-                    continue
-                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
-                if dv >= 2.5e7:
-                    c_dv += 1
-                else:
-                    continue
-                if "high" in _df.columns and "low" in _df.columns:
-                    _tr = (_df["high"] - _df["low"]).tail(10)
-                    _atr = float(_tr.mean())
-                    if _atr >= last_close * 0.03:
-                        c_atr += 1
+                price_ok, dv_ok, atr_ok = _system2_conditions(_df)
             except Exception:
                 continue
+            if price_ok:
+                c_price += 1
+            else:
+                continue
+            if dv_ok:
+                c_dv += 1
+            else:
+                continue
+            if atr_ok:
+                c_atr += 1
         _log(
             "?? system2???????: "
-            + f"??={s2_total}, ??>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
+            + f"??={s2_total}, ??>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
         )
     except Exception:
         pass
@@ -2199,31 +2321,19 @@ def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 1:
-                    s3_low += 1
-                else:
-                    continue
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) >= 1_000_000
-                ):
-                    s3_av += 1
-                else:
-                    continue
-                _atr_ratio = _df.get("ATR_Ratio")
-                if (
-                    _atr_ratio is not None
-                    and not pd.isna(_atr_ratio.iloc[-1])
-                    and float(_atr_ratio.iloc[-1]) >= 0.05
-                ):
-                    s3_atr += 1
+                low_ok, av_ok, atr_ok = _system3_conditions(_df)
             except Exception:
                 continue
+            if low_ok:
+                s3_low += 1
+            else:
+                continue
+            if av_ok:
+                s3_av += 1
+            else:
+                continue
+            if atr_ok:
+                s3_atr += 1
         _log(
             "?? system3???????: "
             + f"??={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
@@ -2243,22 +2353,15 @@ def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                _dv50 = _df.get("DollarVolume50")
-                _hv50 = _df.get("HV50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 100_000_000
-                ):
-                    s4_dv += 1
-                else:
-                    continue
-                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
-                    hv = float(_hv50.iloc[-1])
-                    if 10 <= hv <= 40:
-                        s4_hv += 1
+                dv_ok, hv_ok = _system4_conditions(_df)
             except Exception:
                 continue
+            if dv_ok:
+                s4_dv += 1
+            else:
+                continue
+            if hv_ok:
+                s4_hv += 1
         _log("?? system4???????: " + f"??={s4_total}, DV50>=100M: {s4_dv}, HV50 10?40: {s4_hv}")
     except Exception:
         pass
@@ -2277,33 +2380,19 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) > 500_000
-                ):
-                    s5_av += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 2_500_000
-                ):
-                    s5_dv += 1
-                else:
-                    continue
-                _atrp = _df.get("ATR_Pct")
-                if (
-                    _atrp is not None
-                    and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > DEFAULT_ATR_PCT_THRESHOLD
-                ):
-                    s5_atr += 1
+                av_ok, dv_ok, atr_ok = _system5_conditions(_df)
             except Exception:
                 continue
+            if av_ok:
+                s5_av += 1
+            else:
+                continue
+            if dv_ok:
+                s5_dv += 1
+            else:
+                continue
+            if atr_ok:
+                s5_atr += 1
         _log(
             "?? system5???????: "
             + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
@@ -2324,22 +2413,15 @@ def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 5:
-                    s6_low += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 10_000_000
-                ):
-                    s6_dv += 1
+                low_ok, dv_ok = _system6_conditions(_df)
             except Exception:
                 continue
+            if low_ok:
+                s6_low += 1
+            else:
+                continue
+            if dv_ok:
+                s6_dv += 1
         _log("?? system6???????: " + f"??={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
     except Exception:
         pass
@@ -2792,10 +2874,10 @@ def compute_today_signals(  # type: ignore[analysis]
     except Exception:
         pass
 
-    # 最新営業日（NYSE）
-    today = get_latest_nyse_trading_day().normalize()
+    # 対象とするNYSE営業日
+    today = get_signal_target_trading_day().normalize()
     ctx.today = today
-    _log(f"📅 最新営業日（NYSE）: {today.date()}")
+    _log(f"📅 対象営業日（NYSE）: {today.date()}")
     _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
     # 開始直後に前回結果をまとめて表示
     try:
@@ -2856,7 +2938,7 @@ def compute_today_signals(  # type: ignore[analysis]
             )
         except Exception:
             pass
-    # System2 フィルター内訳の可視化（価格・売買代金・ATR の段階通過数）
+    # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
     try:
         s2_total = len(symbols)
         c_price = 0
@@ -2867,29 +2949,22 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                # 価格フィルター
-                last_close = float(_df["close"].iloc[-1])
-                if last_close >= 5:
-                    c_price += 1
-                else:
-                    continue
-                # 売買代金フィルター（20日平均・厳密）
-                dv = float((_df["close"] * _df["volume"]).tail(20).mean())
-                if dv >= 2.5e7:
-                    c_dv += 1
-                else:
-                    continue
-                # ATR 比率フィルター（10日）
-                if "high" in _df.columns and "low" in _df.columns:
-                    _tr = (_df["high"] - _df["low"]).tail(10)
-                    _atr = float(_tr.mean())
-                    if _atr >= last_close * 0.03:
-                        c_atr += 1
+                price_ok, dv_ok, atr_ok = _system2_conditions(_df)
             except Exception:
                 continue
+            if price_ok:
+                c_price += 1
+            else:
+                continue
+            if dv_ok:
+                c_dv += 1
+            else:
+                continue
+            if atr_ok:
+                c_atr += 1
         _log(
             "🧪 system2内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR>=3%: {c_atr}"
+            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
         )
     except Exception:
         pass
@@ -2903,19 +2978,15 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                last_close = float(_df.get("close", _df.get("Close")).iloc[-1])  # type: ignore[index]
-                if last_close >= 5:
-                    s1_price += 1
-                else:
-                    continue
-                # 安全にカラムを取得して DV20 を計算
-                _c = _df["close"] if "close" in _df.columns else _df["Close"]
-                _v = _df["volume"] if "volume" in _df.columns else _df["Volume"]
-                dv20 = float((_c * _v).tail(20).mean())
-                if dv20 >= 5e7:
-                    s1_dv += 1
+                price_ok, dv_ok = _system1_conditions(_df)
             except Exception:
                 continue
+            if price_ok:
+                s1_price += 1
+            else:
+                continue
+            if dv_ok:
+                s1_dv += 1
         _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
     except Exception:
         pass
@@ -2930,31 +3001,19 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 1:
-                    s3_low += 1
-                else:
-                    continue
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) >= 1_000_000
-                ):
-                    s3_av += 1
-                else:
-                    continue
-                _atr_ratio = _df.get("ATR_Ratio")
-                if (
-                    _atr_ratio is not None
-                    and not pd.isna(_atr_ratio.iloc[-1])
-                    and float(_atr_ratio.iloc[-1]) >= 0.05
-                ):
-                    s3_atr += 1
+                low_ok, av_ok, atr_ok = _system3_conditions(_df)
             except Exception:
                 continue
+            if low_ok:
+                s3_low += 1
+            else:
+                continue
+            if av_ok:
+                s3_av += 1
+            else:
+                continue
+            if atr_ok:
+                s3_atr += 1
         _log(
             "🧪 system3内訳: "
             + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
@@ -2971,22 +3030,15 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                _dv50 = _df.get("DollarVolume50")
-                _hv50 = _df.get("HV50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 100_000_000
-                ):
-                    s4_dv += 1
-                else:
-                    continue
-                if _hv50 is not None and not pd.isna(_hv50.iloc[-1]):
-                    hv = float(_hv50.iloc[-1])
-                    if 10 <= hv <= 40:
-                        s4_hv += 1
+                dv_ok, hv_ok = _system4_conditions(_df)
             except Exception:
                 continue
+            if dv_ok:
+                s4_dv += 1
+            else:
+                continue
+            if hv_ok:
+                s4_hv += 1
         _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
     except Exception:
         pass
@@ -3002,33 +3054,19 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                _av50 = _df.get("AvgVolume50")
-                if (
-                    _av50 is not None
-                    and not pd.isna(_av50.iloc[-1])
-                    and float(_av50.iloc[-1]) > 500_000
-                ):
-                    s5_av += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 2_500_000
-                ):
-                    s5_dv += 1
-                else:
-                    continue
-                _atrp = _df.get("ATR_Pct")
-                if (
-                    _atrp is not None
-                    and not pd.isna(_atrp.iloc[-1])
-                    and float(_atrp.iloc[-1]) > DEFAULT_ATR_PCT_THRESHOLD
-                ):
-                    s5_atr += 1
+                av_ok, dv_ok, atr_ok = _system5_conditions(_df)
             except Exception:
                 continue
+            if av_ok:
+                s5_av += 1
+            else:
+                continue
+            if dv_ok:
+                s5_dv += 1
+            else:
+                continue
+            if atr_ok:
+                s5_atr += 1
         _log(
             "🧪 system5内訳: "
             + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
@@ -3046,22 +3084,15 @@ def compute_today_signals(  # type: ignore[analysis]
             if _df is None or _df.empty:
                 continue
             try:
-                _low_ser = _df.get("Low", _df.get("low"))
-                if _low_ser is None:
-                    continue
-                if float(_low_ser.iloc[-1]) >= 5:
-                    s6_low += 1
-                else:
-                    continue
-                _dv50 = _df.get("DollarVolume50")
-                if (
-                    _dv50 is not None
-                    and not pd.isna(_dv50.iloc[-1])
-                    and float(_dv50.iloc[-1]) > 10_000_000
-                ):
-                    s6_dv += 1
+                low_ok, dv_ok = _system6_conditions(_df)
             except Exception:
                 continue
+            if low_ok:
+                s6_low += 1
+            else:
+                continue
+            if dv_ok:
+                s6_dv += 1
         _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
     except Exception:
         pass
@@ -3705,7 +3736,15 @@ def compute_today_signals(  # type: ignore[analysis]
                             )
                         if _mx > 0:
                             _cand_cnt = min(int(_cand_cnt), int(_mx))
+                        _entry_cnt: int
+                        try:
+                            _entry_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                        except Exception:
+                            _entry_cnt = 0
+                        if _mx > 0:
+                            _entry_cnt = min(int(_entry_cnt), int(_mx))
                         cb2(name, 75, None, None, int(_cand_cnt), None)
+                        cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
                     except Exception:
                         pass
                 # UI が無い場合は CLI 向けに簡略ログを集約出力。UI がある場合は完了後に再送。
@@ -3786,7 +3825,15 @@ def compute_today_signals(  # type: ignore[analysis]
                         )
                     if _mx > 0:
                         _cand_cnt = min(int(_cand_cnt), int(_mx))
+                    _entry_cnt: int
+                    try:
+                        _entry_cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
+                    except Exception:
+                        _entry_cnt = 0
+                    if _mx > 0:
+                        _entry_cnt = min(int(_entry_cnt), int(_mx))
                     cb2(name, 75, None, None, int(_cand_cnt), None)
+                    cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
                 except Exception:
                     pass
             if per_system_progress:
@@ -3815,72 +3862,6 @@ def compute_today_signals(  # type: ignore[analysis]
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
     ctx.per_system_frames = dict(per_system)
-
-    # 追加: Alpacaのショート可否で system2/6 候補を事前フィルタ（取得失敗時はスキップ）
-    try:
-        # 対象システムと候補銘柄
-        short_systems = ["system2", "system6"]
-        symbols_to_check: list[str] = []
-        for nm in short_systems:
-            dfc = per_system.get(nm, pd.DataFrame())
-            if dfc is not None and not getattr(dfc, "empty", True) and "symbol" in dfc.columns:
-                symbols_to_check.extend([str(s).upper() for s in dfc["symbol"].tolist()])
-        symbols_to_check = sorted(list({s for s in symbols_to_check if s and s != "SPY"}))
-        if symbols_to_check:
-            try:
-                client_short = ba.get_client(paper=True)
-                shortable_map = ba.get_shortable_map(client_short, symbols_to_check)
-            except Exception:
-                shortable_map = {}
-            for nm in short_systems:
-                dfc = per_system.get(nm, pd.DataFrame())
-                if dfc is None or getattr(dfc, "empty", True) or "symbol" not in dfc.columns:
-                    continue
-                if not shortable_map:
-                    # 取得できなければフィルタせず継続
-                    continue
-                mask = (
-                    dfc["symbol"]
-                    .astype(str)
-                    .str.upper()
-                    .map(lambda s: bool(shortable_map.get(s, False)))
-                )
-                filtered = dfc[mask].reset_index(drop=True)
-                dropped = int(len(dfc) - len(filtered))
-                per_system[nm] = filtered
-                if dropped > 0:
-                    _log(
-                        f"🚫 {nm}: ショート不可で除外: {dropped} 件 (例: "
-                        + ", ".join(dfc.loc[~mask, "symbol"].astype(str).head(5))
-                        + (" ほか" + str(dropped - 5) + "件" if dropped > 5 else "")
-                        + ")"
-                    )
-                    # 保存: 除外銘柄リスト（デバッグ/監査用）
-                    try:
-                        from config.settings import get_settings as _gs
-
-                        _stg = _gs(create_dirs=True)
-                        _dir = Path(getattr(_stg.outputs, "results_csv_dir", "results_csv"))
-                    except Exception:
-                        _dir = Path("results_csv")
-                    try:
-                        _dir.mkdir(parents=True, exist_ok=True)
-                    except Exception:
-                        pass
-                    try:
-                        _excluded = (
-                            dfc.loc[~mask, ["symbol"]].astype(str).copy()
-                            if ("symbol" in dfc.columns)
-                            else pd.DataFrame(columns=["symbol"])
-                        )
-                        _excluded["reason"] = "not_shortable"
-                        _fp = _dir / f"shortability_excluded_{nm}.csv"
-                        _excluded.to_csv(_fp, index=False, encoding="utf-8")
-                        _log(f"📝 {nm}: ショート不可の除外銘柄CSVを保存: {_fp}")
-                    except Exception:
-                        pass
-    except Exception:
-        pass
 
     metrics_summary_context = None
 
@@ -4361,229 +4342,110 @@ def compute_today_signals(  # type: ignore[analysis]
         positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
-    def _normalize_alloc(d: dict[str, float], default_map: dict[str, float]) -> dict[str, float]:
-        try:
-            filtered = {k: float(v) for k, v in d.items() if float(v) > 0}
-            s = sum(filtered.values())
-            if s <= 0:
-                filtered = default_map
-                s = sum(filtered.values())
-            return {k: v / s for k, v in filtered.items()}
-        except Exception:
-            s = sum(default_map.values())
-            return {k: v / s for k, v in default_map.items()}
-
-    defaults_long = {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
-    defaults_short = {"system2": 0.40, "system6": 0.40, "system7": 0.20}
     try:
         settings_alloc_long = getattr(settings.ui, "long_allocations", {}) or {}
         settings_alloc_short = getattr(settings.ui, "short_allocations", {}) or {}
     except Exception:
         settings_alloc_long, settings_alloc_short = {}, {}
-    long_alloc = _normalize_alloc(settings_alloc_long, defaults_long)
-    short_alloc = _normalize_alloc(settings_alloc_short, defaults_short)
-
-    active_positions_map = _load_active_positions_by_system(
-        positions_cache, symbol_system_map_cache
-    )
-    max_positions_per_system: dict[str, int] = {}
-    for name, stg in strategies.items():
-        try:
-            limit_val = int(
-                getattr(stg, "config", {}).get("max_positions", settings.risk.max_positions)
-            )
-        except Exception:
-            limit_val = int(settings.risk.max_positions)
-        max_positions_per_system[name] = max(0, limit_val)
-    available_slots_map: dict[str, int] = {}
-    for name, limit_val in max_positions_per_system.items():
-        taken = int(active_positions_map.get(name, 0))
-        available_slots_map[name] = max(0, int(limit_val) - taken)
 
     try:
-        if active_positions_map:
-            summary = ", ".join(
-                f"{k}={int(v)}" for k, v in sorted(active_positions_map.items()) if int(v) > 0
-            )
-            if summary:
-                _log("📦 現在保有ポジション数: " + summary)
+        max_positions_default = int(getattr(settings.risk, "max_positions", 10))
     except Exception:
-        pass
+        max_positions_default = 10
+
+    slots_long_total = slots_long if slots_long is not None else max_positions_default
+    slots_short_total = slots_short if slots_short is not None else max_positions_default
+
+    try:
+        default_capital = float(getattr(settings.ui, "default_capital", 100000))
+    except Exception:
+        default_capital = 100000.0
+    try:
+        default_long_ratio = float(getattr(settings.ui, "default_long_ratio", 0.5))
+    except Exception:
+        default_long_ratio = 0.5
+
+    _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
+    allocation_summary: AllocationSummary
+    final_df, allocation_summary = finalize_allocation(
+        per_system,
+        strategies=strategies,
+        positions=positions_cache,
+        symbol_system_map=symbol_system_map_cache,
+        long_allocations=settings_alloc_long,
+        short_allocations=settings_alloc_short,
+        slots_long=slots_long_total,
+        slots_short=slots_short_total,
+        capital_long=capital_long,
+        capital_short=capital_short,
+        default_capital=default_capital,
+        default_long_ratio=default_long_ratio,
+        default_max_positions=max_positions_default,
+    )
+
+    active_positions_map = dict(allocation_summary.active_positions)
+    if active_positions_map:
+        try:
+            summary_line = ", ".join(
+                f"{name}={int(count)}"
+                for name, count in sorted(active_positions_map.items())
+                if int(count) > 0
+            )
+            if summary_line:
+                _log("📦 現在保有ポジション数: " + summary_line)
+        except Exception:
+            pass
+
+    available_slots_map = dict(allocation_summary.available_slots)
     try:
         lines = []
-        for name in sorted(max_positions_per_system.keys()):
-            limit_val = int(max_positions_per_system.get(name, 0))
-            remain = int(available_slots_map.get(name, limit_val))
-            if remain < limit_val:
-                lines.append(f"{name}={remain}/{limit_val}")
+        for name in sorted(available_slots_map.keys()):
+            remain = int(available_slots_map.get(name, 0))
+            limit = remain + int(active_positions_map.get(name, 0))
+            if limit > 0 and remain < limit:
+                lines.append(f"{name}={remain}/{limit}")
         if lines:
             _log("🪧 利用可能スロット (残/上限): " + ", ".join(lines))
     except Exception:
         pass
 
-    _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
-    if capital_long is None and capital_short is None:
-        # 旧スロット方式（後方互換）
-        max_pos = int(settings.risk.max_positions)
-        slots_long = slots_long if slots_long is not None else max_pos
-        slots_short = slots_short if slots_short is not None else max_pos
+    long_alloc_norm = dict(allocation_summary.long_allocations)
+    short_alloc_norm = dict(allocation_summary.short_allocations)
+    slot_candidates = allocation_summary.slot_candidates or {}
 
-        def _distribute_slots(
-            weights: dict[str, float], total_slots: int, counts: dict[str, int]
-        ) -> dict[str, int]:
-            base = {k: int(total_slots * weights.get(k, 0.0)) for k in weights}
-            for k in list(base.keys()):
-                if counts.get(k, 0) <= 0:
-                    base[k] = 0
-                elif base[k] == 0:
-                    base[k] = 1
-            used = sum(base.values())
-            remain = max(0, total_slots - used)
-            if remain > 0:
-                order = sorted(
-                    weights.keys(),
-                    key=lambda k: (counts.get(k, 0), weights.get(k, 0.0)),
-                    reverse=True,
-                )
-                idx = 0
-                while remain > 0 and order:
-                    k = order[idx % len(order)]
-                    if counts.get(k, 0) > base.get(k, 0):
-                        base[k] += 1
-                        remain -= 1
-                    idx += 1
-                    if idx > 10000:
-                        break
-            for k in list(base.keys()):
-                base[k] = min(base[k], counts.get(k, 0))
-            return base
+    if allocation_summary.mode == "slot":
 
-        long_counts_raw: dict[str, int] = {}
-        long_counts_available: dict[str, int] = {}
-        for k in long_alloc:
-            df = per_system.get(k, pd.DataFrame())
-            cand_cnt = 0 if df is None or getattr(df, "empty", True) else int(len(df))
-            long_counts_raw[k] = cand_cnt
-            long_counts_available[k] = min(cand_cnt, int(available_slots_map.get(k, 0)))
-
-        short_counts_raw: dict[str, int] = {}
-        short_counts_available: dict[str, int] = {}
-        for k in short_alloc:
-            df = per_system.get(k, pd.DataFrame())
-            cand_cnt = 0 if df is None or getattr(df, "empty", True) else int(len(df))
-            short_counts_raw[k] = cand_cnt
-            short_counts_available[k] = min(cand_cnt, int(available_slots_map.get(k, 0)))
-
-        def _fmt_alloc(name: str, avail_map: dict[str, int], cand_map: dict[str, int]) -> str:
-            avail = int(avail_map.get(name, 0))
-            cand = int(cand_map.get(name, 0))
+        def _fmt_slot(name: str) -> str:
+            cand = int(slot_candidates.get(name, 0))
+            avail = min(cand, int(available_slots_map.get(name, 0)))
             return f"{name}={avail}" if avail == cand else f"{name}={avail}/{cand}"
 
+        long_msg = ", ".join(_fmt_slot(name) for name in long_alloc_norm)
+        short_msg = ", ".join(_fmt_slot(name) for name in short_alloc_norm)
         _log(
             "🧮 枠配分（利用可能スロット/候補数）: "
-            + ", ".join([_fmt_alloc(k, long_counts_available, long_counts_raw) for k in long_alloc])
+            + (long_msg if long_msg else "-")
             + " | "
-            + ", ".join(
-                [_fmt_alloc(k, short_counts_available, short_counts_raw) for k in short_alloc]
-            )
-        )
-        long_slots = _distribute_slots(long_alloc, slots_long, long_counts_available)
-        short_slots = _distribute_slots(short_alloc, slots_short, short_counts_available)
-
-        chosen_frames: list[pd.DataFrame] = []
-        for name, slot in {**long_slots, **short_slots}.items():
-            df = per_system.get(name, pd.DataFrame())
-            if df is None or df.empty:
-                continue
-            free_slots = int(available_slots_map.get(name, 0))
-            use_slot = min(int(slot), free_slots)
-            if use_slot <= 0:
-                continue
-            take = df.head(use_slot).copy()
-            take["alloc_weight"] = (
-                long_alloc.get(name) or short_alloc.get(name) or 0.0
-            )  # noqa: E501
-            chosen_frames.append(take)
-        final_df = (
-            pd.concat(chosen_frames, ignore_index=True)
-            if chosen_frames
-            else pd.DataFrame()  # noqa: E501
+            + (short_msg if short_msg else "-")
         )
     else:
-        # 金額配分モード
-        _settings = get_settings(create_dirs=False)
-        _default_cap = float(getattr(_settings.ui, "default_capital", 100000))
-        _ratio = float(getattr(_settings.ui, "default_long_ratio", 0.5))
-
-        _cl = None if capital_long is None or float(capital_long) <= 0 else float(capital_long)
-        _cs = None if capital_short is None or float(capital_short) <= 0 else float(capital_short)
-
-        if _cl is None and _cs is None:
-            total = _default_cap
-            capital_long = total * _ratio
-            capital_short = total * (1.0 - _ratio)
-        elif _cl is None and _cs is not None:
-            total = _cs
-            capital_long = total * _ratio
-            capital_short = total * (1.0 - _ratio)
-        elif _cs is None and _cl is not None:
-            total = _cl
-            capital_long = total * _ratio
-            capital_short = total * (1.0 - _ratio)
-        else:
-            # mypy/pyright対応（この分岐では None にならない）
-            from typing import cast as _cast
-
-            capital_long = float(_cast(float, capital_long))
-            capital_short = float(_cast(float, capital_short))
-
-        strategies_map = {k: v for k, v in strategies.items()}
-        _log(f"💰 金額配分: long=${capital_long}, short=${capital_short}")
-        # 参考: システム別の予算内訳を出力
+        cap_long = float(allocation_summary.capital_long or 0.0)
+        cap_short = float(allocation_summary.capital_short or 0.0)
+        _log(f"💰 金額配分: long=${cap_long:,.0f}, short=${cap_short:,.0f}")
         try:
-            long_budgets = {
-                k: float(capital_long) * float(long_alloc.get(k, 0.0)) for k in long_alloc
-            }
-            short_budgets = {
-                k: float(capital_short) * float(short_alloc.get(k, 0.0)) for k in short_alloc
-            }
-            _log(
-                "📊 long予算内訳: " + ", ".join([f"{k}=${v:,.0f}" for k, v in long_budgets.items()])
-            )
-            _log(
-                "📊 short予算内訳: "
-                + ", ".join([f"{k}=${v:,.0f}" for k, v in short_budgets.items()])
-            )
+            budgets = allocation_summary.budgets or {}
+            long_lines = [
+                f"{name}=${budgets.get(name, 0.0):,.0f}" for name in long_alloc_norm
+            ]
+            short_lines = [
+                f"{name}=${budgets.get(name, 0.0):,.0f}" for name in short_alloc_norm
+            ]
+            if long_lines:
+                _log("📊 long予算内訳: " + ", ".join(long_lines))
+            if short_lines:
+                _log("📊 short予算内訳: " + ", ".join(short_lines))
         except Exception:
             pass
-        long_df = _amount_pick(
-            {k: per_system.get(k, pd.DataFrame()) for k in long_alloc},
-            strategies_map,
-            float(capital_long),
-            long_alloc,
-            side="long",
-            active_positions=active_positions_map,
-        )
-        short_df = _amount_pick(
-            {k: per_system.get(k, pd.DataFrame()) for k in short_alloc},
-            strategies_map,
-            float(capital_short),
-            short_alloc,
-            side="short",
-            active_positions=active_positions_map,
-        )
-        parts = [df for df in [long_df, short_df] if df is not None and not df.empty]  # noqa: E501
-        final_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()  # noqa: E501
-
-        # 各システムの最大ポジション上限=10 を厳格化
-        if not final_df.empty and "system" in final_df.columns:
-            max_positions = int(get_settings(create_dirs=False).risk.max_positions)
-            if max_positions > 0:
-                final_df = (
-                    final_df.groupby("system", sort=False, group_keys=False)
-                    .head(max_positions)
-                    .reset_index(drop=True)
-                )
 
     if not final_df.empty:
         # 並びは side → system番号 → 各systemのスコア方向（RSI系のみ昇順、それ以外は降順）
@@ -4683,208 +4545,13 @@ def compute_today_signals(  # type: ignore[analysis]
         except Exception:
             pass
 
-    # 最終採用件数（Entry）を100%段階として通知（UI カウンタ整合）
-    try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
-    except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
-        try:
-            # per-system 候補（TRDlist）は上で通知済み。ここでは最終採用数を渡す。
-            final_counts: dict[str, int] = {}
-            try:
-                if (
-                    final_df is not None
-                    and not getattr(final_df, "empty", True)
-                    and "system" in final_df.columns
-                ):
-                    final_counts = (
-                        final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
-                    )
-            except Exception:
-                final_counts = {}
-            for _name in order_1_7:
-                _cand_cnt: int | None
-                try:
-                    snap_val = _CAND_COUNT_SNAPSHOT.get(_name)
-                    _cand_cnt = None if snap_val is None else int(snap_val)
-                except Exception:
-                    _cand_cnt = None
-                if _cand_cnt is None:
-                    _df_sys = per_system.get(_name, pd.DataFrame())
-                    _cand_cnt = int(
-                        0 if _df_sys is None or getattr(_df_sys, "empty", True) else len(_df_sys)
-                    )
-                _final_cnt = int(final_counts.get(_name, 0))
-                cb2(_name, 100, None, None, _cand_cnt, _final_cnt)
-        except Exception:
-            pass
-
-    if metrics_summary_context:
-        try:
-            prefilter_map = dict(metrics_summary_context.get("prefilter_map", {}))
-            exit_counts_map_ctx = metrics_summary_context.get("exit_counts_map", {})
-            exit_counts_map = (
-                {k: v for k, v in exit_counts_map_ctx.items()}
-                if isinstance(exit_counts_map_ctx, dict)
-                else {}
-            )
-            setup_map = dict(metrics_summary_context.get("setup_map", {}))
-            tgt_base = int(metrics_summary_context.get("tgt_base", 0))
-            final_counts = {}
-            try:
-                if (
-                    final_df is not None
-                    and not getattr(final_df, "empty", True)
-                    and "system" in final_df.columns
-                ):
-                    final_counts = (
-                        final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
-                    )
-            except Exception:
-                final_counts = {}
-            lines = []
-            for sys_name in order_1_7:
-                tgt = tgt_base if sys_name != "system7" else 1
-                fil = int(prefilter_map.get(sys_name, 0))
-                stu = int(setup_map.get(sys_name, 0))
-                try:
-                    _df_trd = per_system.get(sys_name, pd.DataFrame())
-                    trd = int(
-                        0 if _df_trd is None or getattr(_df_trd, "empty", True) else len(_df_trd)
-                    )
-                except Exception:
-                    trd = 0
-                ent = int(final_counts.get(sys_name, 0))
-                exv = exit_counts_map.get(sys_name)
-                ex_txt = "-" if exv is None else str(int(exv))
-                value = (
-                    f"Tgt {tgt} / FIL {fil} / STU {stu} / "
-                    f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
-                )
-                lines.append({"name": sys_name, "value": value})
-            title = "📈 本日の最終メトリクス（system別）"
-            _td = locals().get("today")
-            try:
-                _td_str = str(getattr(_td, "date", lambda: None)() or _td)
-            except Exception:
-                _td_str = ""
-            run_end_time = datetime.now()
-            end_equity = _get_account_equity()
-            start_equity_val = float(start_equity or 0.0)
-            end_equity_val = float(end_equity or 0.0)
-            profit_amt = max(end_equity_val - start_equity_val, 0.0)
-            loss_amt = max(start_equity_val - end_equity_val, 0.0)
-            try:
-                total_entries = int(sum(int(v) for v in final_counts.values()))
-            except Exception:
-                total_entries = 0
-            try:
-                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
-            except Exception:
-                total_exits = 0
-            start_time_str = run_start_time.strftime("%H:%M:%S")
-            end_time_str = run_end_time.strftime("%H:%M:%S")
-            duration_seconds = max(0, int((run_end_time - run_start_time).total_seconds()))
-            hours, remainder = divmod(duration_seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            summary_pairs = [
-                ("指定銘柄総数", f"{int(tgt_base):,}"),
-                (
-                    "開始時間/完了時間",
-                    f"{start_time_str} / {end_time_str} (所要: {duration_str})",
-                ),
-                (
-                    "開始時資産/完了時資産",
-                    f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
-                ),
-                (
-                    "エントリー銘柄数/エグジット銘柄数",
-                    f"{total_entries} / {total_exits}",
-                ),
-                (
-                    "利益額/損失額",
-                    f"${profit_amt:,.2f} / ${loss_amt:,.2f}",
-                ),
-            ]
-            summary_fields = [
-                {"name": key, "value": value, "inline": True} for key, value in summary_pairs
-            ]
-            msg = "対象日: " + str(_td_str)
-            msg += "\n" + "\n".join(f"{k}: {v}" for k, v in summary_pairs)
-            notifier = create_notifier(platform="auto", fallback=True)
-            notifier.send(title, msg, fields=summary_fields + lines)
-        except Exception:
-            pass
-
-    # 通知は progress_callback の有無に関係なく実行する
-    if notify:
-        try:
-            from tools.notify_signals import send_signal_notification
-
-            send_signal_notification(final_df)
-        except Exception:
-            _log("⚠️ 通知に失敗しました。")
-
-    # CSV 保存（任意）
-    if save_csv and not final_df.empty:
-        # ファイル名モード: date(YYYY-MM-DD) | datetime(YYYY-MM-DD_HHMM) | runid(YYYY-MM-DD_RUNID)
-        mode = (csv_name_mode or "date").lower()
-        date_str = today.strftime("%Y-%m-%d")
-        suffix = date_str
-        if mode == "datetime":
-            try:
-                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            except Exception:
-                jst_now = datetime.now()
-            suffix = f"{date_str}_{jst_now.strftime('%H%M')}"
-        elif mode == "runid":
-            try:
-                # _run_id は本関数先頭で採番済み
-                suffix = f"{date_str}_{_run_id}"
-            except Exception:
-                suffix = date_str
-
-        out_all = signals_dir / f"signals_final_{suffix}.csv"
-        final_df.to_csv(out_all, index=False)
-        # システム別
-        for name, df in per_system.items():
-            if df is None or df.empty:
-                continue
-            out = signals_dir / f"signals_{name}_{suffix}.csv"
-            df.to_csv(out, index=False)
-        _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
-    if progress_callback:
-        try:
-            progress_callback(8, 8, "done")
-        except Exception:
-            pass
-
-    # 終了ログ（UI/CLI 双方で記録される）
-    try:
-        cnt = 0 if final_df is None else len(final_df)
-        _log(f"✅ シグナル検出処理 終了 | 最終候補 {cnt} 件")
-    except Exception:
-        pass
-
-    # === CLI バナー（終了の明確化）===
-    try:
-        import time as _time
-
-        _end_txt = _time.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        _end_txt = ""
-    try:
-        print("#" * 68, flush=True)
-    except Exception:
-        pass
-    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False)
-    _log(f"# ⏱️ {_end_txt} | RUN-ID: {_run_id}", ui=False)
-    try:
-        print("#" * 68 + "\n", flush=True)
-    except Exception:
-        pass
+    _save_and_notify_phase(
+        ctx,
+        final_df=final_df,
+        per_system=per_system,
+        order_1_7=order_1_7,
+        metrics_summary_context=metrics_summary_context,
+    )
 
     # clear callback
     try:

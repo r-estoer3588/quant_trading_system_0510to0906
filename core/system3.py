@@ -478,8 +478,15 @@ def generate_candidates_system3(
     all_df = pd.concat(all_signals)
     candidates_by_date = {}
     for date, group in all_df.groupby("entry_date"):
-        ranked = group.sort_values("Drop3D", ascending=False)
-        candidates_by_date[date] = ranked.head(int(top_n)).to_dict("records")
+        ranked = group.sort_values("Drop3D", ascending=False).copy()
+        total = len(ranked)
+        if total == 0:
+            candidates_by_date[date] = []
+            continue
+        ranked.loc[:, "rank"] = range(1, total + 1)
+        ranked.loc[:, "rank_total"] = total
+        limited = ranked.head(int(top_n))
+        candidates_by_date[date] = limited.to_dict("records")
     return candidates_by_date, None
 
 

@@ -350,8 +350,15 @@ def generate_candidates_system2(
 
     candidates_by_date = {}
     for date, group in all_df.groupby("entry_date"):
-        ranked = group.sort_values("ADX7", ascending=False)
-        candidates_by_date[date] = ranked.head(int(top_n)).to_dict("records")
+        ranked = group.sort_values("ADX7", ascending=False).copy()
+        total = len(ranked)
+        if total == 0:
+            candidates_by_date[date] = []
+            continue
+        ranked.loc[:, "rank"] = range(1, total + 1)
+        ranked.loc[:, "rank_total"] = total
+        top_ranked = ranked.head(int(top_n))
+        candidates_by_date[date] = top_ranked.to_dict("records")
     return candidates_by_date, None
 
 

@@ -70,12 +70,19 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         batch_size: int | None = None,
         **kwargs,
     ):
-        try:
-            from config.settings import get_settings
+        top_n_override = kwargs.pop("top_n", None)
+        if top_n_override is not None:
+            try:
+                top_n = max(0, int(top_n_override))
+            except Exception:
+                top_n = 10
+        else:
+            try:
+                from config.settings import get_settings
 
-            top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-        except Exception:
-            top_n = 10
+                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
+            except Exception:
+                top_n = 10
         if batch_size is None:
             try:
                 from config.settings import get_settings

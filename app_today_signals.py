@@ -69,6 +69,7 @@ from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
+from common.exit_planner import decide_exit_schedule
 from common.data_loader import load_price
 from common.notifier import create_notifier
 from common.position_age import (
@@ -85,6 +86,7 @@ from common.system_groups import (
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
 from common.today_signals import run_all_systems_today as compute_today_signals
+from common.utils_spy import get_latest_nyse_trading_day
 
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 st.title("📈 本日のシグナル（全システム）")
@@ -1602,13 +1604,31 @@ def _load_symbol_system_map(path: Path) -> dict[str, str]:
 
 
 def _latest_trading_day() -> pd.Timestamp | None:
+    calendar_day: pd.Timestamp | None = None
+    try:
+        calendar_day = get_latest_nyse_trading_day()
+    except Exception:
+        calendar_day = None
+
+    price_day: pd.Timestamp | None = None
     try:
         spy_df = load_price("SPY", cache_profile="rolling")
         if spy_df is not None and not spy_df.empty:
-            return pd.to_datetime(spy_df.index[-1]).normalize()
+            price_raw = pd.Timestamp(spy_df.index[-1])
+            try:
+                price_raw = price_raw.tz_localize(None)
+            except (TypeError, ValueError, AttributeError):
+                try:
+                    price_raw = price_raw.tz_convert(None)
+                except Exception:
+                    pass
+            price_day = pd.Timestamp(price_raw).normalize()
     except Exception:
-        pass
-    return None
+        price_day = None
+
+    if calendar_day is not None and price_day is not None:
+        return max(calendar_day, price_day)
+    return calendar_day or price_day
 
 
 def _strategy_class_map() -> dict[str, Callable[[], Any]]:
@@ -1686,11 +1706,7 @@ def _evaluate_position_for_exit(
         today_norm = pd.to_datetime(df.index[-1]).normalize()
         if latest_trading_day is not None:
             today_norm = latest_trading_day
-        exit_dt = pd.to_datetime(exit_date).normalize()
-        is_today_exit = exit_dt == today_norm
-        when = "today_close" if system != "system5" else "tomorrow_open"
-        if not is_today_exit and system in {"system1", "system2", "system3", "system6"}:
-            when = "tomorrow_close"
+        is_today_exit, when = decide_exit_schedule(system, exit_date, today_norm)
         row_base = {
             "symbol": sym,
             "qty": qty,

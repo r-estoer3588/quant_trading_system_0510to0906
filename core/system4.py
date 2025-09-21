@@ -509,9 +509,22 @@ def generate_candidates_system4(
                 buffer.clear()
 
     # rank by RSI4 ascending
+    limit_n = int(top_n)
     for date in list(candidates_by_date.keys()):
-        ranked = sorted(candidates_by_date[date], key=lambda r: r["RSI4"])
-        candidates_by_date[date] = ranked[: int(top_n)]
+        rows = candidates_by_date.get(date, [])
+        if not rows:
+            candidates_by_date[date] = []
+            continue
+        df = pd.DataFrame(rows)
+        if df.empty:
+            candidates_by_date[date] = []
+            continue
+        df = df.sort_values("RSI4", ascending=True)
+        total = len(df)
+        df.loc[:, "rank"] = range(1, total + 1)
+        df.loc[:, "rank_total"] = total
+        limited = df.head(limit_n)
+        candidates_by_date[date] = limited.to_dict("records")
 
     if skipped > 0 and log_callback:
         try:

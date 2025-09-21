@@ -8,7 +8,9 @@ no webhook is configured (logs only).
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -43,6 +45,61 @@ def _load_latest_metrics() -> tuple[pd.DataFrame, str] | tuple[None, None]:
     return day_df, str(last_date)
 
 
+def send_metrics_notification(
+    *,
+    day_str: str | None,
+    fields: Sequence[Mapping[str, Any]] | None = None,
+    summary_pairs: Sequence[tuple[Any, Any]] | None = None,
+    extra_lines: Sequence[str] | None = None,
+    title: str = "\U0001F4C8 本日のメトリクス（system別）",
+) -> None:
+    """Send a metrics summary via the default notifier.
+
+    Parameters
+    ----------
+    day_str:
+        Target day label (e.g. ``"2024-05-01"``). ``None`` becomes an empty label.
+    fields:
+        Rich embed fields for Slack/Discord notifications.
+    summary_pairs:
+        Key/value pairs included in the message body (``key: value`` each line).
+    extra_lines:
+        Additional free-form lines appended to the body (e.g. code blocks).
+    title:
+        Notification title. Emoji default matches existing notifications.
+    """
+
+    body_lines: list[str] = []
+    if day_str is not None:
+        body_lines.append(f"対象日: {day_str}")
+    elif summary_pairs or extra_lines:
+        body_lines.append("対象日: ")
+
+    if summary_pairs:
+        for key, value in summary_pairs:
+            body_lines.append(f"{key}: {value}")
+
+    if extra_lines:
+        body_lines.extend(str(line) for line in extra_lines if str(line).strip())
+
+    if not body_lines:
+        body_lines.append("対象日: -")
+
+    msg = "\n".join(body_lines)
+
+    try:
+        from common.notifier import create_notifier
+    except Exception:
+        logging.info("metrics notified (log only)")
+        return
+
+    try:
+        notifier = create_notifier(platform="auto", fallback=True)
+        notifier.send(title, msg, fields=list(fields or []))
+    except Exception:
+        logging.exception("failed to send metrics notification")
+
+
 def notify_metrics() -> None:
     day_df, day_str = _load_latest_metrics()
     if day_df is None or day_df.empty:
@@ -62,14 +119,12 @@ def notify_metrics() -> None:
     header = f"{'System':<7} {'pre':>4} {'cand':>4}"
     table = "\n".join([header] + lines)
     title = "\U0001F4C8 本日のメトリクス（事前フィルタ / 候補数）"
-    msg = f"対象日: {day_str or ''}\n```{table}```"
-    try:
-        from common.notifier import create_notifier
-
-        create_notifier(platform="auto", fallback=True).send(title, msg, fields=fields)
-    except Exception:
-        # 環境未設定でも処理継続（ログのみ）
-        logging.info("metrics notified (log only)")
+    send_metrics_notification(
+        day_str=day_str,
+        fields=fields,
+        extra_lines=[f"```{table}```"],
+        title=title,
+    )
 
 
 if __name__ == "__main__":
