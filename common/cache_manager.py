@@ -249,13 +249,34 @@ class CacheManager:
         base.mkdir(parents=True, exist_ok=True)
         path = self._detect_path(base, ticker)
         tmp = path.with_suffix(path.suffix + ".tmp")
+        # 丸め桁数の判定: profile が 'rolling' の場合は rolling 設定を優先し、なければ全体設定を使う
+        try:
+            round_dec = None
+            cfg_round = getattr(self.settings.cache, "round_decimals", None)
+            if profile == "rolling":
+                roll_round = getattr(
+                    self.settings.cache.rolling, "round_decimals", None
+                )
+                round_dec = roll_round if roll_round is not None else cfg_round
+            else:
+                round_dec = cfg_round
+        except Exception:
+            round_dec = None
+        df_to_write = df
+        if round_dec is not None:
+            try:
+                df_to_write = df.copy()
+                # pandas.DataFrame.round は数値列のみを丸める
+                df_to_write = df_to_write.round(int(round_dec))
+            except Exception:
+                df_to_write = df
         try:
             if path.suffix == ".parquet":
-                df.to_parquet(tmp, index=False)
+                df_to_write.to_parquet(tmp, index=False)
             elif path.suffix == ".feather":
-                df.reset_index(drop=True).to_feather(tmp)
+                df_to_write.reset_index(drop=True).to_feather(tmp)
             else:
-                df.to_csv(tmp, index=False)
+                df_to_write.to_csv(tmp, index=False)
             shutil.move(tmp, path)
         finally:
             if os.path.exists(tmp):
@@ -509,7 +530,18 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
     path = base_cache_path(symbol)
     df_reset = df.reset_index() if df.index.name is not None else df
     path.parent.mkdir(parents=True, exist_ok=True)
-    df_reset.to_csv(path, index=False)
+    try:
+        settings = get_settings(create_dirs=False)
+        round_dec = getattr(settings.cache, "round_decimals", None)
+    except Exception:
+        round_dec = None
+    df_to_write = df_reset
+    if round_dec is not None:
+        try:
+            df_to_write = df_reset.round(int(round_dec))
+        except Exception:
+            df_to_write = df_reset
+    df_to_write.to_csv(path, index=False)
     return path
 
 
