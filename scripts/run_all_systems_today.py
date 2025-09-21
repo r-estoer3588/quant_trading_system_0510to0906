@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Any, no_type_check, cast
+from contextvars import ContextVar
 import os
 
 import pandas as pd
@@ -56,6 +57,7 @@ from collections.abc import Mapping, Sequence
 _CAND_COUNT_SNAPSHOT: dict[str, int] = {}
 
 _LOG_CALLBACK = None
+_LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
 # ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
@@ -399,7 +401,11 @@ def _emit_ui_log(message: str) -> None:
     try:
         cb = globals().get("_LOG_CALLBACK")
         if cb and callable(cb):
-            cb(str(message))
+            token = _LOG_FORWARDING.set(True)
+            try:
+                cb(str(message))
+            finally:
+                _LOG_FORWARDING.reset(token)
     except Exception:
         # UI コールバック未設定や例外は黙って無視（CLI 実行時を考慮）
         pass

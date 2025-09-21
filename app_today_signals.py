@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import platform
+import sys
 import time
 from typing import Any
 from collections.abc import Callable
@@ -1020,12 +1021,12 @@ class StageTracker:
 
         text = "  ".join(
             [
-                f"Tgt→{self._format_value(tgt_display)}",
-                f"FILpass→{self._format_value(counts.get('filter'))}",
-                f"STUpass→{self._format_value(counts.get('setup'))}",
-                f"TRDlist→{self._format_trdlist(counts.get('cand'))}",
-                f"Entry→{self._format_value(counts.get('entry'))}",
-                f"Exit→{self._format_value(counts.get('exit'))}",
+                f"Tgt {self._format_value(tgt_display)}",
+                f"FILpass {self._format_value(counts.get('filter'))}",
+                f"STUpass {self._format_value(counts.get('setup'))}",
+                f"TRDlist {self._format_trdlist(counts.get('cand'))}",
+                f"Entry {self._format_value(counts.get('entry'))}",
+                f"Exit {self._format_value(counts.get('exit'))}",
             ]
         )
         try:
@@ -1086,6 +1087,13 @@ class UILogger:
         self.log_lines: list[str] = []
 
     def log(self, msg: str) -> None:
+        forwarded_from_cli = False
+        try:
+            forwarding_flag = getattr(_run_today_mod, "_LOG_FORWARDING", None)
+            if forwarding_flag is not None:
+                forwarded_from_cli = bool(forwarding_flag.get())
+        except Exception:
+            forwarded_from_cli = False
         try:
             elapsed = max(0, time.time() - self.start_time)
             m, s = divmod(int(elapsed), 60)
@@ -1100,10 +1108,12 @@ class UILogger:
                     self.progress_ui.progress_area.text(line)
                 except Exception:
                     pass
-        try:
-            _get_today_logger().info(str(msg))
-        except Exception:
-            pass
+        if not forwarded_from_cli:
+            self._echo_cli(line)
+            try:
+                _get_today_logger().info(str(msg))
+            except Exception:
+                pass
 
     def _should_display(self, msg: str) -> bool:
         if not self.progress_ui.show_overall:
@@ -1133,6 +1143,30 @@ class UILogger:
         if msg.startswith(data_load_prefixes):
             return self.progress_ui.show_data_load
         return not any(keyword in msg for keyword in skip_keywords)
+
+    def _echo_cli(self, line: str) -> None:
+        try:
+            print(line, flush=True)
+            return
+        except UnicodeEncodeError:
+            try:
+                encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
+                safe = line.encode(encoding, errors="replace").decode(
+                    encoding, errors="replace"
+                )
+                print(safe, flush=True)
+                return
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            fallback = line.encode("ascii", errors="replace").decode(
+                "ascii", errors="replace"
+            )
+            print(fallback, flush=True)
+        except Exception:
+            pass
 
 
 class RunCallbacks:

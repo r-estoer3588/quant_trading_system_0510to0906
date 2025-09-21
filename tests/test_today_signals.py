@@ -10,6 +10,7 @@ import common.utils_spy as utils_spy
 from common.exit_planner import decide_exit_schedule
 from strategies.system2_strategy import System2Strategy
 from strategies.system4_strategy import System4Strategy
+from strategies.system2_strategy import System2Strategy
 
 
 def _make_prepared_frame() -> tuple[pd.DatetimeIndex, pd.DataFrame]:
@@ -75,6 +76,52 @@ def _make_atr_frame(atr_col: str, atr_value: float = 2.0) -> pd.DataFrame:
         atr_col: [atr_value, atr_value],
     }
     return pd.DataFrame(data, index=idx)
+
+
+def test_filter_by_data_freshness_flags_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    base_day = pd.Timestamp("2024-06-14")
+
+    def stub_latest(day=None):
+        if day is None:
+            return base_day
+        candidate = pd.Timestamp(day).normalize()
+        if candidate >= base_day:
+            return base_day
+        return candidate
+
+    monkeypatch.setattr(today_signals, "get_latest_nyse_trading_day", stub_latest)
+
+    skip_stats = today_signals.SkipStats()
+    logs: list[str] = []
+
+    def log(msg: str) -> None:
+        logs.append(msg)
+
+    prepared = {
+        "OLD": pd.DataFrame(
+            {"Close": [10.0, 11.0]},
+            index=pd.to_datetime(["2024-04-10", "2024-04-12"]),
+        ),
+        "GAP": pd.DataFrame(
+            {"Close": [12.0, 13.0]},
+            index=pd.to_datetime(["2024-06-03", "2024-06-05"]),
+        ),
+        "FRESH": pd.DataFrame(
+            {"Close": [14.0]},
+            index=pd.to_datetime(["2024-06-14"]),
+        ),
+    }
+
+    filtered, alerts, suppressed = today_signals._filter_by_data_freshness(
+        prepared, pd.Timestamp("2024-06-15"), skip_stats, log
+    )
+
+    assert set(filtered.keys()) == {"GAP", "FRESH"}
+    assert suppressed == [("OLD", pd.Timestamp("2024-04-12"))]
+    assert alerts == [("GAP", pd.Timestamp("2024-06-05"))]
+    assert skip_stats.counts.get("stale_over_month") == 1
+    assert any("🔕" in msg for msg in logs)
+    assert any("⚠️" in msg for msg in logs)
 
 
 @pytest.mark.parametrize(
@@ -204,7 +251,7 @@ def test_system2_shortability_filter_excludes_symbols(
     )
 
     assert result.empty
-    assert set(result.columns) == set(today_signals.TODAY_SIGNAL_COLUMNS)
+    assert list(result.columns) == today_signals.TODAY_SIGNAL_COLUMNS
     assert result.attrs.get("zero_reason") == "setup_pass_zero"
 
 

@@ -1,6 +1,8 @@
 # common/utils.py
 import logging
 import os
+import re
+from collections.abc import Hashable
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +34,9 @@ RESERVED_WORDS = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
 def safe_filename(symbol: str) -> str:
     """
     Windows予約語を避けたファイル名を返す
@@ -50,6 +55,151 @@ def clean_date_column(df: pd.DataFrame, col_name: str = "Date") -> pd.DataFrame:
     df[col_name] = pd.to_datetime(df[col_name])
     df = df.sort_values(col_name).reset_index(drop=True)
     return df
+
+
+_OHLCV_CANONICAL_NAMES = {
+    "open": "Open",
+    "high": "High",
+    "low": "Low",
+    "close": "Close",
+    "volume": "Volume",
+    "adjclose": "AdjClose",
+    "adjustedclose": "AdjClose",
+}
+
+
+_NON_ALNUM = re.compile(r"[^a-z0-9]")
+
+
+def _normalize_ohlcv_key(name: Hashable) -> str | None:
+    """Normalize a column label into a lookup key for OHLCV matching."""
+
+    if not isinstance(name, str):
+        try:
+            name = str(name)
+        except Exception:
+            return None
+    key = _NON_ALNUM.sub("", name.lower())
+    return key or None
+
+
+def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
+    """Return *df* with case-insensitive OHLCV variants coalesced.
+
+    キャッシュソースによっては ``OPEN`` や ``adj close`` のような表記ゆれが
+    混在し、重複列の原因となる。本関数では大文字小文字・空白・アンダースコアを
+    吸収したうえで各列を統一し、欠損が少ない列を優先的に残す。
+    """
+
+    if df is None or getattr(df, "empty", True):
+        return df
+
+    original = df.copy()
+    column_groups: dict[str, list[tuple[int, str]]] = {}
+    for idx, col in enumerate(original.columns):
+        key = _normalize_ohlcv_key(col)
+        if key is None:
+            continue
+        canonical = _OHLCV_CANONICAL_NAMES.get(key)
+        if canonical is None:
+            continue
+        column_groups.setdefault(canonical, []).append((idx, col))
+
+    if not column_groups:
+        return original
+
+    combined_series_by_index: dict[int, pd.Series] = {}
+    target_name_by_index: dict[int, str] = {}
+    drop_indices: set[int] = set()
+
+    for canonical, items in column_groups.items():
+        if not items:
+            continue
+        series_candidates: list[tuple[int, str, pd.Series]] = []
+        for idx, col in items:
+            try:
+                col_series = original.iloc[:, idx]
+            except Exception:
+                continue
+            if isinstance(col_series, pd.DataFrame):
+                col_series = col_series.iloc[:, 0]
+            series_candidates.append((idx, col, pd.Series(col_series)))
+
+        if not series_candidates:
+            continue
+
+        best_idx = series_candidates[0][0]
+        best_series = series_candidates[0][2].copy()
+        best_non_null = int(best_series.notna().sum())
+        best_priority = 1 if series_candidates[0][1] == canonical else 0
+
+        for idx, col, series in series_candidates[1:]:
+            non_null = int(series.notna().sum())
+            priority = 1 if col == canonical else 0
+            if (
+                non_null > best_non_null
+                or (non_null == best_non_null and priority > best_priority)
+                or (
+                    non_null == best_non_null
+                    and priority == best_priority
+                    and idx < best_idx
+                )
+            ):
+                best_idx = idx
+                best_series = series.copy()
+                best_non_null = non_null
+                best_priority = priority
+
+        combined = best_series.copy()
+        for idx, _col, series in series_candidates:
+            if idx == best_idx:
+                continue
+            try:
+                combined = combined.combine_first(series)
+            except Exception:
+                try:
+                    combined = combined.fillna(series)
+                except Exception:
+                    pass
+
+        display_idx = min(idx for idx, _ in items)
+        for idx, _ in items:
+            if idx != display_idx:
+                drop_indices.add(idx)
+
+        target_name_by_index[display_idx] = canonical
+        combined_series_by_index[display_idx] = combined
+
+    result_columns = []
+    result_series = []
+    for idx, col in enumerate(original.columns):
+        if idx in drop_indices:
+            continue
+        if idx in combined_series_by_index:
+            series = combined_series_by_index[idx]
+            name = target_name_by_index.get(idx, col)
+        else:
+            try:
+                series = original.iloc[:, idx]
+            except Exception:
+                continue
+            if isinstance(series, pd.DataFrame):
+                series = series.iloc[:, 0]
+            series = pd.Series(series)
+            name = col
+
+        series = pd.Series(series, index=original.index, copy=True)
+        series.name = None
+        result_columns.append(name)
+        result_series.append(series)
+
+    if not result_series:
+        return original
+
+    merged = pd.concat(result_series, axis=1)
+    merged.columns = result_columns
+    merged.index = original.index
+    return merged
 
 
 def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | None:
@@ -90,18 +240,7 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | N
             df = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
 
     # 列名の大文字化（存在するもののみ）
-    rename_map = {
-        "open": "Open",
-        "high": "High",
-        "low": "Low",
-        "close": "Close",
-        "adjusted_close": "AdjClose",
-        "adjclose": "AdjClose",
-        "volume": "Volume",
-    }
-    for k, v in list(rename_map.items()):
-        if k in df.columns:
-            df = df.rename(columns={k: v})
+    df = _merge_ohlcv_variants(df)
     return df.sort_index()
 
 

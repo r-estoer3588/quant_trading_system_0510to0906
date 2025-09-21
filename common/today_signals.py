@@ -152,10 +152,21 @@ class SkipStats:
         except Exception:
             sorted_items = list(self.counts.items())
         top = sorted_items[:2]
+        system_label = str(system_name or "")
+        try:
+            total = sum(int(v) for _, v in self.counts.items())
+        except Exception:
+            try:
+                total = sum(self.counts.values())
+            except Exception:
+                total = len(self.counts)
         if log_callback:
             try:
                 details = ", ".join([f"{k}: {v}" for k, v in top])
-                log_callback(f"🧪 スキップ統計: {details}")
+                prefix = f"{system_label}: " if system_label else ""
+                log_callback(
+                    f"🧪 {prefix}スキップ統計 (計{total}件): {details}"
+                )
                 for key, _ in top:
                     samples = self.samples.get(key) or []
                     if samples:
@@ -379,6 +390,116 @@ def _prepare_strategy_data(
     prepared_dict = prepared_dict or {}
     normalized = _normalize_prepared_dict(prepared_dict)
     return PrepareDataResult(normalized, skip_stats)
+
+
+def _detect_last_trading_day(df: pd.DataFrame) -> pd.Timestamp | None:
+    """Return the normalized last trading day from the given frame."""
+
+    if df is None or getattr(df, "empty", True):
+        return None
+    try:
+        if isinstance(df.index, pd.DatetimeIndex) and len(df.index):
+            idx = pd.to_datetime(df.index, errors="coerce").normalize()
+            idx = idx[~idx.isna()]
+            if len(idx):
+                return pd.Timestamp(idx[-1])
+    except Exception:
+        pass
+    try:
+        if "Date" in df.columns:
+            series = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+            series = series.dropna()
+            if len(series):
+                return pd.Timestamp(series.iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def _filter_by_data_freshness(
+    prepared: dict[str, pd.DataFrame] | pd.DataFrame | None,
+    today: pd.Timestamp,
+    skip_stats: SkipStats | None,
+    log_callback: Callable[[str], None] | None,
+) -> tuple[
+    dict[str, pd.DataFrame] | pd.DataFrame | None,
+    list[tuple[str, pd.Timestamp]],
+    list[tuple[str, pd.Timestamp]],
+]:
+    """Remove symbols older than 1 month and emit freshness alerts."""
+
+    if not isinstance(prepared, dict) or not prepared:
+        return prepared, [], []
+
+    try:
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
+    except Exception:
+        prev_trading_day = pd.Timestamp(today).normalize() - pd.Timedelta(days=1)
+
+    try:
+        month_cutoff = pd.Timestamp(prev_trading_day) - pd.DateOffset(months=1)
+    except Exception:
+        month_cutoff = pd.Timestamp(prev_trading_day) - pd.Timedelta(days=30)
+
+    stale_alerts: list[tuple[str, pd.Timestamp]] = []
+    stale_suppressed: list[tuple[str, pd.Timestamp]] = []
+
+    for sym, df in list(prepared.items()):
+        last_day = _detect_last_trading_day(df)
+        if last_day is None:
+            continue
+        try:
+            last_day_norm = pd.Timestamp(last_day).normalize()
+        except Exception:
+            last_day_norm = None
+        if last_day_norm is None:
+            continue
+        if last_day_norm <= month_cutoff:
+            prepared.pop(sym, None)
+            stale_suppressed.append((str(sym), last_day_norm))
+            if skip_stats is not None:
+                try:
+                    skip_stats.record(str(sym), "stale_over_month")
+                except Exception:
+                    pass
+        elif last_day_norm < prev_trading_day:
+            stale_alerts.append((str(sym), last_day_norm))
+
+    def _format_preview(items: list[tuple[str, pd.Timestamp]]) -> str:
+        preview_parts: list[str] = []
+        for sym, day in items[:5]:
+            try:
+                preview_parts.append(f"{sym}({day.date()})")
+            except Exception:
+                preview_parts.append(str(sym))
+        return ", ".join(preview_parts)
+
+    if stale_suppressed and log_callback:
+        try:
+            preview = _format_preview(stale_suppressed)
+            suffix = f" (例: {preview})" if preview else ""
+            log_callback(
+                "🔕 データ鮮度: 最終日が1ヶ月以上前のため除外: "
+                f"{len(stale_suppressed)} 銘柄{suffix}"
+            )
+        except Exception:
+            pass
+
+    if stale_alerts and log_callback:
+        try:
+            preview = _format_preview(stale_alerts)
+            suffix = f" (例: {preview})" if preview else ""
+            ref_label = str(pd.Timestamp(prev_trading_day).date())
+            log_callback(
+                "⚠️ データ鮮度警告: 直近営業日" f"({ref_label})のデータ未更新: "
+                f"{len(stale_alerts)} 銘柄{suffix}"
+            )
+        except Exception:
+            pass
+
+    return prepared, stale_alerts, stale_suppressed
 
 
 def _log_elapsed(
@@ -1216,6 +1337,86 @@ def _select_candidate_date(
     )
 
 
+def _format_entry_skip_reason(debug_info: dict[str, Any] | None) -> str:
+    if not debug_info:
+        return "entry_stop_failed"
+    reason = str(debug_info.get("reason") or "entry_stop_failed")
+    fallback_reason = debug_info.get("fallback_reason")
+    if fallback_reason:
+        reason = f"{reason}:{fallback_reason}"
+    details = debug_info.get("details")
+    if isinstance(details, dict):
+        missing_cols = details.get("missing_columns")
+        if missing_cols:
+            try:
+                missing_iter = sorted(str(col) for col in missing_cols)
+            except Exception:
+                missing_iter = [str(missing_cols)]
+            joined = ",".join(missing_iter)
+            if joined:
+                reason += f"[missing={joined}]"
+        note = details.get("note")
+        if note:
+            reason += f"[{note}]"
+    return reason
+
+
+def _log_entry_skip_summary(
+    stats: SkipStats,
+    system_name: str,
+    log_callback: Callable[[str], None] | None,
+) -> None:
+    if not stats.counts or log_callback is None:
+        return
+    try:
+        sorted_items = sorted(stats.counts.items(), key=lambda x: x[1], reverse=True)
+    except Exception:
+        sorted_items = list(stats.counts.items())
+    top = sorted_items[:3]
+    system_label = str(system_name or "")
+    try:
+        total = sum(int(v) for _, v in stats.counts.items())
+    except Exception:
+        try:
+            total = sum(stats.counts.values())
+        except Exception:
+            total = len(stats.counts)
+    try:
+        summary = ", ".join([f"{key}: {count}" for key, count in top])
+        if summary:
+            prefix = f"{system_label}: " if system_label else ""
+            log_callback(
+                f"⚠️ {prefix}エントリー計算で候補除外 (計{total}件): {summary}"
+            )
+        for key, _ in top:
+            samples = stats.samples.get(key) or []
+            if samples:
+                log_callback(f"  ↳ ({key}): {', '.join(samples)}")
+    except Exception:
+        pass
+
+
+def _attach_entry_skip_attrs(frame: pd.DataFrame, stats: SkipStats) -> None:
+    if not stats.counts:
+        return
+    try:
+        frame.attrs["entry_skip_counts"] = dict(stats.counts)
+    except Exception:
+        pass
+    try:
+        if stats.samples:
+            frame.attrs["entry_skip_samples"] = {
+                key: list(value) for key, value in stats.samples.items()
+            }
+    except Exception:
+        pass
+    try:
+        if stats.details:
+            frame.attrs["entry_skip_details"] = list(stats.details[:50])
+    except Exception:
+        pass
+
+
 def _build_today_signals_dataframe(
     strategy,
     prepared: dict[str, pd.DataFrame],
@@ -1241,14 +1442,26 @@ def _build_today_signals_dataframe(
     if not today_candidates:
         return _empty_today_signals_frame(), 0
 
+    entry_skip_stats = SkipStats()
+
     rows: list[TodaySignal] = []
     for c in today_candidates:
         sym = c.get("symbol")
-        if not sym or sym not in prepared:
+        if not sym:
+            entry_skip_stats.record("", "missing_symbol")
+            continue
+        if sym not in prepared:
+            entry_skip_stats.record(str(sym), "missing_prepared_frame")
             continue
         df = prepared[sym]
-        comp = _compute_entry_stop(strategy, df, c, side)
+        if df is None or getattr(df, "empty", True):
+            entry_skip_stats.record(str(sym), "prepared_frame_empty")
+            continue
+        debug_info: dict[str, Any] = {}
+        comp = _compute_entry_stop(strategy, df, c, side, debug=debug_info)
         if not comp:
+            reason_label = _format_entry_skip_reason(debug_info)
+            entry_skip_stats.record(str(sym), reason_label)
             continue
         entry, stop = comp
         skey, sval, _asc = _score_from_candidate(system_name, c)
@@ -1489,9 +1702,24 @@ def _build_today_signals_dataframe(
         )
 
     if not rows:
-        return _empty_today_signals_frame(), 0
+        _log_entry_skip_summary(entry_skip_stats, system_name, log_callback)
+        top_reason = None
+        if entry_skip_stats.counts:
+            try:
+                top_reason = max(
+                    entry_skip_stats.counts.items(), key=lambda item: item[1]
+                )[0]
+            except Exception:
+                top_reason = next(iter(entry_skip_stats.counts.keys()), None)
+        frame = _empty_today_signals_frame(
+            f"entry_stop_failed:{top_reason}" if top_reason else None
+        )
+        _attach_entry_skip_attrs(frame, entry_skip_stats)
+        return frame, 0
 
     out = pd.DataFrame([r.__dict__ for r in rows])
+    _attach_entry_skip_attrs(out, entry_skip_stats)
+    _log_entry_skip_summary(entry_skip_stats, system_name, log_callback)
 
     try:
         max_pos = int(get_settings(create_dirs=False).risk.max_positions)
@@ -1755,8 +1983,28 @@ def _resolve_stop_atr_multiple(strategy, system_name: str) -> float:
 
 
 def _compute_entry_stop(
-    strategy, df: pd.DataFrame, candidate: dict, side: str
+    strategy,
+    df: pd.DataFrame,
+    candidate: dict,
+    side: str,
+    *,
+    debug: dict[str, Any] | None = None,
 ) -> tuple[float, float] | None:
+    def _set_reason(reason: str) -> None:
+        if debug is not None and reason and "reason" not in debug:
+            debug["reason"] = reason
+
+    def _record_detail(key: str, value: Any) -> None:
+        if debug is None:
+            return
+        details = debug.setdefault("details", {})
+        if key not in details:
+            details[key] = value
+
+    def _set_fallback_reason(reason: str) -> None:
+        if debug is not None and reason and "fallback_reason" not in debug:
+            debug["fallback_reason"] = reason
+
     try:
         system_name = str(getattr(strategy, "SYSTEM_NAME", "")).lower()
     except Exception:
@@ -1777,8 +2025,8 @@ def _compute_entry_stop(
                     or (side == "long" and entry > stop)
                 ):
                     return round(entry, 4), round(stop, 4)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_detail("strategy_compute_entry_error", str(exc))
 
     # フォールバック: 当日始値 ± stop_atr_multiple * ATR
     def _as_positive(value: Any) -> float | None:
@@ -1817,17 +2065,77 @@ def _compute_entry_stop(
             return default
         return max(1, window)
 
-    def _fallback_atr(frame: pd.DataFrame, window: int) -> float | None:
-        required = {"High", "Low", "Close"}
-        if frame is None or frame.empty:
+    def _get_series_ci(frame: pd.DataFrame | None, key: str) -> pd.Series | None:
+        if frame is None:
             return None
-        if any(col not in frame.columns for col in required):
+        cols = getattr(frame, "columns", [])
+        if key in cols:
+            try:
+                return frame[key]
+            except Exception:
+                pass
+        lower = key.lower()
+        for col in cols:
+            if isinstance(col, str) and col.lower() == lower:
+                try:
+                    return frame[col]
+                except Exception:
+                    try:
+                        return frame.get(col)
+                    except Exception:
+                        continue
+        try:
+            return frame.get(lower)  # type: ignore[return-value]
+        except Exception:
+            return None
+
+    def _get_value_ci(series: pd.Series | None, key: str) -> Any:
+        if series is None:
             return None
         try:
-            high = pd.to_numeric(frame["High"], errors="coerce")
-            low = pd.to_numeric(frame["Low"], errors="coerce")
-            close = pd.to_numeric(frame["Close"], errors="coerce")
+            if key in series:
+                return series.get(key)
         except Exception:
+            pass
+        lower = key.lower()
+        for col in getattr(series, "index", []):
+            if isinstance(col, str) and col.lower() == lower:
+                try:
+                    return series[col]
+                except Exception:
+                    try:
+                        return series.get(col)
+                    except Exception:
+                        return None
+        try:
+            return series.get(lower)
+        except Exception:
+            return None
+
+    def _fallback_atr(frame: pd.DataFrame, window: int) -> float | None:
+        if frame is None or frame.empty:
+            _set_fallback_reason("empty_frame")
+            return None
+        col_map: dict[str, str] = {}
+        for col in getattr(frame, "columns", []):
+            if isinstance(col, str):
+                lower = col.lower()
+                if lower not in col_map:
+                    col_map[lower] = col
+        required = {"high", "low", "close"}
+        missing_lower = [c for c in required if c not in col_map]
+        if missing_lower:
+            _set_fallback_reason("missing_columns")
+            formatted = [m.capitalize() for m in missing_lower]
+            _record_detail("missing_columns", formatted)
+            return None
+        try:
+            high = pd.to_numeric(frame[col_map["high"]], errors="coerce")
+            low = pd.to_numeric(frame[col_map["low"]], errors="coerce")
+            close = pd.to_numeric(frame[col_map["close"]], errors="coerce")
+        except Exception as exc:
+            _set_fallback_reason("numeric_conversion_failed")
+            _record_detail("note", f"fallback_numeric_error:{exc}")
             return None
         tr = pd.concat(
             [
@@ -1837,12 +2145,17 @@ def _compute_entry_stop(
             ],
             axis=1,
         ).max(axis=1)
-        if tr.empty:
+        if tr.dropna().empty:
+            _set_fallback_reason("no_true_range")
             return None
-        window = max(1, int(window or 14))
-        min_periods = min(window, max(2, min(5, len(tr))))
-        atr_series = tr.rolling(window, min_periods=min_periods).mean()
-        return _latest_positive(atr_series)
+        window_val = max(1, int(window or 14))
+        _record_detail("atr_window", window_val)
+        min_periods = min(window_val, max(2, min(5, len(tr))))
+        atr_series = tr.rolling(window_val, min_periods=min_periods).mean()
+        result = _latest_positive(atr_series)
+        if result is None:
+            _set_fallback_reason("no_positive_atr")
+        return result
 
     entry_ts = None
     if isinstance(candidate, dict):
@@ -1878,21 +2191,22 @@ def _compute_entry_stop(
     atr_val = None
     if 0 <= entry_idx < len(df):
         row = df.iloc[entry_idx]
-        try:
-            entry = _as_positive(row.get("Open"))
-        except Exception:
-            entry = None
+        entry = _as_positive(_get_value_ci(row, "Open"))
+        if entry is not None:
+            _record_detail("entry_source", "row_open")
         if entry_idx > 0:
             prev_row = df.iloc[max(entry_idx - 1, 0)]
             for col in atr_candidates:
-                try:
-                    candidate_val = _as_positive(prev_row.get(col))
-                except Exception:
-                    candidate_val = None
+                candidate_val = _as_positive(_get_value_ci(prev_row, col))
                 if candidate_val is not None:
                     atr_val = candidate_val
                     atr_column = col
                     atr_window = _infer_atr_window(col, atr_window)
+                    try:
+                        _record_detail("atr_window", int(atr_window))
+                    except Exception:
+                        pass
+                    _record_detail("atr_source", f"prev_row:{col}")
                     break
 
     if isinstance(candidate, dict):
@@ -1902,6 +2216,7 @@ def _compute_entry_stop(
                     entry_candidate = _as_positive(candidate.get(key))
                     if entry_candidate is not None:
                         entry = entry_candidate
+                        _record_detail("entry_source", f"candidate:{key}")
                         break
         if atr_val is None:
             for key, value in candidate.items():
@@ -1913,24 +2228,56 @@ def _compute_entry_stop(
                 if atr_candidate is not None:
                     atr_val = atr_candidate
                     atr_window = _infer_atr_window(key, atr_window)
+                    try:
+                        _record_detail("atr_window", int(atr_window))
+                    except Exception:
+                        pass
+                    _record_detail("atr_source", f"candidate:{key}")
                     break
 
     if entry is None:
-        entry = _latest_positive(df.get("Close"))
+        close_series = _get_series_ci(df, "Close")
+        entry = _latest_positive(close_series)
+        if entry is not None:
+            _record_detail("entry_source", "close_series")
     if entry is None:
-        entry = _latest_positive(df.get("Open"))
+        open_series = _get_series_ci(df, "Open")
+        entry = _latest_positive(open_series)
+        if entry is not None:
+            _record_detail("entry_source", "open_series")
+    if entry is None:
+        _set_reason("entry_price_missing")
+        return None
 
     if atr_val is None and atr_column:
-        atr_val = _latest_positive(df.get(atr_column))
+        atr_series = _get_series_ci(df, atr_column)
+        if atr_series is None:
+            try:
+                atr_series = df.get(atr_column)
+            except Exception:
+                atr_series = None
+        atr_val = _latest_positive(atr_series)
+        if atr_val is not None:
+            try:
+                _record_detail(
+                    "atr_window",
+                    int(_infer_atr_window(atr_column, atr_window)),
+                )
+            except Exception:
+                pass
+            _record_detail("atr_source", f"column:{atr_column}")
     if atr_val is None:
         atr_val = _fallback_atr(df, atr_window)
-
-    if entry is None or atr_val is None:
+        if atr_val is not None:
+            _record_detail("atr_source", f"fallback:{atr_window}")
+    if atr_val is None:
+        _set_reason("atr_missing")
         return None
 
     mult = _resolve_stop_atr_multiple(strategy, system_name)
     stop = entry - mult * atr_val if side == "long" else entry + mult * atr_val
     if (side == "long" and stop >= entry) or (side == "short" and stop <= entry):
+        _set_reason("invalid_stop")
         return None
 
     return round(entry, 4), round(stop, 4)
@@ -2008,6 +2355,12 @@ def get_today_signals_for_strategy(
     prepared = prepare_result.prepared
     prepared = _apply_shortability_filter(
         system_name, prepared, prepare_result.skip_stats, log_callback
+    )
+    prepared, _stale_alerts, _stale_suppressed = _filter_by_data_freshness(
+        prepared,
+        today_ts,
+        prepare_result.skip_stats,
+        log_callback,
     )
 
     _log_elapsed(log_callback, "⏱️ フィルター/前処理完了", t0)
