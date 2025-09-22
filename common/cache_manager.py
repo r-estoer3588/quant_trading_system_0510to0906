@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from common.utils import describe_dtype, safe_filename
+from indicators_common import add_indicators
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,62 @@ class CacheManager:
             return
         self._warned.add(key)
         logger.warning(message)
+
+    def _recompute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Recalculate derived indicator columns when base OHLC data is updated."""
+
+        if df is None or df.empty:
+            return df
+        try:
+            work = df.copy()
+        except Exception:
+            work = pd.DataFrame(df)
+        work.columns = [str(c).lower() for c in work.columns]
+        if "date" not in work.columns:
+            return df
+        required = {"open", "high", "low", "close"}
+        if not required.issubset(set(work.columns)):
+            return df
+        base = work.copy()
+        base["date"] = pd.to_datetime(base["date"], errors="coerce")
+        base = base.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        if base.empty:
+            return df
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in base.columns:
+                base[col] = pd.to_numeric(base[col], errors="coerce")
+        base["Date"] = base["date"].dt.normalize()
+        case_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+        for src, dst in case_map.items():
+            if src in base.columns:
+                base[dst] = base[src]
+        try:
+            enriched = add_indicators(base)
+        except Exception:
+            return df
+        enriched = enriched.drop(columns=["Date"], errors="ignore")
+        enriched.columns = [str(c).lower() for c in enriched.columns]
+        enriched["date"] = pd.to_datetime(
+            enriched.get("date", base["date"]), errors="coerce"
+        )
+        combined = work.copy()
+        for col, series in enriched.items():
+            combined[col] = series
+        combined = combined.loc[:, ~pd.Index(combined.columns).duplicated(keep="first")]
+        original_cols = [str(c).lower() for c in df.columns]
+        new_cols = [col for col in combined.columns if col not in original_cols]
+        ordered_cols = original_cols + new_cols
+        try:
+            combined = combined.reindex(columns=ordered_cols)
+        except Exception:
+            combined = combined.reindex(columns=sorted(set(combined.columns)))
+        return combined
 
     # ---------- path/format detection ----------
     def _detect_path(self, base_dir: Path, ticker: str) -> Path:
@@ -362,6 +419,7 @@ class CacheManager:
         if profile == "rolling":
             merged = self._enforce_rolling_window(merged)
 
+        merged = self._recompute_indicators(merged)
         self.write_atomic(merged, ticker, profile)
 
     # ---------- rolling window & prune ----------

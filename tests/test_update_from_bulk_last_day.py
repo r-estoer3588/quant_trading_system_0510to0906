@@ -8,6 +8,7 @@ import pytest
 from scripts.update_from_bulk_last_day import (
     CacheUpdateInterrupted,
     append_to_cache,
+    run_bulk_update,
 )
 
 
@@ -25,7 +26,7 @@ def _build_cache_manager(tmp_path) -> CacheManager:
         rolling=DummyRolling(),
         file_format="csv",
     )
-    settings = SimpleNamespace(cache=cache)
+    settings = SimpleNamespace(cache=cache, DATA_CACHE_DIR=tmp_path)
     return CacheManager(settings)
 
 
@@ -78,8 +79,7 @@ def test_append_to_cache_integrates_with_cache_manager(tmp_path):
         "2024-01-04",
     ]
     assert "sma25" in aaa_full.columns
-    assert aaa_full.loc[0, "sma25"] == 1.0
-    assert pd.isna(aaa_full.iloc[-1]["sma25"])
+    assert aaa_full["sma25"].isna().all()
 
     aaa_rolling = cm.read("AAA", "rolling")
     assert _format_dates(aaa_rolling) == [
@@ -93,6 +93,15 @@ def test_append_to_cache_integrates_with_cache_manager(tmp_path):
     assert _format_dates(bbb_full) == ["2024-01-04"]
     bbb_rolling = cm.read("BBB", "rolling")
     assert _format_dates(bbb_rolling) == ["2024-01-04"]
+
+    aaa_base_path = tmp_path / "base" / "AAA.csv"
+    bbb_base_path = tmp_path / "base" / "BBB.csv"
+    assert aaa_base_path.exists()
+    assert bbb_base_path.exists()
+    aaa_base = pd.read_csv(aaa_base_path)
+    assert "Date" in aaa_base.columns
+    close_col = "Close" if "Close" in aaa_base.columns else "close"
+    assert pytest.approx(float(aaa_base.iloc[-1][close_col])) == 13.4
 
     # Running again with the same payload should not create duplicates
     append_to_cache(bulk, cm)
@@ -184,11 +193,14 @@ def test_append_to_cache_keyboard_interrupt(tmp_path, monkeypatch):
 
     call_count = {"count": 0}
 
-    def _interrupting_upsert(*args, **kwargs):
+    def _interrupting_add_indicators(*args, **kwargs):
         call_count["count"] += 1
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cm, "upsert_both", _interrupting_upsert)
+    monkeypatch.setattr(
+        "scripts.update_from_bulk_last_day.add_indicators",
+        _interrupting_add_indicators,
+    )
 
     with pytest.raises(CacheUpdateInterrupted) as excinfo:
         append_to_cache(bulk, cm, progress_step=1)
@@ -196,5 +208,39 @@ def test_append_to_cache_keyboard_interrupt(tmp_path, monkeypatch):
     err = excinfo.value
     assert err.processed == 1
     assert err.updated == 0
-    # 中断までに一度 upsert を試行していることを確認
+    # 中断までに一度 add_indicators を試行していることを確認
     assert call_count["count"] == 1
+
+
+def test_run_bulk_update_uses_provided_payload(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    cm.upsert_both("AAA", _base_rows())
+
+    payload = pd.DataFrame(
+        {
+            "code": ["AAA", "BBB"],
+            "date": ["2024-01-04", "2024-01-04"],
+            "open": [13.0, 21.0],
+            "high": [14.0, 22.0],
+            "low": [12.0, 20.0],
+            "close": [13.5, 21.5],
+            "adjusted_close": [13.4, 21.4],
+            "volume": [1300, 2100],
+        }
+    )
+
+    stats = run_bulk_update(
+        cm,
+        data=payload,
+        universe=["AAA", "BBB"],
+        fetch_universe=False,
+    )
+
+    assert stats.has_payload is True
+    assert stats.filtered_rows == 2
+    assert stats.processed_symbols == 2
+    assert stats.updated_symbols == 2
+    aaa_full = cm.read("AAA", "full")
+    assert _format_dates(aaa_full)[-1] == "2024-01-04"
+    bbb_base_path = tmp_path / "base" / "BBB.csv"
+    assert bbb_base_path.exists()

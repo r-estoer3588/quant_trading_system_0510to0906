@@ -361,6 +361,9 @@ def get_settings(create_dirs: bool = False) -> Settings:
         else:
             max_symbols_cfg = override_val
 
+    stale_days_cfg = int(rolling_cfg.get("max_stale_days", 2))
+    staleness_days_cfg = int(rolling_cfg.get("max_staleness_days", stale_days_cfg))
+
     cache = CacheConfig(
         full_dir=_as_path(root, cache_cfg.get("full_dir", "data_cache/full_backup")),
         rolling_dir=_as_path(root, cache_cfg.get("rolling_dir", "data_cache/rolling")),
@@ -368,9 +371,10 @@ def get_settings(create_dirs: bool = False) -> Settings:
         rolling=CacheRollingConfig(
             base_lookback_days=int(rolling_cfg.get("base_lookback_days", 300)),
             buffer_days=int(rolling_cfg.get("buffer_days", 30)),
+            max_staleness_days=staleness_days_cfg,
             prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
-            max_stale_days=int(rolling_cfg.get("max_stale_days", 2)),
+            max_stale_days=stale_days_cfg,
             max_symbols=max_symbols_cfg,
             round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
         ),
@@ -387,6 +391,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             rolling=CacheRollingConfig(
                 base_lookback_days=cache.rolling.base_lookback_days,
                 buffer_days=cache.rolling.buffer_days,
+                max_staleness_days=cache.rolling.max_staleness_days,
                 prune_chunk_days=cache.rolling.prune_chunk_days,
                 meta_file=cache.rolling.meta_file,
                 max_stale_days=cache.rolling.max_stale_days,
@@ -404,6 +409,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             rolling=CacheRollingConfig(
                 base_lookback_days=cache.rolling.base_lookback_days,
                 buffer_days=cache.rolling.buffer_days,
+                max_staleness_days=cache.rolling.max_staleness_days,
                 prune_chunk_days=cache.rolling.prune_chunk_days,
                 meta_file=cache.rolling.meta_file,
                 max_stale_days=cache.rolling.max_stale_days,

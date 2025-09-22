@@ -15,11 +15,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import pandas as pd
-from config.settings import get_settings
-from common.cache_manager import BASE_SUBDIR
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import pandas as pd  # noqa: E402
+from config.settings import get_settings  # noqa: E402
+from common.cache_manager import BASE_SUBDIR  # noqa: E402
 
 
 def find_cache_files(base_dir: Path) -> list[Path]:
