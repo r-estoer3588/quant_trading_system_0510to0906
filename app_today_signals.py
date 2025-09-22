@@ -8,7 +8,7 @@ from pathlib import Path
 import platform
 import sys
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
 import streamlit as st
@@ -36,6 +36,25 @@ from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
+
+if TYPE_CHECKING:  # pragma: no cover - static typing only
+    try:  # type: ignore - optional import for type checkers
+        import alpaca.trading.requests as _alpaca_trading_requests  # type: ignore
+    except Exception:  # pragma: no cover - runtime fallback
+        _alpaca_trading_requests = Any  # type: ignore
+
+
+def _import_alpaca_requests():
+    """Runtime-safe importer for `alpaca.trading.requests`.
+
+    Returns the module or None if not importable.
+    """
+    try:
+        import importlib
+
+        return importlib.import_module("alpaca.trading.requests")
+    except Exception:
+        return None
 
 
 def _running_in_streamlit() -> bool:
@@ -2759,18 +2778,12 @@ with st.sidebar:
             client = ba.get_client(paper=paper_mode)
             try:
                 # alpaca-py のAPIに合わせ、リクエストオブジェクトで指定
-                # Import for type checking; at runtime import via importlib to avoid hard dependency
-                from typing import TYPE_CHECKING
-
-                if TYPE_CHECKING:  # pragma: no cover - static type checking only
-                    from alpaca.trading.requests import (
-                        GetOrdersRequest as _GetOrdersRequest,  # type: ignore
-                    )
-                try:
-                    import importlib
-
-                    req_mod = importlib.import_module("alpaca.trading.requests")
+                # Use runtime importer to avoid hard dependency at static-analysis time
+                req_mod = _import_alpaca_requests()
+                _GetOrdersRequest = None
+                if req_mod is not None:
                     _GetOrdersRequest = getattr(req_mod, "GetOrdersRequest", None)
+                try:
                     if _GetOrdersRequest is not None:
                         orders = client.get_orders(filter=_GetOrdersRequest(status="open"))
                     else:
@@ -2830,21 +2843,14 @@ with st.sidebar:
                                     st.error(f"キャンセル失敗: {_e}")
                                 # 最新のopen ordersを再取得
                                 try:
-                                    from typing import TYPE_CHECKING
-
-                                    if TYPE_CHECKING:  # pragma: no cover - static type checking only
-                                        from alpaca.trading.requests import (
-                                            GetOrdersRequest as _GetOrdersRequest,
-                                        )
-                                    import importlib
-
-                                    try:
-                                        req_mod = importlib.import_module(
-                                            "alpaca.trading.requests"
-                                        )
+                                    # re-fetch open orders; use runtime importer
+                                    req_mod = _import_alpaca_requests()
+                                    _GetOrdersRequest = None
+                                    if req_mod is not None:
                                         _GetOrdersRequest = getattr(
                                             req_mod, "GetOrdersRequest", None
                                         )
+                                    try:
                                         if _GetOrdersRequest is not None:
                                             orders2 = client.get_orders(
                                                 filter=_GetOrdersRequest(status="open")
@@ -2856,46 +2862,30 @@ with st.sidebar:
                                 except Exception:
                                     orders2 = client.get_orders()
                                 rows2 = []
-                                    for o2 in orders2:
-                                        try:
-                                            rows2.append(
-                                                {
-                                                    "order_id": str(
-                                                        getattr(o2, "id", "")
-                                                    ),  # noqa: E501
-                                                    "symbol": getattr(
-                                                        o2, "symbol", None
-                                                    ),  # noqa: E501
-                                                    "side": getattr(o2, "side", None),
-                                                    "qty": getattr(o2, "qty", None),
-                                                    "status": getattr(
-                                                        o2, "status", None
-                                                    ),  # noqa: E501
-                                                    "submitted_at": str(
-                                                        getattr(
-                                                            o2,
-                                                            "submitted_at",
-                                                            "",
-                                                        )
-                                                    ),
-                                                    "type": getattr(o2, "type", None),
-                                                    "limit_price": getattr(
-                                                        o2, "limit_price", None
-                                                    ),  # noqa: E501
-                                                    "time_in_force": getattr(
-                                                        o2, "time_in_force", None
-                                                    ),
-                                                }
-                                            )
-                                        except Exception:
-                                            pass
-                                    if not rows2:
-                                        st.info("未約定注文はありません。")
-                                    else:
-                                        df2 = _pd.DataFrame(rows2)
-                                        st.dataframe(df2, use_container_width=True)
-                                except Exception as __e2:
-                                    st.error(f"未約定注文の再取得に失敗: {__e2}")
+                                for o2 in orders2:
+                                    try:
+                                        rows2.append(
+                                            {
+                                                "order_id": str(getattr(o2, "id", "")),
+                                                "symbol": getattr(o2, "symbol", None),
+                                                "side": getattr(o2, "side", None),
+                                                "qty": getattr(o2, "qty", None),
+                                                "status": getattr(o2, "status", None),
+                                                "submitted_at": str(
+                                                    getattr(o2, "submitted_at", "")
+                                                ),
+                                                "type": getattr(o2, "type", None),
+                                                "limit_price": getattr(o2, "limit_price", None),
+                                                "time_in_force": getattr(o2, "time_in_force", None),
+                                            }
+                                        )
+                                    except Exception:
+                                        pass
+                                if not rows2:
+                                    st.info("未約定注文はありません。")
+                                else:
+                                    df2 = _pd.DataFrame(rows2)
+                                    st.dataframe(df2, use_container_width=True)
         except Exception as e:
             st.error(f"未約定注文の取得に失敗: {e}")
 

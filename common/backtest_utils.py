@@ -17,12 +17,28 @@ def _compute_entry(
             computed = strategy.compute_entry(df, candidate, current_capital)
         except Exception:
             return None, None
-        return computed if computed else (None, None)
+        # Normalize returned values to simple floats or None
+        try:
+            if not computed:
+                return None, None
+            a, b = computed
+
+            def _to_num(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return None
+
+            return _to_num(a), _to_num(b)
+        except Exception:
+            return None, None
 
     try:
-        entry_idx = df.index.get_loc(candidate["entry_date"])
-        entry_price = df.iloc[entry_idx]["Open"]
-        atr = df.iloc[entry_idx - 1]["ATR20"]
+        from typing import cast
+
+        entry_idx = cast(int, df.index.get_loc(candidate["entry_date"]))
+        entry_price = float(df.iloc[entry_idx]["Open"])
+        atr = float(df.iloc[entry_idx - 1]["ATR20"])
         if (side or "long") == "short":
             stop_loss_price = entry_price + 5 * atr
         else:

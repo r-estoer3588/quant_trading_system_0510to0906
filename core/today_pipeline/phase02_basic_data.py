@@ -18,8 +18,13 @@ try:  # pragma: no cover - optional dependency
     from common.utils_spy import get_latest_nyse_trading_day
 except Exception:  # pragma: no cover
 
-    def get_latest_nyse_trading_day(day):  # type: ignore[override]
-        return pd.Timestamp(day)
+    def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timestamp:  # type: ignore[override]
+        if today is None:
+            return pd.Timestamp.now().normalize()
+        try:
+            return pd.Timestamp(today).normalize()
+        except Exception:
+            return pd.Timestamp.now().normalize()
 
 
 # --- constants --------------------------------------------------------------------
@@ -184,7 +189,12 @@ def _extract_last_cache_date(df: pd.DataFrame | None) -> pd.Timestamp | None:
                 values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
                 values = values.dropna()
                 if not values.empty:
-                    return pd.Timestamp(values.iloc[-1]).normalize()
+                    try:
+                        last_val = values[-1]
+                    except Exception:
+                        # fallback to list indexing
+                        last_val = list(values)[-1]
+                    return pd.Timestamp(last_val).normalize()
             except Exception:
                 continue
     try:

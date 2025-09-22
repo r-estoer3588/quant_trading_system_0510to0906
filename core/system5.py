@@ -178,7 +178,7 @@ def prepare_data_vectorized_system5(
                         progress_callback(i, total)
                     except Exception:
                         pass
-                if (i % batch_size == 0 or i == total) and log_callback:
+                if (i % int(batch_size) == 0 or i == total) and log_callback:
                     elapsed = time.time() - start_time
                     remain = (elapsed / i) * (total - i) if i else 0
                     em, es = divmod(int(elapsed), 60)
@@ -232,38 +232,38 @@ def prepare_data_vectorized_system5(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-            try:
-                log_callback(msg)
-                log_callback(
-                    tr(
-                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                        sec=batch_duration,
-                        size=batch_size,
-                    )
+
+    if (processed % int(batch_size) == 0 or processed == total) and log_callback:
+        elapsed = time.time() - start_time
+        remain = (elapsed / processed) * (total - processed) if processed else 0
+        em, es = divmod(int(elapsed), 60)
+        rm, rs = divmod(int(remain), 60)
+        msg = tr(
+            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            done=processed,
+            total=total,
+            em=em,
+            es=es,
+            rm=rm,
+            rs=rs,
+        )
+        if buffer:
+            msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+        batch_duration = time.time() - batch_start
+        batch_size = batch_monitor.update(batch_duration)
+        batch_start = time.time()
+        try:
+            log_callback(msg)
+            log_callback(
+                tr(
+                    "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                    sec=batch_duration,
+                    size=batch_size,
                 )
-            except Exception:
-                pass
-            buffer.clear()
+            )
+        except Exception:
+            pass
+        buffer.clear()
 
     for sym, df in raw_data_dict.items():
         df = _rename_ohlcv(df)
@@ -519,28 +519,27 @@ def generate_candidates_system5(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            try:
-                log_callback(msg)
-            except Exception:
-                pass
-            buffer.clear()
+    if (processed % int(batch_size) == 0 or processed == total) and log_callback:
+        elapsed = time.time() - start_time
+        remain = (elapsed / processed) * (total - processed) if processed else 0
+        em, es = divmod(int(elapsed), 60)
+        rm, rs = divmod(int(remain), 60)
+        msg = tr(
+            "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            done=processed,
+            total=total,
+            em=em,
+            es=es,
+            rm=rm,
+            rs=rs,
+        )
+        if buffer:
+            msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+        try:
+            log_callback(msg)
+        except Exception:
+            pass
+        buffer.clear()
 
     limit_n = int(top_n)
     for date in list(candidates_by_date.keys()):
@@ -554,7 +553,7 @@ def generate_candidates_system5(
             continue
         df = df.sort_values("ADX7", ascending=False)
         total = len(df)
-        df.loc[:, "rank"] = range(1, total + 1)
+        df.loc[:, "rank"] = list(range(1, total + 1))
         df.loc[:, "rank_total"] = total
         limited = df.head(limit_n)
         candidates_by_date[date] = limited.to_dict("records")

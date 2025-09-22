@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import json
 import logging
 import os
 from pathlib import Path
 import shutil
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from indicators_common import add_indicators
 import numpy as np

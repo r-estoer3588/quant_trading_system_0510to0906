@@ -2,35 +2,97 @@ from __future__ import annotations
 
 import json
 from typing import Any
+import asyncio
 
-import anyio
-from mcp import types
-from mcp.server import NotificationOptions, Server, stdio
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
-from .operations import (
-    BacktestResult,
-    analyze_error_log,
-    analyze_imports,
-    collect_signals,
-    execute_daily_run,
-    find_symbol_references,
-    read_config_yaml,
-    run_backtest,
-    run_pytest,
-    run_python_file,
-    search_project_files,
-    summarize_performance,
-    write_config_yaml,
-    write_text_file,
-)
+try:
+    import anyio  # type: ignore
+except Exception:  # pragma: no cover - optional runtime dependency
+    anyio = None  # type: ignore
+
+try:
+    from mcp import types  # type: ignore
+    from mcp.server import NotificationOptions, Server, stdio  # type: ignore
+except Exception:  # pragma: no cover - optional runtime dependency
+    if _TYPE_CHECKING:  # pragma: no cover - typing only
+        from mcp import types  # type: ignore
+        from mcp.server import NotificationOptions, Server, stdio  # type: ignore
+    else:
+        from types import SimpleNamespace as _SimpleNamespace
+
+        class _Tool:
+            def __init__(self, **kwargs: Any) -> None:  # pragma: no cover - stub
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        class _TextContent:
+            def __init__(self, **kwargs: Any) -> None:  # pragma: no cover - stub
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        types = _SimpleNamespace(Tool=_Tool, TextContent=_TextContent)  # type: ignore
+
+        class NotificationOptions:  # pragma: no cover - stub
+            def __init__(self, *_, **__):
+                pass
+
+        class _StdIo:
+            class _Ctx:
+                async def __aenter__(self):
+                    return (None, None)
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            def stdio_server(self):
+                return self._Ctx()
+
+        class Server:  # pragma: no cover - stub
+            def __init__(self, *_, **__):
+                pass
+
+            def list_tools(self):
+                def _decorator(f):
+                    return f
+
+                return _decorator
+
+            def call_tool(self):
+                def _decorator(f):
+                    return f
+
+                return _decorator
+
+            def create_initialization_options(self, *_, **__):
+                return {}
+
+            async def run(self, *_, **__):
+                return None
+
+        stdio = _StdIo()
+
+from . import operations as ops
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .operations import BacktestResult  # type: ignore
 
 
-def _text(message: str) -> list[types.TextContent]:
+def _text(message: str) -> list[Any]:
+    if not hasattr(types, "TextContent"):
+        return [{"type": "text", "text": message}]
     return [types.TextContent(type="text", text=message)]
 
 
+import asyncio
+
+
 async def _run_sync(func, *args, **kwargs):
-    return await anyio.to_thread.run_sync(lambda: func(*args, **kwargs))
+    if anyio is not None:
+        return await anyio.to_thread.run_sync(lambda: func(*args, **kwargs))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 def _format_summary(summary: dict[str, Any]) -> str:
@@ -323,7 +385,7 @@ def create_server() -> Server:
 
         if name == "fetch_signals":
             result = await _run_sync(
-                collect_signals,
+                ops.collect_signals,
                 system=arguments.get("system"),
                 limit=int(arguments.get("limit", 20)),
             )
@@ -332,7 +394,7 @@ def create_server() -> Server:
 
         if name == "run_backtest":
             result: BacktestResult = await _run_sync(
-                run_backtest,
+                ops.run_backtest,
                 arguments["system"],
                 capital=arguments.get("capital"),
                 symbols=arguments.get("symbols"),
@@ -352,7 +414,7 @@ def create_server() -> Server:
 
         if name == "summarize_performance":
             structured = await _run_sync(
-                summarize_performance,
+                ops.summarize_performance,
                 arguments["trades_path"],
                 capital=arguments.get("capital"),
             )
@@ -360,12 +422,12 @@ def create_server() -> Server:
             return (_text(summary_text), structured)
 
         if name == "read_config":
-            data = await _run_sync(read_config_yaml, arguments["filename"])
+            data = await _run_sync(ops.read_config_yaml, arguments["filename"])
             return (_text(json.dumps(data, ensure_ascii=False, indent=2)), data)
 
         if name == "write_config":
             data = await _run_sync(
-                write_config_yaml,
+                ops.write_config_yaml,
                 arguments["filename"],
                 content=arguments.get("content"),
                 updates=arguments.get("updates"),
@@ -374,7 +436,7 @@ def create_server() -> Server:
             return (_text(json.dumps(data, ensure_ascii=False, indent=2)), data)
 
         if name == "execute_daily_run":
-            result = await _run_sync(execute_daily_run)
+            result = await _run_sync(ops.execute_daily_run)
             text = "\n".join(
                 [
                     f"command: {result['command']}",
@@ -389,7 +451,7 @@ def create_server() -> Server:
 
         if name == "search_project":
             matches = await _run_sync(
-                search_project_files,
+                ops.search_project_files,
                 arguments["pattern"],
                 file_globs=arguments.get("file_globs"),
                 max_results=int(arguments.get("max_results", 100)),
@@ -399,11 +461,11 @@ def create_server() -> Server:
             return (_text(text), {"matches": matches})
 
         if name == "find_symbol_references":
-            result = await _run_sync(find_symbol_references, arguments["symbol"])
+            result = await _run_sync(ops.find_symbol_references, arguments["symbol"])
             return (_text(json.dumps(result, ensure_ascii=False, indent=2)), result)
 
         if name == "run_pytest":
-            result = await _run_sync(run_pytest, arguments.get("args"))
+            result = await _run_sync(ops.run_pytest, arguments.get("args"))
             text = "\n".join(
                 [
                     f"command: {result['command']}",
@@ -417,13 +479,13 @@ def create_server() -> Server:
             return (_text(text), result)
 
         if name == "analyze_imports":
-            result = await _run_sync(analyze_imports, arguments["path"])
+            result = await _run_sync(ops.analyze_imports, arguments["path"])
             text_payload = json.dumps(result, ensure_ascii=False, indent=2)
             return (_text(text_payload), {"imports": result})
 
         if name == "run_python_file":
             result = await _run_sync(
-                run_python_file,
+                ops.run_python_file,
                 arguments["path"],
                 arguments.get("args"),
             )
@@ -441,7 +503,7 @@ def create_server() -> Server:
 
         if name == "write_text_file":
             result = await _run_sync(
-                write_text_file,
+                ops.write_text_file,
                 arguments["path"],
                 arguments["content"],
                 mode=arguments.get("mode", "overwrite"),
@@ -450,7 +512,7 @@ def create_server() -> Server:
 
         if name == "analyze_error_log":
             result = await _run_sync(
-                analyze_error_log,
+                ops.analyze_error_log,
                 arguments["path"],
                 tail=int(arguments.get("tail", 200)),
             )
