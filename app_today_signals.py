@@ -14,7 +14,6 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
-from common.cache_manager import CacheManager, load_base_cache
 from common.exit_planner import decide_exit_schedule
 from common.data_loader import load_price
 from common.notifier import create_notifier
@@ -437,106 +436,46 @@ def _build_missing_detail(
     }
 
 
-def _rebuild_rolling_cache_from_base(
+def _log_manual_rebuild_notice(
     symbol: str,
-    rows: int,
-    cache_manager: CacheManager,
+    detail: dict[str, Any],
     log_fn: Callable[[str], None] | None = None,
-) -> tuple[pd.DataFrame | None, str, str]:
-    err_note = ""
+) -> None:
+    if log_fn is None:
+        return
+    status = str(detail.get("status") or "rolling_missing")
+    reason_map = {
+        "rolling_missing": "rolling未生成",
+        "missing_required": "必須列不足",
+        "missing_optional": "任意列不足",
+        "nan_columns": "NaN過多",
+    }
+    reason_label = reason_map.get(status, status)
+    parts: list[str] = []
+    rows_before = detail.get("rows_before")
     try:
-        base_df = load_base_cache(
-            symbol,
-            rebuild_if_missing=True,
-            cache_manager=cache_manager,
-        )
-    except Exception as exc:  # noqa: BLE001
-        base_df = None
-        err_note = str(exc)
-    if base_df is None or base_df.empty:
-        if log_fn:
-            try:
-                log_fn(f"⚠️ {symbol}: baseキャッシュ未整備のためrolling再生成不可")
-            except Exception:
-                pass
-        return None, "base_unavailable", err_note
-
-    base_reset = base_df.reset_index() if base_df.index.name else base_df
-    rename_map = {}
-    for col in list(getattr(base_reset, "columns", [])):
-        if str(col).lower() == "date":
-            rename_map[col] = "date"
-    if rename_map:
-        base_reset = base_reset.rename(columns=rename_map)
-    if "date" not in base_reset.columns:
-        return None, "date_missing", err_note
-    base_reset = base_reset.copy()
-    cols_list = list(base_reset.columns)
-    date_positions = [idx for idx, col in enumerate(cols_list) if str(col).lower() == "date"]
-    if not date_positions:
-        return None, "date_missing", err_note
-    primary_pos = date_positions[0]
-    date_series = base_reset.iloc[:, primary_pos]
-    for pos in date_positions[1:]:
-        other_series = base_reset.iloc[:, pos]
-        date_series = date_series.combine_first(other_series)
-    if len(date_positions) > 1:
-        keep_positions = [idx for idx in range(len(cols_list)) if idx not in date_positions[1:]]
-        base_reset = base_reset.iloc[:, keep_positions]
-        primary_index = keep_positions.index(primary_pos)
-    else:
-        primary_index = primary_pos
-    primary_label = base_reset.columns[primary_index]
-    base_reset.iloc[:, primary_index] = date_series
-    if str(primary_label).lower() != "date" or primary_label != "date":
-        base_reset = base_reset.rename(columns={primary_label: "date"})
-    base_reset["date"] = pd.to_datetime(base_reset["date"], errors="coerce")
-    base_reset = (
-        base_reset.dropna(subset=["date"])
-        .sort_values("date")
-        .drop_duplicates("date")
-        .reset_index(drop=True)
-    )
-    try:
-        base_reset.columns = [str(col).lower() for col in base_reset.columns]
+        rows_val = int(rows_before)
     except Exception:
-        base_reset.columns = [str(col) for col in base_reset.columns]
-    target_len = max(
-        rows,
-        int(getattr(cache_manager, "_rolling_target_len", len(base_reset))),
-    )
-    available_rows = int(len(base_reset))
-    trimmed = base_reset.tail(target_len).reset_index(drop=True)
-    actual_rows = int(len(trimmed))
-    shortage_note = ""
-    if available_rows < target_len:
-        shortage_note = f"base不足: {available_rows}/{target_len}行"
-        err_note = _merge_note(err_note, shortage_note)
+        rows_val = None
+    if rows_val:
+        parts.append(f"rows={rows_val}")
+    missing_required = str(detail.get("missing_required") or "").strip()
+    if missing_required:
+        parts.append(f"必須: {missing_required}")
+    missing_optional = str(detail.get("missing_optional") or "").strip()
+    if missing_optional:
+        parts.append(f"任意: {missing_optional}")
+    nan_columns = str(detail.get("nan_columns") or "").strip()
+    if nan_columns:
+        parts.append(f"NaN: {nan_columns}")
+    message = f"⛔ rolling未整備: {symbol} ({reason_label})"
+    if parts:
+        message += " | " + ", ".join(parts)
+    message += " → 手動で rolling キャッシュを更新してください"
     try:
-        cache_manager.write_atomic(trimmed, symbol, "rolling")
-    except Exception as exc:  # noqa: BLE001
-        if log_fn:
-            try:
-                log_fn(f"⚠️ {symbol}: rolling書き込み失敗 ({exc})")
-            except Exception:
-                pass
-        return None, "write_failed", _merge_note(err_note, str(exc))
-    if log_fn:
-        try:
-            if shortage_note:
-                log_fn(
-                    f"♻️ rolling再生成: {symbol} ({actual_rows}行, base; "
-                    f"目標{target_len}行, base保有{available_rows}行)"
-                )
-            else:
-                log_fn(f"♻️ rolling再生成: {symbol} ({actual_rows}行, base)")
-        except Exception:
-            pass
-    try:
-        refreshed = cache_manager.read(symbol, "rolling")
+        log_fn(message)
     except Exception:
-        refreshed = None
-    return refreshed, "rebuilt_from_base", err_note
+        pass
 
 
 def _collect_symbol_data(
@@ -557,8 +496,6 @@ def _collect_symbol_data(
     fetched: dict[str, pd.DataFrame] = {}
     malformed: list[str] = []
     missing_details: list[dict[str, Any]] = []
-    cache_manager = CacheManager(settings)
-
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = load_price(sym, cache_profile="rolling")
@@ -571,42 +508,19 @@ def _collect_symbol_data(
             detail = _build_missing_detail(sym, issues, rows_before)
             if debug_scan:
                 detail["action"] = "debug_scan"
+                detail["note"] = _issues_to_note(issues)
                 missing_details.append(detail)
                 df = None
             else:
-                df_after, action, note = _rebuild_rolling_cache_from_base(
-                    sym,
-                    rows,
-                    cache_manager,
-                    log_fn,
+                detail["action"] = "manual_rebuild_required"
+                manual_note = _merge_note(
+                    _issues_to_note(issues),
+                    "手動で rolling キャッシュを更新してください",
                 )
-                detail["action"] = action
-                detail["note"] = note or ""
-                if df_after is not None and not df_after.empty:
-                    detail["rows_after"] = int(len(df_after))
-                    ok_after, issues_after = _analyze_rolling_cache(df_after)
-                    if ok_after:
-                        detail["resolved"] = True
-                        df = df_after
-                    else:
-                        detail["note"] = _merge_note(
-                            detail.get("note", ""),
-                            _issues_to_note(issues_after),
-                        )
-                        df = None
-                else:
-                    df = None
+                detail["note"] = manual_note
                 missing_details.append(detail)
-        if df is None or getattr(df, "empty", True):
-            # 欠損時は記録済み。debugモードで detail 未追加の場合のみ追加。
-            if detail is None and debug_scan:
-                fallback_detail = _build_missing_detail(
-                    sym,
-                    {"status": "rolling_missing"},
-                    0,
-                )
-                fallback_detail["action"] = "debug_scan"
-                missing_details.append(fallback_detail)
+                _log_manual_rebuild_notice(sym, detail, log_fn)
+                df = None
             continue
 
         norm = _normalize_price_history(df, rows)
@@ -628,24 +542,21 @@ def _collect_symbol_data(
             log_fn(f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒")
         except Exception:
             pass
-        unresolved = [
-            detail["symbol"] for detail in missing_details if not detail.get("resolved", False)
+        manual_symbols = [
+            detail["symbol"]
+            for detail in missing_details
+            if detail.get("action") == "manual_rebuild_required"
         ]
-        resolved = [detail["symbol"] for detail in missing_details if detail.get("resolved", False)]
-        if resolved and not debug_scan:
-            sample = ", ".join(resolved[:5])
-            if len(resolved) > 5:
-                sample += f" ほか{len(resolved) - 5}件"
+        if manual_symbols:
+            sample = ", ".join(manual_symbols[:5])
+            if len(manual_symbols) > 5:
+                sample += f" ほか{len(manual_symbols) - 5}件"
             try:
-                log_fn(f"♻️ ローリング再生成済み: {sample}")
-            except Exception:
-                pass
-        if unresolved:
-            sample = ", ".join(unresolved[:5])
-            if len(unresolved) > 5:
-                sample += f" ほか{len(unresolved) - 5}件"
-            try:
-                log_fn(f"⚠️ データ取得不可: {sample}")
+                log_fn(
+                    "⚠️ rolling未整備: "
+                    + sample
+                    + " → 手動で rolling キャッシュを更新してください"
+                )
             except Exception:
                 pass
         if malformed:
@@ -1066,6 +977,45 @@ class StageTracker:
     def finalize_counts(
         self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
     ) -> None:  # noqa: E501
+        for name, counts in self.stage_counts.items():
+            snapshot: StageSnapshot | None
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(name)
+            except Exception:
+                snapshot = None
+            if snapshot is not None:
+                if counts.get("target") is None and snapshot.target is not None:
+                    try:
+                        counts["target"] = int(snapshot.target)
+                        if self.universe_total is None:
+                            self.universe_total = int(snapshot.target)
+                    except Exception:
+                        pass
+                if counts.get("filter") is None and snapshot.filter_pass is not None:
+                    try:
+                        counts["filter"] = int(snapshot.filter_pass)
+                    except Exception:
+                        pass
+                if counts.get("setup") is None and snapshot.setup_pass is not None:
+                    try:
+                        counts["setup"] = int(snapshot.setup_pass)
+                    except Exception:
+                        pass
+                if counts.get("cand") is None and snapshot.candidate_count is not None:
+                    try:
+                        counts["cand"] = self._clamp_trdlist(snapshot.candidate_count)
+                    except Exception:
+                        pass
+                if counts.get("entry") is None and snapshot.entry_count is not None:
+                    try:
+                        counts["entry"] = int(snapshot.entry_count)
+                    except Exception:
+                        pass
+                if counts.get("exit") is None and snapshot.exit_count is not None:
+                    try:
+                        counts["exit"] = int(snapshot.exit_count)
+                    except Exception:
+                        pass
         try:
             system_series = (
                 final_df["system"].astype(str).str.strip().str.lower()

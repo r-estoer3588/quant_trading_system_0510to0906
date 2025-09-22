@@ -441,8 +441,6 @@ def load_basic_data_phase(
     except Exception:
         target_len = 0
 
-    base_pool = BaseCachePool(cache_manager, base_cache)
-
     stats_lock = Lock()
     stats: dict[str, int] = {}
 
@@ -585,63 +583,45 @@ def load_basic_data_phase(
             if issues is None:
                 issues = {"status": rebuild_reason or "missing"}
             detail = _build_missing_detail(sym, issues, rows_before)
-            if rebuild_reason == "stale" and log is not None:
+            note_reason = rebuild_reason or issues.get("status", "missing")
+            reason_map = {
+                "stale": "鮮度不足",
+                "missing_date": "日付欠損",
+                "length": "行数不足",
+            }
+            reason_label = reason_map.get(note_reason, "未整備")
+            if detail is not None:
+                detail.action = "manual_rebuild_required"
+                detail.resolved = False
+                detail.note = _merge_note(detail.note, "manual_rebuild_required")
+            skip_parts: list[str] = []
+            if rebuild_reason == "stale":
                 gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
                 last_label = (
                     str(last_seen_date.date())
                     if last_seen_date is not None
                     else "不明"
                 )
+                skip_parts.append(f"最終日={last_label}")
+                skip_parts.append(f"ギャップ={gap_label}")
+            elif rebuild_reason == "length":
+                skip_parts.append(f"len={rows_before}/{target_len}")
+            elif rebuild_reason == "missing_date":
+                skip_parts.append("date列欠損")
+            elif df is None or getattr(df, "empty", True):
+                skip_parts.append("rolling未生成")
+            if log is not None:
+                msg = f"⛔ rolling未整備: {sym} ({reason_label})"
+                if skip_parts:
+                    msg += " | " + ", ".join(skip_parts)
+                msg += " → 手動で rolling キャッシュを更新してください"
                 try:
-                    log(
-                        "♻️ rolling再構築: "
-                        + f"{sym} 最終日={last_label} | ギャップ={gap_label}"
-                    )
-                except Exception:  # pragma: no cover
+                    log(msg)
+                except Exception:  # pragma: no cover - defensive
                     pass
-            base_df, cached_hit = base_pool.get(
-                sym,
-                rebuild_if_missing=True,
-                min_last_date=min_recent_allowed,
-                allowed_recent_dates=recent_allowed or None,
-            )
-            _record_stat("base_cache_hit" if cached_hit else "base_cache_miss")
-            if base_df is None or getattr(base_df, "empty", True):
-                _record_stat("base_missing")
-                if detail is not None:
-                    detail.action = "base_missing"
-                return sym, None, detail
-            sliced = build_rolling_from_base(sym, base_df, target_len, cache_manager)
-            if sliced is None or getattr(sliced, "empty", True):
-                _record_stat("base_missing")
-                if detail is not None:
-                    detail.action = "base_empty"
-                return sym, None, detail
-            df = sliced
-            source = "rebuilt"
-            if detail is not None:
-                detail.action = "rebuilt_from_base"
-            normalized = _normalize_loaded(df)
-            if normalized is None or getattr(normalized, "empty", True):
-                if detail is not None:
-                    detail.rows_after = int(len(df))
-                    detail.note = _merge_note(detail.note, "normalize_failed")
-                _record_stat("failed")
-                return sym, None, detail
-            if rebuild_reason == "stale" and log is not None:
-                new_last = _extract_last_cache_date(normalized)
-                try:
-                    new_label = (
-                        str(pd.Timestamp(new_last).date())
-                        if new_last is not None
-                        else "不明"
-                    )
-                except Exception:
-                    new_label = "不明"
-                try:
-                    log(f"✅ rolling更新完了: {sym} → 最終日={new_label}")
-                except Exception:  # pragma: no cover
-                    pass
+            _record_stat("manual_rebuild_required")
+            _record_stat("failed")
+            return sym, None, detail
 
         ok_after, issues_after = analyze_rolling_frame(normalized)
         if issues_after and detail is not None:
@@ -731,7 +711,20 @@ def load_basic_data_phase(
 
     data = _run_parallel() if parallel else _run_sequential()
 
-    base_pool.sync_to(base_cache)
+    try:
+        summary_map = {
+            "prefetched": "事前供給",
+            "rolling": "rolling再利用",
+            "manual_rebuild_required": "手動対応",
+            "failed": "失敗",
+        }
+        summary_parts = [
+            f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
+        ]
+        if summary_parts:
+            _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
+    except Exception:
+        pass
 
     return BasicDataLoadResult(
         data=data,

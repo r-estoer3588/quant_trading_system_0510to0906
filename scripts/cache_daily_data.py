@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
@@ -11,10 +12,14 @@ from pathlib import Path
 import shutil
 import sys
 import time
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 import pandas as pd
 import requests
+
+if TYPE_CHECKING:
+    from scripts.update_from_bulk_last_day import BulkUpdateStats
 
 
 def _migrate_root_csv_to_full() -> None:
@@ -65,6 +70,11 @@ from indicators_common import add_indicators  # noqa: E402
 from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe  # noqa: E402
 from common.symbols_manifest import save_symbol_manifest  # noqa: E402
+
+try:  # Local import guard for optional bulk updater
+    from scripts.update_from_bulk_last_day import run_bulk_update
+except Exception:  # pragma: no cover - unavailable in constrained envs
+    run_bulk_update = None
 
 BASE_SUBDIR_NAME = "base"
 
@@ -494,15 +504,119 @@ def cache_data(
 
 
 def _cli_main() -> None:
+    parser = argparse.ArgumentParser(description="EODHD デイリーデータのキャッシュを作成する")
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="指定した場合、銘柄リストをこのサイズで分割して対象チャンクのみを取得する",
+    )
+    parser.add_argument(
+        "--chunk-index",
+        type=int,
+        default=1,
+        help="chunk-size と併用。1 始まりで何番目のチャンクを処理するかを指定する",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="ThreadPoolExecutor のワーカー数を上書きする",
+    )
+    args = parser.parse_args()
+
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
-    # rolling 再構築でも同一リストを利用できるようマニフェストを保存
+    if not symbols:
+        print("⚠️ 対象銘柄が検出できなかったため処理を終了します。", flush=True)
+        return
+
+    safe_symbols = [safe_filename(s) for s in symbols]
     try:
-        save_symbol_manifest((safe_filename(s) for s in symbols), DATA_CACHE_DIR)
+        save_symbol_manifest(safe_symbols, DATA_CACHE_DIR)
     except Exception as exc:  # pragma: no cover - logging only
         logging.warning("シンボルマニフェストの保存に失敗: %s", exc)
-    print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
-    cache_data(symbols, output_dir=DATA_CACHE_DIR, base_dir=BASE_CACHE_DIR)
+
+    fallback_to_full = bool(args.full)
+    if not args.full and not args.skip_bulk:
+        stats = _attempt_bulk_refresh(symbols)
+        if stats is None:
+            print("⚠️ Bulk 更新が実行できなかったため API 再取得にフォールバックします。", flush=True)
+            fallback_to_full = True
+        elif not stats.has_payload:
+            print("ℹ️ Bulk API の応答が空だったため追加更新はありませんでした。", flush=True)
+            return
+        elif stats.filtered_rows == 0:
+            print(
+                "⚠️ Bulk データに処理対象銘柄が存在しなかったため API 再取得にフォールバックします。",
+                flush=True,
+            )
+            fallback_to_full = True
+        else:
+            print(
+                (
+                    "✅ Bulk更新完了: 対象={targets} 銘柄 / 更新={updated} 銘柄 "
+                    "(フィルタ後 {rows} 行)"
+                ).format(
+                    targets=stats.processed_symbols,
+                    updated=stats.updated_symbols,
+                    rows=stats.filtered_rows,
+                ),
+                flush=True,
+            )
+            if stats.universe_error:
+                msg = stats.universe_error_message or "理由不明"
+                print(
+                    "⚠️ 銘柄ユニバース取得に問題があった可能性があります:",
+                    msg,
+                    flush=True,
+                )
+            if stats.updated_symbols == 0:
+                print("ℹ️ キャッシュは既に最新のため追加取得は不要です。", flush=True)
+            return
+
+    if fallback_to_full or args.full or args.skip_bulk:
+        if args.skip_bulk and not args.full:
+            print("ℹ️ --skip-bulk 指定のため API からの再取得を実行します。", flush=True)
+        print(
+            f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）",
+            flush=True,
+        )
+        cache_data(
+            symbols,
+            output_dir=DATA_CACHE_DIR,
+            base_dir=BASE_CACHE_DIR,
+            max_workers=args.max_workers,
+        )
+        print("データのキャッシュが完了しました。", flush=True)
+
+    if args.chunk_size:
+        chunk_size = max(1, args.chunk_size)
+        chunk_index = max(1, args.chunk_index)
+        start = chunk_size * (chunk_index - 1)
+        if start >= total_symbols:
+            print(
+                f"⚠️ チャンク開始位置 {start + 1} が銘柄数 {total_symbols} を超えています。"
+                "処理をスキップします。"
+            )
+            return
+        end = min(total_symbols, start + chunk_size)
+        symbols = symbols[start:end]
+        print(
+            f"{total_symbols}銘柄中 {start + 1}〜{end} 件目 (計 {len(symbols)} 銘柄) を"
+            f"取得します（チャンク {chunk_index}、サイズ {chunk_size}）。"
+        )
+    else:
+        print(
+            f"{total_symbols}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
+        )
+
+    cache_data(
+        symbols,
+        output_dir=DATA_CACHE_DIR,
+        base_dir=BASE_CACHE_DIR,
+        max_workers=args.max_workers,
+    )
     print("データのキャッシュが完了しました。")
 
 

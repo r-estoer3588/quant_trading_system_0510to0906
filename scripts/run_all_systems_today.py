@@ -851,75 +851,162 @@ def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     return low_ok, dv_ok
 
 
-def filter_system1(symbols, data):
+def filter_system1(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    price_pass = 0
+    dv_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         price_ok, dv_ok = _system1_conditions(df)
-        if price_ok and dv_ok:
-            result.append(sym)
+        if not price_ok:
+            continue
+        price_pass += 1
+        if not dv_ok:
+            continue
+        dv_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["price_pass"] = price_pass
+        stats["dv_pass"] = dv_pass
     return result
 
 
-def filter_system2(symbols, data):
+def filter_system2(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    price_pass = 0
+    dv_pass = 0
+    atr_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         price_ok, dv_ok, atr_ok = _system2_conditions(df)
-        if price_ok and dv_ok and atr_ok:
-            result.append(sym)
+        if not price_ok:
+            continue
+        price_pass += 1
+        if not dv_ok:
+            continue
+        dv_pass += 1
+        if not atr_ok:
+            continue
+        atr_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["price_pass"] = price_pass
+        stats["dv_pass"] = dv_pass
+        stats["atr_pass"] = atr_pass
     return result
 
 
-def filter_system3(symbols, data):
+def filter_system3(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    low_pass = 0
+    av_pass = 0
+    atr_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         low_ok, av_ok, atr_ok = _system3_conditions(df)
-        if low_ok and av_ok and atr_ok:
-            result.append(sym)
+        if not low_ok:
+            continue
+        low_pass += 1
+        if not av_ok:
+            continue
+        av_pass += 1
+        if not atr_ok:
+            continue
+        atr_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["low_pass"] = low_pass
+        stats["avgvol_pass"] = av_pass
+        stats["atr_pass"] = atr_pass
     return result
 
 
-def filter_system4(symbols, data):
+def filter_system4(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    dv_pass = 0
+    hv_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         dv_ok, hv_ok = _system4_conditions(df)
-        if dv_ok and hv_ok:
-            result.append(sym)
+        if not dv_ok:
+            continue
+        dv_pass += 1
+        if not hv_ok:
+            continue
+        hv_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["dv_pass"] = dv_pass
+        stats["hv_pass"] = hv_pass
     return result
 
 
-def filter_system5(symbols, data):
+def filter_system5(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    av_pass = 0
+    dv_pass = 0
+    atr_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         av_ok, dv_ok, atr_ok = _system5_conditions(df)
-        if av_ok and dv_ok and atr_ok:
-            result.append(sym)
+        if not av_ok:
+            continue
+        av_pass += 1
+        if not dv_ok:
+            continue
+        dv_pass += 1
+        if not atr_ok:
+            continue
+        atr_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["avgvol_pass"] = av_pass
+        stats["dv_pass"] = dv_pass
+        stats["atr_pass"] = atr_pass
     return result
 
 
-def filter_system6(symbols, data):
+def filter_system6(symbols, data, stats: dict[str, int] | None = None):
     result = []
-    for sym in symbols:
+    total = len(symbols or [])
+    low_pass = 0
+    dv_pass = 0
+    for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         low_ok, dv_ok = _system6_conditions(df)
-        if low_ok and dv_ok:
-            result.append(sym)
+        if not low_ok:
+            continue
+        low_pass += 1
+        if not dv_ok:
+            continue
+        dv_pass += 1
+        result.append(sym)
+    if stats is not None:
+        stats["total"] = total
+        stats["low_pass"] = low_pass
+        stats["dv_pass"] = dv_pass
     return result
 
 
@@ -1023,7 +1110,6 @@ def _load_basic_data(
     today: pd.Timestamp | None = None,
     freshness_tolerance: int | None = None,
     base_cache: dict[str, pd.DataFrame] | None = None,
-    base_cache_pool: BaseCachePool | None = None,
 ) -> dict[str, pd.DataFrame]:
     from time import perf_counter
 
@@ -1046,25 +1132,12 @@ def _load_basic_data(
     except Exception:
         target_len = 0
 
-    base_pool = base_cache_pool or BaseCachePool(cache_manager, base_cache)
     stats_lock = Lock()
     stats: dict[str, int] = {}
 
     def _record_stat(key: str) -> None:
         with stats_lock:
             stats[key] = stats.get(key, 0) + 1
-
-    def _get_base_cache(symbol: str) -> tuple[pd.DataFrame | None, bool]:
-        base_df, cached_hit = base_pool.get(
-            symbol,
-            rebuild_if_missing=True,
-            min_last_date=min_recent_allowed,
-            allowed_recent_dates=recent_allowed or None,
-        )
-        _record_stat("base_cache_hit" if cached_hit else "base_cache_miss")
-        if base_df is None or getattr(base_df, "empty", True):
-            _record_stat("base_missing")
-        return base_df, cached_hit
 
     recent_allowed: set[pd.Timestamp] = set()
     if today is not None and freshness_tolerance >= 0:
@@ -1250,51 +1323,42 @@ def _load_basic_data(
                         gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
                         needs_rebuild = True
             if needs_rebuild:
+                reason_map = {
+                    "stale": "鮮度不足",
+                    "missing_date": "日付欠損",
+                    "length": "行数不足",
+                }
+                reason_key = rebuild_reason or (
+                    "missing" if df is None or getattr(df, "empty", True) else "unknown"
+                )
+                reason_label = reason_map.get(reason_key, "未整備")
+                detail_parts: list[str] = []
                 if rebuild_reason == "stale":
                     gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
                     last_label = (
-                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
+                        str(last_seen_date.date())
+                        if last_seen_date is not None
+                        else "不明"
                     )
-                    _log(
-                        "♻️ rolling再構築: "
-                        + f"{sym} 最終日={last_label} | "
-                        + f"ギャップ={gap_label}"
-                    )
-                base_df, cached_hit = _get_base_cache(sym)
-                if base_df is None or getattr(base_df, "empty", True):
-                    if rebuild_reason:
-                        reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
-                        _log(
-                            "⚠️ rolling再構築失敗: "
-                            + f"{sym} {reason_label}。"
-                            + "baseキャッシュが見つかりません",
-                            ui=False,
-                        )
-                    return sym, None
-                sliced = _build_rolling_from_base(sym, base_df, target_len, cache_manager)
-                if sliced is None or getattr(sliced, "empty", True):
-                    if rebuild_reason:
-                        reason_label = "鮮度不足" if rebuild_reason == "stale" else "日付欠損"
-                        _log(
-                            f"⚠️ rolling再構築失敗: {sym} {reason_label}。baseデータが空です",
-                            ui=False,
-                        )
-                    _record_stat("base_missing")
-                    return sym, None
-                if rebuild_reason == "stale":
-                    new_last = _extract_last_cache_date(sliced)
+                    detail_parts.append(f"最終日={last_label}")
+                    detail_parts.append(f"ギャップ={gap_label}")
+                elif rebuild_reason == "length" and df is not None:
                     try:
-                        new_label = (
-                            str(pd.Timestamp(new_last).date()) if new_last is not None else "不明"
-                        )
+                        detail_parts.append(f"len={len(df)}/{target_len}")
                     except Exception:
-                        new_label = "不明"
-                    _log(
-                        f"✅ rolling更新完了: {sym} → 最終日={new_label}",
-                        ui=False,
-                    )
-                df = sliced
-                source = "rebuilt"
+                        pass
+                elif rebuild_reason == "missing_date":
+                    detail_parts.append("date列欠損")
+                if df is None or getattr(df, "empty", True):
+                    detail_parts.append("rolling未生成")
+                skip_msg = f"⛔ rolling未整備: {sym} ({reason_label})"
+                if detail_parts:
+                    skip_msg += " | " + ", ".join(detail_parts)
+                skip_msg += " → 手動で rolling キャッシュを更新してください"
+                _log(skip_msg, ui=False)
+                _record_stat("manual_rebuild_required")
+                _record_stat("failed")
+                return sym, None
             normalized = _normalize_loaded(df)
             if normalized is not None and not getattr(normalized, "empty", True):
                 _record_stat(source or "rolling")
@@ -1361,10 +1425,7 @@ def _load_basic_data(
         summary_map = {
             "prefetched": "事前供給",
             "rolling": "rolling再利用",
-            "rebuilt": "base再構築",
-            "base_cache_hit": "base辞書Hit",
-            "base_cache_miss": "base辞書Miss",
-            "base_missing": "base欠損",
+            "manual_rebuild_required": "手動対応",
             "failed": "失敗",
         }
         summary_parts = [
@@ -1372,18 +1433,9 @@ def _load_basic_data(
         ]
         if summary_parts:
             _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
-        pool_stats = base_pool.snapshot_stats()
-        if pool_stats["hits"] or pool_stats["loads"] or pool_stats["size"]:
-            _log(
-                "📦 baseキャッシュ辞書: "
-                + f"保持={pool_stats['size']} | hit={pool_stats['hits']}"
-                + f" | load={pool_stats['loads']} | 欠損={pool_stats['failures']}",
-                ui=False,
-            )
     except Exception:
         pass
 
-    base_pool.sync_to(base_cache)
     return data
 
 
@@ -1440,41 +1492,24 @@ def _load_indicator_data(
             target_len = int(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
-            if df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len):
-                base_df = load_base_cache(
-                    sym,
-                    rebuild_if_missing=True,
-                    cache_manager=cache_manager,
-                )
-                if base_df is None or base_df.empty:
-                    continue
-                x = base_df.copy()
-                if x.index.name is not None:
-                    x = x.reset_index()
-                if "Date" in x.columns:
-                    x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
-                elif "date" in x.columns:
-                    x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
+            needs_rebuild = (
+                df is None
+                or df.empty
+                or (hasattr(df, "__len__") and len(df) < target_len)
+            )
+            if needs_rebuild:
+                if df is None or getattr(df, "empty", True):
+                    reason_desc = "rolling未生成"
                 else:
-                    continue
-                x = x.dropna(subset=["date"]).sort_values("date")
-                col_map = {
-                    "Open": "open",
-                    "High": "high",
-                    "Low": "low",
-                    "Close": "close",
-                    "AdjClose": "adjusted_close",
-                    "Volume": "volume",
-                }
-                for k, v in list(col_map.items()):
-                    if k in x.columns:
-                        x = x.rename(columns={k: v})
-                n = int(
-                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+                    try:
+                        reason_desc = f"len={len(df)}/{target_len}"
+                    except Exception:
+                        reason_desc = "行数不足"
+                _log(
+                    f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
+                    ui=False,
                 )
-                sliced = x.tail(n).reset_index(drop=True)
-                cache_manager.write_atomic(sliced, sym, "rolling")
-                df = sliced
+                continue
             if df is not None and not df.empty:
                 try:
                     if "Date" not in df.columns:
@@ -1858,8 +1893,6 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
-    base_pool = BaseCachePool(cache_manager, ctx.base_cache)
-
     basic_data = _load_basic_data(
         symbols,
         cache_manager,
@@ -1867,7 +1900,6 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         symbol_data,
         today=ctx.today,
         base_cache=ctx.base_cache,
-        base_cache_pool=base_pool,
     )
     ctx.basic_data = basic_data
 
@@ -1887,62 +1919,17 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         )
         if cov_missing > 0:
             missing_syms = [s for s in symbols if s not in basic_data]
-            _log(f"🛠 欠損データ補完中: {len(missing_syms)}銘柄", ui=False)
-            from time import perf_counter as _perf
-
-            repair_start = _perf()
-            fixed = 0
-            try:
-                target_len = int(
-                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-                )
-            except Exception:
-                target_len = 0
-            for sym in missing_syms:
-                try:
-                    base_df, _ = base_pool.get(sym, rebuild_if_missing=True)
-                    if base_df is None or getattr(base_df, "empty", True):
-                        continue
-                    sliced = _build_rolling_from_base(sym, base_df, target_len, cache_manager)
-                    if sliced is None or getattr(sliced, "empty", True):
-                        continue
-                    try:
-                        if "Date" not in sliced.columns:
-                            work = sliced.copy()
-                            d = work.get("date")
-                            if d is None:
-                                work["Date"] = pd.NaT
-                            else:
-                                arr = d.to_numpy() if hasattr(d, "to_numpy") else d
-                                work["Date"] = pd.to_datetime(
-                                    arr,
-                                    errors="coerce",
-                                )
-                        else:
-                            work = sliced
-                        # normalize dates; pd.to_datetime on array returns DatetimeIndex
-                        v = work["Date"]
-                        arr2 = v.to_numpy() if hasattr(v, "to_numpy") else v
-                        dt_idx = pd.to_datetime(arr2, errors="coerce")
-                        work["Date"] = cast(Any, dt_idx).normalize()
-                    except Exception:
-                        work = sliced
-                    basic_data[sym] = _normalize_ohlcv(work)
-                    fixed += 1
-                except Exception:
-                    continue
-            if fixed:
-                elapsed = int(max(0, _perf() - repair_start))
-                m, s = divmod(elapsed, 60)
-                _log(
-                    f"🛠 欠損データを {fixed} 銘柄で補完 | 所要 {m}分{s}秒",
-                    ui=False,
-                )
+            preview = ", ".join(missing_syms[:10])
+            if len(missing_syms) > 10:
+                preview += " …"
+            _log(
+                "⚠️ rolling未整備: "
+                + f"{cov_missing}銘柄 → 手動でキャッシュを更新してください"
+                + (f" | 例: {preview}" if preview else ""),
+                ui=False,
+            )
     except Exception:
         pass
-
-    if base_pool.shared is not None:
-        ctx.base_cache = base_pool.shared
 
     return basic_data
 
@@ -3023,12 +3010,20 @@ def compute_today_signals(  # type: ignore[analysis]
 
     basic_data = _precompute_shared_indicators_phase(ctx, basic_data)
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
-    system1_syms = filter_system1(symbols, basic_data)
-    system2_syms = filter_system2(symbols, basic_data)
-    system3_syms = filter_system3(symbols, basic_data)
-    system4_syms = filter_system4(symbols, basic_data)
-    system5_syms = filter_system5(symbols, basic_data)
-    system6_syms = filter_system6(symbols, basic_data)
+    filter_stats: dict[str, dict[str, int]] = {
+        "system1": {},
+        "system2": {},
+        "system3": {},
+        "system4": {},
+        "system5": {},
+        "system6": {},
+    }
+    system1_syms = filter_system1(symbols, basic_data, stats=filter_stats["system1"])
+    system2_syms = filter_system2(symbols, basic_data, stats=filter_stats["system2"])
+    system3_syms = filter_system3(symbols, basic_data, stats=filter_stats["system3"])
+    system4_syms = filter_system4(symbols, basic_data, stats=filter_stats["system4"])
+    system5_syms = filter_system5(symbols, basic_data, stats=filter_stats["system5"])
+    system6_syms = filter_system6(symbols, basic_data, stats=filter_stats["system6"])
     ctx.system_filters = {
         "system1": system1_syms,
         "system2": system2_syms,
@@ -3062,28 +3057,11 @@ def compute_today_signals(  # type: ignore[analysis]
             pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
     try:
-        s2_total = len(symbols)
-        c_price = 0
-        c_dv = 0
-        c_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                price_ok, dv_ok, atr_ok = _system2_conditions(_df)
-            except Exception:
-                continue
-            if price_ok:
-                c_price += 1
-            else:
-                continue
-            if dv_ok:
-                c_dv += 1
-            else:
-                continue
-            if atr_ok:
-                c_atr += 1
+        stats2 = filter_stats.get("system2", {})
+        s2_total = stats2.get("total", len(symbols or []))
+        c_price = stats2.get("price_pass", 0)
+        c_dv = stats2.get("dv_pass", 0)
+        c_atr = stats2.get("atr_pass", 0)
         _log(
             "🧪 system2内訳: "
             + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
@@ -3092,50 +3070,20 @@ def compute_today_signals(  # type: ignore[analysis]
         pass
     # System1 フィルター内訳（価格・売買代金）
     try:
-        s1_total = len(symbols)
-        s1_price = 0
-        s1_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                price_ok, dv_ok = _system1_conditions(_df)
-            except Exception:
-                continue
-            if price_ok:
-                s1_price += 1
-            else:
-                continue
-            if dv_ok:
-                s1_dv += 1
+        stats1 = filter_stats.get("system1", {})
+        s1_total = stats1.get("total", len(symbols or []))
+        s1_price = stats1.get("price_pass", 0)
+        s1_dv = stats1.get("dv_pass", 0)
         _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
     except Exception:
         pass
     # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
     try:
-        s3_total = len(symbols)
-        s3_low = 0
-        s3_av = 0
-        s3_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                low_ok, av_ok, atr_ok = _system3_conditions(_df)
-            except Exception:
-                continue
-            if low_ok:
-                s3_low += 1
-            else:
-                continue
-            if av_ok:
-                s3_av += 1
-            else:
-                continue
-            if atr_ok:
-                s3_atr += 1
+        stats3 = filter_stats.get("system3", {})
+        s3_total = stats3.get("total", len(symbols or []))
+        s3_low = stats3.get("low_pass", 0)
+        s3_av = stats3.get("avgvol_pass", 0)
+        s3_atr = stats3.get("atr_pass", 0)
         _log(
             "🧪 system3内訳: "
             + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
@@ -3144,51 +3092,21 @@ def compute_today_signals(  # type: ignore[analysis]
         pass
     # System4 フィルター内訳（DV50>=100M → HV50 10〜40）
     try:
-        s4_total = len(symbols)
-        s4_dv = 0
-        s4_hv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                dv_ok, hv_ok = _system4_conditions(_df)
-            except Exception:
-                continue
-            if dv_ok:
-                s4_dv += 1
-            else:
-                continue
-            if hv_ok:
-                s4_hv += 1
+        stats4 = filter_stats.get("system4", {})
+        s4_total = stats4.get("total", len(symbols or []))
+        s4_dv = stats4.get("dv_pass", 0)
+        s4_hv = stats4.get("hv_pass", 0)
         _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
     except Exception:
         pass
     # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
     try:
         threshold_label = format_atr_pct_threshold_label()
-        s5_total = len(symbols)
-        s5_av = 0
-        s5_dv = 0
-        s5_atr = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                av_ok, dv_ok, atr_ok = _system5_conditions(_df)
-            except Exception:
-                continue
-            if av_ok:
-                s5_av += 1
-            else:
-                continue
-            if dv_ok:
-                s5_dv += 1
-            else:
-                continue
-            if atr_ok:
-                s5_atr += 1
+        stats5 = filter_stats.get("system5", {})
+        s5_total = stats5.get("total", len(symbols or []))
+        s5_av = stats5.get("avgvol_pass", 0)
+        s5_dv = stats5.get("dv_pass", 0)
+        s5_atr = stats5.get("atr_pass", 0)
         _log(
             "🧪 system5内訳: "
             + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
@@ -3198,23 +3116,10 @@ def compute_today_signals(  # type: ignore[analysis]
         pass
     # System6 フィルター内訳（Low>=5 → DV50>10M）
     try:
-        s6_total = len(symbols)
-        s6_low = 0
-        s6_dv = 0
-        for _sym in symbols:
-            _df = basic_data.get(_sym)
-            if _df is None or _df.empty:
-                continue
-            try:
-                low_ok, dv_ok = _system6_conditions(_df)
-            except Exception:
-                continue
-            if low_ok:
-                s6_low += 1
-            else:
-                continue
-            if dv_ok:
-                s6_dv += 1
+        stats6 = filter_stats.get("system6", {})
+        s6_total = stats6.get("total", len(symbols or []))
+        s6_low = stats6.get("low_pass", 0)
+        s6_dv = stats6.get("dv_pass", 0)
         _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
     except Exception:
         pass

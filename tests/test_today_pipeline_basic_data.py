@@ -116,30 +116,35 @@ def test_prefetched_data_reused(tmp_path) -> None:
     assert not result.missing_details
 
 
-def test_rebuild_from_base_when_rolling_missing(tmp_path) -> None:
+def test_manual_intervention_required_when_rolling_missing(tmp_path) -> None:
     settings = _make_settings(tmp_path)
     cm = CacheManager(settings)
     _write_full_cache(cm, "BBB")
+
+    logs: list[str] = []
+
+    def capture(msg: str) -> None:
+        logs.append(msg)
 
     result = load_basic_data_phase(
         ["BBB"],
         cache_manager=cm,
         settings=settings,
         base_cache={},
+        log=capture,
     )
 
-    assert "BBB" in result.data
-    rebuilt = result.data["BBB"]
-    assert not rebuilt.empty
-    assert "Close" in rebuilt.columns
-    assert result.stats.get("rebuilt", 0) == 1
+    assert "BBB" not in result.data
+    assert result.stats.get("manual_rebuild_required", 0) == 1
+    assert result.stats.get("rolling", 0) == 0
+    assert result.missing_details
     detail = result.missing_details[0]
     assert isinstance(detail, MissingDetail)
     assert detail.symbol == "BBB"
-    assert detail.action == "rebuilt_from_base"
-    assert detail.resolved is True
-    rolling_after = cm.read("BBB", "rolling")
-    assert rolling_after is not None and not rolling_after.empty
+    assert detail.action == "manual_rebuild_required"
+    assert detail.resolved is False
+    assert "manual_rebuild_required" in detail.note
+    assert any("手動で rolling キャッシュを更新" in msg for msg in logs)
 
 
 def test_missing_when_base_not_available(tmp_path) -> None:
@@ -154,9 +159,9 @@ def test_missing_when_base_not_available(tmp_path) -> None:
     )
 
     assert "CCC" not in result.data
-    assert result.stats.get("base_missing", 0) == 1
+    assert result.stats.get("manual_rebuild_required", 0) == 1
     assert len(result.missing_details) == 1
     detail = result.missing_details[0]
     assert detail.symbol == "CCC"
-    assert detail.action == "base_missing"
+    assert detail.action == "manual_rebuild_required"
     assert detail.resolved is False

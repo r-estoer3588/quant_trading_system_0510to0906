@@ -44,16 +44,21 @@ data:
   download_retries: 3
   api_throttle_seconds: 1.5
 
-cache:
-  full_dir: "data_cache/full_backup"
-  rolling_dir: "data_cache/rolling"
-  file_format: "auto"
-  rolling:
-    base_lookback_days: 300
-    buffer_days: 30
-    prune_chunk_days: 30
-    meta_file: "_meta.json"
-    max_symbols: 11000
+  cache:
+    full_dir: "data_cache/full_backup"
+    rolling_dir: "data_cache/rolling"
+    file_format: "auto"
+    rolling:
+      base_lookback_days: 300
+      buffer_days: 30
+      prune_chunk_days: 30
+      meta_file: "_meta.json"
+      max_stale_days: 2
+      max_staleness_days: 2
+      round_decimals: 2
+    # キャッシュ書き出し時の小数丸め桁数
+    # 例: 2 -> 小数第2位まで丸める
+    round_decimals: 2
 
 backtest:
   start_date: 2018-01-01

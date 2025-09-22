@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterable
 
 import pandas as pd
 import requests
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,12 +16,40 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.settings import get_settings  # noqa: E402
-from common.cache_manager import CacheManager  # noqa: E402
+from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
+from common.utils import safe_filename  # noqa: E402
+from indicators_common import add_indicators  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
 PROGRESS_STEP_DEFAULT = 100
+
+
+@dataclass(slots=True)
+class BulkUpdateStats:
+    """集計情報（テストや他モジュールからの再利用用）。"""
+
+    fetched_rows: int = 0
+    filtered_rows: int = 0
+    processed_symbols: int = 0
+    updated_symbols: int = 0
+    filter_stats: dict[str, int | bool] = field(default_factory=dict)
+    universe_error: bool = False
+    universe_error_message: str | None = None
+    estimated_symbols: int = 0
+
+    @property
+    def has_payload(self) -> bool:
+        """取得データが存在したか。"""
+
+        return self.fetched_rows > 0
+
+    @property
+    def has_updates(self) -> bool:
+        """キャッシュ更新が行われたか。"""
+
+        return self.updated_symbols > 0
 
 
 class CacheUpdateInterrupted(KeyboardInterrupt):
@@ -106,8 +135,119 @@ def _filter_bulk_data_by_universe(
     return filtered, stats
 
 
+def _resolve_base_dir(cm: CacheManager) -> Path:
+    try:
+        data_cache = Path(getattr(cm.settings, "DATA_CACHE_DIR"))
+    except Exception:
+        try:
+            data_cache = Path(cm.full_dir).parent
+        except Exception:
+            data_cache = Path("data_cache")
+    return data_cache / "base"
+
+
+def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=["date", "open", "high", "low", "close", "adjclose", "volume"]
+        )
+    working = df.copy()
+    lower_map = {str(col).lower(): col for col in working.columns}
+    col_aliases = {
+        "date": "date",
+        "index": "date",
+        "timestamp": "date",
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "adjusted_close": "adjclose",
+        "adj_close": "adjclose",
+        "adjclose": "adjclose",
+        "close_adj": "adjclose",
+        "volume": "volume",
+        "vol": "volume",
+    }
+    data: dict[str, pd.Series] = {}
+    for alias, target in col_aliases.items():
+        src = lower_map.get(alias)
+        if src is not None:
+            data[target] = working[src]
+    frame = pd.DataFrame(data)
+    if "adjclose" not in frame.columns and "close" in frame.columns:
+        frame["adjclose"] = frame["close"]
+    return frame
+
+
+def _prepare_indicator_source(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    renamed = raw.rename(
+        columns={
+            "date": "Date",
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "adjclose": "AdjClose",
+            "volume": "Volume",
+        }
+    )
+    if "Date" not in renamed.columns:
+        return pd.DataFrame()
+    renamed["Date"] = pd.to_datetime(renamed["Date"], errors="coerce")
+    renamed = renamed.dropna(subset=["Date"]).sort_values("Date")
+    if "Close" not in renamed.columns and "AdjClose" in renamed.columns:
+        renamed["Close"] = renamed["AdjClose"]
+    if "AdjClose" not in renamed.columns and "Close" in renamed.columns:
+        renamed["AdjClose"] = renamed["Close"]
+    if "Close" not in renamed.columns:
+        return pd.DataFrame()
+    return renamed.set_index("Date")
+
+
+def _build_rolling_frame(full_df: pd.DataFrame, cm: CacheManager) -> pd.DataFrame:
+    if full_df is None or full_df.empty:
+        return full_df
+    try:
+        base_days = int(getattr(cm.rolling_cfg, "base_lookback_days", 0))
+    except Exception:
+        base_days = 0
+    try:
+        buffer_days = int(getattr(cm.rolling_cfg, "buffer_days", 0))
+    except Exception:
+        buffer_days = 0
+    keep = max(base_days + buffer_days, 1)
+    if len(full_df) <= keep:
+        return full_df
+    return full_df.iloc[-keep:].reset_index(drop=True)
+
+
+def _merge_existing_full(
+    new_full: pd.DataFrame, existing_full: pd.DataFrame | None
+) -> pd.DataFrame:
+    if existing_full is None or existing_full.empty:
+        return new_full
+    base_columns = list(new_full.columns)
+    merged = new_full.set_index("date")
+    previous = existing_full.copy().set_index("date")
+    for col in previous.columns:
+        if col == "date":
+            continue
+        if col not in merged.columns:
+            merged[col] = previous[col]
+        else:
+            merged[col] = merged[col].combine_first(previous[col])
+    ordered = base_columns + [c for c in previous.columns if c not in base_columns]
+    merged = merged.reset_index()
+    return merged.loc[:, ordered]
+
+
 def fetch_bulk_last_day() -> pd.DataFrame | None:
-    url = "https://eodhistoricaldata.com/api/eod-bulk-last-day/US" f"?api_token={API_KEY}&fmt=json"
+    url = (
+        "https://eodhistoricaldata.com/api/eod-bulk-last-day/US"
+        f"?api_token={API_KEY}&fmt=json"
+    )
     try:
         response = requests.get(url, timeout=30)
     except requests.RequestException as exc:
@@ -176,6 +316,7 @@ def append_to_cache(
             pass
     interrupt_exc: BaseException | None = None
     try:
+        base_dir = _resolve_base_dir(cm)
         for sym, g in grouped:
             sym_norm = _normalize_symbol(sym)
             if not sym_norm:
@@ -188,22 +329,96 @@ def append_to_cache(
                 "low",
                 "close",
                 "adjusted_close",
+                "adjclose",
                 "volume",
             ]
             cols_exist = [c for c in keep_cols if c in g.columns]
             if not cols_exist:
                 continue
             rows = g[cols_exist].copy()
+            rows.columns = [str(c).lower() for c in rows.columns]
+            existing_full: pd.DataFrame | None
             try:
-                cm.upsert_both(sym_norm, rows)
-            except Exception as e:
-                print(f"{sym}: upsert error - {e}")
-            else:
+                existing_full = cm.read(sym_norm, "full")
+            except Exception:
+                existing_full = None
+            existing_raw = _extract_price_frame(existing_full)
+            new_raw = _extract_price_frame(rows)
+            combined = pd.concat([existing_raw, new_raw], ignore_index=True)
+            if combined.empty:
+                continue
+            combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
+            combined = combined.dropna(subset=["date"]).sort_values("date")
+            combined = combined.drop_duplicates("date", keep="last")
+            combined = combined.reset_index(drop=True)
+            if combined.empty:
+                continue
+            indicator_source = _prepare_indicator_source(combined)
+            if indicator_source.empty:
+                continue
+            try:
+                enriched = add_indicators(indicator_source)
+            except Exception as exc:
+                print(f"{sym_norm}: indicator calc error - {exc}")
+                enriched = indicator_source.copy()
+            full_ready = (
+                enriched.reset_index()
+                .rename(columns=str.lower)
+                .sort_values("date")
+                .reset_index(drop=True)
+            )
+            if (
+                "adjusted_close" not in full_ready.columns
+                and "adjclose" in full_ready.columns
+            ):
+                full_ready["adjusted_close"] = full_ready["adjclose"]
+            elif (
+                "adjusted_close" in full_ready.columns
+                and "adjclose" in full_ready.columns
+            ):
+                mask_adj = full_ready["adjusted_close"].isna()
+                if mask_adj.any():
+                    full_ready.loc[mask_adj, "adjusted_close"] = full_ready.loc[
+                        mask_adj, "adjclose"
+                    ]
+            full_ready = _merge_existing_full(full_ready, existing_full)
+            prev_full_sorted: pd.DataFrame | None = None
+            if existing_full is not None and not existing_full.empty:
+                prev_full_sorted = (
+                    existing_full.copy()
+                    .sort_values("date")
+                    .reset_index(drop=True)
+                )
+            try:
+                cm.write_atomic(full_ready, sym_norm, "full")
+            except Exception as exc:
+                print(f"{sym_norm}: write full error - {exc}")
+                continue
+            rolling_ready = _build_rolling_frame(full_ready, cm)
+            try:
+                cm.write_atomic(rolling_ready, sym_norm, "rolling")
+            except Exception as exc:
+                print(f"{sym_norm}: write rolling error - {exc}")
+            try:
+                base_df = compute_base_indicators(full_ready)
+            except Exception as exc:
+                print(f"{sym_norm}: base indicator error - {exc}")
+                base_df = None
+            if base_df is not None and not base_df.empty:
+                base_path = base_dir / f"{safe_filename(sym_norm)}.csv"
+                base_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    base_df.reset_index().to_csv(base_path, index=False)
+                except Exception as exc:
+                    print(f"{sym_norm}: write base error - {exc}")
+            if prev_full_sorted is None or not full_ready.equals(prev_full_sorted):
                 updated += 1
             if progress_callback:
                 effective_target = max(progress_target, total)
                 should_report = (
-                    total == effective_target or total - last_report >= step or total == 1
+                    total == effective_target
+                    or total - last_report >= step
+                    or total == 1
                 )
                 if should_report:
                     try:
@@ -235,32 +450,149 @@ def append_to_cache(
     return total, updated
 
 
+def run_bulk_update(
+    cm: CacheManager,
+    *,
+    data: pd.DataFrame | None = None,
+    universe: Iterable[str] | None = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
+    progress_step: int = PROGRESS_STEP_DEFAULT,
+    fetch_universe: bool = True,
+) -> BulkUpdateStats:
+    """Fetch (or reuse) bulk last-day data and upsert into caches."""
+
+    stats = BulkUpdateStats()
+
+    working = data if data is not None else fetch_bulk_last_day()
+    if working is None or working.empty:
+        return stats
+
+    stats.fetched_rows = len(working)
+
+    target_universe: list[str] | None = None
+    if universe is not None:
+        target_universe = [
+            str(sym).strip()
+            for sym in universe
+            if isinstance(sym, str) and str(sym).strip()
+        ]
+    elif fetch_universe:
+        try:
+            settings = getattr(cm, "settings", None)
+            if settings is not None:
+                fetched = build_symbol_universe_from_settings(settings)
+                target_universe = [
+                    str(sym).strip()
+                    for sym in fetched
+                    if isinstance(sym, str) and str(sym).strip()
+                ]
+        except Exception as exc:
+            stats.universe_error = True
+            stats.universe_error_message = str(exc)
+            target_universe = None
+
+    filtered = working
+    filter_stats: dict[str, int | bool]
+    if target_universe:
+        filtered, filter_stats = _filter_bulk_data_by_universe(working, target_universe)
+    else:
+        has_code = _resolve_code_series(working) is not None
+        filter_stats = {
+            "allowed": 0,
+            "matched_rows": len(filtered),
+            "removed_rows": 0,
+            "matched_symbols": 0,
+            "missing_symbols": 0,
+            "code_column_found": has_code,
+        }
+
+    stats.filter_stats = filter_stats
+    stats.filtered_rows = len(filtered)
+
+    if filtered.empty:
+        return stats
+
+    original_count, normalized_count = _estimate_symbol_counts(filtered)
+    stats.estimated_symbols = max(original_count, normalized_count)
+
+    total, updated = append_to_cache(
+        filtered,
+        cm,
+        progress_callback=progress_callback,
+        progress_step=progress_step,
+    )
+
+    stats.processed_symbols = total
+    stats.updated_symbols = updated
+    return stats
+
+
 def main():
     if not API_KEY:
         print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
         return
     print("🚀 EODHD Bulk Last Day 更新を開始します...", flush=True)
     print("📡 API リクエストを送信中...", flush=True)
-    data = fetch_bulk_last_day()
-    if data is None or data.empty:
+    settings = get_settings(create_dirs=True)
+    cm = CacheManager(settings)
+
+    progress_state = {"processed": 0, "total": 0, "updated": 0}
+
+    def _report_progress(
+        processed: int,
+        total_symbols: int,
+        updated_count: int,
+    ) -> None:
+        progress_state["processed"] = processed
+        progress_state["total"] = total_symbols
+        progress_state["updated"] = updated_count
+        print(
+            f"  ⏳ 処理中: {processed}/{total_symbols} 銘柄 (更新 {updated_count})",
+            flush=True,
+        )
+
+    try:
+        result = run_bulk_update(
+            cm,
+            progress_callback=_report_progress,
+            progress_step=PROGRESS_STEP_DEFAULT,
+        )
+    except CacheUpdateInterrupted as exc:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_symbols = max(progress_state.get("total", 0), exc.processed)
+        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
+        print(
+            f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols}"
+            f" 銘柄 / 更新済み: {exc.updated} 銘柄",
+            flush=True,
+        )
+        return
+    except KeyboardInterrupt:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_symbols = max(
+            progress_state.get("total", 0),
+            progress_state.get("processed", 0),
+        )
+        processed_count = progress_state.get("processed", 0)
+        updated_count = progress_state.get("updated", 0)
+        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
+        print(
+            f"   ↳ {now} 時点 | 処理済み: {processed_count}/{total_symbols}"
+            f" 銘柄 / 更新済み: {updated_count} 銘柄",
+            flush=True,
+        )
+        return
+
+    if not result.has_payload:
         print("No data to update.", flush=True)
         return
 
-    settings = get_settings(create_dirs=True)
+    progress_state["total"] = max(
+        progress_state.get("total", 0),
+        result.estimated_symbols,
+    )
 
-    universe_error = False
-    try:
-        universe = build_symbol_universe_from_settings(settings)
-    except Exception as exc:
-        print(
-            "⚠️ 銘柄ユニバース取得に失敗したためフィルタリングをスキップします:"
-            f" {exc}",
-            flush=True,
-        )
-        universe = []
-        universe_error = True
-
-    data, filter_stats = _filter_bulk_data_by_universe(data, universe)
+    filter_stats = result.filter_stats
     allowed_count = int(filter_stats.get("allowed", 0))
     if allowed_count:
         print(
@@ -292,82 +624,38 @@ def main():
                     f"  ↳ Bulk データに存在しない銘柄: {missing_symbols} 件",
                     flush=True,
                 )
-    elif not universe_error:
+    elif result.universe_error:
+        message = result.universe_error_message or "理由不明"
+        print(
+            "⚠️ 銘柄ユニバース取得に失敗したためフィルタリングをスキップします:",
+            message,
+            flush=True,
+        )
+    else:
         print(
             "⚠️ 銘柄ユニバース取得結果が空だったためフィルタリングをスキップします",
             flush=True,
         )
 
-    if data.empty:
+    if result.filtered_rows == 0:
         print("⚠️ フィルタ後の対象データが 0 件のため処理を終了します。", flush=True)
         return
 
-    original_count, normalized_count = _estimate_symbol_counts(data)
-    estimated_symbols = max(original_count, normalized_count)
-    if estimated_symbols:
+    if result.estimated_symbols:
         print(
-            f"📊 取得件数: {len(data)} 行 / 銘柄数(推定): {estimated_symbols}",
+            "📊 取得件数: "
+            f"{result.filtered_rows} 行 / 銘柄数(推定): "
+            f"{result.estimated_symbols}",
             flush=True,
         )
     else:
-        print(f"📊 取得件数: {len(data)} 行", flush=True)
+        print(f"📊 取得件数: {result.filtered_rows} 行", flush=True)
 
-    cm = CacheManager(settings)
-
-    progress_state = {
-        "processed": 0,
-        "total": estimated_symbols,
-        "updated": 0,
-    }
-
-    def _report_progress(
-        processed: int,
-        total_symbols: int,
-        updated_count: int,
-    ) -> None:
-        progress_state["processed"] = processed
-        progress_state["total"] = total_symbols
-        progress_state["updated"] = updated_count
-        print(
-            f"  ⏳ 処理中: {processed}/{total_symbols} 銘柄 (更新 {updated_count})",
-            flush=True,
-        )
-
-    try:
-        total, updated = append_to_cache(
-            data,
-            cm,
-            progress_callback=_report_progress,
-            progress_step=PROGRESS_STEP_DEFAULT,
-        )
-    except CacheUpdateInterrupted as exc:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total_symbols = max(progress_state.get("total", 0), exc.processed)
-        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
-        print(
-            f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols}"
-            f" 銘柄 / 更新済み: {exc.updated} 銘柄",
-            flush=True,
-        )
-        return
-    except KeyboardInterrupt:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total_symbols = max(
-            progress_state.get("total", 0),
-            progress_state.get("processed", 0),
-        )
-        processed_count = progress_state.get("processed", 0)
-        updated_count = progress_state.get("updated", 0)
-        print("🛑 ユーザーにより更新処理が中断されました", flush=True)
-        print(
-            f"   ↳ {now} 時点 | 処理済み: {processed_count}/{total_symbols}"
-            f" 銘柄 / 更新済み: {updated_count} 銘柄",
-            flush=True,
-        )
-        return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(
-        f"✅ {now} | 対象: {total} 銘柄 / 更新: {updated} 銘柄（full/rolling へ反映）",
+        "✅ "
+        f"{now} | 対象: {result.processed_symbols} 銘柄 / 更新: "
+        f"{result.updated_symbols} 銘柄（full/rolling へ反映）",
         flush=True,
     )
 

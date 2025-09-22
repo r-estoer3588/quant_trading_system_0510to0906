@@ -75,6 +75,8 @@ class CacheRollingConfig:
     meta_file: str = "_meta.json"
     max_stale_days: int = 2
     max_symbols: int | None = None
+    # 小数丸め桁数: None で無効、整数で有効
+    round_decimals: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,8 @@ class CacheConfig:
     rolling_dir: Path = Path("data_cache/rolling")
     file_format: str = "auto"
     rolling: CacheRollingConfig = CacheRollingConfig()
+    # キャッシュ書き出し時の丸め桁数: None で無効
+    round_decimals: int | None = None
 
 
 @dataclass(frozen=True)
@@ -309,9 +313,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
     # YAML -> dataclass 変換 + .env 上書き
     risk = RiskConfig(
         risk_pct=float(os.getenv("RISK_PCT", risk_cfg.get("risk_pct", 0.02))),
-        max_positions=int(
-            os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))
-        ),
+        max_positions=int(os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))),
         max_pct=float(os.getenv("MAX_PCT", risk_cfg.get("max_pct", 0.10))),
     )
 
@@ -359,6 +361,9 @@ def get_settings(create_dirs: bool = False) -> Settings:
         else:
             max_symbols_cfg = override_val
 
+    stale_days_cfg = int(rolling_cfg.get("max_stale_days", 2))
+    staleness_days_cfg = int(rolling_cfg.get("max_staleness_days", stale_days_cfg))
+
     cache = CacheConfig(
         full_dir=_as_path(root, cache_cfg.get("full_dir", "data_cache/full_backup")),
         rolling_dir=_as_path(root, cache_cfg.get("rolling_dir", "data_cache/rolling")),
@@ -366,12 +371,53 @@ def get_settings(create_dirs: bool = False) -> Settings:
         rolling=CacheRollingConfig(
             base_lookback_days=int(rolling_cfg.get("base_lookback_days", 300)),
             buffer_days=int(rolling_cfg.get("buffer_days", 30)),
+            max_staleness_days=staleness_days_cfg,
             prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
-            max_stale_days=int(rolling_cfg.get("max_stale_days", 2)),
+            max_stale_days=stale_days_cfg,
             max_symbols=max_symbols_cfg,
+            round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
         ),
+        round_decimals=_positive_int_or_none(cache_cfg.get("round_decimals")),
     )
+
+    # 環境変数による丸め桁数の上書き (優先度: env > YAML)
+    env_cache_round = os.getenv("CACHE_ROUND_DECIMALS")
+    if env_cache_round is not None:
+        cache = CacheConfig(
+            full_dir=cache.full_dir,
+            rolling_dir=cache.rolling_dir,
+            file_format=cache.file_format,
+            rolling=CacheRollingConfig(
+                base_lookback_days=cache.rolling.base_lookback_days,
+                buffer_days=cache.rolling.buffer_days,
+                max_staleness_days=cache.rolling.max_staleness_days,
+                prune_chunk_days=cache.rolling.prune_chunk_days,
+                meta_file=cache.rolling.meta_file,
+                max_stale_days=cache.rolling.max_stale_days,
+                max_symbols=cache.rolling.max_symbols,
+                round_decimals=_positive_int_or_none(env_cache_round),
+            ),
+            round_decimals=_positive_int_or_none(env_cache_round),
+        )
+    env_roll_round = os.getenv("ROLLING_CACHE_ROUND_DECIMALS")
+    if env_roll_round is not None:
+        cache = CacheConfig(
+            full_dir=cache.full_dir,
+            rolling_dir=cache.rolling_dir,
+            file_format=cache.file_format,
+            rolling=CacheRollingConfig(
+                base_lookback_days=cache.rolling.base_lookback_days,
+                buffer_days=cache.rolling.buffer_days,
+                max_staleness_days=cache.rolling.max_staleness_days,
+                prune_chunk_days=cache.rolling.prune_chunk_days,
+                meta_file=cache.rolling.meta_file,
+                max_stale_days=cache.rolling.max_stale_days,
+                max_symbols=cache.rolling.max_symbols,
+                round_decimals=_positive_int_or_none(env_roll_round),
+            ),
+            round_decimals=cache.round_decimals,
+        )
 
     backtest = BacktestConfig(
         start_date=str(backtest_cfg.get("start_date", "2018-01-01")),
@@ -433,9 +479,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
             return default_map
 
     ui = UIConfig(
-        default_capital=int(
-            os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))
-        ),
+        default_capital=int(os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))),
         default_long_ratio=_dlr,
         long_allocations=_as_alloc_map(
             ui_cfg.get("long_allocations", {}),

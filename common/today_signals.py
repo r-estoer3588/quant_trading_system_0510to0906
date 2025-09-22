@@ -1438,6 +1438,30 @@ def _build_today_signals_dataframe(
     entry_skip_stats = SkipStats()
 
     rows: list[TodaySignal] = []
+    date_cache: dict[str, np.ndarray] = {}
+    rank_cache: dict[
+        tuple[str, pd.Timestamp, bool],
+        tuple[list[tuple[str, float]], dict[str, int]],
+    ] = {}
+
+    def _get_normalized_dates(symbol: str, frame: pd.DataFrame) -> np.ndarray | None:
+        cached = date_cache.get(symbol)
+        if cached is not None:
+            return cached
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        try:
+            if "Date" in frame.columns:
+                raw = pd.to_datetime(frame["Date"], errors="coerce")
+                normalized = raw.dt.normalize()
+            else:
+                raw = pd.to_datetime(frame.index, errors="coerce")
+                normalized = raw.normalize()
+            values = normalized.to_numpy()
+        except Exception:
+            return None
+        date_cache[symbol] = values
+        return values
     for c in today_candidates:
         sym = c.get("symbol")
         if not sym:
@@ -1506,33 +1530,23 @@ def _build_today_signals_dataframe(
             if sval is None or (isinstance(sval, float) and pd.isna(sval)):
                 try:
                     if signal_date_ts is not None:
-                        xdf = prepared[sym]
-                        if "Date" in xdf.columns:
-                            dt_vals = (
-                                pd.to_datetime(xdf["Date"], errors="coerce")
-                                .dt.normalize()
-                                .to_numpy()
-                            )
-                        else:
-                            dt_vals = (
-                                pd.to_datetime(xdf.index, errors="coerce")
-                                .normalize()
-                                .to_numpy()
-                            )
-                        mask = dt_vals == signal_date_ts
-                        row = xdf.loc[mask]
-                        if not row.empty and skey in row.columns:
-                            _v = row.iloc[0][skey]
-                            if _v is not None and not pd.isna(_v):
-                                sval = float(_v)
+                        dt_vals = _get_normalized_dates(str(sym), df)
+                        if dt_vals is not None:
+                            mask = dt_vals == signal_date_ts
+                            if mask.any():
+                                row = df.loc[mask]
+                                if not row.empty and skey in row.columns:
+                                    _v = row.iloc[0][skey]
+                                    if _v is not None and not pd.isna(_v):
+                                        sval = float(_v)
                 except Exception:
                     pass
             if (system_name == "system1") and (
                 sval is None or (isinstance(sval, float) and pd.isna(sval))
             ):
                 try:
-                    if skey in prepared[sym].columns:
-                        _v = pd.Series(prepared[sym][skey]).dropna().tail(1).iloc[0]
+                    if skey in df.columns:
+                        _v = pd.Series(df[skey]).dropna().tail(1).iloc[0]
                         sval = float(_v)
                 except Exception:
                     pass
@@ -1542,42 +1556,53 @@ def _build_today_signals_dataframe(
                     rank_val is None or total_for_rank == 0 or sval is None
                 )
                 if signal_date_ts is not None and needs_rank_eval:
-                    vals: list[tuple[str, float]] = []
-                    for psym, pdf in prepared.items():
-                        try:
-                            if "Date" in pdf.columns:
-                                dt_vals = (
-                                    pd.to_datetime(pdf["Date"], errors="coerce")
-                                    .dt.normalize()
-                                    .to_numpy()
+                    if isinstance(prepared, dict):
+                        cache_key = (str(skey), signal_date_ts, bool(_asc))
+                        cached_vals = rank_cache.get(cache_key)
+                        if cached_vals is None:
+                            vals: list[tuple[str, float]] = []
+                            for psym, pdf in prepared.items():
+                                if pdf is None or getattr(pdf, "empty", True):
+                                    continue
+                                try:
+                                    dt_vals = _get_normalized_dates(str(psym), pdf)
+                                    if dt_vals is None:
+                                        continue
+                                    mask = dt_vals == signal_date_ts
+                                    if not mask.any():
+                                        continue
+                                    row = pdf.loc[mask]
+                                    if row.empty or skey not in row.columns:
+                                        continue
+                                    val = row.iloc[0][skey]
+                                    if val is None or pd.isna(val):
+                                        continue
+                                    vals.append((str(psym), float(val)))
+                                except Exception:
+                                    continue
+                            if vals:
+                                vals_sorted = sorted(
+                                    vals, key=lambda x: x[1], reverse=not _asc
                                 )
+                                ranks = {
+                                    name: idx + 1
+                                    for idx, (name, _) in enumerate(vals_sorted)
+                                }
                             else:
-                                dt_vals = (
-                                    pd.to_datetime(pdf.index, errors="coerce")
-                                    .normalize()
-                                    .to_numpy()
-                                )
-                            mask = dt_vals == signal_date_ts
-                            row = pdf.loc[mask]
-                            if row.empty or skey not in row.columns:
-                                continue
-                            val = row.iloc[0][skey]
-                            if val is None or pd.isna(val):
-                                continue
-                            vals.append((str(psym), float(val)))
-                        except Exception:
-                            continue
-                    if vals:
-                        vals_sorted = sorted(vals, key=lambda x: x[1], reverse=not _asc)
+                                vals_sorted = []
+                                ranks = {}
+                            cached_vals = (vals_sorted, ranks)
+                            rank_cache[cache_key] = cached_vals
+                        vals_sorted, ranks = cached_vals
                         if total_for_rank == 0:
                             total_for_rank = len(vals_sorted)
                         if rank_val is None:
-                            ranks = {
-                                name: idx + 1
-                                for idx, (name, _) in enumerate(vals_sorted)
-                            }
                             rank_val = ranks.get(str(sym))
-                        if sval is None and rank_val is not None:
+                        if (
+                            sval is None
+                            and rank_val is not None
+                            and 0 < rank_val <= len(vals_sorted)
+                        ):
                             sval = float(vals_sorted[rank_val - 1][1])
             except Exception:
                 pass
