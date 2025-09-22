@@ -1,8 +1,30 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from collections import defaultdict
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 import streamlit as st
+
+try:
+    from common.cache_manager import round_dataframe
+except Exception:
+
+    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+        if decimals is None:
+            return df
+        try:
+            return df.copy().round(int(decimals))
+        except Exception:
+            try:
+                return df.round(int(decimals))
+            except Exception:
+                return df
+
+
+try:
+    from config.settings import get_settings
+except Exception:
+    get_settings = None
 
 
 def generate_holding_matrix(
@@ -43,9 +65,7 @@ def generate_holding_matrix(
     return holding_matrix.fillna(0).infer_objects(copy=False).astype(int)
 
 
-def display_holding_heatmap(
-    matrix: pd.DataFrame, title: str = "日別保有ヒートマップ"
-) -> None:
+def display_holding_heatmap(matrix: pd.DataFrame, title: str = "日別保有ヒートマップ") -> None:
     """
     Streamlitで保有銘柄のヒートマップを表示。
     - matrix: generate_holding_matrixの出力
@@ -67,13 +87,21 @@ def display_holding_heatmap(
     st.pyplot(fig)
 
 
-def download_holding_csv(
-    matrix: pd.DataFrame, filename: str = "holding_status.csv"
-) -> None:
+def download_holding_csv(matrix: pd.DataFrame, filename: str = "holding_status.csv") -> None:
     """
     保有銘柄の遷移をCSV形式でダウンロード提供。
     """
-    csv = matrix.to_csv().encode("utf-8")
-    st.download_button(
-        "保有銘柄の遷移をCSVで保存", data=csv, file_name=filename, mime="text/csv"
-    )
+    try:
+        if get_settings:
+            settings = get_settings(create_dirs=False)
+            round_dec = getattr(settings.cache, "round_decimals", None)
+        else:
+            round_dec = None
+    except Exception:
+        round_dec = None
+    try:
+        matrix_to_write = round_dataframe(matrix, round_dec)
+    except Exception:
+        matrix_to_write = matrix
+    csv = matrix_to_write.to_csv().encode("utf-8")
+    st.download_button("保有銘柄の遷移をCSVで保存", data=csv, file_name=filename, mime="text/csv")

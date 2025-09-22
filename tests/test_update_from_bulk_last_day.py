@@ -1,10 +1,9 @@
 from types import SimpleNamespace
 
 import pandas as pd
-
-from common.cache_manager import CacheManager
 import pytest
 
+from common.cache_manager import CacheManager
 from scripts.update_from_bulk_last_day import (
     CacheUpdateInterrupted,
     append_to_cache,

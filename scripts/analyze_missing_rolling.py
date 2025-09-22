@@ -2,10 +2,12 @@
 """Analyze rolling cache missing CSV and produce a markdown summary.
 
 Usage:
-  python scripts/analyze_missing_rolling.py --input "C:/path/to/rolling_cache_missing_20250921_155609.csv"
+    python scripts/analyze_missing_rolling.py --input \
+        "C:/path/to/rolling_cache_missing_20250921_155609.csv"
 
 Writes summary to `data_cache/rolling/_missing_reports/summary_<timestamp>.md` by default.
 """
+
 from __future__ import annotations
 
 import argparse

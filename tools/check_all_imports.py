@@ -8,20 +8,20 @@ from __future__ import annotations
 
 import importlib
 import os
-import sys
 from pathlib import Path
+import sys
 
 
 def iter_module_names(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
         # prune dirs
-        dirnames[:] = [d for d in dirnames if d not in {'.git', 'venv', '__pycache__'}]
+        dirnames[:] = [d for d in dirnames if d not in {".git", "venv", "__pycache__"}]
         for f in filenames:
-            if not f.endswith('.py'):
+            if not f.endswith(".py"):
                 continue
             full = Path(dirpath) / f
             rel = full.relative_to(root)
-            mod = str(rel.with_suffix('')).replace('\\', '.').replace('/', '.')
+            mod = str(rel.with_suffix("")).replace("\\", ".").replace("/", ".")
             yield mod
 
 
@@ -32,18 +32,17 @@ def main() -> int:
     for mod in iter_module_names(root):
         try:
             importlib.import_module(mod)
-            print('OK', mod)
+            print("OK", mod)
         except Exception as e:
-            print('ERR', mod, type(e).__name__, e)
+            print("ERR", mod, type(e).__name__, e)
             errors.append((mod, f"{type(e).__name__}: {e}"))
 
     print("\nSUMMARY:")
     print(f"errors: {len(errors)}")
     for m, e in errors:
-        print('-', m, '->', e)
+        print("-", m, "->", e)
     return 0 if not errors else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())
-

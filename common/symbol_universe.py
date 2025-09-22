@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 import logging
 import os
-from collections.abc import Iterable
-from typing import Any, Mapping
+from typing import Any
 
 import requests
 
@@ -35,7 +35,7 @@ def _coerce_bool(value: Any) -> bool | None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int | float)):
         return bool(value)
     text = str(value).strip().lower()
     if not text:
@@ -120,10 +120,7 @@ def fetch_eodhd_exchange_metadata(
         exch = str(exchange).strip().upper()
         if not exch:
             continue
-        url = (
-            f"{base_url}/api/exchange-symbol-list/{exch}?"
-            f"api_token={api_key}&fmt=json"
-        )
+        url = f"{base_url}/api/exchange-symbol-list/{exch}?api_token={api_key}&fmt=json"
         try:
             resp = requests.get(url, timeout=timeout)
             resp.raise_for_status()
@@ -190,7 +187,9 @@ def build_symbol_universe(
         logger=log,
     )
     if not metadata:
-        log.warning("EODHD からのメタデータ取得に失敗したためフィルタリングをスキップします")
+        log.warning(
+            "EODHD からのメタデータ取得に失敗したためフィルタリングをスキップします"
+        )
         return sorted(raw_symbols)
 
     filtered: list[str] = []
@@ -217,7 +216,9 @@ def build_symbol_universe(
             continue
 
         is_delisted = _coerce_bool(
-            _first(info, "IsDelisted", "is_delisted", "Delisted", "delisted", "isDelisted")
+            _first(
+                info, "IsDelisted", "is_delisted", "Delisted", "delisted", "isDelisted"
+            )
         )
         if is_delisted:
             continue
@@ -258,7 +259,9 @@ def resolve_eodhd_config(
         api_key = _coerce_str(getattr(settings, "EODHD_API_KEY", None)) or ""
         if not api_key:
             data_cfg = getattr(settings, "data", None)
-            env_name = _coerce_str(getattr(data_cfg, "api_key_env", None)) or "EODHD_API_KEY"
+            env_name = (
+                _coerce_str(getattr(data_cfg, "api_key_env", None)) or "EODHD_API_KEY"
+            )
             api_key = os.getenv(env_name, "")
 
         try:
@@ -306,4 +309,3 @@ __all__ = [
     "fetch_nasdaq_trader_symbols",
     "resolve_eodhd_config",
 ]
-

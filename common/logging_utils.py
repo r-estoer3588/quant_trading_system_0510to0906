@@ -1,11 +1,10 @@
-﻿import logging
+from collections.abc import Callable
+import logging
 import logging.handlers
 from pathlib import Path
-from typing import Optional
+import time
 
 from config.settings import Settings
-import time
-from typing import Callable
 
 
 def setup_logging(settings: Settings) -> logging.Logger:
@@ -37,7 +36,7 @@ def setup_logging(settings: Settings) -> logging.Logger:
         )
     else:
         # 例: "10 MB" -> 10485760
-        size_bytes: Optional[int] = None
+        size_bytes: int | None = None
         try:
             num = float(rotation.split()[0])
             unit = rotation.split()[1].lower() if len(rotation.split()) > 1 else "b"

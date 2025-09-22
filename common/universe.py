@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Iterable
+from pathlib import Path
 
 import pandas as pd
 
@@ -103,8 +103,6 @@ def load_universe_file(path: str | None = None) -> list[str]:
     return [s.strip().upper() for s in txt.splitlines() if s.strip()]
 
 
-
-
 def get_all_symbols_from_cache(cache_dir: str | Path | None = None) -> list[str]:
     """
     data_cache フォルダ内の全CSVファイル名（拡張子除く）を銘柄リストとして返す。
@@ -119,8 +117,6 @@ def get_all_symbols_from_cache(cache_dir: str | Path | None = None) -> list[str]
     # 代表ETFを先頭に
     out = list(dict.fromkeys(["SPY"] + [s for s in symbols if s != "SPY"]))
     return out
-
-
 
 
 def save_universe_from_cache(
@@ -154,4 +150,3 @@ __all__ = [
     "get_all_symbols_from_cache",
     "save_universe_from_cache",
 ]
-

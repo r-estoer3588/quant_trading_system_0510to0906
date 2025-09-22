@@ -637,8 +637,8 @@ class Notifier:
         image_url: str | None = None,
     ) -> None:
         title = (
-            f"📊 {system_name} {period_type} サマリー ・ {period_label}, "
-            f"実行日 ・ {now_jst_str()}"
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ "
+            f"{now_jst_str()}"
         )
         fields = {k: str(v) for k, v in summary.items()}
         self.send(title, "", fields=fields, image_url=image_url)
@@ -798,9 +798,7 @@ class FallbackNotifier(Notifier):
         if token and WebClient is not None:
             try:  # pragma: no cover
                 client = WebClient(token=token)  # type: ignore
-                client.chat_postMessage(  # type: ignore
-                    channel=ch, text=text, blocks=blocks
-                )
+                client.chat_postMessage(channel=ch, text=text, blocks=blocks)  # type: ignore
                 self._logger.info("fallback: sent via Slack API to %s", ch)
                 return True
             except SlackApiError as e:  # type: ignore[name-defined]
@@ -877,7 +875,7 @@ class FallbackNotifier(Notifier):
 
             def _fmt(v: Any) -> str:
                 try:
-                    if isinstance(v, (int, float)):
+                    if isinstance(v, (int | float)):
                         return f"{float(v):.2f}"
                     # 数値文字列も丸めを試行
                     _f = float(str(v))
@@ -1104,8 +1102,8 @@ class FallbackNotifier(Notifier):
         image_url: str | None = None,
     ) -> None:  # noqa: E501
         title = (
-            f"📊 {system_name} {period_type} サマリー ・ {period_label}, "
-            f"実行日 ・ {now_jst_str()}"
+            f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ "
+            f"{now_jst_str()}"
         )
         kv = ", ".join(f"{k}={v}" for k, v in list(summary.items())[:10])
         text = f"{title}\n{kv}" if kv else title

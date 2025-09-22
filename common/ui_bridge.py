@@ -173,7 +173,7 @@ def prepare_backtest_data_ui(
         "System2": "RSI3, ADX7, ATR10, DollarVolume20, ATR_Ratio, TwoDayUp, setup",
         "System3": "SMA150, ATR10, Drop3D, AvgVolume50, ATR_Ratio, setup",
         "System4": "SMA200, ATR40, HV50, RSI4, DollarVolume50, setup",
-        "System5": ("SMA100, ATR10, ADX7, RSI3, AvgVolume50, " "DollarVolume50, ATR_Pct, setup"),
+        "System5": ("SMA100, ATR10, ADX7, RSI3, AvgVolume50, DollarVolume50, ATR_Pct, setup"),
         "System6": "ATR10, DollarVolume50, Return6D, UpTwoDays, setup",
         "System7": "ATR50, min_50, max_70, setup",
     }

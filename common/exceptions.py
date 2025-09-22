@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import functools
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Iterable, List, Optional, Tuple
+from typing import Any
 
 
 class TradingError(Exception):
@@ -21,7 +22,7 @@ class TaskTimeoutError(TradingError):
 
 def handle_exceptions(
     *,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
     reraise: bool = False,
     default: Any = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -48,8 +49,8 @@ def handle_exceptions(
 
 def run_with_timeout(fn: Callable[..., Any], timeout: float, *args, **kwargs) -> Any:
     """別スレッドで関数を実行し、`timeout` 秒で打ち切り。"""
-    result_container: List[Any] = []
-    err_container: List[BaseException] = []
+    result_container: list[Any] = []
+    err_container: list[BaseException] = []
 
     def target():
         try:
@@ -72,19 +73,19 @@ def map_with_timeout(
     iterable: Iterable[Any],
     *,
     max_workers: int = 8,
-    per_item_timeout: Optional[float] = None,
+    per_item_timeout: float | None = None,
     return_exceptions: bool = True,
-    progress: Optional[Callable[[int, int], None]] = None,
-) -> Tuple[List[Any], List[Tuple[Any, BaseException]]]:
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[list[Any], list[tuple[Any, BaseException]]]:
     """並列mapで例外とタイムアウトを吸収して返すユーティリティ。
     戻り値: (results_list, errors_list[(input, exc), ...])
     """
     items = list(iterable)
     total = len(items)
-    results: List[Any] = [None] * total
-    errors: List[Tuple[Any, BaseException]] = []
+    results: list[Any] = [None] * total
+    errors: list[tuple[Any, BaseException]] = []
 
-    def _call(idx_item: Tuple[int, Any]):
+    def _call(idx_item: tuple[int, Any]):
         i, item = idx_item
         if per_item_timeout is None:
             return i, fn(item)
@@ -110,4 +111,3 @@ def map_with_timeout(
                         pass
 
     return results, errors
-

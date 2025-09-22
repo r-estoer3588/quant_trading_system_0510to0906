@@ -19,22 +19,18 @@ from pathlib import Path
 import sys
 from typing import Any
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from indicators_common import add_indicators  # noqa: E402
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 
 from common.cache_manager import CacheManager  # noqa: E402
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
-from common.symbols_manifest import (  # noqa: E402
-    MANIFEST_FILENAME,
-    load_symbol_manifest,
-)
+from common.symbols_manifest import MANIFEST_FILENAME, load_symbol_manifest  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
-from indicators_common import add_indicators  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +93,26 @@ def _discover_symbols(full_dir: Path) -> list[str]:
     return sorted(symbols)
 
 
+def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """数値列を ``decimals`` 桁に丸めた DataFrame を返す。"""
+
+    if decimals is None:
+        return df
+    try:
+        dec = int(decimals)
+    except (TypeError, ValueError):
+        return df
+    numeric = df.select_dtypes(include="number")
+    if numeric.empty:
+        return df
+    rounded = df.copy()
+    try:
+        rounded[numeric.columns] = numeric.round(dec)
+    except Exception:
+        return df
+    return rounded
+
+
 def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame | None:
     """Normalize full-history dataframe and compute indicators for rolling cache."""
 
@@ -125,11 +141,7 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     work = work.dropna(subset=["date"])  # 不正日付を除外
     if work.empty:
         return None
-    work = (
-        work.sort_values("date")
-        .drop_duplicates("date", keep="last")
-        .reset_index(drop=True)
-    )
+    work = work.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
     calc = work.copy()
     calc["Date"] = pd.to_datetime(calc["date"], errors="coerce").dt.normalize()
@@ -157,11 +169,24 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
         missing = ",".join(sorted(required - set(calc.columns)))
         raise ValueError(f"missing_price_columns:{missing}")
 
-    enriched = add_indicators(calc)
+    # 指標計算に必要な過去データを確保するための lookback margin
+    try:
+        settings = get_settings(create_dirs=True)
+        lookback_margin = int(getattr(settings.cache, "indicator_lookback_margin", 200))
+    except Exception:
+        lookback_margin = 200
 
-    enriched["date"] = pd.to_datetime(
-        enriched.get("date", enriched.get("Date")), errors="coerce"
-    )
+    # add_indicators に渡す前に、target_days に加えて余分な過去を含める
+    # これにより ROC200 等の長期指標が tail 部分で適切に計算される
+    if target_days > 0 and lookback_margin > 0:
+        prefetch_days = int(target_days) + int(lookback_margin)
+        calc_for_ind = calc.copy().tail(prefetch_days)
+    else:
+        calc_for_ind = calc
+
+    enriched = add_indicators(calc_for_ind)
+
+    enriched["date"] = pd.to_datetime(enriched.get("date", enriched.get("Date")), errors="coerce")
     enriched = enriched.drop(columns=["Date"], errors="ignore")
     enriched = enriched.dropna(subset=["date"]).sort_values("date")
     if target_days > 0:
@@ -182,13 +207,17 @@ def _resolve_symbol_universe(
 
     manifest_symbols = load_symbol_manifest(cache_manager.full_dir)
     if manifest_symbols:
-        _log_message(
-            (
-                "ℹ️ cache_daily_data マニフェスト({file}) から "
-                "{count} 銘柄を読み込みました"
-            ).format(file=MANIFEST_FILENAME, count=len(manifest_symbols)),
-            log,
-        )
+        try:
+            msg = (
+                f"ℹ️ cache_daily_data マニフェスト({MANIFEST_FILENAME}) から "
+                f"{len(manifest_symbols)} 銘柄を読み込みました"
+            )
+            _log_message(msg, log)
+        except Exception:
+            _log_message(
+                f"ℹ️ cache_daily_data マニフェスト({MANIFEST_FILENAME}) を読み込みました",
+                log,
+            )
 
         available = _discover_symbols(cache_manager.full_dir)
         available_set = {sym.upper() for sym in available}
@@ -199,9 +228,9 @@ def _resolve_symbol_universe(
             if missing:
                 _log_message(
                     (
-                        "ℹ️ full_backup に未存在の {missing} 銘柄を除外し "
-                        "{count} 銘柄を処理対象とします"
-                    ).format(missing=missing, count=len(filtered)),
+                        f"ℹ️ full_backup に未存在の {missing} 銘柄を除外し "
+                        f"{len(filtered)} 銘柄を処理対象とします"
+                    ),
                     log,
                 )
             return filtered
@@ -210,8 +239,8 @@ def _resolve_symbol_universe(
             _log_message(
                 (
                     "⚠️ マニフェスト銘柄が full_backup に存在しないため "
-                    "full_backup を走査した {count} 銘柄を利用します"
-                ).format(count=len(available)),
+                    f"full_backup を走査した {len(available)} 銘柄を利用します"
+                ),
                 log,
             )
             return available
@@ -232,20 +261,29 @@ def _resolve_symbol_universe(
         available = _discover_symbols(cache_manager.full_dir)
         if available:
             available_set = {sym.upper() for sym in available}
-            filtered = [
-                sym for sym in safe_symbols if sym.upper() in available_set
-            ]
+            filtered = [sym for sym in safe_symbols if sym.upper() in available_set]
             missing = len(safe_symbols) - len(filtered)
             if missing:
                 _log_message(
                     (
-                        "ℹ️ NASDAQ/EODHD ユニバース {total} 件のうち "
-                        "{missing} 件が full_backup に存在しないため除外します"
-                    ).format(total=len(safe_symbols), missing=missing),
+                        f"ℹ️ NASDAQ/EODHD ユニバース {len(safe_symbols)} 件のうち "
+                        f"{missing} 件が full_backup に存在しないため除外します"
+                    ),
                     log,
                 )
             if filtered:
                 return filtered
+            # 取得したユニバースと full_backup に重複が無い場合は
+            # full_backup を走査した銘柄を利用する（テスト互換性のため）
+            _log_message(
+                (
+                    "⚠️ NASDAQ/EODHD ユニバースが full_backup に存在しないため "
+                    f"full_backup を走査した {len(available)} 銘柄を利用します"
+                ),
+                log,
+            )
+            return available
+
         _log_message(
             f"ℹ️ NASDAQ/EODHD ユニバース {len(safe_symbols)} 銘柄を処理対象とします",
             log,
@@ -254,10 +292,7 @@ def _resolve_symbol_universe(
 
     discovered = _discover_symbols(cache_manager.full_dir)
     _log_message(
-        (
-            "ℹ️ マニフェスト未検出のため full_backup を走査して "
-            "{count} 銘柄を検出しました"
-        ).format(count=len(discovered)),
+        (f"ℹ️ マニフェスト未検出のため full_backup を走査して {len(discovered)} 銘柄を検出しました"),
         log,
     )
     return discovered
@@ -282,8 +317,7 @@ def extract_rolling_from_full(
     if target_days is None:
         try:
             target_days = int(
-                cache_manager.rolling_cfg.base_lookback_days
-                + cache_manager.rolling_cfg.buffer_days
+                cache_manager.rolling_cfg.base_lookback_days + cache_manager.rolling_cfg.buffer_days
             )
         except Exception:
             target_days = 330
@@ -300,6 +334,13 @@ def extract_rolling_from_full(
     _log_message(
         f"🔁 rolling 再構築を開始: {len(symbol_list)} 銘柄 | 期間={target_days}営業日", log
     )
+
+    try:
+        round_decimals = getattr(cache_manager.settings.cache.rolling, "round_decimals", None)
+        if round_decimals is None:
+            round_decimals = getattr(cache_manager.settings.cache, "round_decimals", None)
+    except Exception:
+        round_decimals = None
 
     for idx, symbol in enumerate(symbol_list, start=1):
         stats.processed_symbols += 1
@@ -330,6 +371,7 @@ def extract_rolling_from_full(
             continue
 
         try:
+            enriched = _round_numeric_columns(enriched, round_decimals)
             cache_manager.write_atomic(enriched, symbol, "rolling")
         except Exception as exc:  # pragma: no cover - logging only
             message = f"{type(exc).__name__}: {exc}"
@@ -339,9 +381,7 @@ def extract_rolling_from_full(
 
         stats.updated_symbols += 1
         if idx % 100 == 0 or idx == len(symbol_list):
-            _log_message(
-                f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log
-            )
+            _log_message(f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log)
 
     _log_message(
         "✅ rolling 再構築完了: "

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
-import sys
 import json
+import os
 from pathlib import Path
 import re
+import sys
 
 try:
     import streamlit as st
@@ -91,13 +91,25 @@ _JA_MAP: dict[str, str] = {
     # fetch / messages
     "fetch: start | {total} symbols": "データ取得: 開始 | {total} 銘柄",
     "⚠️ no data: {n} symbols": "⚠️ データがないためスキップ: {n}銘柄",
-    "fetch: {done}/{total} items | elapsed {em}m{es}s": "データ取得: {done}/{total} 件 完了 | 経過: {em}分{es}秒",
+    "fetch: {done}/{total} items | elapsed {em}m{es}s": (
+        "データ取得: {done}/{total} 件 完了 | 経過: {em}分{es}秒"
+    ),
     "indicators: computing...": "インジケーター：計算中...",
     "indicators: done": "インジケーター計算 完了",
     "candidates: extracting...": "トレード候補：抽出中...",
     "candidates: done": "候補抽出 完了",
-    "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s": "📊 インジケーター計算 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒",
-    "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s": "📊 候補抽出 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒",
+    (
+        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
+        "📊 インジケーター計算 {done}/{total} 件 完了 | 経過: {em}分{es}秒"
+        " / 残り: 約{rm}分{rs}秒"
+    ),
+    (
+        "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
+        "📊 候補抽出 {done}/{total} 件 完了 | 経過: {em}分{es}秒"
+        " / 残り: 約{rm}分{rs}秒"
+    ),
     "symbols: {names}": "銘柄: {names}",
     "backtest: running...": "バックテスト：実行中...",
     # results label
@@ -123,10 +135,14 @@ _JA_MAP: dict[str, str] = {
     "Integrated": "統合",
     "Batch": "バッチ",
     "Integrated Backtest (Systems 1-7)": "統合バックテスト（Systems 1-7）",
-    "allow gross leverage (sum cost can exceed capital)": "総建玉レバレッジを許可（合計コストが資金を超える場合あり）",
+    "allow gross leverage (sum cost can exceed capital)": (
+        "総建玉レバレッジを許可（合計コストが資金を超える場合あり）"
+    ),
     "long bucket share (%)": "ロング側の配分（%）",
     "short bucket share = 100% - long": "ショート側の配分 = 100% - ロング",
-    "allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%": "資金配分は規定: long=1/3/4/5:各25%, short=2:40%,6:40%,7:20%",
+    "allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%": (
+        "資金配分は規定: long=1/3/4/5:各25%, short=2:40%,6:40%,7:20%"
+    ),
     "run integrated": "統合実行",
     "signals per system:": "各システムのシグナル数:",
     "simulate integrated": "統合シミュレーション",

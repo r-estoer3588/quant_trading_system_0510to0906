@@ -22,15 +22,11 @@ def test_update_trailing_stops(monkeypatch):
     def fake_submit_order(client, symbol, qty, *, side, order_type, trail_percent, **_):
         submitted.append((symbol, qty, side, order_type, trail_percent))
 
-    monkeypatch.setattr(
-        "scripts.update_trailing_stops.ba.get_client", fake_get_client
-    )
+    monkeypatch.setattr("scripts.update_trailing_stops.ba.get_client", fake_get_client)
     monkeypatch.setattr(
         "scripts.update_trailing_stops.ba.cancel_all_orders", fake_cancel_all_orders
     )
-    monkeypatch.setattr(
-        "scripts.update_trailing_stops.ba.submit_order", fake_submit_order
-    )
+    monkeypatch.setattr("scripts.update_trailing_stops.ba.submit_order", fake_submit_order)
 
     mapping = {"AAPL": 25.0, "TSLA": 20.0}
     update_trailing_stops(symbol_trail_pct=mapping)

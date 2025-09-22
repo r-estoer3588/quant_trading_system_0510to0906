@@ -1,16 +1,15 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
 
 import pandas as pd
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils import BatchSizeMonitor, get_cached_data, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
-
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 SYSTEM6_FEATURE_COLUMNS = [
@@ -394,7 +393,9 @@ def generate_candidates_system6(
         missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
         if missing_cols:
             if log_callback:
-                log_callback(f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}")
+                log_callback(
+                    f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}"
+                )
             skipped += 1
             skipped_missing_cols += 1
             continue

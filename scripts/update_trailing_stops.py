@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-"""Alpacaのポジションに対しトレーリングストップを設定/更新するスクリプト."""
-
 import argparse
+from collections.abc import Iterable, Mapping
 import json
 from pathlib import Path
-from typing import Iterable, Mapping
 
 import yaml
 
 from common import broker_alpaca as ba
+
+"""Alpacaのポジションに対しトレーリングストップを設定/更新するスクリプト."""
 
 
 def update_trailing_stops(
@@ -29,7 +29,7 @@ def update_trailing_stops(
     ba.cancel_all_orders(client)
     positions: Iterable[object] = client.get_all_positions()
     for pos in positions:
-        symbol = getattr(pos, "symbol")
+        symbol = pos.symbol
         pct = None
         if symbol_trail_pct and symbol in symbol_trail_pct:
             pct = symbol_trail_pct[symbol]
@@ -74,7 +74,7 @@ def main() -> None:
 
     mapping: Mapping[str, float] | None = None
     if args.mapping:
-        with open(args.mapping, "r", encoding="utf-8") as f:
+        with open(args.mapping, encoding="utf-8") as f:
             if args.mapping.suffix.lower() in {".yaml", ".yml"}:
                 mapping = yaml.safe_load(f) or {}
             else:

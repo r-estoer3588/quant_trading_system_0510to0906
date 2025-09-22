@@ -16,7 +16,7 @@ MAX_HOLD_DAYS_DEFAULT = 3  # Default maximum days to hold a position
 FALLBACK_EXIT_DAYS_DEFAULT = 6  # Fallback exit period for system 5
 
 # ATR-based stop loss multipliers
-STOP_ATR_MULTIPLE_DEFAULT = 3.0     # Standard ATR multiplier (systems 2, 6, 7)
-STOP_ATR_MULTIPLE_SYSTEM1 = 5.0     # System 1 specific ATR multiplier
-STOP_ATR_MULTIPLE_SYSTEM3 = 2.5     # System 3 specific ATR multiplier
-STOP_ATR_MULTIPLE_SYSTEM4 = 1.5     # System 4 specific ATR multiplier
+STOP_ATR_MULTIPLE_DEFAULT = 3.0  # Standard ATR multiplier (systems 2, 6, 7)
+STOP_ATR_MULTIPLE_SYSTEM1 = 5.0  # System 1 specific ATR multiplier
+STOP_ATR_MULTIPLE_SYSTEM3 = 2.5  # System 3 specific ATR multiplier
+STOP_ATR_MULTIPLE_SYSTEM4 = 1.5  # System 4 specific ATR multiplier

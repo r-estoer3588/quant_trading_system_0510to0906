@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -10,19 +10,35 @@ def _compute_entry(
     candidate: dict,
     current_capital: float,
     side: str | None,
-) -> Tuple[float | None, float | None]:
+) -> tuple[float | None, float | None]:
     """戦略フックを用いたエントリー価格とストップを計算"""
     if hasattr(strategy, "compute_entry"):
         try:
             computed = strategy.compute_entry(df, candidate, current_capital)
         except Exception:
             return None, None
-        return computed if computed else (None, None)
+        # Normalize returned values to simple floats or None
+        try:
+            if not computed:
+                return None, None
+            a, b = computed
+
+            def _to_num(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return None
+
+            return _to_num(a), _to_num(b)
+        except Exception:
+            return None, None
 
     try:
-        entry_idx = df.index.get_loc(candidate["entry_date"])
-        entry_price = df.iloc[entry_idx]["Open"]
-        atr = df.iloc[entry_idx - 1]["ATR20"]
+        from typing import cast
+
+        entry_idx = cast(int, df.index.get_loc(candidate["entry_date"]))
+        entry_price = float(df.iloc[entry_idx]["Open"])
+        atr = float(df.iloc[entry_idx - 1]["ATR20"])
         if (side or "long") == "short":
             stop_loss_price = entry_price + 5 * atr
         else:
@@ -60,10 +76,12 @@ def _compute_exit(
     entry_price: float,
     stop_loss_price: float,
     side: str | None,
-) -> Tuple[float | None, pd.Timestamp | None]:
+) -> tuple[float | None, pd.Timestamp | None]:
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_calc = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
+            exit_calc = strategy.compute_exit(
+                df, entry_idx, entry_price, stop_loss_price
+            )
         except Exception:
             return None, None
         return exit_calc if exit_calc else (None, None)
@@ -131,7 +149,7 @@ def simulate_trades_with_risk(
     start_time = time.time()
 
     # --- load optional config from strategy ---
-    cfg: Dict[str, Any] = getattr(strategy, "config", {}) or {}
+    cfg: dict[str, Any] = getattr(strategy, "config", {}) or {}
     max_positions = int(cfg.get("max_positions", 10))
     risk_pct = float(cfg.get("risk_pct", 0.02))
     max_pct = float(cfg.get("max_pct", 0.10))
@@ -224,9 +242,14 @@ def simulate_trades_with_risk(
         # --- per-day capital log ---
         if on_log:
             try:
-                on_log(
-                    f"💰 {date.date()} | Capital: {current_capital:.2f} USD | Active: {len(active_positions)}"
-                )
+                try:
+                    msg = (
+                        f"💰 {date.date()} | Capital: {current_capital:.2f} USD "
+                        f"| Active: {len(active_positions)}"
+                    )
+                    on_log(msg)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -238,8 +261,8 @@ def simulate_trades_with_risk(
             remain = elapsed / i * (total_days - i)
             on_log(
                 f"💹 バックテスト: {i}/{total_days} 日処理完了"
-                f" | 経過: {int(elapsed//60)}分{int(elapsed%60)}秒"
-                f" / 残り: 約 {int(remain//60)}分{int(remain%60)}秒",
+                f" | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒"
+                f" / 残り: 約 {int(remain // 60)}分{int(remain % 60)}秒",
             )
 
     return pd.DataFrame(results), pd.DataFrame(log_records)

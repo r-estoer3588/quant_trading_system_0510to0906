@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,7 +19,7 @@ class PerformanceSummary:
     avg_loss: float
     cagr: float | None
 
-    def to_dict(self) -> Dict[str, float | int | None]:
+    def to_dict(self) -> dict[str, float | int | None]:
         return {
             "trades": self.trades,
             "total_return": self.total_return,
@@ -60,9 +59,7 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float(drawdown.min())
 
 
-def _sharpe_daily(
-    returns: pd.Series, risk_free: float = 0.0, periods: int = 252
-) -> float:
+def _sharpe_daily(returns: pd.Series, risk_free: float = 0.0, periods: int = 252) -> float:
     if returns.empty:
         return 0.0
     r = returns - risk_free / periods
@@ -70,9 +67,7 @@ def _sharpe_daily(
     return float(np.sqrt(periods) * (r.mean() / denom)) if denom > 0 else 0.0
 
 
-def _sortino_daily(
-    returns: pd.Series, risk_free: float = 0.0, periods: int = 252
-) -> float:
+def _sortino_daily(returns: pd.Series, risk_free: float = 0.0, periods: int = 252) -> float:
     if returns.empty:
         return 0.0
     r = returns - risk_free / periods
@@ -96,7 +91,7 @@ def _cagr(equity: pd.Series) -> float | None:
 
 def summarize(
     trades_df: pd.DataFrame, initial_capital: float
-) -> Tuple[PerformanceSummary, pd.DataFrame]:
+) -> tuple[PerformanceSummary, pd.DataFrame]:
     """トレード一覧からパフォーマンスを集計し、概要と拡張済みDFを返す。
 
     - `df` の各行はトレードで、`exit_date` と `pnl` が必要。
@@ -174,4 +169,32 @@ def to_frame(summary: PerformanceSummary) -> pd.DataFrame:
 
 
 def save_summary_csv(summary: PerformanceSummary, path: str) -> None:
-    to_frame(summary).to_csv(path, index=False)
+    try:
+        from common.cache_manager import round_dataframe
+        from config.settings import get_settings
+
+        try:
+            settings = get_settings(create_dirs=True)
+            round_dec = getattr(settings.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+
+        df = to_frame(summary)
+        try:
+            df_to_write = round_dataframe(df, round_dec)
+        except Exception:
+            # fallback: if round_dec is an int, round numeric columns only
+            if isinstance(round_dec, int):
+                try:
+                    df_to_write = df.copy()
+                    num = df_to_write.select_dtypes(include=["number"]).round(round_dec)
+                    for c in num.columns:
+                        df_to_write[c] = num[c]
+                except Exception:
+                    df_to_write = df
+            else:
+                df_to_write = df
+
+        df_to_write.to_csv(path, index=False)
+    except Exception:
+        to_frame(summary).to_csv(path, index=False)

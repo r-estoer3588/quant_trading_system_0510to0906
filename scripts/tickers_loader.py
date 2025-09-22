@@ -1,10 +1,12 @@
 # tickers_loader.py
 import os
-import time
 from pathlib import Path
+import time
 
 import pandas as pd
 import streamlit as st
+
+from common.cache_manager import round_dataframe
 
 FAILED_LIST = "eodhd_failed_symbols.csv"
 
@@ -79,11 +81,7 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
             print(f"[webhook skipped] url={url!r} | {text}")
 
     settings = get_settings(create_dirs=True)
-    out = (
-        Path(output_path)
-        if output_path
-        else Path(settings.data.cache_dir) / "tickers.csv"
-    )
+    out = Path(output_path) if output_path else Path(settings.data.cache_dir) / "tickers.csv"
 
     tickers = get_all_tickers()
     prev: set[str] = set()
@@ -93,7 +91,16 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
         except Exception:
             prev = set()
     df = pd.DataFrame({"Symbol": tickers})
-    df.to_csv(out, index=False)
+    try:
+        settings = get_settings(create_dirs=True)
+        round_dec = getattr(settings.cache, "round_decimals", None)
+    except Exception:
+        round_dec = None
+    try:
+        out_df = round_dataframe(df, round_dec)
+    except Exception:
+        out_df = df
+    out_df.to_csv(out, index=False)
 
     new = sorted(set(tickers) - prev)
     removed = sorted(prev - set(tickers))

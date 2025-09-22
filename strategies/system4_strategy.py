@@ -3,16 +3,17 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base_strategy import StrategyBase
-from .constants import STOP_ATR_MULTIPLE_SYSTEM4
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
 from core.system4 import (
-    prepare_data_vectorized_system4,
     generate_candidates_system4,
     get_total_days_system4,
+    prepare_data_vectorized_system4,
 )
+
+from .base_strategy import StrategyBase
+from .constants import STOP_ATR_MULTIPLE_SYSTEM4
 
 
 class System4Strategy(AlpacaOrderMixin, StrategyBase):
@@ -130,18 +131,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         except Exception:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get(
-                "stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4
-            )
+            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4)
         )
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None
         return entry_price, stop_price
 
-    def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
-    ):
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
         trail_pct = float(getattr(self, "config", {}).get("trailing_pct", 0.20))
         highest = entry_price
         for idx2 in range(entry_idx + 1, len(df)):

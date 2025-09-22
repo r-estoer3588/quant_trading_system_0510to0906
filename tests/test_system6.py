@@ -84,9 +84,7 @@ def test_system6_profit_target_exits_next_close():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     assert exit_date == dates[3]
     assert exit_price == pytest.approx(float(df.iloc[3]["Close"]))
@@ -109,9 +107,7 @@ def test_system6_stop_exit_same_day_at_stop_price():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     assert exit_date == dates[2]
     assert exit_price == pytest.approx(stop_price)
@@ -119,9 +115,7 @@ def test_system6_stop_exit_same_day_at_stop_price():
 
 def test_system6_time_exit_after_max_days_close():
     strategy = System6Strategy()
-    max_days = strategy.config.get(
-        "profit_take_max_days", MAX_HOLD_DAYS_DEFAULT
-    )
+    max_days = strategy.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT)
     periods = max_days + 3
     dates = pd.date_range("2024-01-01", periods=periods, freq="B")
     df = pd.DataFrame(
@@ -138,9 +132,7 @@ def test_system6_time_exit_after_max_days_close():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     expected_idx = entry_idx + max_days
     assert exit_date == dates[expected_idx]

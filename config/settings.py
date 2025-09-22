@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -76,7 +77,11 @@ class CacheRollingConfig:
     max_stale_days: int = 2
     max_symbols: int | None = None
     # 小数丸め桁数: None で無効、整数で有効
-    round_decimals: int | None = None
+    round_decimals: int | None = 4
+    # CSV ロケール設定: 小数点文字, 千位区切り, フィールド区切り
+    csv_decimal_point: str = "."
+    csv_thousands_sep: str | None = None
+    csv_field_sep: str = ","
 
 
 @dataclass(frozen=True)
@@ -86,7 +91,11 @@ class CacheConfig:
     file_format: str = "auto"
     rolling: CacheRollingConfig = CacheRollingConfig()
     # キャッシュ書き出し時の丸め桁数: None で無効
-    round_decimals: int | None = None
+    round_decimals: int | None = 4
+    # CSV locale defaults (applies when writing CSV files)
+    csv_decimal_point: str = "."
+    csv_thousands_sep: str | None = None
+    csv_field_sep: str = ","
 
 
 @dataclass(frozen=True)
@@ -152,7 +161,7 @@ class Settings:
 
     # API/ネットワーク
     API_EODHD_BASE: str
-    EODHD_API_KEY: Optional[str]
+    EODHD_API_KEY: str | None
     REQUEST_TIMEOUT: int
     DOWNLOAD_RETRIES: int
     API_THROTTLE_SECONDS: float
@@ -213,19 +222,19 @@ def _as_path(base: Path, p: str | os.PathLike) -> Path:
     return pth if pth.is_absolute() else (base / pth)
 
 
-def _load_config_generic(env_var: str, default_path: Path, loader) -> Dict[str, Any]:
+def _load_config_generic(env_var: str, default_path: Path, loader) -> dict[str, Any]:
     cfg_path_env = os.getenv(env_var, "")
     cfg_path = Path(cfg_path_env) if cfg_path_env else default_path
     if not cfg_path.exists():
         return {}
     try:
-        with open(cfg_path, "r", encoding="utf-8") as f:
+        with open(cfg_path, encoding="utf-8") as f:
             return loader(f) or {}
     except Exception:
         return {}
 
 
-def _load_yaml_config(project_root: Path) -> Dict[str, Any]:
+def _load_yaml_config(project_root: Path) -> dict[str, Any]:
     """config/config.yaml を読み込んで辞書を返す。未存在なら空。"""
     if yaml is None:
         raise RuntimeError(
@@ -235,7 +244,7 @@ def _load_yaml_config(project_root: Path) -> Dict[str, Any]:
     return _load_config_generic("APP_CONFIG", default_path, lambda f: yaml.safe_load(f))
 
 
-def _load_yaml_config_validated(project_root: Path) -> Dict[str, Any]:
+def _load_yaml_config_validated(project_root: Path) -> dict[str, Any]:
     """YAMLを読み込み、可能ならPydanticで検証・正規化して返す。"""
     data = _load_yaml_config(project_root)
     if not data:
@@ -249,13 +258,13 @@ def _load_yaml_config_validated(project_root: Path) -> Dict[str, Any]:
         return data
 
 
-def _load_json_config(project_root: Path) -> Dict[str, Any]:
+def _load_json_config(project_root: Path) -> dict[str, Any]:
     """config/config.json を読み込んで辞書として返す。存在しなければ {}。"""
     default_path = project_root / "config" / "config.json"
     return _load_config_generic("APP_CONFIG_JSON", default_path, lambda f: json.load(f))
 
 
-def _load_config_json_or_yaml_validated(project_root: Path) -> Dict[str, Any]:
+def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
     """JSON > YAML の優先順位で読み込み、可能ならPydanticで検証して返す。"""
     data = _load_json_config(project_root)
     if not data:
@@ -271,7 +280,7 @@ def _load_config_json_or_yaml_validated(project_root: Path) -> Dict[str, Any]:
         return data
 
 
-def _build_scheduler(cfg: Dict[str, Any]) -> SchedulerConfig:
+def _build_scheduler(cfg: dict[str, Any]) -> SchedulerConfig:
     tz = cfg.get("timezone", "America/New_York")
     jobs_raw = cfg.get("jobs", []) or []
     jobs: list[SchedulerJob] = []
@@ -301,7 +310,10 @@ def get_settings(create_dirs: bool = False) -> Settings:
     # YAML: セクション取得（なければ空）
     risk_cfg = cfg.get("risk", {}) or {}
     data_cfg = cfg.get("data", {}) or {}
-    cache_cfg = cfg.get("cache", {}) or {}
+    cache_cfg = cfg.get("cache")
+    if not cache_cfg and isinstance(data_cfg, dict):
+        cache_cfg = data_cfg.get("cache")
+    cache_cfg = cache_cfg or {}
     rolling_cfg = cache_cfg.get("rolling", {}) or {}
     backtest_cfg = cfg.get("backtest", {}) or {}
     outputs_cfg = cfg.get("outputs", {}) or {}
@@ -377,8 +389,22 @@ def get_settings(create_dirs: bool = False) -> Settings:
             max_stale_days=stale_days_cfg,
             max_symbols=max_symbols_cfg,
             round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
+            csv_decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
+            csv_thousands_sep=(
+                None
+                if rolling_cfg.get("csv_thousands_sep") is None
+                else str(rolling_cfg.get("csv_thousands_sep"))
+            ),
+            csv_field_sep=str(rolling_cfg.get("csv_field_sep", ",")),
         ),
         round_decimals=_positive_int_or_none(cache_cfg.get("round_decimals")),
+        csv_decimal_point=str(cache_cfg.get("csv_decimal_point", ".")),
+        csv_thousands_sep=(
+            None
+            if cache_cfg.get("csv_thousands_sep") is None
+            else str(cache_cfg.get("csv_thousands_sep"))
+        ),
+        csv_field_sep=str(cache_cfg.get("csv_field_sep", ",")),
     )
 
     # 環境変数による丸め桁数の上書き (優先度: env > YAML)

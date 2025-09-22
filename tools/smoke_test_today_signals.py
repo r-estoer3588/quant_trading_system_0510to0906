@@ -1,20 +1,21 @@
-# tools/smoke_test_today_signals.py
-"""簡易スモークテスト
-- system1 の Today Signals を呼び、ログ出力と zero_reason を確認する
-"""
-import traceback
 import os
 import sys
+import traceback
 
 # Ensure repo root is on sys.path for local imports when executing this script
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+"""簡易スモークテスト
+- system1 の Today Signals を呼び、ログ出力と zero_reason を確認する
+"""
+
+from common.today_signals import get_today_signals_for_strategy  # noqa: E402
+from common.utils_spy import get_spy_with_indicators  # noqa: E402
+
 # local imports (after sys.path adjustment)
-from strategies.system1_strategy import System1Strategy
-from common.today_signals import get_today_signals_for_strategy
-from common.utils_spy import get_spy_with_indicators
+from strategies.system1_strategy import System1Strategy  # noqa: E402
 
 
 def main():

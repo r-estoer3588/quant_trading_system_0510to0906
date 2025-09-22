@@ -84,9 +84,7 @@ def test_system5_profit_target_exits_next_open():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     assert exit_date == dates[3]
     assert exit_price == pytest.approx(float(df.iloc[3]["Open"]))
@@ -109,9 +107,7 @@ def test_system5_stop_exit_uses_stop_price_same_day():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     assert exit_date == dates[2]
     assert exit_price == pytest.approx(stop_price)
@@ -119,9 +115,7 @@ def test_system5_stop_exit_uses_stop_price_same_day():
 
 def test_system5_fallback_exit_next_open_after_six_days():
     strategy = System5Strategy()
-    fallback_days = strategy.config.get(
-        "fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT
-    )
+    fallback_days = strategy.config.get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT)
     periods = fallback_days + 3  # entry day + fallback window + next day
     dates = pd.date_range("2024-01-01", periods=periods, freq="B")
     highs = [97] * periods
@@ -140,9 +134,7 @@ def test_system5_fallback_exit_next_open_after_six_days():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(
-        df, entry_idx, entry_price, stop_price
-    )
+    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     expected_idx = entry_idx + fallback_days + 1
     assert exit_date == dates[expected_idx]

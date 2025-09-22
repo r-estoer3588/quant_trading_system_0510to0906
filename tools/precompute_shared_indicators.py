@@ -10,10 +10,10 @@ import os
 
 import pandas as pd
 
-from common.indicators_precompute import precompute_shared_indicators
-from common.universe import load_universe_file
 from common.data_loader import load_price
+from common.indicators_precompute import precompute_shared_indicators
 from common.logging_utils import setup_logging
+from common.universe import load_universe_file
 from config.settings import get_settings
 
 

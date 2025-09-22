@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base_strategy import StrategyBase
-from .constants import STOP_ATR_MULTIPLE_DEFAULT, FALLBACK_EXIT_DAYS_DEFAULT
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
 from core.system5 import (
-    prepare_data_vectorized_system5,
     generate_candidates_system5,
     get_total_days_system5,
+    prepare_data_vectorized_system5,
 )
+
+from .base_strategy import StrategyBase
+from .constants import FALLBACK_EXIT_DAYS_DEFAULT, STOP_ATR_MULTIPLE_DEFAULT
 
 
 class System5Strategy(AlpacaOrderMixin, StrategyBase):
@@ -113,20 +114,14 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(
-            getattr(self, "config", {}).get(
-                "entry_price_ratio_vs_prev_close", 0.97
-            )
-        )
+        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
         entry_price = round(prev_close * ratio, 2)
         try:
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get(
-                "stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT
-            )
+            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
         )
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
@@ -134,9 +129,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         self._last_entry_atr = atr
         return entry_price, stop_price
 
-    def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
-    ):
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
         """System5 の利確・損切り・時間退出ロジック。
 
         - 利益目標: 過去10日ATR×設定倍率を上回ったら翌営業日の寄り付きで決済
@@ -153,9 +146,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
         target_price = entry_price + target_mult * atr
         fallback_days = int(
-            getattr(self, "config", {}).get(
-                "fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT
-            )
+            getattr(self, "config", {}).get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT)
         )
 
         last_idx = len(df) - 1

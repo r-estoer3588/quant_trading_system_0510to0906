@@ -1,15 +1,9 @@
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
-import pandas as pd
-
-from common.utils import (
-    BatchSizeMonitor,
-    clamp01,
-    drop_duplicate_columns,
-    _merge_ohlcv_variants,
-)
+from common.utils import BatchSizeMonitor, _merge_ohlcv_variants, clamp01, drop_duplicate_columns
 
 
 @pytest.mark.parametrize(

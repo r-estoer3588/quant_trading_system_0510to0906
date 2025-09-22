@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Iterable
+from dataclasses import dataclass
+from threading import Lock
+
 """Stage metrics tracking shared between the CLI runner and Streamlit UI.
 
 This module centralizes the bookkeeping for per-system stage progress metrics
@@ -9,12 +14,6 @@ each progress update which is then consumed by the Streamlit UI via
 stay in sync even when the process pool is used or when the UI attaches after
 processing has started.
 """
-
-from dataclasses import dataclass
-from threading import Lock
-from collections import deque
-from typing import Deque, Dict, Iterable
-
 
 DEFAULT_SYSTEM_ORDER = tuple(f"system{i}" for i in range(1, 8))
 
@@ -71,7 +70,7 @@ class StageSnapshot:
     entry_count: int | None = None
     exit_count: int | None = None
 
-    def copy(self) -> "StageSnapshot":
+    def copy(self) -> StageSnapshot:
         """Return a shallow copy to avoid leaking internal references."""
 
         return StageSnapshot(
@@ -91,11 +90,11 @@ class StageMetricsStore:
     _DISPLAY_KEYS = ("target", "filter", "setup", "cand", "entry", "exit")
 
     def __init__(self, system_order: Iterable[str] | None = None) -> None:
-        self._snapshots: Dict[str, StageSnapshot] = {}
-        self._events: Deque[StageEvent] = deque()
+        self._snapshots: dict[str, StageSnapshot] = {}
+        self._events: deque[StageEvent] = deque()
         self._lock = Lock()
         self._universe_target: int | None = None
-        self.stage_counts: Dict[str, dict[str, int | None]] = {}
+        self.stage_counts: dict[str, dict[str, int | None]] = {}
         self._display_order: list[str] = []
 
         if system_order is not None:
@@ -291,9 +290,7 @@ class StageMetricsStore:
     def _new_display_bucket(self) -> dict[str, int | None]:
         return {key: None for key in self._DISPLAY_KEYS}
 
-    def _ensure_display_bucket_locked(
-        self, system_key: str
-    ) -> dict[str, int | None]:
+    def _ensure_display_bucket_locked(self, system_key: str) -> dict[str, int | None]:
         bucket = self.stage_counts.get(system_key)
         if bucket is None:
             bucket = self._new_display_bucket()

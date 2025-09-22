@@ -1,22 +1,22 @@
 """System5 core logic (Long mean-reversion with high ADX)."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
 
 import pandas as pd
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from ta.momentum import RSIIndicator
 from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import (
-    BatchSizeMonitor,
-    describe_dtype,
-    get_cached_data,
-    resolve_batch_size,
-)
+from common.utils import BatchSizeMonitor, describe_dtype, get_cached_data, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
+
+# Required columns and minimum rows for source data validation
+REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
+# System5 uses short-term indicators; 150 rows gives enough history for ATR/ADX/RSI
+MIN_ROWS = 150
 
 # Trading thresholds - Default values for business rules
 DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
@@ -101,9 +101,7 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy()
     x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-    x["ATR10"] = AverageTrueRange(
-        x["High"], x["Low"], x["Close"], window=10
-    ).average_true_range()
+    x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
     x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
     x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
     vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
@@ -116,10 +114,7 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
         & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
     )
     x["setup"] = (
-        x["filter"]
-        & (x["Close"] > x["SMA100"] + x["ATR10"])
-        & (x["ADX7"] > 55)
-        & (x["RSI3"] < 50)
+        x["filter"] & (x["Close"] > x["SMA100"] + x["ATR10"]) & (x["ADX7"] > 55) & (x["RSI3"] < 50)
     ).astype(int)
     return x
 
@@ -183,7 +178,7 @@ def prepare_data_vectorized_system5(
                         progress_callback(i, total)
                     except Exception:
                         pass
-                if (i % batch_size == 0 or i == total) and log_callback:
+                if (i % int(batch_size) == 0 or i == total) and log_callback:
                     elapsed = time.time() - start_time
                     remain = (elapsed / i) * (total - i) if i else 0
                     em, es = divmod(int(elapsed), 60)
@@ -237,38 +232,38 @@ def prepare_data_vectorized_system5(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-            try:
-                log_callback(msg)
-                log_callback(
-                    tr(
-                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                        sec=batch_duration,
-                        size=batch_size,
-                    )
+
+    if (processed % int(batch_size) == 0 or processed == total) and log_callback:
+        elapsed = time.time() - start_time
+        remain = (elapsed / processed) * (total - processed) if processed else 0
+        em, es = divmod(int(elapsed), 60)
+        rm, rs = divmod(int(remain), 60)
+        msg = tr(
+            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            done=processed,
+            total=total,
+            em=em,
+            es=es,
+            rm=rm,
+            rs=rs,
+        )
+        if buffer:
+            msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+        batch_duration = time.time() - batch_start
+        batch_size = batch_monitor.update(batch_duration)
+        batch_start = time.time()
+        try:
+            log_callback(msg)
+            log_callback(
+                tr(
+                    "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                    sec=batch_duration,
+                    size=batch_size,
                 )
-            except Exception:
-                pass
-            buffer.clear()
+            )
+        except Exception:
+            pass
+        buffer.clear()
 
     for sym, df in raw_data_dict.items():
         df = _rename_ohlcv(df)
@@ -302,9 +297,7 @@ def prepare_data_vectorized_system5(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(
-                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
-                    )
+                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
@@ -526,28 +519,27 @@ def generate_candidates_system5(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            try:
-                log_callback(msg)
-            except Exception:
-                pass
-            buffer.clear()
+    if (processed % int(batch_size) == 0 or processed == total) and log_callback:
+        elapsed = time.time() - start_time
+        remain = (elapsed / processed) * (total - processed) if processed else 0
+        em, es = divmod(int(elapsed), 60)
+        rm, rs = divmod(int(remain), 60)
+        msg = tr(
+            "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            done=processed,
+            total=total,
+            em=em,
+            es=es,
+            rm=rm,
+            rs=rs,
+        )
+        if buffer:
+            msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+        try:
+            log_callback(msg)
+        except Exception:
+            pass
+        buffer.clear()
 
     limit_n = int(top_n)
     for date in list(candidates_by_date.keys()):
@@ -561,7 +553,7 @@ def generate_candidates_system5(
             continue
         df = df.sort_values("ADX7", ascending=False)
         total = len(df)
-        df.loc[:, "rank"] = range(1, total + 1)
+        df.loc[:, "rank"] = list(range(1, total + 1))
         df.loc[:, "rank_total"] = total
         limited = df.head(limit_n)
         candidates_by_date[date] = limited.to_dict("records")

@@ -1,23 +1,24 @@
 from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, cast
 import time
+from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
 from common.cache_utils import save_prepared_data_cache
-from common.price_chart import save_price_chart
 from common.i18n import language_selector, load_translations_from_dir, tr
+from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
 from common.performance_summary import summarize as summarize_perf
+from common.price_chart import save_price_chart
 from common.ui_components import (
     run_backtest_app,
     save_signal_and_trade_logs,
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-from common.logging_utils import log_with_progress
 import common.ui_patch  # noqa: F401
 from strategies.system5_strategy import System5Strategy
 
@@ -47,6 +48,7 @@ def display_adx_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+
     # Streamlit の progress/write は DeltaGenerator を返すため、型の整合性を保つコールバックでラップ
     def _progress_cb(v: float) -> None:
         progress.progress(v)
@@ -105,9 +107,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         )
     )
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -158,9 +158,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -205,9 +203,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = (
-                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
-                )
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

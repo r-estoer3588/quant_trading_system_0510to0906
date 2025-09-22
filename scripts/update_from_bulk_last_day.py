@@ -1,25 +1,48 @@
-import os
-import sys
-from datetime import datetime
-from pathlib import Path
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import datetime
+import os
+from pathlib import Path
+import sys
+
+from dotenv import load_dotenv
+import pandas as pd
+import requests
 
 # from typing import Optional
 
-import pandas as pd
-import requests
-from dataclasses import dataclass, field
-from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config.settings import get_settings  # noqa: E402
 from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from config.settings import get_settings  # noqa: E402
+
+try:
+    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+except ImportError:  # pragma: no cover - tests may stub cache_manager
+
+    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+        if decimals is None:
+            return df
+        try:
+            decimals_int = int(decimals)
+        except Exception:
+            return df
+        try:
+            return df.copy().round(decimals_int)
+        except Exception:
+            try:
+                return df.round(decimals_int)
+            except Exception:
+                return df
+
+
+from indicators_common import add_indicators  # noqa: E402
+
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
-from indicators_common import add_indicators  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -95,14 +118,32 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     return original_count, normalized_count
 
 
+def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """数値列を小数点以下 ``decimals`` 桁に丸めた DataFrame を返す。"""
+
+    if decimals is None:
+        return df
+    try:
+        dec = int(decimals)
+    except (TypeError, ValueError):
+        return df
+    numeric = df.select_dtypes(include="number")
+    if numeric.empty:
+        return df
+    rounded = df.copy()
+    try:
+        rounded[numeric.columns] = numeric.round(dec)
+    except Exception:
+        return df
+    return rounded
+
+
 def _filter_bulk_data_by_universe(
     df: pd.DataFrame, symbols: Iterable[str]
 ) -> tuple[pd.DataFrame, dict[str, int | bool]]:
     """Filter the bulk-last-day payload by the provided symbol universe."""
 
-    normalized_set = {
-        str(sym).upper().strip() for sym in symbols if str(sym).strip()
-    }
+    normalized_set = {str(sym).upper().strip() for sym in symbols if str(sym).strip()}
     stats: dict[str, int | bool] = {
         "allowed": len(normalized_set),
         "matched_rows": 0,
@@ -137,7 +178,7 @@ def _filter_bulk_data_by_universe(
 
 def _resolve_base_dir(cm: CacheManager) -> Path:
     try:
-        data_cache = Path(getattr(cm.settings, "DATA_CACHE_DIR"))
+        data_cache = Path(cm.settings.DATA_CACHE_DIR)
     except Exception:
         try:
             data_cache = Path(cm.full_dir).parent
@@ -148,9 +189,7 @@ def _resolve_base_dir(cm: CacheManager) -> Path:
 
 def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(
-            columns=["date", "open", "high", "low", "close", "adjclose", "volume"]
-        )
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "adjclose", "volume"])
     working = df.copy()
     lower_map = {str(col).lower(): col for col in working.columns}
     col_aliases = {
@@ -244,10 +283,7 @@ def _merge_existing_full(
 
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
-    url = (
-        "https://eodhistoricaldata.com/api/eod-bulk-last-day/US"
-        f"?api_token={API_KEY}&fmt=json"
-    )
+    url = f"https://eodhistoricaldata.com/api/eod-bulk-last-day/US?api_token={API_KEY}&fmt=json"
     try:
         response = requests.get(url, timeout=30)
     except requests.RequestException as exc:
@@ -317,6 +353,7 @@ def append_to_cache(
     interrupt_exc: BaseException | None = None
     try:
         base_dir = _resolve_base_dir(cm)
+        # round_decimals not needed here; rounding is handled at write time
         for sym, g in grouped:
             sym_norm = _normalize_symbol(sym)
             if not sym_norm:
@@ -367,15 +404,9 @@ def append_to_cache(
                 .sort_values("date")
                 .reset_index(drop=True)
             )
-            if (
-                "adjusted_close" not in full_ready.columns
-                and "adjclose" in full_ready.columns
-            ):
+            if "adjusted_close" not in full_ready.columns and "adjclose" in full_ready.columns:
                 full_ready["adjusted_close"] = full_ready["adjclose"]
-            elif (
-                "adjusted_close" in full_ready.columns
-                and "adjclose" in full_ready.columns
-            ):
+            elif "adjusted_close" in full_ready.columns and "adjclose" in full_ready.columns:
                 mask_adj = full_ready["adjusted_close"].isna()
                 if mask_adj.any():
                     full_ready.loc[mask_adj, "adjusted_close"] = full_ready.loc[
@@ -384,21 +415,38 @@ def append_to_cache(
             full_ready = _merge_existing_full(full_ready, existing_full)
             prev_full_sorted: pd.DataFrame | None = None
             if existing_full is not None and not existing_full.empty:
-                prev_full_sorted = (
-                    existing_full.copy()
-                    .sort_values("date")
-                    .reset_index(drop=True)
-                )
+                prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
                 print(f"{sym_norm}: write full error - {exc}")
                 continue
-            rolling_ready = _build_rolling_frame(full_ready, cm)
+
+            # rolling 用フレームを作成し、主要指標を付与してから書き込む
+            rolling_raw = _build_rolling_frame(full_ready, cm)
+            try:
+                rolling_ind = compute_base_indicators(rolling_raw)
+            except Exception as exc:
+                print(f"{sym_norm}: rolling base indicator error - {exc}")
+                rolling_ind = None
+            if rolling_ind is None or getattr(rolling_ind, "empty", False):
+                rolling_ready = rolling_raw
+            else:
+                try:
+                    rolling_ready = (
+                        rolling_ind.reset_index()
+                        .rename(columns=str.lower)
+                        .sort_values("date")
+                        .reset_index(drop=True)
+                    )
+                except Exception:
+                    rolling_ready = rolling_raw
+
             try:
                 cm.write_atomic(rolling_ready, sym_norm, "rolling")
             except Exception as exc:
                 print(f"{sym_norm}: write rolling error - {exc}")
+
             try:
                 base_df = compute_base_indicators(full_ready)
             except Exception as exc:
@@ -408,7 +456,12 @@ def append_to_cache(
                 base_path = base_dir / f"{safe_filename(sym_norm)}.csv"
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    base_df.reset_index().to_csv(base_path, index=False)
+                    try:
+                        dec = getattr(cm.settings.cache, "round_decimals", None)
+                    except Exception:
+                        dec = None
+                    base_reset = round_dataframe(base_df.reset_index(), dec)
+                    base_reset.to_csv(base_path, index=False)
                 except Exception as exc:
                     print(f"{sym_norm}: write base error - {exc}")
             if prev_full_sorted is None or not full_ready.equals(prev_full_sorted):
@@ -416,9 +469,7 @@ def append_to_cache(
             if progress_callback:
                 effective_target = max(progress_target, total)
                 should_report = (
-                    total == effective_target
-                    or total - last_report >= step
-                    or total == 1
+                    total == effective_target or total - last_report >= step or total == 1
                 )
                 if should_report:
                     try:
@@ -472,9 +523,7 @@ def run_bulk_update(
     target_universe: list[str] | None = None
     if universe is not None:
         target_universe = [
-            str(sym).strip()
-            for sym in universe
-            if isinstance(sym, str) and str(sym).strip()
+            str(sym).strip() for sym in universe if isinstance(sym, str) and str(sym).strip()
         ]
     elif fetch_universe:
         try:
@@ -482,9 +531,7 @@ def run_bulk_update(
             if settings is not None:
                 fetched = build_symbol_universe_from_settings(settings)
                 target_universe = [
-                    str(sym).strip()
-                    for sym in fetched
-                    if isinstance(sym, str) and str(sym).strip()
+                    str(sym).strip() for sym in fetched if isinstance(sym, str) and str(sym).strip()
                 ]
         except Exception as exc:
             stats.universe_error = True
@@ -610,8 +657,7 @@ def main():
             removed_rows = int(filter_stats.get("removed_rows", 0))
             missing_symbols = int(filter_stats.get("missing_symbols", 0))
             print(
-                "  ↳ Bulk データ一致:"
-                f" {matched_symbols} 銘柄 / {matched_rows} 行",
+                f"  ↳ Bulk データ一致: {matched_symbols} 銘柄 / {matched_rows} 行",
                 flush=True,
             )
             if removed_rows:
@@ -643,9 +689,7 @@ def main():
 
     if result.estimated_symbols:
         print(
-            "📊 取得件数: "
-            f"{result.filtered_rows} 行 / 銘柄数(推定): "
-            f"{result.estimated_symbols}",
+            f"📊 取得件数: {result.filtered_rows} 行 / 銘柄数(推定): {result.estimated_symbols}",
             flush=True,
         )
     else:

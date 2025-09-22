@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 from datetime import time as dtime
+import os
 from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
@@ -12,9 +12,9 @@ import pandas_market_calendars as mcal
 import streamlit as st
 from ta.trend import SMAIndicator
 
+from common.cache_manager import round_dataframe
 from common.i18n import tr
 from config.settings import get_settings
-
 
 _NY_TIMEZONE = ZoneInfo("America/New_York")
 
@@ -342,7 +342,13 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
     return pd.Timestamp(target).normalize()
 
 
-def resolve_signal_entry_date(base_date) -> pd.Timestamp | pd.NaT:
+try:
+    from pandas._libs.tslibs.nattype import NaTType
+except Exception:
+    NaTType = type(pd.NaT)
+
+
+def resolve_signal_entry_date(base_date) -> pd.Timestamp | NaTType:
     """シグナル日から翌営業日（取引予定日）を算出する。
 
     - base_date が欠損・変換不可の場合は NaT を返す。
@@ -423,13 +429,31 @@ def _persist_spy_with_indicators(spy_df: pd.DataFrame) -> None:
                     df_to_save["Date"], errors="coerce"
                 ).dt.normalize()
                 df_to_save = df_to_save.dropna(subset=["Date"]).sort_values("Date")
-                df_to_save.to_csv(path, index=False)
+                try:
+                    settings = get_settings(create_dirs=True)
+                    round_dec = getattr(settings.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df_to_save, round_dec)
+                except Exception:
+                    out_df = df_to_save
+                out_df.to_csv(path, index=False)
             else:
                 idx = pd.to_datetime(df_to_save.index, errors="coerce").normalize()
                 df_to_save = df_to_save.loc[~idx.isna()].copy()
                 df_to_save.index = pd.Index(idx[~idx.isna()])
                 df_to_save.sort_index(inplace=True)
-                df_to_save.to_csv(path, index_label="Date")
+                try:
+                    settings = get_settings(create_dirs=True)
+                    round_dec = getattr(settings.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df_to_save, round_dec)
+                except Exception:
+                    out_df = df_to_save
+                out_df.to_csv(path, index_label="Date")
         except Exception:
             continue
         else:
@@ -464,7 +488,9 @@ def get_spy_with_indicators(spy_df=None):
             flattened_cols: list[str] = []
             for col in spy_df.columns:
                 if isinstance(col, tuple):
-                    flattened = next((part for part in col if part not in (None, "")), None)
+                    flattened = next(
+                        (part for part in col if part not in (None, "")), None
+                    )
                     if flattened is None:
                         flattened = col[-1] if col else ""
                     flattened_cols.append(flattened)
@@ -498,9 +524,9 @@ def get_spy_with_indicators(spy_df=None):
         close_series = spy_df["Close"]
         if isinstance(close_series, pd.DataFrame):
             try:
-                close_series = close_series.iloc[:, 0]
+                close_series = close_series.iloc[:, 0]  # type: ignore[index]
             except Exception:
-                close_series = close_series.squeeze(axis=1)
+                close_series = close_series.squeeze()
 
         if isinstance(close_series, pd.Series):
             if len(close_series) == len(spy_df.index):

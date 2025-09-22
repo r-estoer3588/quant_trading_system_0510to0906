@@ -1,20 +1,15 @@
 """System3 core logic (Long mean-reversion)."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import (
-    BatchSizeMonitor,
-    describe_dtype,
-    get_cached_data,
-    resolve_batch_size,
-)
+from common.utils import BatchSizeMonitor, describe_dtype, get_cached_data, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
@@ -91,9 +86,7 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy()
     x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
-    x["ATR10"] = AverageTrueRange(
-        x["High"], x["Low"], x["Close"], window=10
-    ).average_true_range()
+    x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
     x["Drop3D"] = -(x["Close"].pct_change(3))
     x["AvgVolume50"] = x["Volume"].rolling(50).mean()
     x["ATR_Ratio"] = x["ATR10"] / x["Close"]
@@ -282,9 +275,7 @@ def prepare_data_vectorized_system3(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(
-                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
-                    )
+                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:

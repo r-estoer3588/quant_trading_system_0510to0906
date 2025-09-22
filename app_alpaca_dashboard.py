@@ -9,10 +9,10 @@
 
 from __future__ import annotations
 
-import json
-import math
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+import json
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -39,7 +39,6 @@ from common.cache_manager import load_base_cache
 from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates
 from common.profit_protection import calculate_business_holding_days
 
-
 # 経過日手仕切りの上限日数（システム別）
 HOLD_LIMITS: dict[str, int] = {
     "system2": 2,
@@ -47,6 +46,23 @@ HOLD_LIMITS: dict[str, int] = {
     "system5": 6,
     "system6": 3,
 }
+
+
+WEEKDAY_LABELS_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _format_datetime_with_weekday(dt: datetime) -> str:
+    """Format datetime with English weekday indicator."""
+
+    try:
+        weekday = WEEKDAY_LABELS_EN[dt.weekday()]
+    except Exception:
+        weekday = ""
+    date_part = dt.strftime("%Y-%m-%d")
+    time_part = dt.strftime("%H:%M:%S")
+    if weekday:
+        return f"{date_part} ({weekday}) {time_part}"
+    return f"{date_part} {time_part}"
 
 
 DASHBOARD_CSS = """
@@ -207,25 +223,6 @@ body, .stApp {
   white-space: nowrap;
 }
 
-.ap-ring {
-  --size: 92px;
-  --track: #0b1625;
-  --val: 0.0;
-  width: var(--size);
-  height: var(--size);
-  border-radius: 50%;
-  background:
-    conic-gradient(var(--accent) calc(var(--val) * 1%), rgba(255, 255, 255, 0.08) 0),
-    var(--track);
-  display: grid;
-  place-items: center;
-  margin: 0.25rem auto;
-}
-.ap-ring > span {
-  font-weight: 800;
-  font-size: 1rem;
-}
-
 @keyframes apFadeUp {
   from {
     opacity: 0;
@@ -286,12 +283,29 @@ def _fmt_number(x: float | int | str | None) -> str:
         return str(x)
 
 
+def _format_countdown(delta: timedelta) -> str:
+    """Return countdown text in Japanese."""
+
+    total_seconds = int(delta.total_seconds())
+    if total_seconds <= 0:
+        return "0秒"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}時間")
+    if minutes or hours:
+        parts.append(f"{minutes}分")
+    parts.append(f"{seconds}秒")
+    return "".join(parts)
+
+
 def _safe_float(value: Any) -> float | None:
     """Convert a value to float safely."""
 
     if value is None:
         return None
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int | float)):
         return float(value)
 
     try:
@@ -305,7 +319,7 @@ def _safe_float(value: Any) -> float | None:
 
 
 def _get_nyse_status(now_newyork: datetime) -> str:
-    """NYSE の営業状況を返す。"""
+    """NYSE の営業状況と次回オープンまでのカウントダウンを返す。"""
 
     try:
         calendar = mcal.get_calendar("NYSE")
@@ -313,7 +327,7 @@ def _get_nyse_status(now_newyork: datetime) -> str:
         return "NYSE: 状態不明"
 
     start_date = now_newyork.date() - timedelta(days=5)
-    end_date = now_newyork.date() + timedelta(days=5)
+    end_date = now_newyork.date() + timedelta(days=10)
 
     try:
         schedule = calendar.schedule(start_date=start_date, end_date=end_date)
@@ -328,7 +342,40 @@ def _get_nyse_status(now_newyork: datetime) -> str:
     except Exception:
         is_open = False
 
-    return "NYSE: 営業中" if is_open else "NYSE: クローズ"
+    status = "NYSE: 営業中" if is_open else "NYSE: クローズ"
+
+    if is_open:
+        return status
+
+    now_ts = pd.Timestamp(now_newyork)
+    if now_ts.tz is None:
+        try:
+            now_ts = now_ts.tz_localize("America/New_York")
+        except Exception:
+            now_ts = now_ts.tz_localize("UTC")
+    now_utc = now_ts.tz_convert("UTC")
+
+    market_open_series = pd.to_datetime(schedule["market_open"], utc=True)
+
+    try:
+        future_opens = market_open_series[market_open_series > now_utc]
+    except Exception:
+        return status
+
+    if getattr(future_opens, "empty", True):
+        return status
+
+    next_open = future_opens.iloc[0]
+    try:
+        delta = next_open - now_utc
+    except Exception:
+        return status
+
+    if delta.total_seconds() <= 0:
+        return status
+
+    countdown = _format_countdown(delta)
+    return f"{status}（オープンまで {countdown}）"
 
 
 def _resolve_position_price(position: Any) -> float | str:
@@ -379,7 +426,11 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             numeric_cols = None
         if numeric_cols is not None and not numeric_cols.empty:
             try:
-                series = pd.to_numeric(numeric_cols.iloc[:, 0], errors="coerce").dropna().tail(max_points)
+                series = (
+                    pd.to_numeric(numeric_cols.iloc[:, 0], errors="coerce")
+                    .dropna()
+                    .tail(max_points)
+                )
             except Exception:
                 series = pd.Series(dtype=float)
             if not series.empty:
@@ -394,11 +445,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             try:
                 df = pd.read_csv(p)
                 cols = {c.lower(): c for c in df.columns}
-                close_col = (
-                    cols.get("close")
-                    or cols.get("adj close")
-                    or cols.get("adj_close")
-                )
+                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
                 if close_col is None:
                     continue
                 series = pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
@@ -408,7 +455,6 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             except Exception:
                 continue
     return None
-
 
 
 def _extract_order_prices(order: Any) -> tuple[list[float], list[float], list[str]]:
@@ -568,12 +614,8 @@ def _attach_exit_levels(pos_df: pd.DataFrame, client: Any) -> pd.DataFrame:
         levels = {}
     pos_df = pos_df.copy()
     symbols = pos_df["銘柄"].astype(str).str.upper()
-    pos_df["ストップ価格"] = [
-        _render_stop_cell(levels.get(sym)) for sym in symbols
-    ]
-    pos_df["リミット価格"] = [
-        _render_limit_cell(levels.get(sym)) for sym in symbols
-    ]
+    pos_df["ストップ価格"] = [_render_stop_cell(levels.get(sym)) for sym in symbols]
+    pos_df["リミット価格"] = [_render_limit_cell(levels.get(sym)) for sym in symbols]
     return pos_df
 
 
@@ -651,8 +693,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         n_points = 20 if len(df) > 15 else 45
         symbol_series = df["銘柄"].astype(str)
         price_series = [
-            _load_recent_prices(sym, max_points=n_points) or []
-            for sym in symbol_series
+            _load_recent_prices(sym, max_points=n_points) or [] for sym in symbol_series
         ]
         df["直近価格チャート"] = price_series
     except Exception:
@@ -696,13 +737,15 @@ def main() -> None:
     now_tokyo = datetime.now(tz_tokyo)
     now_newyork = datetime.now(tz_newyork)
     nyse_status = _get_nyse_status(now_newyork)
-    ny_time = now_newyork.strftime("%Y-%m-%d %H:%M:%S")
-    ny_caption = f"ニューヨーク時間: {ny_time} （{nyse_status}）"
     st.caption(
         " / ".join(
             [
-                f"日本時間: {now_tokyo.strftime('%Y-%m-%d %H:%M:%S')}",
-                ny_caption,
+                f"日本時間: {_format_datetime_with_weekday(now_tokyo)}",
+                (
+                    "ニューヨーク時間: "
+                    f"{_format_datetime_with_weekday(now_newyork)} "
+                    f"（{nyse_status}）"
+                ),
             ]
         )
     )
@@ -776,16 +819,11 @@ def main() -> None:
             unsafe_allow_html=True,
         )
     with c4:
-        if ratio is not None:
-            fill_ratio = min(max(ratio, 0.0), 1.0)
-            ring = (
-                f"<div class='ap-ring' style='--val:{fill_ratio*100:.1f};'>"
-                f"<span>{ratio*100:.1f}%</span></div>"
-            )
-            st.markdown(ring, unsafe_allow_html=True)
-            st.caption("余力比率")
-        else:
-            st.caption("余力比率: -")
+        ratio_text = f"{ratio * 100:.1f}%" if ratio is not None else "-"
+        st.markdown(
+            _metric_html("余力比率", ratio_text),
+            unsafe_allow_html=True,
+        )
     st.markdown("</div>", unsafe_allow_html=True)
 
     # 口座状態バッジ
@@ -890,6 +928,8 @@ def main() -> None:
             except Exception:
                 pass
 
+            from typing import Any, cast
+
             format_columns = {
                 "数量": "{:,.0f}",
                 "平均取得単価": "{:,.2f}",
@@ -897,7 +937,8 @@ def main() -> None:
                 "含み損益": "{:,.2f}",
             }
             styler = display_df.style.apply(_row_style, axis=1)
-            styler = styler.format(format_columns)
+            # cast to Any to satisfy static type checkers about formatter mapping
+            styler = styler.format(cast(Any, format_columns))
 
             # 表示（スパークライン列は LineChartColumn）
             try:
@@ -919,7 +960,10 @@ def main() -> None:
                         ),
                         "リミット価格": st.column_config.Column(
                             width="medium",
-                            help="未約定のリミット/テイクプロフィット注文価格（複数は / 区切り表示）。",
+                            help=(
+                                "未約定のリミット/テイクプロフィット注文価格"
+                                "（複数は / 区切り表示）。"
+                            ),
                         ),
                         "直近価格チャート": st.column_config.LineChartColumn(
                             label="直近価格チャート",
@@ -933,7 +977,20 @@ def main() -> None:
 
             # CSV ダウンロード
             try:
-                csv = pos_df.to_csv(index=False).encode("utf-8")
+                try:
+                    from config.settings import get_settings
+
+                    settings2 = get_settings(create_dirs=True)
+                    round_dec = getattr(settings2.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    from common.cache_manager import round_dataframe
+
+                    out_df = round_dataframe(pos_df, round_dec)
+                except Exception:
+                    out_df = pos_df
+                csv = out_df.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
             except Exception:
                 pass
@@ -953,7 +1010,7 @@ def main() -> None:
         with s2:
             if ratio is not None:
                 st.markdown(
-                    _metric_html("余力比率", f"{ratio*100:.1f}%"),
+                    _metric_html("余力比率", f"{ratio * 100:.1f}%"),
                     unsafe_allow_html=True,
                 )
             else:

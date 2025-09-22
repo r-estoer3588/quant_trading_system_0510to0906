@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Callable, Iterable
+import logging
 
 from common.logging_utils import setup_logging
 from config.settings import Settings, get_settings
-
 
 logger = logging.getLogger(__name__)
 

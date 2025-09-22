@@ -1,25 +1,5 @@
 from __future__ import annotations
 
-"""
-Simple scheduler to execute planned exit orders at next day's open/close.
-
-Usage:
-  - This script reads a JSONL plan file produced by the UI containing lines of
-    {symbol, qty, position_side, system, when} where when is one of:
-      - "tomorrow_open"
-      - "tomorrow_close"
-
-  - Run this script around market open (09:30 ET) and/or before market close to
-    submit the corresponding orders via Alpaca.
-
-Plan file path: data/planned_exits.jsonl
-
-Note:
-  - This tool assumes environment variables for Alpaca are set.
-  - It will ignore entries whose time window does not match (e.g., running the
-    "open" window will skip "tomorrow_close" records).
-"""
-
 import argparse
 import json
 from pathlib import Path
@@ -29,6 +9,26 @@ import pandas as pd
 
 from common import broker_alpaca as ba
 from common.notifier import Notifier
+
+"""
+Simple scheduler to execute planned exit orders at next day's open/close.
+
+Usage:
+    - This script reads a JSONL plan file produced by the UI containing lines of
+        {symbol, qty, position_side, system, when} where when is one of:
+            - "tomorrow_open"
+            - "tomorrow_close"
+
+    - Run this script around market open (09:30 ET) and/or before market close to
+        submit the corresponding orders via Alpaca.
+
+Plan file path: data/planned_exits.jsonl
+
+Note:
+    - This tool assumes environment variables for Alpaca are set.
+    - It will ignore entries whose time window does not match (e.g., running the
+        "open" window will skip "tomorrow_close" records).
+"""
 
 PLAN_PATH = Path("data/planned_exits.jsonl")
 

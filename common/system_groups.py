@@ -90,9 +90,7 @@ def summarize_group_totals(
     for key in sorted(normalized_counts.keys()):
         if key in used:
             continue
-        total_value = (
-            float(normalized_values.get(key, 0.0)) if values is not None else None
-        )
+        total_value = float(normalized_values.get(key, 0.0)) if values is not None else None
         summary.append((key, int(normalized_counts[key]), total_value))
 
     return summary

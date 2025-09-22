@@ -19,7 +19,6 @@ import pandas as pd
 from common.data_loader import load_price
 from common.utils_spy import get_latest_nyse_trading_day
 
-
 _SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
 
 
@@ -151,9 +150,7 @@ def _format_entry_date(entry_date: Any) -> str:
         return str(entry_date)
 
 
-def _next_action_hint(
-    system: str, side_lower: str, held: int | None, plpc: float
-) -> str:
+def _next_action_hint(system: str, side_lower: str, held: int | None, plpc: float) -> str:
     """Build a short description about the next likely exit trigger."""
 
     system_norm = (system or "").lower()

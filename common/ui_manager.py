@@ -13,7 +13,6 @@ info 用スロットを先に確保し、`info()` はそのスロットを更新
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 import streamlit as st
 
@@ -22,8 +21,8 @@ import streamlit as st
 class PhaseContext:
     """フェーズ単位の UI ハンドル。"""
 
-    container: "st.delta_generator.DeltaGenerator"
-    title: Optional[str] = None
+    container: st.delta_generator.DeltaGenerator
+    title: str | None = None
 
     def __post_init__(self) -> None:
         if self.title:
@@ -55,13 +54,13 @@ class PhaseContext:
 class UIManager:
     """UI 階層を管理するシンプルなマネージャ。"""
 
-    def __init__(self, *, root: "st.delta_generator.DeltaGenerator" | None = None):
+    def __init__(self, *, root: st.delta_generator.DeltaGenerator | None = None):
         self._root = root or st.container()
-        self._systems: Dict[str, UIManager] = {}
-        self._phases: Dict[str, PhaseContext] = {}
+        self._systems: dict[str, UIManager] = {}
+        self._phases: dict[str, PhaseContext] = {}
 
     # --- 階層管理 ---
-    def system(self, name: str, *, title: Optional[str] = None) -> "UIManager":
+    def system(self, name: str, *, title: str | None = None) -> UIManager:
         if name not in self._systems:
             c = self._root.container()
             if title:
@@ -72,7 +71,7 @@ class UIManager:
             self._systems[name] = UIManager(root=c)
         return self._systems[name]
 
-    def phase(self, name: str, *, title: Optional[str] = None) -> PhaseContext:
+    def phase(self, name: str, *, title: str | None = None) -> PhaseContext:
         if name not in self._phases:
             c = self._root.container()
             self._phases[name] = PhaseContext(container=c, title=title)
@@ -89,4 +88,3 @@ class UIManager:
     @property
     def container(self):
         return self._root
-

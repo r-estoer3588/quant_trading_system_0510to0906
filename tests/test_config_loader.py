@@ -7,4 +7,3 @@ def test_load_config_file_yaml_default():
     # 既存の config.yaml がある前提で主要キーの一部を確認
     assert "risk" in cfg
     assert "data" in cfg
-

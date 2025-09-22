@@ -21,9 +21,7 @@ def add_indicators(df):
             df[f"ATR{w}"] = np.nan
             continue
         try:
-            df[f"ATR{w}"] = AverageTrueRange(
-                high, low, close, window=w
-            ).average_true_range()
+            df[f"ATR{w}"] = AverageTrueRange(high, low, close, window=w).average_true_range()
         except Exception:
             df[f"ATR{w}"] = np.nan
 

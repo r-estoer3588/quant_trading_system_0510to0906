@@ -12,10 +12,11 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import pandas as pd
 
@@ -325,10 +326,7 @@ def _allocate_by_capital(
     side: str,
     active_positions: Mapping[str, int],
 ) -> CapitalAllocationResult:
-    budgets = {
-        name: float(total_budget) * float(weights.get(name, 0.0))
-        for name in weights
-    }
+    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
     remaining = budgets.copy()
 
     # stable ordering
@@ -487,9 +485,7 @@ def _sort_final_frame(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         tmp["system"] = tmp["system"]
     try:
-        tmp["_system_no"] = (
-            tmp["system"].str.extract(r"(\d+)").fillna(0).astype(int)
-        )
+        tmp["_system_no"] = tmp["system"].str.extract(r"(\d+)").fillna(0).astype(int)
     except Exception:
         tmp["_system_no"] = 0
 
@@ -579,9 +575,7 @@ def finalize_allocation(
     long_alloc = _normalize_allocations(long_allocations, DEFAULT_LONG_ALLOCATIONS)
     short_alloc = _normalize_allocations(short_allocations, DEFAULT_SHORT_ALLOCATIONS)
 
-    systems = sorted(
-        {*per_system_norm.keys(), *long_alloc.keys(), *short_alloc.keys()}
-    )
+    systems = sorted({*per_system_norm.keys(), *long_alloc.keys(), *short_alloc.keys()})
     max_pos_map = _resolve_max_positions(strategies, systems, default_max_positions)
 
     active_positions = count_active_positions_by_system(positions, symbol_system_map)
@@ -591,10 +585,7 @@ def finalize_allocation(
         limit = int(max_pos_map.get(name, default_max_positions))
         available_slots[name] = max(0, limit - taken)
 
-    candidate_counts = {
-        name: _candidate_count(per_system_norm.get(name))
-        for name in systems
-    }
+    candidate_counts = {name: _candidate_count(per_system_norm.get(name)) for name in systems}
 
     # Determine allocation mode.
     mode = "slot"
@@ -662,8 +653,7 @@ def finalize_allocation(
             short_cap = float(capital_short)  # type: ignore[assignment]
 
         strategies_norm: dict[str, object] = {
-            str(name).strip().lower(): obj
-            for name, obj in (strategies or {}).items()
+            str(name).strip().lower(): obj for name, obj in (strategies or {}).items()
         }
 
         long_result = _allocate_by_capital(
@@ -682,11 +672,7 @@ def finalize_allocation(
             side="short",
             active_positions=active_positions,
         )
-        frames = [
-            df
-            for df in [long_result.frame, short_result.frame]
-            if not df.empty
-        ]
+        frames = [df for df in [long_result.frame, short_result.frame] if not df.empty]
         if frames:
             final_df = pd.concat(frames, ignore_index=True)
         else:
@@ -719,13 +705,7 @@ def finalize_allocation(
 
     if "system" in final_df.columns:
         try:
-            counts_series = (
-                final_df["system"]
-                .astype(str)
-                .str.strip()
-                .str.lower()
-                .value_counts()
-            )
+            counts_series = final_df["system"].astype(str).str.strip().str.lower().value_counts()
             summary.final_counts = {k: int(v) for k, v in counts_series.items()}
         except Exception:
             summary.final_counts = {}

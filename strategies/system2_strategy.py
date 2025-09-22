@@ -3,20 +3,21 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base_strategy import StrategyBase
-from .constants import (
-    PROFIT_TAKE_PCT_DEFAULT_4,
-    MAX_HOLD_DAYS_DEFAULT,
-    STOP_ATR_MULTIPLE_DEFAULT,
-    ENTRY_MIN_GAP_PCT_DEFAULT,
-)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
 from core.system2 import (
-    prepare_data_vectorized_system2,
     generate_candidates_system2,
     get_total_days_system2,
+    prepare_data_vectorized_system2,
+)
+
+from .base_strategy import StrategyBase
+from .constants import (
+    ENTRY_MIN_GAP_PCT_DEFAULT,
+    MAX_HOLD_DAYS_DEFAULT,
+    PROFIT_TAKE_PCT_DEFAULT_4,
+    STOP_ATR_MULTIPLE_DEFAULT,
 )
 
 
@@ -87,9 +88,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     # -------------------------------
     # バックテスト実行（共通シミュレーター）
     # -------------------------------
-    def run_backtest(
-        self, data_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, on_progress=None, on_log=None):
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
             data_dict,
@@ -116,9 +115,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         prior_close = float(df.iloc[entry_idx - 1]["Close"])
         entry_price = float(df.iloc[entry_idx]["Open"])
-        min_gap = float(
-            self.config.get("entry_min_gap_pct", ENTRY_MIN_GAP_PCT_DEFAULT)
-        )
+        min_gap = float(self.config.get("entry_min_gap_pct", ENTRY_MIN_GAP_PCT_DEFAULT))
         # 上窓（前日終値比+4%）未満なら見送り（ショート前提）
         if entry_price < prior_close * (1 + min_gap):
             return None
@@ -126,27 +123,19 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 
-    def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
-    ):
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
         """利確/損切りロジック。
         - ストップ到達: その日の高値>=stop で当日決済
         - 利確到達: 前日終値で判定し、翌日大引けで決済
         - 未達: 2営業日待っても利確に届かない場合は3日目の大引けで決済
         返り値: (exit_price, exit_date)
         """
-        profit_take_pct = float(
-            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
-        )
-        max_hold_days = int(
-            self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT)
-        )
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4))
+        max_hold_days = int(self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT))
 
         for offset in range(max_hold_days):
             idx = entry_idx + offset

@@ -5,12 +5,11 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from common.exit_planner import decide_exit_schedule
 import common.today_signals as today_signals
 import common.utils_spy as utils_spy
-from common.exit_planner import decide_exit_schedule
 from strategies.system2_strategy import System2Strategy
 from strategies.system4_strategy import System4Strategy
-from strategies.system2_strategy import System2Strategy
 
 
 def _make_prepared_frame() -> tuple[pd.DatetimeIndex, pd.DataFrame]:
@@ -38,9 +37,7 @@ def _make_prepared_frame() -> tuple[pd.DatetimeIndex, pd.DataFrame]:
 def _stub_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = SimpleNamespace(
         risk=SimpleNamespace(max_positions=10),
-        cache=SimpleNamespace(
-            rolling=SimpleNamespace(max_staleness_days=2, max_stale_days=2)
-        ),
+        cache=SimpleNamespace(rolling=SimpleNamespace(max_staleness_days=2, max_stale_days=2)),
         backtest=SimpleNamespace(top_n_rank=10),
         outputs=SimpleNamespace(results_csv_dir="results_csv_test"),
     )
@@ -160,9 +157,7 @@ def test_compute_entry_stop_prefers_config_multiplier() -> None:
     df = _make_atr_frame("ATR10", atr_value=1.0)
     entry_date = df.index[-1]
     candidate = {"entry_date": entry_date}
-    strategy = SimpleNamespace(
-        SYSTEM_NAME="system3", config={"stop_atr_multiple": "4"}
-    )
+    strategy = SimpleNamespace(SYSTEM_NAME="system3", config={"stop_atr_multiple": "4"})
 
     result = today_signals._compute_entry_stop(strategy, df, candidate, "long")
 
@@ -212,9 +207,7 @@ def test_system4_spy_gate_blocks_candidates(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result.empty
     assert list(result.columns) == today_signals.TODAY_SIGNAL_COLUMNS
-    assert (
-        result.attrs.get("zero_reason") == "setup_fail: SPY close <= SMA200"
-    )
+    assert result.attrs.get("zero_reason") == "setup_fail: SPY close <= SMA200"
 
 
 def test_system2_shortability_filter_excludes_symbols(
@@ -234,9 +227,7 @@ def test_system2_shortability_filter_excludes_symbols(
 
     monkeypatch.setattr(System2Strategy, "generate_candidates", fake_generate)
 
-    monkeypatch.setattr(
-        "common.broker_alpaca.get_client", lambda paper=True: object()
-    )
+    monkeypatch.setattr("common.broker_alpaca.get_client", lambda paper=True: object())
     monkeypatch.setattr(
         "common.broker_alpaca.get_shortable_map",
         lambda client, symbols: {sym: False for sym in symbols},

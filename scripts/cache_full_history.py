@@ -1,10 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 import os
 import time
+
+from dotenv import load_dotenv
 import pandas as pd
 import requests
-from dotenv import load_dotenv
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from common.cache_manager import round_dataframe
+from config.settings import get_settings
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -102,7 +106,19 @@ def save_history(symbol, output_dir):
         return
     df = fetch_history(symbol)
     if df is not None and not df.empty:
-        df.to_csv(filepath)
+        try:
+            try:
+                settings = get_settings(create_dirs=False)
+                round_dec = getattr(settings.cache, "round_decimals", None)
+            except Exception:
+                round_dec = None
+            try:
+                df_to_write = round_dataframe(df, round_dec)
+            except Exception:
+                df_to_write = df
+        except Exception:
+            df_to_write = df
+        df_to_write.to_csv(filepath)
         print(f"{symbol}: saved")
     else:
         print(f"{symbol}: failed")
