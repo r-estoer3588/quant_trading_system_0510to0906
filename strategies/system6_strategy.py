@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base_strategy import StrategyBase
-from .constants import (
-    PROFIT_TAKE_PCT_DEFAULT_5,
-    MAX_HOLD_DAYS_DEFAULT,
-    STOP_ATR_MULTIPLE_DEFAULT,
-)
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
 from core.system6 import (
-    prepare_data_vectorized_system6,
     generate_candidates_system6,
     get_total_days_system6,
+    prepare_data_vectorized_system6,
 )
+
+from .base_strategy import StrategyBase
+from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_ATR_MULTIPLE_DEFAULT
 
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
@@ -127,22 +124,16 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             atr = float(df.iloc[entry_idx - 1]["ATR10"])
         except Exception:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
         return entry_price, stop_price
 
-    def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
-    ):
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
-        profit_take_pct = float(
-            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5)
-        )
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
         max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         last_idx = len(df) - 1
 

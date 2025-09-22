@@ -1,23 +1,47 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
-from collections.abc import Iterable
+import shutil
 from typing import ClassVar
 
+from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 
 from common.utils import describe_dtype, safe_filename
-from indicators_common import add_indicators
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
+
+
+def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """Return a DataFrame rounded to the requested number of decimals.
+
+    pandas.DataFrame.round は数値列のみを対象とし、日付や文字列列には影響しない。
+    ただし ``decimals`` が不正値の場合や丸め処理が例外を送出した場合は、
+    元の DataFrame をそのまま返す。
+    """
+
+    if decimals is None:
+        return df
+    try:
+        decimals_int = int(decimals)
+    except Exception:
+        return df
+    try:
+        return df.copy().round(decimals_int)
+    except Exception:
+        try:
+            return df.round(decimals_int)
+        except Exception:
+            return df
+
 
 # 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
 MAIN_INDICATOR_COLUMNS = (
@@ -78,9 +102,7 @@ class CacheManager:
         self._ui_prefix = "[CacheManager]"
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(
-        self, ticker: str, profile: str, category: str, message: str
-    ) -> None:
+    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
         key = (ticker, profile, category)
         if key in self._warned:
             return
@@ -127,9 +149,7 @@ class CacheManager:
             return df
         enriched = enriched.drop(columns=["Date"], errors="ignore")
         enriched.columns = [str(c).lower() for c in enriched.columns]
-        enriched["date"] = pd.to_datetime(
-            enriched.get("date", base["date"]), errors="coerce"
-        )
+        enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
         combined = work.copy()
         for col, series in enriched.items():
             combined[col] = series
@@ -183,10 +203,7 @@ class CacheManager:
                         try:
                             df = pd.read_csv(csv_path, parse_dates=["date"])
                         except ValueError as e2:
-                            if (
-                                "Missing column provided to 'parse_dates': 'date'"
-                                in str(e2)
-                            ):
+                            if "Missing column provided to 'parse_dates': 'date'" in str(e2):
                                 df = pd.read_csv(csv_path)
                                 if "Date" in df.columns:
                                     df = df.rename(columns={"Date": "date"})
@@ -267,9 +284,7 @@ class CacheManager:
                     recent_df = df.tail(window)
                 else:
                     recent_df = df.tail(max(window, 252))
-                target_cols = [
-                    col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns
-                ]
+                target_cols = [col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns]
                 if not target_cols:
                     target_cols = list(recent_df.columns)
                 col_rates: list[float] = []
@@ -332,10 +347,7 @@ class CacheManager:
                             ticker,
                             profile,
                             category,
-                            (
-                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: "
-                                f"{col}全て非正値"
-                            ),
+                            (f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"),
                         )
         except Exception as e:
             category = f"healthcheck_error:{type(e).__name__}:{str(e)}"
@@ -343,8 +355,7 @@ class CacheManager:
                 ticker,
                 profile,
                 category,
-                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 "
-                f"({e})",
+                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})",
             )
         return df
 
@@ -358,22 +369,13 @@ class CacheManager:
             round_dec = None
             cfg_round = getattr(self.settings.cache, "round_decimals", None)
             if profile == "rolling":
-                roll_round = getattr(
-                    self.settings.cache.rolling, "round_decimals", None
-                )
+                roll_round = getattr(self.settings.cache.rolling, "round_decimals", None)
                 round_dec = roll_round if roll_round is not None else cfg_round
             else:
                 round_dec = cfg_round
         except Exception:
             round_dec = None
-        df_to_write = df
-        if round_dec is not None:
-            try:
-                df_to_write = df.copy()
-                # pandas.DataFrame.round は数値列のみを丸める
-                df_to_write = df_to_write.round(int(round_dec))
-            except Exception:
-                df_to_write = df
+        df_to_write = round_dataframe(df, round_dec)
         try:
             if path.suffix == ".parquet":
                 df_to_write.to_parquet(tmp, index=False)
@@ -499,8 +501,7 @@ class CacheManager:
             encoding="utf-8",
         )
         logger.info(
-            f"{self._ui_prefix} ✅ prune完了: files={pruned_files},"
-            f" dropped_rows={dropped_total}"
+            f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}"
         )
         return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
 
@@ -565,9 +566,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = ["High", "Low", "Close"]
     missing = [c for c in required if c not in x.columns]
     if missing:
-        logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}"
-        )
+        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}")
         return x
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -640,12 +639,7 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
         round_dec = getattr(settings.cache, "round_decimals", None)
     except Exception:
         round_dec = None
-    df_to_write = df_reset
-    if round_dec is not None:
-        try:
-            df_to_write = df_reset.round(int(round_dec))
-        except Exception:
-            df_to_write = df_reset
+    df_to_write = round_dataframe(df_reset, round_dec)
     df_to_write.to_csv(path, index=False)
     return path
 

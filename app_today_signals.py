@@ -1,40 +1,38 @@
 from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
 import logging
 import os
+from pathlib import Path
 import platform
 import sys
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
+
 import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
+
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
-from common.exit_planner import decide_exit_schedule
+from common.cache_manager import round_dataframe  # type: ignore
 from common.data_loader import load_price
+from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
-from common.position_age import (
-    fetch_entry_dates_from_alpaca,
-    load_entry_dates,
-    save_entry_dates,
-)
-from common.stage_metrics import GLOBAL_STAGE_METRICS, StageSnapshot
+from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates, save_entry_dates
 from common.profit_protection import evaluate_positions
-from common.stage_metrics import DEFAULT_SYSTEM_ORDER, StageMetricsStore
-from common.system_groups import (
-    format_group_counts,
-    format_group_counts_and_values,
+from common.stage_metrics import (
+    DEFAULT_SYSTEM_ORDER,
+    GLOBAL_STAGE_METRICS,
+    StageMetricsStore,
+    StageSnapshot,
 )
 from common.symbol_universe import build_symbol_universe_from_settings
-from common.today_signals import (
-    LONG_SYSTEMS,
-    SHORT_SYSTEMS,
-    run_all_systems_today as compute_today_signals,
-)
+from common.system_groups import format_group_counts, format_group_counts_and_values
+from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
+from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
@@ -65,16 +63,12 @@ _IS_STREAMLIT_RUNTIME = _running_in_streamlit()
 
 if not _IS_STREAMLIT_RUNTIME:
     if __name__ == "__main__":
-        print(
-            "このスクリプトはStreamlitで実行してください: " "`streamlit run app_today_signals.py`"
-        )
+        print("このスクリプトはStreamlitで実行してください: `streamlit run app_today_signals.py`")
     raise SystemExit
 
 try:
     # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）
-    from streamlit.runtime.scriptrunner import (  # type: ignore
-        get_script_run_ctx as _st_get_ctx,
-    )
+    from streamlit.runtime.scriptrunner import get_script_run_ctx as _st_get_ctx  # type: ignore
 
     def _has_st_ctx() -> bool:
         if not _IS_STREAMLIT_RUNTIME:
@@ -454,7 +448,7 @@ def _log_manual_rebuild_notice(
     parts: list[str] = []
     rows_before = detail.get("rows_before")
     try:
-        rows_val = int(rows_before)
+        rows_val = int(rows_before) if rows_before is not None else None
     except Exception:
         rows_val = None
     if rows_val:
@@ -523,6 +517,10 @@ def _collect_symbol_data(
                 df = None
             continue
 
+        # df may be None if earlier checks failed; guard before normalization
+        if df is None:
+            malformed.append(sym)
+            continue
         norm = _normalize_price_history(df, rows)
         if norm is not None and not norm.empty:
             fetched[sym] = norm
@@ -553,9 +551,7 @@ def _collect_symbol_data(
                 sample += f" ほか{len(manual_symbols) - 5}件"
             try:
                 log_fn(
-                    "⚠️ rolling未整備: "
-                    + sample
-                    + " → 手動で rolling キャッシュを更新してください"
+                    "⚠️ rolling未整備: " + sample + " → 手動で rolling キャッシュを更新してください"
                 )
             except Exception:
                 pass
@@ -607,7 +603,7 @@ def _get_today_logger() -> logging.Logger:
     log_path: Path | None = None
     try:
         sel = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
-        if isinstance(sel, (Path,)):
+        if isinstance(sel, Path):
             log_path = sel
     except Exception:
         log_path = None
@@ -1363,7 +1359,16 @@ def _save_missing_report(missing_details: list[dict[str, Any]]) -> Path | None:
         timestamp = str(int(time.time()))
     path = target_dir / f"rolling_cache_missing_{timestamp}.csv"
     try:
-        pd.DataFrame(missing_details).to_csv(path, index=False)
+        try:
+            settings2 = get_settings(create_dirs=True)
+            round_dec = getattr(settings2.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+        try:
+            out_df = round_dataframe(pd.DataFrame(missing_details), round_dec)
+        except Exception:
+            out_df = pd.DataFrame(missing_details)
+        out_df.to_csv(path, index=False)
     except Exception:
         return None
     return path
@@ -1373,10 +1378,22 @@ def _store_run_results(
     final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
 ) -> None:  # noqa: E501
     try:
-        st.session_state["today_final_df"] = final_df.copy()
-        st.session_state["today_per_system"] = {
-            k: v.copy() for k, v in per_system.items()
-        }  # noqa: E501
+        try:
+            settings2 = get_settings(create_dirs=True)
+            round_dec = getattr(settings2.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+        try:
+            st.session_state["today_final_df"] = round_dataframe(final_df.copy(), round_dec)
+        except Exception:
+            st.session_state["today_final_df"] = final_df.copy()
+        stored = {}
+        for k, v in per_system.items():
+            try:
+                stored[k] = round_dataframe(v.copy(), round_dec)
+            except Exception:
+                stored[k] = v.copy()
+        st.session_state["today_per_system"] = stored  # noqa: E501
     except Exception:
         pass
 
@@ -1657,14 +1674,17 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
             if result is None:
                 continue
             (system, pos_side, qty, exit_when, row_data, exit_today) = result
+            when_value = str(exit_when or "")
+            when_lower = when_value.lower()
+            when_entry = when_lower or when_value
             if exit_today:
-                if system == "system5":
-                    planned_rows.append(row_data | {"when": "tomorrow_open"})
+                exit_counts[system] = exit_counts.get(system, 0) + 1
+                if when_lower == "tomorrow_open":
+                    planned_rows.append(row_data | {"when": when_entry})
                 else:
-                    exits_today_rows.append(row_data | {"when": exit_when})
-                    exit_counts[system] = exit_counts.get(system, 0) + 1
+                    exits_today_rows.append(row_data | {"when": when_entry})
             else:
-                planned_rows.append(row_data | {"when": exit_when})
+                planned_rows.append(row_data | {"when": when_entry})
         exits_today_df = pd.DataFrame(exits_today_rows)
         planned_df = pd.DataFrame(planned_rows)
         return ExitAnalysisResult(
@@ -2066,7 +2086,7 @@ def _render_missing_debug_results(artifacts: RunArtifacts) -> None:
                 data=data_bytes,
                 file_name=path_obj.name,
                 mime="text/csv",
-                key=f"missing_report_{int(time.time()*1000)}",
+                key=f"missing_report_{int(time.time() * 1000)}",
             )
     st.info("このモードでは基礎データの欠損確認のみを実施しました。シグナル計算は行っていません。")
     _render_previous_results_section()
@@ -2206,12 +2226,21 @@ def _render_skip_file_group(files: list[tuple[str, Path]], key_prefix: str) -> N
                     data=data_bytes,
                     file_name=path.name,
                     mime="text/csv",
-                    key=f"dl_{key_prefix}_{name}_{int(time.time()*1000)}",
+                    key=f"dl_{key_prefix}_{name}_{int(time.time() * 1000)}",
                 )
 
 
 def _download_final_csv(final_df: pd.DataFrame) -> None:
-    csv = final_df.to_csv(index=False).encode("utf-8")
+    try:
+        settings2 = get_settings(create_dirs=True)
+        round_dec = getattr(settings2.cache, "round_decimals", None)
+    except Exception:
+        round_dec = None
+    try:
+        out_df = round_dataframe(final_df, round_dec)
+    except Exception:
+        out_df = final_df
+    csv = out_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "最終CSVをダウンロード",
         data=csv,
@@ -2238,14 +2267,27 @@ def _auto_save_final_results(
             rid = st.session_state.get("last_run_id") or "RUN"
             ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
         fp = sig_dir / f"today_signals_{ts}.csv"
-        final_df.to_csv(fp, index=False)
+        try:
+            settings2 = get_settings(create_dirs=True)
+            round_dec = getattr(settings2.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+        try:
+            out_df = round_dataframe(final_df, round_dec)
+        except Exception:
+            out_df = final_df
+        out_df.to_csv(fp, index=False)
         st.caption(f"自動保存: {fp}")
         for name, df in per_system.items():
             try:
                 if df is None or df.empty:
                     continue
                 fp_sys = sig_dir / f"signals_{name}_{ts}.csv"
-                df.to_csv(fp_sys, index=False)
+                try:
+                    out_df = round_dataframe(df, round_dec)
+                except Exception:
+                    out_df = df
+                out_df.to_csv(fp_sys, index=False)
                 st.caption(f"自動保存: {fp_sys}")
             except Exception as exc:
                 st.warning(f"{name} の自動保存に失敗: {exc}")
@@ -2440,7 +2482,16 @@ def _render_previous_results_section() -> None:
             if prev_df is not None and not prev_df.empty:
                 st.subheader("前回の最終選定銘柄（再表示）")
                 st.dataframe(prev_df, use_container_width=True)
-                csv_prev = prev_df.to_csv(index=False).encode("utf-8")
+                try:
+                    settings2 = get_settings(create_dirs=True)
+                    round_dec = getattr(settings2.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    prev_out = round_dataframe(prev_df, round_dec)
+                except Exception:
+                    prev_out = prev_df
+                csv_prev = prev_out.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "最終CSVをダウンロード（前回）",
                     data=csv_prev,
@@ -2599,7 +2650,7 @@ with st.sidebar:
         else ("Cash" if mult_f is not None else "不明")
     )
     bp_val = st.session_state.get("alpaca_buying_power")
-    bp_txt = f"${bp_val:,.2f}" if isinstance(bp_val, (int, float)) else "未取得"
+    bp_txt = f"${bp_val:,.2f}" if isinstance(bp_val, (int | float)) else "未取得"
     st.caption("Alpaca口座情報")
     st.write(f"アカウント種別（推定）: {derived_type}  |  Buying Power: {bp_txt}")
     if acct_type_raw is not None or mult_f is not None:
@@ -2708,11 +2759,25 @@ with st.sidebar:
             client = ba.get_client(paper=paper_mode)
             try:
                 # alpaca-py のAPIに合わせ、リクエストオブジェクトで指定
-                from alpaca.trading.requests import (  # type: ignore
-                    GetOrdersRequest as _GetOrdersRequest,
-                )
+                # Import for type checking; at runtime import via importlib to avoid hard dependency
+                from typing import TYPE_CHECKING
 
-                orders = client.get_orders(filter=_GetOrdersRequest(status="open"))
+                if TYPE_CHECKING:  # pragma: no cover - static type checking only
+                    from alpaca.trading.requests import (
+                        GetOrdersRequest as _GetOrdersRequest,  # type: ignore
+                    )
+                try:
+                    import importlib
+
+                    req_mod = importlib.import_module("alpaca.trading.requests")
+                    _GetOrdersRequest = getattr(req_mod, "GetOrdersRequest", None)
+                    if _GetOrdersRequest is not None:
+                        orders = client.get_orders(filter=_GetOrdersRequest(status="open"))
+                    else:
+                        orders = client.get_orders()
+                except Exception:
+                    # フォールバック（古いSDKなど）
+                    orders = client.get_orders()
             except Exception:
                 # フォールバック（古いSDKなど）
                 orders = client.get_orders()
@@ -2765,17 +2830,32 @@ with st.sidebar:
                                     st.error(f"キャンセル失敗: {_e}")
                                 # 最新のopen ordersを再取得
                                 try:
-                                    try:
-                                        from alpaca.trading.requests import (  # type: ignore  # noqa: E501
+                                    from typing import TYPE_CHECKING
+
+                                    if TYPE_CHECKING:  # pragma: no cover - static type checking only
+                                        from alpaca.trading.requests import (
                                             GetOrdersRequest as _GetOrdersRequest,
                                         )
+                                    import importlib
 
-                                        orders2 = client.get_orders(
-                                            filter=_GetOrdersRequest(status="open")
+                                    try:
+                                        req_mod = importlib.import_module(
+                                            "alpaca.trading.requests"
                                         )
+                                        _GetOrdersRequest = getattr(
+                                            req_mod, "GetOrdersRequest", None
+                                        )
+                                        if _GetOrdersRequest is not None:
+                                            orders2 = client.get_orders(
+                                                filter=_GetOrdersRequest(status="open")
+                                            )
+                                        else:
+                                            orders2 = client.get_orders()
                                     except Exception:
                                         orders2 = client.get_orders()
-                                    rows2 = []
+                                except Exception:
+                                    orders2 = client.get_orders()
+                                rows2 = []
                                     for o2 in orders2:
                                         try:
                                             rows2.append(

@@ -9,20 +9,20 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
-    from alpaca.trading.client import TradingClient # type: ignore
+    from alpaca.trading.client import TradingClient  # type: ignore
 
     try:
-        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce # type: ignore
+        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
     except ImportError:
-        from alpaca.trading.models.enums import OrderClass, OrderSide, TimeInForce # type: ignore
-    from alpaca.trading.requests import ( # type: ignore
+        from alpaca.trading.models.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
+    from alpaca.trading.requests import (  # type: ignore
         LimitOrderRequest,
         MarketOrderRequest,
         StopLossRequest,
         TakeProfitRequest,
         TrailingStopOrderRequest,
     )
-    from alpaca.trading.stream import TradingStream # type: ignore
+    from alpaca.trading.stream import TradingStream  # type: ignore
 except Exception:  # pragma: no cover
     TradingClient = None  # type: ignore
     OrderSide = OrderClass = TimeInForce = None  # type: ignore
@@ -105,9 +105,7 @@ def submit_order(
 
     if OrderSide is None:
         raise RuntimeError("Alpaca SDK is not installed or OrderSide is unavailable.")
-    side_enum = (
-        OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-    )  # type: ignore[attr-defined]
+    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL  # type: ignore[attr-defined]
     if TimeInForce is None:
         raise RuntimeError("Alpaca SDK is not installed or TimeInForce is unavailable.")
     tif = (
@@ -167,8 +165,7 @@ def submit_order(
     if log_callback:
         try:
             msg = (
-                f"Submitted {order_type} order {order.id} {symbol} "
-                f"qty={qty} side={side_enum.name}"
+                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
             )
             log_callback(msg)
         except Exception:
@@ -225,7 +222,7 @@ def submit_order_with_retry(
                 try:
                     msg = " ".join(
                         [
-                            f"submit retry {i+1}/{retries}: {symbol}",
+                            f"submit retry {i + 1}/{retries}: {symbol}",
                             f"qty={qty} error={e}",
                         ]
                     )
@@ -281,9 +278,7 @@ def subscribe_order_updates(client, log_callback=None):
     if TradingStream is None:
         raise RuntimeError("alpaca-py がインストールされていません。")
 
-    stream = TradingStream(
-        client.api_key, client.secret_key, paper=client.paper
-    )  # type: ignore[attr-defined]
+    stream = TradingStream(client.api_key, client.secret_key, paper=client.paper)  # type: ignore[attr-defined]
     stream_any: Any = stream  # type: ignore
 
     @stream_any.on_order_update

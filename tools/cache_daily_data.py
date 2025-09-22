@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict
 
 import pandas as pd
 
-from config.settings import get_settings
 from common.cache_manager import CacheManager
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def main(fetched: Dict[str, pd.DataFrame]) -> None:
+def main(fetched: dict[str, pd.DataFrame]) -> None:
     """EODHD等から取得した日次データをキャッシュへ書き込む."""
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
@@ -26,4 +25,3 @@ def main(fetched: Dict[str, pd.DataFrame]) -> None:
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
     main({})
-

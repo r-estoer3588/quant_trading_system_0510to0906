@@ -8,11 +8,12 @@ the first few symbols as a spot check.
 
 from __future__ import annotations
 
-from pathlib import Path
-from datetime import datetime
 import logging
+from pathlib import Path
+
 import pandas as pd
 
+from common.cache_manager import round_dataframe
 from config.settings import get_settings
 
 
@@ -96,7 +97,16 @@ def build_metrics_report() -> Path | None:
         out_dir = Path("results_csv")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_fp = out_dir / "daily_metrics_report.csv"
-    out_df.to_csv(out_fp, index=False)
+    try:
+        settings = get_settings(create_dirs=True)
+        round_dec = getattr(settings.cache, "round_decimals", None)
+    except Exception:
+        round_dec = None
+    try:
+        out_write = round_dataframe(out_df, round_dec)
+    except Exception:
+        out_write = out_df
+    out_write.to_csv(out_fp, index=False)
     logging.info("metrics report saved: %s", out_fp)
     return out_fp
 

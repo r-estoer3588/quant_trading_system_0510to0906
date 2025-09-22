@@ -25,22 +25,6 @@
   "python.testing.pytestArgs": ["tests"],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
-  "mcp.servers": {
-    "quant-trading-mcp": {
-      "command": "python",
-      "args": ["-m", "tools.mcp_server"],
-      "cwd": "${workspaceFolder}"
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest"],
-      "cwd": "${workspaceFolder}"
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"],
-      "cwd": "${workspaceFolder}"
-    }
   },
   "chat.mcp.autostart": "newAndOutdated"
 }

@@ -1,4 +1,3 @@
-import os
 from config.settings import get_settings
 
 
@@ -9,4 +8,3 @@ def test_get_settings_reads_yaml_and_env(tmp_path, monkeypatch):
     assert str(s.RESULTS_DIR).endswith("results")
     assert s.risk.max_positions >= 1
     assert s.logging.level in {"INFO", "DEBUG", "WARN", "ERROR"}
-

@@ -11,9 +11,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 import random
-from datetime import datetime, timezone
 
 
 def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | None = None) -> None:
@@ -50,4 +50,3 @@ def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | Non
         except Exception:
             # freezegun が無い/失敗してもテストは継続
             pass
-

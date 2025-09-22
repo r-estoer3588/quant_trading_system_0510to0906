@@ -1,23 +1,17 @@
 """System4 core logic (Long trend low-vol pullback)."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
 
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed
-
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import (
-    BatchSizeMonitor,
-    describe_dtype,
-    get_cached_data,
-    resolve_batch_size,
-)
+from common.utils import BatchSizeMonitor, describe_dtype, get_cached_data, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
@@ -91,9 +85,7 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy()
     x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
-    x["ATR40"] = AverageTrueRange(
-        x["High"], x["Low"], x["Close"], window=40
-    ).average_true_range()
+    x["ATR40"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=40).average_true_range()
     pct = x["Close"].pct_change()
     log_ret = pct.apply(lambda r: np.log1p(r) if pd.notnull(r) else r)
     x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
@@ -299,9 +291,7 @@ def prepare_data_vectorized_system4(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(
-                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
-                    )
+                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:

@@ -1,27 +1,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
 import logging
 
 try:  # pragma: no cover - fallback for older repos
     from common.progress import log_with_progress  # type: ignore
 except Exception:  # pragma: no cover
+
     def log_with_progress(*args, **kwargs):
         pass
+
 
 from common.utils import clamp01
 
 try:  # pragma: no cover - optional dependency
     from common.regime import MarketRegime  # type: ignore
 except Exception:  # pragma: no cover
+
     class MarketRegime:  # minimal fallback
-        def __init__(self, state: Dict | None = None):
+        def __init__(self, state: dict | None = None):
             self._state = state or {}
             self.severity = clamp01(self._state.get("severity", 0.0))
 
         def is_bearish(self) -> bool:
             return bool(self._state.get("bearish"))
+
 
 try:  # pragma: no cover - name compatibility
     from common.config_loader import load_yaml  # type: ignore
@@ -33,14 +36,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Signal:
-    system_id: int       # 1..7
+    system_id: int  # 1..7
     symbol: str
-    side: str            # 'BUY' or 'SELL'
-    strength: float      # raw strength, ~0..1
-    meta: Dict
+    side: str  # 'BUY' or 'SELL'
+    strength: float  # raw strength, ~0..1
+    meta: dict
 
 
-def _score_for_signal(sig: Signal, weights: Dict[str, float], regime: MarketRegime) -> float:
+def _score_for_signal(sig: Signal, weights: dict[str, float], regime: MarketRegime) -> float:
     meta = sig.meta or {}
     sid = int(sig.system_id)
     if sid == 1:
@@ -78,7 +81,7 @@ def _score_for_signal(sig: Signal, weights: Dict[str, float], regime: MarketRegi
     return clamp01(score)
 
 
-def merge_signals(all_signals: List[List[Signal]], portfolio_state, market_state) -> List[Dict]:
+def merge_signals(all_signals: list[list[Signal]], portfolio_state, market_state) -> list[dict]:
     """
     Build only an execution queue across systems.
     - Do not filter or block other systems' signals.
@@ -86,7 +89,7 @@ def merge_signals(all_signals: List[List[Signal]], portfolio_state, market_state
     - Within the same tier, order by score(desc).
     """
 
-    signals: List[Signal] = [s for arr in all_signals for s in arr]
+    signals: list[Signal] = [s for arr in all_signals for s in arr]
     rules = load_yaml("config/merge_rules.yaml") or {}
     priority_cfg = {int(k): int(v) for k, v in (rules.get("priority") or {}).items()}
     scoring_cfg = rules.get("scoring", {})
@@ -94,7 +97,7 @@ def merge_signals(all_signals: List[List[Signal]], portfolio_state, market_state
 
     log_with_progress("merge.start", total=len(signals))
 
-    scored: List[tuple[int, float, Signal]] = []
+    scored: list[tuple[int, float, Signal]] = []
     for sig in signals:
         log_with_progress(
             "merge.step",
@@ -108,7 +111,7 @@ def merge_signals(all_signals: List[List[Signal]], portfolio_state, market_state
 
     scored.sort(key=lambda x: (x[0], -x[1]))
 
-    queue: List[Dict] = []
+    queue: list[dict] = []
     for _, score, sig in scored:
         existing = (portfolio_state or {}).get(sig.symbol)
         sig_side = "LONG" if sig.side.upper() == "BUY" else "SHORT"
@@ -136,4 +139,3 @@ def merge_signals(all_signals: List[List[Signal]], portfolio_state, market_state
 
 
 __all__ = ["Signal", "merge_signals"]
-

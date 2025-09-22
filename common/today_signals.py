@@ -7,20 +7,37 @@ import math
 from pathlib import Path
 import time as _t
 from typing import Any, cast
-import numpy as np
 
+import numpy as np
 import pandas as pd
 
-from config.settings import get_settings
-from core.system5 import (
-    DEFAULT_ATR_PCT_THRESHOLD,
-    format_atr_pct_threshold_label,
-)
+try:
+    from common.cache_manager import round_dataframe  # type: ignore
+except Exception:  # pragma: no cover - tests may stub cache_manager
+
+    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+        if decimals is None:
+            return df
+        try:
+            decimals_int = int(decimals)
+        except Exception:
+            return df
+        try:
+            return df.copy().round(decimals_int)
+        except Exception:
+            try:
+                return df.round(decimals_int)
+            except Exception:
+                return df
+
+
 from common.utils_spy import (
     get_latest_nyse_trading_day,
     get_signal_target_trading_day,
     get_spy_with_indicators,
 )
+from config.settings import get_settings
+from core.system5 import DEFAULT_ATR_PCT_THRESHOLD, format_atr_pct_threshold_label
 from strategies.constants import (
     STOP_ATR_MULTIPLE_DEFAULT,
     STOP_ATR_MULTIPLE_SYSTEM1,
@@ -183,6 +200,7 @@ class SkipStats:
             return
         try:
             import os
+
             import pandas as _pd
         except Exception:
             return
@@ -209,7 +227,16 @@ class SkipStats:
             pass
         summary_path = os.path.join(out_dir, f"skip_summary_{system_name}.csv")
         try:
-            _pd.DataFrame(rows).to_csv(summary_path, index=False, encoding="utf-8")
+            try:
+                settings = get_settings(create_dirs=True)
+                round_dec = getattr(settings.cache, "round_decimals", None)
+            except Exception:
+                round_dec = None
+            try:
+                out_df = round_dataframe(_pd.DataFrame(rows), round_dec)
+            except Exception:
+                out_df = _pd.DataFrame(rows)
+            out_df.to_csv(summary_path, index=False, encoding="utf-8")
             if log_callback:
                 log_callback(f"📝 スキップ統計CSVを保存 {summary_path}")
         except Exception:
@@ -218,9 +245,16 @@ class SkipStats:
             return
         details_path = os.path.join(out_dir, f"skip_details_{system_name}.csv")
         try:
-            _pd.DataFrame(self.details).to_csv(
-                details_path, index=False, encoding="utf-8"
-            )
+            try:
+                settings = get_settings(create_dirs=True)
+                round_dec = getattr(settings.cache, "round_decimals", None)
+            except Exception:
+                round_dec = None
+            try:
+                out_df = round_dataframe(_pd.DataFrame(self.details), round_dec)
+            except Exception:
+                out_df = _pd.DataFrame(self.details)
+            out_df.to_csv(details_path, index=False, encoding="utf-8")
             if log_callback:
                 log_callback(f"📝 スキップ詳細CSVを保存 {details_path}")
         except Exception:
@@ -1462,6 +1496,7 @@ def _build_today_signals_dataframe(
             return None
         date_cache[symbol] = values
         return values
+
     for c in today_candidates:
         sym = c.get("symbol")
         if not sym:
@@ -1865,7 +1900,7 @@ def _score_from_candidate(
                 v = candidate.get(k)
                 if v is None:
                     return k, None, asc
-                if isinstance(v, (int, float, str)):
+                if isinstance(v, (int | float | str)):
                     try:
                         return k, float(v), asc
                     except Exception:

@@ -7,10 +7,10 @@ no webhook is configured (logs only).
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import logging
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import pandas as pd
 
@@ -51,7 +51,7 @@ def send_metrics_notification(
     fields: Sequence[Mapping[str, Any]] | None = None,
     summary_pairs: Sequence[tuple[Any, Any]] | None = None,
     extra_lines: Sequence[str] | None = None,
-    title: str = "\U0001F4C8 本日のメトリクス（system別）",
+    title: str = "\U0001f4c8 本日のメトリクス（system別）",
 ) -> None:
     """Send a metrics summary via the default notifier.
 
@@ -118,7 +118,7 @@ def notify_metrics() -> None:
         pass
     header = f"{'System':<7} {'pre':>4} {'cand':>4}"
     table = "\n".join([header] + lines)
-    title = "\U0001F4C8 本日のメトリクス（事前フィルタ / 候補数）"
+    title = "\U0001f4c8 本日のメトリクス（事前フィルタ / 候補数）"
     send_metrics_notification(
         day_str=day_str,
         fields=fields,

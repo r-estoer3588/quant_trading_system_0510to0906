@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, Tuple
-
 import logging
+import os
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -16,7 +15,7 @@ __all__ = ["save_equity_curve"]
 @dataclass(frozen=True)
 class _ImageResult:
     path: Path
-    url: Optional[str]
+    url: str | None
 
 
 def _ensure_dir(p: Path) -> None:
@@ -28,7 +27,7 @@ def save_equity_curve(
     initial_capital: float,
     system_name: str,
     out_dir: Path | str = Path("logs") / "images",
-) -> Tuple[str, Optional[str]]:
+) -> tuple[str, str | None]:
     """Save a simple equity curve PNG and return (path, url?).
 
     The curve is computed as initial_capital + cumulative sum of per-trade PnL
@@ -50,7 +49,9 @@ def save_equity_curve(
     df = df.sort_values("_t")
 
     if "pnl" not in df.columns:
-        logging.getLogger("equity_curve").warning("'pnl' column missing; using zeros for equity curve")
+        logging.getLogger("equity_curve").warning(
+            "'pnl' column missing; using zeros for equity curve"
+        )
     pnl = pd.to_numeric(df.get("pnl", 0), errors="coerce").fillna(0.0)
     equity = float(initial_capital) + pnl.cumsum()
 

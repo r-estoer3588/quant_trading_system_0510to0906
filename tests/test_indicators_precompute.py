@@ -9,9 +9,7 @@ import pandas as pd
 from common import indicators_precompute as ip
 
 
-def test_precompute_shared_indicators_enriches_frames_and_writes_cache(
-    tmp_path, monkeypatch
-):
+def test_precompute_shared_indicators_enriches_frames_and_writes_cache(tmp_path, monkeypatch):
     """precompute_shared_indicators should add common factors and persist them."""
 
     settings_stub = SimpleNamespace(outputs=SimpleNamespace(signals_dir=tmp_path))
@@ -77,9 +75,7 @@ def test_precompute_shared_indicators_enriches_frames_and_writes_cache(
 
     assert "UpTwoDays" in enriched.columns
     assert "TwoDayUp" in enriched.columns
-    pd.testing.assert_series_equal(
-        enriched["UpTwoDays"], enriched["TwoDayUp"], check_names=False
-    )
+    pd.testing.assert_series_equal(enriched["UpTwoDays"], enriched["TwoDayUp"], check_names=False)
     assert enriched["UpTwoDays"].dtype == bool
 
     ratio = enriched["ATR_Ratio"].iloc[-1]

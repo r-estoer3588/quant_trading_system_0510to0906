@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
-from typing import Dict, List, Tuple, Optional, Callable
-
-import pandas as pd
-
+import time
 
 # ---------------
 # 型と設定
 # ---------------
 from typing import Protocol
+
+import pandas as pd
 
 
 class StrategyProtocol(Protocol):
@@ -36,11 +35,11 @@ class SystemState:
     name: str
     side: str  # "long" | "short"
     strategy: StrategyProtocol
-    prepared: Dict[str, pd.DataFrame]
-    candidates_by_date: Dict[pd.Timestamp, List[dict]]
+    prepared: dict[str, pd.DataFrame]
+    candidates_by_date: dict[pd.Timestamp, list[dict]]
 
 
-AllocationMap = Dict[str, float]
+AllocationMap = dict[str, float]
 
 
 DEFAULT_ALLOCATIONS: AllocationMap = {
@@ -60,14 +59,14 @@ def _get_side(system_name: str) -> str:
     return "short" if system_name in {"System2", "System6", "System7"} else "long"
 
 
-def _union_signal_dates(states: List[SystemState]) -> List[pd.Timestamp]:
+def _union_signal_dates(states: list[SystemState]) -> list[pd.Timestamp]:
     all_dates = set()
     for st in states:
         all_dates.update(pd.to_datetime(list(st.candidates_by_date.keys())).tolist())
     return sorted(pd.to_datetime(list(all_dates)))
 
 
-def _symbol_open_in_active(active: List[dict], symbol: str) -> bool:
+def _symbol_open_in_active(active: list[dict], symbol: str) -> bool:
     return any(p.get("symbol") == symbol for p in active)
 
 
@@ -224,15 +223,15 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
 
 
 def run_integrated_backtest(
-    system_states: List[SystemState],
+    system_states: list[SystemState],
     initial_capital: float,
-    allocations: Optional[AllocationMap] = None,
+    allocations: AllocationMap | None = None,
     *,
     long_share: float = 0.5,
     short_share: float = 0.5,
     allow_gross_leverage: bool = False,
-    on_progress: Optional[Callable[[int, int, float], None]] = None,
-) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    on_progress: Callable[[int, int, float], None] | None = None,
+) -> tuple[pd.DataFrame, dict[str, int]]:
     """
     統合バックテスト本体。
     - system_states: 各Systemの prepared/candidates を含む状態
@@ -264,10 +263,10 @@ def run_integrated_backtest(
     long_capital = total * (long_share / (long_share + short_share))
     short_capital = total * (short_share / (long_share + short_share))
 
-    results: List[dict] = []
-    active_positions: List[dict] = []  # {symbol, system, side, exit_date, pnl, cost}
-    system_used_value: Dict[str, float] = {s.name: 0.0 for s in system_states}
-    bucket_used_value: Dict[str, float] = {"long": 0.0, "short": 0.0}
+    results: list[dict] = []
+    active_positions: list[dict] = []  # {symbol, system, side, exit_date, pnl, cost}
+    system_used_value: dict[str, float] = {s.name: 0.0 for s in system_states}
+    bucket_used_value: dict[str, float] = {"long": 0.0, "short": 0.0}
 
     # 全営業日の集合（シグナルのある日ベース）
     all_dates = _union_signal_dates(system_states)
@@ -275,7 +274,6 @@ def run_integrated_backtest(
 
     start_time = time.time()
     for i, current_date in enumerate(all_dates, 1):
-        day_new_positions = 0
         # UI側のプログレスバー更新（あれば）
         try:
             if on_progress is not None:
@@ -433,17 +431,17 @@ def run_integrated_backtest(
 
 
 def build_system_states(
-    symbols: List[str],
-    spy_df: Optional[pd.DataFrame] = None,
+    symbols: list[str],
+    spy_df: pd.DataFrame | None = None,
     *,
     ui_bridge_prepare=None,
     ui_manager=None,
-) -> List[SystemState]:
+) -> list[SystemState]:
     """
     各Systemのデータ準備＋候補抽出を実行して SystemState のリストを返す。
     - ui_bridge_prepare: common.ui_bridge.prepare_backtest_data_ui を渡すとUI連携付きで進捗表示可能
     """
-    states: List[SystemState] = []
+    states: list[SystemState] = []
 
     logging.getLogger(__name__).info("[integrated] preparing per-system data...")
     for i in range(1, 8):
@@ -471,9 +469,7 @@ def build_system_states(
             raw = fetch_data(syms)
             prepared = strat.prepare_data(raw)
             try:
-                cands, _ = strat.generate_candidates(
-                    prepared, market_df=spy_df
-                )  # type: ignore[arg-type]
+                cands, _ = strat.generate_candidates(prepared, market_df=spy_df)  # type: ignore[arg-type]
             except Exception:
                 cands = strat.generate_candidates(prepared)  # type: ignore[assignment]
         else:
@@ -495,7 +491,7 @@ def build_system_states(
         # サマリーをCLIに出力
         try:
             total_prepared = len(prepared or {})
-            total_cand_dates = len((cands or {}))
+            total_cand_dates = len(cands or {})
             total_cands = int(sum(len(v) for v in (cands or {}).values()))
             logging.getLogger(__name__).info(
                 "[prepare.done] %s | prepared=%d | cand_dates=%d | candidates=%d",

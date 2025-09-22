@@ -15,9 +15,7 @@ class _DummyClient:
         self._mapping = mapping
         self.calls: list[tuple[str, str | None]] = []
 
-    def get_activities(
-        self, symbol: str, activity_types: str | None = None
-    ) -> list[_Activity]:
+    def get_activities(self, symbol: str, activity_types: str | None = None) -> list[_Activity]:
         self.calls.append((symbol, activity_types))
         if symbol not in self._mapping:
             return []
@@ -25,9 +23,7 @@ class _DummyClient:
 
 
 class _FailClient:
-    def get_activities(
-        self, symbol: str, activity_types: str | None = None
-    ) -> list[_Activity]:
+    def get_activities(self, symbol: str, activity_types: str | None = None) -> list[_Activity]:
         raise RuntimeError("boom")
 
 

@@ -1,8 +1,8 @@
 # common/utils.py
-import logging
-import re
 from collections.abc import Callable, Hashable
+import logging
 from pathlib import Path
+import re
 from typing import Any
 
 import pandas as pd
@@ -174,11 +174,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             if (
                 non_null > best_non_null
                 or (non_null == best_non_null and priority > best_priority)
-                or (
-                    non_null == best_non_null
-                    and priority == best_priority
-                    and idx < best_idx
-                )
+                or (non_null == best_non_null and priority == best_priority and idx < best_idx)
             ):
                 best_idx = idx
                 best_series = series.copy()
@@ -275,9 +271,7 @@ def drop_duplicate_columns(
         duplicate_positions.setdefault(label, []).append(pos)
 
     duplicates = {
-        label: positions
-        for label, positions in duplicate_positions.items()
-        if len(positions) > 1
+        label: positions for label, positions in duplicate_positions.items() if len(positions) > 1
     }
     if not duplicates:
         return df
@@ -303,10 +297,7 @@ def drop_duplicate_columns(
             keep_mask[col_pos] = idx == best_pos
 
         counts_repr = ", ".join(str(count) for count in non_null_counts)
-        detail = (
-            f"{label!r}×{len(positions)} "
-            f"(非NaN数: [{counts_repr}] → keep #{best_pos + 1})"
-        )
+        detail = f"{label!r}×{len(positions)} (非NaN数: [{counts_repr}] → keep #{best_pos + 1})"
         log_details.append(detail)
 
     try:
@@ -315,10 +306,7 @@ def drop_duplicate_columns(
         deduped = df.loc[:, ~df.columns.duplicated()].copy()
 
     message_prefix = f"{context}: " if context else ""
-    message = (
-        f"⚠️ {message_prefix}重複カラムを検出し解消しました -> "
-        f"{', '.join(log_details)}"
-    )
+    message = f"⚠️ {message_prefix}重複カラムを検出し解消しました -> {', '.join(log_details)}"
 
     if log_callback is not None:
         try:

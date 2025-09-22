@@ -4,12 +4,8 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from core.today_pipeline import (
-    BasicDataLoadResult,
-    MissingDetail,
-    load_basic_data_phase,
-)
 from common.cache_manager import CacheManager, save_base_cache
+from core.today_pipeline import BasicDataLoadResult, MissingDetail, load_basic_data_phase
 
 
 def _make_settings(tmp_path) -> SimpleNamespace:

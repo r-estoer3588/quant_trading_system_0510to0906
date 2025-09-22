@@ -12,10 +12,9 @@
 
 from __future__ import annotations
 
-import re
 import argparse
 from pathlib import Path
-from typing import List
+import re
 
 # 対象となる st.* ウィジェット関数名（最初の文字列引数を翻訳する想定）
 WIDGETS = [
@@ -40,24 +39,26 @@ WIDGETS = [
 # 正規表現: st.<widget>( <STRING_LITERAL>
 # - グループ1: st.<widget>(
 # - グループ2: 文字列リテラル（"..." / '...' / triple-quote を含む）
-STR_PAT = r'([ \t]*st\.({widgets})\()\s*([urbfURBF]*("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"[^"\\\n]*(?:\\.[^"\\\n]*)*"|\'[^\'\\\n]*(?:\\.[^\'\\\n]*)*\'))'.format(
-    widgets="|".join(WIDGETS)
-)
+STR_PAT = (
+    r"([ \t]*st\.({widgets})\()\s*"
+    r"([urbfURBF]*("
+    r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|'
+    r'"[^"\\\n]*(?:\\.[^"\\\n]*)*"|\'[^\'\\\n]*(?:\\.[^\'\\\n]*)*\''
+    r"))"
+).format(widgets="|".join(WIDGETS))
 
 RE = re.compile(STR_PAT, flags=re.MULTILINE)
 
 IMPORT_LINE = "from common.i18n import tr\n"
 
 
-def find_py_files(base: Path) -> List[Path]:
+def find_py_files(base: Path) -> list[Path]:
     return [
-        p
-        for p in base.rglob("*.py")
-        if ".venv" not in str(p) and "site-packages" not in str(p)
+        p for p in base.rglob("*.py") if ".venv" not in str(p) and "site-packages" not in str(p)
     ]
 
 
-def ensure_import(lines: List[str]) -> List[str]:
+def ensure_import(lines: list[str]) -> list[str]:
     joined = "".join(lines[:40])  # 先頭付近だけ確認
     if "from common.i18n import tr" in joined or "import common.i18n" in joined:
         return lines
@@ -77,7 +78,6 @@ def transform_content(text: str) -> tuple[str, int]:
 
     def repl(m: re.Match) -> str:
         prefix = m.group(1)  # includes leading whitespace + st.widget(
-        widget = m.group(2)
         string_lit = m.group(4)
         # すでに tr(...) に包まれている場合は無視
         before = m.group(0)
@@ -122,12 +122,8 @@ def process_file(path: Path, apply: bool = False) -> int:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--path", "-p", required=True, help="target directory (relative to repo root)"
-    )
-    p.add_argument(
-        "--apply", action="store_true", help="apply changes (otherwise dry-run)"
-    )
+    p.add_argument("--path", "-p", required=True, help="target directory (relative to repo root)")
+    p.add_argument("--apply", action="store_true", help="apply changes (otherwise dry-run)")
     args = p.parse_args()
 
     base = Path(args.path)

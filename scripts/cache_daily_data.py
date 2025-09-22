@@ -19,7 +19,7 @@ import pandas as pd
 import requests
 
 if TYPE_CHECKING:
-    from scripts.update_from_bulk_last_day import BulkUpdateStats
+    pass
 
 
 def _migrate_root_csv_to_full() -> None:
@@ -68,6 +68,27 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from indicators_common import add_indicators  # noqa: E402
 
 from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+
+try:
+    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+except ImportError:  # pragma: no cover - tests may stub cache_manager
+
+    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+        if decimals is None:
+            return df
+        try:
+            decimals_int = int(decimals)
+        except Exception:
+            return df
+        try:
+            return df.copy().round(decimals_int)
+        except Exception:
+            try:
+                return df.round(decimals_int)
+            except Exception:
+                return df
+
+
 from common.symbol_universe import build_symbol_universe  # noqa: E402
 from common.symbols_manifest import save_symbol_manifest  # noqa: E402
 
@@ -76,8 +97,26 @@ try:  # Local import guard for optional bulk updater
 except Exception:  # pragma: no cover - unavailable in constrained envs
     run_bulk_update = None
 
+
+def _attempt_bulk_refresh(symbols: list[str] | None):
+    """Try to run the optional bulk updater if available.
+
+    Returns whatever the bulk updater returns, or None if unavailable or on
+    error. This mirrors the previous behavior expected by callers.
+    """
+    if run_bulk_update is None:
+        return None
+    try:
+        # run_bulk_update expects a CacheManager instance as first arg
+        # and accepts `universe=` for filtering by symbols
+        return run_bulk_update(cm, universe=symbols, fetch_universe=False)
+    except Exception:
+        return None
+
+
 BASE_SUBDIR_NAME = "base"
-ROUND_DECIMALS: int | None = None
+
+CACHE_ROUND_DECIMALS: int | None = None
 
 # -----------------------------
 # 設定/環境
@@ -95,6 +134,7 @@ try:
     DATA_CACHE_DIR = Path(_settings.DATA_CACHE_DIR)
     LEGACY_RECENT_DIR = Path(_settings.DATA_CACHE_RECENT_DIR)
     BASE_CACHE_DIR = Path(_settings.DATA_CACHE_DIR) / BASE_SUBDIR_NAME
+    CACHE_ROUND_DECIMALS = getattr(_settings.cache, "round_decimals", None)
     THREADS_DEFAULT = int(_settings.THREADS_DEFAULT)
     REQUEST_TIMEOUT = int(_settings.REQUEST_TIMEOUT)
     DOWNLOAD_RETRIES = int(_settings.DOWNLOAD_RETRIES)
@@ -107,9 +147,7 @@ except Exception:
     LOG_DIR = Path(os.path.dirname(__file__)) / "logs"
     DATA_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache"
     LEGACY_RECENT_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache_recent"
-    BASE_CACHE_DIR = (
-        Path(os.path.dirname(__file__)) / ".." / "data_cache" / BASE_SUBDIR_NAME
-    )
+    BASE_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache" / BASE_SUBDIR_NAME
     THREADS_DEFAULT = int(os.getenv("THREADS_DEFAULT", 8))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 10))
     DOWNLOAD_RETRIES = int(os.getenv("DOWNLOAD_RETRIES", 3))
@@ -313,7 +351,7 @@ def get_with_retry(url: str, retries: int = DOWNLOAD_RETRIES, delay: float = 2.0
                 return r
             logging.warning(f"ステータスコード {r.status_code} - {url}")
         except Exception as e:
-            logging.warning(f"試行{i+1}回目のエラー: {e}")
+            logging.warning(f"試行{i + 1}回目のエラー: {e}")
         time.sleep(delay)
     return None
 
@@ -382,26 +420,6 @@ def safe_filename(symbol: str) -> str:
     return symbol
 
 
-def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
-    """数値列のみ小数点以下 ``decimals`` 桁に丸めた DataFrame を返す。"""
-
-    if decimals is None:
-        return df
-    try:
-        dec = int(decimals)
-    except (TypeError, ValueError):
-        return df
-    numeric = df.select_dtypes(include="number")
-    if numeric.empty:
-        return df
-    rounded = df.copy()
-    try:
-        rounded[numeric.columns] = numeric.round(dec)
-    except Exception:
-        return df
-    return rounded
-
-
 def cache_single(
     symbol: str,
     output_dir: Path,
@@ -418,6 +436,8 @@ def cache_single(
         output_dir = Path(output_dir)
     if base_dir is not None and not isinstance(base_dir, Path):
         base_dir = Path(base_dir)
+
+    # 既に当日保存済みであれば base が無ければ作成して終了
     if filepath.exists():
         mod_time = datetime.fromtimestamp(filepath.stat().st_mtime)
         if mod_time.date() == datetime.today().date():
@@ -435,12 +455,10 @@ def cache_single(
                 if base_df is not None and not base_df.empty:
                     if base_dir is not None:
                         base_dir.mkdir(parents=True, exist_ok=True)
-                    base_existing = base_df.reset_index()
-                    base_existing = _round_numeric_columns(
-                        base_existing, ROUND_DECIMALS
-                    )
-                    base_existing.to_csv(basepath, index=False)
+                    base_reset = round_dataframe(base_df.reset_index(), CACHE_ROUND_DECIMALS)
+                    base_reset.to_csv(basepath, index=False)
             return (f"{symbol}: already cached", False, True)
+
     df = get_eodhd_data(symbol)
     if df is not None and not df.empty:
         base_saved = False
@@ -449,7 +467,7 @@ def cache_single(
         except Exception:
             full_df = add_indicators(df)
         df_reset = full_df.reset_index().rename(columns=str.lower)
-        df_reset = _round_numeric_columns(df_reset, ROUND_DECIMALS)
+        df_reset = round_dataframe(df_reset, CACHE_ROUND_DECIMALS)
         df_reset.to_csv(filepath, index=False)
 
         if basepath:
@@ -461,8 +479,7 @@ def cache_single(
                 logging.warning("%s: base計算に失敗 (%s)", symbol, exc)
                 base_df = None
             if base_df is not None and not base_df.empty:
-                base_reset = base_df.reset_index()
-                base_reset = _round_numeric_columns(base_reset, ROUND_DECIMALS)
+                base_reset = round_dataframe(base_df.reset_index(), CACHE_ROUND_DECIMALS)
                 base_reset.to_csv(basepath, index=False)
                 base_saved = True
         msg_suffix = " (base saved)" if base_saved else ""
@@ -552,6 +569,16 @@ def _cli_main() -> None:
         default=None,
         help="ThreadPoolExecutor のワーカー数を上書きする",
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="強制的に full から再取得 (bulk をスキップしない)",
+    )
+    parser.add_argument(
+        "--skip-bulk",
+        action="store_true",
+        help="bulk 更新をスキップして API から取得する",
+    )
     args = parser.parse_args()
 
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
@@ -566,30 +593,36 @@ def _cli_main() -> None:
     except Exception as exc:  # pragma: no cover - logging only
         logging.warning("シンボルマニフェストの保存に失敗: %s", exc)
 
+    # 全体件数をキャッシュしておく（チャンク処理や表示で使用）
+    total_symbols = len(symbols)
+
     fallback_to_full = bool(args.full)
     if not args.full and not args.skip_bulk:
         stats = _attempt_bulk_refresh(symbols)
         if stats is None:
-            print("⚠️ Bulk 更新が実行できなかったため API 再取得にフォールバックします。", flush=True)
+            print(
+                "⚠️ Bulk 更新が実行できなかったため API 再取得にフォールバックします。",
+                flush=True,
+            )
             fallback_to_full = True
         elif not stats.has_payload:
-            print("ℹ️ Bulk API の応答が空だったため追加更新はありませんでした。", flush=True)
+            print(
+                "ℹ️ Bulk API の応答が空だったため追加更新はありませんでした。",
+                flush=True,
+            )
             return
         elif stats.filtered_rows == 0:
             print(
-                "⚠️ Bulk データに処理対象銘柄が存在しなかったため API 再取得にフォールバックします。",
+                "⚠️ Bulk データに処理対象銘柄が存在しなかったため "
+                "API 再取得にフォールバックします。",
                 flush=True,
             )
             fallback_to_full = True
         else:
             print(
                 (
-                    "✅ Bulk更新完了: 対象={targets} 銘柄 / 更新={updated} 銘柄 "
-                    "(フィルタ後 {rows} 行)"
-                ).format(
-                    targets=stats.processed_symbols,
-                    updated=stats.updated_symbols,
-                    rows=stats.filtered_rows,
+                    f"✅ Bulk更新完了: 対象={stats.processed_symbols} 銘柄 / "
+                    f"更新={stats.updated_symbols} 銘柄 (フィルタ後 {stats.filtered_rows} 行)"
                 ),
                 flush=True,
             )
@@ -636,9 +669,7 @@ def _cli_main() -> None:
             f"取得します（チャンク {chunk_index}、サイズ {chunk_size}）。"
         )
     else:
-        print(
-            f"{total_symbols}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
-        )
+        print(f"{total_symbols}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
 
     cache_data(
         symbols,

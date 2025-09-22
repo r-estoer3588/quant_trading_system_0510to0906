@@ -1,7 +1,8 @@
-import os
-from typing import Any, Optional, Tuple
-from dotenv import load_dotenv
 import importlib
+import os
+from typing import Any
+
+from dotenv import load_dotenv
 
 # .env を読み込む
 load_dotenv()
@@ -12,7 +13,7 @@ BASE_URL = os.getenv("ALPACA_API_BASE_URL")
 USE_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 
 
-def _load_alpaca_modules() -> Optional[Tuple[Any, Any, Any]]:
+def _load_alpaca_modules() -> tuple[Any, Any, Any] | None:
     """alpaca-py を動的に読み込む。未導入なら None を返す。"""
     try:
         trading_client_mod = importlib.import_module("alpaca.trading.client")
@@ -33,9 +34,9 @@ def main() -> None:
     trading_client_mod, trading_requests_mod, trading_enums_mod = mods
 
     # クラス参照を取得
-    TradingClient = getattr(trading_client_mod, "TradingClient")
-    GetOrdersRequest = getattr(trading_requests_mod, "GetOrdersRequest")
-    QueryOrderStatus = getattr(trading_enums_mod, "QueryOrderStatus")
+    TradingClient = trading_client_mod.TradingClient
+    GetOrdersRequest = trading_requests_mod.GetOrdersRequest
+    QueryOrderStatus = trading_enums_mod.QueryOrderStatus
 
     # TradingClient を初期化
     trading_client = TradingClient(API_KEY, API_SECRET, paper=USE_PAPER)
@@ -63,18 +64,14 @@ def main() -> None:
                     f"評価額: {position.get('market_value')}"
                 )
                 print(
-                    (
-                        f"  平均取得価格: {position.get('avg_entry_price')}, "
-                        f"損益: {position.get('unrealized_pl')}, "
-                        f"損益率: {float(position.get('unrealized_plpc', 0)) * 100:.2f}%"
-                    )
+                    f"  平均取得価格: {position.get('avg_entry_price')}, "
+                    f"損益: {position.get('unrealized_pl')}, "
+                    f"損益率: {float(position.get('unrealized_plpc', 0)) * 100:.2f}%"
                 )
             elif hasattr(position, "symbol") and not isinstance(position, str):
                 print(
-                    (
-                        f"シンボル: {position.symbol}, 数量: {position.qty}, "
-                        f"現在価格: {position.current_price}, 評価額: {position.market_value}"
-                    )
+                    f"シンボル: {position.symbol}, 数量: {position.qty}, "
+                    f"現在価格: {position.current_price}, 評価額: {position.market_value}"
                 )
                 unrealized_plpc_percent = (
                     position.unrealized_plpc * 100

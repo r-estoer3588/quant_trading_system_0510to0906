@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
-
 
 CRITICAL_PATHS = [
     Path("common/ui_components.py"),
@@ -34,7 +33,7 @@ def main() -> int:
         "保護対象ファイルへの変更が検出されました:\n  - "
         + "\n  - ".join(touched)
         + "\n\n意図した変更であれば、環境変数を付けて実行してください:\n"
-        + "  ALLOW_CRITICAL_CHANGES=1 git commit -m \"...\"\n\n"
+        + '  ALLOW_CRITICAL_CHANGES=1 git commit -m "..."\n\n'
         + "一時的にガードを解除する場合のみ上記を使用し、通常は PR とレビューで変更してください。\n"
     )
     sys.stderr.write(msg)
@@ -43,4 +42,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

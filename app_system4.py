@@ -1,22 +1,22 @@
 from pathlib import Path
-from typing import Any, cast
 import time
+from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
 from common.cache_utils import save_prepared_data_cache
-from common.price_chart import save_price_chart
 from common.i18n import language_selector, load_translations_from_dir, tr
+from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
 from common.performance_summary import summarize as summarize_perf
+from common.price_chart import save_price_chart
 from common.ui_components import (
     run_backtest_app,
     save_signal_and_trade_logs,
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-from common.logging_utils import log_with_progress
 import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_data_cached
 from strategies.system4_strategy import System4Strategy
@@ -46,6 +46,7 @@ def display_rsi4_ranking(
     progress = st.progress(0)
     log_area = st.empty()
     start = time.time()
+
     # progress コールバック（float 0.0〜1.0 を 0〜100 に変換して None を返す）
     def _progress_update(v: float) -> None:
         try:
@@ -54,9 +55,11 @@ def display_rsi4_ranking(
             v = 0.0
         v = max(0.0, min(1.0, v))
         progress.progress(int(round(v * 100)))
+
     # log コールバック（DeltaGenerator を返さず None を返す）
     def _log_update(msg: str) -> None:
         log_area.write(msg)
+
     for i, (date, cands) in enumerate(candidates_by_date.items(), 1):
         for c in cands:
             rows.append(
@@ -114,9 +117,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         return
 
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -168,9 +169,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, str | int] = {
@@ -207,9 +206,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
                             lvl0 = ye.index.get_level_values(0)
                             years = pd.to_datetime(lvl0).year
                         except Exception:
-                            years = pd.Index(
-                                [getattr(i, "year", None) for i in ye.index]
-                            )
+                            years = pd.Index([getattr(i, "year", None) for i in ye.index])
                     else:
                         years = pd.Index([getattr(i, "year", None) for i in ye.index])
             yearly_df = pd.DataFrame(
@@ -236,9 +233,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = (
-                    results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
-                )
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

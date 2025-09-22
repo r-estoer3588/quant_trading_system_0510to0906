@@ -5,16 +5,16 @@
 - 候補生成: ADX7 降順で top_n を日別抽出
 """
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import ADXIndicator
 from ta.volatility import AverageTrueRange
 
-from common.utils import get_cached_data, resolve_batch_size, BatchSizeMonitor
+from common.utils import BatchSizeMonitor, get_cached_data, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
 

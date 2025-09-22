@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Mapping
+from collections.abc import Mapping
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -50,12 +51,12 @@ class SchedulerJobModel(BaseModel):
 
 class SchedulerModel(BaseModel):
     timezone: str = "America/New_York"
-    jobs: List[SchedulerJobModel] = []
+    jobs: list[SchedulerJobModel] = []
 
 
 class UIModel(BaseModel):
     default_capital: int = 100000
-    auto_tickers: List[str] = []
+    auto_tickers: list[str] = []
     debug_mode: bool = False
     show_download_buttons: bool = True
 

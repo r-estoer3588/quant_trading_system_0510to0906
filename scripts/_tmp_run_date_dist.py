@@ -1,5 +1,9 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
+from common.cache_manager import round_dataframe
+from config.settings import get_settings
 
 p = Path("C:/Users/stair/Downloads/rolling_cache_missing_20250921_155609.csv")
 df = pd.read_csv(p)
@@ -24,11 +28,17 @@ if "Date" in df.columns:
 # write outputs
 outdir = Path("data_cache/rolling/_missing_reports")
 outdir.mkdir(parents=True, exist_ok=True)
-(
-    top500.reset_index()
-    .rename(columns={"index": sym, sym: "count"})
-    .to_csv(outdir / "top500_missing.csv", index=False)
-)
+out_df = top500.reset_index().rename(columns={"index": sym, sym: "count"})
+try:
+    settings = get_settings(create_dirs=True)
+    round_dec = getattr(settings.cache, "round_decimals", None)
+except Exception:
+    round_dec = None
+try:
+    out_df = round_dataframe(out_df, round_dec)
+except Exception:
+    pass
+out_df.to_csv(outdir / "top500_missing.csv", index=False)
 
 with open(outdir / "distro_top_dates.txt", "w", encoding="utf-8") as f:
     if "Date" in df.columns:

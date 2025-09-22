@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 from datetime import time as dtime
+import os
 from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
@@ -12,9 +12,9 @@ import pandas_market_calendars as mcal
 import streamlit as st
 from ta.trend import SMAIndicator
 
+from common.cache_manager import round_dataframe
 from common.i18n import tr
 from config.settings import get_settings
-
 
 _NY_TIMEZONE = ZoneInfo("America/New_York")
 
@@ -150,9 +150,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
             path = p
             break
     if path is None or not path.exists():
-        _st_emit(
-            "error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)")
-        )
+        _st_emit("error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)"))
         return None
 
     # backtest 時は full_backup の存在を必須とし、無ければエラーメッセージを表示
@@ -175,9 +173,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
 
         # 直近情報の表示（UIが無い場面では無視される）
         try:
-            _st_emit(
-                "write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date()))
-            )
+            _st_emit("write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date())))
         except Exception:
             pass
 
@@ -185,9 +181,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         today = pd.Timestamp.today().normalize()
         latest_trading_day = get_latest_nyse_trading_day(today)
         try:
-            _st_emit(
-                "write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date()))
-            )
+            _st_emit("write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date())))
         except Exception:
             pass
 
@@ -293,9 +287,7 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
         tzinfo = getattr(raw, "tzinfo", None)
         if tzinfo is None:
             try:
-                localized = raw.tz_localize(
-                    "America/New_York", ambiguous="NaT", nonexistent="NaT"
-                )
+                localized = raw.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
                 if pd.isna(localized):  # type: ignore[truthy-bool]
                     raise ValueError
                 return localized
@@ -423,13 +415,31 @@ def _persist_spy_with_indicators(spy_df: pd.DataFrame) -> None:
                     df_to_save["Date"], errors="coerce"
                 ).dt.normalize()
                 df_to_save = df_to_save.dropna(subset=["Date"]).sort_values("Date")
-                df_to_save.to_csv(path, index=False)
+                try:
+                    settings = get_settings(create_dirs=True)
+                    round_dec = getattr(settings.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df_to_save, round_dec)
+                except Exception:
+                    out_df = df_to_save
+                out_df.to_csv(path, index=False)
             else:
                 idx = pd.to_datetime(df_to_save.index, errors="coerce").normalize()
                 df_to_save = df_to_save.loc[~idx.isna()].copy()
                 df_to_save.index = pd.Index(idx[~idx.isna()])
                 df_to_save.sort_index(inplace=True)
-                df_to_save.to_csv(path, index_label="Date")
+                try:
+                    settings = get_settings(create_dirs=True)
+                    round_dec = getattr(settings.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df_to_save, round_dec)
+                except Exception:
+                    out_df = df_to_save
+                out_df.to_csv(path, index_label="Date")
         except Exception:
             continue
         else:

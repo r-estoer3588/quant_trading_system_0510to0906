@@ -1,16 +1,17 @@
 import os
 import time
-from typing import Dict
 
 import pandas as pd
 import streamlit as st
 
+from common.cache_manager import round_dataframe
 import common.i18n as i18n
 from common.utils import safe_filename
+from config.settings import get_settings
 
 
 def save_prepared_data_cache(
-    data_dict: Dict[str, pd.DataFrame],
+    data_dict: dict[str, pd.DataFrame],
     system_name: str = "SystemX",
     base_dir: str = "data_cache",
     batch: int = 50,
@@ -32,7 +33,12 @@ def save_prepared_data_cache(
     dest_dir = base_dir
     os.makedirs(dest_dir, exist_ok=True)
 
-    st.info(i18n.tr("💾 {system_name} 加工済データのキャッシュ保存を開始します...", system_name=system_name))
+    st.info(
+        i18n.tr(
+            "💾 {system_name} 加工済データのキャッシュ保存を開始します...",
+            system_name=system_name,
+        )
+    )
     total = len(data_dict)
     progress_bar = st.progress(0)
     log_area = st.empty()
@@ -84,7 +90,9 @@ def save_prepared_data_cache(
             new_latest = _latest_date_from_df(df)
             old_latest = _latest_date_in_csv(path)
             should_skip = (
-                old_latest is not None and new_latest is not None and old_latest >= new_latest
+                old_latest is not None
+                and new_latest is not None
+                and old_latest >= new_latest
             )
         except Exception:
             should_skip = False
@@ -93,7 +101,16 @@ def save_prepared_data_cache(
             skipped += 1
         else:
             try:
-                df.to_csv(path)
+                try:
+                    settings = get_settings(create_dirs=True)
+                    round_dec = getattr(settings.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df, round_dec)
+                except Exception:
+                    out_df = df
+                out_df.to_csv(path)
                 saved += 1
             except Exception as e:
                 log_area.error(f"❌ {sym}: 保存に失敗しました - {e}")
@@ -119,7 +136,10 @@ def save_prepared_data_cache(
     progress_bar.empty()
     st.success(
         i18n.tr(
-            "✅ {system_name} キャッシュ保存完了: 保存 {saved} 件 / スキップ {skipped} 件 (合計 {total} 件) → {dest_dir}",
+            (
+                "✅ {system_name} キャッシュ保存完了: 保存 {saved} 件 / "
+                "スキップ {skipped} 件 (合計 {total} 件) → {dest_dir}"
+            ),
             system_name=system_name,
             saved=saved,
             skipped=skipped,
@@ -127,4 +147,3 @@ def save_prepared_data_cache(
             dest_dir=dest_dir,
         )
     )
-

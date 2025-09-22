@@ -9,11 +9,12 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 
+from common.cache_manager import round_dataframe
 from common.data_loader import load_price
 from common.indicators_precompute import precompute_shared_indicators
 from common.universe import load_universe_file
@@ -22,9 +23,7 @@ from config.settings import get_settings
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Precompute shared indicators (ATR/SMA/RSI 等) and export them to CSV"
-        )
+        description=("Precompute shared indicators (ATR/SMA/RSI 等) and export them to CSV")
     )
     parser.add_argument(
         "--symbols",
@@ -40,8 +39,7 @@ def _parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         help=(
-            "CSV を保存するディレクトリ。未指定の場合は "
-            "<signals_dir>/shared_indicators を利用。"
+            "CSV を保存するディレクトリ。未指定の場合は <signals_dir>/shared_indicators を利用。"
         ),
     )
     parser.add_argument(
@@ -194,23 +192,37 @@ def main() -> None:
         if prepared.empty:
             continue
         prepared.insert(0, "Symbol", sym)
-        prepared.to_csv(output_dir / f"{sym}.csv", index=False)
+        try:
+            round_dec = getattr(settings.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+        try:
+            prepared_to_write = round_dataframe(prepared, round_dec)
+        except Exception:
+            prepared_to_write = prepared
+        prepared_to_write.to_csv(output_dir / f"{sym}.csv", index=False)
         combined_frames.append(prepared)
         written += 1
 
     if args.combined_output and combined_frames:
         combined_path = Path(args.combined_output)
         combined_path.parent.mkdir(parents=True, exist_ok=True)
-        pd.concat(combined_frames, ignore_index=True).to_csv(combined_path, index=False)
+        try:
+            round_dec = getattr(settings.cache, "round_decimals", None)
+        except Exception:
+            round_dec = None
+        try:
+            combined = pd.concat(combined_frames, ignore_index=True)
+            combined = round_dataframe(combined, round_dec)
+        except Exception:
+            combined = pd.concat(combined_frames, ignore_index=True)
+        combined.to_csv(combined_path, index=False)
         print(f"📦 結合 CSV を出力しました: {combined_path}")
 
     if skipped:
         print("⚠️ データ不足によりスキップした銘柄:", ", ".join(skipped))
 
-    print(
-        "✅ 共有指標のCSV出力が完了しました: "
-        f"{written} 銘柄 (保存先: {output_dir.resolve()})"
-    )
+    print(f"✅ 共有指標のCSV出力が完了しました: {written} 銘柄 (保存先: {output_dir.resolve()})")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI エントリポイント

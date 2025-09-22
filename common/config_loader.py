@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any
 
 try:
     import yaml  # type: ignore
@@ -10,7 +10,7 @@ except Exception:  # pragma: no cover
     yaml = None
 
 
-def load_config_file(path: Path | str | None = None) -> Dict[str, Any]:
+def load_config_file(path: Path | str | None = None) -> dict[str, Any]:
     """YAML/JSON を自動判別して辞書として返すシンプルなローダー。
     - path 未指定時: config/config.json → config/config.yaml の順で探索
     - フォーマット不明/読込失敗時は {} を返す
@@ -39,4 +39,3 @@ def load_config_file(path: Path | str | None = None) -> Dict[str, Any]:
 
 
 __all__ = ["load_config_file"]
-

@@ -5,15 +5,17 @@ common.ui_components の関数を共通実装へ委譲するために動的差�
 """
 
 from __future__ import annotations
+
 import logging
 
 try:
+    import pandas as pd
+    import streamlit as st
+
     from common.logging_utils import log_with_progress as _core_log_with_progress
     from common.performance_summary import summarize as _summarize_perf
     import common.ui_components as _ui
-    import pandas as pd
     from config.settings import get_settings
-    import streamlit as st
 except Exception:  # pragma: no cover
     _core_log_with_progress = None  # type: ignore
     _summarize_perf = None  # type: ignore
@@ -109,9 +111,7 @@ try:
                 fname = args[2]
             try:
                 # シグナル/トレードの CSV は常に非表示（自動保存のため）
-                if isinstance(fname, str) and (
-                    "_signals_" in fname or "_trades_" in fname
-                ):
+                if isinstance(fname, str) and ("_signals_" in fname or "_trades_" in fname):
                     return False
             except Exception:
                 pass
@@ -131,10 +131,11 @@ except Exception:
 
 # show_results を上部統一レイアウトに差し替え
 try:  # noqa: WPS501
-    import common.ui_components as _ui_mod  # type: ignore
     import pandas as _pd  # type: ignore
     import streamlit as _st  # type: ignore
+
     from common.i18n import tr as _tr  # type: ignore
+    import common.ui_components as _ui_mod  # type: ignore
 
     try:
         import matplotlib.pyplot as _plt  # type: ignore
@@ -158,9 +159,7 @@ try:  # noqa: WPS501
         # 最大DD（負値）とピーク資産比の%を計算
         try:
             dd_value = float(df2["drawdown"].min())
-            dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             dd_value, dd_pct = 0.0, 0.0
 
@@ -208,9 +207,7 @@ try:  # noqa: WPS501
                 }
             )
             _st.subheader(_tr("yearly summary"))
-            _st.dataframe(
-                yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
-            )
+            _st.dataframe(yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
             # 月次サマリー
             ms = daily.resample("ME").first()
             me = daily.resample("ME").last()
@@ -222,9 +219,7 @@ try:  # noqa: WPS501
                 }
             )
             _st.subheader(_tr("monthly summary"))
-            _st.dataframe(
-                monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
-            )
+            _st.dataframe(monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
         except Exception:
             pass
 

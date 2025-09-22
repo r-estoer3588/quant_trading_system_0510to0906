@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
 import sys
+from types import ModuleType, SimpleNamespace
 
 import app_integrated
 

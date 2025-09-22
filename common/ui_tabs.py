@@ -3,28 +3,32 @@ from __future__ import annotations
 import os
 import time
 
-import streamlit as st
-
-from common.equity_curve import save_equity_curve
-from common.i18n import tr
-
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
+
+import streamlit as st
+
+from common.cache_manager import round_dataframe
+from common.equity_curve import save_equity_curve
+from common.i18n import tr
 from common.performance_summary import summarize as summarize_perf
 from common.ui_bridge import prepare_backtest_data_ui as _prepare_ui
 from common.ui_bridge import run_backtest_with_logging_ui as _run_ui
 from common.ui_manager import UIManager
 from common.utils_spy import get_spy_data_cached, get_spy_with_indicators
+from config.settings import get_settings
 from scripts.tickers_loader import get_all_tickers
 
 
 def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
+    from pathlib import Path as _Path
+
     import pandas as _pd
     import streamlit as st
-    from pathlib import Path as _Path
+
     from common import broker_alpaca as _ba
-    from common.profit_protection import evaluate_positions as _eval
     from common.alpaca_order import submit_exit_orders_df as _submit_exits
+    from common.profit_protection import evaluate_positions as _eval
 
     st.subheader(tr("Positions / Orders"))
     colL, colR = st.columns(2)
@@ -103,8 +107,8 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
     with colC:
         bp = st.session_state.get("pos_tab_buying_power")
         cash = st.session_state.get("pos_tab_cash")
-        bp_txt = f"${bp:,.2f}" if isinstance(bp, (int, float)) else "未取得"
-        cash_txt = f"${cash:,.2f}" if isinstance(cash, (int, float)) else "未取得"
+        bp_txt = f"${bp:,.2f}" if isinstance(bp, (int | float)) else "未取得"
+        cash_txt = f"${cash:,.2f}" if isinstance(cash, (int | float)) else "未取得"
         st.metric("買付余力 (Buying Power)", bp_txt)
         st.caption(f"Cash: {cash_txt}")
 
@@ -243,8 +247,8 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
     # Planned exits viewer/editor
     st.markdown("---")
     st.subheader("予約一覧（編集）")
-    from pathlib import Path as _Path
     import json as _json
+    from pathlib import Path as _Path
 
     _plan = _Path("data/planned_exits.jsonl")
     plans: list[dict] = []
@@ -339,9 +343,10 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
 
 
 def render_metrics_tab(settings) -> None:
+    from pathlib import Path
+
     import pandas as _pd
     import streamlit as st
-    from pathlib import Path
 
     st.subheader(tr("Daily Metrics"))
     try:
@@ -709,13 +714,25 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 display_holding_heatmap(matrix, title="Integrated - holdings heatmap")
 
             _ts_i = _pd.Timestamp.now().strftime("%Y-%m-%d_%H%M")
-            st.download_button(
-                label=tr("download integrated trades CSV"),
-                data=df2.to_csv(index=False).encode("utf-8"),
-                file_name=f"integrated_trades_{_ts_i}_{int(capital_i)}.csv",
-                mime="text/csv",
-                key="download_integrated_csv",
-            )
+            try:
+                try:
+                    settings2 = get_settings(create_dirs=True)
+                    round_dec = getattr(settings2.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(df2, round_dec)
+                except Exception:
+                    out_df = df2
+                st.download_button(
+                    label=tr("download integrated trades CSV"),
+                    data=out_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"integrated_trades_{_ts_i}_{int(capital_i)}.csv",
+                    mime="text/csv",
+                    key="download_integrated_csv",
+                )
+            except Exception:
+                pass
             # Save equity curve image for integrated results
             _img_path, _img_url = save_equity_curve(df2, capital_i, "Integrated")
             _title = tr("Integrated Summary")
@@ -936,13 +953,34 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 # --- 結論から表示: 発注銘柄リスト ---
                 st.subheader(tr("Order list"))
                 st.dataframe(final_df, use_container_width=True)
-                csv = final_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label=tr("Download Final CSV"),
-                    data=csv,
-                    file_name="today_signals_final.csv",
-                    mime="text/csv",
-                )
+                try:
+                    try:
+                        settings2 = get_settings(create_dirs=True)
+                        round_dec = getattr(settings2.cache, "round_decimals", None)
+                    except Exception:
+                        round_dec = None
+                    try:
+                        out_df = round_dataframe(final_df, round_dec)
+                    except Exception:
+                        out_df = final_df
+                    csv = out_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label=tr("Download Final CSV"),
+                        data=csv,
+                        file_name="today_signals_final.csv",
+                        mime="text/csv",
+                    )
+                except Exception:
+                    try:
+                        csv = final_df.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label=tr("Download Final CSV"),
+                            data=csv,
+                            file_name="today_signals_final.csv",
+                            mime="text/csv",
+                        )
+                    except Exception:
+                        pass
 
                 # --- 内訳表示 ---
                 long_syms = final_df[final_df["side"] == "long"]["symbol"].tolist()
@@ -1063,13 +1101,34 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         import pandas as _pd
 
         _ts = _pd.Timestamp.now().strftime("%Y-%m-%d_%H%M")
-        st.download_button(
-            label=tr("download saved batch trades CSV"),
-            data=saved_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv",
-            mime="text/csv",
-            key="download_saved_batch_csv",
-        )
+        try:
+            try:
+                settings2 = get_settings(create_dirs=True)
+                round_dec = getattr(settings2.cache, "round_decimals", None)
+            except Exception:
+                round_dec = None
+            try:
+                out_df = round_dataframe(saved_df, round_dec)
+            except Exception:
+                out_df = saved_df
+            st.download_button(
+                label=tr("download saved batch trades CSV"),
+                data=out_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv",
+                mime="text/csv",
+                key="download_saved_batch_csv",
+            )
+        except Exception:
+            try:
+                st.download_button(
+                    label=tr("download saved batch trades CSV"),
+                    data=saved_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv",
+                    mime="text/csv",
+                    key="download_saved_batch_csv",
+                )
+            except Exception:
+                pass
         if st.button(
             tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"
         ):
@@ -1078,13 +1137,43 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             trades_path = os.path.join(
                 out_dir, f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv"
             )
-            saved_df.to_csv(trades_path, index=False)
+            try:
+                try:
+                    settings2 = get_settings(create_dirs=True)
+                    round_dec = getattr(settings2.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(saved_df, round_dec)
+                except Exception:
+                    out_df = saved_df
+                out_df.to_csv(trades_path, index=False)
+            except Exception:
+                try:
+                    saved_df.to_csv(trades_path, index=False)
+                except Exception:
+                    pass
             if isinstance(saved_summary, dict):
                 sum_df = _pd.DataFrame([saved_summary])
                 sum_path = os.path.join(
                     out_dir, f"batch_summary_saved_{_ts}_{int(saved_capital or 0)}.csv"
                 )
-                sum_df.to_csv(sum_path, index=False)
+                try:
+                    try:
+                        settings2 = get_settings(create_dirs=True)
+                        round_dec = getattr(settings2.cache, "round_decimals", None)
+                    except Exception:
+                        round_dec = None
+                    try:
+                        out_sum = round_dataframe(sum_df, round_dec)
+                    except Exception:
+                        out_sum = sum_df
+                    out_sum.to_csv(sum_path, index=False)
+                except Exception:
+                    try:
+                        sum_df.to_csv(sum_path, index=False)
+                    except Exception:
+                        pass
             st.success(tr("saved to {out_dir}", out_dir=out_dir))
         if st.button(tr("clear saved batch results"), key="clear_saved_batch"):
             for k in ["Batch_all_trades_df", "Batch_summary_dict", "Batch_capital"]:
@@ -1198,7 +1287,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             # 各DataFrameにsystem列がなければ追加
             for idx, df in enumerate(overall):
                 if "system" not in df.columns:
-                    df["system"] = f"System{idx+1}"
+                    df["system"] = f"System{idx + 1}"
 
             all_df = pd.concat(overall, ignore_index=True)
             summary, all_df2 = summarize_perf(all_df, capital)
@@ -1226,13 +1315,34 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             st.dataframe(all_df2)
 
             _ts2 = pd.Timestamp.now().strftime("%Y-%m-%d_%H%M")
-            st.download_button(
-                label=tr("download batch trades CSV"),
-                data=all_df2.to_csv(index=False).encode("utf-8"),
-                file_name=f"batch_trades_{_ts2}_{int(capital)}.csv",
-                mime="text/csv",
-                key="download_batch_csv_current",
-            )
+            try:
+                try:
+                    settings2 = get_settings(create_dirs=True)
+                    round_dec = getattr(settings2.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    out_df = round_dataframe(all_df2, round_dec)
+                except Exception:
+                    out_df = all_df2
+                st.download_button(
+                    label=tr("download batch trades CSV"),
+                    data=out_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"batch_trades_{_ts2}_{int(capital)}.csv",
+                    mime="text/csv",
+                    key="download_batch_csv_current",
+                )
+            except Exception:
+                try:
+                    st.download_button(
+                        label=tr("download batch trades CSV"),
+                        data=all_df2.to_csv(index=False).encode("utf-8"),
+                        file_name=f"batch_trades_{_ts2}_{int(capital)}.csv",
+                        mime="text/csv",
+                        key="download_batch_csv_current",
+                    )
+                except Exception:
+                    pass
             if st.button(
                 tr("save batch CSV to disk"), key="save_batch_to_disk_current"
             ):
@@ -1241,12 +1351,42 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 trades_path = os.path.join(
                     out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv"
                 )
-                all_df2.to_csv(trades_path, index=False)
+                try:
+                    try:
+                        settings2 = get_settings(create_dirs=True)
+                        round_dec = getattr(settings2.cache, "round_decimals", None)
+                    except Exception:
+                        round_dec = None
+                    try:
+                        out_df = round_dataframe(all_df2, round_dec)
+                    except Exception:
+                        out_df = all_df2
+                    out_df.to_csv(trades_path, index=False)
+                except Exception:
+                    try:
+                        all_df2.to_csv(trades_path, index=False)
+                    except Exception:
+                        pass
                 sum_df = pd.DataFrame([d])
                 sum_path = os.path.join(
                     out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv"
                 )
-                sum_df.to_csv(sum_path, index=False)
+                try:
+                    try:
+                        settings2 = get_settings(create_dirs=True)
+                        round_dec = getattr(settings2.cache, "round_decimals", None)
+                    except Exception:
+                        round_dec = None
+                    try:
+                        out_sum = round_dataframe(sum_df, round_dec)
+                    except Exception:
+                        out_sum = sum_df
+                    out_sum.to_csv(sum_path, index=False)
+                except Exception:
+                    try:
+                        sum_df.to_csv(sum_path, index=False)
+                    except Exception:
+                        pass
                 st.success(tr("saved to {out_dir}", out_dir=out_dir))
 
             st.session_state["Batch_all_trades_df"] = all_df2
@@ -1277,9 +1417,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 for df_sys in overall:
                     try:
                         df_tmp = df_sys.copy()
-                        df_tmp["exit_date"] = pd.to_datetime(
-                            df_tmp["exit_date"]
-                        )  # type: ignore[arg-type]
+                        df_tmp["exit_date"] = pd.to_datetime(df_tmp["exit_date"])  # type: ignore[arg-type]
                         df_tmp = df_tmp.sort_values("exit_date")
                         equity = float(capital) + df_tmp["pnl"].cumsum()
                         daily = equity.rename(df_tmp["system"].iloc[0]).copy()

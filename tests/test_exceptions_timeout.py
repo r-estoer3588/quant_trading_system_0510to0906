@@ -1,4 +1,4 @@
-from common.exceptions import run_with_timeout, TaskTimeoutError
+from common.exceptions import TaskTimeoutError, run_with_timeout
 
 
 def test_run_with_timeout_ok():
@@ -17,7 +17,6 @@ def test_run_with_timeout_timeout():
 
     try:
         run_with_timeout(slow, 0.05, 1)
-        assert False, "expected timeout"
+        raise AssertionError("expected timeout")
     except TaskTimeoutError:
         assert True
-

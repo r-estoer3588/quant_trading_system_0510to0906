@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+import os
 from threading import Lock
 from typing import Any
 
@@ -17,6 +17,7 @@ from config.settings import get_settings
 try:  # pragma: no cover - optional dependency
     from common.utils_spy import get_latest_nyse_trading_day
 except Exception:  # pragma: no cover
+
     def get_latest_nyse_trading_day(day):  # type: ignore[override]
         return pd.Timestamp(day)
 
@@ -131,11 +132,7 @@ class BaseCachePool:
                 stale = False
                 if allowed_set and (last is None or last not in allowed_set):
                     stale = True
-                if (
-                    not stale
-                    and min_norm is not None
-                    and (last is None or last < min_norm)
-                ):
+                if not stale and min_norm is not None and (last is None or last < min_norm):
                     stale = True
                 if not stale:
                     self.hits += 1
@@ -200,9 +197,7 @@ def _extract_last_cache_date(df: pd.DataFrame | None) -> pd.Timestamp | None:
     return None
 
 
-def _recent_trading_days(
-    today: pd.Timestamp | None, max_back: int
-) -> list[pd.Timestamp]:
+def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.Timestamp]:
     if today is None:
         return []
     out: list[pd.Timestamp] = []
@@ -255,9 +250,7 @@ def _normalize_loaded(df: pd.DataFrame | None) -> pd.DataFrame | None:
     normalized = _normalize_ohlcv(df)
     try:
         fill_cols = [
-            c
-            for c in ("Open", "High", "Low", "Close", "Volume")
-            if c in normalized.columns
+            c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns
         ]
         if fill_cols:
             normalized = normalized.copy()
@@ -352,9 +345,7 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
     if missing_optional:
         issues["missing_optional"] = missing_optional
     if fatal:
-        issues.setdefault(
-            "status", "missing_required" if missing_required else "nan_columns"
-        )
+        issues.setdefault("status", "missing_required" if missing_required else "nan_columns")
         return False, issues
     if missing_optional:
         issues.setdefault("status", "missing_optional")
@@ -366,9 +357,7 @@ def _format_nan_columns(values: Iterable[tuple[str, float]]) -> str:
     return ", ".join(f"{name}:{ratio:.1%}" for name, ratio in values)
 
 
-def _build_missing_detail(
-    symbol: str, issues: dict[str, Any], rows_before: int
-) -> MissingDetail:
+def _build_missing_detail(symbol: str, issues: dict[str, Any], rows_before: int) -> MissingDetail:
     missing_required = issues.get("missing_required") or []
     missing_optional = issues.get("missing_optional") or []
     nan_columns = issues.get("nan_columns") or []
@@ -435,8 +424,7 @@ def load_basic_data_phase(
 
     try:
         target_len = int(
-            settings.cache.rolling.base_lookback_days
-            + settings.cache.rolling.buffer_days
+            settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
         )
     except Exception:
         target_len = 0
@@ -458,12 +446,12 @@ def load_basic_data_phase(
         except Exception:
             recent_allowed = set()
 
-    min_recent_allowed: pd.Timestamp | None = None
+    # compute min of recent_allowed if present (value not used directly but keep logic clear)
     if recent_allowed:
         try:
-            min_recent_allowed = min(recent_allowed)
+            _ = min(recent_allowed)
         except Exception:
-            min_recent_allowed = None
+            pass
 
     gap_probe_days = max(freshness_tolerance + 5, 10)
 
@@ -541,8 +529,10 @@ def load_basic_data_phase(
             source = None
 
         needs_rebuild = False
-        if df is None or getattr(df, "empty", True) or (
-            hasattr(df, "__len__") and len(df) < target_len
+        if (
+            df is None
+            or getattr(df, "empty", True)
+            or (hasattr(df, "__len__") and len(df) < target_len)
         ):
             if df is not None and not getattr(df, "empty", True):
                 rebuild_reason = rebuild_reason or "length"
@@ -556,11 +546,7 @@ def load_basic_data_phase(
                 needs_rebuild = True
             else:
                 last_seen_date = pd.Timestamp(last_seen_date).normalize()
-                if (
-                    today is not None
-                    and recent_allowed
-                    and last_seen_date not in recent_allowed
-                ):
+                if today is not None and recent_allowed and last_seen_date not in recent_allowed:
                     rebuild_reason = "stale"
                     gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
                     needs_rebuild = True
@@ -597,11 +583,7 @@ def load_basic_data_phase(
             skip_parts: list[str] = []
             if rebuild_reason == "stale":
                 gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
-                last_label = (
-                    str(last_seen_date.date())
-                    if last_seen_date is not None
-                    else "不明"
-                )
+                last_label = str(last_seen_date.date()) if last_seen_date is not None else "不明"
                 skip_parts.append(f"最終日={last_label}")
                 skip_parts.append(f"ギャップ={gap_label}")
             elif rebuild_reason == "length":
@@ -631,9 +613,7 @@ def load_basic_data_phase(
             detail.missing_optional = ", ".join(
                 str(x) for x in issues_after.get("missing_optional", [])
             )
-            detail.nan_columns = _format_nan_columns(
-                issues_after.get("nan_columns", [])
-            )
+            detail.nan_columns = _format_nan_columns(issues_after.get("nan_columns", []))
             detail.note = _merge_note(detail.note, _issues_to_note(issues_after))
         if ok_after:
             if detail is not None:
@@ -722,7 +702,11 @@ def load_basic_data_phase(
             f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
         ]
         if summary_parts:
-            _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
+            if log is not None:
+                try:
+                    log("📊 基礎データロード内訳: " + " / ".join(summary_parts))
+                except Exception:
+                    pass
     except Exception:
         pass
 

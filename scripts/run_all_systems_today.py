@@ -1,56 +1,39 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from concurrent.futures import (
-    FIRST_COMPLETED,
-    Future,
-    ThreadPoolExecutor,
-    as_completed,
-    wait,
-)
-from threading import Lock
+from datetime import datetime
 import json
 import logging
-from pathlib import Path
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from typing import Any, no_type_check, cast
-from contextvars import ContextVar
 import os
+from pathlib import Path
+from threading import Lock
+from typing import Any, cast, no_type_check
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
+from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
-from common.system_groups import (
-    format_group_counts,
-    format_group_counts_and_values,
-)
+from common.symbol_universe import build_symbol_universe_from_settings
+from common.system_groups import format_group_counts, format_group_counts_and_values
 from common.utils_spy import (
     get_latest_nyse_trading_day,
     get_signal_target_trading_day,
     get_spy_with_indicators,
 )
-from common.symbol_universe import build_symbol_universe_from_settings
 from config.settings import get_settings
-from core.final_allocation import (
-    AllocationSummary,
-    finalize_allocation,
-    load_symbol_system_map,
-)
-from core.system5 import (
-    DEFAULT_ATR_PCT_THRESHOLD,
-    format_atr_pct_threshold_label,
-)
-from tools.notify_metrics import send_metrics_notification
+from core.final_allocation import AllocationSummary, finalize_allocation, load_symbol_system_map
+from core.system5 import DEFAULT_ATR_PCT_THRESHOLD, format_atr_pct_threshold_label
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -60,7 +43,7 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-from collections.abc import Mapping, Sequence
+from tools.notify_metrics import send_metrics_notification
 
 _LOG_CALLBACK = None
 _LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
@@ -1149,12 +1132,11 @@ def _load_basic_data(
         except Exception:
             recent_allowed = set()
 
-    min_recent_allowed: pd.Timestamp | None = None
     if recent_allowed:
         try:
-            min_recent_allowed = min(recent_allowed)
+            _ = min(recent_allowed)
         except Exception:
-            min_recent_allowed = None
+            pass
 
     gap_probe_days = max(freshness_tolerance + 5, 10)
 
@@ -1336,9 +1318,7 @@ def _load_basic_data(
                 if rebuild_reason == "stale":
                     gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
                     last_label = (
-                        str(last_seen_date.date())
-                        if last_seen_date is not None
-                        else "不明"
+                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
                     )
                     detail_parts.append(f"最終日={last_label}")
                     detail_parts.append(f"ギャップ={gap_label}")
@@ -1493,9 +1473,7 @@ def _load_indicator_data(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
             needs_rebuild = (
-                df is None
-                or df.empty
-                or (hasattr(df, "__len__") and len(df) < target_len)
+                df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len)
             )
             if needs_rebuild:
                 if df is None or getattr(df, "empty", True):
@@ -1575,6 +1553,8 @@ def _fetch_positions_and_symbol_map() -> tuple[list[Any], dict[str, str]]:
         symbol_system_map = {}
 
     return positions, symbol_system_map
+
+
 def _submit_orders(
     final_df: pd.DataFrame,
     *,
@@ -1591,7 +1571,7 @@ def _submit_orders(
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log("(submit) shares 列がありません。" "資金配分モードで実行してください。")
+        _log("(submit) shares 列がありません。資金配分モードで実行してください。")
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -2170,8 +2150,7 @@ def _save_and_notify_phase(
                 exv = exit_counts_map.get(sys_name)
                 ex_txt = "-" if exv is None else str(int(exv))
                 value = (
-                    f"Tgt {tgt} / FIL {fil} / STU {stu} / "
-                    f"TRD {trd} / Entry {ent} / Exit {ex_txt}"
+                    f"Tgt {tgt} / FIL {fil} / STU {stu} / TRD {trd} / Entry {ent} / Exit {ex_txt}"
                 )
                 lines.append({"name": sys_name, "value": value})
             title = "📈 本日の最終メトリクス（system別）"
@@ -2191,9 +2170,7 @@ def _save_and_notify_phase(
             except Exception:
                 total_entries = 0
             try:
-                total_exits = int(
-                    sum(int(v) for v in exit_counts_map.values() if v is not None)
-                )
+                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
             except Exception:
                 total_exits = 0
             start_time_str = run_start_time.strftime("%H:%M:%S")
@@ -2219,8 +2196,7 @@ def _save_and_notify_phase(
                 ("利益額/損失額", f"${profit_amt:,.2f} / ${loss_amt:,.2f}"),
             ]
             summary_fields = [
-                {"name": key, "value": value, "inline": True}
-                for key, value in summary_pairs
+                {"name": key, "value": value, "inline": True} for key, value in summary_pairs
             ]
             send_metrics_notification(
                 day_str=str(td_str),
@@ -2235,7 +2211,9 @@ def _save_and_notify_phase(
         try:
             from tools.notify_signals import send_signal_notification
 
-            send_signal_notification(final_df)
+            # Guard against None being passed where a DataFrame is required
+            if final_df is not None and not getattr(final_df, "empty", True):
+                send_signal_notification(final_df)
         except Exception:
             _log("⚠️ 通知に失敗しました。")
 
@@ -2253,12 +2231,30 @@ def _save_and_notify_phase(
             suffix = f"{date_str}_{run_id}" if run_id else date_str
 
         out_all = signals_dir / f"signals_final_{suffix}.csv"
-        final_df.to_csv(out_all, index=False)
+        try:
+            try:
+                round_dec = getattr(get_settings(create_dirs=True).cache, "round_decimals", None)
+            except Exception:
+                round_dec = None
+            out_df = round_dataframe(final_df, round_dec)
+        except Exception:
+            out_df = final_df
+        out_df.to_csv(out_all, index=False)
         for name, df in per_system.items():
             if df is None or getattr(df, "empty", True):
                 continue
             out = signals_dir / f"signals_{name}_{suffix}.csv"
-            df.to_csv(out, index=False)
+            try:
+                try:
+                    round_dec = getattr(
+                        get_settings(create_dirs=True).cache, "round_decimals", None
+                    )
+                except Exception:
+                    round_dec = None
+                out_df = round_dataframe(df, round_dec)
+            except Exception:
+                out_df = df
+            out_df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
 
     _safe_progress_call(progress_callback, 8, 8, "done")
@@ -2677,9 +2673,7 @@ def _prepare_system3_data(
             except Exception:
                 continue
             try:
-                close_pass = float(last.get("Close", 0)) > float(
-                    last.get("SMA150", float("inf"))
-                )
+                close_pass = float(last.get("Close", 0)) > float(last.get("SMA150", float("inf")))
             except Exception:
                 close_pass = False
             if not close_pass:
@@ -3292,9 +3286,7 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 continue
             try:
-                close_pass = float(last.get("Close", 0)) > float(
-                    last.get("SMA150", float("inf"))
-                )
+                close_pass = float(last.get("Close", 0)) > float(last.get("SMA150", float("inf")))
             except Exception:
                 close_pass = False
             if not close_pass:
@@ -3561,10 +3553,7 @@ def compute_today_signals(  # type: ignore[analysis]
                     return f"🧪 {name}: フィルター処理が完了"
                 if progress == 50:
                     if filter_int is not None and setup_int is not None:
-                        return (
-                            "🧩 "
-                            + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
-                        )
+                        return "🧩 " + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
                     if setup_int is not None:
                         return f"🧩 {name}: セットアップ通過 {setup_int} 銘柄"
                     return f"🧩 {name}: セットアップ判定が完了"
@@ -3595,10 +3584,7 @@ def compute_today_signals(  # type: ignore[analysis]
                     return None
                 if prev_stage == 0:
                     if filter_int is not None:
-                        return (
-                            f"🏁 {name}: {label}のプロセスプールが完了 "
-                            f"(通過 {filter_int} 銘柄)"
-                        )
+                        return f"🏁 {name}: {label}のプロセスプールが完了 (通過 {filter_int} 銘柄)"
                     return f"🏁 {name}: {label}のプロセスプールが完了"
                 if prev_stage == 25:
                     if setup_int is not None and filter_int is not None:
@@ -3625,10 +3611,7 @@ def compute_today_signals(  # type: ignore[analysis]
                         if candidate_int is not None:
                             parts.append(f"候補 {candidate_int} 銘柄")
                         joined = " / ".join(parts)
-                        return (
-                            f"🏁 {name}: {label}のプロセスプールが完了 "
-                            f"({joined})"
-                        )
+                        return f"🏁 {name}: {label}のプロセスプールが完了 ({joined})"
                     return f"🏁 {name}: {label}のプロセスプールが完了"
                 return None
 
@@ -3672,25 +3655,17 @@ def compute_today_signals(  # type: ignore[analysis]
                             except Exception:
                                 pass
                             prev_stage_val = prev_phase_map.get(progress_val)
-                            if (
-                                prev_stage_val is not None
-                                and prev_stage_val not in phase_completed
-                            ):
+                            if prev_stage_val is not None and prev_stage_val not in phase_completed:
                                 completion_msg = _format_phase_completion(
                                     prev_stage_val, f_int, s_int, c_int, fin_int
                                 )
                                 if completion_msg:
                                     _local_log(completion_msg)
                                 phase_completed.add(prev_stage_val)
-                            msg = _format_stage_message(
-                                progress_val, f_int, s_int, c_int, fin_int
-                            )
+                            msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
                             if msg:
                                 _local_log(msg)
-                            if (
-                                progress_val in phase_names
-                                and progress_val not in phase_started
-                            ):
+                            if progress_val in phase_names and progress_val not in phase_started:
                                 _local_log(
                                     f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始"
                                 )
@@ -3801,7 +3776,8 @@ def compute_today_signals(  # type: ignore[analysis]
                     + " | 並列化: インジケーター計算/前処理"
                 )
                 _local_log(
-                    f"🧭 {name}: フィルター・セットアップ・候補抽出はメインプロセスで進行状況を記録します"
+                    f"🧭 {name}: フィルター・セットアップ・候補抽出は"
+                    "メインプロセスで進行状況を記録します"
                 )
             df = stg.get_today_signals(
                 base,
@@ -3870,9 +3846,7 @@ def compute_today_signals(  # type: ignore[analysis]
                 if pool_outcome == "success":
                     _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
                 elif pool_outcome == "fallback":
-                    _local_log(
-                        f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）"
-                    )
+                    _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
                 else:
                     _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
         if not df.empty:
@@ -4109,9 +4083,7 @@ def compute_today_signals(  # type: ignore[analysis]
                     _entry_cnt: int
                     try:
                         _entry_cnt = (
-                            0
-                            if (df is None or getattr(df, "empty", True))
-                            else int(len(df))
+                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
                         )
                     except Exception:
                         _entry_cnt = 0
@@ -4148,8 +4120,8 @@ def compute_today_signals(  # type: ignore[analysis]
             except Exception:
                 pass
         _drain_stage_event_queue()
-            # 即時の75%再通知は行わない（メインスレッド側で一括通知）
-            # 前回結果は開始時にまとめて出力するため、ここでは出さない
+        # 即時の75%再通知は行わない（メインスレッド側で一括通知）
+        # 前回結果は開始時にまとめて出力するため、ここでは出さない
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")
@@ -4353,10 +4325,20 @@ def compute_today_signals(  # type: ignore[analysis]
                 pass
             out_fp = out_dir / "daily_metrics.csv"
             try:
+                try:
+                    round_dec = getattr(settings_out.cache, "round_decimals", None)
+                except Exception:
+                    round_dec = None
+                try:
+                    metrics_out = round_dataframe(metrics_df, round_dec)
+                except Exception:
+                    metrics_out = metrics_df
                 if out_fp.exists():
-                    metrics_df.to_csv(out_fp, mode="a", header=False, index=False, encoding="utf-8")
+                    metrics_out.to_csv(
+                        out_fp, mode="a", header=False, index=False, encoding="utf-8"
+                    )
                 else:
-                    metrics_df.to_csv(out_fp, index=False, encoding="utf-8")
+                    metrics_out.to_csv(out_fp, index=False, encoding="utf-8")
                 _log(f"📈 メトリクス保存: {out_fp} に {len(metrics_rows)} 行を追記")
             except Exception as e:
                 _log(f"⚠️ メトリクス保存に失敗: {e}")
@@ -4580,9 +4562,7 @@ def compute_today_signals(  # type: ignore[analysis]
                     try:
                         for _nm, _cnt in (exit_counts_map or {}).items():
                             try:
-                                GLOBAL_STAGE_METRICS.record_exit(
-                                    _nm, _cnt, emit_event=False
-                                )
+                                GLOBAL_STAGE_METRICS.record_exit(_nm, _cnt, emit_event=False)
                             except Exception:
                                 pass
                         for _nm, _cnt in (exit_counts_map or {}).items():
@@ -4609,9 +4589,7 @@ def compute_today_signals(  # type: ignore[analysis]
                         cnt_val = 0
                     if cnt_val:
                         try:
-                            GLOBAL_STAGE_METRICS.record_exit(
-                                _sys_name, cnt_val, emit_event=False
-                            )
+                            GLOBAL_STAGE_METRICS.record_exit(_sys_name, cnt_val, emit_event=False)
                         except Exception:
                             pass
                     if cnt_val > 0:
@@ -4659,10 +4637,7 @@ def compute_today_signals(  # type: ignore[analysis]
         try:
             summary = ", ".join(
                 [
-                    (
-                        f"{r['system']}: 対象→{r['prefilter_pass']}, "
-                        f"trade候補数→{r['candidates']}"
-                    )
+                    (f"{r['system']}: 対象→{r['prefilter_pass']}, trade候補数→{r['candidates']}")
                     for r in metrics_rows
                 ]
             )
@@ -4769,12 +4744,8 @@ def compute_today_signals(  # type: ignore[analysis]
         _log(f"💰 金額配分: long=${cap_long:,.0f}, short=${cap_short:,.0f}")
         try:
             budgets = allocation_summary.budgets or {}
-            long_lines = [
-                f"{name}=${budgets.get(name, 0.0):,.0f}" for name in long_alloc_norm
-            ]
-            short_lines = [
-                f"{name}=${budgets.get(name, 0.0):,.0f}" for name in short_alloc_norm
-            ]
+            long_lines = [f"{name}=${budgets.get(name, 0.0):,.0f}" for name in long_alloc_norm]
+            short_lines = [f"{name}=${budgets.get(name, 0.0):,.0f}" for name in short_alloc_norm]
             if long_lines:
                 _log("📊 long予算内訳: " + ", ".join(long_lines))
             if short_lines:
@@ -4923,13 +4894,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--capital-long",
         type=float,
         default=None,
-        help=("買いサイド予算（ドル）。" "指定時は金額配分モード"),
+        help=("買いサイド予算（ドル）。指定時は金額配分モード"),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help=("売りサイド予算（ドル）。" "指定時は金額配分モード"),
+        help=("売りサイド予算（ドル）。指定時は金額配分モード"),
     )
     parser.add_argument(
         "--save-csv",

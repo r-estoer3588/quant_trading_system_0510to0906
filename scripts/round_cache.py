@@ -11,6 +11,7 @@ scripts/round_cache.py
 
 注意: 実行前に back up を取ることを強く推奨します。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,8 +23,28 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd  # noqa: E402
-from config.settings import get_settings  # noqa: E402
+
 from common.cache_manager import BASE_SUBDIR  # noqa: E402
+from config.settings import get_settings  # noqa: E402
+
+try:
+    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+except ImportError:  # pragma: no cover - tests may stub cache_manager
+
+    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+        if decimals is None:
+            return df
+        try:
+            decimals_int = int(decimals)
+        except Exception:
+            return df
+        try:
+            return df.copy().round(decimals_int)
+        except Exception:
+            try:
+                return df.round(decimals_int)
+            except Exception:
+                return df
 
 
 def find_cache_files(base_dir: Path) -> list[Path]:
@@ -118,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         # 丸め
         try:
-            df2 = df.round(int(cfg_round))
+            df2 = round_dataframe(df, cfg_round)
         except Exception as e:
             print(f"丸め失敗: {p} ({e})")
             continue
