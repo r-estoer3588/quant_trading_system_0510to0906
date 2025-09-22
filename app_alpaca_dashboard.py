@@ -48,14 +48,14 @@ HOLD_LIMITS: dict[str, int] = {
 }
 
 
-WEEKDAY_LABELS_JA = ("月", "火", "水", "木", "金", "土", "日")
+WEEKDAY_LABELS_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def _format_datetime_with_weekday(dt: datetime) -> str:
-    """Format datetime with Japanese weekday indicator."""
+    """Format datetime with English weekday indicator."""
 
     try:
-        weekday = WEEKDAY_LABELS_JA[dt.weekday()]
+        weekday = WEEKDAY_LABELS_EN[dt.weekday()]
     except Exception:
         weekday = ""
     date_part = dt.strftime("%Y-%m-%d")
@@ -283,6 +283,23 @@ def _fmt_number(x: float | int | str | None) -> str:
         return str(x)
 
 
+def _format_countdown(delta: timedelta) -> str:
+    """Return countdown text in Japanese."""
+
+    total_seconds = int(delta.total_seconds())
+    if total_seconds <= 0:
+        return "0秒"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}時間")
+    if minutes or hours:
+        parts.append(f"{minutes}分")
+    parts.append(f"{seconds}秒")
+    return "".join(parts)
+
+
 def _safe_float(value: Any) -> float | None:
     """Convert a value to float safely."""
 
@@ -302,7 +319,7 @@ def _safe_float(value: Any) -> float | None:
 
 
 def _get_nyse_status(now_newyork: datetime) -> str:
-    """NYSE の営業状況を返す。"""
+    """NYSE の営業状況と次回オープンまでのカウントダウンを返す。"""
 
     try:
         calendar = mcal.get_calendar("NYSE")
@@ -310,7 +327,7 @@ def _get_nyse_status(now_newyork: datetime) -> str:
         return "NYSE: 状態不明"
 
     start_date = now_newyork.date() - timedelta(days=5)
-    end_date = now_newyork.date() + timedelta(days=5)
+    end_date = now_newyork.date() + timedelta(days=10)
 
     try:
         schedule = calendar.schedule(start_date=start_date, end_date=end_date)
@@ -325,7 +342,40 @@ def _get_nyse_status(now_newyork: datetime) -> str:
     except Exception:
         is_open = False
 
-    return "NYSE: 営業中" if is_open else "NYSE: クローズ"
+    status = "NYSE: 営業中" if is_open else "NYSE: クローズ"
+
+    if is_open:
+        return status
+
+    now_ts = pd.Timestamp(now_newyork)
+    if now_ts.tz is None:
+        try:
+            now_ts = now_ts.tz_localize("America/New_York")
+        except Exception:
+            now_ts = now_ts.tz_localize("UTC")
+    now_utc = now_ts.tz_convert("UTC")
+
+    market_open_series = pd.to_datetime(schedule["market_open"], utc=True)
+
+    try:
+        future_opens = market_open_series[market_open_series > now_utc]
+    except Exception:
+        return status
+
+    if getattr(future_opens, "empty", True):
+        return status
+
+    next_open = future_opens.iloc[0]
+    try:
+        delta = next_open - now_utc
+    except Exception:
+        return status
+
+    if delta.total_seconds() <= 0:
+        return status
+
+    countdown = _format_countdown(delta)
+    return f"{status}（オープンまで {countdown}）"
 
 
 def _resolve_position_price(position: Any) -> float | str:

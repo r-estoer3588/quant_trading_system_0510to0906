@@ -77,7 +77,11 @@ class CacheRollingConfig:
     max_stale_days: int = 2
     max_symbols: int | None = None
     # 小数丸め桁数: None で無効、整数で有効
-    round_decimals: int | None = None
+    round_decimals: int | None = 4
+    # CSV ロケール設定: 小数点文字, 千位区切り, フィールド区切り
+    csv_decimal_point: str = "."
+    csv_thousands_sep: str | None = None
+    csv_field_sep: str = ","
 
 
 @dataclass(frozen=True)
@@ -87,7 +91,11 @@ class CacheConfig:
     file_format: str = "auto"
     rolling: CacheRollingConfig = CacheRollingConfig()
     # キャッシュ書き出し時の丸め桁数: None で無効
-    round_decimals: int | None = None
+    round_decimals: int | None = 4
+    # CSV locale defaults (applies when writing CSV files)
+    csv_decimal_point: str = "."
+    csv_thousands_sep: str | None = None
+    csv_field_sep: str = ","
 
 
 @dataclass(frozen=True)
@@ -381,8 +389,22 @@ def get_settings(create_dirs: bool = False) -> Settings:
             max_stale_days=stale_days_cfg,
             max_symbols=max_symbols_cfg,
             round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
+            csv_decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
+            csv_thousands_sep=(
+                None
+                if rolling_cfg.get("csv_thousands_sep") is None
+                else str(rolling_cfg.get("csv_thousands_sep"))
+            ),
+            csv_field_sep=str(rolling_cfg.get("csv_field_sep", ",")),
         ),
         round_decimals=_positive_int_or_none(cache_cfg.get("round_decimals")),
+        csv_decimal_point=str(cache_cfg.get("csv_decimal_point", ".")),
+        csv_thousands_sep=(
+            None
+            if cache_cfg.get("csv_thousands_sep") is None
+            else str(cache_cfg.get("csv_thousands_sep"))
+        ),
+        csv_field_sep=str(cache_cfg.get("csv_field_sep", ",")),
     )
 
     # 環境変数による丸め桁数の上書き (優先度: env > YAML)

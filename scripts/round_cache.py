@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
-from common.cache_manager import BASE_SUBDIR  # noqa: E402
+from common.cache_manager import BASE_SUBDIR, _get_default_cache_manager, save_base_cache  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 
 try:
@@ -99,6 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         help="上書きして適用する",
     )
     parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="上書き前に .bak を作成する",
+    )
+    parser.add_argument(
         "--only",
         type=str,
         default=None,
@@ -133,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"対象ファイル数: {len(targets)} (decimals={cfg_round})")
 
+    # default cache manager used for atomic rewrite (applies rounding + formatters)
+    cm = _get_default_cache_manager()
+
     for p in targets:
         df = read_any(p)
         if df is None:
@@ -155,8 +163,46 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 print(f"{p.name}: processed (dry-run)")
         else:
-            write_any(p, df2)
-            print(f"{p.name}: overwritten")
+            # Determine which cache this file belongs to and use CacheManager when possible
+            try:
+                full_dir = Path(settings.cache.full_dir).resolve()
+            except Exception:
+                full_dir = None
+            try:
+                rolling_dir = Path(settings.cache.rolling_dir).resolve()
+            except Exception:
+                rolling_dir = None
+            base_dir = (Path(settings.DATA_CACHE_DIR) / BASE_SUBDIR).resolve()
+
+            parent = p.parent.resolve()
+            # optional backup
+            if args.backup:
+                try:
+                    bak = p.with_suffix(p.suffix + ".bak")
+                    bak.write_bytes(p.read_bytes())
+                except Exception:
+                    print(f"backup failed for {p}")
+
+            try:
+                if full_dir is not None and parent == full_dir:
+                    symbol = p.stem
+                    cm.write_atomic(df2, symbol, "full")
+                    print(f"{p.name}: overwritten via CacheManager (full)")
+                elif rolling_dir is not None and parent == rolling_dir:
+                    symbol = p.stem
+                    cm.write_atomic(df2, symbol, "rolling")
+                    print(f"{p.name}: overwritten via CacheManager (rolling)")
+                elif parent == base_dir:
+                    # base cache: use save_base_cache which writes CSV
+                    symbol = p.stem
+                    save_base_cache(symbol, df2)
+                    print(f"{p.name}: overwritten via save_base_cache (base)")
+                else:
+                    # fallback: direct write
+                    write_any(p, df2)
+                    print(f"{p.name}: overwritten (fallback)")
+            except Exception:
+                print(f"failed overwrite {p}")
 
     print("完了")
     return 0

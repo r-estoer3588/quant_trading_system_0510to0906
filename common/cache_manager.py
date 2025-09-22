@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 import json
 import logging
 import os
 from pathlib import Path
 import shutil
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from indicators_common import add_indicators
 import numpy as np
@@ -28,19 +28,182 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     元の DataFrame をそのまま返す。
     """
 
-    if decimals is None:
+    if df is None:
         return df
+
+    # If global decimals not provided, leave as-is
+    try:
+        if decimals is None:
+            return df
+    except Exception:
+        return df
+
     try:
         decimals_int = int(decimals)
     except Exception:
         return df
-    try:
-        return df.copy().round(decimals_int)
-    except Exception:
+
+    # Define category-specific rounding by column name (lowercase)
+    price_atr_cols = {
+        "open",
+        "close",
+        "high",
+        "low",
+        "atr10",
+        "atr14",
+        "atr20",
+        "atr40",
+        "atr50",
+        "adjusted_close",
+        "adjclose",
+        "adj_close",
+    }
+    volume_cols = {"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"}
+    oscillator_cols = {"rsi3", "rsi4", "rsi14", "adx7"}
+    pct_cols = {
+        "roc200",
+        "return_3d",
+        "6d_return",
+        "return6d",
+        "atr_ratio",
+        "atr_pct",
+        "hv50",
+        "return_pct",
+    }
+
+    # Work on a copy to avoid mutating caller's df
+    out = df.copy()
+    # Normalize column names mapping to actual columns
+    cols = list(out.columns)
+    lc_map: dict[str, str] = {c.lower(): c for c in cols}
+
+    def _safe_round(series: pd.Series, ndigits: int) -> pd.Series:
         try:
-            return df.round(decimals_int)
+            # Coerce to numeric where possible, preserve NaNs
+            s = pd.to_numeric(series, errors="coerce")
+            return s.round(ndigits)
         except Exception:
-            return df
+            return series
+
+    # Apply per-column rounding where applicable
+    for lname, orig in lc_map.items():
+        if lname in price_atr_cols:
+            out[orig] = _safe_round(out[orig], 2)
+        elif lname in volume_cols:
+            # Round volume-like columns to 0 decimals and cast to nullable Int64
+            try:
+                s = pd.to_numeric(out[orig], errors="coerce").round(0)
+                # convert NaN -> pd.NA for nullable integer casting
+                s = s.where(s.notna(), pd.NA)
+                out[orig] = s.astype("Int64")
+            except Exception:
+                # fallback to safe round result if casting fails
+                out[orig] = _safe_round(out[orig], 0)
+        elif lname in oscillator_cols:
+            out[orig] = _safe_round(out[orig], 2)
+        elif lname in pct_cols:
+            out[orig] = _safe_round(out[orig], 4)
+        else:
+            # If numeric and no special category, apply global decimals
+            try:
+                if pd.api.types.is_numeric_dtype(out[orig]):
+                    out[orig] = _safe_round(out[orig], decimals_int)
+            except Exception:
+                # leave as-is on any error
+                pass
+
+    return out
+
+
+def make_csv_formatters(
+    frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None
+) -> dict:
+    """Create a pandas.to_csv formatters dict honoring decimal point and thousands sep.
+
+    Returns: dict mapping column name -> callable
+    """
+    cols = list(frame.columns)
+    lc = {c.lower(): c for c in cols}
+    fmt: dict = {}
+
+    def _add_thousands_sep(int_str: str, sep: str) -> str:
+        neg = int_str.startswith("-")
+        if neg:
+            int_str = int_str[1:]
+        parts = []
+        while int_str:
+            parts.append(int_str[-3:])
+            int_str = int_str[:-3]
+        out = sep.join(reversed(parts))
+        return ("-" + out) if neg else out
+
+    def _num_formatter(nd: int):
+        def _f(x):
+            if pd.isna(x):
+                return ""
+            try:
+                s = f"{float(x):.{nd}f}"
+            except Exception:
+                return str(x)
+            if thous_sep:
+                int_part, _, frac = s.partition(".")
+                int_part_with_sep = _add_thousands_sep(int_part, thous_sep)
+                s = int_part_with_sep + ("." + frac if frac else "")
+            if dec_point != ".":
+                s = s.replace(".", dec_point)
+            return s
+
+        return _f
+
+    def _int_formatter():
+        def _f(x):
+            if pd.isna(x):
+                return ""
+            try:
+                s = f"{int(round(float(x))):d}"
+            except Exception:
+                return str(x)
+            if thous_sep:
+                s = _add_thousands_sep(s, thous_sep)
+            return s
+
+        return _f
+
+    # price/atr: 2 decimals
+    for name in (
+        "open",
+        "close",
+        "high",
+        "low",
+        "atr10",
+        "atr14",
+        "atr20",
+        "atr40",
+        "atr50",
+    ):
+        if name in lc:
+            fmt[lc[name]] = _num_formatter(2)
+    # oscillators: 2 decimals
+    for name in ("rsi3", "rsi4", "rsi14", "adx7"):
+        if name in lc:
+            fmt[lc[name]] = _num_formatter(2)
+    # pct/ratio: 4 decimals
+    for name in (
+        "roc200",
+        "return_3d",
+        "6d_return",
+        "return6d",
+        "atr_ratio",
+        "atr_pct",
+        "hv50",
+    ):
+        if name in lc:
+            fmt[lc[name]] = _num_formatter(4)
+    # volumes: integer display
+    for name in ("volume", "dollarvolume20", "dollarvolume50", "avgvolume50"):
+        if name in lc:
+            fmt[lc[name]] = _int_formatter()
+    return fmt
 
 
 # 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
@@ -102,7 +265,9 @@ class CacheManager:
         self._ui_prefix = "[CacheManager]"
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+    def _warn_once(
+        self, ticker: str, profile: str, category: str, message: str
+    ) -> None:
         key = (ticker, profile, category)
         if key in self._warned:
             return
@@ -149,7 +314,9 @@ class CacheManager:
             return df
         enriched = enriched.drop(columns=["Date"], errors="ignore")
         enriched.columns = [str(c).lower() for c in enriched.columns]
-        enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
+        enriched["date"] = pd.to_datetime(
+            enriched.get("date", base["date"]), errors="coerce"
+        )
         combined = work.copy()
         for col, series in enriched.items():
             combined[col] = series
@@ -203,7 +370,10 @@ class CacheManager:
                         try:
                             df = pd.read_csv(csv_path, parse_dates=["date"])
                         except ValueError as e2:
-                            if "Missing column provided to 'parse_dates': 'date'" in str(e2):
+                            if (
+                                "Missing column provided to 'parse_dates': 'date'"
+                                in str(e2)
+                            ):
                                 df = pd.read_csv(csv_path)
                                 if "Date" in df.columns:
                                     df = df.rename(columns={"Date": "date"})
@@ -284,7 +454,9 @@ class CacheManager:
                     recent_df = df.tail(window)
                 else:
                     recent_df = df.tail(max(window, 252))
-                target_cols = [col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns]
+                target_cols = [
+                    col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns
+                ]
                 if not target_cols:
                     target_cols = list(recent_df.columns)
                 col_rates: list[float] = []
@@ -347,7 +519,9 @@ class CacheManager:
                             ticker,
                             profile,
                             category,
-                            (f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"),
+                            (
+                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                            ),
                         )
         except Exception as e:
             category = f"healthcheck_error:{type(e).__name__}:{str(e)}"
@@ -369,20 +543,127 @@ class CacheManager:
             round_dec = None
             cfg_round = getattr(self.settings.cache, "round_decimals", None)
             if profile == "rolling":
-                roll_round = getattr(self.settings.cache.rolling, "round_decimals", None)
+                roll_round = getattr(
+                    self.settings.cache.rolling, "round_decimals", None
+                )
                 round_dec = roll_round if roll_round is not None else cfg_round
             else:
                 round_dec = cfg_round
         except Exception:
             round_dec = None
         df_to_write = round_dataframe(df, round_dec)
+        # Prepare CSV formatters to ensure integer display for volume-like columns
+        def _make_csv_formatters(
+            frame: pd.DataFrame, dec_point: str, thous_sep: str | None
+        ) -> dict:
+            cols = list(frame.columns)
+            lc = {c.lower(): c for c in cols}
+            fmt: dict = {}
+
+            def _num_formatter(nd: int):
+                def _f(x):
+                    if pd.isna(x):
+                        return ""
+                    try:
+                        s = f"{float(x):.{nd}f}"
+                    except Exception:
+                        return str(x)
+                    # Apply thousands separator if requested
+                    if thous_sep:
+                        int_part, _, frac = s.partition(".")
+                        int_part_with_sep = _add_thousands_sep(int_part, thous_sep)
+                        s = int_part_with_sep + ("." + frac if frac else "")
+                    # Replace decimal point if different
+                    if dec_point != ".":
+                        s = s.replace(".", dec_point)
+                    return s
+
+                return _f
+
+            def _int_formatter():
+                def _f(x):
+                    if pd.isna(x):
+                        return ""
+                    try:
+                        s = f"{int(round(float(x))):d}"
+                    except Exception:
+                        return str(x)
+                    if thous_sep:
+                        s = _add_thousands_sep(s, thous_sep)
+                    return s
+
+                return _f
+
+            def _add_thousands_sep(int_str: str, sep: str) -> str:
+                # Insert thousands separator into integer string (no sign handling needed here)
+                neg = int_str.startswith("-")
+                if neg:
+                    int_str = int_str[1:]
+                parts = []
+                while int_str:
+                    parts.append(int_str[-3:])
+                    int_str = int_str[:-3]
+                out = sep.join(reversed(parts))
+                return ("-" + out) if neg else out
+
+            # price/atr: 2 decimals
+            for name in (
+                "open",
+                "close",
+                "high",
+                "low",
+                "atr10",
+                "atr14",
+                "atr20",
+                "atr40",
+                "atr50",
+            ):
+                if name in lc:
+                    fmt[lc[name]] = _num_formatter(2)
+            # oscillators: 2 decimals
+            for name in ("rsi3", "rsi4", "rsi14", "adx7"):
+                if name in lc:
+                    fmt[lc[name]] = _num_formatter(2)
+            # pct/ratio: 4 decimals
+            for name in (
+                "roc200",
+                "return_3d",
+                "6d_return",
+                "return6d",
+                "atr_ratio",
+                "atr_pct",
+                "hv50",
+            ):
+                if name in lc:
+                    fmt[lc[name]] = _num_formatter(4)
+            # volumes: integer display
+            for name in ("volume", "dollarvolume20", "dollarvolume50", "avgvolume50"):
+                if name in lc:
+                    fmt[lc[name]] = _int_formatter()
+            return fmt
         try:
             if path.suffix == ".parquet":
                 df_to_write.to_parquet(tmp, index=False)
             elif path.suffix == ".feather":
                 df_to_write.reset_index(drop=True).to_feather(tmp)
             else:
-                df_to_write.to_csv(tmp, index=False)
+                try:
+                    settings = get_settings(create_dirs=False)
+                    dec_point = getattr(settings.cache, "csv_decimal_point", ".")
+                    thous = getattr(settings.cache, "csv_thousands_sep", None)
+                    sep = getattr(settings.cache, "csv_field_sep", ",")
+                    fmt = _make_csv_formatters(df_to_write, dec_point, thous)
+                    # pandas to_csv accepts formatters and also supports 'decimal' and 'sep' args
+                    df_to_write.to_csv(
+                        tmp,
+                        index=False,
+                        float_format=None,
+                        formatters=fmt,
+                        decimal=dec_point,
+                        sep=sep,
+                    )
+                except Exception:
+                    df_to_write.to_csv(tmp, index=False)
             shutil.move(tmp, path)
         finally:
             if os.path.exists(tmp):
@@ -566,7 +847,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = ["High", "Low", "Close"]
     missing = [c for c in required if c not in x.columns]
     if missing:
-        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}")
+        logger.warning(
+            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}"
+        )
         return x
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -640,7 +923,24 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
     except Exception:
         round_dec = None
     df_to_write = round_dataframe(df_reset, round_dec)
-    df_to_write.to_csv(path, index=False)
+    try:
+        settings = get_settings(create_dirs=False)
+        dec_point = getattr(settings.cache, "csv_decimal_point", ".")
+        thous = getattr(settings.cache, "csv_thousands_sep", None)
+        sep = getattr(settings.cache, "csv_field_sep", ",")
+        fmt = None
+        try:
+            fmt = _DEFAULT_CACHE_MANAGER._make_csv_formatters(  # type: ignore[attr-defined]
+                df_to_write, dec_point, thous
+            )
+        except Exception:
+            fmt = None
+        if fmt:
+            df_to_write.to_csv(path, index=False, formatters=fmt, decimal=dec_point, sep=sep)
+        else:
+            df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
+    except Exception:
+        df_to_write.to_csv(path, index=False)
     return path
 
 
