@@ -552,6 +552,7 @@ class CacheManager:
         except Exception:
             round_dec = None
         df_to_write = round_dataframe(df, round_dec)
+
         # Prepare CSV formatters to ensure integer display for volume-like columns
         def _make_csv_formatters(
             frame: pd.DataFrame, dec_point: str, thous_sep: str | None
@@ -641,6 +642,7 @@ class CacheManager:
                 if name in lc:
                     fmt[lc[name]] = _int_formatter()
             return fmt
+
         try:
             if path.suffix == ".parquet":
                 df_to_write.to_parquet(tmp, index=False)
@@ -936,7 +938,9 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
         except Exception:
             fmt = None
         if fmt:
-            df_to_write.to_csv(path, index=False, formatters=fmt, decimal=dec_point, sep=sep)
+            df_to_write.to_csv(
+                path, index=False, formatters=fmt, decimal=dec_point, sep=sep
+            )
         else:
             df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
     except Exception:

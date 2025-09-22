@@ -33,6 +33,38 @@ pytest -q
 優先順位は **JSON > YAML > .env**（`config/settings.py` 実装に準拠）。
 推奨: `config.yaml` をベースに、秘匿値は `.env`、上書きは JSON で。
 
+## CSV Locale / Formatting (追加)
+
+キャッシュを CSV として出力する際の小数点・千位区切り・フィールド区切りは設定で制御できます。主に `common/cache_manager.py` の出力や `scripts/round_cache.py` による一括整形で使われます。
+
+- 設定項目（デフォルトは以下）:
+  - `cache.csv_decimal_point`: 小数点文字（既定 `"."`）
+  - `cache.csv_thousands_sep`: 千位区切り文字（既定 `null` で無効）
+  - `cache.csv_field_sep`: フィールド区切り（既定 `","`）
+
+例: `.env` に設定する場合
+```
+# 小数点をカンマにする
+CACHE_CSV_DECIMAL_POINT=,
+# 千位区切りにドットを使う
+CACHE_CSV_THOUSANDS_SEP=.
+# フィールド区切りをセミコロンにする
+CACHE_CSV_FIELD_SEP=;
+```
+
+例: `config/config.yaml` に設定する場合
+```yaml
+cache:
+  round_decimals: 4
+  csv_decimal_point: ","
+  csv_thousands_sep: "."
+  csv_field_sep: ";"
+```
+
+振る舞いのポイント:
+- `cache.round_decimals` に従って各列を丸めます（price/ATR=2dp, oscillator=2dp, pct/ratio=4dp, volume=整数）。
+- CSV 出力は `formatters` を用いて各セルを文字列化するため、千位区切りや小数点文字は確実に反映されます。
+- Parquet/Feather などのバイナリ形式は dtype を保持するため、この表示フォーマットは CSV にのみ適用されます。
 ## ログ運用
 
 `logging_utils` にてローテーション設定。容量上限と日次ローテの使い分けを明記し、
