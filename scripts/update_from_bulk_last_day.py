@@ -262,6 +262,50 @@ def _build_rolling_frame(full_df: pd.DataFrame, cm: CacheManager) -> pd.DataFram
     return full_df.iloc[-keep:].reset_index(drop=True)
 
 
+def _concat_excluding_all_na(
+    a: pd.DataFrame | None, b: pd.DataFrame | None, **kwargs
+) -> pd.DataFrame:
+    """Concatenate two DataFrames while excluding columns that are empty or all-NA in both.
+
+    This preserves the previous behaviour pandas used to have where empty/all-NA
+    columns were ignored for dtype determination. Future pandas versions will
+    change that behaviour, so we explicitly drop such columns before concat.
+    """
+    if a is None or (hasattr(a, "empty") and a.empty):
+        a = pd.DataFrame()
+    if b is None or (hasattr(b, "empty") and b.empty):
+        b = pd.DataFrame()
+    if a.empty and b.empty:
+        return pd.DataFrame()
+    # Find columns present in either frame
+    cols = set(a.columns) | set(b.columns)
+    keep: list[str] = []
+    for col in cols:
+        a_col_all_na = True
+        b_col_all_na = True
+        if col in a.columns:
+            try:
+                a_col_all_na = a[col].dropna().empty
+            except Exception:
+                a_col_all_na = False
+        if col in b.columns:
+            try:
+                b_col_all_na = b[col].dropna().empty
+            except Exception:
+                b_col_all_na = False
+        # keep the column if at least one side has non-all-NA values
+        if not (a_col_all_na and b_col_all_na):
+            keep.append(col)
+    # Subset frames to kept columns (if column absent, pandas will fill NA)
+    a_sub = (
+        a.loc[:, [c for c in keep if c in a.columns]] if not a.empty else pd.DataFrame(columns=keep)
+    )
+    b_sub = (
+        b.loc[:, [c for c in keep if c in b.columns]] if not b.empty else pd.DataFrame(columns=keep)
+    )
+    return pd.concat([a_sub, b_sub], ignore_index=kwargs.get("ignore_index", True))
+
+
 def _merge_existing_full(
     new_full: pd.DataFrame, existing_full: pd.DataFrame | None
 ) -> pd.DataFrame:
@@ -381,7 +425,7 @@ def append_to_cache(
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = pd.concat([existing_raw, new_raw], ignore_index=True)
+            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
                 continue
             combined["date"] = pd.to_datetime(combined["date"], errors="coerce")

@@ -85,32 +85,44 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
         except Exception:
             return series
 
-    # Apply per-column rounding where applicable
-    for lname, orig in lc_map.items():
-        if lname in price_atr_cols:
-            out[orig] = _safe_round(out[orig], 2)
-        elif lname in volume_cols:
-            # Round volume-like columns to 0 decimals and cast to nullable Int64
-            try:
-                s = pd.to_numeric(out[orig], errors="coerce").round(0)
-                # convert NaN -> pd.NA for nullable integer casting
-                s = s.where(s.notna(), pd.NA)
-                out[orig] = s.astype("Int64")
-            except Exception:
-                # fallback to safe round result if casting fails
-                out[orig] = _safe_round(out[orig], 0)
-        elif lname in oscillator_cols:
-            out[orig] = _safe_round(out[orig], 2)
-        elif lname in pct_cols:
-            out[orig] = _safe_round(out[orig], 4)
-        else:
-            # If numeric and no special category, apply global decimals
-            try:
-                if pd.api.types.is_numeric_dtype(out[orig]):
-                    out[orig] = _safe_round(out[orig], decimals_int)
-            except Exception:
-                # leave as-is on any error
-                pass
+    # Group columns by lowercase name membership to avoid repeated lookups
+    price_cols = [orig for lname, orig in lc_map.items() if lname in price_atr_cols]
+    vol_cols = [orig for lname, orig in lc_map.items() if lname in volume_cols]
+    osc_cols = [orig for lname, orig in lc_map.items() if lname in oscillator_cols]
+    pct_cols_actual = [orig for lname, orig in lc_map.items() if lname in pct_cols]
+
+    # Apply rounding for price/atr columns (2 decimals)
+    for col in price_cols:
+        out[col] = _safe_round(out[col], 2)
+
+    # Volume-like columns: round to 0 and cast to Int64 when possible
+    for col in vol_cols:
+        try:
+            s = pd.to_numeric(out[col], errors="coerce").round(0)
+            s = s.where(s.notna(), pd.NA)
+            out[col] = s.astype("Int64")
+        except Exception:
+            out[col] = _safe_round(out[col], 0)
+
+    # Oscillators: 2 decimals
+    for col in osc_cols:
+        out[col] = _safe_round(out[col], 2)
+
+    # Percent/ratio-like: 4 decimals
+    for col in pct_cols_actual:
+        out[col] = _safe_round(out[col], 4)
+
+    # Remaining numeric columns: apply global decimals
+    handled = set(price_cols) | set(vol_cols) | set(osc_cols) | set(pct_cols_actual)
+    for orig in cols:
+        if orig in handled:
+            continue
+        try:
+            if pd.api.types.is_numeric_dtype(out[orig]):
+                out[orig] = _safe_round(out[orig], decimals_int)
+        except Exception:
+            # leave as-is on any error
+            pass
 
     return out
 
@@ -552,6 +564,7 @@ class CacheManager:
         except Exception:
             round_dec = None
         df_to_write = round_dataframe(df, round_dec)
+
         # Prepare CSV formatters to ensure integer display for volume-like columns
         def _make_csv_formatters(
             frame: pd.DataFrame, dec_point: str, thous_sep: str | None
@@ -641,6 +654,7 @@ class CacheManager:
                 if name in lc:
                     fmt[lc[name]] = _int_formatter()
             return fmt
+
         try:
             if path.suffix == ".parquet":
                 df_to_write.to_parquet(tmp, index=False)
@@ -936,7 +950,9 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
         except Exception:
             fmt = None
         if fmt:
-            df_to_write.to_csv(path, index=False, formatters=fmt, decimal=dec_point, sep=sep)
+            df_to_write.to_csv(
+                path, index=False, formatters=fmt, decimal=dec_point, sep=sep
+            )
         else:
             df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
     except Exception:
