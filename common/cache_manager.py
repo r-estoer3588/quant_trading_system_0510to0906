@@ -873,14 +873,14 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if vol is not None:
         vol = pd.to_numeric(vol, errors="coerce")
 
-    # SMA/EMA
-    x["SMA25"] = close.rolling(25).mean()
-    x["SMA50"] = close.rolling(50).mean()
-    x["SMA100"] = close.rolling(100).mean()
-    x["SMA150"] = close.rolling(150).mean()
-    x["SMA200"] = close.rolling(200).mean()
-    x["EMA20"] = close.ewm(span=20, adjust=False).mean()
-    x["EMA50"] = close.ewm(span=50, adjust=False).mean()
+    # SMA/EMA (lowercase column names)
+    x["sma25"] = close.rolling(25).mean()
+    x["sma50"] = close.rolling(50).mean()
+    x["sma100"] = close.rolling(100).mean()
+    x["sma150"] = close.rolling(150).mean()
+    x["sma200"] = close.rolling(200).mean()
+    x["ema20"] = close.ewm(span=20, adjust=False).mean()
+    x["ema50"] = close.ewm(span=50, adjust=False).mean()
 
     # True Range / ATR
     tr = pd.concat(
@@ -891,10 +891,10 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         ],
         axis=1,
     ).max(axis=1)
-    x["ATR10"] = tr.rolling(10).mean()
-    x["ATR14"] = tr.rolling(14).mean()
-    x["ATR40"] = tr.rolling(40).mean()
-    x["ATR50"] = tr.rolling(50).mean()
+    x["atr10"] = tr.rolling(10).mean()
+    x["atr14"] = tr.rolling(14).mean()
+    x["atr40"] = tr.rolling(40).mean()
+    x["atr50"] = tr.rolling(50).mean()
 
     # RSI 3/14 (Wilder)
     def _rsi(series: pd.Series, window: int) -> pd.Series:
@@ -904,21 +904,21 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         rs = gain / loss.replace(0, np.nan)
         return 100 - (100 / (1 + rs))
 
-    x["RSI3"] = _rsi(close, 3)
-    x["RSI14"] = _rsi(close, 14)
+    x["rsi3"] = _rsi(close, 3)
+    x["rsi14"] = _rsi(close, 14)
 
     # ROC200 (%)
-    x["ROC200"] = close.pct_change(200) * 100.0
+    x["roc200"] = close.pct_change(200) * 100.0
 
     # HV50 (% 年率)
     # np.log は型チェッカー上で ndarray を返すと解釈されるため、Series.apply を使って Series を維持
     ret = (close / close.shift(1)).apply(np.log)
-    x["HV50"] = ret.rolling(50).std() * np.sqrt(252) * 100
+    x["hv50"] = ret.rolling(50).std() * np.sqrt(252) * 100
 
     # 補助: 流動性系
     if vol is not None:
-        x["DollarVolume20"] = (close * vol).rolling(20).mean()
-        x["DollarVolume50"] = (close * vol).rolling(50).mean()
+        x["dollarvolume20"] = (close * vol).rolling(20).mean()
+        x["dollarvolume50"] = (close * vol).rolling(50).mean()
 
     return x
 
