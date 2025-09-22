@@ -418,7 +418,7 @@ def generate_candidates_system6(
                 skipped += 1
                 continue
             for date, row in setup_days.iterrows():
-                ts = pd.to_datetime(pd.Index([date]))[0]
+                ts = pd.Timestamp(date)
                 # 翌営業日に補正
                 entry_date = resolve_signal_entry_date(ts)
                 if pd.isna(entry_date):

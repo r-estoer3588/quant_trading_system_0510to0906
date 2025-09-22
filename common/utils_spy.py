@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import time as dtime
+from typing import Any
 import os
 from pathlib import Path
 import sys
@@ -343,12 +344,12 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
 
 
 try:
-    from pandas._libs.tslibs.nattype import NaTType
+    from pandas._libs.tslibs.nattype import NaTType  # type: ignore
 except Exception:
-    NaTType = type(pd.NaT)
+    NaTType = type(pd.NaT)  # fallback
 
 
-def resolve_signal_entry_date(base_date) -> pd.Timestamp | NaTType:
+def resolve_signal_entry_date(base_date) -> pd.Timestamp | Any:
     """シグナル日から翌営業日（取引予定日）を算出する。
 
     - base_date が欠損・変換不可の場合は NaT を返す。

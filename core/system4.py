@@ -451,7 +451,7 @@ def generate_candidates_system4(
             if setup_days.empty:
                 continue
             for date, row in setup_days.iterrows():
-                ts = pd.to_datetime(pd.Index([date]))[0]
+                ts = pd.Timestamp(date)
                 if ts not in spy_df.index:
                     continue
                 if int(spy_df.at[ts, "spy_filter"]) == 0:

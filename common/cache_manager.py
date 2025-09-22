@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from typing import ClassVar
+from typing import ClassVar, Any, cast
 
 from indicators_common import add_indicators
 import numpy as np
@@ -656,16 +656,20 @@ class CacheManager:
                     sep = getattr(settings.cache, "csv_field_sep", ",")
                     fmt = _make_csv_formatters(df_to_write, dec_point, thous)
                     # pandas to_csv accepts formatters and also supports 'decimal' and 'sep' args
-                    df_to_write.to_csv(
-                        tmp,
-                        index=False,
-                        float_format=None,
-                        formatters=fmt,
-                        decimal=dec_point,
-                        sep=sep,
-                    )
+                    # Ensure path is str for pandas typing compatibility
+                    # pandas stubs sometimes don't expose 'formatters' overloads;
+                    # cast to Any to satisfy type checkers.
+                    _df_any = cast(Any, df_to_write)
+                    kwargs: dict[str, Any] = {
+                        "index": False,
+                        "float_format": None,
+                        "formatters": fmt,
+                        "decimal": dec_point,
+                        "sep": sep,
+                    }
+                    cast(Any, df_to_write).to_csv(str(tmp), **kwargs)
                 except Exception:
-                    df_to_write.to_csv(tmp, index=False)
+                    cast(Any, df_to_write).to_csv(str(tmp), index=False)
             shutil.move(tmp, path)
         finally:
             if os.path.exists(tmp):
@@ -938,13 +942,19 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
         except Exception:
             fmt = None
         if fmt:
-            df_to_write.to_csv(
-                path, index=False, formatters=fmt, decimal=dec_point, sep=sep
+            cast(Any, df_to_write).to_csv(
+                str(path),
+                index=False,
+                formatters=fmt,
+                decimal=dec_point,
+                sep=sep,
             )
         else:
-            df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
+            cast(Any, df_to_write).to_csv(
+                str(path), index=False, decimal=dec_point, sep=sep
+            )
     except Exception:
-        df_to_write.to_csv(path, index=False)
+        cast(Any, df_to_write).to_csv(str(path), index=False)
     return path
 
 
@@ -978,8 +988,8 @@ def load_base_cache(
     *,
     rebuild_if_missing: bool = True,
     cache_manager: CacheManager | None = None,
-    min_last_date: pd.Timestamp | None = None,
-    allowed_recent_dates: Iterable[object] | None = None,
+    min_last_date: object | None = None,
+    allowed_recent_dates: Iterable[Any] | None = None,
 ) -> pd.DataFrame | None:  # noqa: E501
     """Load base cache with optional freshness validation.
 
@@ -1010,16 +1020,36 @@ def load_base_cache(
     if allowed_recent_dates:
         for candidate in allowed_recent_dates:
             try:
-                ts = pd.Timestamp(candidate)
+                # Narrow candidate to common acceptable types for pd.to_datetime
+                if isinstance(
+                    candidate, (pd.Timestamp, str, float, int, np.integer, np.floating)
+                ):
+                    ts = pd.to_datetime(candidate, errors="coerce")
+                else:
+                    # Fallback to string representation for arbitrary objects
+                    ts = pd.to_datetime(str(candidate), errors="coerce")
             except Exception:
                 continue
             if pd.isna(ts):
                 continue
-            allowed_set.add(ts.normalize())
+            try:
+                allowed_set.add(pd.Timestamp(ts).normalize())
+            except Exception:
+                continue
 
     if min_last_date is not None:
         try:
-            min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
+            # Accept common scalar/date types directly, otherwise coerce via str()
+            if isinstance(
+                min_last_date, (pd.Timestamp, str, float, int, np.integer, np.floating)
+            ):
+                tmp_min = pd.to_datetime(min_last_date, errors="coerce")
+            else:
+                tmp_min = pd.to_datetime(str(min_last_date), errors="coerce")
+            if not pd.isna(tmp_min):
+                min_norm = pd.Timestamp(tmp_min).normalize()
+            else:
+                min_norm = None
         except Exception:
             min_norm = None
     else:

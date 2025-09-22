@@ -492,7 +492,7 @@ def generate_candidates_system5(
                 skipped += 1
                 continue
             for date, row in setup_days.iterrows():
-                ts = pd.to_datetime(pd.Index([date]))[0]
+                ts = pd.Timestamp(str(date))
                 # last_price（直近終値）を取得
                 last_price = None
                 if "Close" in df.columns and not df["Close"].empty:
