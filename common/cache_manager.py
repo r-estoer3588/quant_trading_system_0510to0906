@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from typing import ClassVar
+from typing import ClassVar, Any, cast
 
 from indicators_common import add_indicators
 import numpy as np
@@ -950,7 +950,7 @@ def load_base_cache(
     if allowed_recent_dates:
         for candidate in allowed_recent_dates:
             try:
-                ts = pd.Timestamp(candidate)
+                ts = pd.Timestamp(cast(Any, candidate))
             except Exception:
                 continue
             if pd.isna(ts):
