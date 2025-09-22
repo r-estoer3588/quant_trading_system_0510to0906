@@ -75,8 +75,14 @@ class BulkUpdateStats:
         return self.updated_symbols > 0
 
 
-class CacheUpdateInterrupted(KeyboardInterrupt):
-    """KeyboardInterrupt に伴う進捗情報を保持する例外"""
+class CacheUpdateInterrupted(Exception):
+    """進捗情報を保持する中断例外。
+
+    元々は KeyboardInterrupt を継承していましたが、
+    呼び出し側で bare Exception を捕捉するコードが存在するため
+    ここでは一般的な Exception を継承して握ることで、
+    呼び出し側が適切に中断を検知して後処理できるようにします。
+    """
 
     def __init__(self, processed: int, updated: int) -> None:
         super().__init__("cache update interrupted")
@@ -394,7 +400,6 @@ def append_to_cache(
             progress_callback(0, progress_target, 0)
         except Exception:
             pass
-    interrupt_exc: BaseException | None = None
     try:
         base_dir = _resolve_base_dir(cm)
         # round_decimals not needed here; rounding is handled at write time
@@ -521,16 +526,15 @@ def append_to_cache(
                     except Exception:
                         pass
                     last_report = total
-    except KeyboardInterrupt as exc:  # pragma: no cover - 手動中断
-        interrupt_exc = exc
-    if interrupt_exc is not None:
+    except KeyboardInterrupt:  # pragma: no cover - 手動中断
+        # 捕捉して進捗情報を含む専用例外で呼び出し側へ伝える
         if progress_callback and total and total != last_report:
             effective_target = max(progress_target, total)
             try:
                 progress_callback(total, effective_target, updated)
             except Exception:
                 pass
-        raise CacheUpdateInterrupted(total, updated) from interrupt_exc
+        raise CacheUpdateInterrupted(total, updated) from None
     # rolling のメンテナンス
     try:
         cm.prune_rolling_if_needed(anchor_ticker="SPY")

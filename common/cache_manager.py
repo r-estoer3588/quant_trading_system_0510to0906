@@ -565,95 +565,24 @@ class CacheManager:
             round_dec = None
         df_to_write = round_dataframe(df, round_dec)
 
-        # Prepare CSV formatters to ensure integer display for volume-like columns
-        def _make_csv_formatters(
-            frame: pd.DataFrame, dec_point: str, thous_sep: str | None
-        ) -> dict:
-            cols = list(frame.columns)
-            lc = {c.lower(): c for c in cols}
-            fmt: dict = {}
-
-            def _num_formatter(nd: int):
-                def _f(x):
-                    if pd.isna(x):
-                        return ""
-                    try:
-                        s = f"{float(x):.{nd}f}"
-                    except Exception:
-                        return str(x)
-                    # Apply thousands separator if requested
-                    if thous_sep:
-                        int_part, _, frac = s.partition(".")
-                        int_part_with_sep = _add_thousands_sep(int_part, thous_sep)
-                        s = int_part_with_sep + ("." + frac if frac else "")
-                    # Replace decimal point if different
-                    if dec_point != ".":
-                        s = s.replace(".", dec_point)
-                    return s
-
-                return _f
-
-            def _int_formatter():
-                def _f(x):
-                    if pd.isna(x):
-                        return ""
-                    try:
-                        s = f"{int(round(float(x))):d}"
-                    except Exception:
-                        return str(x)
-                    if thous_sep:
-                        s = _add_thousands_sep(s, thous_sep)
-                    return s
-
-                return _f
-
-            def _add_thousands_sep(int_str: str, sep: str) -> str:
-                # Insert thousands separator into integer string (no sign handling needed here)
-                neg = int_str.startswith("-")
-                if neg:
-                    int_str = int_str[1:]
-                parts = []
-                while int_str:
-                    parts.append(int_str[-3:])
-                    int_str = int_str[:-3]
-                out = sep.join(reversed(parts))
-                return ("-" + out) if neg else out
-
-            # price/atr: 2 decimals
-            for name in (
-                "open",
-                "close",
-                "high",
-                "low",
-                "atr10",
-                "atr14",
-                "atr20",
-                "atr40",
-                "atr50",
-            ):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(2)
-            # oscillators: 2 decimals
-            for name in ("rsi3", "rsi4", "rsi14", "adx7"):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(2)
-            # pct/ratio: 4 decimals
-            for name in (
-                "roc200",
-                "return_3d",
-                "6d_return",
-                "return6d",
-                "atr_ratio",
-                "atr_pct",
-                "hv50",
-            ):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(4)
-            # volumes: integer display
-            for name in ("volume", "dollarvolume20", "dollarvolume50", "avgvolume50"):
-                if name in lc:
-                    fmt[lc[name]] = _int_formatter()
-            return fmt
+        # Prepare CSV output: older pandas may not accept 'formatters' kw.
+        # We'll pre-format selected columns to strings according to settings
+        try:
+            settings = get_settings(create_dirs=False)
+            dec_point = getattr(settings.cache, "csv_decimal_point", ".")
+            thous = getattr(settings.cache, "csv_thousands_sep", None)
+            sep = getattr(settings.cache, "csv_field_sep", ",")
+        except Exception:
+            dec_point = "."
+            thous = None
+            sep = ","
+        # Use module-level make_csv_formatters if possible to decide rounding and formatting
+        try:
+            fmt_map = make_csv_formatters(
+                df_to_write, dec_point=dec_point, thous_sep=thous
+            )
+        except Exception:
+            fmt_map = {}
 
         try:
             if path.suffix == ".parquet":
@@ -661,23 +590,18 @@ class CacheManager:
             elif path.suffix == ".feather":
                 df_to_write.reset_index(drop=True).to_feather(tmp)
             else:
-                try:
-                    settings = get_settings(create_dirs=False)
-                    dec_point = getattr(settings.cache, "csv_decimal_point", ".")
-                    thous = getattr(settings.cache, "csv_thousands_sep", None)
-                    sep = getattr(settings.cache, "csv_field_sep", ",")
-                    fmt = _make_csv_formatters(df_to_write, dec_point, thous)
-                    # pandas to_csv accepts formatters and also supports 'decimal' and 'sep' args
-                    df_to_write.to_csv(
-                        tmp,
-                        index=False,
-                        float_format=None,
-                        formatters=fmt,
-                        decimal=dec_point,
-                        sep=sep,
-                    )
-                except Exception:
-                    df_to_write.to_csv(tmp, index=False)
+                # Pre-format columns to strings when fmt_map provides formatters
+                if fmt_map:
+                    df_out = df_to_write.copy()
+                    for col, func in fmt_map.items():
+                        if col in df_out.columns:
+                            try:
+                                df_out[col] = df_out[col].apply(func)
+                            except Exception:
+                                df_out[col] = df_out[col].astype(str)
+                    df_out.to_csv(tmp, index=False, decimal=dec_point, sep=sep)
+                else:
+                    df_to_write.to_csv(tmp, index=False, decimal=dec_point, sep=sep)
             shutil.move(tmp, path)
         finally:
             if os.path.exists(tmp):
@@ -942,17 +866,21 @@ def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
         dec_point = getattr(settings.cache, "csv_decimal_point", ".")
         thous = getattr(settings.cache, "csv_thousands_sep", None)
         sep = getattr(settings.cache, "csv_field_sep", ",")
-        fmt = None
         try:
-            fmt = _DEFAULT_CACHE_MANAGER._make_csv_formatters(  # type: ignore[attr-defined]
-                df_to_write, dec_point, thous
+            fmt_map = make_csv_formatters(
+                df_to_write, dec_point=dec_point, thous_sep=thous
             )
         except Exception:
-            fmt = None
-        if fmt:
-            df_to_write.to_csv(
-                path, index=False, formatters=fmt, decimal=dec_point, sep=sep
-            )
+            fmt_map = {}
+        if fmt_map:
+            df_out = df_to_write.copy()
+            for col, func in fmt_map.items():
+                if col in df_out.columns:
+                    try:
+                        df_out[col] = df_out[col].apply(func)
+                    except Exception:
+                        df_out[col] = df_out[col].astype(str)
+            df_out.to_csv(path, index=False, decimal=dec_point, sep=sep)
         else:
             df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
     except Exception:
