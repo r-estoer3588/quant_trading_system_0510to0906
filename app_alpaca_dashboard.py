@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import json
 import math
 from pathlib import Path
@@ -38,6 +39,9 @@ from common import broker_alpaca as ba
 from common.cache_manager import load_base_cache
 from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates
 from common.profit_protection import calculate_business_holding_days
+
+
+EXIT_STATE_KEY = "alpaca_exit_order_status"
 
 # 経過日手仕切りの上限日数（システム別）
 HOLD_LIMITS: dict[str, int] = {
@@ -413,13 +417,19 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
 
     if df is not None and not getattr(df, "empty", True):
         for col in ("Close", "close", "Adj Close", "adj_close", "adj close"):
-            if col in df.columns:
-                try:
-                    series = pd.to_numeric(df[col], errors="coerce").dropna().tail(max_points)
-                except Exception:
-                    continue
-                if not series.empty:
-                    return list(series.values)
+            if col not in df.columns:
+                continue
+            try:
+                series = (
+                    pd.to_numeric(df[col], errors="coerce")
+                    .dropna()
+                    .tail(max_points)
+                )
+            except Exception:
+                continue
+            if not series.empty:
+                return list(series.values)
+
         try:
             numeric_cols = df.select_dtypes(include=["number"])
         except Exception:
@@ -441,19 +451,28 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
         Path("data_cache") / f"{symbol}.csv",
     ]
     for p in candidates:
-        if p.exists():
-            try:
-                df = pd.read_csv(p)
-                cols = {c.lower(): c for c in df.columns}
-                close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
-                if close_col is None:
-                    continue
-                series = pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
-                if series.empty:
-                    continue
-                return list(series.values)
-            except Exception:
+        if not p.exists():
+            continue
+        try:
+            df = pd.read_csv(p)
+            cols = {c.lower(): c for c in df.columns}
+            close_col = (
+                cols.get("close")
+                or cols.get("adj close")
+                or cols.get("adj_close")
+            )
+            if close_col is None:
                 continue
+            series = (
+                pd.to_numeric(df[close_col], errors="coerce")
+                .dropna()
+                .tail(max_points)
+            )
+            if series.empty:
+                continue
+            return list(series.values)
+        except Exception:
+            continue
     return None
 
 
@@ -540,7 +559,10 @@ def _collect_open_exit_levels(client: Any) -> dict[str, dict[str, list[Any]]]:
         stops, limits, trails = _extract_order_prices(order)
         if not stops and not limits and not trails:
             continue
-        bucket = levels.setdefault(sym_key, {"stops": set(), "limits": set(), "trail": set()})
+        bucket = levels.setdefault(
+            sym_key,
+            {"stops": set(), "limits": set(), "trail": set()},
+        )
         for price in stops:
             bucket["stops"].add(price)
         for price in limits:
@@ -659,9 +681,12 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         held = _days_held(entry_map.get(sym_key))
         system_value = symbol_map.get(sym_key, "unknown")
         limit = HOLD_LIMITS.get(str(system_value).lower())
+        limit_reached = False
         exit_hint = ""
-        if held is not None and limit and held >= limit:
-            exit_hint = f"{limit}日経過で手仕切り検討"
+        if held is not None and limit:
+            limit_reached = held >= int(limit)
+            if limit_reached:
+                exit_hint = f"{limit}日経過で手仕切り検討"
         records.append(
             {
                 "銘柄": sym,
@@ -672,6 +697,8 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
                 "保有日数": held if held is not None else "-",
                 "経過日手仕切り": exit_hint,
                 "システム": system_value,
+                "_limit_days": limit,
+                "_limit_reached": limit_reached,
             }
         )
     df = pd.DataFrame(records)
@@ -699,6 +726,172 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
     except Exception:
         pass
     return df
+
+
+def _build_position_map(positions: Iterable[Any]) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    for pos in positions:
+        try:
+            symbol = str(getattr(pos, "symbol", ""))
+        except Exception:
+            continue
+        symbol_key = symbol.upper()
+        if not symbol_key:
+            continue
+        mapping[symbol_key] = pos
+    return mapping
+
+
+def _parse_exit_quantity(position: Any) -> int | None:
+    candidates = [
+        getattr(position, "qty_available", None),
+        getattr(position, "qty", None),
+    ]
+    for raw in candidates:
+        if raw in (None, "", "-"):
+            continue
+        try:
+            value = Decimal(str(raw).replace(",", ""))
+        except (InvalidOperation, ValueError, TypeError):
+            continue
+        value = abs(value)
+        if value == 0:
+            continue
+        if value != value.to_integral_value():
+            # Fractional shares are not supported via this shortcut.
+            continue
+        qty = int(value)
+        if qty > 0:
+            return qty
+    return None
+
+
+def _determine_exit_side(position: Any) -> tuple[str, str]:
+    side_raw = getattr(position, "side", "")
+    side = str(side_raw).lower()
+    if side == "short":
+        return "buy", "買い戻し"
+    return "sell", "売却"
+
+
+def _render_exit_actions(
+    df: pd.DataFrame,
+    position_map: dict[str, Any],
+    client: Any,
+) -> None:
+    if df.empty or "_limit_reached" not in df.columns:
+        return
+    try:
+        mask = df["_limit_reached"].astype(bool)
+    except Exception:
+        mask = df["_limit_reached"].apply(lambda x: bool(x))
+    eligible = df[mask].copy()
+    if eligible.empty:
+        return
+
+    st.markdown("#### 経過日手仕切りの即時決済")
+    st.caption("保有日数が上限に達したポジションを成行注文で決済します。")
+
+    status_map: dict[str, Any] = st.session_state.setdefault(EXIT_STATE_KEY, {})
+    is_na = getattr(pd, "isna", None)
+    eligible = eligible.reset_index(drop=True)
+    for idx, row in eligible.iterrows():
+        symbol_raw = row.get("銘柄", "")
+        try:
+            symbol = str(symbol_raw).upper()
+        except Exception:
+            symbol = ""
+        if not symbol:
+            continue
+
+        position = position_map.get(symbol)
+        if position is None:
+            st.warning(f"{symbol}: ポジション情報が見つかりませんでした。手動でご確認ください。")
+            continue
+
+        qty = _parse_exit_quantity(position)
+        if qty is None:
+            st.warning(f"{symbol}: 決済数量を特定できませんでした。手動で注文してください。")
+            continue
+
+        exit_side, side_label = _determine_exit_side(position)
+        system_value = row.get("システム", "unknown")
+        limit_value = row.get("_limit_days")
+        held_value = row.get("保有日数")
+
+        if held_value in (None, "", "-") or (is_na and is_na(held_value)):
+            held_text = "-"
+        else:
+            try:
+                held_text = f"{int(held_value)}日"
+            except Exception:
+                held_text = str(held_value)
+
+        if limit_value in (None, "") or (is_na and is_na(limit_value)):
+            limit_text = "-"
+        else:
+            try:
+                limit_text = f"{int(limit_value)}日"
+            except Exception:
+                limit_text = str(limit_value)
+
+        container = st.container()
+        container.markdown(
+            f"**{symbol}**｜システム: {system_value}｜保有: {held_text}｜上限: {limit_text}"
+        )
+
+        existing = status_map.get(symbol)
+        disabled = bool(existing and existing.get("success"))
+        button_label = f"{side_label}成行 {qty}株の注文を送信"
+        clicked = container.button(
+            button_label,
+            key=f"exit_button_{idx}_{symbol}",
+            disabled=disabled,
+        )
+        feedback = container.empty()
+
+        if clicked:
+            try:
+                if client is None:
+                    raise RuntimeError("Alpaca クライアントを初期化できませんでした。")
+                order = ba.submit_order_with_retry(
+                    client,
+                    symbol,
+                    qty,
+                    side=exit_side,
+                    order_type="market",
+                    time_in_force="DAY",
+                    retries=2,
+                    backoff_seconds=0.5,
+                    rate_limit_seconds=0.2,
+                )
+            except Exception as exc:  # noqa: BLE001
+                status_map[symbol] = {"success": False, "error": str(exc)}
+                feedback.error(f"{symbol}: 決済注文の送信に失敗しました: {exc}")
+            else:
+                order_id = getattr(order, "id", None)
+                status_map[symbol] = {
+                    "success": True,
+                    "order_id": order_id,
+                    "side": exit_side,
+                    "qty": qty,
+                }
+                msg = f"{symbol}: 決済注文を送信しました"
+                if order_id:
+                    msg += f"（注文ID: {order_id}）"
+                feedback.success(msg)
+            st.session_state[EXIT_STATE_KEY] = status_map
+        elif existing:
+            if existing.get("success"):
+                order_id = existing.get("order_id")
+                msg = f"{symbol}: 決済注文済み"
+                if order_id:
+                    msg += f"（注文ID: {order_id}）"
+                feedback.info(msg)
+            else:
+                feedback.warning(
+                    f"{symbol}: 直近の注文送信でエラーが発生しました: {existing.get('error')}"
+                )
 
 
 def _group_by_system(
@@ -765,6 +958,7 @@ def main() -> None:
     except Exception as exc:  # pragma: no cover
         st.error(f"データ取得に失敗しました: {exc}")
         return
+    position_map = _build_position_map(positions)
 
     # メトリクス行
     st.markdown("<div class='ap-card ap-fade'>", unsafe_allow_html=True)
@@ -909,6 +1103,8 @@ def main() -> None:
             except Exception:
                 pass
 
+            _render_exit_actions(pos_df, position_map, client)
+
             # 行スタイル（損益で淡い緑/赤, 透明度 0.14）
             def _row_style(row):
                 try:
@@ -922,7 +1118,10 @@ def main() -> None:
                 )
                 return [f"background-color: {bg}"] * len(row)
 
-            display_df = pos_df.copy()
+            display_df = pos_df.drop(
+                columns=["_limit_days", "_limit_reached"],
+                errors="ignore",
+            )
             try:
                 display_df["数量"] = pd.to_numeric(display_df["数量"], errors="coerce")
             except Exception:
@@ -973,7 +1172,11 @@ def main() -> None:
                     },
                 )
             except Exception:
-                st.dataframe(pos_df, use_container_width=True, hide_index=True)
+                fallback_df = pos_df.drop(
+                    columns=["_limit_days", "_limit_reached"],
+                    errors="ignore",
+                )
+                st.dataframe(fallback_df, use_container_width=True, hide_index=True)
 
             # CSV ダウンロード
             try:
@@ -990,6 +1193,10 @@ def main() -> None:
                     out_df = round_dataframe(pos_df, round_dec)
                 except Exception:
                     out_df = pos_df
+                out_df = out_df.drop(
+                    columns=["_limit_days", "_limit_reached"],
+                    errors="ignore",
+                )
                 csv = out_df.to_csv(index=False).encode("utf-8")
                 st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
             except Exception:
