@@ -77,6 +77,7 @@ except Exception:  # pragma: no cover - unavailable in constrained envs
     run_bulk_update = None
 
 BASE_SUBDIR_NAME = "base"
+ROUND_DECIMALS: int | None = None
 
 # -----------------------------
 # 設定/環境
@@ -100,6 +101,7 @@ try:
     API_THROTTLE_SECONDS = float(_settings.API_THROTTLE_SECONDS)
     API_BASE = str(_settings.API_EODHD_BASE).rstrip("/")
     API_KEY = _settings.EODHD_API_KEY or os.getenv("EODHD_API_KEY", "")
+    ROUND_DECIMALS = getattr(_settings.cache, "round_decimals", None)
 except Exception:
     # フォールバック（settings が読めない場合）
     LOG_DIR = Path(os.path.dirname(__file__)) / "logs"
@@ -114,6 +116,7 @@ except Exception:
     API_THROTTLE_SECONDS = float(os.getenv("API_THROTTLE_SECONDS", 1.5))
     API_BASE = os.getenv("API_EODHD_BASE", "https://eodhistoricaldata.com").rstrip("/")
     API_KEY = os.getenv("EODHD_API_KEY", "")
+    ROUND_DECIMALS = None
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_CACHE_DIR = DATA_CACHE_DIR.resolve()
@@ -379,6 +382,26 @@ def safe_filename(symbol: str) -> str:
     return symbol
 
 
+def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """数値列のみ小数点以下 ``decimals`` 桁に丸めた DataFrame を返す。"""
+
+    if decimals is None:
+        return df
+    try:
+        dec = int(decimals)
+    except (TypeError, ValueError):
+        return df
+    numeric = df.select_dtypes(include="number")
+    if numeric.empty:
+        return df
+    rounded = df.copy()
+    try:
+        rounded[numeric.columns] = numeric.round(dec)
+    except Exception:
+        return df
+    return rounded
+
+
 def cache_single(
     symbol: str,
     output_dir: Path,
@@ -412,7 +435,11 @@ def cache_single(
                 if base_df is not None and not base_df.empty:
                     if base_dir is not None:
                         base_dir.mkdir(parents=True, exist_ok=True)
-                    base_df.reset_index().to_csv(basepath, index=False)
+                    base_existing = base_df.reset_index()
+                    base_existing = _round_numeric_columns(
+                        base_existing, ROUND_DECIMALS
+                    )
+                    base_existing.to_csv(basepath, index=False)
             return (f"{symbol}: already cached", False, True)
     df = get_eodhd_data(symbol)
     if df is not None and not df.empty:
@@ -422,6 +449,7 @@ def cache_single(
         except Exception:
             full_df = add_indicators(df)
         df_reset = full_df.reset_index().rename(columns=str.lower)
+        df_reset = _round_numeric_columns(df_reset, ROUND_DECIMALS)
         df_reset.to_csv(filepath, index=False)
 
         if basepath:
@@ -434,6 +462,7 @@ def cache_single(
                 base_df = None
             if base_df is not None and not base_df.empty:
                 base_reset = base_df.reset_index()
+                base_reset = _round_numeric_columns(base_reset, ROUND_DECIMALS)
                 base_reset.to_csv(basepath, index=False)
                 base_saved = True
         msg_suffix = " (base saved)" if base_saved else ""

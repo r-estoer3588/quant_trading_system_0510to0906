@@ -97,6 +97,26 @@ def _discover_symbols(full_dir: Path) -> list[str]:
     return sorted(symbols)
 
 
+def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """数値列を ``decimals`` 桁に丸めた DataFrame を返す。"""
+
+    if decimals is None:
+        return df
+    try:
+        dec = int(decimals)
+    except (TypeError, ValueError):
+        return df
+    numeric = df.select_dtypes(include="number")
+    if numeric.empty:
+        return df
+    rounded = df.copy()
+    try:
+        rounded[numeric.columns] = numeric.round(dec)
+    except Exception:
+        return df
+    return rounded
+
+
 def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame | None:
     """Normalize full-history dataframe and compute indicators for rolling cache."""
 
@@ -301,6 +321,17 @@ def extract_rolling_from_full(
         f"🔁 rolling 再構築を開始: {len(symbol_list)} 銘柄 | 期間={target_days}営業日", log
     )
 
+    try:
+        round_decimals = getattr(
+            cache_manager.settings.cache.rolling, "round_decimals", None
+        )
+        if round_decimals is None:
+            round_decimals = getattr(
+                cache_manager.settings.cache, "round_decimals", None
+            )
+    except Exception:
+        round_decimals = None
+
     for idx, symbol in enumerate(symbol_list, start=1):
         stats.processed_symbols += 1
         try:
@@ -330,6 +361,7 @@ def extract_rolling_from_full(
             continue
 
         try:
+            enriched = _round_numeric_columns(enriched, round_decimals)
             cache_manager.write_atomic(enriched, symbol, "rolling")
         except Exception as exc:  # pragma: no cover - logging only
             message = f"{type(exc).__name__}: {exc}"

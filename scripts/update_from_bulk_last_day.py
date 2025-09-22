@@ -95,6 +95,26 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     return original_count, normalized_count
 
 
+def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
+    """数値列を小数点以下 ``decimals`` 桁に丸めた DataFrame を返す。"""
+
+    if decimals is None:
+        return df
+    try:
+        dec = int(decimals)
+    except (TypeError, ValueError):
+        return df
+    numeric = df.select_dtypes(include="number")
+    if numeric.empty:
+        return df
+    rounded = df.copy()
+    try:
+        rounded[numeric.columns] = numeric.round(dec)
+    except Exception:
+        return df
+    return rounded
+
+
 def _filter_bulk_data_by_universe(
     df: pd.DataFrame, symbols: Iterable[str]
 ) -> tuple[pd.DataFrame, dict[str, int | bool]]:
@@ -317,6 +337,10 @@ def append_to_cache(
     interrupt_exc: BaseException | None = None
     try:
         base_dir = _resolve_base_dir(cm)
+        try:
+            round_decimals = getattr(cm.settings.cache, "round_decimals", None)
+        except Exception:
+            round_decimals = None
         for sym, g in grouped:
             sym_norm = _normalize_symbol(sym)
             if not sym_norm:
@@ -408,7 +432,9 @@ def append_to_cache(
                 base_path = base_dir / f"{safe_filename(sym_norm)}.csv"
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    base_df.reset_index().to_csv(base_path, index=False)
+                    base_ready = base_df.reset_index()
+                    base_ready = _round_numeric_columns(base_ready, round_decimals)
+                    base_ready.to_csv(base_path, index=False)
                 except Exception as exc:
                     print(f"{sym_norm}: write base error - {exc}")
             if prev_full_sorted is None or not full_ready.equals(prev_full_sorted):
