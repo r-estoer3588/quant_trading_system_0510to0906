@@ -474,7 +474,12 @@ def generate_candidates_system4(
                 if ts not in spy_df.index:
                     continue
                 try:
-                    spy_flag = int(spy_df.at[ts, "spy_filter"])
+                    val = spy_df.at[ts, "spy_filter"]
+                    # treat NaN/missing as 0, otherwise convert truthiness to int
+                    if pd.isna(val):
+                        spy_flag = 0
+                    else:
+                        spy_flag = int(bool(val))
                 except Exception:
                     spy_flag = 0
                 if spy_flag == 0:
