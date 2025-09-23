@@ -1,6 +1,7 @@
 # common/utils.py
 from collections.abc import Callable, Hashable
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -174,7 +175,11 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             if (
                 non_null > best_non_null
                 or (non_null == best_non_null and priority > best_priority)
-                or (non_null == best_non_null and priority == best_priority and idx < best_idx)
+                or (
+                    non_null == best_non_null
+                    and priority == best_priority
+                    and idx < best_idx
+                )
             ):
                 best_idx = idx
                 best_series = series.copy()
@@ -271,7 +276,9 @@ def drop_duplicate_columns(
         duplicate_positions.setdefault(label, []).append(pos)
 
     duplicates = {
-        label: positions for label, positions in duplicate_positions.items() if len(positions) > 1
+        label: positions
+        for label, positions in duplicate_positions.items()
+        if len(positions) > 1
     }
     if not duplicates:
         return df
@@ -306,7 +313,9 @@ def drop_duplicate_columns(
         deduped = df.loc[:, ~df.columns.duplicated()].copy()
 
     message_prefix = f"{context}: " if context else ""
-    message = f"⚠️ {message_prefix}重複カラムを検出し解消しました -> {', '.join(log_details)}"
+    message = (
+        f"⚠️ {message_prefix}重複カラムを検出し解消しました -> {', '.join(log_details)}"
+    )
 
     if log_callback is not None:
         try:
@@ -375,6 +384,15 @@ def clamp01(value: float) -> float:
         return max(0.0, min(1.0, float(value)))
     except Exception:
         return 0.0
+
+
+def is_today_run() -> bool:
+    """Check if running in today mode based on TODAY_RUN environment variable.
+
+    Returns True if TODAY_RUN is set to "1", "true", or "yes" (case insensitive).
+    Used to suppress verbose logging in today runs while keeping it for backtests.
+    """
+    return str(os.environ.get("TODAY_RUN", "")).strip().lower() in {"1", "true", "yes"}
 
 
 def resolve_batch_size(total_symbols: int, configured: int) -> int:

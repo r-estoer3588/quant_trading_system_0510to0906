@@ -10,7 +10,13 @@ from ta.trend import ADXIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import BatchSizeMonitor, describe_dtype, get_cached_data, resolve_batch_size
+from common.utils import (
+    BatchSizeMonitor,
+    describe_dtype,
+    get_cached_data,
+    resolve_batch_size,
+    is_today_run,
+)
 from common.utils_spy import resolve_signal_entry_date
 
 # Required columns and minimum rows for source data validation
@@ -194,7 +200,18 @@ def prepare_data_vectorized_system5(
                         rs=rs,
                     )
                     if buffer:
-                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                        # Shorten symbol list when running today's signals to avoid huge logs
+                        today_mode = is_today_run()
+                        # 当日モードでは銘柄リスト出力はスキップ
+                        if not today_mode:
+                            if today_mode:
+                                sample = ", ".join(buffer[:10])
+                                more = len(buffer) - len(buffer[:10])
+                                if more > 0:
+                                    sample = f"{sample}, ...(+{more} more)"
+                                msg += "\n" + tr("symbols: {names}", names=sample)
+                            else:
+                                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
                     try:
                         log_callback(msg)
                     except Exception:
@@ -248,7 +265,10 @@ def prepare_data_vectorized_system5(
             rs=rs,
         )
         if buffer:
-            msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+            # 当日モードでは銘柄リスト出力はスキップ
+            today_mode = is_today_run()
+            if not today_mode and buffer:
+                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
         batch_duration = time.time() - batch_start
         batch_size = batch_monitor.update(batch_duration)
         batch_start = time.time()

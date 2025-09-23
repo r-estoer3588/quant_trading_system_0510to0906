@@ -8,7 +8,7 @@ import pandas as pd
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import BatchSizeMonitor, get_cached_data, resolve_batch_size
+from common.utils import BatchSizeMonitor, get_cached_data, resolve_batch_size, is_today_run
 from common.utils_spy import resolve_signal_entry_date
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
@@ -189,7 +189,17 @@ def prepare_data_vectorized_system6(
                         rs=rs,
                     )
                     if buffer:
-                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                        try:
+                            today_mode = is_today_run()
+                        except Exception:
+                            today_mode = False
+                        if not today_mode:
+                            # Avoid logging very long symbol lists; show concise sample and count
+                            sample = ", ".join(buffer[:10])
+                            more = len(buffer) - len(buffer[:10])
+                            if more > 0:
+                                sample = f"{sample}, ...(+{more} more)"
+                            msg += "\n" + tr("symbols: {names}", names=sample)
                     try:
                         log_callback(msg)
                     except Exception:
@@ -317,7 +327,17 @@ def prepare_data_vectorized_system6(
                 rs=rs,
             )
             if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                try:
+                    today_mode = is_today_run()
+                except Exception:
+                    today_mode = False
+                if not today_mode:
+                    # Show concise sample instead of full list
+                    sample = ", ".join(buffer[:10])
+                    more = len(buffer) - len(buffer[:10])
+                    if more > 0:
+                        sample = f"{sample}, ...(+{more} more)"
+                    msg += "\n" + tr("symbols: {names}", names=sample)
             batch_duration = time.time() - batch_start
             batch_size = batch_monitor.update(batch_duration)
             batch_start = time.time()
@@ -457,7 +477,11 @@ def generate_candidates_system6(
                 rs=rs,
             )
             if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                sample = ", ".join(buffer[:10])
+                more = len(buffer) - len(buffer[:10])
+                if more > 0:
+                    sample = f"{sample}, ...(+{more} more)"
+                msg += "\n" + tr("symbols: {names}", names=sample)
             try:
                 log_callback(msg)
             except Exception:
@@ -476,7 +500,7 @@ def generate_candidates_system6(
             continue
         df = df.sort_values("Return6D", ascending=False)
         total = len(df)
-        df.loc[:, "rank"] = range(1, total + 1)
+        df.loc[:, "rank"] = list(range(1, total + 1))
         df.loc[:, "rank_total"] = total
         limited = df.head(limit_n)
         candidates_by_date[date] = limited.to_dict("records")

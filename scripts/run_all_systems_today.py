@@ -1808,8 +1808,19 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
                 except Exception:
                     symbols = []
 
-    if "SPY" not in symbols:
-        symbols.append("SPY")
+    # Ensure SPY is the first symbol in today's universe (required by some systems)
+    try:
+        symbols = [s.upper() for s in symbols]
+    except Exception:
+        symbols = [str(s).upper() for s in symbols]
+    if "SPY" in symbols:
+        try:
+            symbols.remove("SPY")
+        except Exception:
+            pass
+        symbols.insert(0, "SPY")
+    else:
+        symbols.insert(0, "SPY")
     ctx.symbol_universe = list(symbols)
 
     # Run start banner (CLI only)

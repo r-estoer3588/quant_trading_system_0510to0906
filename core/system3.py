@@ -9,7 +9,13 @@ from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import BatchSizeMonitor, describe_dtype, get_cached_data, resolve_batch_size
+from common.utils import (
+    BatchSizeMonitor,
+    describe_dtype,
+    get_cached_data,
+    is_today_run,
+    resolve_batch_size,
+)
 from common.utils_spy import resolve_signal_entry_date
 
 # Trading thresholds - Default values for business rules
@@ -161,7 +167,7 @@ def prepare_data_vectorized_system3(
                         progress_callback(i, total)
                     except Exception:
                         pass
-                if (i % batch_size == 0 or i == total) and log_callback:
+                if (i % int(batch_size) == 0 or i == total) and log_callback:
                     elapsed = time.time() - start_time
                     remain = (elapsed / i) * (total - i) if i else 0
                     em, es = divmod(int(elapsed), 60)
@@ -177,7 +183,18 @@ def prepare_data_vectorized_system3(
                         rs=rs,
                     )
                     if buffer:
-                        msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                        # Shorten symbol list when running today's signals to avoid huge logs
+                        today_mode = is_today_run()
+                        # 当日モードでは銘柄リスト出力はスキップ
+                        if not today_mode:
+                            if today_mode:
+                                sample = ", ".join(buffer[:10])
+                                more = len(buffer) - len(buffer[:10])
+                                if more > 0:
+                                    sample = f"{sample}, ...(+{more} more)"
+                                msg += "\n" + tr("symbols: {names}", names=sample)
+                            else:
+                                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
                     try:
                         log_callback(msg)
                     except Exception:
@@ -210,38 +227,48 @@ def prepare_data_vectorized_system3(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-            try:
-                log_callback(msg)
-                log_callback(
-                    tr(
-                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                        sec=batch_duration,
-                        size=batch_size,
-                    )
+
+    if (processed % int(batch_size) == 0 or processed == total) and log_callback:
+        elapsed = time.time() - start_time
+        remain = (elapsed / processed) * (total - processed) if processed else 0
+        em, es = divmod(int(elapsed), 60)
+        rm, rs = divmod(int(remain), 60)
+        msg = tr(
+            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            done=processed,
+            total=total,
+            em=em,
+            es=es,
+            rm=rm,
+            rs=rs,
+        )
+        if buffer:
+            # 当日モードでは銘柄リスト出力はスキップ
+            today_mode = is_today_run()
+            if not today_mode:
+                if today_mode:
+                    sample = ", ".join(buffer[:10])
+                    more = len(buffer) - len(buffer[:10])
+                    if more > 0:
+                        sample = f"{sample}, ...(+{more} more)"
+                    msg += "\n" + tr("symbols: {names}", names=sample)
+                else:
+                    msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+        batch_duration = time.time() - batch_start
+        batch_size = batch_monitor.update(batch_duration)
+        batch_start = time.time()
+        try:
+            log_callback(msg)
+            log_callback(
+                tr(
+                    "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
+                    sec=batch_duration,
+                    size=batch_size,
                 )
-            except Exception:
-                pass
-            buffer.clear()
+            )
+        except Exception:
+            pass
+        buffer.clear()
 
     for sym, df in raw_data_dict.items():
         df = _rename_ohlcv(df)
@@ -441,7 +468,7 @@ def generate_candidates_system3(
                 progress_callback(processed, total)
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
+        if (processed % int(batch_size) == 0 or processed == total) and log_callback:
             elapsed = time.time() - start_time
             remain = (elapsed / processed) * (total - processed) if processed else 0
             em, es = divmod(int(elapsed), 60)
@@ -481,7 +508,7 @@ def generate_candidates_system3(
         if total == 0:
             candidates_by_date[date] = []
             continue
-        ranked.loc[:, "rank"] = range(1, total + 1)
+        ranked.loc[:, "rank"] = list(range(1, total + 1))
         ranked.loc[:, "rank_total"] = total
         limited = ranked.head(int(top_n))
         candidates_by_date[date] = limited.to_dict("records")
