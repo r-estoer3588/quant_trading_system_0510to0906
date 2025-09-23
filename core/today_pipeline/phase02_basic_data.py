@@ -64,9 +64,47 @@ class RequiredColumns:
         "drop3d",
     )
     nan_threshold: float = 0.20
+    recent_window: int = 120
+    recent_strict_window: int = 30
+    recent_strict_threshold: float = 0.0
 
 
 REQUIRED_COLUMNS = RequiredColumns()
+
+
+def _has_recent_valid_window(
+    numeric: pd.Series,
+    *,
+    window: int = REQUIRED_COLUMNS.recent_window,
+    nan_threshold: float = REQUIRED_COLUMNS.nan_threshold,
+    strict_window: int = REQUIRED_COLUMNS.recent_strict_window,
+    strict_threshold: float = REQUIRED_COLUMNS.recent_strict_threshold,
+) -> bool:
+    """Return True if the trailing rows contain enough non-NaN values."""
+
+    if numeric.empty:
+        return False
+
+    recent_len = int(min(len(numeric), window))
+    if recent_len <= 0:
+        return False
+    recent = numeric.iloc[-recent_len:]
+    try:
+        recent_ratio = float(recent.isna().mean())
+    except Exception:
+        recent_ratio = 1.0
+    if recent_ratio <= nan_threshold:
+        return True
+
+    strict_len = int(min(len(numeric), strict_window))
+    if strict_len <= 0:
+        return False
+    strict_recent = recent.iloc[-strict_len:]
+    try:
+        strict_ratio = float(strict_recent.isna().mean())
+    except Exception:
+        strict_ratio = 1.0
+    return strict_ratio <= strict_threshold
 
 
 @dataclass(slots=True)
@@ -339,10 +377,14 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
         if actual is None:
             continue
         try:
-            ratio = float(pd.to_numeric(df[actual], errors="coerce").isna().mean())
+            numeric = pd.to_numeric(df[actual], errors="coerce")
         except Exception:
             continue
-        if ratio > REQUIRED_COLUMNS.nan_threshold:
+        try:
+            ratio = float(numeric.isna().mean())
+        except Exception:
+            continue
+        if ratio > REQUIRED_COLUMNS.nan_threshold and not _has_recent_valid_window(numeric):
             nan_columns.append((name, ratio))
     issues: dict[str, Any] = {}
     fatal = False

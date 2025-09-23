@@ -11,7 +11,6 @@ import requests
 
 import common  # noqa: F401
 
-from indicators_common import add_indicators
 from common.cache_manager import compute_base_indicators, round_dataframe
 from config.settings import get_settings
 
@@ -56,11 +55,15 @@ def append_group(folder: str, group: str) -> str:
 
 
 def resolve_target_dirs(folder: str) -> list[str]:
-    """与えられたフォルダから full_backup の保存先パスのみを返す。"""
+    """与えられたフォルダから full_backup、base、rolling の保存先パスのみを返す。"""
     norm = os.path.normpath(folder)
     tail = os.path.basename(norm).lower()
-    root = os.path.dirname(norm) if tail in ("base", "full", "full_backup") else norm
-    return [os.path.join(root, "full_backup")]
+    root = os.path.dirname(norm) if tail in ("base", "full", "full_backup", "rolling") else norm
+    return [
+        os.path.join(root, "full_backup"),
+        os.path.join(root, "base"),
+        os.path.join(root, "rolling"),
+    ]
 
 
 def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
@@ -98,73 +101,58 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
             }
         )
 
-        # full_backup 用: 主要インジケーターを事前計算して保存
+        # base キャッシュを作成
         try:
-            full_enriched = add_indicators(df.copy())
-        except Exception:
-            full_enriched = df.copy()
-
-        # 小数丸め設定を取得
-        try:
-            settings = get_settings(create_dirs=True)
-            round_dec = getattr(settings.cache, "round_decimals", None)
-        except Exception:
-            round_dec = None
-
-        # フルは target_dirs に保存（lowercase date カラムにしておく）
-        full_reset = full_enriched.reset_index()
-        # add_indicators may produce 'Date' column or keep 'date'
-        if "Date" in full_reset.columns and "date" not in full_reset.columns:
-            full_reset = full_reset.rename(columns={"Date": "date"})
-        full_reset = full_reset.rename(columns={c: str(c).lower() for c in full_reset.columns})
-        try:
-            full_reset = round_dataframe(full_reset, round_dec)
-        except Exception:
-            # fall back: numeric-only rounding if round_dec is an int
-            try:
-                if isinstance(round_dec, int):
-                    numeric_cols = full_reset.select_dtypes(include=["number"]).columns
-                    full_reset[numeric_cols] = full_reset[numeric_cols].round(round_dec)
-            except Exception:
-                pass
-
-        for d in target_dirs:
-            os.makedirs(d, exist_ok=True)
-            path = os.path.join(d, f"{symbol}.csv")
-            try:
-                full_reset.to_csv(path, index=False)
-                print(f"✅ SPY full_backup を保存しました: {path}")
-            except Exception as e:
-                print(f"❌ full 保存失敗: {e}", file=sys.stderr)
-
-        # base キャッシュ（主要指標のうち base に相当する列）を作成して base に保存
-        try:
-            base_df = compute_base_indicators(full_enriched)
+            base_df = compute_base_indicators(df)
         except Exception:
             base_df = None
 
         if base_df is not None and not base_df.empty:
-            base_reset = base_df.reset_index()
+            # rolling を作成
+            settings = None
             try:
-                base_reset = round_dataframe(base_reset, round_dec)
+                settings = get_settings(create_dirs=True)
+                rolling_len = (
+                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+                )
+                rolling_df = base_df.sort_values("date").tail(rolling_len).copy()
             except Exception:
-                try:
-                    if isinstance(round_dec, int):
-                        numeric_cols = base_reset.select_dtypes(include=["number"]).columns
-                        base_reset[numeric_cols] = base_reset[numeric_cols].round(round_dec)
-                except Exception:
-                    pass
-            # base は full_backup の親ディレクトリにある 'base' サブディレクトリへ保存
+                rolling_df = base_df.copy()
+
+            # 小数丸め設定を取得
+            round_dec = getattr(settings.cache, "round_decimals", None) if settings else None
+
+            # 保存
             for d in target_dirs:
-                root = os.path.dirname(os.path.normpath(d))
-                base_dir = os.path.join(root, "base")
-                os.makedirs(base_dir, exist_ok=True)
-                base_path = os.path.join(base_dir, f"{symbol}.csv")
+                os.makedirs(d, exist_ok=True)
+                if "rolling" in d:
+                    reset_df = rolling_df.reset_index()
+                    data_type = "rolling"
+                else:
+                    reset_df = base_df.reset_index()
+                    data_type = os.path.basename(d)
+
+                if "Date" in reset_df.columns and "date" not in reset_df.columns:
+                    reset_df = reset_df.rename(columns={"Date": "date"})
+                reset_df = reset_df.rename(columns={c: str(c).lower() for c in reset_df.columns})
                 try:
-                    base_reset.to_csv(base_path, index=False)
-                    print(f"✅ SPY base を保存しました: {base_path}")
+                    reset_df = round_dataframe(reset_df, round_dec)
+                except Exception:
+                    try:
+                        if isinstance(round_dec, int):
+                            numeric_cols = reset_df.select_dtypes(include=["number"]).columns
+                            reset_df[numeric_cols] = reset_df[numeric_cols].round(round_dec)
+                    except Exception:
+                        pass
+
+                path = os.path.join(d, f"{symbol}.csv")
+                try:
+                    reset_df.to_csv(path, index=False)
+                    print(f"✅ SPY {data_type} を保存しました: {path}")
                 except Exception as e:
-                    print(f"❌ base 保存失敗: {e}", file=sys.stderr)
+                    print(f"❌ {data_type} 保存失敗: {e}", file=sys.stderr)
+        else:
+            print("❌ base_df が作成できなかったため、保存をスキップします", file=sys.stderr)
 
     except Exception as e:
         msg = f"❌ 例外が発生しました: {e}"
@@ -178,9 +166,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--group",
-        choices=["full_backup"],
+        choices=["full_backup", "base", "rolling"],
         default=None,
-        help="保存グループ(full_backup)。未指定時は full_backup",
+        help="保存グループ(full_backup, base, rolling)。未指定時は full_backup",
     )
     args = parser.parse_args()
     fetch_and_cache_spy_from_eodhd(folder=args.out, group=args.group)

@@ -361,6 +361,37 @@ _ROLLING_IMPORTANT_COLUMNS = [
 ]
 
 _ROLLING_NAN_THRESHOLD = 0.20
+_ROLLING_RECENT_WINDOW = 120
+_ROLLING_RECENT_STRICT_WINDOW = 30
+_ROLLING_RECENT_STRICT_THRESHOLD = 0.0
+
+
+def _has_recent_valid_window(numeric: pd.Series) -> bool:
+    """Return True if recent rows provide enough non-NaN coverage."""
+
+    if numeric.empty:
+        return False
+
+    recent_len = int(min(len(numeric), _ROLLING_RECENT_WINDOW))
+    if recent_len <= 0:
+        return False
+    recent = numeric.iloc[-recent_len:]
+    try:
+        recent_ratio = float(recent.isna().mean())
+    except Exception:
+        recent_ratio = 1.0
+    if recent_ratio <= _ROLLING_NAN_THRESHOLD:
+        return True
+
+    strict_len = int(min(len(numeric), _ROLLING_RECENT_STRICT_WINDOW))
+    if strict_len <= 0:
+        return False
+    strict_recent = recent.iloc[-strict_len:]
+    try:
+        strict_ratio = float(strict_recent.isna().mean())
+    except Exception:
+        strict_ratio = 1.0
+    return strict_ratio <= _ROLLING_RECENT_STRICT_THRESHOLD
 
 
 def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]]:
@@ -379,10 +410,14 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
         if actual is None:
             continue
         try:
-            ratio = float(pd.to_numeric(df[actual], errors="coerce").isna().mean())
+            numeric = pd.to_numeric(df[actual], errors="coerce")
         except Exception:
             continue
-        if ratio > _ROLLING_NAN_THRESHOLD:
+        try:
+            ratio = float(numeric.isna().mean())
+        except Exception:
+            continue
+        if ratio > _ROLLING_NAN_THRESHOLD and not _has_recent_valid_window(numeric):
             nan_columns.append((name, ratio))
     issues: dict[str, Any] = {}
     if missing_required:

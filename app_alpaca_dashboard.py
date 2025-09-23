@@ -198,6 +198,30 @@ def _inject_css() -> None:
             .ap-toolbar { margin-bottom: 8px; }
             .ap-section { font-size:18px; margin:8px 0; }
             .ap-badge.good { background:#e6ffef; padding:4px 8px; border-radius:6px; }
+            .ap-card {
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 16px;
+                text-align: center;
+                margin: 8px 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .ap-metric-icon { font-size: 24px; margin-bottom: 8px; }
+            .ap-metric-value { font-size: 28px; font-weight: bold; color: #495057; }
+            .ap-metric-label { font-size: 14px; color: #6c757d; }
+            .ap-stat-grid { display: flex; flex-direction: column; gap: 12px; }
+            .ap-stat-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 0;
+                border-bottom: 1px solid #e9ecef;
+            }
+            .ap-stat-label { font-weight: 500; color: #495057; }
+            .ap-stat-value { font-weight: bold; }
+            .ap-stat-value.green { color: #28a745; }
+            .ap-stat-value.red { color: #dc3545; }
             </style>
             """
         try:
@@ -1053,6 +1077,14 @@ def _group_by_system(
 
 def main() -> None:
     _inject_css()
+    # Debug banner to detect stale caching: shows page load timestamp
+    try:
+        st.markdown(
+            f"<div style='position:fixed;right:8px;top:8px;background:#111;padding:6px 10px;border-radius:6px;opacity:0.9;z-index:9999;color:#9ae6b4;'>DEBUG {datetime.now().isoformat()}</div>",
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
 
     # タイトル＋ツールバー（右端に 手動更新 と 最終更新 を横並び）
     st.markdown(
@@ -1690,58 +1722,83 @@ def main() -> None:
                             st.error(f"キャンセルに失敗しました: {e}")
 
     with tab_summary:
-        st.markdown("<div class='ap-section'>指標</div>", unsafe_allow_html=True)
+        st.markdown("<div class='ap-section'>📊 サマリー指標</div>", unsafe_allow_html=True)
         try:
             total_positions = len(positions)
         except Exception:
             total_positions = 0
-        s1, s2, s3 = st.columns(3)
-        with s1:
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.markdown(
-                _metric_html("保有銘柄数", f"{total_positions}"),
+                f"""
+                <div class='ap-card'>
+                    <div class='ap-metric-icon'>📈</div>
+                    <div class='ap-metric-value'>{total_positions}</div>
+                    <div class='ap-metric-label'>保有銘柄数</div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-        with s2:
-            if ratio is not None:
-                st.markdown(
-                    _metric_html("余力比率", f"{ratio * 100:.1f}%"),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    _metric_html("余力比率", "-"),
-                    unsafe_allow_html=True,
-                )
-        with s3:
-            if delta is not None:
-                st.markdown(
-                    _metric_html("前日比", _fmt_money(delta)),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    _metric_html("前日比", "-"),
-                    unsafe_allow_html=True,
-                )
-
-        # 統計チップ
+        with col2:
+            ratio_display = f"{ratio * 100:.1f}%" if ratio is not None else "-"
+            st.markdown(
+                f"""
+                <div class='ap-card'>
+                    <div class='ap-metric-icon'>💰</div>
+                    <div class='ap-metric-value'>{ratio_display}</div>
+                    <div class='ap-metric-label'>余力比率</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with col3:
+            delta_display = _fmt_money(delta) if delta is not None else "-"
+            color = "green" if delta and delta > 0 else "red" if delta and delta < 0 else "gray"
+            st.markdown(
+                f"""
+                <div class='ap-card'>
+                    <div class='ap-metric-icon'>📊</div>
+                    <div class='ap-metric-value' style='color: {color};'>{delta_display}</div>
+                    <div class='ap-metric-label'>前日比</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.markdown("---")
+        st.markdown("<div class='ap-section'>📈 ポジション統計</div>", unsafe_allow_html=True)
+        # 統計計算
         try:
-            winners = (
-                int((pos_df["損益率(%)"] > 0).sum())
-                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
-                else 0
-            )
-            losers = (
-                int((pos_df["損益率(%)"] <= 0).sum())
-                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
-                else 0
-            )
-            avg_ret = (
-                float(pos_df["損益率(%)"].mean())
-                if "pos_df" in locals() and "損益率(%)" in pos_df.columns
-                else 0.0
-            )
-            try:
+            # 損益率(%)列が存在しない場合は計算
+            if pos_df is not None and not pos_df.empty and "損益率(%)" not in pos_df.columns:
+                try:
+                    # 損益率 = (含み損益 / (平均取得単価 * 数量)) * 100
+                    pos_df_copy = pos_df.copy()
+                    pos_df_copy["平均取得単価"] = pd.to_numeric(
+                        pos_df_copy["平均取得単価"], errors="coerce"
+                    )
+                    pos_df_copy["数量"] = pd.to_numeric(pos_df_copy["数量"], errors="coerce")
+                    pos_df_copy["含み損益"] = pd.to_numeric(
+                        pos_df_copy["含み損益"], errors="coerce"
+                    )
+
+                    # 投資額 = 平均取得単価 * 数量
+                    investment = pos_df_copy["平均取得単価"] * pos_df_copy["数量"]
+
+                    # 損益率 = (含み損益 / 投資額) * 100
+                    pos_df_copy["損益率(%)"] = (pos_df_copy["含み損益"] / investment * 100).fillna(
+                        0.0
+                    )
+
+                    # 元のpos_dfに追加
+                    pos_df = pos_df_copy
+                except Exception as calc_error:
+                    st.warning(f"損益率計算エラー: {calc_error}")
+                    pos_df["損益率(%)"] = 0.0
+
+            if pos_df is not None and not pos_df.empty and "損益率(%)" in pos_df.columns:
+                winners = int((pos_df["損益率(%)"] > 0).sum())
+                losers = int((pos_df["損益率(%)"] <= 0).sum())
+                avg_ret = float(pos_df["損益率(%)"].mean())
                 pl_series = (
                     pos_df["含み損益"].astype(float)
                     if "含み損益" in pos_df.columns
@@ -1750,22 +1807,51 @@ def main() -> None:
                 max_pl = float(pl_series.max()) if not pl_series.empty else 0.0
                 sum_pl = float(pl_series.sum()) if not pl_series.empty else 0.0
                 med_pl = float(pl_series.median()) if not pl_series.empty else 0.0
-            except Exception:
-                max_pl = sum_pl = med_pl = 0.0
-            chips = [
-                f"<div class='ap-badge stat'>勝ち銘柄: {winners}</div>",
-                f"<div class='ap-badge stat'>負け銘柄: {losers}</div>",
-                f"<div class='ap-badge stat'>平均損益率: {avg_ret:.2f}%</div>",
-                f"<div class='ap-badge stat'>最大含み損益: {_fmt_money(max_pl)}</div>",
-                f"<div class='ap-badge stat'>合計含み損益: {_fmt_money(sum_pl)}</div>",
-                f"<div class='ap-badge stat'>含み損益中央値: {_fmt_money(med_pl)}</div>",
-            ]
-            st.markdown(
-                "<div class='ap-badges'>" + "".join(chips) + "</div>",
-                unsafe_allow_html=True,
-            )
-        except Exception:
-            pass
+                stat_col1, stat_col2 = st.columns(2)
+                with stat_col1:
+                    st.markdown(
+                        f"""
+                        <div class='ap-stat-grid'>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>勝ち銘柄:</span>
+                                <span class='ap-stat-value green'>{winners}</span>
+                            </div>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>負け銘柄:</span>
+                                <span class='ap-stat-value red'>{losers}</span>
+                            </div>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>平均損益率:</span>
+                                <span class='ap-stat-value'>{avg_ret:.2f}%</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                with stat_col2:
+                    st.markdown(
+                        f"""
+                        <div class='ap-stat-grid'>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>最大含み損益:</span>
+                                <span class='ap-stat-value'>{_fmt_money(max_pl)}</span>
+                            </div>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>合計含み損益:</span>
+                                <span class='ap-stat-value'>{_fmt_money(sum_pl)}</span>
+                            </div>
+                            <div class='ap-stat-item'>
+                                <span class='ap-stat-label'>含み損益中央値:</span>
+                                <span class='ap-stat-value'>{_fmt_money(med_pl)}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("ポジション統計を表示できません。")
+        except Exception as e:
+            st.error(f"統計計算エラー: {e}")
 
     with tab_alloc:
         st.markdown("<div class='ap-section'>システム別 配分</div>", unsafe_allow_html=True)
