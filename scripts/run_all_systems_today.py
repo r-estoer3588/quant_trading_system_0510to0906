@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 from threading import Lock
+import threading
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
 
@@ -3479,7 +3480,15 @@ def compute_today_signals(  # type: ignore[analysis]
                 cb = globals().get("_LOG_CALLBACK")
             except Exception:
                 cb = None
-            if cb and callable(cb):
+            # Only invoke UI callback from the main thread. Background
+            # worker threads should not call Streamlit APIs directly; their
+            # logs will be forwarded by the main thread after task
+            # completion.
+            try:
+                is_main = threading.current_thread() is threading.main_thread()
+            except Exception:
+                is_main = False
+            if cb and callable(cb) and is_main:
                 _emit_ui_log(f"[{name}] {message}")
             else:
                 try:
@@ -3634,7 +3643,17 @@ def compute_today_signals(  # type: ignore[analysis]
                     cb2 = globals().get("_PER_SYSTEM_STAGE")
                 except Exception:
                     cb2 = None
-                if cb2 and callable(cb2):
+                # Only call the per-system UI callback directly from the
+                # main thread. When running in background threads (e.g.
+                # via ThreadPoolExecutor) we must avoid invoking Streamlit
+                # APIs from non-main threads — instead record the stage
+                # into GLOBAL_STAGE_METRICS and let the main thread drain
+                # and forward events.
+                try:
+                    is_main = threading.current_thread() is threading.main_thread()
+                except Exception:
+                    is_main = False
+                if cb2 and callable(cb2) and is_main:
                     try:
                         cb2(name, progress_val, f_int, s_int, c_int, fin_int)
                     except Exception:
