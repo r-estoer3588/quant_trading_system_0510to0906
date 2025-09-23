@@ -102,14 +102,14 @@ def build_auto_rows(cfg: dict[str, Any], markers: dict[str, Any]) -> list[dict[s
             )
         except Exception:
             continue
-    import pandas as pd
+
 
     pos_df = pd.DataFrame(records)
     if pos_df is None or pos_df.empty:
         return rows
     for _, r in pos_df.iterrows():
         try:
-            sym = str(r.get("銘柄") or r.get("symbol") or r.get("symbol_raw") or "").upper()
+            sym = str(r.get("symbol", "")).upper()
             if not sym:
                 continue
             system_name = str(r.get("システム", "")).strip() or "unknown"
@@ -117,6 +117,7 @@ def build_auto_rows(cfg: dict[str, Any], markers: dict[str, Any]) -> list[dict[s
             threshold = float(c.get("pnl_threshold", -20.0))
             partial_pct = int(c.get("partial_pct", 100))
             pnl_pct = float(r.get("損益率(%)", 0.0) or 0.0)
+            # Note: This flag is likely always False when run from this script.
             limit_reached = bool(r.get("_limit_reached"))
             if limit_reached or pnl_pct <= threshold:
                 key = today_key_for(sym)

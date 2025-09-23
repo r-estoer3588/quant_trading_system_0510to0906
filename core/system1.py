@@ -388,10 +388,10 @@ def prepare_data_vectorized_system1(
                     if not pd.api.types.is_numeric_dtype(series_like):
                         dtype_repr = describe_dtype(series_like)
                         msg = f"⚠️ {sym} cache: {col}型不一致 ({dtype_repr})"
-                    if log_callback:
-                        log_callback(msg)
-                    if skip_callback:
-                        skip_callback(sym, msg)
+                        if log_callback:
+                            log_callback(msg)
+                        if skip_callback:
+                            skip_callback(sym, msg)
             for col in ["Close", "High", "Low"]:
                 if col in df.columns:
                     vals = pd.to_numeric(df[col], errors="coerce")

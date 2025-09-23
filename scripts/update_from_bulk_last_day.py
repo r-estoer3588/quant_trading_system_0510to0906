@@ -807,7 +807,9 @@ def main():
     if not API_KEY:
         print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
         return
+    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("🚀 EODHD Bulk Last Day 更新を開始します...", flush=True)
+    print(f"⏰ 開始時刻: {start_time}", flush=True)
     print("📡 API リクエストを送信中...", flush=True)
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
