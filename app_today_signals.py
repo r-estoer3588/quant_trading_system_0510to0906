@@ -401,6 +401,11 @@ _ROLLING_COLUMN_LOOKBACK: dict[str, int] = {
     "drop3d": 3,
 }
 
+# When True, emit a single info log summarizing how many indicator columns
+# were skipped because their series length was shorter than the configured
+# lookback (useful for debugging false-positive NaN warnings).
+_ROLLING_DEBUG_LOG_SKIPPED = False
+
 
 def _has_recent_valid_window(numeric: pd.Series) -> bool:
     """Return True if recent rows provide enough non-NaN coverage."""
@@ -442,6 +447,7 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
     missing_optional = [col for col in _ROLLING_IMPORTANT_COLUMNS if col not in col_map]
     nan_required: list[tuple[str, float]] = []
     nan_optional: list[tuple[str, float]] = []
+    skipped_lookback_count = 0
     for name in {*_ROLLING_REQUIRED_COLUMNS, *_ROLLING_IMPORTANT_COLUMNS}:
         actual = col_map.get(name)
         if actual is None:
@@ -452,9 +458,17 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
             continue
         # Exclude initial warm-up rows for indicators that naturally produce NaNs
         # by using a per-column lookback. If the series is shorter than lookback,
-        # we treat the column as effectively fully-NaN for purposes of flagging.
+        # the indicator cannot be computed yet — treat it as "not applicable"
+        # for NaN-warning purposes (do not flag as NaN過多).
         lookback = _ROLLING_COLUMN_LOOKBACK.get(name, 0)
         try:
+            # If a lookback is defined but the series is too short, skip this
+            # column entirely (it's not a problem — the indicator simply
+            # couldn't have been computed yet).
+            if lookback and len(numeric) <= lookback:
+                skipped_lookback_count += 1
+                # mark as not-applicable by continuing to next column
+                continue
             if lookback and len(numeric) > lookback:
                 # exclude the first (lookback - 1) rows from the recent window
                 # so only rows where the indicator could exist are counted.
@@ -501,6 +515,16 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
     if nan_optional:
         issues.setdefault("status", "nan_optional")
         return True, issues
+    # Optionally log a debug summary about skipped lookback-short columns
+    if _ROLLING_DEBUG_LOG_SKIPPED and skipped_lookback_count:
+        try:
+            import logging
+
+            logger = logging.getLogger("today_signals")
+            logger.info(f"lookback未満でスキップされた列は{skipped_lookback_count}件でした")
+        except Exception:
+            pass
+
     return True, {}
 
 

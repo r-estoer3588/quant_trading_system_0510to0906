@@ -13,6 +13,7 @@ class DummyRolling(SimpleNamespace):
     buffer_days = 30
     prune_chunk_days = 30
     meta_file = "_meta.json"
+    round_decimals = 2
 
 
 def _build_cm(tmp_path, file_format: str = "csv"):
@@ -22,6 +23,8 @@ def _build_cm(tmp_path, file_format: str = "csv"):
         rolling=DummyRolling(),
         file_format=file_format,
     )
+    # provide minimal settings shape expected by CacheManager
+    cache.round_decimals = 2
     settings = SimpleNamespace(cache=cache)
     return CacheManager(settings)
 

@@ -154,11 +154,28 @@ def make_csv_formatters(
     # Define formatting rules
     rules = {
         _num_formatter(2): [
-            "open", "close", "high", "low", "atr10", "atr14", "atr20", "atr40", "atr50",
-            "rsi3", "rsi4", "rsi14", "adx7",
+            "open",
+            "close",
+            "high",
+            "low",
+            "atr10",
+            "atr14",
+            "atr20",
+            "atr40",
+            "atr50",
+            "rsi3",
+            "rsi4",
+            "rsi14",
+            "adx7",
         ],
         _num_formatter(4): [
-            "roc200", "return_3d", "6d_return", "return6d", "atr_ratio", "atr_pct", "hv50",
+            "roc200",
+            "return_3d",
+            "6d_return",
+            "return6d",
+            "atr_ratio",
+            "atr_pct",
+            "hv50",
         ],
         _int_formatter(): ["volume", "dollarvolume20", "dollarvolume50", "avgvolume50"],
     }
@@ -198,21 +215,71 @@ def _write_dataframe_to_csv(df: pd.DataFrame, path: Path, settings: Settings) ->
 
 # 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
 MAIN_INDICATOR_COLUMNS = (
-    "open", "high", "low", "close", "volume", "sma25", "sma50", "sma100",
-    "sma150", "sma200", "ema20", "ema50", "atr10", "atr14", "atr20", "atr40",
-    "atr50", "adx7", "rsi3", "rsi4", "rsi14", "roc200", "hv50",
-    "dollarvolume20", "dollarvolume50", "avgvolume50", "return_3d",
-    "6d_return", "return6d", "return_pct", "drop3d", "atr_ratio", "atr_pct",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "sma25",
+    "sma50",
+    "sma100",
+    "sma150",
+    "sma200",
+    "ema20",
+    "ema50",
+    "atr10",
+    "atr14",
+    "atr20",
+    "atr40",
+    "atr50",
+    "adx7",
+    "rsi3",
+    "rsi4",
+    "rsi14",
+    "roc200",
+    "hv50",
+    "dollarvolume20",
+    "dollarvolume50",
+    "avgvolume50",
+    "return_3d",
+    "6d_return",
+    "return6d",
+    "return_pct",
+    "drop3d",
+    "atr_ratio",
+    "atr_pct",
 )
 
 # 各指標列が有効値を持つために最低限必要とする観測日数の目安
 _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
-    "sma25": 20, "sma50": 50, "sma100": 100, "sma150": 150, "sma200": 200,
-    "ema20": 1, "ema50": 1, "atr10": 11, "atr14": 15, "atr20": 21, "atr40": 41,
-    "atr50": 51, "adx7": 14, "rsi3": 3, "rsi4": 4, "rsi14": 14, "roc200": 201,
-    "hv50": 51, "dollarvolume20": 20, "dollarvolume50": 50, "avgvolume50": 50,
-    "return_3d": 4, "6d_return": 7, "return6d": 7, "return_pct": 2, "drop3d": 4,
-    "atr_ratio": 11, "atr_pct": 11,
+    "sma25": 20,
+    "sma50": 50,
+    "sma100": 100,
+    "sma150": 150,
+    "sma200": 200,
+    "ema20": 1,
+    "ema50": 1,
+    "atr10": 11,
+    "atr14": 15,
+    "atr20": 21,
+    "atr40": 41,
+    "atr50": 51,
+    "adx7": 14,
+    "rsi3": 3,
+    "rsi4": 4,
+    "rsi14": 14,
+    "roc200": 201,
+    "hv50": 51,
+    "dollarvolume20": 20,
+    "dollarvolume50": 50,
+    "avgvolume50": 50,
+    "return_3d": 4,
+    "6d_return": 7,
+    "return6d": 7,
+    "return_pct": 2,
+    "drop3d": 4,
+    "atr_ratio": 11,
+    "atr_pct": 11,
 }
 
 
@@ -237,7 +304,9 @@ class CacheManager:
         self._ui_prefix = "[CacheManager]"
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+    def _warn_once(
+        self, ticker: str, profile: str, category: str, message: str
+    ) -> None:
         key = (ticker, profile, category)
         if key in self._warned:
             return
@@ -263,22 +332,32 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
-        case_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
-        base_renamed = base.rename(columns={k: v for k, v in case_map.items() if k in base.columns})
+        case_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+        base_renamed = base.rename(
+            columns={k: v for k, v in case_map.items() if k in base.columns}
+        )
         base_renamed["Date"] = base_renamed["date"]
 
         try:
             enriched = add_indicators(base_renamed)
             enriched = enriched.drop(columns=["Date"], errors="ignore")
             enriched.columns = [str(c).lower() for c in enriched.columns]
-            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
+            enriched["date"] = pd.to_datetime(
+                enriched.get("date", base["date"]), errors="coerce"
+            )
 
             # Merge indicators back, preserving original columns
             combined = df.copy()
             for col, series in enriched.items():
                 if col not in combined.columns or col != "date":
                     combined[col] = series
-            
+
             return combined.loc[:, ~combined.columns.duplicated(keep="first")]
         except Exception as e:
             logger.error(f"Failed to recompute indicators: {e}")
@@ -289,7 +368,7 @@ class CacheManager:
         for ext in [".csv", ".parquet", ".feather"]:
             if (p := base_dir / f"{ticker}{ext}").exists():
                 return p
-        
+
         fmt = (self.file_format or "auto").lower()
         if fmt == "parquet":
             return base_dir / f"{ticker}.parquet"
@@ -297,11 +376,13 @@ class CacheManager:
             return base_dir / f"{ticker}.feather"
         return base_dir / f"{ticker}.csv"
 
-    def _read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
+    def _read_with_fallback(
+        self, path: Path, ticker: str, profile: str
+    ) -> pd.DataFrame | None:
         """Reads a file with specific logic for different formats and fallbacks."""
         if not path.exists():
             return None
-        
+
         try:
             if path.suffix == ".feather":
                 return pd.read_feather(path)
@@ -333,7 +414,7 @@ class CacheManager:
         """Reads data from the cache, handling different formats and normalization."""
         base = self.full_dir if profile == "full" else self.rolling_dir
         path = self._detect_path(base, ticker)
-        
+
         df = self._read_with_fallback(path, ticker, profile)
         if df is None:
             return None
@@ -345,8 +426,13 @@ class CacheManager:
 
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df = df.dropna(subset=["date"]).sort_values("date").drop_duplicates("date").reset_index(drop=True)
-        
+            df = (
+                df.dropna(subset=["date"])
+                .sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)
+            )
+
         self._perform_health_check(df, ticker, profile)
         return df
 
@@ -358,16 +444,20 @@ class CacheManager:
         tmp_path = path.with_suffix(path.suffix + ".tmp")
 
         try:
-            round_dec = self.rolling_cfg.round_decimals if profile == "rolling" else self.settings.cache.round_decimals
+            round_dec = (
+                self.rolling_cfg.round_decimals
+                if profile == "rolling"
+                else self.settings.cache.round_decimals
+            )
             df_to_write = round_dataframe(df, round_dec)
 
             if path.suffix == ".parquet":
                 df_to_write.to_parquet(tmp_path, index=False)
             elif path.suffix == ".feather":
                 df_to_write.reset_index(drop=True).to_feather(tmp_path)
-            else: # .csv
+            else:  # .csv
                 _write_dataframe_to_csv(df_to_write, tmp_path, self.settings)
-            
+
             shutil.move(tmp_path, path)
         finally:
             if os.path.exists(tmp_path):
@@ -378,8 +468,54 @@ class CacheManager:
 
     def _check_nan_rates(self, df: pd.DataFrame, ticker: str, profile: str):
         """Checks for high NaN rates in key indicator columns."""
-        # Implementation extracted and simplified from the original _perform_health_check
-        pass # Placeholder for the complex NaN logic
+        try:
+            if df is None or df.empty:
+                return
+
+            # Build list of indicator columns present in df
+            cols = [c for c in df.columns if c.lower() in _INDICATOR_MIN_OBSERVATIONS]
+            if not cols:
+                return
+
+            # For each column compute a NaN ratio over a recent window but
+            # exclude the initial warm-up rows where the indicator cannot exist.
+            recent_window = min(len(df), 120)
+            warnings: list[tuple[str, float]] = []
+            for col in cols:
+                try:
+                    series = pd.to_numeric(df[col], errors="coerce").reset_index(
+                        drop=True
+                    )
+                except Exception:
+                    continue
+
+                lookback = int(_INDICATOR_MIN_OBSERVATIONS.get(col.lower(), 0))
+                # If the entire series is NaN, warn (indicator missing entirely)
+                if series.isna().all():
+                    warnings.append((col, 1.0))
+                    continue
+
+                # If series is shorter than lookback, skip — indicator not applicable
+                if lookback and len(series) <= lookback:
+                    continue
+
+                # Consider only the recent portion where values should be populated
+                eval_series = series.tail(recent_window)
+                try:
+                    nan_ratio = float(eval_series.isna().mean())
+                except Exception:
+                    nan_ratio = 1.0
+
+                if nan_ratio >= 0.99:
+                    warnings.append((col, nan_ratio))
+
+            if warnings:
+                # Log a single warning summarizing affected columns
+                parts = ", ".join(f"{c}:{r:.2%}" for c, r in warnings)
+                msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: NaN率高 ({parts})"
+                self._warn_once(ticker, profile, f"nan_rate:{parts}", msg)
+        except Exception as e:
+            logger.error(f"{self._ui_prefix} NaN率チェック失敗: {e}")
 
     def _check_column_dtypes(self, df: pd.DataFrame, ticker: str, profile: str):
         """Checks for incorrect dtypes in OHLCV columns."""
@@ -395,20 +531,27 @@ class CacheManager:
             if col in df.columns:
                 vals = pd.to_numeric(df[col], errors="coerce")
                 if not vals.empty and (vals <= 0).all():
-                    msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                    msg = (
+                        f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                    )
                     self._warn_once(ticker, profile, f"non_positive:{col}", msg)
 
-    def _perform_health_check(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
+    def _perform_health_check(
+        self, df: pd.DataFrame, ticker: str, profile: str
+    ) -> None:
         """Performs a series of health checks on the DataFrame."""
         if df is None or df.empty:
             return
         try:
-            # self._check_nan_rates(df, ticker, profile) # This logic is too complex to refactor safely now
+            # Perform NaN rate checks first
+            self._check_nan_rates(df, ticker, profile)
             self._check_column_dtypes(df, ticker, profile)
             self._check_non_positive_prices(df, ticker, profile)
         except Exception as e:
             msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})"
-            self._warn_once(ticker, profile, f"healthcheck_error:{type(e).__name__}", msg)
+            self._warn_once(
+                ticker, profile, f"healthcheck_error:{type(e).__name__}", msg
+            )
 
     def upsert_both(self, ticker: str, new_rows: pd.DataFrame) -> None:
         """Upserts new rows into both 'full' and 'rolling' caches."""
@@ -425,14 +568,22 @@ class CacheManager:
         if cur is None or cur.empty:
             merged = new_rows.copy() if new_rows is not None else pd.DataFrame()
         else:
-            merged = pd.concat([cur, new_rows], ignore_index=True) if new_rows is not None else cur
+            merged = (
+                pd.concat([cur, new_rows], ignore_index=True)
+                if new_rows is not None
+                else cur
+            )
 
         if not merged.empty:
-            merged = merged.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+            merged = (
+                merged.sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)
+            )
             if profile == "rolling":
                 merged = self._enforce_rolling_window(merged)
             merged = self._recompute_indicators(merged)
-        
+
         if not merged.empty:
             self.write_atomic(merged, ticker, profile)
 
@@ -444,7 +595,9 @@ class CacheManager:
         if "date" not in df.columns or df.empty:
             return df
         target_len = self._rolling_target_len
-        return df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
+        return (
+            df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
+        )
 
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
         """Prunes the rolling cache if enough new data has been added."""
@@ -472,11 +625,11 @@ class CacheManager:
         msg = f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日"
         logger.info(msg)
         pruned_files, dropped_total = 0, 0
-        
+
         for path in self.rolling_dir.glob("*.*"):
             if path.name.startswith("_"):
                 continue
-            
+
             df = self.read(path.stem, "rolling")
             if df is None or df.empty:
                 continue
@@ -508,25 +661,31 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """OHLCVのDataFrameに共通ベース指標を付加して返す。"""
     if df is None or df.empty:
         return df
-    
+
     x = df.copy()
-    
+
     # Normalize column names
     rename_map = {c: c.lower() for c in x.columns}
     x = x.rename(columns=rename_map)
-    
+
     # Ensure 'Date' column and set as index
-    if 'date' in x.columns:
-        x = x.rename(columns={'date': 'Date'})
-    if 'Date' in x.columns:
-        x['Date'] = pd.to_datetime(x['Date'], errors='coerce')
-        x = x.dropna(subset=['Date']).sort_values('Date').set_index('Date')
-    
+    if "date" in x.columns:
+        x = x.rename(columns={"date": "Date"})
+    if "Date" in x.columns:
+        x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
+        x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
+
     # Standardize OHLCV column names
     ohlcv_map = {
-        'open': 'Open', 'high': 'High', 'low': 'Low',
-        'adjusted_close': 'Close', 'adj_close': 'Close', 'adjclose': 'Close', 'close': 'Close',
-        'volume': 'Volume', 'vol': 'Volume'
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "adjusted_close": "Close",
+        "adj_close": "Close",
+        "adjclose": "Close",
+        "close": "Close",
+        "volume": "Volume",
+        "vol": "Volume",
     }
     final_rename = {c: ohlcv_map[c] for c in x.columns if c in ohlcv_map}
     x = x.rename(columns=final_rename)
@@ -534,7 +693,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}")
+        logger.warning(
+            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
+        )
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -551,17 +712,20 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         x[f"ema{n}"] = close.ewm(span=n, adjust=False).mean()
 
     # ATR
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    tr = pd.concat(
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+    ).max(axis=1)
     for n in [10, 14, 40, 50]:
         x[f"atr{n}"] = tr.rolling(n).mean()
 
     # RSI (Wilder)
     def _rsi(s: pd.Series, n: int) -> pd.Series:
         delta = s.diff()
-        gain = delta.clip(lower=0).ewm(alpha=1/n, adjust=False).mean()
-        loss = -delta.clip(upper=0).ewm(alpha=1/n, adjust=False).mean()
+        gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+        loss = -delta.clip(upper=0).ewm(alpha=1 / n, adjust=False).mean()
         rs = gain / loss.replace(0, np.nan)
         return 100 - (100 / (1 + rs))
+
     for n in [3, 14]:
         x[f"rsi{n}"] = _rsi(close, n)
 
@@ -587,10 +751,10 @@ def save_base_cache(symbol: str, df: pd.DataFrame, settings: Settings) -> Path:
     path = base_cache_path(symbol)
     df_reset = df.reset_index() if df.index.name is not None else df
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     round_dec = getattr(settings.cache, "round_decimals", None)
     df_to_write = round_dataframe(df_reset, round_dec)
-    
+
     _write_dataframe_to_csv(df_to_write, path, settings)
     return path
 
@@ -642,25 +806,33 @@ def load_base_cache(
         last_date = df.index[-1] if not df.empty else None
         is_stale = False
         if allowed_recent_dates and last_date:
-            allowed_set = {pd.Timestamp(cast(Any, d)).normalize() for d in allowed_recent_dates if pd.notna(d)}
+            allowed_set = {
+                pd.Timestamp(cast(Any, d)).normalize()
+                for d in allowed_recent_dates
+                if pd.notna(d)
+            }
             if last_date.normalize() not in allowed_set:
                 is_stale = True
         if not is_stale and min_last_date and last_date:
             if last_date.normalize() < pd.Timestamp(min_last_date).normalize():
                 is_stale = True
-        
+
         if not is_stale:
             return df.reset_index()
-        
+
         if not rebuild_if_missing:
             return df.reset_index()
-        
+
         msg = f"{__name__}: base cache for {symbol} is stale, rebuilding."
         logger.info(msg)
-        df = None # Force rebuild
+        df = None  # Force rebuild
 
     if df is None and rebuild_if_missing:
-        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling") or _read_legacy_cache(symbol)
+        raw = (
+            cm.read(symbol, "full")
+            or cm.read(symbol, "rolling")
+            or _read_legacy_cache(symbol)
+        )
         if raw is not None and not raw.empty:
             out = compute_base_indicators(raw)
             save_base_cache(symbol, out, cm.settings)

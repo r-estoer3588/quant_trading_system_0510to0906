@@ -125,6 +125,7 @@ def prepare_data_vectorized_system7(
 def generate_candidates_system7(
     prepared_dict: dict[str, pd.DataFrame],
     *,
+    top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
 ) -> tuple[dict, pd.DataFrame | None]:
@@ -132,10 +133,20 @@ def generate_candidates_system7(
     if "SPY" not in prepared_dict:
         return {}, None
     df = prepared_dict["SPY"]
+    limit_n: int | None
+    if top_n is None:
+        limit_n = None
+    else:
+        try:
+            limit_n = max(0, int(top_n))
+        except (TypeError, ValueError):
+            limit_n = None
     setup_days = df[df["setup"] == 1]
     for date, row in setup_days.iterrows():
         entry_date = resolve_signal_entry_date(date)
         if pd.isna(entry_date):
+            continue
+        if limit_n == 0:
             continue
         # last_price（直近終値）を取得
         last_price = None
@@ -147,7 +158,10 @@ def generate_candidates_system7(
             "ATR50": row["ATR50"],
             "entry_price": last_price,
         }
-        candidates_by_date.setdefault(entry_date, []).append(rec)
+        bucket = candidates_by_date.setdefault(entry_date, [])
+        if limit_n is not None and len(bucket) >= limit_n:
+            continue
+        bucket.append(rec)
     if log_callback:
         try:
             # 直近のセットアップ（50日安値ブレイク）に基づく、
