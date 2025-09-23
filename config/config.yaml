@@ -22,14 +22,46 @@ strategies:
     fast_sma: 20
     slow_sma: 50
     atr_period: 14
+    # 設定はドキュメントに合わせる（エントリーギャップ 4% 等）
+    entry_min_gap_pct: 0.04
+    profit_take_pct: 0.04
+    max_hold_days: 2
+    stop_atr_multiple: 3.0
   system3:
     ema_short: 12
     ema_long: 26
     signal: 9
-  system4: {}
-  system5: {}
-  system6: {}
-  system7: {}
+    # ドキュメント記載値に合わせる
+    entry_price_ratio_vs_prev_close: 0.93
+    stop_atr_multiple: 2.5
+    profit_take_pct: 0.04
+    max_hold_days: 3
+  system4:
+    # System4 は主にSPY依存のフィルタとATRを用いた短期売り戦略
+    stop_atr_multiple: 1.5
+    trailing_pct: 0.20
+    entry_price_ratio_vs_prev_close: 1.00
+    # top_n 等は backtest.top_n_rank を利用するためここでは不要
+  system5:
+    # System5: ロング戦略。エントリー基準とATRベースのターゲット/ストップ
+    entry_price_ratio_vs_prev_close: 0.97
+    stop_atr_multiple: 3.0
+    target_atr_multiple: 1.0
+    fallback_exit_after_days: 6
+  system6:
+    # System6: ショート戦略。利確・損切り・保持期間に関するパラメータ
+    entry_price_ratio_vs_prev_close: 1.05
+    stop_atr_multiple: 3.0
+    profit_take_pct: 0.05
+    profit_take_max_days: 7
+  system7:
+    # System7: SPY 専用ヘッジ。ATR50 等を使うため最小限の上書き
+    stop_atr_multiple: 3.0
+    trailing_pct: 0.10
+    # Optional system-level risk overrides (if set, these override global `risk` defaults for system7)
+    risk_pct: 0.02
+    max_pct: 0.20
+    single_mode: false
 
 data:
   vendor: EODHD
