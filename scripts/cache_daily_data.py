@@ -1048,6 +1048,11 @@ def _cli_main() -> None:
         help="強制的に full から再取得 (bulk をスキップしない)",
     )
     parser.add_argument(
+        "--bulk-today",
+        action="store_true",
+        help="本日の Bulk 更新を明示的に実行する（従来のデフォルト動作に相当）",
+    )
+    parser.add_argument(
         "--skip-bulk",
         action="store_true",
         help="bulk 更新をスキップして API から取得する",
@@ -1066,6 +1071,11 @@ def _cli_main() -> None:
     )
     # --parallel-fetch を廃止: API取得は常に順次(fetch_workers=1)
     args = parser.parse_args()
+
+    # 変更: 引数が何も指定されなかった場合はデフォルトでフル取得する。
+    # ただし `--bulk-today` を明示的に指定した場合のみ Bulk を実行する。
+    if not args.full and not args.skip_bulk and not args.bulk_today:
+        args.full = True
 
     # symbols = get_all_symbols()[:3]  # 簡易テスト用
     symbols = get_all_symbols()
