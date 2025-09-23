@@ -89,17 +89,22 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
 
         # 正規化: 日付列を作り、指標計算に適した列名にする
         df["date"] = pd.to_datetime(df["date"])  # 小文字のままにする
-        df = df.rename(
-            columns={
-                "date": "date",
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "adjusted_close": "AdjClose",
-                "volume": "Volume",
-            }
-        )
+        rename_map: dict[str, str] = {
+            "date": "date",
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "volume": "Volume",
+        }
+        if "adjusted_close" in df.columns:
+            # 調整後終値を優先して Close として扱う。元の close は補助列として保持。
+            rename_map["adjusted_close"] = "Close"
+            if "close" in df.columns:
+                rename_map["close"] = "CloseRaw"
+        elif "close" in df.columns:
+            rename_map["close"] = "Close"
+
+        df = df.rename(columns=rename_map)
 
         # base キャッシュを作成
         try:

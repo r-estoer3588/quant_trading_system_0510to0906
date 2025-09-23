@@ -1277,13 +1277,7 @@ def _load_basic_data(
                 source = "prefetched"
             if df is None or getattr(df, "empty", True):
                 source = None
-            if (
-                df is None
-                or getattr(df, "empty", True)
-                or (hasattr(df, "__len__") and len(df) < target_len)
-            ):
-                if df is not None and not getattr(df, "empty", True):
-                    rebuild_reason = rebuild_reason or "length"
+            if df is None or getattr(df, "empty", True):
                 needs_rebuild = True
             else:
                 needs_rebuild = False
@@ -1472,9 +1466,7 @@ def _load_indicator_data(
             target_len = int(
                 settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
             )
-            needs_rebuild = (
-                df is None or df.empty or (hasattr(df, "__len__") and len(df) < target_len)
-            )
+            needs_rebuild = df is None or getattr(df, "empty", True)
             if needs_rebuild:
                 if df is None or getattr(df, "empty", True):
                     reason_desc = "rolling未生成"

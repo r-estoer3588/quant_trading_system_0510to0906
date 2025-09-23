@@ -581,13 +581,7 @@ def load_basic_data_phase(
             source = None
 
         needs_rebuild = False
-        if (
-            df is None
-            or getattr(df, "empty", True)
-            or (hasattr(df, "__len__") and len(df) < target_len)
-        ):
-            if df is not None and not getattr(df, "empty", True):
-                rebuild_reason = rebuild_reason or "length"
+        if df is None or getattr(df, "empty", True):
             needs_rebuild = True
         if df is not None and not getattr(df, "empty", True) and source is None:
             source = "rolling"
