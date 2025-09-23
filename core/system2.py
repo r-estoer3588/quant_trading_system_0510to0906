@@ -24,6 +24,17 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     if df is None or df.empty:
         return symbol, None
 
+    # 子プロセスから親へ簡易進捗を送る（存在すれば）
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 0))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # lower-case の OHLCV を許容
     rename_map = {}
     for low, up in (
@@ -65,6 +76,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
     x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 25_000_000) & (x["ATR_Ratio"] > 0.03)
     x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
+
+    # 完了を親に伝える
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 100))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return symbol, x
 
 

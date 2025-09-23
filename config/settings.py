@@ -347,7 +347,9 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
     stale_days = int(rolling_cfg.get("max_stale_days", 2))
     staleness_days = int(rolling_cfg.get("max_staleness_days", stale_days))
 
-    cache_round = _positive_int_or_none(os.getenv("CACHE_ROUND_DECIMALS", cfg.get("round_decimals")))
+    cache_round = _positive_int_or_none(
+        os.getenv("CACHE_ROUND_DECIMALS", cfg.get("round_decimals"))
+    )
     rolling_round = _positive_int_or_none(
         os.getenv("ROLLING_CACHE_ROUND_DECIMALS", rolling_cfg.get("round_decimals"))
     )
@@ -375,12 +377,8 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             max_symbols=max_symbols_final,
             round_decimals=rolling_round,
             adaptive_window_count=int(rolling_cfg.get("adaptive_window_count", 8)),
-            adaptive_increase_threshold=float(
-                rolling_cfg.get("adaptive_increase_threshold", 1.02)
-            ),
-            adaptive_decrease_threshold=float(
-                rolling_cfg.get("adaptive_decrease_threshold", 0.98)
-            ),
+            adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
+            adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
             adaptive_step=int(rolling_cfg.get("adaptive_step", 1)),
             adaptive_min_workers=int(rolling_cfg.get("adaptive_min_workers", 1)),
             adaptive_max_workers=_positive_int_or_none(rolling_cfg.get("adaptive_max_workers")),

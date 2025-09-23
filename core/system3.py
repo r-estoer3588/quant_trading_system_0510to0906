@@ -112,6 +112,16 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+    # 子プロセスから親へ簡易進捗を送る（存在すれば）
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 0))
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         prepared = _prepare_source_frame(df)
     except ValueError:
@@ -119,9 +129,22 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     except Exception:
         return symbol, None
     try:
-        return symbol, _compute_indicators_frame(prepared)
+        res = _compute_indicators_frame(prepared)
     except Exception:
         return symbol, None
+
+    # 完了を親に伝える
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 100))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return symbol, res
 
 
 def prepare_data_vectorized_system3(
@@ -234,7 +257,7 @@ def prepare_data_vectorized_system3(
         em, es = divmod(int(elapsed), 60)
         rm, rs = divmod(int(remain), 60)
         msg = tr(
-            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
             done=processed,
             total=total,
             em=em,

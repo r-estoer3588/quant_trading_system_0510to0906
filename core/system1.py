@@ -115,10 +115,23 @@ def _compute_indicators(
     if df is None or df.empty:
         return symbol, None
 
+    # 子プロセスから親へ簡易進捗を送る（存在すれば）
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 0))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # 正規化: 日付インデックス・並び順・重複排除・型
     try:
         if "Date" in df.columns:
             idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+        elif "date" in df.columns:
+            idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
         else:
             idx = pd.to_datetime(df.index, errors="coerce").normalize()
         df.index = pd.Index(idx)
@@ -187,6 +200,17 @@ def _compute_indicators(
     latest_df = prepared[date_series == latest_date]
     try:
         latest_df.reset_index(drop=True).to_feather(cache_path)
+    except Exception:
+        pass
+
+    # 完了を親に伝える
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 100))
+            except Exception:
+                pass
     except Exception:
         pass
 

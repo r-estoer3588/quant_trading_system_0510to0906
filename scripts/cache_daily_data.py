@@ -122,7 +122,7 @@ def _attempt_bulk_refresh(symbols: list[str] | None, progress_interval: int = 50
             interval = max(1, int(progress_interval or 500))
             if processed % interval == 0 or processed == total:
                 print(
-                    f"📊 Bulk進捗: {processed}/{total} 銘柄処理済み " f"(更新: {updated})",
+                    f"📊 Bulk進捗: {processed}/{total} 銘柄処理済み (更新: {updated})",
                     flush=True,
                 )
 
@@ -846,7 +846,7 @@ def cache_data(
             total = len(symbols_to_fetch)
             print(
                 f"📊 進捗: {completed_count}/{total} 銘柄完了 "
-                f"({completed_count/total*100:.1f}%)",
+                f"({completed_count / total * 100:.1f}%)",
                 flush=True,
             )
         if not result.success:

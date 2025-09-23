@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+import multiprocessing
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -410,6 +411,37 @@ def _drain_stage_event_queue() -> None:
         cb2 = None
 
     events: list[StageEvent] = GLOBAL_STAGE_METRICS.drain_events()
+
+    # もしプロセスマネージャー経由の進捗キューが存在すればそこからも取り出す
+    try:
+        _mgr = globals().get("_PROGRESS_MANAGER")
+    except Exception:
+        _mgr = None
+    if _mgr is not None:
+        try:
+            q = globals().get("_PROGRESS_QUEUE")
+            if q is not None:
+                while True:
+                    try:
+                        item = q.get_nowait()
+                    except Exception:
+                        break
+                    try:
+                        # item expected: (system, progress, filter, setup, cand, entry)
+                        if isinstance(item, list | tuple) and len(item) >= 2:
+                            GLOBAL_STAGE_METRICS.record_stage(
+                                item[0],
+                                int(item[1]),
+                                item[2] if len(item) > 2 else None,
+                                item[3] if len(item) > 3 else None,
+                                item[4] if len(item) > 4 else None,
+                                item[5] if len(item) > 5 else None,
+                                emit_event=True,
+                            )
+                    except Exception:
+                        continue
+        except Exception:
+            pass
 
     if not events:
         return
@@ -3661,11 +3693,22 @@ def compute_today_signals(  # type: ignore[analysis]
                 # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
                 if use_process_pool:
                     try:
-                        key = (f_int, s_int, c_int, fin_int)
+                        # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
+                        # 登録する。None と 0 や空文字列のような微妙な差を吸収する
+                        # ため、整数化した値で比較する。
+                        key = (
+                            _safe_stage_int(f_int),
+                            _safe_stage_int(s_int),
+                            _safe_stage_int(c_int),
+                            _safe_stage_int(fin_int),
+                        )
                         prev = stage_state.get(progress_val)
                         if prev != key:
                             stage_state[progress_val] = key
                             try:
+                                # 常に emit_event=True でイベントを積む（UI 側で重複
+                                # 表示抑制する責務を負わせることも可能だが、ここは
+                                # イベントの喪失を避けるため明示的に通知する）
                                 GLOBAL_STAGE_METRICS.record_stage(
                                     name,
                                     progress_val,
@@ -3673,6 +3716,7 @@ def compute_today_signals(  # type: ignore[analysis]
                                     s_int,
                                     c_int,
                                     fin_int,
+                                    emit_event=True,
                                 )
                             except Exception:
                                 pass
@@ -3790,6 +3834,17 @@ def compute_today_signals(  # type: ignore[analysis]
             # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
             _stage_cb = _stage
             _log_cb = None if use_process_pool else _local_log
+            # プロセスプール利用時は Manager().Queue を生成して子プロセスから
+            # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
+            if use_process_pool:
+                try:
+                    mgr = multiprocessing.Manager()  # noqa: F401 (kept for child access)
+                    progress_q = mgr.Queue()
+                    globals()["_PROGRESS_MANAGER"] = mgr
+                    globals()["_PROGRESS_QUEUE"] = progress_q
+                except Exception:
+                    globals().pop("_PROGRESS_MANAGER", None)
+                    globals().pop("_PROGRESS_QUEUE", None)
             if use_process_pool:
                 workers_label = str(max_workers) if max_workers is not None else "auto"
                 _local_log(
@@ -3812,6 +3867,9 @@ def compute_today_signals(  # type: ignore[analysis]
                 max_workers=max_workers,
                 lookback_days=lookback_days,
             )
+            # 子プロセスからキューへ送られた進捗は上で作られた globals 上の
+            # _PROGRESS_QUEUE に蓄積される。_drain_stage_event_queue がそれを
+            # 定期的に取り出し、UI 更新に転換する。
             if use_process_pool:
                 pool_outcome = "success"
             _elapsed = int(max(0, __import__("time").time() - _t0))

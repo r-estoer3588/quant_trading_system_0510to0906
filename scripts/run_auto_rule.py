@@ -103,7 +103,6 @@ def build_auto_rows(cfg: dict[str, Any], markers: dict[str, Any]) -> list[dict[s
         except Exception:
             continue
 
-
     pos_df = pd.DataFrame(records)
     if pos_df is None or pos_df.empty:
         return rows

@@ -232,12 +232,8 @@ def test_append_to_cache_progress_step_auto_large(tmp_path):
             "high": np.linspace(10.5, 10.5 + len(symbols) - 1, len(symbols)),
             "low": np.linspace(9.5, 9.5 + len(symbols) - 1, len(symbols)),
             "close": np.linspace(10.2, 10.2 + len(symbols) - 1, len(symbols)),
-            "adjusted_close": np.linspace(
-                10.1, 10.1 + len(symbols) - 1, len(symbols)
-            ),
-            "volume": np.linspace(
-                1000, 1000 + len(symbols) - 1, len(symbols)
-            ).astype(int),
+            "adjusted_close": np.linspace(10.1, 10.1 + len(symbols) - 1, len(symbols)),
+            "volume": np.linspace(1000, 1000 + len(symbols) - 1, len(symbols)).astype(int),
         }
     )
 
@@ -256,7 +252,7 @@ def test_append_to_cache_progress_step_auto_large(tmp_path):
     assert updated == len(symbols)
     processed = [p for p, _, _ in calls if p > 0]
     assert processed
-    diffs = [b - a for a, b in zip(processed, processed[1:])]
+    diffs = [b - a for a, b in zip(processed, processed[1:], strict=False)]
     if diffs:
         assert max(diffs) <= 20
 

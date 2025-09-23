@@ -85,7 +85,6 @@ def _text(message: str) -> list[Any]:
     return [types.TextContent(type="text", text=message)]
 
 
-import asyncio
 
 
 async def _run_sync(func, *args, **kwargs):
@@ -167,8 +166,7 @@ def create_server() -> Server:
             types.Tool(
                 name="run_backtest",
                 description=(
-                    "指定システムで simulate_trades_with_risk を用いた"
-                    " バックテストを実行します。"
+                    "指定システムで simulate_trades_with_risk を用いた バックテストを実行します。"
                 ),
                 inputSchema={
                     "type": "object",

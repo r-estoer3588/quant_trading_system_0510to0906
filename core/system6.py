@@ -99,6 +99,16 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+    # 子プロセスから親へ簡易進捗を送る（存在すれば）
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 0))
+            except Exception:
+                pass
+    except Exception:
+        pass
     df = df.copy()
     rename_map = {}
     for low, up in (
@@ -118,6 +128,17 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         return symbol, None
     except Exception:
         return symbol, None
+    # 完了を親に伝える
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 100))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return symbol, prepared
 
 

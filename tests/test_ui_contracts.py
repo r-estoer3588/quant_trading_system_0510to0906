@@ -35,6 +35,6 @@ def test_trade_logs_are_in_expander_in_common_ui_bridge():
     path = Path("common/ui_bridge.py")
     assert path.exists(), "common/ui_bridge.py が見つかりません"
     src = path.read_text(encoding="utf-8", errors="ignore")
-    assert (
-        "st.expander(" in src or ".expander(" in src
-    ), "ui_bridge のログ表示が expander で包まれていません"
+    assert "st.expander(" in src or ".expander(" in src, (
+        "ui_bridge のログ表示が expander で包まれていません"
+    )

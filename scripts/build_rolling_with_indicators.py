@@ -383,14 +383,19 @@ def extract_rolling_from_full(
     )
 
     try:
-        round_decimals = getattr(cache_manager.settings.cache.rolling, "round_decimals", None)
+        # tests may provide a SimpleNamespace without nested attributes; fall back safely
+        round_decimals = getattr(
+            getattr(cache_manager, "rolling_cfg", None), "round_decimals", None
+        )
         if round_decimals is None:
-            round_decimals = getattr(cache_manager.settings.cache, "round_decimals", None)
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            round_decimals = getattr(cache_obj, "round_decimals", None)
     except Exception:
         round_decimals = None
 
     # Determine initial worker count preference
-    cfg_workers = getattr(cache_manager.settings.rolling_cfg, "workers", None)
+    cfg_workers = getattr(getattr(cache_manager, "rolling_cfg", None), "workers", None)
     # If explicit workers passed to function, it takes precedence
     if workers is None:
         workers = cfg_workers
@@ -448,11 +453,16 @@ def extract_rolling_from_full(
         # establish sensible bounds
         cpu = os.cpu_count() or 1
         max_possible = max(1, min(32, int(cpu * 2), len(symbol_list)))
-        initial_workers = (
-            int(workers)
-            if workers and workers > 0
-            else int(getattr(cache_manager.settings.cache.rolling, "workers", 4) or 4)
-        )
+        if workers and workers > 0:
+            initial_workers = int(workers)
+        else:
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            rolling_obj = getattr(cache_obj, "rolling", None)
+            try:
+                initial_workers = int(getattr(rolling_obj, "workers", 4) or 4)
+            except Exception:
+                initial_workers = 4
         current_workers = max(1, min(initial_workers, max_possible))
 
         _log_message(
@@ -467,9 +477,10 @@ def extract_rolling_from_full(
 
         # prepare progress output file
         try:
-            report_seconds = int(
-                getattr(cache_manager.settings.cache.rolling, "adaptive_report_seconds", 10)
-            )
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            rolling_obj = getattr(cache_obj, "rolling", None)
+            report_seconds = int(getattr(rolling_obj, "adaptive_report_seconds", 10) or 10)
         except Exception:
             report_seconds = 10
 

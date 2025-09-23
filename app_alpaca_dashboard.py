@@ -1079,10 +1079,12 @@ def main() -> None:
     _inject_css()
     # Debug banner to detect stale caching: shows page load timestamp
     try:
-        st.markdown(
-            f"<div style='position:fixed;right:8px;top:8px;background:#111;padding:6px 10px;border-radius:6px;opacity:0.9;z-index:9999;color:#9ae6b4;'>DEBUG {datetime.now().isoformat()}</div>",
-            unsafe_allow_html=True,
+        debug_html = (
+            "<div style='position:fixed;right:8px;top:8px;background:#111;"
+            "padding:6px 10px;border-radius:6px;opacity:0.9;z-index:9999;"
+            "color:#9ae6b4;'>DEBUG " + datetime.now().isoformat() + "</div>"
         )
+        st.markdown(debug_html, unsafe_allow_html=True)
     except Exception:
         pass
 
@@ -1622,8 +1624,7 @@ def main() -> None:
                     col_cfg["リミット価格"] = st.column_config.Column(
                         width="medium",
                         help=(
-                            "未約定のリミット/テイクプロフィット注文価格"
-                            "（複数は / 区切り表示）。"
+                            "未約定のリミット/テイクプロフィット注文価格（複数は / 区切り表示）。"
                         ),
                     )
                 if "直近価格チャート" in display_df.columns:

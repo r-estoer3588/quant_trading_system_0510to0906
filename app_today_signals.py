@@ -946,6 +946,8 @@ class StageTracker:
         self.states: dict[str, int] = {}
         self.metrics_store = StageMetricsStore(DEFAULT_SYSTEM_ORDER)
         self.stage_counts = self.metrics_store.stage_counts
+        # 最後に受け取ったステージ情報のデデュープ用タイムスタンプ
+        self._last_event: dict[str, tuple[int, int, int, int, int, float]] = {}
         self.universe_total: int | None = None
         self.universe_target: int | None = None
         if self.show_ui:
@@ -1046,6 +1048,28 @@ class StageTracker:
         final_cnt: int | None = None,
     ) -> None:
         key = str(name).lower()
+        # 短時間内に同一内容の更新が来ると UI がフラッタリングするため、
+        # 同一システム・同一値・同一カウントの更新は 0.5 秒以内は無視する。
+        try:
+            import time as _time
+
+            last = self._last_event.get(key)
+            cur_sig = (
+                value,
+                int(filter_cnt) if filter_cnt is not None else -1,
+                int(setup_cnt) if setup_cnt is not None else -1,
+                int(cand_cnt) if cand_cnt is not None else -1,
+                int(final_cnt) if final_cnt is not None else -1,
+                _time.time(),
+            )
+            if last is not None:
+                same = last[0:5] == cur_sig[0:5]
+                recent = (cur_sig[5] - last[5]) < 0.5
+                if same and recent:
+                    return
+            self._last_event[key] = cur_sig
+        except Exception:
+            pass
         snapshot: StageSnapshot | None
         try:
             snapshot = GLOBAL_STAGE_METRICS.record_stage(
@@ -1287,6 +1311,8 @@ class UILogger:
         self.start_time = start_time
         self.progress_ui = progress_ui
         self.log_lines: list[str] = []
+        # ログデデュープ用（短時間に同一メッセージが来たら抑止）
+        self._last_log: dict[str, float] = {}
 
     def log(self, msg: str) -> None:
         forwarded_from_cli = False
@@ -1327,23 +1353,24 @@ class UILogger:
             "🧮 指標データロード完了",
             "🧮 共有指標 前計算",
         )
+        # ここは比較的限定的なキーワードのみにする（過剰除外を防止）
         skip_keywords = (
-            "進捗",
-            "インジケーター",
-            "indicator",
-            "indicators",
-            "指標計算",
-            "バッチ時間",
             "batch time",
             "next batch size",
-            "候補抽出",
-            "候補日数",
-            "📊 インジケーター計算",
-            "📊 候補抽出",
-            "⏱️ ッチ時間",
         )
         if msg.startswith(data_load_prefixes):
             return self.progress_ui.show_data_load
+        # 短時間内の同一ログを抑止（0.3秒以内の重複は無視）
+        try:
+            import time as _time
+
+            now = _time.time()
+            last = self._last_log.get(msg)
+            if last is not None and (now - last) < 0.3:
+                return False
+            self._last_log[msg] = now
+        except Exception:
+            pass
         return not any(keyword in msg for keyword in skip_keywords)
 
     def _echo_cli(self, line: str) -> None:

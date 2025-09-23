@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from typing import ClassVar, Any, cast, cast
+from typing import ClassVar, Any, cast
 
 from indicators_common import add_indicators
 import numpy as np
@@ -189,11 +189,15 @@ def make_csv_formatters(
 
 def _write_dataframe_to_csv(df: pd.DataFrame, path: Path, settings: Settings) -> None:
     """Utility to write a DataFrame to CSV with formatting."""
+    # Be defensive: tests may supply a SimpleNamespace for settings lacking
+    # nested attributes (e.g. settings.cache.csv). Use getattr fallbacks and
+    # sensible defaults to avoid raising AttributeError here.
     try:
-        csv_cfg = settings.cache.csv
-        dec_point = csv_cfg.decimal_point
-        thous_sep = csv_cfg.thousands_sep
-        sep = csv_cfg.field_sep
+        cache_cfg = getattr(settings, "cache", None)
+        csv_cfg = getattr(cache_cfg, "csv", None)
+        dec_point = getattr(csv_cfg, "decimal_point", ".")
+        thous_sep = getattr(csv_cfg, "thousands_sep", None)
+        sep = getattr(csv_cfg, "field_sep", ",")
 
         fmt_map = make_csv_formatters(df, dec_point=dec_point, thous_sep=thous_sep)
 
@@ -210,7 +214,10 @@ def _write_dataframe_to_csv(df: pd.DataFrame, path: Path, settings: Settings) ->
             df.to_csv(path, index=False, decimal=dec_point, sep=sep)
     except Exception as e:
         logger.error(f"Failed to write formatted CSV {path.name}: {e}")
-        df.to_csv(path, index=False)
+        try:
+            df.to_csv(path, index=False)
+        except Exception as e2:
+            logger.error(f"Failed to write CSV fallback {path.name}: {e2}")
 
 
 # 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
@@ -444,11 +451,11 @@ class CacheManager:
         tmp_path = path.with_suffix(path.suffix + ".tmp")
 
         try:
-            round_dec = (
-                self.rolling_cfg.round_decimals
-                if profile == "rolling"
-                else self.settings.cache.round_decimals
-            )
+            # settings may be a SimpleNamespace in tests; use getattr fallbacks
+            if profile == "rolling":
+                round_dec = getattr(self.rolling_cfg, "round_decimals", None)
+            else:
+                round_dec = getattr(self.settings.cache, "round_decimals", None)
             df_to_write = round_dataframe(df, round_dec)
 
             if path.suffix == ".parquet":
@@ -746,13 +753,19 @@ def base_cache_path(symbol: str) -> Path:
     return _base_dir() / f"{safe_filename(symbol)}.csv"
 
 
-def save_base_cache(symbol: str, df: pd.DataFrame, settings: Settings) -> Path:
+def save_base_cache(
+    symbol: str, df: pd.DataFrame, settings: Settings | None = None
+) -> Path:
     """Saves the base cache DataFrame to a CSV file."""
     path = base_cache_path(symbol)
     df_reset = df.reset_index() if df.index.name is not None else df
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    round_dec = getattr(settings.cache, "round_decimals", None)
+    # Backwards-compatible: if settings is not provided, obtain global settings
+    if settings is None:
+        settings = get_settings(create_dirs=True)
+
+    round_dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
     df_to_write = round_dataframe(df_reset, round_dec)
 
     _write_dataframe_to_csv(df_to_write, path, settings)

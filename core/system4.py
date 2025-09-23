@@ -104,6 +104,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+    # If a progress queue is provided via globals (set by parent), emit a simple
+    # started marker so the parent can reflect progress even when using
+    # ProcessPoolExecutor.
+    try:
+        q = globals().get("_PROGRESS_QUEUE")
+        if q is not None:
+            try:
+                q.put((symbol, 0))
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         prepared = _prepare_source_frame(df)
     except ValueError:
@@ -111,7 +123,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     except Exception:
         return symbol, None
     try:
-        return symbol, _compute_indicators_frame(prepared)
+        res = _compute_indicators_frame(prepared)
+        try:
+            q = globals().get("_PROGRESS_QUEUE")
+            if q is not None:
+                try:
+                    # finished marker: progress 100
+                    q.put((symbol, 100))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return symbol, res
     except Exception:
         return symbol, None
 
@@ -250,7 +273,7 @@ def prepare_data_vectorized_system4(
         em, es = divmod(int(elapsed), 60)
         rm, rs = divmod(int(remain), 60)
         msg = tr(
-            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+            "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
             done=processed,
             total=total,
             em=em,
