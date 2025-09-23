@@ -98,6 +98,7 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     x["ATR20"] = tr.rolling(20).mean()
     x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(20).mean()
     x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 50_000_000)
+    x["setup"] = x["SMA25"] > x["SMA50"]
     x["setup"] = x["filter"] & (x["SMA25"] > x["SMA50"])
     return x
 

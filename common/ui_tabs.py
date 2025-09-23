@@ -870,6 +870,31 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
     )
     use_all = st.checkbox(tr("use all symbols"), key="batch_all")
     use_parallel = st.checkbox(tr("use parallel processing"), key="batch_parallel")
+
+    if mode != "Backtest":
+        # SPY ゲート状態を表示
+        st.markdown("---")
+        st.subheader("SPY Market Gate Status")
+        try:
+            spy_df = get_spy_with_indicators(get_spy_data_cached())
+            if spy_df is not None and not spy_df.empty:
+                last = spy_df.iloc[-1]
+                close = last.get("Close", 0)
+                sma100 = last.get("SMA100", 0)
+                gate_ok = close > sma100
+                status = (
+                    "✅ OPEN (SPY > SMA100)"
+                    if gate_ok
+                    else "❌ CLOSED (SPY <= SMA100) - System1/4_TRDlist is 0"
+                )
+                st.metric(
+                    "SPY Gate", status, f"Close: {close:.2f}, SMA100: {sma100:.2f}"
+                )
+            else:
+                st.warning("SPY data not available")
+        except Exception as e:
+            st.error(f"Failed to check SPY gate: {e}")
+
     run_btn = st.button(
         tr("run batch") if mode == "Backtest" else tr("run today signals"),
         key="run_batch" if mode == "Backtest" else "run_today",

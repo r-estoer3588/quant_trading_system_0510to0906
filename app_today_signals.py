@@ -404,7 +404,8 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
     col_map = {str(col).lower(): col for col in columns}
     missing_required = [col for col in _ROLLING_REQUIRED_COLUMNS if col not in col_map]
     missing_optional = [col for col in _ROLLING_IMPORTANT_COLUMNS if col not in col_map]
-    nan_columns: list[tuple[str, float]] = []
+    nan_required: list[tuple[str, float]] = []
+    nan_optional: list[tuple[str, float]] = []
     for name in {*_ROLLING_REQUIRED_COLUMNS, *_ROLLING_IMPORTANT_COLUMNS}:
         actual = col_map.get(name)
         if actual is None:
@@ -413,25 +414,34 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
             numeric = pd.to_numeric(df[actual], errors="coerce")
         except Exception:
             continue
-        try:
-            ratio = float(numeric.isna().mean())
-        except Exception:
-            continue
-        if ratio > _ROLLING_NAN_THRESHOLD and not _has_recent_valid_window(numeric):
-            nan_columns.append((name, ratio))
+        if ratio > _ROLLING_NAN_THRESHOLD:
+            if name in _ROLLING_REQUIRED_COLUMNS:
+                nan_required.append((name, ratio))
+            else:
+                nan_optional.append((name, ratio))
     issues: dict[str, Any] = {}
+    fatal = False
     if missing_required:
         issues["missing_required"] = missing_required
+        fatal = True
+    if nan_required or nan_optional:
+        issues["nan_columns"] = [*nan_required, *nan_optional]
+    if nan_required:
+        fatal = True
     if missing_optional:
         issues["missing_optional"] = missing_optional
-    if nan_columns:
-        issues["nan_columns"] = nan_columns
-    if issues:
+    if fatal:
         issues.setdefault(
             "status",
             "missing_required" if missing_required else "nan_columns",
         )
         return False, issues
+    if missing_optional:
+        issues.setdefault("status", "missing_optional")
+        return True, issues
+    if nan_optional:
+        issues.setdefault("status", "nan_optional")
+        return True, issues
     return True, {}
 
 

@@ -371,7 +371,8 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
     col_map = {str(col).lower(): col for col in columns}
     missing_required = [c for c in REQUIRED_COLUMNS.required if c not in col_map]
     missing_optional = [c for c in REQUIRED_COLUMNS.important if c not in col_map]
-    nan_columns: list[tuple[str, float]] = []
+    nan_required: list[tuple[str, float]] = []
+    nan_optional: list[tuple[str, float]] = []
     for name in set(REQUIRED_COLUMNS.required).union(REQUIRED_COLUMNS.important):
         actual = col_map.get(name)
         if actual is None:
@@ -384,15 +385,19 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
             ratio = float(numeric.isna().mean())
         except Exception:
             continue
-        if ratio > REQUIRED_COLUMNS.nan_threshold and not _has_recent_valid_window(numeric):
-            nan_columns.append((name, ratio))
+        if ratio > REQUIRED_COLUMNS.nan_threshold:
+            if name in REQUIRED_COLUMNS.required:
+                nan_required.append((name, ratio))
+            else:
+                nan_optional.append((name, ratio))
     issues: dict[str, Any] = {}
     fatal = False
     if missing_required:
         issues["missing_required"] = missing_required
         fatal = True
-    if nan_columns:
-        issues["nan_columns"] = nan_columns
+    if nan_required or nan_optional:
+        issues["nan_columns"] = [*nan_required, *nan_optional]
+    if nan_required:
         fatal = True
     if missing_optional:
         issues["missing_optional"] = missing_optional
@@ -401,6 +406,9 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
         return False, issues
     if missing_optional:
         issues.setdefault("status", "missing_optional")
+        return True, issues
+    if nan_optional:
+        issues.setdefault("status", "nan_optional")
         return True, issues
     return True, {}
 
