@@ -51,11 +51,20 @@ data:
     rolling:
       base_lookback_days: 300
       buffer_days: 30
+      workers: 4
       prune_chunk_days: 30
       meta_file: "_meta.json"
       max_stale_days: 2
       max_staleness_days: 2
       round_decimals: 2
+      # 適応制御（ワーカーの自動調整）
+      adaptive_window_count: 8
+      adaptive_increase_threshold: 1.02
+      adaptive_decrease_threshold: 0.98
+      adaptive_step: 1
+      adaptive_min_workers: 1
+      adaptive_max_workers: 16
+      adaptive_report_seconds: 10
     # キャッシュ書き出し時の小数丸め桁数
     # 例: 2 -> 小数第2位まで丸める
     round_decimals: 2

@@ -78,6 +78,18 @@ class CacheRollingConfig:
     max_symbols: int | None = None
     # 小数丸め桁数: None で無効、整数で有効
     round_decimals: int | None = 4
+    # 並列ワーカー数: None で無効（スクリプト側の既定を使用）
+    workers: int | None = 4
+    # 適応制御パラメータ
+    adaptive_window_count: int = 8
+    adaptive_increase_threshold: float = 1.02
+    adaptive_decrease_threshold: float = 0.98
+    adaptive_step: int = 1
+    adaptive_min_workers: int = 1
+    # None の場合はスクリプト側の上限（CPU×2 など）を使用
+    adaptive_max_workers: int | None = None
+    # 進捗ステータスを書き出す間隔（秒）
+    adaptive_report_seconds: int = 10
     # CSV ロケール設定: 小数点文字, 千位区切り, フィールド区切り
     csv_decimal_point: str = "."
     csv_thousands_sep: str | None = None
@@ -383,12 +395,20 @@ def get_settings(create_dirs: bool = False) -> Settings:
         rolling=CacheRollingConfig(
             base_lookback_days=int(rolling_cfg.get("base_lookback_days", 300)),
             buffer_days=int(rolling_cfg.get("buffer_days", 30)),
+            workers=_positive_int_or_none(rolling_cfg.get("workers")),
             max_staleness_days=staleness_days_cfg,
             prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
             max_stale_days=stale_days_cfg,
             max_symbols=max_symbols_cfg,
             round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
+            adaptive_window_count=int(rolling_cfg.get("adaptive_window_count", 8)),
+            adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
+            adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
+            adaptive_step=int(rolling_cfg.get("adaptive_step", 1)),
+            adaptive_min_workers=int(rolling_cfg.get("adaptive_min_workers", 1)),
+            adaptive_max_workers=_positive_int_or_none(rolling_cfg.get("adaptive_max_workers")),
+            adaptive_report_seconds=int(rolling_cfg.get("adaptive_report_seconds", 10)),
             csv_decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
             csv_thousands_sep=(
                 None

@@ -24,7 +24,7 @@ pip install -r requirements.txt
   - API 取得並列度: `--fetch-workers 1` (デフォルト: 1、順次実行でレート制限遵守)
   - 保存並列度: `--save-workers` (デフォルト: max_workers)
   - スロットリング: `--throttle-seconds 0.0667` (デフォルト: 0.0667 秒、約 15req/sec、公式制限 1000req/min 以内に収まるよう調整)
-  - 進捗表示間隔: `--progress-interval 600` (デフォルト: 600 件、指定件数ごとに進捗を表示)
+  - 進捗表示間隔: `--progress-interval 300` (デフォルト: 300 件、指定件数ごとに進捗を表示)
   - 注意: 引数を指定しない `python scripts/cache_daily_data.py` の既定実行は
     全銘柄の全ヒストリカルデータを取得する（フル取得）。当日の一括（Bulk）更新を
     実行したい場合は `--bulk-today` を指定するか、`scripts/update_from_bulk_last_day.py`

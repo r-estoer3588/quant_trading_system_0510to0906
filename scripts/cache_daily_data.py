@@ -1060,8 +1060,8 @@ def _cli_main() -> None:
     parser.add_argument(
         "--progress-interval",
         type=int,
-        default=600,
-        help="進捗表示の間隔を件数で指定する (既定: 600件)",
+        default=300,
+        help="進捗表示の間隔を件数で指定する (既定: 300件)",
     )
     parser.add_argument(
         "--heartbeat-seconds",

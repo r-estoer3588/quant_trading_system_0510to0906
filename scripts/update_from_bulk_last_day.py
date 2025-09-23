@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import sys
 
+import numpy as np
 from dotenv import load_dotenv
 import pandas as pd
 import requests
 import time
+import concurrent.futures
 
 # from typing import Optional
 
@@ -234,6 +236,34 @@ def _resolve_base_dir(cm: CacheManager) -> Path:
     return data_cache / "base"
 
 
+def _get_available_memory_mb() -> int | None:
+    """Return available physical memory in MB, or None if not determinable."""
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        return int(mem.available // (1024 * 1024))
+    except Exception:
+        return None
+
+
+def _get_configured_rate_limit(cm: CacheManager) -> int | None:
+    """Return configured API rate limit (requests per minute) from env or settings."""
+    try:
+        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv("API_RATE_LIMIT_PER_MIN")
+        if env:
+            try:
+                return int(env)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        return int(getattr(cm.settings.cache, "api_rate_limit_per_min", 0)) or None
+    except Exception:
+        return None
+
+
 def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "adjclose", "volume"])
@@ -456,14 +486,13 @@ def append_to_cache(
             progress_callback(0, progress_target, 0)
         except Exception:
             pass
-    try:
-        base_dir = _resolve_base_dir(cm)
-        # round_decimals not needed here; rounding is handled at write time
-        for sym, g in grouped:
+
+    # Worker function to process one symbol group. Returns (processed_flag, updated_flag)
+    def _process_symbol(sym, g):
+        try:
             sym_norm = _normalize_symbol(sym)
             if not sym_norm:
-                continue
-            total += 1
+                return 0, 0, sym_norm
             keep_cols = [
                 "date",
                 "open",
@@ -476,32 +505,27 @@ def append_to_cache(
             ]
             cols_exist = [c for c in keep_cols if c in g.columns]
             if not cols_exist:
-                continue
+                return 0, 0, sym_norm
             rows = g[cols_exist].copy()
             rows.columns = [str(c).lower() for c in rows.columns]
-            existing_full: pd.DataFrame | None
             try:
                 existing_full = cm.read(sym_norm, "full")
             except Exception:
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = _concat_excluding_all_na(
-                existing_raw,
-                new_raw,
-                ignore_index=True,
-            )
+            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
-                continue
+                return 0, 0, sym_norm
             combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
             combined = combined.dropna(subset=["date"]).sort_values("date")
             combined = combined.drop_duplicates("date", keep="last")
             combined = combined.reset_index(drop=True)
             if combined.empty:
-                continue
+                return 0, 0, sym_norm
             indicator_source = _prepare_indicator_source(combined)
             if indicator_source.empty:
-                continue
+                return 0, 0, sym_norm
             try:
                 enriched = add_indicators(indicator_source)
             except Exception as exc:
@@ -524,16 +548,16 @@ def append_to_cache(
                         mask_adj, "adjclose"
                     ]
             full_ready = _merge_existing_full(full_ready, existing_full)
-            prev_full_sorted: pd.DataFrame | None = None
+            prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
                 prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
                 print(f"{sym_norm}: write full error - {exc}")
-                continue
+                return 1, 0, sym_norm
 
-            # rolling 用フレームを作成し、主要指標を付与してから書き込む
+            # rolling frame
             rolling_raw = _build_rolling_frame(full_ready, cm)
             try:
                 rolling_ind = compute_base_indicators(rolling_raw)
@@ -575,28 +599,104 @@ def append_to_cache(
                     base_reset.to_csv(base_path, index=False)
                 except Exception as exc:
                     print(f"{sym_norm}: write base error - {exc}")
+
+            was_updated = 0
             if prev_full_sorted is None or not full_ready.equals(prev_full_sorted):
-                updated += 1
-            if progress_callback:
-                effective_target = max(progress_target, total)
-                # 時間経過による強制報告（2秒以上）
-                now = time.monotonic()
-                time_elapsed = now - last_report_time
-                should_report = (
-                    total == effective_target
-                    or total - last_report >= step
-                    or total == 1
-                    or time_elapsed >= 2.0
-                )
-                if should_report:
-                    try:
-                        progress_callback(total, effective_target, updated)
-                    except Exception:
-                        pass
-                    last_report = total
-                    last_report_time = now
+                was_updated = 1
+            return 1, was_updated, sym_norm
+        except Exception as exc:
+            print(f"{sym}: unexpected error - {exc}")
+            return 0, 0, str(sym)
+
+    try:
+        base_dir = _resolve_base_dir(cm)
+        # determine worker count
+        try:
+            cfg_workers = getattr(cm.settings.cache, "bulk_update_workers", None)
+        except Exception:
+            cfg_workers = None
+        try:
+            env_workers = os.getenv("BULK_UPDATE_WORKERS")
+            env_workers = int(env_workers) if env_workers else None
+        except Exception:
+            env_workers = None
+        try:
+            # For this task (mix of IO and CPU), prefer more threads than cores
+            # to hide IO waits. Use 2x CPU heuristic, bounded, but also reduce
+            # workers when memory or API rate limits are low.
+            cpu = os.cpu_count() or 1
+            default_workers = max(2, min(32, int(cpu * 2)))
+        except Exception:
+            default_workers = 4
+
+        # Consider available memory: assume ~100MB per worker as heuristic
+        mem_mb = _get_available_memory_mb()
+        if mem_mb is not None and mem_mb > 0:
+            try:
+                mem_based = max(1, int(mem_mb // 100))
+                # don't exceed a reasonable cap
+                mem_based = min(mem_based, 64)
+                default_workers = min(default_workers, mem_based)
+            except Exception:
+                pass
+
+        # Consider configured API rate limit (requests per minute)
+        # If specified, convert to approximate concurrent workers to avoid exceeding rate
+        try:
+            rate = _get_configured_rate_limit(cm)
+            if rate and rate > 0:
+                # assume each worker may perform ~1 request per 2 seconds on average
+                approx_per_min = int(max(1, rate // 2))
+                rate_based = max(1, min(64, approx_per_min))
+                default_workers = min(default_workers, rate_based)
+        except Exception:
+            pass
+
+        max_workers = env_workers or cfg_workers or default_workers
+        try:
+            max_workers = max(1, int(max_workers))
+        except Exception:
+            max_workers = default_workers
+
+        # Log explicitly the chosen worker count so users can verify
+        try:
+            print(f"ℹ️ worker count selected: {max_workers}")
+        except Exception:
+            pass
+
+        # Submit tasks to thread pool
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
+            futures = []
+            for sym, g in grouped:
+                futures.append(exe.submit(_process_symbol, sym, g))
+
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    proc_flag, upd_flag, symname = fut.result()
+                except Exception as exc:
+                    # shouldn't happen because _process_symbol catches, but guard
+                    print(f"symbol task failed: {exc}")
+                    proc_flag, upd_flag = 0, 0
+                total += int(proc_flag)
+                updated += int(upd_flag)
+                if progress_callback:
+                    effective_target = max(progress_target, total)
+                    now = time.monotonic()
+                    time_elapsed = now - last_report_time
+                    should_report = (
+                        total == effective_target
+                        or total - last_report >= step
+                        or total == 1
+                        or time_elapsed >= 2.0
+                    )
+                    if should_report:
+                        try:
+                            progress_callback(total, effective_target, updated)
+                        except Exception:
+                            pass
+                        last_report = total
+                        last_report_time = now
     except KeyboardInterrupt:  # pragma: no cover - 手動中断
-        # 捕捉して進捗情報を含む専用例外で呼び出し側へ伝える
         if progress_callback and total and total != last_report:
             effective_target = max(progress_target, total)
             try:

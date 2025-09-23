@@ -15,9 +15,13 @@ import argparse
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any
+import concurrent.futures
+import time
+import json
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -31,6 +35,8 @@ from common.symbol_universe import build_symbol_universe_from_settings  # noqa: 
 from common.symbols_manifest import MANIFEST_FILENAME, load_symbol_manifest  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
+
+# json already imported at top
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,11 +64,16 @@ class ExtractionStats:
 
 
 def _log_message(message: str, log: Callable[[str], None] | None) -> None:
+    # If an external logging callable is provided (e.g. console printer),
+    # use it and avoid emitting the same message via the module logger to
+    # prevent duplicate lines in logs. If no external logger is provided,
+    # fall back to the module logger.
     if log:
         try:
             log(message)
         except Exception:  # pragma: no cover - ログが失敗しても続行
             pass
+        return
     LOGGER.info(message)
 
 
@@ -197,6 +208,39 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     return enriched.loc[:, cols]
 
 
+def _process_symbol_worker(args: tuple) -> tuple[str, bool, str | None]:
+    """Worker function run in a separate process.
+
+    Returns (symbol, success_flag, message). message is None on success,
+    or 'no_data' / error message on failure.
+    """
+    symbol, target_days, round_decimals, nan_warnings = args
+    try:
+        settings = get_settings(create_dirs=True)
+        cm = CacheManager(settings)
+        try:
+            full_df = cm.read(symbol, "full")
+        except Exception as exc:
+            return (symbol, False, f"read_error:{exc}")
+        if full_df is None or getattr(full_df, "empty", True):
+            return (symbol, False, "no_data")
+        enriched = _prepare_rolling_frame(full_df, target_days)
+        if enriched is None or getattr(enriched, "empty", True):
+            return (symbol, False, "no_data")
+        if round_decimals is not None:
+            try:
+                enriched = _round_numeric_columns(enriched, round_decimals)
+            except Exception:
+                pass
+        try:
+            cm.write_atomic(enriched, symbol, "rolling")
+        except Exception as exc:
+            return (symbol, False, f"write_error:{exc}")
+        return (symbol, True, None)
+    except Exception as exc:
+        return (symbol, False, f"{type(exc).__name__}:{exc}")
+
+
 def _resolve_symbol_universe(
     cache_manager: CacheManager,
     symbols: Iterable[str] | None,
@@ -305,6 +349,9 @@ def extract_rolling_from_full(
     target_days: int | None = None,
     max_symbols: int | None = None,
     log: Callable[[str], None] | None = None,
+    nan_warnings: bool = False,
+    workers: int | None = None,
+    adaptive: bool = True,
 ) -> ExtractionStats:
     """Extract rolling window slices from full backup cache and persist them.
 
@@ -342,46 +389,210 @@ def extract_rolling_from_full(
     except Exception:
         round_decimals = None
 
-    for idx, symbol in enumerate(symbol_list, start=1):
-        stats.processed_symbols += 1
+    # Determine initial worker count preference
+    cfg_workers = getattr(cache_manager.settings.rolling_cfg, "workers", None)
+    # If explicit workers passed to function, it takes precedence
+    if workers is None:
+        workers = cfg_workers
+
+    # Serial fallback if workers not specified
+    if workers is None:
+        # keep original sequential behavior
+        for idx, symbol in enumerate(symbol_list, start=1):
+            stats.processed_symbols += 1
+            try:
+                full_df = cache_manager.read(symbol, "full")
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: full 読み込みに失敗 ({message})", log)
+                continue
+
+            if full_df is None or getattr(full_df, "empty", True):
+                stats.skipped_no_data += 1
+                _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
+                continue
+
+            try:
+                enriched = _prepare_rolling_frame(full_df, target_days)
+            except Exception as exc:  # pragma: no cover - logging only
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: インジ計算に失敗 ({message})", log)
+                continue
+
+            if enriched is None or getattr(enriched, "empty", True):
+                stats.skipped_no_data += 1
+                _log_message(f"⏭️ {symbol}: 有効なローリングデータ無し", log)
+                continue
+
+            try:
+                enriched = _round_numeric_columns(enriched, round_decimals)
+                cache_manager.write_atomic(enriched, symbol, "rolling")
+            except Exception as exc:  # pragma: no cover - logging only
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: rolling 書き込みに失敗 ({message})", log)
+                continue
+
+            stats.updated_symbols += 1
+            if idx % 100 == 0 or idx == len(symbol_list):
+                _log_message(f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log)
+    else:
+        # Parallel execution with adaptive concurrency control
         try:
-            full_df = cache_manager.read(symbol, "full")
-        except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: full 読み込みに失敗 ({message})", log)
-            continue
+            workers = int(workers)
+        except Exception:
+            workers = 0
 
-        if full_df is None or getattr(full_df, "empty", True):
-            stats.skipped_no_data += 1
-            _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
-            continue
+        # establish sensible bounds
+        cpu = os.cpu_count() or 1
+        max_possible = max(1, min(32, int(cpu * 2), len(symbol_list)))
+        initial_workers = (
+            int(workers)
+            if workers and workers > 0
+            else int(getattr(cache_manager.settings.cache.rolling, "workers", 4) or 4)
+        )
+        current_workers = max(1, min(initial_workers, max_possible))
 
+        _log_message(
+            (
+                f"ℹ️ 並列処理: 初期ワーカー={current_workers} "
+                f"最大ワーカー={max_possible} 適応型={'有効' if adaptive else '無効'}"
+            ),
+            log,
+        )
+
+        args_list = [(symbol, target_days, round_decimals, nan_warnings) for symbol in symbol_list]
+
+        # prepare progress output file
         try:
-            enriched = _prepare_rolling_frame(full_df, target_days)
-        except Exception as exc:  # pragma: no cover - logging only
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: インジ計算に失敗 ({message})", log)
-            continue
+            report_seconds = int(
+                getattr(cache_manager.settings.cache.rolling, "adaptive_report_seconds", 10)
+            )
+        except Exception:
+            report_seconds = 10
 
-        if enriched is None or getattr(enriched, "empty", True):
-            stats.skipped_no_data += 1
-            _log_message(f"⏭️ {symbol}: 有効なローリングデータ無し", log)
-            continue
-
+        logs_dir_candidate = (
+            getattr(cache_manager.settings.outputs, "logs_dir", None)
+            or getattr(cache_manager.settings, "LOGS_DIR", None)
+            or "logs"
+        )
+        logs_dir_path = Path(str(logs_dir_candidate))
         try:
-            enriched = _round_numeric_columns(enriched, round_decimals)
-            cache_manager.write_atomic(enriched, symbol, "rolling")
-        except Exception as exc:  # pragma: no cover - logging only
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: rolling 書き込みに失敗 ({message})", log)
-            continue
+            logs_dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        progress_path = logs_dir_path / "rolling_progress.json"
 
-        stats.updated_symbols += 1
-        if idx % 100 == 0 or idx == len(symbol_list):
-            _log_message(f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log)
+        # create executor with upper bound; we will control active submissions
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_possible) as exe:
+            next_idx = 0
+            active: dict[concurrent.futures.Future, tuple[str, float]] = {}
+
+            # adaptive measurement
+            window_durations: list[float] = []
+            window_count = 8
+            prev_throughput = None
+
+            while stats.processed_symbols < len(symbol_list):
+                # submit tasks until reaching current_workers
+                while len(active) < current_workers and next_idx < len(args_list):
+                    args = args_list[next_idx]
+                    fut = exe.submit(_process_symbol_worker, args)
+                    active[fut] = (args[0], time.time())
+                    next_idx += 1
+
+                if not active:
+                    break
+
+                done, _ = concurrent.futures.wait(
+                    active.keys(), return_when=concurrent.futures.FIRST_COMPLETED
+                )
+                for fut in done:
+                    symbol, start_ts = active.pop(fut)
+                    stats.processed_symbols += 1
+                    end_ts = time.time()
+                    duration = max(0.0001, end_ts - start_ts)
+                    window_durations.append(duration)
+                    # keep window size bounded
+                    if len(window_durations) > window_count:
+                        window_durations.pop(0)
+
+                    try:
+                        sym, ok, message = fut.result()
+                    except Exception as exc:
+                        stats.errors[symbol] = str(exc)
+                        _log_message(f"⚠️ {symbol}: worker 例外 ({exc})", log)
+                        continue
+
+                    if not ok:
+                        if message == "no_data":
+                            stats.skipped_no_data += 1
+                            _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
+                        else:
+                            stats.errors[symbol] = message or "error"
+                            _log_message(f"⚠️ {symbol}: 処理失敗 ({message})", log)
+                    else:
+                        stats.updated_symbols += 1
+
+                # write progress JSON periodically
+                try:
+                    now_ts = int(time.time())
+                    if (
+                        not progress_path.exists()
+                        or now_ts - int(progress_path.stat().st_mtime) >= report_seconds
+                    ):
+                        prog = {
+                            "total": stats.total_symbols,
+                            "processed": stats.processed_symbols,
+                            "updated": stats.updated_symbols,
+                            "skipped": stats.skipped_no_data,
+                            "errors": len(stats.errors),
+                            "current_workers": current_workers,
+                            "recent_window_seconds": [round(d, 3) for d in window_durations],
+                            "timestamp": now_ts,
+                        }
+                        try:
+                            with open(progress_path, "w", encoding="utf-8") as pf:
+                                json.dump(prog, pf, ensure_ascii=False)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # report progress periodically
+                if stats.processed_symbols % 100 == 0 or stats.processed_symbols == len(
+                    symbol_list
+                ):
+                    _log_message(
+                        f"✅ 進捗: {stats.processed_symbols}/{len(symbol_list)} 銘柄処理完了",
+                        log,
+                    )
+
+                # adaptive adjustment: evaluate throughput over window
+                if adaptive and len(window_durations) >= max(4, window_count // 2):
+                    window_time = sum(window_durations)
+                    if window_time <= 0:
+                        continue
+                    throughput = len(window_durations) / window_time
+                    # try small adjustments: increase or decrease by 1
+                    if prev_throughput is None:
+                        prev_throughput = throughput
+                    else:
+                        # if throughput improved notably, try increasing workers
+                        if throughput > prev_throughput * 1.02 and current_workers < max_possible:
+                            current_workers += 1
+                            _log_message(f"ℹ️ ワーカー数を増やします -> {current_workers}", log)
+                            prev_throughput = throughput
+                        # if throughput degraded notably, decrease workers
+                        elif throughput < prev_throughput * 0.98 and current_workers > 1:
+                            current_workers = max(1, current_workers - 1)
+                            _log_message(f"ℹ️ ワーカー数を減らします -> {current_workers}", log)
+                            prev_throughput = throughput
+                        else:
+                            # small/no change, keep current
+                            prev_throughput = throughput
 
     _log_message(
         "✅ rolling 再構築完了: "
@@ -411,6 +622,21 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="処理上限銘柄数（0 以下で無制限。既定: 設定値 rolling.max_symbols）",
     )
+    parser.add_argument(
+        "--nan-warnings",
+        action="store_true",
+        help="指標 NaN 警告を有効化（既定: 無効、ログ抑止）",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        help="並列ワーカー数の上限（未指定で設定値またはデフォルトを使用）",
+    )
+    parser.add_argument(
+        "--no-adaptive",
+        action="store_true",
+        help="適応的ワーカー調整を無効化（既定: 有効）",
+    )
     return parser
 
 
@@ -423,7 +649,7 @@ def main(argv: list[str] | None = None) -> int:
     cache_manager = CacheManager(settings)
 
     def _console_log(msg: str) -> None:
-        print(msg, flush=True)
+        LOGGER.info(msg)
 
     stats = extract_rolling_from_full(
         cache_manager,
@@ -431,6 +657,9 @@ def main(argv: list[str] | None = None) -> int:
         target_days=args.target_days,
         max_symbols=args.max_symbols,
         log=_console_log,
+        nan_warnings=bool(getattr(args, "nan_warnings", False)),
+        workers=getattr(args, "workers", None),
+        adaptive=(not bool(getattr(args, "no_adaptive", False))),
     )
 
     if stats.errors:
