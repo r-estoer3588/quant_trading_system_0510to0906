@@ -8,6 +8,7 @@ import sys
 from dotenv import load_dotenv
 import pandas as pd
 import requests
+import time
 
 # from typing import Optional
 
@@ -46,7 +47,7 @@ from common.utils import safe_filename  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
-PROGRESS_STEP_DEFAULT = 100
+PROGRESS_STEP_DEFAULT = 0
 
 
 @dataclass(slots=True)
@@ -61,6 +62,7 @@ class BulkUpdateStats:
     universe_error: bool = False
     universe_error_message: str | None = None
     estimated_symbols: int = 0
+    progress_step_used: int = 0
 
     @property
     def has_payload(self) -> bool:
@@ -75,7 +77,7 @@ class BulkUpdateStats:
         return self.updated_symbols > 0
 
 
-class CacheUpdateInterrupted(Exception):
+class CacheUpdateInterrupted(Exception):  # noqa: N801 - keep historical name for callers
     """進捗情報を保持する中断例外。
 
     元々は KeyboardInterrupt を継承していましたが、
@@ -122,6 +124,45 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     original_count = int(codes.nunique())
     normalized_count = int(normalized.nunique())
     return original_count, normalized_count
+
+
+_PRICE_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "adjusted_close",
+    "adjclose",
+)
+
+
+def _drop_rows_without_price_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows that lack numeric price information altogether."""
+
+    if df is None or df.empty:
+        return df
+    price_cols = [col for col in _PRICE_COLUMNS if col in df.columns]
+    if not price_cols:
+        return df
+    numeric = df[price_cols].apply(pd.to_numeric, errors="coerce")
+    mask = numeric.notna().any(axis=1)
+    if mask.all():
+        return df
+    return df.loc[mask].reset_index(drop=True)
+
+
+def _resolve_progress_step(progress_target: int, requested_step: int) -> int:
+    """進捗表示のステップを決定する。"""
+
+    if requested_step and requested_step > 0:
+        try:
+            return max(int(requested_step), 1)
+        except Exception:
+            return 1
+    if progress_target <= 0:
+        return 1
+    approx_step = max(progress_target // 200, 1)
+    return min(approx_step, 20)
 
 
 def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -271,7 +312,7 @@ def _build_rolling_frame(full_df: pd.DataFrame, cm: CacheManager) -> pd.DataFram
 def _concat_excluding_all_na(
     a: pd.DataFrame | None, b: pd.DataFrame | None, **kwargs
 ) -> pd.DataFrame:
-    """Concatenate two DataFrames while excluding columns that are empty or all-NA in both.
+    """Concatenate two DataFrames while skipping columns empty in both frames.
 
     This preserves the previous behaviour pandas used to have where empty/all-NA
     columns were ignored for dtype determination. Future pandas versions will
@@ -303,12 +344,18 @@ def _concat_excluding_all_na(
         if not (a_col_all_na and b_col_all_na):
             keep.append(col)
     # Subset frames to kept columns (if column absent, pandas will fill NA)
-    a_sub = (
-        a.loc[:, [c for c in keep if c in a.columns]] if not a.empty else pd.DataFrame(columns=keep)
-    )
-    b_sub = (
-        b.loc[:, [c for c in keep if c in b.columns]] if not b.empty else pd.DataFrame(columns=keep)
-    )
+    a_sub: pd.DataFrame
+    if a.empty:
+        a_sub = pd.DataFrame(columns=keep)
+    else:
+        a_cols = [c for c in keep if c in a.columns]
+        a_sub = a.loc[:, a_cols]
+    b_sub: pd.DataFrame
+    if b.empty:
+        b_sub = pd.DataFrame(columns=keep)
+    else:
+        b_cols = [c for c in keep if c in b.columns]
+        b_sub = b.loc[:, b_cols]
     return pd.concat([a_sub, b_sub], ignore_index=kwargs.get("ignore_index", True))
 
 
@@ -333,7 +380,7 @@ def _merge_existing_full(
 
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
-    url = f"https://eodhistoricaldata.com/api/eod-bulk-last-day/US?api_token={API_KEY}&fmt=json"
+    url = "https://eodhistoricaldata.com/api/eod-bulk-last-day/US" f"?api_token={API_KEY}&fmt=json"
     try:
         response = requests.get(url, timeout=30)
     except requests.RequestException as exc:
@@ -386,15 +433,24 @@ def append_to_cache(
     # シンボル列（code）が無い場合は更新対象なし
     if "code" not in df.columns:
         return 0, 0
+    df = _drop_rows_without_price_data(df)
+    if df.empty:
+        return 0, 0
     grouped = df.groupby("code")
     original_count, normalized_count = _estimate_symbol_counts(df)
     if original_count == 0 and normalized_count == 0 and grouped.ngroups == 0:
         return 0, 0
     progress_target = max(original_count, normalized_count, grouped.ngroups)
-    step = max(int(progress_step or 0), 1)
+    step = _resolve_progress_step(progress_target, progress_step)
+    # レポート間隔を短縮: 最大で10件ごとに報告するよう上限を設ける
+    try:
+        step = min(int(step), 10)
+    except Exception:
+        step = max(1, step)
     total = 0
     updated = 0
     last_report = 0
+    last_report_time = time.monotonic()
     if progress_callback and progress_target:
         try:
             progress_callback(0, progress_target, 0)
@@ -430,7 +486,11 @@ def append_to_cache(
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
+            combined = _concat_excluding_all_na(
+                existing_raw,
+                new_raw,
+                ignore_index=True,
+            )
             if combined.empty:
                 continue
             combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
@@ -453,9 +513,11 @@ def append_to_cache(
                 .sort_values("date")
                 .reset_index(drop=True)
             )
-            if "adjusted_close" not in full_ready.columns and "adjclose" in full_ready.columns:
+            adjusted_missing = "adjusted_close" not in full_ready.columns
+            has_adjclose = "adjclose" in full_ready.columns
+            if adjusted_missing and has_adjclose:
                 full_ready["adjusted_close"] = full_ready["adjclose"]
-            elif "adjusted_close" in full_ready.columns and "adjclose" in full_ready.columns:
+            elif not adjusted_missing and has_adjclose:
                 mask_adj = full_ready["adjusted_close"].isna()
                 if mask_adj.any():
                     full_ready.loc[mask_adj, "adjusted_close"] = full_ready.loc[
@@ -517,8 +579,14 @@ def append_to_cache(
                 updated += 1
             if progress_callback:
                 effective_target = max(progress_target, total)
+                # 時間経過による強制報告（2秒以上）
+                now = time.monotonic()
+                time_elapsed = now - last_report_time
                 should_report = (
-                    total == effective_target or total - last_report >= step or total == 1
+                    total == effective_target
+                    or total - last_report >= step
+                    or total == 1
+                    or time_elapsed >= 2.0
                 )
                 if should_report:
                     try:
@@ -526,6 +594,7 @@ def append_to_cache(
                     except Exception:
                         pass
                     last_report = total
+                    last_report_time = now
     except KeyboardInterrupt:  # pragma: no cover - 手動中断
         # 捕捉して進捗情報を含む専用例外で呼び出し側へ伝える
         if progress_callback and total and total != last_report:
@@ -570,17 +639,26 @@ def run_bulk_update(
 
     target_universe: list[str] | None = None
     if universe is not None:
-        target_universe = [
-            str(sym).strip() for sym in universe if isinstance(sym, str) and str(sym).strip()
-        ]
+        target_universe = []
+        for sym in universe:
+            if not isinstance(sym, str):
+                continue
+            trimmed = sym.strip()
+            if trimmed:
+                target_universe.append(trimmed)
     elif fetch_universe:
         try:
             settings = getattr(cm, "settings", None)
             if settings is not None:
                 fetched = build_symbol_universe_from_settings(settings)
-                target_universe = [
-                    str(sym).strip() for sym in fetched if isinstance(sym, str) and str(sym).strip()
-                ]
+                cleaned: list[str] = []
+                for sym in fetched:
+                    if not isinstance(sym, str):
+                        continue
+                    trimmed = sym.strip()
+                    if trimmed:
+                        cleaned.append(trimmed)
+                target_universe = cleaned
         except Exception as exc:
             stats.universe_error = True
             stats.universe_error_message = str(exc)
@@ -604,21 +682,24 @@ def run_bulk_update(
     stats.filter_stats = filter_stats
     stats.filtered_rows = len(filtered)
 
-    if filtered.empty:
+    prepared = _drop_rows_without_price_data(filtered)
+    if prepared.empty:
         return stats
 
-    original_count, normalized_count = _estimate_symbol_counts(filtered)
+    original_count, normalized_count = _estimate_symbol_counts(prepared)
     stats.estimated_symbols = max(original_count, normalized_count)
+    resolved_step = _resolve_progress_step(stats.estimated_symbols, progress_step)
 
     total, updated = append_to_cache(
-        filtered,
+        prepared,
         cm,
         progress_callback=progress_callback,
-        progress_step=progress_step,
+        progress_step=resolved_step,
     )
 
     stats.processed_symbols = total
     stats.updated_symbols = updated
+    stats.progress_step_used = resolved_step
     return stats
 
 
@@ -682,10 +763,23 @@ def main():
         print("No data to update.", flush=True)
         return
 
+    print(f"📦 取得件数(未フィルタ): {result.fetched_rows} 行", flush=True)
+
     progress_state["total"] = max(
         progress_state.get("total", 0),
         result.estimated_symbols,
     )
+    total_symbols = max(
+        progress_state.get("total", 0),
+        result.processed_symbols,
+        result.estimated_symbols,
+    )
+    if result.progress_step_used and total_symbols:
+        print(
+            "🧮 進捗ログ間隔: "
+            f"{result.progress_step_used} 銘柄ごと (対象 {total_symbols} 銘柄想定)",
+            flush=True,
+        )
 
     filter_stats = result.filter_stats
     allowed_count = int(filter_stats.get("allowed", 0))

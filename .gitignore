@@ -15,3 +15,4 @@ logs/images/
 
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
+temp_test_cache

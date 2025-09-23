@@ -44,7 +44,7 @@ class DataConfig:
     api_key_env: str = "EODHD_API_KEY"
     cache_dir: Path = Path("data_cache")
     cache_recent_dir: Path = Path("data_cache_recent")
-    max_workers: int = 8
+    max_workers: int = 20
     batch_size: int = 100
     request_timeout: int = 10
     download_retries: int = 3

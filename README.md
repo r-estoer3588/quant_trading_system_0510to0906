@@ -20,6 +20,11 @@ pip install -r requirements.txt
 - UI: `streamlit run app_integrated.py`
 - Alpaca ダッシュボード: `streamlit run app_alpaca_dashboard.py`
 - 日次キャッシュ: `python scripts/cache_daily_data.py`
+  - 並列度調整: `--max-workers 20` (デフォルト: 20)
+  - API 取得並列度: `--fetch-workers 1` (デフォルト: 1、順次実行でレート制限遵守)
+  - 保存並列度: `--save-workers` (デフォルト: max_workers)
+  - スロットリング: `--throttle-seconds 0.0667` (デフォルト: 0.0667 秒、約 15req/sec、公式制限 1000req/min 以内に収まるよう調整)
+  - 進捗表示間隔: `--progress-interval 600` (デフォルト: 600 件、指定件数ごとに進捗を表示)
 - 簡易スケジューラ: `python -m schedulers.runner`
 
 ## テスト

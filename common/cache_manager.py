@@ -255,6 +255,38 @@ MAIN_INDICATOR_COLUMNS = (
     "atr_pct",
 )
 
+# 各指標列が有効値を持つために最低限必要とする観測日数の目安
+_INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
+    "sma25": 20,
+    "sma50": 50,
+    "sma100": 100,
+    "sma150": 150,
+    "sma200": 200,
+    "ema20": 1,
+    "ema50": 1,
+    "atr10": 11,
+    "atr14": 15,
+    "atr20": 21,
+    "atr40": 41,
+    "atr50": 51,
+    "adx7": 14,
+    "rsi3": 3,
+    "rsi4": 4,
+    "rsi14": 14,
+    "roc200": 201,
+    "hv50": 51,
+    "dollarvolume20": 20,
+    "dollarvolume50": 50,
+    "avgvolume50": 50,
+    "return_3d": 4,
+    "6d_return": 7,
+    "return6d": 7,
+    "return_pct": 2,
+    "drop3d": 4,
+    "atr_ratio": 11,
+    "atr_pct": 11,
+}
+
 
 class CacheManager:
     """
@@ -466,48 +498,117 @@ class CacheManager:
                     recent_df = df.tail(window)
                 else:
                     recent_df = df.tail(max(window, 252))
-                target_cols = [
+                indicator_cols = [
                     col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns
                 ]
-                if not target_cols:
-                    target_cols = list(recent_df.columns)
-                col_rates: list[float] = []
-                for col in target_cols:
+                price_cols = [
+                    col
+                    for col in (
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "adjusted_close",
+                        "adjclose",
+                    )
+                    if col in recent_df.columns
+                ]
+                price_has_values = False
+                for price_col in price_cols:
+                    price_series = recent_df[price_col]
+                    if not isinstance(price_series, pd.Series):
+                        price_series = pd.Series(price_series)
+                    try:
+                        numeric_price = pd.to_numeric(price_series, errors="coerce")
+                    except Exception:
+                        numeric_price = price_series.where(pd.notna(price_series))
+                    if not numeric_price.dropna().empty:
+                        price_has_values = True
+                        break
+                if price_cols and not price_has_values:
+                    indicator_cols = []
+                elif not indicator_cols:
+                    indicator_cols = [
+                        col
+                        for col in recent_df.columns
+                        if str(col).lower() not in {"date", "code", "symbol"}
+                    ]
+                col_rates: list[tuple[str, float, int, int]] = []
+                for col in indicator_cols:
+                    label = str(col).strip()
+                    if not label:
+                        continue
+                    label_key = label.lower()
                     series_like = recent_df[col]
                     if not isinstance(series_like, pd.Series):
                         series_like = pd.Series(series_like)
-                    if series_like.dropna().empty:
-                        col_rates.append(1.0)
+                    try:
+                        numeric_series = pd.to_numeric(series_like, errors="coerce")
+                    except Exception:
+                        numeric_series = series_like.where(pd.notna(series_like))
+                    non_na = numeric_series.dropna()
+                    min_obs = _INDICATOR_MIN_OBSERVATIONS.get(label_key, 1)
+                    if non_na.empty:
+                        if len(numeric_series) < min_obs:
+                            continue
+                        col_rates.append((label, 1.0, 0, len(numeric_series)))
                         continue
-                    first_valid = series_like.first_valid_index()
+                    first_valid = numeric_series.first_valid_index()
                     if first_valid is None:
-                        col_rates.append(1.0)
+                        col_rates.append((label, 1.0, 0, len(numeric_series)))
                         continue
                     try:
-                        trimmed = series_like.loc[first_valid:]
+                        trimmed = numeric_series.loc[first_valid:]
                     except Exception:
                         try:
-                            loc = series_like.index.get_loc(first_valid)
+                            loc = numeric_series.index.get_loc(first_valid)
                         except Exception:
                             loc = 0
-                        trimmed = series_like.iloc[loc:]
+                        trimmed = numeric_series.iloc[loc:]
                     if trimmed.empty:
-                        col_rates.append(1.0)
+                        col_rates.append((label, 1.0, 0, len(numeric_series)))
                         continue
-                    col_rates.append(float(trimmed.isna().mean()))
+                    total_count = int(len(trimmed))
+                    valid_count = int(trimmed.notna().sum())
+                    missing_rate = float(trimmed.isna().mean())
+                    col_rates.append((label, missing_rate, valid_count, total_count))
+                worst_label: str | None = None
+                worst_rate = 0.0
+                worst_valid = 0
+                worst_total = 0
+                avg_rate = 0.0
                 if col_rates:
-                    if any(rate >= 1.0 for rate in col_rates):
-                        nan_rate = 1.0
-                    else:
-                        nan_rate = float(np.mean(col_rates))
-            if nan_rate > 0.20:
-                category = f"nan_rate:{round(float(nan_rate), 4)}"
+                    rates_only = [rate for _, rate, _, _ in col_rates]
+                    avg_rate = float(np.mean(rates_only))
+                    worst_label, worst_rate, worst_valid, worst_total = max(
+                        col_rates, key=lambda pair: pair[1]
+                    )
+                    nan_rate = avg_rate
+                effective_rate = max(nan_rate, worst_rate)
+            else:
+                effective_rate = nan_rate
+            if effective_rate > 0.20:
+                category = f"nan_rate:{round(float(effective_rate), 4)}"
+                detail_parts: list[str] = []
+                if worst_label is not None:
+                    worst_detail = f"最大欠損: {worst_label}={worst_rate:.2%}"
+                    if worst_total:
+                        worst_detail += f" (有効 {worst_valid}/{worst_total})"
+                    detail_parts.append(worst_detail)
+                if col_rates:
+                    detail_parts.append(
+                        f"平均: {avg_rate:.2%}"
+                        + f" / 対象列: {len(col_rates)}"
+                    )
+                detail = ""
+                if detail_parts:
+                    detail = " | " + " / ".join(detail_parts)
                 self._warn_once(
                     ticker,
                     profile,
                     category,
                     f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 主要指標NaN率高 "
-                    f"({nan_rate:.2%})",
+                    f"({effective_rate:.2%}){detail}",
                 )
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
@@ -532,7 +633,8 @@ class CacheManager:
                             profile,
                             category,
                             (
-                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
+                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: "
+                                f"{col}全て非正値"
                             ),
                         )
         except Exception as e:
@@ -576,7 +678,8 @@ class CacheManager:
             dec_point = "."
             thous = None
             sep = ","
-        # Use module-level make_csv_formatters if possible to decide rounding and formatting
+        # Use module-level make_csv_formatters when possible to determine
+        # rounding and formatting behaviour for CSV exports
         try:
             fmt_map = make_csv_formatters(
                 df_to_write, dec_point=dec_point, thous_sep=thous
@@ -720,7 +823,8 @@ class CacheManager:
             encoding="utf-8",
         )
         logger.info(
-            f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}"
+            f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, "
+            f"dropped_rows={dropped_total}"
         )
         return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
 
