@@ -365,6 +365,42 @@ _ROLLING_RECENT_WINDOW = 120
 _ROLLING_RECENT_STRICT_WINDOW = 30
 _ROLLING_RECENT_STRICT_THRESHOLD = 0.0
 
+# Per-column lookback (rows required before values become available).
+# When computing NaN ratios we exclude the initial warm-up rows for indicators
+# that naturally produce NaN for the first `lookback-1` rows (e.g. ROC200,
+# SMA100). Keys are lower-cased to match `col_map` usage.
+_ROLLING_COLUMN_LOOKBACK: dict[str, int] = {
+    # price / basic
+    "date": 0,
+    "open": 0,
+    "high": 0,
+    "low": 0,
+    "close": 0,
+    "volume": 0,
+    # SMAs
+    "sma25": 25,
+    "sma50": 50,
+    "sma100": 100,
+    "sma150": 150,
+    "sma200": 200,
+    # ATR / ROC
+    "atr20": 20,
+    "roc200": 200,
+    # common optional indicators
+    "ema20": 20,
+    "ema50": 50,
+    "atr10": 10,
+    "atr14": 14,
+    "atr40": 40,
+    "atr50": 50,
+    "adx7": 7,
+    "rsi3": 3,
+    "rsi14": 14,
+    "hv50": 50,
+    "return6d": 6,
+    "drop3d": 3,
+}
+
 
 def _has_recent_valid_window(numeric: pd.Series) -> bool:
     """Return True if recent rows provide enough non-NaN coverage."""
@@ -414,6 +450,29 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
             numeric = pd.to_numeric(df[actual], errors="coerce")
         except Exception:
             continue
+        # Exclude initial warm-up rows for indicators that naturally produce NaNs
+        # by using a per-column lookback. If the series is shorter than lookback,
+        # we treat the column as effectively fully-NaN for purposes of flagging.
+        lookback = _ROLLING_COLUMN_LOOKBACK.get(name, 0)
+        try:
+            if lookback and len(numeric) > lookback:
+                # exclude the first (lookback - 1) rows from the recent window
+                # so only rows where the indicator could exist are counted.
+                effective_start = max(
+                    0,
+                    len(numeric) - _ROLLING_RECENT_WINDOW,
+                    lookback - 1 - (len(numeric) - _ROLLING_RECENT_WINDOW),
+                )
+                eval_series = numeric.iloc[effective_start:]
+                # If eval_series is empty fallback to full-series ratio
+                if len(eval_series) > 0:
+                    ratio = float(eval_series.isna().mean())
+                else:
+                    ratio = float(numeric.isna().mean())
+            else:
+                ratio = float(numeric.isna().mean())
+        except Exception:
+            ratio = 1.0
         if ratio > _ROLLING_NAN_THRESHOLD:
             if name in _ROLLING_REQUIRED_COLUMNS:
                 nan_required.append((name, ratio))
