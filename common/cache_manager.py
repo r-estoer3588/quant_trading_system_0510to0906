@@ -389,99 +389,12 @@ class CacheManager:
             return feather_path
         return csv_path
 
-    # ---------- IO ----------
-    def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
-        base = self.full_dir if profile == "full" else self.rolling_dir
-        path = self._detect_path(base, ticker)
-        if not path.exists():
-            return None
-        try:
-            if path.suffix == ".feather":
-                try:
-                    df = pd.read_feather(path)
-                except Exception as e:
-                    self._warn_once(
-                        ticker,
-                        profile,
-                        "read_feather_fail",
-                        (
-                            f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) "
-                            "→ csvへフォールバック試行"
-                        ),
-                    )
-                    csv_path = path.with_suffix(".csv")
-                    if csv_path.exists():
-                        try:
-                            df = pd.read_csv(csv_path, parse_dates=["date"])
-                        except ValueError as e2:
-                            if (
-                                "Missing column provided to 'parse_dates': 'date'"
-                                in str(e2)
-                            ):
-                                df = pd.read_csv(csv_path)
-                                if "Date" in df.columns:
-                                    df = df.rename(columns={"Date": "date"})
-                                    df["date"] = pd.to_datetime(df["date"])
-                                else:
-                                    raise
-                            else:
-                                raise
-                        except Exception as e2:
-                            self._warn_once(
-                                ticker,
-                                profile,
-                                "read_csv_fail",
-                                f"{self._ui_prefix} csv読込も失敗: {csv_path.name} ({e2})",
-                            )
-                            return None
-                    else:
-                        return None
-            elif path.suffix == ".parquet":
-                df = pd.read_parquet(path)
-            else:
-                try:
-                    df = pd.read_csv(path, parse_dates=["date"])
-                except ValueError as e:
-                    if "Missing column provided to 'parse_dates': 'date'" in str(e):
-                        df = pd.read_csv(path)
-                        if "Date" in df.columns:
-                            df = df.rename(columns={"Date": "date"})
-                            df["date"] = pd.to_datetime(df["date"])
-                        else:
-                            raise
-                    else:
-                        raise
-        except Exception as e:  # pragma: no cover - log and continue
-            category = f"read_error:{path.name}:{type(e).__name__}:{str(e)}"
-            self._warn_once(
-                ticker,
-                profile,
-                category,
-                f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})",
-            )
-            return None
-        # 正規化: 列名を小文字化
-        df.columns = [c.lower() for c in df.columns]
-        # 列名の重複を除去（例: CSVに 'date' と 'Date' が混在していた場合）
-        try:
-            cols = pd.Index(df.columns)
-            if len(cols) != len(cols.unique()):
-                df = df.loc[:, ~cols.duplicated(keep="first")]
-        except Exception:
-            pass
-        if "date" in df.columns:
-            try:
-                # 型が混在（str/datetime）しても確実に datetime 化
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            except Exception:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df = (
-                df.dropna(subset=["date"])  # 不正日付を除外
-                .sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)
-            )
-        # --- 健全性チェック: NaN・型不一致・異常値 ---
+    def _perform_health_check(
+        self, df: pd.DataFrame, ticker: str, profile: str
+    ) -> None:
+        """データフレームの健全性（NaN率、データ型など）をチェックし、警告を記録する。"""
+        if df.size == 0:
+            return
         try:
             nan_rate = 0.0
             if df.size > 0:
@@ -645,6 +558,103 @@ class CacheManager:
                 category,
                 f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})",
             )
+
+    # ---------- IO ----------
+    def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
+        base = self.full_dir if profile == "full" else self.rolling_dir
+        path = self._detect_path(base, ticker)
+        if not path.exists():
+            return None
+        try:
+            if path.suffix == ".feather":
+                try:
+                    df = pd.read_feather(path)
+                except Exception as e:
+                    self._warn_once(
+                        ticker,
+                        profile,
+                        "read_feather_fail",
+                        (
+                            f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) "
+                            "→ csvへフォールバック試行"
+                        ),
+                    )
+                    csv_path = path.with_suffix(".csv")
+                    if csv_path.exists():
+                        try:
+                            df = pd.read_csv(csv_path, parse_dates=["date"])
+                        except ValueError as e2:
+                            if (
+                                "Missing column provided to 'parse_dates': 'date'"
+                                in str(e2)
+                            ):
+                                df = pd.read_csv(csv_path)
+                                if "Date" in df.columns:
+                                    df = df.rename(columns={"Date": "date"})
+                                    df["date"] = pd.to_datetime(df["date"])
+                                else:
+                                    raise
+                            else:
+                                raise
+                        except Exception as e2:
+                            self._warn_once(
+                                ticker,
+                                profile,
+                                "read_csv_fail",
+                                f"{self._ui_prefix} csv読込も失敗: {csv_path.name} ({e2})",
+                            )
+                            return None
+                    else:
+                        return None
+            elif path.suffix == ".parquet":
+                df = pd.read_parquet(path)
+            else:
+                try:
+                    df = pd.read_csv(path, parse_dates=["date"])
+                except ValueError as e:
+                    if "Missing column provided to 'parse_dates': 'date'" in str(e):
+                        df = pd.read_csv(path)
+                        if "Date" in df.columns:
+                            df = df.rename(columns={"Date": "date"})
+                            df["date"] = pd.to_datetime(df["date"])
+                        else:
+                            raise
+                    else:
+                        raise
+        except Exception as e:  # pragma: no cover - log and continue
+            category = f"read_error:{path.name}:{type(e).__name__}:{str(e)}"
+            self._warn_once(
+                ticker,
+                profile,
+                category,
+                f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})",
+            )
+            return None
+        # 正規化: 列名を小文字化
+        df.columns = [c.lower() for c in df.columns]
+        # 列名の重複を除去（例: CSVに 'date' と 'Date' が混在していた場合）
+        try:
+            cols = pd.Index(df.columns)
+            if len(cols) != len(cols.unique()):
+                df = df.loc[:, ~cols.duplicated(keep="first")]
+        except Exception:
+            pass
+        if "date" in df.columns:
+            try:
+                # 型が混在（str/datetime）しても確実に datetime 化
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            except Exception:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = (
+                df.dropna(subset=["date"])  # 不正日付を除外
+                .sort_values("date")
+                .drop_duplicates("date")
+                .reset_index(drop=True)
+            )
+        
+        if df is not None:
+            self._perform_health_check(df, ticker, profile)
+
         return df
 
     def write_atomic(self, df: pd.DataFrame, ticker: str, profile: str) -> None:

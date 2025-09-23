@@ -38,10 +38,22 @@ else:  # pragma: no cover - runtime fallback when Plotly is missing
 from common import broker_alpaca as ba
 from common.cache_manager import load_base_cache
 from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates
+from common.alpaca_order import submit_exit_orders_df
 from common.profit_protection import calculate_business_holding_days
+from common.notifier import Notifier
+
+# persistent sent markers file
+SENT_MARKERS_PATH = Path("data") / "alpaca_sent_markers.json"
+SCHEDULE_PATH = Path("data") / "auto_rule_schedule.json"
+CONFIG_PATH = Path("data") / "auto_rule_config.json"
+NOTIFY_PATH = Path("data") / "notify_settings.json"
 
 
 EXIT_STATE_KEY = "alpaca_exit_order_status"
+ORDER_LOG_KEY = "alpaca_order_log"
+SENT_MARKER_KEY = "alpaca_sent_marker"
+
+...  # initialization moved below helper definitions
 
 # 経過日手仕切りの上限日数（システム別）
 HOLD_LIMITS: dict[str, int] = {
@@ -49,6 +61,18 @@ HOLD_LIMITS: dict[str, int] = {
     "system3": 3,
     "system5": 6,
     "system6": 3,
+}
+
+
+# per-system auto-rule configuration: pnl threshold (%) and partial exit pct
+AUTO_RULE_CONFIG: dict[str, dict[str, float]] = {
+    "system1": {"pnl_threshold": -25.0, "partial_pct": 100.0},
+    "system2": {"pnl_threshold": -20.0, "partial_pct": 100.0},
+    "system3": {"pnl_threshold": -20.0, "partial_pct": 100.0},
+    "system4": {"pnl_threshold": -20.0, "partial_pct": 100.0},
+    "system5": {"pnl_threshold": -15.0, "partial_pct": 100.0},
+    "system6": {"pnl_threshold": -10.0, "partial_pct": 100.0},
+    "system7": {"pnl_threshold": -20.0, "partial_pct": 100.0},
 }
 
 
@@ -396,6 +420,208 @@ def _resolve_position_price(position: Any) -> float | str:
     return fallback
 
 
+def _push_order_log(entry: dict[str, Any]) -> None:
+    logs = st.session_state.setdefault(ORDER_LOG_KEY, [])
+    # normalize timestamp
+    entry = dict(entry)
+    entry.setdefault("ts", datetime.now().isoformat())
+    logs.insert(0, entry)
+    # keep recent 50
+    st.session_state[ORDER_LOG_KEY] = logs[:50]
+
+
+def _load_persistent_sent_markers() -> dict[str, Any]:
+    try:
+        if not SENT_MARKERS_PATH.exists():
+            return {}
+        import json
+
+        with SENT_MARKERS_PATH.open("r", encoding="utf8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return {}
+        return data
+    except Exception:
+        return {}
+
+
+def _save_persistent_sent_markers(markers: dict[str, Any]) -> None:
+    try:
+        SENT_MARKERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with SENT_MARKERS_PATH.open("w", encoding="utf8") as fh:
+            json.dump(markers, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _load_schedule() -> dict[str, Any]:
+    try:
+        if not SCHEDULE_PATH.exists():
+            return {}
+        import json
+
+        with SCHEDULE_PATH.open("r", encoding="utf8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def _save_schedule(data: dict[str, Any]) -> None:
+    try:
+        SCHEDULE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with SCHEDULE_PATH.open("w", encoding="utf8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _load_auto_rule_config() -> dict[str, Any]:
+    try:
+        if not CONFIG_PATH.exists():
+            return {}
+        import json
+
+        with CONFIG_PATH.open("r", encoding="utf8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def _save_auto_rule_config(cfg: dict[str, Any]) -> None:
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with CONFIG_PATH.open("w", encoding="utf8") as fh:
+            json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _load_notify_settings() -> dict[str, Any]:
+    try:
+        if not NOTIFY_PATH.exists():
+            return {}
+        import json
+
+        with NOTIFY_PATH.open("r", encoding="utf8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def _load_notify_test_log() -> list[dict[str, Any]]:
+    p = Path("data") / "notify_test_log.json"
+    try:
+        if not p.exists():
+            return []
+        import json
+
+        with p.open("r", encoding="utf8") as fh:
+            return json.load(fh)
+    except Exception:
+        return []
+
+
+def _save_notify_test_log(rows: list[dict[str, Any]]) -> None:
+    p = Path("data") / "notify_test_log.json"
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with p.open("w", encoding="utf8") as fh:
+            json.dump(rows, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# initialize notify test log in session_state (safe after helpers defined)
+try:
+    if "notify_test_log" not in st.session_state:
+        st.session_state["notify_test_log"] = _load_notify_test_log()
+except Exception:
+    st.session_state.setdefault("notify_test_log", [])
+
+
+def _save_notify_settings(d: dict[str, Any]) -> None:
+    try:
+        NOTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with NOTIFY_PATH.open("w", encoding="utf8") as fh:
+            json.dump(d, fh, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _prune_old_sent_markers(days: int = 30) -> None:
+    try:
+        markers = _load_persistent_sent_markers()
+        cutoff = datetime.now().date() - timedelta(days=days)
+        keep: dict[str, Any] = {}
+        for k, v in markers.items():
+            # expecting keys like SYMBOL_today_close_YYYY-MM-DD
+            parts = k.rsplit("_", 1)
+            if len(parts) == 2:
+                try:
+                    d = datetime.fromisoformat(parts[1]).date()
+                    if d >= cutoff:
+                        keep[k] = v
+                except Exception:
+                    # keep unknown-format keys
+                    keep[k] = v
+            else:
+                keep[k] = v
+        _save_persistent_sent_markers(keep)
+    except Exception:
+        pass
+
+
+def _today_key_for(symbol: str) -> str:
+    today = datetime.now().date().isoformat()
+    return f"{symbol}_today_close_{today}"
+
+
+def _has_sent_today(symbol: str) -> bool:
+    key = _today_key_for(symbol)
+    ss = st.session_state.setdefault(SENT_MARKER_KEY, {})
+    if ss.get(key):
+        return True
+    persisted = _load_persistent_sent_markers()
+    return bool(persisted.get(key))
+
+
+def _mark_sent_today(symbol: str) -> None:
+    key = _today_key_for(symbol)
+    ss = st.session_state.setdefault(SENT_MARKER_KEY, {})
+    ss[key] = True
+    st.session_state[SENT_MARKER_KEY] = ss
+    try:
+        persisted = _load_persistent_sent_markers()
+        persisted[key] = True
+        _save_persistent_sent_markers(persisted)
+    except Exception:
+        pass
+
+
+def _render_order_logs() -> None:
+    logs = st.session_state.get(ORDER_LOG_KEY, [])
+    if not logs:
+        return
+    st.markdown("---")
+    st.markdown("#### 発注ログ（直近）")
+    for e in logs[:20]:
+        ts = e.get("ts", "")
+        sym = e.get("symbol", "")
+        status = e.get("status") or ("success" if e.get("order_id") else "error")
+        msg = e.get("msg") or e.get("error") or ""
+        st.write(f"{ts} — {sym} — {status} — {msg}")
+
+
 def _fetch_account_and_positions() -> tuple[Any, Any, list[Any]]:
     client = ba.get_client()
     account = client.get_account()
@@ -420,11 +646,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             if col not in df.columns:
                 continue
             try:
-                series = (
-                    pd.to_numeric(df[col], errors="coerce")
-                    .dropna()
-                    .tail(max_points)
-                )
+                series = pd.to_numeric(df[col], errors="coerce").dropna().tail(max_points)
             except Exception:
                 continue
             if not series.empty:
@@ -456,18 +678,10 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
         try:
             df = pd.read_csv(p)
             cols = {c.lower(): c for c in df.columns}
-            close_col = (
-                cols.get("close")
-                or cols.get("adj close")
-                or cols.get("adj_close")
-            )
+            close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
             if close_col is None:
                 continue
-            series = (
-                pd.to_numeric(df[close_col], errors="coerce")
-                .dropna()
-                .tail(max_points)
-            )
+            series = pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
             if series.empty:
                 continue
             return list(series.values)
@@ -795,7 +1009,87 @@ def _render_exit_actions(
     status_map: dict[str, Any] = st.session_state.setdefault(EXIT_STATE_KEY, {})
     is_na = getattr(pd, "isna", None)
     eligible = eligible.reset_index(drop=True)
-    for idx, row in eligible.iterrows():
+
+    # まとめて決済 UI: 対象シンボルを選んで一括で成行決済を送信
+    try:
+        eligible_symbols = [str(s).upper() for s in eligible["銘柄"].tolist()]
+    except Exception:
+        eligible_symbols = []
+    if eligible_symbols:
+        st.markdown("**まとめて決済**")
+        cols = st.columns([4, 1])
+        with cols[0]:
+            to_exit = st.multiselect(
+                "決済する銘柄を選択", eligible_symbols, default=eligible_symbols
+            )
+            st.selectbox("割合", [100, 75, 50, 25], index=0, key="batch_pct")
+        with cols[1]:
+            if st.button("まとめて成行決済", key="batch_exit_submit"):
+                st.session_state["batch_confirm_request"] = to_exit
+        # バッチ確認 UI
+        if st.session_state.get("batch_confirm_request"):
+            pending = st.session_state.get("batch_confirm_request") or []
+            st.info(f"まとめて決済の確認: {', '.join(pending)}")
+            c_yes, c_no = st.columns([1, 1])
+            with c_yes:
+                if st.button("はい、送信する", key="batch_confirm_yes"):
+                    rows = []
+                    for sym in pending:
+                        pos = position_map.get(str(sym).upper())
+                        qty = _parse_exit_quantity(pos) if pos is not None else None
+                        if qty is None:
+                            st.warning(f"{sym}: 決済数量が特定できずスキップしました。")
+                            continue
+                        side = "long" if getattr(pos, "side", "").lower() == "long" else "short"
+                        apply_pct = int(st.session_state.get("batch_pct", 100))
+                        apply_qty = max(1, int(qty * apply_pct / 100))
+                        rows.append(
+                            {
+                                "symbol": sym,
+                                "qty": apply_qty,
+                                "position_side": side,
+                                "system": "",
+                                "when": "today_close",
+                            }
+                        )
+                    if rows:
+                        try:
+                            exit_df = pd.DataFrame(rows)
+                            res = submit_exit_orders_df(exit_df, paper=True, tif="CLS", notify=True)
+                            st.success(f"まとめて決済リクエストを送信しました ({len(res)} 件)")
+                            sent = st.session_state.setdefault(SENT_MARKER_KEY, {})
+                            for r in rows:
+                                _push_order_log(
+                                    {
+                                        "symbol": r["symbol"],
+                                        "status": "submitted",
+                                        "msg": "batch exit requested",
+                                    }
+                                )
+                                _mark_sent_today(r["symbol"])
+                            st.session_state[SENT_MARKER_KEY] = sent
+                            try:
+                                _save_persistent_sent_markers(sent)
+                            except Exception:
+                                pass
+                            try:
+                                nd = _load_notify_settings() or {}
+                                notifier = Notifier(
+                                    platform=nd.get("platform", "auto"),
+                                    webhook_url=nd.get("webhook_url"),
+                                )
+                                syms = ", ".join([r["symbol"] for r in rows])
+                                notifier.send("まとめて決済実行", f"送信銘柄: {syms}")
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            st.error(f"まとめて決済に失敗しました: {e}")
+                    st.session_state.pop("batch_confirm_request", None)
+            with c_no:
+                if st.button("キャンセル", key="batch_confirm_no"):
+                    st.session_state.pop("batch_confirm_request", None)
+
+    for _, row in eligible.iterrows():
         symbol_raw = row.get("銘柄", "")
         try:
             symbol = str(symbol_raw).upper()
@@ -835,51 +1129,89 @@ def _render_exit_actions(
             except Exception:
                 limit_text = str(limit_value)
 
-        container = st.container()
-        container.markdown(
-            f"**{symbol}**｜システム: {system_value}｜保有: {held_text}｜上限: {limit_text}"
-        )
-
-        existing = status_map.get(symbol)
-        disabled = bool(existing and existing.get("success"))
-        button_label = f"{side_label}成行 {qty}株の注文を送信"
-        clicked = container.button(
-            button_label,
-            key=f"exit_button_{idx}_{symbol}",
-            disabled=disabled,
-        )
-        feedback = container.empty()
+        # compact row layout: symbol + meta in columns and small action button
+        row_cols = st.columns([2, 1, 1, 1])
+        with row_cols[0]:
+            st.markdown(
+                (
+                    f"**{symbol}**  "
+                    f"<span style='color:#9aa4b2'>システム:{system_value} 保有:{held_text} "
+                    f"上限:{limit_text}</span>"
+                ),
+                unsafe_allow_html=True,
+            )
+        with row_cols[1]:
+            st.caption(f"数量: {qty}")
+        with row_cols[2]:
+            st.caption(f"保有日数: {held_text}")
+        with row_cols[3]:
+            existing = status_map.get(symbol)
+            # 既に送信済みマーカーがあれば disabled にする
+            disabled_sent = _has_sent_today(symbol)
+            disabled = bool(existing and existing.get("success")) or disabled_sent
+            # 部分決済割合（%）
+            pct_key = f"partial_pct_{symbol}"
+            pct = st.slider("割合", min_value=10, max_value=100, value=100, step=10, key=pct_key)
+            exit_qty = max(1, int(qty * pct / 100))
+            button_label = f"{side_label}成行 {exit_qty}株 ({pct}%)"
+            clicked = st.button(button_label, key=f"exit_button_{symbol}", disabled=disabled)
+            feedback = st.empty()
 
         if clicked:
-            try:
-                if client is None:
-                    raise RuntimeError("Alpaca クライアントを初期化できませんでした。")
-                order = ba.submit_order_with_retry(
-                    client,
-                    symbol,
-                    qty,
-                    side=exit_side,
-                    order_type="market",
-                    time_in_force="DAY",
-                    retries=2,
-                    backoff_seconds=0.5,
-                    rate_limit_seconds=0.2,
-                )
-            except Exception as exc:  # noqa: BLE001
-                status_map[symbol] = {"success": False, "error": str(exc)}
-                feedback.error(f"{symbol}: 決済注文の送信に失敗しました: {exc}")
-            else:
-                order_id = getattr(order, "id", None)
-                status_map[symbol] = {
-                    "success": True,
-                    "order_id": order_id,
-                    "side": exit_side,
-                    "qty": qty,
-                }
-                msg = f"{symbol}: 決済注文を送信しました"
-                if order_id:
-                    msg += f"（注文ID: {order_id}）"
-                feedback.success(msg)
+            # 個別確認フロー: pending マーカーを立てる
+            st.session_state[f"confirm_pending_{symbol}"] = True
+        if st.session_state.get(f"confirm_pending_{symbol}"):
+            c1, c2 = st.columns([1, 1])
+            st.info(f"{symbol} を {qty} 株、{side_label} 成行で決済します。確認してください。")
+            with c1:
+                if st.button("はい、送信する", key=f"confirm_yes_{symbol}"):
+                    confirmed = True
+                else:
+                    confirmed = False
+            with c2:
+                if st.button("キャンセル", key=f"confirm_no_{symbol}"):
+                    confirmed = False
+                    st.session_state.pop(f"confirm_pending_{symbol}", None)
+            if confirmed:
+                try:
+                    if client is None:
+                        raise RuntimeError("Alpaca クライアントを初期化できませんでした。")
+                    order = ba.submit_order_with_retry(
+                        client,
+                        symbol,
+                        qty,
+                        side=exit_side,
+                        order_type="market",
+                        time_in_force="CLS",
+                        retries=2,
+                        backoff_seconds=0.5,
+                        rate_limit_seconds=0.2,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    status_map[symbol] = {"success": False, "error": str(exc)}
+                    feedback.error(f"{symbol}: 決済注文の送信に失敗しました: {exc}")
+                else:
+                    order_id = getattr(order, "id", None)
+                    status_map[symbol] = {
+                        "success": True,
+                        "order_id": order_id,
+                        "side": exit_side,
+                        "qty": qty,
+                    }
+                    msg = f"{symbol}: 決済注文を送信しました"
+                    if order_id:
+                        msg += f"（注文ID: {order_id}）"
+                    feedback.success(msg)
+                    # push order log and mark sent
+                    _push_order_log(
+                        {
+                            "symbol": symbol,
+                            "status": "submitted",
+                            "order_id": str(order_id),
+                            "msg": msg,
+                        }
+                    )
+                    _mark_sent_today(symbol)
             st.session_state[EXIT_STATE_KEY] = status_map
         elif existing:
             if existing.get("success"):
@@ -951,6 +1283,59 @@ def main() -> None:
                 st.rerun()
         with tcol:
             st.caption(f"最終更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # スケジュール: 毎日実行の簡易トリガー
+    schedule_col1, schedule_col2 = st.columns([3, 1])
+    with schedule_col1:
+        st.caption("自動ルールのスケジュール")
+        saved = _load_schedule() or {}
+        saved_time = None
+        try:
+            saved_time_iso = saved.get("time")
+            if saved_time_iso:
+                saved_time = datetime.fromisoformat(saved_time_iso).time()
+        except Exception:
+            saved_time = None
+        run_time = st.time_input(
+            "毎日実行時刻 (ローカル)", value=saved_time or datetime.now().time()
+        )
+        opt_in = st.checkbox(
+            "自動ルールに参加する（オプトイン）",
+            value=bool(saved.get("opt_in", False)),
+            key="auto_rule_opt_in",
+        )
+        if st.button("設定を保存", key="save_schedule"):
+            _save_schedule(
+                {
+                    "time": datetime.combine(datetime.now().date(), run_time).isoformat(),
+                    "opt_in": bool(opt_in),
+                }
+            )
+            st.success("スケジュールを保存しました。")
+        if opt_in and st.button("自動ルールを今すぐ実行", key="auto_rule_run"):
+            st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+    with schedule_col2:
+        last_run = st.session_state.get("last_auto_rule_run")
+        st.caption(f"最後の自動実行: {last_run or '未実行'}")
+
+    # 自動スケジュール検出（簡易）: ページロード時に時刻を過ぎていて未実行ならトリガー
+    try:
+        if opt_in:
+            now_local = datetime.now()
+            scheduled_dt = datetime.combine(now_local.date(), run_time)
+            last_run_iso = st.session_state.get("last_auto_rule_run")
+            last_run_dt = None
+            if last_run_iso:
+                try:
+                    last_run_dt = datetime.fromisoformat(str(last_run_iso))
+                except Exception:
+                    last_run_dt = None
+            # if we haven't run today and current time past scheduled time
+            cond1 = now_local >= scheduled_dt
+            cond2 = last_run_dt is None or last_run_dt.date() < now_local.date()
+            if cond1 and cond2:
+                st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+    except Exception:
+        pass
     st.markdown("</div>", unsafe_allow_html=True)
 
     try:
@@ -959,6 +1344,34 @@ def main() -> None:
         st.error(f"データ取得に失敗しました: {exc}")
         return
     position_map = _build_position_map(positions)
+
+    # Shortable map: check which symbols are shortable (used for warnings)
+    try:
+        symbols_for_check = [s.upper() for s in position_map.keys() if s]
+        shortable_map = ba.get_shortable_map(client, symbols_for_check) if symbols_for_check else {}
+    except Exception:
+        shortable_map = {}
+    st.session_state.setdefault("shortable_map", shortable_map)
+
+    # Load persisted auto-rule config if present and merge
+    try:
+        disk_cfg = _load_auto_rule_config() or {}
+        for k, v in disk_cfg.items():
+            if k in AUTO_RULE_CONFIG and isinstance(v, dict):
+                AUTO_RULE_CONFIG[k].update(v)
+    except Exception:
+        pass
+
+    # Load notify settings for UI defaults
+    notify_defaults = _load_notify_settings() or {}
+    st.session_state.setdefault("notify_defaults", notify_defaults)
+
+    # Load persistent sent markers and merge into session state to prevent duplicates
+    persistent_sent = _load_persistent_sent_markers()
+    ss_sent = st.session_state.setdefault(SENT_MARKER_KEY, {})
+    for k, v in persistent_sent.items():
+        ss_sent.setdefault(k, v)
+    st.session_state[SENT_MARKER_KEY] = ss_sent
 
     # メトリクス行
     st.markdown("<div class='ap-card ap-fade'>", unsafe_allow_html=True)
@@ -1041,6 +1454,84 @@ def main() -> None:
 
     with tab_pos:
         st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
+        # 通知設定 UI
+        with st.expander("通知設定"):
+            nd = st.session_state.get("notify_defaults", {}) or {}
+            platform = st.selectbox(
+                "通知プラットフォーム",
+                ["auto", "slack", "discord", "none"],
+                index=["auto", "slack", "discord", "none"].index(nd.get("platform", "auto")),
+                key="notify_platform",
+            )
+            webhook = st.text_input(
+                "Webhook / その他設定 (環境変数優先)",
+                value=nd.get("webhook_url", ""),
+                key="notify_webhook",
+            )
+            if st.button("通知設定を保存", key="save_notify"):
+                try:
+                    _save_notify_settings({"platform": platform, "webhook_url": webhook})
+                    st.success("通知設定を保存しました。")
+                except Exception:
+                    st.error("通知設定の保存に失敗しました。")
+            if st.button("テスト送信", key="test_notify"):
+                try:
+                    nd = {"platform": platform, "webhook_url": webhook}
+                    notifier = Notifier(
+                        platform=nd.get("platform", "auto"),
+                        webhook_url=nd.get("webhook_url"),
+                    )
+                    notifier.send(
+                        "通知テスト",
+                        "これは通知設定のテスト送信です。設定が正しければ届きます。",
+                    )
+                    st.success("テスト送信を実行しました。受信を確認してください。")
+                    try:
+                        log = st.session_state.setdefault("notify_test_log", [])
+                        entry = {
+                            "time": datetime.now().isoformat(),
+                            "result": "ok",
+                            "msg": f"platform={platform}",
+                        }
+                        log.append(entry)
+                        st.session_state["notify_test_log"] = log
+                        try:
+                            _save_notify_test_log(log)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                except Exception as e:
+                    st.error(f"テスト送信に失敗しました: {e}")
+                    try:
+                        log = st.session_state.setdefault("notify_test_log", [])
+                        entry = {
+                            "time": datetime.now().isoformat(),
+                            "result": "error",
+                            "msg": str(e),
+                        }
+                        log.append(entry)
+                        st.session_state["notify_test_log"] = log
+                        try:
+                            _save_notify_test_log(log)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+            st.markdown(
+                "- **platform=auto**: 環境変数から自動判定（SLACK_BOT_TOKEN があれば"
+                " Slack を優先）。"
+                "\n- **slack**: Slack Web API を使用（SLACK_BOT_TOKEN 必須）。"
+                "\n- **discord**: Discord Webhook URL を使用（Webhook を入力）。"
+                "\n- **none**: 通知無効",
+                unsafe_allow_html=True,
+            )
+            # 最近のテスト送信ログを表示
+            test_log = st.session_state.get("notify_test_log", [])
+            if test_log:
+                st.caption("最近のテスト送信:")
+                for item in reversed(test_log[-5:]):
+                    st.text(f"[{item.get('time')}] {item.get('result')}: {item.get('msg', '')}")
         try:
             items = ", ".join(
                 f"{k}={v}日"
@@ -1056,6 +1547,49 @@ def main() -> None:
         except Exception:
             items = ", ".join(f"{k}={v}日" for k, v in HOLD_LIMITS.items())
         st.caption(f"経過日手仕切り（上限日数）: {items}")
+        # 自動ルール: オプトインで経過日上限／損益率閾値を自動でまとめ決済
+        auto_opt_in = st.checkbox(
+            "自動ルールで経過日/損益超過時に自動決済（オプトイン）",
+            value=False,
+            key="auto_rule_opt_in",
+        )
+        with st.expander("自動ルール設定 (システム別)"):
+            for sys_name in sorted(AUTO_RULE_CONFIG.keys()):
+                cfg = AUTO_RULE_CONFIG[sys_name]
+                cols = st.columns([1, 1])
+                with cols[0]:
+                    v = st.number_input(
+                        f"{sys_name} 損益閾値(%)",
+                        value=float(cfg.get("pnl_threshold", -20.0)),
+                        step=1.0,
+                        key=f"cfg_{sys_name}_pnl",
+                    )
+                with cols[1]:
+                    p = st.selectbox(
+                        f"{sys_name} 部分決済%",
+                        [100, 75, 50, 25],
+                        index=0,
+                        key=f"cfg_{sys_name}_pct",
+                    )
+                # apply changes to runtime config
+                try:
+                    AUTO_RULE_CONFIG[sys_name]["pnl_threshold"] = float(v)
+                    AUTO_RULE_CONFIG[sys_name]["partial_pct"] = int(p)
+                except Exception:
+                    pass
+            if st.button("自動ルール設定を保存", key="save_auto_rule_config"):
+                try:
+                    _save_auto_rule_config(AUTO_RULE_CONFIG)
+                    st.success("自動ルール設定を保存しました。")
+                except Exception:
+                    st.error("自動ルール設定の保存に失敗しました。")
+        if auto_opt_in:
+            st.caption(
+                "※自動実行はオプトイン時に手動トリガーされます（将来はスケジューリング対応予定）。"
+            )
+            if st.button("自動ルールを今すぐ実行", key="auto_rule_run"):
+                st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+
         pos_df = _positions_to_df(positions, client)
         pos_df = _attach_exit_levels(pos_df, client)
         if not pos_df.empty:
@@ -1066,6 +1600,74 @@ def main() -> None:
         if pos_df.empty:
             st.info("ポジションはありません。")
         else:
+            # 自動ルールのトリガー処理（オプトイン + 実行ボタンで動作）
+            if st.session_state.get("auto_rule_trigger"):
+                trigger_ts = st.session_state.pop("auto_rule_trigger", None)
+                st.info(f"自動ルールを実行中 (トリガー: {trigger_ts})")
+                auto_rows = []
+                try:
+                    for _, r in pos_df.iterrows():
+                        try:
+                            limit_reached = bool(r.get("_limit_reached"))
+                        except Exception:
+                            limit_reached = False
+                        pnl_pct = 0.0
+                        try:
+                            pnl_pct = float(r.get("損益率(%)", 0.0))
+                        except Exception:
+                            pnl_pct = 0.0
+                        system_name = str(r.get("システム", "")).strip() or "unknown"
+                        cfg = AUTO_RULE_CONFIG.get(system_name, {})
+                        threshold = float(cfg.get("pnl_threshold", -20.0))
+                        partial_pct = int(cfg.get("partial_pct", 100))
+                        if limit_reached or pnl_pct <= threshold:
+                            sym = str(r.get("銘柄", "")).upper()
+                            pos = position_map.get(sym)
+                            qty = _parse_exit_quantity(pos) if pos is not None else None
+                            if qty:
+                                apply_qty = max(1, int(qty * partial_pct / 100))
+                                auto_rows.append(
+                                    {
+                                        "symbol": sym,
+                                        "qty": apply_qty,
+                                        "position_side": getattr(pos, "side", ""),
+                                        "system": r.get("システム", ""),
+                                        "when": "today_close",
+                                    }
+                                )
+                except Exception:
+                    auto_rows = []
+                if auto_rows:
+                    try:
+                        df_auto = pd.DataFrame(auto_rows)
+                        res = submit_exit_orders_df(df_auto, paper=True, tif="CLS", notify=True)
+                        st.success(f"自動ルールによるまとめて決済を送信しました ({len(res)} 件)")
+                        for r in auto_rows:
+                            _push_order_log(
+                                {
+                                    "symbol": r["symbol"],
+                                    "status": "auto_submitted",
+                                    "msg": "auto rule exit",
+                                }
+                            )
+                            _mark_sent_today(r["symbol"])
+                        try:
+                            nd = _load_notify_settings() or {}
+                            notifier = Notifier(
+                                platform=nd.get("platform", "auto"),
+                                webhook_url=nd.get("webhook_url"),
+                            )
+                            syms = ", ".join([r["symbol"] for r in auto_rows])
+                            notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
+                        except Exception:
+                            pass
+                        # 記録: 最終自動実行時刻
+                        try:
+                            st.session_state["last_auto_rule_run"] = datetime.now().isoformat()
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        st.error(f"自動ルール決済に失敗しました: {e}")
             # システム絞り込み
             if "システム" in pos_df.columns:
                 raw_systems = pos_df["システム"].fillna("unknown").unique()
@@ -1201,6 +1803,46 @@ def main() -> None:
                 st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
             except Exception:
                 pass
+
+            # 未約定注文の一覧とキャンセル（ポジションタブ下部）
+            st.markdown("---")
+            st.markdown("#### 未約定注文の確認とキャンセル")
+            try:
+                open_orders = list(client.get_orders(status="open"))
+            except Exception:
+                open_orders = []
+            if not open_orders:
+                st.info("未約定注文はありません。")
+            else:
+                try:
+                    rows = [
+                        {
+                            "symbol": getattr(o, "symbol", ""),
+                            "qty": getattr(o, "qty", ""),
+                            "side": getattr(o, "side", ""),
+                            "type": getattr(o, "type", ""),
+                            "id": getattr(o, "id", ""),
+                        }
+                        for o in open_orders
+                    ]
+                    st.table(pd.DataFrame(rows))
+                except Exception:
+                    st.write(open_orders)
+                c1, c2 = st.columns([3, 1])
+                with c2:
+                    if st.button("未約定を全てキャンセル", key="cancel_all_orders"):
+                        try:
+                            ba.cancel_all_orders(client)
+                            st.success("未約定注文をキャンセルしました。")
+                            _push_order_log(
+                                {
+                                    "symbol": "ALL",
+                                    "status": "cancelled",
+                                    "msg": "cancel all open orders",
+                                }
+                            )
+                        except Exception as e:
+                            st.error(f"キャンセルに失敗しました: {e}")
 
     with tab_summary:
         st.markdown("<div class='ap-section'>指標</div>", unsafe_allow_html=True)
@@ -1351,3 +1993,7 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover - UI entry point
     main()
+    try:
+        _render_order_logs()
+    except Exception:
+        pass
