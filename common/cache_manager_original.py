@@ -845,7 +845,7 @@ def load_base_cache(
             allowed_set = {
                 pd.Timestamp(cast(Any, d)).normalize()
                 for d in allowed_recent_dates
-                if d is not None and not pd.isna(d)
+                if d is not None and not pd.isna(cast(Any, d))
             }
             if last_date.normalize() not in allowed_set:
                 is_stale = True

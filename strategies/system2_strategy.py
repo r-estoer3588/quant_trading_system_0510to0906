@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+import numpy as np
+
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
@@ -113,9 +115,14 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         - candidate["entry_date"] の行をもとに、ギャップ条件とATRベースのストップを計算。
         """
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
             return None
+        if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
+            return None
+        if not isinstance(entry_loc, (int, np.integer)):
+            return None
+        entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prior_close = float(df.iloc[entry_idx - 1]["Close"])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
@@ -24,6 +25,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_data(
         self,
         raw_data_or_symbols,
+        reuse_indicators: bool | None = None,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
@@ -59,6 +61,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     def generate_candidates(
         self,
         data_dict,
+        market_df=None,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
@@ -113,9 +116,14 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     # シミュレーター用フック（System6: Short）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
             return None
+        if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
+            return None
+        if not isinstance(entry_loc, (int, np.integer)):
+            return None
+        entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])

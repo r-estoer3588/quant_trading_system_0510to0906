@@ -1,6 +1,7 @@
 # strategies/system3_strategy.py
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
@@ -119,9 +120,14 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
     # 共通シミュレーター用フック（System3）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
             return None
+        if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
+            return None
+        if not isinstance(entry_loc, (int, np.integer)):
+            return None
+        entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])

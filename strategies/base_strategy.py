@@ -58,7 +58,7 @@ class StrategyBase(ABC):
     @abstractmethod
     def prepare_data(
         self,
-        raw_data_dict: dict,
+        raw_data_or_symbols: dict,
         reuse_indicators: bool | None = None,
         **kwargs,
     ) -> dict:
