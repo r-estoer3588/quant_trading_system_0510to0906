@@ -24,6 +24,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_data(
         self,
         raw_data_or_symbols,
+        reuse_indicators: bool | None = None,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
@@ -54,17 +55,19 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             symbols=symbols,
             use_process_pool=use_process_pool,
             skip_callback=skip_callback,
+            **kwargs,
         )
 
     def generate_candidates(
         self,
-        prepared_dict,
+        data_dict,
         progress_callback=None,
         log_callback=None,
         batch_size: int | None = None,
-        *,
-        top_n: int | None = None,
+        **kwargs,
     ):
+        prepared_dict = data_dict
+        top_n = kwargs.pop("top_n", None)
         if top_n is None:
             try:
                 from config.settings import get_settings
@@ -93,12 +96,12 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size=batch_size,
         )
 
-    def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,

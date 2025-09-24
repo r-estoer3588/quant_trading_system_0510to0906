@@ -50,7 +50,9 @@ def _load_symbol_cached(
     symbol: str, *, base_path: str, base_mtime: float, raw_path: str, raw_mtime: float
 ):
     # base キャッシュ優先、無ければ raw を読む
-    df = load_base_cache(symbol, rebuild_if_missing=True)
+    df = load_base_cache(
+        symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True
+    )
     if df is not None and not df.empty:
         return symbol, df
     import os
@@ -72,7 +74,9 @@ def _load_symbol(symbol: str, cache_dir: str = "data_cache"):
     )
 
 
-def _fetch_data_ui(symbols, ui_manager=None, max_workers: int = 8) -> dict[str, pd.DataFrame]:
+def _fetch_data_ui(
+    symbols, ui_manager=None, max_workers: int = 8
+) -> dict[str, pd.DataFrame]:
     data: dict[str, pd.DataFrame] = {}
     total = len(symbols)
     phase = ui_manager.phase("fetch") if ui_manager else None
@@ -173,7 +177,9 @@ def prepare_backtest_data_ui(
         "System2": "RSI3, ADX7, ATR10, DollarVolume20, ATR_Ratio, TwoDayUp, setup",
         "System3": "SMA150, ATR10, Drop3D, AvgVolume50, ATR_Ratio, setup",
         "System4": "SMA200, ATR40, HV50, RSI4, DollarVolume50, setup",
-        "System5": ("SMA100, ATR10, ADX7, RSI3, AvgVolume50, DollarVolume50, ATR_Pct, setup"),
+        "System5": (
+            "SMA100, ATR10, ADX7, RSI3, AvgVolume50, DollarVolume50, ATR_Pct, setup"
+        ),
         "System6": "ATR10, DollarVolume50, Return6D, UpTwoDays, setup",
         "System7": "ATR50, min_50, max_70, setup",
     }
@@ -196,14 +202,18 @@ def prepare_backtest_data_ui(
     try:
         candidates_by_date, merged_df = strategy.generate_candidates(
             prepared,
-            progress_callback=lambda done, total: cand.progress_bar.progress(done / total),
+            progress_callback=lambda done, total: cand.progress_bar.progress(
+                done / total
+            ),
             **kwargs,
         )
     except TypeError:
         # 戻り値が dict のみ（System2仕様）
         candidates_by_date = strategy.generate_candidates(
             prepared,
-            progress_callback=lambda done, total: cand.progress_bar.progress(done / total),
+            progress_callback=lambda done, total: cand.progress_bar.progress(
+                done / total
+            ),
             **kwargs,
         )
         merged_df = None
@@ -265,7 +275,9 @@ def run_backtest_with_logging_ui(
         prepared_dict,
         candidates_by_date,
         capital,
-        on_progress=lambda i, total, start: bt.progress_bar.progress(0 if not total else i / total),
+        on_progress=lambda i, total, start: bt.progress_bar.progress(
+            0 if not total else i / total
+        ),
         on_log=_handle_log,
     )
 

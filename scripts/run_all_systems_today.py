@@ -21,7 +21,7 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
-from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+from common.cache_manager import round_dataframe  # noqa: E402
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -172,6 +172,7 @@ class BaseCachePool:
             cache_manager=self.cache_manager,
             min_last_date=min_last_date,
             allowed_recent_dates=allowed_set or None,
+            prefer_precomputed_indicators=True,
         )
 
         with self._lock:
@@ -349,7 +350,7 @@ def _get_today_logger() -> logging.Logger:
                 pass
 
         if globals().get("_LOG_FILE_PATH") is not None:
-            log_path = globals().get("_LOG_FILE_PATH")  # type: ignore[assignment]
+            log_path = globals().get("_LOG_FILE_PATH")
         else:
             try:
                 settings = get_settings(create_dirs=True)
@@ -2051,7 +2052,7 @@ def _silence_streamlit_cli_warnings() -> None:
             return
 
         class _SilenceBareModeWarnings(_lg.Filter):
-            def filter(self, record: _lg.LogRecord) -> bool:  # type: ignore[override]
+            def filter(self, record: _lg.LogRecord) -> bool:
                 msg = str(record.getMessage())
                 if "missing ScriptRunContext" in msg:
                     return False
@@ -2123,9 +2124,7 @@ def _save_and_notify_phase(
                 and not getattr(final_df, "empty", True)
                 and "system" in final_df.columns
             ):
-                final_counts = (
-                    final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
-                )
+                final_counts = final_df.groupby("system").size().to_dict()
         except Exception:
             final_counts = {}
         for name in order_1_7:
@@ -2167,9 +2166,7 @@ def _save_and_notify_phase(
                 and not getattr(final_df, "empty", True)
                 and "system" in final_df.columns
             ):
-                final_counts = (
-                    final_df.groupby("system").size().to_dict()  # type: ignore[assignment]
-                )
+                final_counts = final_df.groupby("system").size().to_dict()
             lines = []
             for sys_name in order_1_7:
                 tgt = tgt_base if sys_name != "system7" else 1
@@ -2905,7 +2902,7 @@ def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame 
 
 
 @no_type_check
-def compute_today_signals(  # type: ignore[analysis]
+def compute_today_signals(
     symbols: list[str] | None,
     *,
     slots_long: int | None = None,
@@ -2989,7 +2986,7 @@ def compute_today_signals(  # type: ignore[analysis]
         if not _os.environ.get("STREAMLIT_SERVER_ENABLED"):
 
             class _SilenceBareModeWarnings(_lg.Filter):
-                def filter(self, record: _lg.LogRecord) -> bool:  # type: ignore[override]
+                def filter(self, record: _lg.LogRecord) -> bool:
                     msg = str(record.getMessage())
                     if "missing ScriptRunContext" in msg:
                         return False

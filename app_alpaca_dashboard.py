@@ -71,7 +71,7 @@ def _format_countdown(delta: timedelta) -> str:
         return "--"
 
 
-def _safe_float(v: object | None) -> float | None:
+def _safe_float(v: Any | None) -> float | None:
     try:
         if v is None or v == "":
             return None
@@ -80,7 +80,7 @@ def _safe_float(v: object | None) -> float | None:
         return None
 
 
-def _fmt_money(x: object | None) -> str:
+def _fmt_money(x: Any | None) -> str:
     try:
         val = float(x) if x is not None and x != "" else 0.0
         return f"{val:,.0f}"
@@ -152,16 +152,28 @@ ORDER_LOG_KEY = "ap_order_log"
 EXIT_STATE_KEY = "ap_exit_state"
 
 # Auto-rule defaults (will be merged with disk config if present)
-AUTO_RULE_CONFIG: dict[str, dict[str, object]] = {}
+AUTO_RULE_CONFIG: dict[str, dict[str, Any]] = {}
 
 # Hold limits by system (days) - empty by default
 HOLD_LIMITS: dict[str, int] = {}
 
 
-def calculate_business_holding_days(entry_dt: datetime | None) -> int:
-    """Fallback for calculating holding days; returns 0 when unknown."""
+def calculate_business_holding_days(entry_dt: datetime | pd.Timestamp | str | None) -> int:
+    """Fallback for calculating holding days; accepts datetime, pandas Timestamp, or ISO date string.
+
+    Returns 0 when unknown or on error.
+    """
     try:
         if not entry_dt:
+            return 0
+        if isinstance(entry_dt, pd.Timestamp):
+            entry_dt = entry_dt.to_pydatetime()
+        if isinstance(entry_dt, str):
+            try:
+                entry_dt = datetime.fromisoformat(entry_dt)
+            except Exception:
+                return 0
+        if not isinstance(entry_dt, datetime):
             return 0
         return (datetime.now().date() - entry_dt.date()).days
     except Exception:
@@ -464,7 +476,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
     if not symbol:
         return None
     try:
-        df = load_base_cache(symbol, rebuild_if_missing=False)
+        df = load_base_cache(symbol, rebuild_if_missing=False, prefer_precomputed_indicators=True)
     except Exception:
         df = None
 
@@ -1148,8 +1160,8 @@ def main() -> None:
                 }
             )
             st.success("スケジュールを保存しました。")
-        if opt_in and st.button("自動ルールを今すぐ実行", key="auto_rule_run"):
-            st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+    if opt_in and st.button("自動ルールを今すぐ実行 (スケジュール)", key="auto_rule_run_schedule"):
+        st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
     with schedule_col2:
         last_run = st.session_state.get("last_auto_rule_run")
         st.caption(f"最後の自動実行: {last_run or '未実行'}")
@@ -1424,8 +1436,8 @@ def main() -> None:
         st.caption(
             "※自動実行はオプトイン時に手動トリガーされます（将来はスケジューリング対応予定）。"
         )
-        if st.button("自動ルールを今すぐ実行", key="auto_rule_run"):
-            st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+    if st.button("自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual"):
+        st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
 
     pos_df = _positions_to_df(positions, client)
     pos_df = _attach_exit_levels(pos_df, client)

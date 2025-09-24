@@ -26,6 +26,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_data(
         self,
         raw_data_or_symbols,
+        reuse_indicators: bool | None = None,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
@@ -56,12 +57,14 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             symbols=symbols,
             use_process_pool=use_process_pool,
             skip_callback=skip_callback,
+            **kwargs,
         )
 
     # 候補生成（共通コアへ委譲）
     def generate_candidates(
         self,
-        prepared_dict,
+        data_dict,
+        market_df=None,
         progress_callback=None,
         log_callback=None,
         batch_size: int | None = None,
@@ -80,6 +83,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
                 top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
             except Exception:
                 top_n = 10
+
         if batch_size is None:
             try:
                 from config.settings import get_settings
@@ -87,9 +91,10 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
                 batch_size = get_settings(create_dirs=False).data.batch_size
             except Exception:
                 batch_size = 100
-            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
+        batch_size = resolve_batch_size(len(data_dict), batch_size)
+
         return generate_candidates_system3(
-            prepared_dict,
+            data_dict,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,
@@ -97,16 +102,17 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         )
 
     # バックテスト実行（共通シミュレーター）
-    def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,
             on_log=on_log,
+            side="long",
         )
         return trades_df
 

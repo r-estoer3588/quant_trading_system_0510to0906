@@ -16,7 +16,9 @@ import os
 import random
 
 
-def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | None = None) -> None:
+def set_test_determinism(
+    seed: int = 42, tz: str = "UTC", frozen_date: str | None = None
+) -> None:
     """テストの決定性を確保するための初期化を実施。
 
     Args:
@@ -28,7 +30,7 @@ def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | Non
     try:
         import numpy as np
     except Exception:  # pragma: no cover - numpyが無い環境でもテスト可能にする
-        np = None  # type: ignore
+        np = None
 
     random.seed(seed)
     if np is not None:
@@ -42,7 +44,7 @@ def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | Non
     # 任意で日時固定（呼び出し側で freezegun を使用）
     if frozen_date:
         try:
-            from freezegun import freeze_time  # type: ignore
+            from freezegun import freeze_time
 
             dt = datetime.strptime(frozen_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             _ = freeze_time(dt)

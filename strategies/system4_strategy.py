@@ -26,6 +26,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_data(
         self,
         raw_data_or_symbols,
+        reuse_indicators: bool | None = None,
         progress_callback=None,
         log_callback=None,
         skip_callback=None,
@@ -56,19 +57,21 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             symbols=symbols,
             use_process_pool=use_process_pool,
             skip_callback=skip_callback,
+            **kwargs,
         )
 
     # 候補抽出（SPYフィルタ適用。market_df 後方互換あり）
     def generate_candidates(
         self,
-        prepared_dict,
+        data_dict,
         market_df=None,
         progress_callback=None,
         log_callback=None,
         batch_size: int | None = None,
-        *,
-        top_n: int | None = None,
+        **kwargs,
     ):
+        prepared_dict = data_dict
+        top_n = kwargs.pop("top_n", None)
         # market_df 未指定時は prepared_dict から SPY を使用（後方互換）
         if market_df is None:
             market_df = prepared_dict.get("SPY")
@@ -104,12 +107,12 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         )
 
     # バックテスト実行（コアシミュレーター）
-    def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,

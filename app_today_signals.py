@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import logging
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import platform
 import sys
 import time
+from threading import Lock
 from typing import Any, TYPE_CHECKING
 
 import pandas as pd
@@ -17,7 +19,7 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
-from common.cache_manager import round_dataframe  # type: ignore
+from common.cache_manager import round_dataframe
 from common.data_loader import load_price
 from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
@@ -38,10 +40,10 @@ from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
 
 if TYPE_CHECKING:  # pragma: no cover - static typing only
-    try:  # type: ignore - optional import for type checkers
-        import alpaca.trading.requests as _alpaca_trading_requests  # type: ignore
+    try:
+        import alpaca.trading.requests as _alpaca_trading_requests
     except Exception:  # pragma: no cover - runtime fallback
-        _alpaca_trading_requests = Any  # type: ignore
+        _alpaca_trading_requests = Any
 
 
 def _import_alpaca_requests():
@@ -577,13 +579,7 @@ def _build_missing_detail(
     }
 
 
-def _log_manual_rebuild_notice(
-    symbol: str,
-    detail: dict[str, Any],
-    log_fn: Callable[[str], None] | None = None,
-) -> None:
-    if log_fn is None:
-        return
+def _build_manual_rebuild_message(symbol: str, detail: dict[str, Any]) -> str:
     status = str(detail.get("status") or "rolling_missing")
     reason_map = {
         "rolling_missing": "rolling未生成",
@@ -613,10 +609,22 @@ def _log_manual_rebuild_notice(
     if parts:
         message += " | " + ", ".join(parts)
     message += " → 手動で rolling キャッシュを更新してください"
+    return message
+
+
+def _log_manual_rebuild_notice(
+    symbol: str,
+    detail: dict[str, Any],
+    log_fn: Callable[[str], None] | None = None,
+) -> str:
+    message = _build_manual_rebuild_message(symbol, detail)
+    if log_fn is None:
+        return message
     try:
         log_fn(message)
     except Exception:
         pass
+    return message
 
 
 def _collect_symbol_data(
@@ -637,48 +645,143 @@ def _collect_symbol_data(
     fetched: dict[str, pd.DataFrame] = {}
     malformed: list[str] = []
     missing_details: list[dict[str, Any]] = []
-    for idx, sym in enumerate(symbols, start=1):
+
+    try:
+        env_parallel = (os.environ.get("TODAY_PREFETCH_PARALLEL") or "").strip().lower()
+    except Exception:
+        env_parallel = ""
+    try:
+        env_threshold = int(os.environ.get("TODAY_PREFETCH_PARALLEL_THRESHOLD", "200"))
+    except Exception:
+        env_threshold = 200
+
+    if env_parallel in {"1", "true", "yes"}:
+        use_parallel = total > 1
+    elif env_parallel in {"0", "false", "no"}:
+        use_parallel = False
+    else:
+        use_parallel = total >= max(0, env_threshold)
+
+    max_workers: int | None = None
+    if use_parallel:
+        try:
+            env_workers_raw = (os.environ.get("TODAY_PREFETCH_MAX_WORKERS") or "").strip()
+            if env_workers_raw:
+                max_workers = int(env_workers_raw)
+        except Exception:
+            max_workers = None
+        if max_workers is None:
+            try:
+                cfg_workers = getattr(settings.cache.rolling, "load_max_workers", None)
+                if cfg_workers:
+                    max_workers = int(cfg_workers)
+            except Exception:
+                pass
+        if max_workers is None:
+            cpu_count = os.cpu_count() or 4
+            max_workers = max(4, cpu_count * 2)
+        max_workers = max(1, min(int(max_workers), total))
+        if log_fn:
+            try:
+                log_fn(f"🧵 基礎データロード(事前チェック)並列化: workers={max_workers}")
+            except Exception:
+                pass
+
+    data_lock = Lock()
+    missing_lock = Lock()
+    malformed_lock = Lock()
+    progress_lock = Lock()
+    processed = 0
+
+    def _emit_progress(current: int) -> None:
+        if log_fn is None:
+            return
+        if current % step != 0 and current != total:
+            return
+        try:
+            elapsed = int(max(0, time.time() - start_ts))
+            minutes, seconds = divmod(elapsed, 60)
+            log_fn(f"📦 基礎データロード進捗: {current}/{total} | 経過 {minutes}分{seconds}秒")
+        except Exception:
+            try:
+                log_fn(f"📦 基礎データロード進捗: {current}/{total}")
+            except Exception:
+                pass
+
+    def _process_symbol(
+        sym: str,
+    ) -> tuple[str, pd.DataFrame | None, dict[str, Any] | None, str | None, bool]:
+        manual_msg: str | None = None
+        detail: dict[str, Any] | None = None
+        malformed_flag = False
         try:
             df = load_price(sym, cache_profile="rolling")
         except Exception:
             df = None
         rows_before = 0 if df is None else int(len(df))
         ok, issues = _analyze_rolling_cache(df)
-        detail: dict[str, Any] | None = None
         if not ok:
             detail = _build_missing_detail(sym, issues, rows_before)
             if debug_scan:
                 detail["action"] = "debug_scan"
                 detail["note"] = _issues_to_note(issues)
-                missing_details.append(detail)
-                df = None
-            else:
-                detail["action"] = "manual_rebuild_required"
-                manual_note = _merge_note(
-                    _issues_to_note(issues),
-                    "手動で rolling キャッシュを更新してください",
-                )
-                detail["note"] = manual_note
-                missing_details.append(detail)
-                _log_manual_rebuild_notice(sym, detail, log_fn)
-                df = None
-            continue
+                return sym, None, detail, None, False
+            detail["action"] = "manual_rebuild_required"
+            manual_note = _merge_note(
+                _issues_to_note(issues),
+                "手動で rolling キャッシュを更新してください",
+            )
+            detail["note"] = manual_note
+            manual_msg = _build_manual_rebuild_message(sym, detail)
+            return sym, None, detail, manual_msg, False
 
-        # df may be None if earlier checks failed; guard before normalization
         if df is None:
-            malformed.append(sym)
-            continue
+            malformed_flag = True
+            return sym, None, None, None, malformed_flag
+
         norm = _normalize_price_history(df, rows)
         if norm is not None and not norm.empty:
-            fetched[sym] = norm
-        else:
-            malformed.append(sym)
+            return sym, norm, None, None, False
+        malformed_flag = True
+        return sym, None, None, None, malformed_flag
 
-        if log_fn and (idx % step == 0 or idx == total):
+    def _handle_result(
+        result: tuple[str, pd.DataFrame | None, dict[str, Any] | None, str | None, bool],
+    ) -> None:
+        nonlocal processed
+        sym, norm, detail, manual_msg, malformed_flag = result
+        if norm is not None and not getattr(norm, "empty", True):
+            with data_lock:
+                fetched[sym] = norm
+        elif malformed_flag:
+            with malformed_lock:
+                malformed.append(sym)
+        if detail is not None:
+            with missing_lock:
+                missing_details.append(detail)
+        if manual_msg and log_fn and not debug_scan:
             try:
-                log_fn(f"📦 基礎データロード進捗: {idx}/{total}")
+                log_fn(manual_msg)
             except Exception:
                 pass
+        with progress_lock:
+            processed += 1
+            _emit_progress(processed)
+
+    if use_parallel and max_workers and total > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_process_symbol, sym): sym for sym in symbols}
+            for fut in as_completed(futures):
+                sym = futures[fut]
+                try:
+                    result = fut.result()
+                except Exception:
+                    result = (sym, None, None, None, True)
+                _handle_result(result)
+    else:
+        for sym in symbols:
+            result = _process_symbol(sym)
+            _handle_result(result)
 
     if log_fn:
         try:

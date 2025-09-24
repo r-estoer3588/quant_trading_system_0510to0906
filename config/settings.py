@@ -12,12 +12,12 @@ from dotenv import load_dotenv
 
 try:
     # optional import for validation
-    from .schemas import validate_config_dict  # type: ignore
+    from .schemas import validate_config_dict
 except Exception:  # pragma: no cover
-    validate_config_dict = None  # type: ignore
+    validate_config_dict = None
 
 try:
-    import yaml  # type: ignore
+    import yaml
 except Exception:  # pragma: no cover
     yaml = None  # PyYAML が未導入でも動くように（後述のガードで対応）
 
@@ -270,8 +270,8 @@ def _load_yaml_config_validated(project_root: Path) -> dict[str, Any]:
     if validate_config_dict is None:
         return data
     try:
-        model = validate_config_dict(data)  # type: ignore
-        return model.model_dump()  # type: ignore[attr-defined]
+        model = validate_config_dict(data)
+        return model.model_dump()
     except Exception:
         return data
 
@@ -292,8 +292,8 @@ def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
     if validate_config_dict is None:
         return data
     try:
-        model = validate_config_dict(data)  # type: ignore
-        return model.model_dump()  # type: ignore[attr-defined]
+        model = validate_config_dict(data)
+        return model.model_dump()
     except Exception:
         return data
 
@@ -361,9 +361,11 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
         round_decimals=cache_round,
         csv=CsvConfig(
             decimal_point=str(cfg.get("csv_decimal_point", ".")),
-            thousands_sep=str(cfg.get("csv_thousands_sep"))
-            if cfg.get("csv_thousands_sep") is not None
-            else None,
+            thousands_sep=(
+                str(cfg.get("csv_thousands_sep"))
+                if cfg.get("csv_thousands_sep") is not None
+                else None
+            ),
             field_sep=str(cfg.get("csv_field_sep", ",")),
         ),
         rolling=CacheRollingConfig(
@@ -385,9 +387,11 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             adaptive_report_seconds=int(rolling_cfg.get("adaptive_report_seconds", 10)),
             csv=CsvConfig(
                 decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
-                thousands_sep=str(rolling_cfg.get("csv_thousands_sep"))
-                if rolling_cfg.get("csv_thousands_sep") is not None
-                else None,
+                thousands_sep=(
+                    str(rolling_cfg.get("csv_thousands_sep"))
+                    if rolling_cfg.get("csv_thousands_sep") is not None
+                    else None
+                ),
                 field_sep=str(rolling_cfg.get("csv_field_sep", ",")),
             ),
         ),

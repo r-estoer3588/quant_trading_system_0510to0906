@@ -56,7 +56,12 @@ class StrategyBase(ABC):
         self.config = cfg
 
     @abstractmethod
-    def prepare_data(self, raw_data_dict: dict, **kwargs) -> dict:
+    def prepare_data(
+        self,
+        raw_data_dict: dict,
+        reuse_indicators: bool | None = None,
+        **kwargs,
+    ) -> dict:
         """生データからインジケーターやシグナルを計算"""
         pass
 

@@ -25,7 +25,7 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
 
-    def prepare_data(self, raw_data_dict, **kwargs):
+    def prepare_data(self, raw_data_dict, reuse_indicators: bool | None = None, **kwargs):
         progress_callback = kwargs.pop("progress_callback", None)
         log_callback = kwargs.pop("log_callback", None)
         skip_callback = kwargs.pop("skip_callback", None)

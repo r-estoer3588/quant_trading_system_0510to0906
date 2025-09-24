@@ -359,10 +359,16 @@ class CacheManager:
                 enriched.get("date", base["date"]), errors="coerce"
             )
 
-            # Merge indicators back, preserving original columns
+            # Merge indicators back, but do NOT overwrite existing indicator columns.
+            # Keep the original DataFrame's columns when present and only add
+            # missing indicator columns produced by `add_indicators`.
             combined = df.copy()
             for col, series in enriched.items():
-                if col not in combined.columns or col != "date":
+                # never replace the date column
+                if col == "date":
+                    continue
+                # only add new columns that are not already present
+                if col not in combined.columns:
                     combined[col] = series
 
             return combined.loc[:, ~combined.columns.duplicated(keep="first")]
@@ -453,9 +459,19 @@ class CacheManager:
         try:
             # settings may be a SimpleNamespace in tests; use getattr fallbacks
             if profile == "rolling":
-                round_dec = getattr(self.rolling_cfg, "round_decimals", None)
+                round_dec = getattr(
+                    getattr(self, "rolling_cfg", None), "round_decimals", None
+                )
             else:
-                round_dec = getattr(self.settings.cache, "round_decimals", None)
+                # Prefer nested settings.cache.round_decimals when available
+                round_dec = None
+                try:
+                    round_dec = getattr(self.settings.cache, "round_decimals", None)
+                except Exception:
+                    try:
+                        round_dec = getattr(self.settings, "round_decimals", None)
+                    except Exception:
+                        round_dec = None
             df_to_write = round_dataframe(df, round_dec)
 
             if path.suffix == ".parquet":
@@ -802,6 +818,7 @@ def load_base_cache(
     cache_manager: CacheManager | None = None,
     min_last_date: pd.Timestamp | None = None,
     allowed_recent_dates: Iterable[object] | None = None,
+    prefer_precomputed_indicators: bool = True,
 ) -> pd.DataFrame | None:
     """Loads base cache, with optional freshness validation and rebuilding."""
     cm = cache_manager or _get_default_cache_manager()
@@ -847,6 +864,41 @@ def load_base_cache(
             or _read_legacy_cache(symbol)
         )
         if raw is not None and not raw.empty:
+            # If caller prefers to reuse precomputed indicator columns and
+            # the raw frame appears to contain indicator columns, avoid
+            # calling expensive `compute_base_indicators` and save the raw
+            # data as the base cache directly.
+            try:
+                lc_cols = {c.lower() for c in raw.columns}
+            except Exception:
+                lc_cols = set()
+
+            has_any_indicator = any((col in lc_cols) for col in MAIN_INDICATOR_COLUMNS)
+            if prefer_precomputed_indicators and has_any_indicator:
+                out = raw.copy()
+                # Normalize date column name to 'Date' for base cache consistency
+                if "date" in out.columns and "Date" not in out.columns:
+                    out = out.rename(columns={"date": "Date"})
+                # If index is a DatetimeIndex and there's no Date column, expose it
+                if "Date" not in out.columns and isinstance(
+                    out.index, pd.DatetimeIndex
+                ):
+                    try:
+                        out = out.reset_index()
+                        # ensure the date column is named 'Date'
+                        if out.columns[0].lower() == "index":
+                            out = out.rename(columns={out.columns[0]: "Date"})
+                    except Exception:
+                        pass
+                try:
+                    save_base_cache(symbol, out, cm.settings)
+                except Exception:
+                    # fallback to computing indicators if saving fails
+                    out = compute_base_indicators(raw)
+                    save_base_cache(symbol, out, cm.settings)
+                return out
+
+            # otherwise compute indicators normally
             out = compute_base_indicators(raw)
             save_base_cache(symbol, out, cm.settings)
             return out
