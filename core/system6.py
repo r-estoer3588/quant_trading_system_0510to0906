@@ -277,23 +277,45 @@ def prepare_data_vectorized_system6(
             cached = _load_system6_cache(cache_path)
 
         try:
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = df[df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
-                else:
-                    context_start = last_date - pd.Timedelta(days=50)
-                    recompute_src = df[df.index >= context_start]
-                    recomputed = _calc_indicators(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    result_df = result_df.loc[~result_df.index.duplicated(keep="last")].sort_index()
+            # Fast-path: 共有指標が既にある場合は再計算を省略
+            if reuse_indicators and all(c in df.columns for c in ("ATR10", "DollarVolume50")):
+                x = df.loc[:, SYSTEM6_BASE_COLUMNS + ["ATR10", "DollarVolume50"]].copy()
+                x = x.sort_index()
+                x["Return6D"] = x["Close"].pct_change(6)
+                x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
+                    x["Close"].shift(1) > x["Close"].shift(2)
+                )
+                x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
+                x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
+                x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
+                x = x.loc[~x.index.duplicated()].sort_index()
+                x.index = pd.to_datetime(x.index).tz_localize(None)
+                x.index.name = "Date"
+                result_df = x
+                _save_system6_cache(cache_path, result_df)
+                result_dict[sym] = result_df
+                buffer.append(sym)
             else:
-                result_df = _calc_indicators(df)
-            _save_system6_cache(cache_path, result_df)
-            result_dict[sym] = result_df
-            buffer.append(sym)
+                # 通常パス（キャッシュ差分再計算 or フル計算）
+                if cached is not None and not cached.empty:
+                    last_date = cached.index.max()
+                    new_rows = df[df.index > last_date]
+                    if new_rows.empty:
+                        result_df = cached
+                    else:
+                        context_start = last_date - pd.Timedelta(days=50)
+                        recompute_src = df[df.index >= context_start]
+                        recomputed = _calc_indicators(recompute_src)
+                        recomputed = recomputed[recomputed.index > last_date]
+                        result_df = pd.concat([cached, recomputed])
+                        result_df = result_df.loc[
+                            ~result_df.index.duplicated(keep="last")
+                        ].sort_index()
+                else:
+                    result_df = _calc_indicators(df)
+                _save_system6_cache(cache_path, result_df)
+                result_dict[sym] = result_df
+                buffer.append(sym)
         except ValueError as e:
             skipped += 1
             # 分類: insufficient_rows or calc_error

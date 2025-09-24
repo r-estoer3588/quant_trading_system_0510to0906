@@ -519,13 +519,16 @@ class CacheManager:
                     continue
 
                 lookback = int(_INDICATOR_MIN_OBSERVATIONS.get(col.lower(), 0))
-                # If the entire series is NaN, warn (indicator missing entirely)
-                if series.isna().all():
-                    warnings.append((col, 1.0))
-                    continue
 
                 # If series is shorter than lookback, skip — indicator not applicable
+                # This handles newly listed stocks where NaN is expected
                 if lookback and len(series) <= lookback:
+                    continue
+
+                # If the entire series is NaN, warn (indicator missing entirely)
+                # But only after confirming we have sufficient data length
+                if series.isna().all():
+                    warnings.append((col, 1.0))
                     continue
 
                 # Consider only the recent portion where values should be populated

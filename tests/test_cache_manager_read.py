@@ -113,7 +113,8 @@ def test_nan_rate_ignores_leading_window(tmp_path, caplog):
 
 def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
     cm = _build_cm(tmp_path)
-    dates = pd.date_range("2023-01-02", periods=20, freq="B")
+    # Use 30 periods which is sufficient for sma25 (requires 25)
+    dates = pd.date_range("2023-01-02", periods=30, freq="B")
     df = pd.DataFrame(
         {
             "date": dates,
@@ -122,7 +123,7 @@ def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
             "low": 99,
             "close": 100.5,
             "volume": 1_000_000,
-            "sma25": [np.nan] * len(dates),
+            "sma25": [np.nan] * len(dates),  # All NaN despite sufficient data length
         }
     )
     df.to_csv(tmp_path / "BBB.csv", index=False)
@@ -131,6 +132,36 @@ def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
         cm.read("BBB", "full")
 
     assert any("NaN率高" in message for message in caplog.messages)
+
+
+def test_nan_rate_no_warn_for_newly_listed_stocks(tmp_path, caplog):
+    """Test that NaN warnings are suppressed for newly listed stocks with insufficient data."""
+    cm = _build_cm(tmp_path)
+    # Use only 10 periods - insufficient for most indicators
+    dates = pd.date_range("2023-01-02", periods=10, freq="B")
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100.5,
+            "volume": 1_000_000,
+            # All these indicators require more data than available
+            "sma25": [np.nan] * len(dates),  # needs 25
+            "sma50": [np.nan] * len(dates),  # needs 50
+            "sma200": [np.nan] * len(dates),  # needs 200
+            "atr40": [np.nan] * len(dates),  # needs 41
+            "roc200": [np.nan] * len(dates),  # needs 201
+        }
+    )
+    df.to_csv(tmp_path / "NEWLY_LISTED.csv", index=False)
+
+    with caplog.at_level("WARNING", logger="common.cache_manager"):
+        cm.read("NEWLY_LISTED", "full")
+
+    # Should not warn about NaN rates for newly listed stocks
+    assert not any("NaN率高" in message for message in caplog.messages)
 
 
 def _prepare_enriched_prices(periods: int) -> pd.DataFrame:

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import json
 import math
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -83,7 +84,7 @@ def _safe_float(v: Any | None) -> float | None:
 def _fmt_money(x: Any | None) -> str:
     try:
         val = float(x) if x is not None and x != "" else 0.0
-        return f"{val:,.0f}"
+        return f"${val:,.0f}"
     except Exception:
         return str(x or "-")
 
@@ -155,11 +156,23 @@ EXIT_STATE_KEY = "ap_exit_state"
 AUTO_RULE_CONFIG: dict[str, dict[str, Any]] = {}
 
 # Hold limits by system (days) - empty by default
-HOLD_LIMITS: dict[str, int] = {}
+HOLD_LIMITS: dict[str, int] = {
+    "system1": 50,
+    "system2": 50,
+    "system3": 50,
+    "system4": 50,
+    "system5": 50,
+    "system6": 50,
+    "system7": 50,
+}
+
+# Debug mode toggle (can be set via environment variable or settings)
+DEBUG_MODE = os.getenv("ALPACA_DASHBOARD_DEBUG", "false").lower() in ("true", "1", "on")
 
 
 def calculate_business_holding_days(entry_dt: datetime | pd.Timestamp | str | None) -> int:
-    """Fallback for calculating holding days; accepts datetime, pandas Timestamp, or ISO date string.
+    """Fallback for calculating holding days; accepts datetime, pandas Timestamp,
+    or ISO date string.
 
     Returns 0 when unknown or on error.
     """
@@ -200,47 +213,326 @@ class Notifier:
 
 
 def _inject_css() -> None:
-    """Inject minimal dashboard CSS if not already provided."""
+    """Inject modern dashboard CSS with light/dark theme support."""
     try:
-        css = globals().get("DASHBOARD_CSS")
-        if not css:
-            css = """
-            <style>
-            .ap-title { font-size: 22px; font-weight:700; }
-            .ap-toolbar { margin-bottom: 8px; }
-            .ap-section { font-size:18px; margin:8px 0; }
-            .ap-badge.good { background:#e6ffef; padding:4px 8px; border-radius:6px; }
-            .ap-card {
-                background: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 8px;
-                padding: 16px;
-                text-align: center;
-                margin: 8px 0;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        css = """
+        <style>
+        /* CSS Variables for theme consistency */
+        :root {
+            --primary-color: #1f77b4;
+            --secondary-color: #ff7f0e;
+            --success-color: #2ca02c;
+            --danger-color: #d62728;
+            --warning-color: #ff9800;
+            --info-color: #17a2b8;
+            
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-card: #ffffff;
+            --border-color: #dee2e6;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --text-muted: #adb5bd;
+            
+            --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            --border-radius: 0.5rem;
+            --border-radius-sm: 0.375rem;
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 3rem;
+        }
+        
+        /* Dark theme support */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-primary: #1e1e1e;
+                --bg-secondary: #2d2d2d;
+                --bg-card: #2d2d2d;
+                --border-color: #404040;
+                --text-primary: #ffffff;
+                --text-secondary: #b3b3b3;
+                --text-muted: #808080;
             }
-            .ap-metric-icon { font-size: 24px; margin-bottom: 8px; }
-            .ap-metric-value { font-size: 28px; font-weight: bold; color: #495057; }
-            .ap-metric-label { font-size: 14px; color: #6c757d; }
-            .ap-stat-grid { display: flex; flex-direction: column; gap: 12px; }
-            .ap-stat-item {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 0;
-                border-bottom: 1px solid #e9ecef;
+        }
+        
+        /* Base layout improvements */
+        .main > div {
+            padding-top: var(--spacing-sm) !important;
+        }
+        
+        /* Typography */
+        .ap-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-md);
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .ap-section {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: var(--spacing-lg) 0 var(--spacing-md) 0;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: var(--spacing-sm);
+        }
+        
+        /* Toolbar */
+        .ap-toolbar {
+            position: sticky;
+            top: 0;
+            background: var(--bg-primary);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            padding: var(--spacing-md) 0;
+            margin-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Toolbar内のコンポーネント間隔調整 */
+        .ap-toolbar .stColumns {
+            gap: var(--spacing-md);
+        }
+        
+        .ap-toolbar .stButton > button {
+            height: 2.5rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            border-radius: var(--border-radius-sm);
+        }
+        
+        .ap-toolbar .stTimeInput > div > div > input {
+            height: 2rem;
+            font-size: 0.85rem;
+        }
+        
+        .ap-toolbar .stCheckbox {
+            margin-top: 0.25rem;
+        }
+        
+        /* Cards */
+        .ap-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-lg);
+            margin: var(--spacing-md) 0;
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s ease;
+        }
+        
+        .ap-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Metrics */
+        .ap-metric {
+            text-align: center;
+            padding: var(--spacing-lg);
+            background: var(--bg-card);
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+        }
+        
+        .ap-metric:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .ap-metric .label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xs);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .ap-metric .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-xs);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+        
+        .ap-metric .delta-pos {
+            color: var(--success-color);
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        
+        .ap-metric .delta-neg {
+            color: var(--danger-color);
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        
+        /* Metric components (for summary cards) */
+        .ap-metric-icon {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .ap-metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--text-primary);
+            text-align: center;
+            margin-bottom: var(--spacing-xs);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            line-height: 1.1;
+        }
+        
+        .ap-metric-label {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            text-align: center;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Badges */
+        .ap-badge {
+            display: inline-block;
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--border-radius-sm);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: var(--spacing-xs);
+        }
+        
+        .ap-badge.good {
+            background: rgba(44, 160, 44, 0.1);
+            color: var(--success-color);
+            border: 1px solid rgba(44, 160, 44, 0.3);
+        }
+        
+        .ap-badge.warn {
+            background: rgba(255, 152, 0, 0.1);
+            color: var(--warning-color);
+            border: 1px solid rgba(255, 152, 0, 0.3);
+        }
+        
+        .ap-badge.danger {
+            background: rgba(214, 39, 40, 0.1);
+            color: var(--danger-color);
+            border: 1px solid rgba(214, 39, 40, 0.3);
+        }
+        
+        /* Statistics */
+        .ap-stat-grid {
+            display: grid;
+            gap: var(--spacing-md);
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+        
+        .ap-stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .ap-stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .ap-stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .ap-stat-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .ap-stat-value {
+            font-weight: bold;
+            color: var(--text-primary);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+        
+        .ap-stat-value.green {
+            color: var(--success-color);
+        }
+        
+        .ap-stat-value.red {
+            color: var(--danger-color);
+        }
+        
+        /* Position table enhancements */
+        .stDataFrame {
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+        }
+        
+        /* Animation utilities */
+        .ap-fade {
+            animation: fadeIn 0.6s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
             }
-            .ap-stat-label { font-weight: 500; color: #495057; }
-            .ap-stat-value { font-weight: bold; }
-            .ap-stat-value.green { color: #28a745; }
-            .ap-stat-value.red { color: #dc3545; }
-            </style>
-            """
-        try:
-            st.markdown(css, unsafe_allow_html=True)
-        except Exception:
-            # If Streamlit not available (tests), ignore
-            pass
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Button enhancements */
+        .stButton > button {
+            border-radius: var(--border-radius-sm);
+            border: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Responsive improvements */
+        @media (max-width: 768px) {
+            .ap-title {
+                font-size: 1.5rem;
+            }
+            
+            .ap-metric .value {
+                font-size: 1.5rem;
+            }
+            
+            .ap-stat-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        </style>
+        """
+        st.markdown(css, unsafe_allow_html=True)
     except Exception:
         pass
 
@@ -472,6 +764,7 @@ def _days_held(entry_dt: pd.Timestamp | str | datetime | None) -> int | None:
     return calculate_business_holding_days(entry_dt)
 
 
+@st.cache_data(ttl=300)  # 5分間キャッシュ
 def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None:
     if not symbol:
         return None
@@ -507,9 +800,11 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             if not series.empty:
                 return list(series.values)
 
+    # フォールバック: プロジェクト規約に従った順序でCSVファイルを確認
     candidates = [
-        Path("data_cache_recent") / f"{symbol}.csv",
-        Path("data_cache") / f"{symbol}.csv",
+        Path("data_cache") / "base" / f"{symbol}.csv",  # 指標付与済み
+        Path("data_cache") / "full_backup" / f"{symbol}.csv",  # 原本
+        Path("data_cache") / f"{symbol}.csv",  # レガシーパス
     ]
     for p in candidates:
         if not p.exists():
@@ -832,18 +1127,48 @@ def _render_exit_actions(
     position_map: dict[str, Any],
     client: Any,
 ) -> None:
-    if df.empty or "_limit_reached" not in df.columns:
-        return
-    try:
-        mask = df["_limit_reached"].astype(bool)
-    except Exception:
-        mask = df["_limit_reached"].apply(lambda x: bool(x))
-    eligible = df[mask].copy()
-    if eligible.empty:
+    if df.empty:
         return
 
-    st.markdown("#### 経過日手仕切りの即時決済")
-    st.caption("保有日数が上限に達したポジションを成行注文で決済します。")
+    # 経過日数チェック可能なポジションがあるかどうか
+    has_limit_info = "_limit_days" in df.columns and "_limit_reached" in df.columns
+    if not has_limit_info:
+        return
+
+    # 上限日数に近いか、すでに到達したポジションを特定
+    eligible_df = df[
+        (df["_limit_days"].notna())
+        & (
+            df["_limit_reached"]
+            | (
+                df["保有日数"].notna()
+                & (
+                    pd.to_numeric(df["保有日数"], errors="coerce")
+                    >= pd.to_numeric(df["_limit_days"], errors="coerce") * 0.8
+                )
+            )
+        )
+    ].copy()
+
+    if eligible_df.empty:
+        return
+
+    st.markdown("#### 📅 経過日手仕切り管理")
+    st.caption("保有日数が上限に近づいているか到達したポジションの決済管理です。")
+
+    # 上限到達ポジション
+    limit_reached_df = eligible_df[eligible_df["_limit_reached"]].copy()
+
+    if not limit_reached_df.empty:
+        st.markdown("**⚠️ 上限到達（即時決済推奨）**")
+        try:
+            mask = df["_limit_reached"].astype(bool)
+        except Exception:
+            mask = df["_limit_reached"].apply(lambda x: bool(x))
+        eligible = df[mask].copy()
+    else:
+        st.markdown("**⏰ 上限接近中のポジション**")
+        eligible = eligible_df
 
     status_map: dict[str, Any] = st.session_state.setdefault(EXIT_STATE_KEY, {})
     is_na = getattr(pd, "isna", None)
@@ -1089,16 +1414,18 @@ def _group_by_system(
 
 def main() -> None:
     _inject_css()
-    # Debug banner to detect stale caching: shows page load timestamp
-    try:
-        debug_html = (
-            "<div style='position:fixed;right:8px;top:8px;background:#111;"
-            "padding:6px 10px;border-radius:6px;opacity:0.9;z-index:9999;"
-            "color:#9ae6b4;'>DEBUG " + datetime.now().isoformat() + "</div>"
-        )
-        st.markdown(debug_html, unsafe_allow_html=True)
-    except Exception:
-        pass
+
+    # Debug banner (only in debug mode)
+    if DEBUG_MODE:
+        try:
+            debug_html = (
+                "<div style='position:fixed;right:8px;top:8px;background:#111;"
+                "padding:6px 10px;border-radius:6px;opacity:0.9;z-index:9999;"
+                "color:#9ae6b4;'>DEBUG " + datetime.now().isoformat() + "</div>"
+            )
+            st.markdown(debug_html, unsafe_allow_html=True)
+        except Exception:
+            pass
 
     # タイトル＋ツールバー（右端に 手動更新 と 最終更新 を横並び）
     st.markdown(
@@ -1122,19 +1449,13 @@ def main() -> None:
             ]
         )
     )
+    # 改善されたツールバー（レイアウト衝突を修正）
     st.markdown("<div class='ap-toolbar ap-fade'>", unsafe_allow_html=True)
-    spacer, right = st.columns([7, 3])
-    with right:
-        bcol, tcol = st.columns([1.2, 1.8])
-        with bcol:
-            if st.button("🔄 手動更新", use_container_width=True):
-                st.rerun()
-        with tcol:
-            st.caption(f"最終更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    # スケジュール: 毎日実行の簡易トリガー
-    schedule_col1, schedule_col2 = st.columns([3, 1])
-    with schedule_col1:
-        st.caption("自動ルールのスケジュール")
+    toolbar_cols = st.columns([5, 2, 3])
+
+    # 左側：スケジュール関連
+    with toolbar_cols[0]:
+        st.caption("🕒 自動ルールスケジュール")
         saved = _load_schedule() or {}
         saved_time = None
         try:
@@ -1143,28 +1464,50 @@ def main() -> None:
                 saved_time = datetime.fromisoformat(saved_time_iso).time()
         except Exception:
             saved_time = None
-        run_time = st.time_input(
-            "毎日実行時刻 (ローカル)", value=saved_time or datetime.now().time()
-        )
-        # 単一のオプトインチェックボックス（ここでユーザーがON/OFFを操作する）
-        opt_in = st.checkbox(
-            "自動ルールに参加（オプトイン） — 経過日や損益閾値を満たした場合に自動決済を行う",
-            value=bool(saved.get("opt_in", False)),
-            key="auto_rule_opt_in",
-        )
-        if st.button("設定を保存", key="save_schedule"):
-            _save_schedule(
-                {
-                    "time": datetime.combine(datetime.now().date(), run_time).isoformat(),
-                    "opt_in": bool(opt_in),
-                }
+
+        # コンパクトなスケジュール設定
+        schedule_inner_cols = st.columns([2, 1.5, 1])
+        with schedule_inner_cols[0]:
+            run_time = st.time_input(
+                "実行時刻", value=saved_time or datetime.now().time(), label_visibility="collapsed"
             )
-            st.success("スケジュールを保存しました。")
-    if opt_in and st.button("自動ルールを今すぐ実行 (スケジュール)", key="auto_rule_run_schedule"):
-        st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
-    with schedule_col2:
-        last_run = st.session_state.get("last_auto_rule_run")
-        st.caption(f"最後の自動実行: {last_run or '未実行'}")
+        with schedule_inner_cols[1]:
+            opt_in = st.checkbox(
+                "参加",
+                value=bool(saved.get("opt_in", False)),
+                key="auto_rule_opt_in",
+                help="自動ルールに参加（経過日や損益閾値での自動決済）",
+            )
+        with schedule_inner_cols[2]:
+            if st.button("保存", key="save_schedule", use_container_width=True):
+                _save_schedule(
+                    {
+                        "time": datetime.combine(datetime.now().date(), run_time).isoformat(),
+                        "opt_in": bool(opt_in),
+                    }
+                )
+                st.success("スケジュール保存済", icon="✅")
+
+    # 中央：手動更新とステータス
+    with toolbar_cols[1]:
+        if st.button("🔄 手動更新", key="manual_refresh", use_container_width=True):
+            st.rerun()
+
+    # 右側：時刻表示
+    with toolbar_cols[2]:
+        st.caption(f"最終更新: {datetime.now().strftime('%H:%M:%S')}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # 自動ルール実行ボタン（スケジュールの下に分離）
+    if opt_in:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button("自動ルールを今すぐ実行 (スケジュール)", key="auto_rule_run_schedule"):
+                st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
+        with col2:
+            last_run = st.session_state.get("last_auto_rule_run")
+            st.caption(f"最後の自動実行: {last_run or '未実行'}")
 
     # 自動スケジュール検出（簡易）: ページロード時に時刻を過ぎていて未実行ならトリガー
     try:
@@ -1185,7 +1528,6 @@ def main() -> None:
                 st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
     except Exception:
         pass
-    st.markdown("</div>", unsafe_allow_html=True)
 
     try:
         client, account, positions = _fetch_account_and_positions()
@@ -1303,6 +1645,254 @@ def main() -> None:
 
     with tab_pos:
         st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
+
+        # ポジション一覧の表示
+        pos_df = _positions_to_df(positions, client)
+        pos_df = _attach_exit_levels(pos_df, client)
+
+        if not pos_df.empty:
+            numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
+            for col in numeric_cols:
+                if col in pos_df.columns:
+                    pos_df[col] = pd.to_numeric(pos_df[col], errors="coerce")
+
+        if pos_df.empty:
+            st.info("ポジションはありません。")
+        else:
+            # ポジション統計サマリ
+            total_positions = len(pos_df)
+            try:
+                total_pnl = pos_df["含み損益"].sum() if "含み損益" in pos_df.columns else 0
+                winning_positions = (
+                    len(pos_df[pos_df["含み損益"] > 0]) if "含み損益" in pos_df.columns else 0
+                )
+                losing_positions = (
+                    len(pos_df[pos_df["含み損益"] < 0]) if "含み損益" in pos_df.columns else 0
+                )
+            except Exception:
+                total_pnl = 0
+                winning_positions = 0
+                losing_positions = 0
+
+            # サマリ表示
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("保有銘柄数", total_positions)
+            with col2:
+                st.metric("合計含み損益", f"${total_pnl:,.0f}")
+            with col3:
+                st.metric(
+                    "勝ちポジション",
+                    f"{winning_positions}銘柄",
+                    delta=f"{winning_positions}/{total_positions}",
+                )
+            with col4:
+                st.metric(
+                    "負けポジション",
+                    f"{losing_positions}銘柄",
+                    delta=f"-{losing_positions}/{total_positions}",
+                )
+
+            # システム絞り込み
+            if "システム" in pos_df.columns:
+                raw_systems = pos_df["システム"].fillna("unknown").unique()
+                systems = sorted(str(s) for s in raw_systems)
+                selected = st.multiselect(
+                    "システム絞り込み", systems, default=systems, key="pos_filter_systems"
+                )
+                pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
+
+            # 派生列: 損益率(%)
+            try:
+
+                def _pnl_ratio(r):
+                    try:
+                        p = float(r.get("現在値", 0))
+                        a = float(r.get("平均取得単価", 0))
+                        return (p / a - 1) * 100 if a else 0.0
+                    except Exception:
+                        return 0.0
+
+                pos_df["損益率(%)"] = pos_df.apply(_pnl_ratio, axis=1)
+            except Exception:
+                pass
+
+            # 並び替え
+            sort_key = st.selectbox(
+                "並び替え", ["含み損益", "損益率(%)", "保有日数", "銘柄"], index=0, key="pos_sort"
+            )
+            ascending = st.toggle("昇順", value=False, key="pos_asc")
+            try:
+                pos_df = pos_df.sort_values(sort_key, ascending=ascending)
+            except Exception:
+                pass
+
+            # 表示用データフレームの準備
+            display_df = pos_df.drop(columns=["_limit_days", "_limit_reached"], errors="ignore")
+
+            # カラム設定
+            col_cfg: dict[str, Any] = {}
+            if "数量" in display_df.columns:
+                col_cfg["数量"] = st.column_config.NumberColumn(format="%.0f")
+            if "平均取得単価" in display_df.columns:
+                col_cfg["平均取得単価"] = st.column_config.NumberColumn(format="%.2f")
+            if "現在値" in display_df.columns:
+                col_cfg["現在値"] = st.column_config.NumberColumn(format="%.2f")
+            if "含み損益" in display_df.columns:
+                col_cfg["含み損益"] = st.column_config.NumberColumn(format="%.2f")
+            if "損益率(%)" in display_df.columns:
+                col_cfg["損益率(%)"] = st.column_config.ProgressColumn(
+                    min_value=-20, max_value=20, format="%.1f%%"
+                )
+            if "ストップ価格" in display_df.columns:
+                col_cfg["ストップ価格"] = st.column_config.Column(
+                    width="medium",
+                    help="未約定のストップ系注文価格（複数は / 区切り表示）。",
+                )
+            if "リミット価格" in display_df.columns:
+                col_cfg["リミット価格"] = st.column_config.Column(
+                    width="medium",
+                    help="未約定のリミット/テイクプロフィット注文価格（複数は / 区切り表示）。",
+                )
+            if "直近価格チャート" in display_df.columns:
+                col_cfg["直近価格チャート"] = st.column_config.LineChartColumn(
+                    label="直近価格チャート",
+                    width="small",
+                    help="過去数週間の終値推移をスパークラインで表示します。",
+                )
+
+            # データフレームの表示
+            try:
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config=col_cfg,
+                )
+            except Exception:
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            # CSV ダウンロード
+            try:
+                out_df = pos_df.drop(columns=["_limit_days", "_limit_reached"], errors="ignore")
+                csv = out_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
+            except Exception:
+                pass
+
+            # 経過日手仕切りアクション
+            _render_exit_actions(pos_df, position_map, client)
+
+        # 自動ルールのトリガー処理（オプトイン + 実行ボタンで動作）
+        if st.session_state.get("auto_rule_trigger"):
+            trigger_ts = st.session_state.pop("auto_rule_trigger", None)
+            st.info(f"自動ルールを実行中 (トリガー: {trigger_ts})")
+            auto_rows = []
+            try:
+                for _, r in pos_df.iterrows():
+                    try:
+                        limit_reached = bool(r.get("_limit_reached"))
+                    except Exception:
+                        limit_reached = False
+                    pnl_pct = 0.0
+                    try:
+                        pnl_pct = float(r.get("損益率(%)", 0.0))
+                    except Exception:
+                        pnl_pct = 0.0
+                    system_name = str(r.get("システム", "")).strip() or "unknown"
+                    cfg = AUTO_RULE_CONFIG.get(system_name, {})
+                    threshold = float(cfg.get("pnl_threshold", -20.0))
+                    partial_pct = int(cfg.get("partial_pct", 100))
+                    if limit_reached or pnl_pct <= threshold:
+                        sym = str(r.get("銘柄", "")).upper()
+                        pos = position_map.get(sym)
+                        qty = _parse_exit_quantity(pos) if pos is not None else None
+                        if qty:
+                            apply_qty = max(1, int(qty * partial_pct / 100))
+                            auto_rows.append(
+                                {
+                                    "symbol": sym,
+                                    "qty": apply_qty,
+                                    "position_side": getattr(pos, "side", ""),
+                                    "system": r.get("システム", ""),
+                                    "when": "today_close",
+                                }
+                            )
+            except Exception:
+                auto_rows = []
+
+            if auto_rows:
+                try:
+                    df_auto = pd.DataFrame(auto_rows)
+                    res = submit_exit_orders_df(df_auto, paper=True, tif="CLS", notify=True)
+                    st.success(f"自動ルールによるまとめて決済を送信しました ({len(res)} 件)")
+                    for r in auto_rows:
+                        _push_order_log(
+                            {
+                                "symbol": r["symbol"],
+                                "status": "auto_submitted",
+                                "msg": "auto rule exit",
+                            }
+                        )
+                        _mark_sent_today(r["symbol"])
+                    try:
+                        nd = _load_notify_settings() or {}
+                        notifier = Notifier(
+                            platform=nd.get("platform", "auto"),
+                            webhook_url=nd.get("webhook_url"),
+                        )
+                        syms = ", ".join([r["symbol"] for r in auto_rows])
+                        notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
+                    except Exception:
+                        pass
+                    # 記録: 最終自動実行時刻
+                    try:
+                        st.session_state["last_auto_rule_run"] = datetime.now().isoformat()
+                    except Exception:
+                        pass
+                except Exception as e:
+                    st.error(f"自動ルール決済に失敗しました: {e}")
+
+        # 未約定注文の一覧とキャンセル（ポジションタブ下部）
+        st.markdown("---")
+        st.markdown("#### 未約定注文の確認とキャンセル")
+        try:
+            open_orders = list(client.get_orders(status="open"))
+        except Exception:
+            open_orders = []
+        if not open_orders:
+            st.info("未約定注文はありません。")
+        else:
+            try:
+                rows = [
+                    {
+                        "symbol": getattr(o, "symbol", ""),
+                        "qty": getattr(o, "qty", ""),
+                        "side": getattr(o, "side", ""),
+                        "type": getattr(o, "type", ""),
+                        "id": getattr(o, "id", ""),
+                    }
+                    for o in open_orders
+                ]
+                st.table(pd.DataFrame(rows))
+            except Exception:
+                st.write(open_orders)
+            c1, c2 = st.columns([3, 1])
+            with c2:
+                if st.button("未約定を全てキャンセル", key="cancel_all_orders"):
+                    try:
+                        ba.cancel_all_orders(client)
+                        st.success("未約定注文をキャンセルしました。")
+                        _push_order_log(
+                            {
+                                "symbol": "ALL",
+                                "status": "cancelled",
+                                "msg": "cancel all open orders",
+                            }
+                        )
+                    except Exception as e:
+                        st.error(f"キャンセルに失敗しました: {e}")
+
         # ...existing code...
         # 通知設定 UI
         with st.expander("通知設定"):
@@ -1438,301 +2028,6 @@ def main() -> None:
         )
     if st.button("自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual"):
         st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
-
-    pos_df = _positions_to_df(positions, client)
-    pos_df = _attach_exit_levels(pos_df, client)
-    if not pos_df.empty:
-        numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
-        for col in numeric_cols:
-            if col in pos_df.columns:
-                pos_df[col] = pd.to_numeric(pos_df[col], errors="coerce")
-    if pos_df.empty:
-        st.info("ポジションはありません。")
-    else:
-        try:
-            st.caption(f"[DEBUG] entering display branch: pos_df rows={len(pos_df)}")
-        except Exception:
-            pass
-        # 自動ルールのトリガー処理（オプトイン + 実行ボタンで動作）
-        if st.session_state.get("auto_rule_trigger"):
-            trigger_ts = st.session_state.pop("auto_rule_trigger", None)
-            st.info(f"自動ルールを実行中 (トリガー: {trigger_ts})")
-            auto_rows = []
-            try:
-                for _, r in pos_df.iterrows():
-                    try:
-                        limit_reached = bool(r.get("_limit_reached"))
-                    except Exception:
-                        limit_reached = False
-                    pnl_pct = 0.0
-                    try:
-                        pnl_pct = float(r.get("損益率(%)", 0.0))
-                    except Exception:
-                        pnl_pct = 0.0
-                    system_name = str(r.get("システム", "")).strip() or "unknown"
-                    cfg = AUTO_RULE_CONFIG.get(system_name, {})
-                    threshold = float(cfg.get("pnl_threshold", -20.0))
-                    partial_pct = int(cfg.get("partial_pct", 100))
-                    if limit_reached or pnl_pct <= threshold:
-                        sym = str(r.get("銘柄", "")).upper()
-                        pos = position_map.get(sym)
-                        qty = _parse_exit_quantity(pos) if pos is not None else None
-                        if qty:
-                            apply_qty = max(1, int(qty * partial_pct / 100))
-                            auto_rows.append(
-                                {
-                                    "symbol": sym,
-                                    "qty": apply_qty,
-                                    "position_side": getattr(pos, "side", ""),
-                                    "system": r.get("システム", ""),
-                                    "when": "today_close",
-                                }
-                            )
-            except Exception:
-                auto_rows = []
-
-            if auto_rows:
-                try:
-                    df_auto = pd.DataFrame(auto_rows)
-                    res = submit_exit_orders_df(df_auto, paper=True, tif="CLS", notify=True)
-                    st.success(f"自動ルールによるまとめて決済を送信しました ({len(res)} 件)")
-                    for r in auto_rows:
-                        _push_order_log(
-                            {
-                                "symbol": r["symbol"],
-                                "status": "auto_submitted",
-                                "msg": "auto rule exit",
-                            }
-                        )
-                        _mark_sent_today(r["symbol"])
-                    try:
-                        nd = _load_notify_settings() or {}
-                        notifier = Notifier(
-                            platform=nd.get("platform", "auto"),
-                            webhook_url=nd.get("webhook_url"),
-                        )
-                        syms = ", ".join([r["symbol"] for r in auto_rows])
-                        notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
-                    except Exception:
-                        pass
-                    # 記録: 最終自動実行時刻
-                    try:
-                        st.session_state["last_auto_rule_run"] = datetime.now().isoformat()
-                    except Exception:
-                        pass
-                except Exception as e:
-                    st.error(f"自動ルール決済に失敗しました: {e}")
-            # システム絞り込み
-            if "システム" in pos_df.columns:
-                raw_systems = pos_df["システム"].fillna("unknown").unique()
-                systems = sorted(str(s) for s in raw_systems)
-                selected = st.multiselect("システム絞り込み", systems, default=systems)
-                pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
-
-            numeric_cols = ["数量", "平均取得単価", "現在値", "含み損益"]
-            for col in numeric_cols:
-                if col in pos_df.columns:
-                    pos_df[col] = pd.to_numeric(pos_df[col], errors="coerce")
-
-            # 派生列: 損益率(%)
-            try:
-
-                def _pnl_ratio(r):
-                    try:
-                        p = float(r.get("現在値", 0))
-                        a = float(r.get("平均取得単価", 0))
-                        return (p / a - 1) * 100 if a else 0.0
-                    except Exception:
-                        return 0.0
-
-                pos_df["損益率(%)"] = pos_df.apply(_pnl_ratio, axis=1)
-            except Exception:
-                pass
-
-            # 並び替え
-            sort_key = st.selectbox(
-                "並び替え", ["含み損益", "損益率(%)", "保有日数", "銘柄"], index=0, key="pos_sort"
-            )
-            ascending = st.toggle("昇順", value=False, key="pos_asc")
-            try:
-                pos_df = pos_df.sort_values(sort_key, ascending=ascending)
-            except Exception:
-                pass
-
-            _render_exit_actions(pos_df, position_map, client)
-
-            # 行スタイル（損益で淡い緑/赤, 透明度 0.14）
-            def _row_style(row):
-                try:
-                    pl = float(row.get("含み損益", 0))
-                except Exception:
-                    pl = 0.0
-                bg = (
-                    "rgba(0,230,168,.14)"
-                    if pl > 0
-                    else ("rgba(255,107,107,.14)" if pl < 0 else "transparent")
-                )
-                return [f"background-color: {bg}"] * len(row)
-
-            # Temporary debug: dump a small sample so we can see raw data in the UI
-            try:
-                st.write(pos_df.head())
-            except Exception:
-                st.caption("[DEBUG] st.write(pos_df.head()) failed")
-
-            display_df = pos_df.drop(
-                columns=["_limit_days", "_limit_reached"],
-                errors="ignore",
-            )
-            # Debug fallback: show a simple table to rule out CSS/styler hiding
-            try:
-                st.caption("[DEBUG] rendering simple fallback table below")
-                st.table(display_df.head())
-            except Exception:
-                st.caption("[DEBUG] st.table(display_df.head()) failed")
-            try:
-                st.caption(f"[DEBUG] display_df shape: {display_df.shape}")
-            except Exception:
-                pass
-            try:
-                display_df["数量"] = pd.to_numeric(display_df["数量"], errors="coerce")
-            except Exception:
-                pass
-
-            from typing import Any, cast
-
-            format_columns = {
-                "数量": "{:,.0f}",
-                "平均取得単価": "{:,.2f}",
-                "現在値": "{:,.2f}",
-                "含み損益": "{:,.2f}",
-            }
-            styler = display_df.style.apply(_row_style, axis=1)
-            # cast to Any to satisfy static type checkers about formatter mapping
-            styler = styler.format(cast(Any, format_columns))
-
-            # 表示（スパークライン列は LineChartColumn）
-            try:
-                # column_config は存在する列のみを含める
-                col_cfg: dict[str, Any] = {}
-                if "数量" in display_df.columns:
-                    col_cfg["数量"] = st.column_config.NumberColumn(format="%.0f")
-                if "平均取得単価" in display_df.columns:
-                    col_cfg["平均取得単価"] = st.column_config.NumberColumn(format="%.2f")
-                if "現在値" in display_df.columns:
-                    col_cfg["現在値"] = st.column_config.NumberColumn(format="%.2f")
-                if "含み損益" in display_df.columns:
-                    col_cfg["含み損益"] = st.column_config.NumberColumn(format="%.2f")
-                if "損益率(%)" in display_df.columns:
-                    col_cfg["損益率(%)"] = st.column_config.ProgressColumn(
-                        min_value=-20, max_value=20, format="%.1f%%"
-                    )
-                if "ストップ価格" in display_df.columns:
-                    col_cfg["ストップ価格"] = st.column_config.Column(
-                        width="medium",
-                        help="未約定のストップ系注文価格（複数は / 区切り表示）。",
-                    )
-                if "リミット価格" in display_df.columns:
-                    col_cfg["リミット価格"] = st.column_config.Column(
-                        width="medium",
-                        help=(
-                            "未約定のリミット/テイクプロフィット注文価格（複数は / 区切り表示）。"
-                        ),
-                    )
-                if "直近価格チャート" in display_df.columns:
-                    col_cfg["直近価格チャート"] = st.column_config.LineChartColumn(
-                        label="直近価格チャート",
-                        width="small",
-                        help="過去数週間の終値推移をスパークラインで表示します。",
-                    )
-
-                try:
-                    st.caption(
-                        f"[DEBUG] about to st.dataframe; col_cfg keys={list(col_cfg.keys())}"
-                    )
-                    try:
-                        st.write(styler)
-                    except Exception:
-                        st.caption("[DEBUG] st.write(styler) failed")
-                    st.dataframe(
-                        styler,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config=col_cfg,
-                    )
-                except Exception as e:
-                    st.caption(f"[DEBUG] st.dataframe with styler raised: {e}")
-                    raise
-            except Exception:
-                fallback_df = pos_df.drop(
-                    columns=["_limit_days", "_limit_reached"],
-                    errors="ignore",
-                )
-                st.dataframe(fallback_df, use_container_width=True, hide_index=True)
-
-            # CSV ダウンロード
-            try:
-                try:
-                    from config.settings import get_settings
-
-                    settings2 = get_settings(create_dirs=True)
-                    round_dec = getattr(settings2.cache, "round_decimals", None)
-                except Exception:
-                    round_dec = None
-                try:
-                    from common.cache_manager import round_dataframe
-
-                    out_df = round_dataframe(pos_df, round_dec)
-                except Exception:
-                    out_df = pos_df
-                out_df = out_df.drop(
-                    columns=["_limit_days", "_limit_reached"],
-                    errors="ignore",
-                )
-                csv = out_df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
-            except Exception:
-                pass
-
-            # 未約定注文の一覧とキャンセル（ポジションタブ下部）
-            st.markdown("---")
-            st.markdown("#### 未約定注文の確認とキャンセル")
-            try:
-                open_orders = list(client.get_orders(status="open"))
-            except Exception:
-                open_orders = []
-            if not open_orders:
-                st.info("未約定注文はありません。")
-            else:
-                try:
-                    rows = [
-                        {
-                            "symbol": getattr(o, "symbol", ""),
-                            "qty": getattr(o, "qty", ""),
-                            "side": getattr(o, "side", ""),
-                            "type": getattr(o, "type", ""),
-                            "id": getattr(o, "id", ""),
-                        }
-                        for o in open_orders
-                    ]
-                    st.table(pd.DataFrame(rows))
-                except Exception:
-                    st.write(open_orders)
-                c1, c2 = st.columns([3, 1])
-                with c2:
-                    if st.button("未約定を全てキャンセル", key="cancel_all_orders"):
-                        try:
-                            ba.cancel_all_orders(client)
-                            st.success("未約定注文をキャンセルしました。")
-                            _push_order_log(
-                                {
-                                    "symbol": "ALL",
-                                    "status": "cancelled",
-                                    "msg": "cancel all open orders",
-                                }
-                            )
-                        except Exception as e:
-                            st.error(f"キャンセルに失敗しました: {e}")
 
     with tab_summary:
         st.markdown("<div class='ap-section'>📊 サマリー指標</div>", unsafe_allow_html=True)

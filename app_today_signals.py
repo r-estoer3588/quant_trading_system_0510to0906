@@ -35,7 +35,7 @@ from common.symbol_universe import build_symbol_universe_from_settings
 from common.system_groups import format_group_counts, format_group_counts_and_values
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
-from common.utils_spy import get_latest_nyse_trading_day
+from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
 import scripts.run_all_systems_today as _run_today_mod
 
@@ -1830,6 +1830,35 @@ def _configure_today_logger_ui() -> None:
 
 
 def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
+    # 実行開始時のヘッダーメッセージを表示
+    today = get_signal_target_trading_day().normalize()
+    try:
+        import uuid
+
+        run_id = str(uuid.uuid4())[:8]
+    except Exception:
+        run_id = "--------"
+
+    # 仮のloggerを作成してヘッダーメッセージを表示
+    temp_start_time = time.time()
+    temp_progress_ui = ProgressUI({})
+    temp_logger = UILogger(temp_start_time, temp_progress_ui)
+
+    # 営業日と注意事項の表示
+    temp_logger.log(f"📅 対象営業日（NYSE）: {today.date()}")
+    temp_logger.log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
+
+    # ヘッダーメッセージの表示
+    temp_logger.log("####################################################################")
+    temp_logger.log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀")
+
+    # 時刻とRUN-ID、銘柄数の表示
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    symbols_count = len(run_config.symbols) if run_config.symbols else 0
+    temp_logger.log(f"# ⏱️ {now_str} | 銘柄数：{symbols_count}　| RUN-ID: {run_id}")
+    temp_logger.log("####################################################################")
+
+    # 既存の処理を継続
     indicator_days = _indicator_requirements()
     max_days = _rows_needed(indicator_days)
     start_time = time.time()
@@ -1841,7 +1870,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     callbacks = RunCallbacks(logger, progress_ui, stage_tracker)
     callbacks.register_with_module()
     _configure_today_logger_ui()
-    logger.log("▶ 本日のシグナル: シグナル検出処理開始")
     buffer_days = max(20, int(max_days * 0.15))
     rows_needed = max_days + buffer_days
     symbols_for_data = list(dict.fromkeys([*run_config.symbols, "SPY"]))
@@ -1850,6 +1878,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     per_system: dict[str, pd.DataFrame] = {}
     debug_result: RunArtifacts | None = None
     with st.spinner("実行中... (経過時間表示あり)"):
+        logger.log("▶ 本日のシグナル: シグナル検出処理開始")
         symbol_data_map, missing_details = _prepare_symbol_data(
             symbols_for_data,
             rows_needed,

@@ -387,7 +387,39 @@ def prepare_data_vectorized_system3(
             _on_symbol_done()
             continue
 
+        # Fast-path: 共有指標が既にある場合は再計算を省略
         try:
+            if reuse_indicators and all(
+                c in prepared_df.columns for c in ("SMA150", "ATR10", "AvgVolume50", "ATR_Ratio")
+            ):
+                x = prepared_df.copy(deep=False)
+                if "Drop3D" not in x.columns:
+                    if "Return_3D" in x.columns:
+                        try:
+                            x["Drop3D"] = -(pd.to_numeric(x["Return_3D"], errors="coerce"))
+                        except Exception:
+                            close_num = pd.to_numeric(x["Close"], errors="coerce")
+                            x["Drop3D"] = -(close_num.pct_change(3))
+                    else:
+                        close_num = pd.to_numeric(x["Close"], errors="coerce")
+                        x["Drop3D"] = -(close_num.pct_change(3))
+                cond_price = x["Low"] >= 1
+                cond_volume = x["AvgVolume50"] >= 1_000_000
+                cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
+                x["filter"] = cond_price & cond_volume & cond_atr
+                cond_close = x["Close"] > x["SMA150"]
+                cond_drop = x["Drop3D"] >= 0.125
+                x["setup"] = (x["filter"] & cond_close & cond_drop).astype(int)
+                result_df = x
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+                result_dict[sym] = result_df
+                _on_symbol_done(sym, include_in_buffer=True)
+                continue
+
+            # 通常パス（キャッシュ差分再計算 or フル計算）
             if cached is not None and not cached.empty:
                 last_date = cached.index.max()
                 new_rows = prepared_df[prepared_df.index > last_date]

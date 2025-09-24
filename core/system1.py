@@ -238,6 +238,73 @@ def prepare_data_vectorized_system1(
     """
     import os
 
+    # Fast-path for today-mode: if frames already include the indicators from
+    # rolling/shared precompute, just ensure filter/setup exist and return.
+    try:
+        if reuse_indicators and isinstance(raw_data_dict, dict) and raw_data_dict:
+            required = {"SMA25", "SMA50", "ROC200", "ATR20", "DollarVolume20"}
+            out_fast: dict[str, pd.DataFrame] = {}
+            missing: dict[str, pd.DataFrame] = {}
+
+            for sym, df in raw_data_dict.items():
+                try:
+                    if df is None or df.empty:
+                        missing[sym] = df
+                        continue
+                    x = _rename_ohlcv(df)
+                    # normalize index
+                    try:
+                        if "Date" in x.columns:
+                            x.index = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                        else:
+                            x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+                        x = x[~x.index.isna()].sort_index()
+                    except Exception:
+                        pass
+                    have = set(x.columns)
+                    if not {"Close", "High", "Low", "Volume"}.issubset(have):
+                        missing[sym] = df
+                        continue
+                    if not required.issubset(have):
+                        missing[sym] = df
+                        continue
+                    # derive filter/setup if absent
+                    if "filter" not in x.columns:
+                        try:
+                            x["filter"] = (x["Low"] >= 5) & (x["DollarVolume20"] > 50_000_000)
+                        except Exception:
+                            x["filter"] = False
+                    if "setup" not in x.columns:
+                        try:
+                            x["setup"] = x["filter"] & (x["SMA25"] > x["SMA50"])
+                        except Exception:
+                            x["setup"] = False
+                    out_fast[str(sym)] = x
+                except Exception:
+                    missing[str(sym)] = df
+
+            if len(out_fast) == len(raw_data_dict):
+                return out_fast
+            result_dict: dict[str, pd.DataFrame] = {}
+            result_dict.update(out_fast)
+            if missing:
+                computed = prepare_data_vectorized_system1(
+                    missing,
+                    progress_callback=progress_callback,
+                    log_callback=log_callback,
+                    skip_callback=skip_callback,
+                    batch_size=batch_size,
+                    reuse_indicators=False,
+                    symbols=list(missing.keys()),
+                    use_process_pool=use_process_pool,
+                    max_workers=max_workers,
+                    **kwargs,
+                )
+                result_dict.update(computed)
+            return result_dict
+    except Exception:
+        pass
+
     cache_dir = "data_cache/indicators_system1_cache"
     os.makedirs(cache_dir, exist_ok=True)
 

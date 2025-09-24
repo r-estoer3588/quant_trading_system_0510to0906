@@ -494,7 +494,21 @@ def _log(msg: str, ui: bool = True):
 
     # キーワードによる除外判定（全体）
     try:
-        if any(k in str(msg) for k in _GLOBAL_SKIP_KEYWORDS):
+        import os as _os
+
+        # SHOW_INDICATOR_LOGS が真でない限り、インジケーター系の進捗ログを抑制
+        _show_ind_logs = (_os.environ.get("SHOW_INDICATOR_LOGS") or "").strip().lower()
+        _hide_indicator_logs = _show_ind_logs not in {"1", "true", "yes", "on"}
+        _indicator_skip = (
+            "インジケーター計算",
+            "指標計算",
+            "共有指標",
+            "指標データロード",
+            "📊 指標計算",
+            "🧮 共有指標",
+        )
+        _skip_all = _GLOBAL_SKIP_KEYWORDS + (_indicator_skip if _hide_indicator_logs else ())
+        if any(k in str(msg) for k in _skip_all):
             return
         ui_allowed = ui and not any(k in str(msg) for k in _UI_ONLY_SKIP_KEYWORDS)
     except Exception:
@@ -1784,7 +1798,6 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     cache_dir = ctx.cache_dir
     log_callback = ctx.log_callback
     progress_callback = ctx.progress_callback
-    run_id = ctx.run_id
 
     if initial_symbols and len(initial_symbols) > 0:
         symbols = [s.upper() for s in initial_symbols]
@@ -1857,36 +1870,13 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
         symbols.insert(0, "SPY")
     ctx.symbol_universe = list(symbols)
 
-    # Run start banner (CLI only)
-    try:
-        print("#" * 68, flush=True)
-    except Exception:
-        pass
-    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
-    try:
-        import time as _time
-
-        now_str = _time.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        now_str = ""
     try:
         universe_total = sum(1 for s in symbols if str(s).upper() != "SPY")
     except Exception:
         universe_total = len(symbols)
-    _log(
-        f"# ⏱️ {now_str} | 銘柄数：{universe_total}　| RUN-ID: {run_id}",
-        ui=False,
-    )
-    try:
-        print("#" * 68 + "\n", flush=True)
-    except Exception:
-        pass
 
-    _log(
-        f"🎯 対象シンボル数: {len(symbols)}"
-        f" | サンプル: {', '.join(symbols[:10])}"
-        f"{'...' if len(symbols) > 10 else ''}"
-    )
+    _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数：{universe_total}")
+    _log(f"📋 サンプル: {', '.join(symbols[:10])}" f"{'...' if len(symbols) > 10 else ''}")
 
     if log_callback:
         try:
@@ -1966,6 +1956,32 @@ def _precompute_shared_indicators_phase(
             PRECOMPUTED_INDICATORS,
             precompute_shared_indicators,
         )
+
+        # Rolling データに既に指標が含まれているかチェック
+        sample_symbols = list(basic_data.keys())[:5]  # サンプル数銘柄をチェック
+        indicators_already_exist = True
+        required_indicators = {
+            "ATR10",
+            "ATR20",
+            "SMA25",
+            "SMA50",
+            "RSI4",
+            "ROC200",
+            "DollarVolume20",
+        }
+
+        for sym in sample_symbols:
+            df = basic_data[sym]
+            if df is None or df.empty:
+                continue
+            existing_cols = set(df.columns)
+            if not required_indicators.issubset(existing_cols):
+                indicators_already_exist = False
+                break
+
+        if indicators_already_exist:
+            _log("🧮 共有指標の前計算: スキップ（rollingデータに既に指標が含まれています）")
+            return basic_data
 
         try:
             thr_syms = int(_os.environ.get("PRECOMPUTE_SYMBOLS_THRESHOLD", "300"))
@@ -3013,6 +3029,25 @@ def compute_today_signals(
     # 対象とするNYSE営業日
     today = get_signal_target_trading_day().normalize()
     ctx.today = today
+
+    # Run start banner (CLI only) - 最初に実行開始メッセージを表示
+    try:
+        print("#" * 68, flush=True)
+    except Exception:
+        pass
+    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
+    try:
+        import time as _time
+
+        now_str = _time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        now_str = ""
+    _log(f"# ⏱️ {now_str} | RUN-ID: {_run_id}", ui=False)
+    try:
+        print("#" * 68 + "\n", flush=True)
+    except Exception:
+        pass
+
     _log(f"📅 対象営業日（NYSE）: {today.date()}")
     _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
     # 開始直後に前回結果をまとめて表示

@@ -1,90 +1,140 @@
 # Copilot Instructions for This Repo
 
-AI エージェントが初手から迷わないための要点を 1 枚に凝縮しました。詳細は `AGENTS.md` と `README.md` を併読してください。
+このドキュメントは、このリポジトリで AI コーディングエージェントが正しく・安全に・効率よく作業するための詳細ガイドです。日々の運用（当日シグナル算出）、バックテスト、データキャッシュ、通知/発注連携、品質チェックの要点を体系化しています。開発者は `AGENTS.md` / `README.md` も併読してください。
 
-## 全体像（System1–7 の流れ）
+## 目的と対象
 
-- UI: `app_integrated.py` が Streamlit で System1–7 を統合表示。各タブは `common/ui_tabs.py`・部品は `common/ui_components.py`。
-- 戦略分割: 純ロジックは `core/system{1..7}.py`、戦略ラッパは `strategies/system{1..7}_strategy.py`。準備/候補抽出は `StrategyProtocol`（`common/integrated_backtest.py`）。
-- データ層: EODHD 日足を三層キャッシュ（`data_cache/full_backup` 原本・`base` 指標付与済み・`rolling` 直近 N 営業日）。読み取りは必ず `common/cache_manager.py::CacheManager` と `load_base_cache()` 経由。
-- 今日のシグナル: `common/today_signals.py`（long: system1/3/4/5、short: system2/6/7）。UI は `scripts/run_all_systems_today.py` を経由して実行（`common/ui_tabs.py` 参照）。
-- 連携: 通知は `common/notifier.py`、ブローカーは Alpaca（`common/broker_alpaca.py`, `common/alpaca_order.py`）。
+- 目的: このプロジェクト固有の作法・構成・禁止事項を一元化し、AI 編集の安全性と速度を高める。
+- 対象: AI コーディングエージェント、レビュー担当、運用担当（当日パイプライン/通知/発注）。
 
-## プロジェクト固有の作法
+## 全体アーキテクチャ
 
-- 命名/スタイル: PEP 8。関数/ファイルは snake_case、クラスは PascalCase。日本語テキストは UTF-8 のまま保持。
-- キャッシュ解決順（厳守）:
-  - backtest: `base → full_backup`（`rolling` は参照しない）。
-  - today: `rolling → base → full_backup`（`rolling` 無ければ `base` から生成・保存）。
-- 直読禁止: `data_cache/` 直下の CSV を直接読まない。常に `CacheManager.read()` を使う。
-- 特例: System1 は ROC200 ランキングを一部特経路（`common/ui_components.py::generate_roc200_ranking_system1`）。System7 は SPY 固定（`integrated_backtest.prepare_all_systems`）。
+- UI/入口: `app_integrated.py`（Streamlit）。タブは `common/ui_tabs.py`、部品は `common/ui_components.py`。
+- 戦略分割: 純ロジックは `core/system{1..7}.py`、戦略ラッパは `strategies/system{1..7}_strategy.py`。共通実行は `common/integrated_backtest.py`。
+- 当日パイプライン: `scripts/run_all_systems_today.py` が候補抽出 → 配分 → 通知 →CSV 出力 →（任意）発注までを統合。UI からもここを呼び出し。
+- 配分/連携:
+  - 配分確定: `core/final_allocation.py::finalize_allocation()`
+  - 通知: `common/notifier.py` / `tools/notify_metrics.py` / `tools/notify_signals.py`
+  - ブローカー: Alpaca（`common/broker_alpaca.py`, `common/alpaca_order.py`）
+- データ層（3 層キャッシュ）: `data_cache/`
+  - `full_backup/`: 原本（日次株価など）
+  - `base/`: 指標付与済み（列名正規化、Adjusted Close 優先）
+  - `rolling/`: 直近 N 営業日（`base_lookback_days + buffer_days` を維持）
+  - I/O は必ず `common/cache_manager.py::CacheManager` / `load_base_cache()` を経由。CSV の直読禁止。
 
-## 重要ポイント（実装の勘所）
+## システム別の要点
 
-- `compute_entry/compute_exit`: 戦略で上書き可能。未実装時は ATR を使うフォールバックが使われ、long はエントリ −5×ATR、short はエントリ＋ 5×ATR 付近を基準（`common/integrated_backtest.py`）。
-- 今日のシグナル並び順: スコアキーはシステム別に優先順位あり（例: s1=ROC200 降順, s4=RSI4 昇順）。`_score_from_candidate` と `_asc_by_score_key` を参照（`common/today_signals.py`）。
-- 指標付与: `compute_base_indicators()` は列名を正規化し、Close は adjusted を優先。必須列 High/Low/Close が無い場合は計算をスキップ（`common/cache_manager.py`）。
-- Rolling 保守: 長さは `base_lookback_days + buffer_days`。古い行の剪定は `prune_rolling_if_needed()`（メタは `rolling/_meta.json`、アンカーは既定 SPY）。
+- ロング: System1/3/4/5、ショート: System2/6/7。System7 は SPY 固定（アンカー用途）。
+- スコア並び: システムごとに方向が異なる（例: s1=ROC200 降順、s4=RSI4 昇順）。`common/today_signals.py::_score_from_candidate` / `_asc_by_score_key` を参照。
+- Entry/Exit:
+  - 各戦略は `compute_entry` / `compute_exit` を実装可能。
+  - 未実装時は ATR ベースのフォールバック（long はエントリ −5×ATR、short は +5×ATR 近辺）。実装は `common/integrated_backtest.py`。
 
-## よく使うコマンド
+## キャッシュ運用（厳守）
 
-- 依存関係: `pip install -r requirements.txt`（開発ツールは `requirements-dev.txt`）。
-- UI 起動: `streamlit run app_integrated.py`
-- 日次キャッシュ更新: `python scripts/cache_daily_data.py`（`EODHD_API_KEY` 必須）。
-- テスト: `pytest -q`（ネットワーク禁止・決定性重視）。例: `pytest tests/test_headless_app.py tests/test_utils.py -q`
-- 品質: `pre-commit install`; 以降 `ruff/black/isort/mypy` がコミット時に走る。
+- 解決順:
+  - backtest: `base → full_backup`（`rolling` は使用しない）
+  - today: `rolling → base → full_backup`（`rolling` 無ければ `base` から生成し保存）
+- 指標付与: `compute_base_indicators()` が列名正規化・Adjusted Close 優先。High/Low/Close が欠損ならスキップ。
+- Rolling 保守: `prune_rolling_if_needed()` を用い、`rolling/_meta.json` のメタを維持。アンカーは既定 SPY。
+- 禁止事項: `data_cache/` 配下 CSV を直接読まない（常に `CacheManager.read()`）。
 
-## 設定/環境変数（`config/settings.py::get_settings()`）
+## 当日パイプライン（scripts/run_all_systems_today.py）
 
-- 優先度: JSON > YAML > .env。ディレクトリは `get_settings(create_dirs=True)` で自動作成。
-- 必須/推奨: `EODHD_API_KEY`、Alpaca: `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`、通知: `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL(_ID)`、`DISCORD_WEBHOOK_URL`。
-- 実行ログ: `TODAY_SIGNALS_LOG_MODE=dated` で `today_signals_YYYYMMDD_HHMM.log` を使用（`scripts/run_all_systems_today.py`）。
-- タイムゾーン: ログ/通知は JST。スケジューラ既定は `America/New_York`。
+- 役割: 全システムの候補抽出 → エントリ判定 → 配分確定 → 結果保存/通知 →（任意）発注。
+- 出力:
+  - `results_csv/` にシステム別 CSV、連結結果、`daily_metrics.csv`（メトリクス追記: prefilter/candidates/entries など）
+  - ログは `logs/`（`TODAY_SIGNALS_LOG_MODE` によりファイル切替）
+- 主要フラグ（例）:
+  - `--parallel`（並列実行）/ `--save-csv`（結果 CSV 保存）
+  - 発注/ドライラン関連はブローカー設定と併用
+- 並び順・結合: `common/today_signals.py` / `common/signal_merge.py` を参照。
 
-```markdown
-# Copilot instructions — quick reference
+## 実行コマンド（PowerShell）
 
-This file gives an AI coding agent the minimal, project-specific knowledge
-to be productive immediately. See `AGENTS.md` and `README.md` for more.
+```powershell
+# 依存関係（開発ツールは requirements-dev.txt）
+pip install -r requirements.txt
 
-Architecture (big picture):
-- Entry/UI: `app_integrated.py` (Streamlit). Tabs implemented in `common/ui_tabs.py`, components in `common/ui_components.py`.
-- Strategy split: pure logic in `core/system{1..7}.py`, strategy wrappers in `strategies/system{1..7}_strategy.py`.
-- Backtest & orchestration: `common/integrated_backtest.py` (StrategyProtocol, allocations, fallback entry/exit logic).
-- Data/cache: three-layer cache under `data_cache/` — `full_backup/` (raw), `base/` (indicators added), `rolling/` (recent window). Use `common/cache_manager.py::CacheManager` and `load_base_cache()` only.
+# UI 起動
+streamlit run app_integrated.py
 
-Key project conventions (do not change):
-- Naming: PEP8 — files/functions `snake_case`, classes `PascalCase`. Keep Japanese strings in UTF-8.
-- Cache resolution order (must follow):
-  - backtest: `base` → `full_backup` (never use `rolling`).
-  - today: `rolling` → `base` → `full_backup` (`rolling` may be generated from `base`).
-- Never read CSVs directly from `data_cache/` — always go through `CacheManager.read()`.
+# 当日パイプライン（並列＆CSV 保存）
+python scripts/run_all_systems_today.py --parallel --save-csv
 
-Important implementation notes (examples):
-- Entry/exit: strategies may override `compute_entry` / `compute_exit`. If absent, integrated_backtest falls back to ATR-based stop levels (see `common/integrated_backtest.py`).
-- Today signals ordering: scoring keys differ per system (e.g., s1 uses ROC200 desc, s4 uses RSI4 asc). See `_score_from_candidate` and `_asc_by_score_key` in `common/today_signals.py`.
-- Indicator generation: `compute_base_indicators()` normalizes column names and prefers adjusted Close; skip if H/L/C missing (`common/cache_manager.py`).
+# 日次キャッシュ更新（EODHD_API_KEY 必須）
+python scripts/cache_daily_data.py
 
-Developer workflows / useful commands:
-- Install deps: `pip install -r requirements.txt` (dev: `requirements-dev.txt`).
-- Run UI: `streamlit run app_integrated.py`.
-- Update daily cache: `python scripts/cache_daily_data.py` (requires `EODHD_API_KEY`).
-- Run today's pipeline: `python scripts/run_all_systems_today.py` (used by UI and schedulers).
-- Tests: `pytest -q` — tests are offline/deterministic. Example: `pytest tests/test_headless_app.py tests/test_utils.py -q`.
-- Pre-commit: `pre-commit install` (runs `ruff/black/isort/mypy`).
+# テスト（決定性・オフライン）
+pytest -q
+pytest tests/test_headless_app.py tests/test_utils.py -q
 
-Editing & review guidance for AI edits:
-- Respect `get_settings()` paths — write files only under the settings-controlled dirs (`results_csv/`, `logs/`, `data_cache/`).
-- Avoid changing allocation logic (DEFAULT_ALLOCATIONS) and System7's SPY anchor unless explicitly requested. See `common/integrated_backtest.py`.
-- When adding or modifying indicators/caches, update `compute_base_indicators()` and ensure `CacheManager` is used for IO and `prune_rolling_if_needed()` for rolling maintenance.
+# pre-commit（ruff/black/isort/mypy をコミット時に実行）
+pre-commit install
+```
 
-Testing & CI expectations:
-- Tests must run offline — mock network and use cached data (`common/testing.py::set_test_determinism`).
-- CI runs `ruff/black/isort/mypy/bandit/pip-audit/pytest` on Python 3.10–3.12.
+## 設定/環境変数（config/settings.py::get_settings()）
 
-Post-edit required step (automated quality scan):
-- After editing repository files, run the Codacy analyze tool for each edited file. If unavailable, notify maintainers and suggest resetting the MCP server or checking VSCode Copilot MCP settings.
+- 優先度: JSON > YAML > .env（`get_settings(create_dirs=True)` で必要ディレクトリ自動作成）
+- 資格情報: `EODHD_API_KEY`、Alpaca: `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`、通知: `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL(_ID)`、`DISCORD_WEBHOOK_URL`
+- ログ: `TODAY_SIGNALS_LOG_MODE=single|dated`（当日パイプラインのログファイル切替）
+- 自動手仕舞い計画: `RUN_PLANNED_EXITS=off|open|close|auto`（`schedulers/next_day_exits.py` を当日パイプラインから実行）
+- タイムゾーン: ログ/通知は JST。スケジューラ既定は `America/New_York`
 
-If anything in this file is unclear or you need an example change (small PR), ask and include the target file and intent.
+## 開発規約・スタイル
 
-``` 
+- PEP8 厳守。関数/ファイルは snake_case、クラスは PascalCase。日本語文字列は UTF-8 のまま。
+- インポート順序: 標準/サードパーティ/ローカル。
+- `get_settings()` が提供するパスを尊重し、書き込みは `results_csv/`・`logs/`・`data_cache/` のみ。
+- 配分ロジック（DEFAULT_ALLOCATIONS 等）と System7 の SPY アンカーは変更しない。
+
+## テスト/CI/型
+
+- テスト: すべてオフライン・決定性。外部 I/O は禁止。`common/testing.py::set_test_determinism` を参照。
+- CI: `ruff/black/isort/mypy/bandit/pip-audit/pytest` を Python 3.10–3.12 で実行。
+- 型: 段階的に mypy を厳格化。ネットワーク依存を排除。
+
+## 運用シナリオ別クイック手順（Runbook）
+
+- 初回セットアップ
+  1. `pip install -r requirements.txt`
+  2. `.env` に `EODHD_API_KEY`, Alpaca, Slack/Discord を設定
+  3. `python scripts/cache_daily_data.py` で初期キャッシュ作成
+  4. `streamlit run app_integrated.py` で UI 動作確認
+- 当日朝の流れ
+  1. `python scripts/cache_daily_data.py`
+  2. `python scripts/run_all_systems_today.py --parallel --save-csv`
+  3. `results_csv/` と 通知内容を確認 → 必要に応じて発注
+- 障害時リカバリ
+  - キャッシュ不整合: `common/cache_manager.py::prune_rolling_if_needed()` の呼び出し経路を実行（当日パイプラインで自動）。
+  - SPY 原本復旧: `recover_spy_cache.py`（`data_cache/full_backup/`）。
+  - MCP/Codacy 不可: VS Code の Copilot MCP 設定（Enable MCP servers）または CI/WSL で解析。
+
+## 変更時のレビューチェックリスト
+
+- 公開 API/CLI を壊していないか（フラグ追加は既定値で互換維持）。
+- キャッシュ解決順（backtest: base→full_backup / today: rolling→base→full_backup）は守れているか。
+- CSV 直読をしていないか（常に `CacheManager` 経由か）。
+- System7 の SPY アンカーや配分ロジックを変更していないか。
+- 新規 I/O は `get_settings()` 配下 (`results_csv/`, `logs/`, `data_cache/`) のみか。
+- テストはオフライン・決定性を保っているか（ネットワーク呼び出しなし）。
+- 型・品質: `mypy/ruff/black/isort` 前提の違反がないか。
+
+## AI 編集ガイド（重要）
+
+- 既存の public API と CLI フラグを壊さない。ファイル名/関数名のリネームは最小限。
+- 不要な再フォーマットや同時大量変更を避ける。変更は論理的に小さく。
+- 新規ファイルは `get_settings()` 管理下のパスにのみ作成。
+- 変更後は可能なら対象テストを実行。実行できない場合は簡潔な再現手順を記載。
+- 静的解析: Codacy CLI（MCP）を実行。Windows では WSL が必要。利用不能時はメンテへ通知。
+
+## トラブルシューティング
+
+- Codacy CLI（MCP）
+  - Windows 単体では未対応。WSL または CI で実行してください。
+  - MCP が利用不可: VS Code の Copilot MCP 設定（Enable MCP servers）を確認。
+- キャッシュ不整合
+  - `prune_rolling_if_needed()` で rolling 長を是正。メタは `rolling/_meta.json`。
+  - SPY の原本復旧: `recover_spy_cache.py`。
+
+不明点や小規模 PR の提案が必要な場合は、対象ファイルと意図を記載の上、相談してください。

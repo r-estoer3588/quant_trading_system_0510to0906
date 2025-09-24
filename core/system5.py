@@ -410,7 +410,42 @@ def prepare_data_vectorized_system5(
             _on_symbol_done()
             continue
 
+        # Fast-path: 共有指標が既にある場合は再計算を省略
         try:
+            if reuse_indicators and all(
+                c in prepared_df.columns
+                for c in (
+                    "SMA100",
+                    "ATR10",
+                    "ADX7",
+                    "RSI3",
+                    "AvgVolume50",
+                    "DollarVolume50",
+                    "ATR_Pct",
+                )
+            ):
+                x = prepared_df.copy(deep=False)
+                x["filter"] = (
+                    (x["AvgVolume50"] > 500_000)
+                    & (x["DollarVolume50"] > 2_500_000)
+                    & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+                )
+                x["setup"] = (
+                    x["filter"]
+                    & (x["Close"] > x["SMA100"] + x["ATR10"])
+                    & (x["ADX7"] > 55)
+                    & (x["RSI3"] < 50)
+                ).astype(int)
+                result_df = x
+                try:
+                    result_df.reset_index().to_feather(cache_path)
+                except Exception:
+                    pass
+                result_dict[sym] = result_df
+                _on_symbol_done(sym, include_in_buffer=True)
+                continue
+
+            # 通常パス（キャッシュ差分再計算 or フル計算）
             if cached is not None and not cached.empty:
                 last_date = cached.index.max()
                 new_rows = prepared_df[prepared_df.index > last_date]

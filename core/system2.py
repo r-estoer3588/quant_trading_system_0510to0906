@@ -104,6 +104,95 @@ def prepare_data_vectorized_system2(
     skip_callback=None,
     **kwargs,
 ) -> dict[str, pd.DataFrame]:
+    # Fast-path for today-mode: if incoming frames already have the needed
+    # indicator columns (from rolling/shared precompute), avoid recomputation
+    # and just derive lightweight filter/setup columns.
+    try:
+        if reuse_indicators and isinstance(raw_data_dict, dict) and raw_data_dict:
+            required = {"RSI3", "ADX7", "ATR10", "DollarVolume20", "ATR_Ratio", "TwoDayUp"}
+            out_fast: dict[str, pd.DataFrame] = {}
+            missing: dict[str, pd.DataFrame] = {}
+
+            for sym, df in raw_data_dict.items():
+                try:
+                    if df is None or df.empty:
+                        missing[sym] = df
+                        continue
+                    x = df.copy()
+                    # normalize OHLCV upper-case if lower exists
+                    rename_map = {}
+                    for low, up in (
+                        ("open", "Open"),
+                        ("high", "High"),
+                        ("low", "Low"),
+                        ("close", "Close"),
+                        ("volume", "Volume"),
+                    ):
+                        if low in x.columns and up not in x.columns:
+                            rename_map[low] = up
+                    if rename_map:
+                        x.rename(columns=rename_map, inplace=True)
+                    # index normalize for safety
+                    try:
+                        if "Date" in x.columns:
+                            x.index = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                        else:
+                            x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+                        x = x[~x.index.isna()]
+                        x = x.sort_index()
+                    except Exception:
+                        pass
+                    have = set(x.columns)
+                    # Need core OHLC columns as well
+                    if not {"Close", "High", "Low"}.issubset(have):
+                        missing[sym] = df
+                        continue
+                    if not required.issubset(have):
+                        missing[sym] = df
+                        continue
+                    # derive strategy-specific flags if absent
+                    if "filter" not in x.columns:
+                        try:
+                            x["filter"] = (
+                                (x["Low"] >= 5)
+                                & (x["DollarVolume20"] > 25_000_000)
+                                & (x["ATR_Ratio"] > 0.03)
+                            )
+                        except Exception:
+                            x["filter"] = False
+                    if "setup" not in x.columns:
+                        try:
+                            x["setup"] = x["filter"] & (x["RSI3"] > 90) & x["TwoDayUp"]
+                        except Exception:
+                            x["setup"] = False
+                    out_fast[str(sym)] = x
+                except Exception:
+                    missing[str(sym)] = df
+
+            # If we could satisfy all, return immediately without indicator logs
+            if len(out_fast) == len(raw_data_dict):
+                return out_fast
+            # Otherwise, compute only for missing symbols and merge
+            result_dict: dict[str, pd.DataFrame] = {}
+            result_dict.update(out_fast)
+            if missing:
+                computed = prepare_data_vectorized_system2(
+                    missing,
+                    progress_callback=progress_callback,
+                    log_callback=log_callback,
+                    batch_size=batch_size,
+                    reuse_indicators=False,
+                    symbols=list(missing.keys()),
+                    use_process_pool=use_process_pool,
+                    max_workers=max_workers,
+                    skip_callback=skip_callback,
+                    **kwargs,
+                )
+                result_dict.update(computed)
+            return result_dict
+    except Exception:
+        # fall back to normal path on any issue
+        pass
     cache_dir = "data_cache/indicators_system2_cache"
     os.makedirs(cache_dir, exist_ok=True)
     raw_data_dict = raw_data_dict or {}
