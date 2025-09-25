@@ -35,7 +35,9 @@ def get_all_symbols():
 
 
 def fetch_history(symbol):
-    url = f"https://eodhistoricaldata.com/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
+    # API呼び出し用に小文字変換
+    api_symbol = symbol.lower()
+    url = f"https://eodhistoricaldata.com/api/eod/{api_symbol}.US?api_token={API_KEY}&period=d&fmt=json"
     try:
         r = requests.get(url, timeout=10)
         if r.status_code != 200:

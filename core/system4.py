@@ -397,11 +397,39 @@ def prepare_data_vectorized_system4(
 
         # Fast-path: 共有指標が既にある場合は再計算を省略
         try:
-            if reuse_indicators and all(
-                c in prepared_df.columns
-                for c in ("SMA200", "ATR40", "HV50", "RSI4", "DollarVolume50")
-            ):
+            if reuse_indicators:
                 x = prepared_df.copy(deep=False)
+                # 欠けている最小限の列を都度補完
+                if "SMA200" not in x.columns:
+                    try:
+                        x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
+                    except Exception:
+                        pass
+                if "ATR40" not in x.columns:
+                    try:
+                        x["ATR40"] = AverageTrueRange(
+                            x["High"], x["Low"], x["Close"], window=40
+                        ).average_true_range()
+                    except Exception:
+                        pass
+                if "HV50" not in x.columns:
+                    try:
+                        pct = x["Close"].pct_change()
+                        log_ret = pct.apply(lambda r: np.log1p(r) if pd.notnull(r) else r)
+                        x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
+                    except Exception:
+                        pass
+                if "RSI4" not in x.columns:
+                    try:
+                        x["RSI4"] = RSIIndicator(x["Close"], window=4).rsi()
+                    except Exception:
+                        pass
+                if "DollarVolume50" not in x.columns:
+                    try:
+                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+                    except Exception:
+                        pass
                 # 通常フィルター/セットアップだけ評価
                 cond_dv = x["DollarVolume50"] > 100_000_000
                 cond_hv = x["HV50"].between(10, 40)

@@ -471,7 +471,7 @@ def _get_stage_snapshot(system: str) -> StageSnapshot | None:
         return None
 
 
-def _log(msg: str, ui: bool = True):
+def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
     """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
     import time as _t
 
@@ -485,10 +485,13 @@ def _log(msg: str, ui: bool = True):
 
     # プレフィックスを作成（現在時刻 + 分秒経過）
     try:
-        now = _t.strftime("%H:%M:%S")
-        elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
-        m, s = divmod(int(elapsed), 60)
-        prefix = f"[{now} | {m}分{s}秒] "
+        if no_timestamp:
+            prefix = ""
+        else:
+            now = _t.strftime("%H:%M:%S")
+            elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
+            m, s = divmod(int(elapsed), 60)
+            prefix = f"[{now} | {m}分{s}秒] "
     except Exception:
         prefix = ""
 
@@ -1876,6 +1879,8 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
         universe_total = len(symbols)
 
     _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数：{universe_total}")
+    # ヘッダー部分に追加で銘柄数を表示
+    _log(f"# 📊 銘柄数：{universe_total}", ui=False, no_timestamp=True)
     _log(f"📋 サンプル: {', '.join(symbols[:10])}" f"{'...' if len(symbols) > 10 else ''}")
 
     if log_callback:
@@ -1960,22 +1965,46 @@ def _precompute_shared_indicators_phase(
         # Rolling データに既に指標が含まれているかチェック
         sample_symbols = list(basic_data.keys())[:5]  # サンプル数銘柄をチェック
         indicators_already_exist = True
-        required_indicators = {
-            "ATR10",
-            "ATR20",
-            "SMA25",
-            "SMA50",
-            "RSI4",
-            "ROC200",
-            "DollarVolume20",
-        }
+
+        # 指標の存在をより柔軟にチェック（大文字・小文字両対応）
+        from common.cache_manager import get_indicator_column_flexible
 
         for sym in sample_symbols:
             df = basic_data[sym]
             if df is None or df.empty:
                 continue
-            existing_cols = set(df.columns)
-            if not required_indicators.issubset(existing_cols):
+
+            indicators_found = 0
+            total_indicators = 0
+            required_indicators = [
+                "ATR10",
+                "ATR20",
+                "SMA25",
+                "SMA50",
+                "RSI4",
+                "ROC200",
+                "DollarVolume20",
+            ]
+
+            for indicator in required_indicators:
+                total_indicators += 1
+                if get_indicator_column_flexible(df, indicator) is not None:
+                    indicators_found += 1
+                # ATRの代替をチェック（ATR14など）
+                elif indicator.startswith("ATR") and any(
+                    col.upper().startswith("ATR") and any(c.isdigit() for c in col)
+                    for col in df.columns
+                ):
+                    indicators_found += 1
+                # RSIの代替をチェック（RSI3, RSI14など）
+                elif indicator.startswith("RSI") and any(
+                    col.upper().startswith("RSI") and any(c.isdigit() for c in col)
+                    for col in df.columns
+                ):
+                    indicators_found += 1
+
+            # 7つ中5つ以上の指標があれば最適化を適用
+            if indicators_found < 5:
                 indicators_already_exist = False
                 break
 
@@ -2324,8 +2353,8 @@ def _save_and_notify_phase(
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False)
-    _log(f"# ⏱️ {end_txt} | RUN-ID: {run_id}", ui=False)
+    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False, no_timestamp=True)
+    _log(f"# ⏱️ {end_txt} | RUN-ID: {run_id}", ui=False, no_timestamp=True)
     try:
         print("#" * 68 + "\n", flush=True)
     except Exception:
@@ -3035,21 +3064,22 @@ def compute_today_signals(
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False)
+    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False, no_timestamp=True)
     try:
         import time as _time
 
         now_str = _time.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         now_str = ""
-    _log(f"# ⏱️ {now_str} | RUN-ID: {_run_id}", ui=False)
+    _log(f"# ⏱️ {now_str} | RUN-ID: {_run_id}", ui=False, no_timestamp=True)
     try:
         print("#" * 68 + "\n", flush=True)
     except Exception:
         pass
 
-    _log(f"📅 対象営業日（NYSE）: {today.date()}")
-    _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
+    _log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
+    _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True)
+    _log("", no_timestamp=True)  # 空行を追加
     # 開始直後に前回結果をまとめて表示
     try:
         prev = _load_prev_counts(signals_dir)

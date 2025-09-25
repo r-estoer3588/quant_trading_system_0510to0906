@@ -389,10 +389,34 @@ def prepare_data_vectorized_system3(
 
         # Fast-path: 共有指標が既にある場合は再計算を省略
         try:
-            if reuse_indicators and all(
-                c in prepared_df.columns for c in ("SMA150", "ATR10", "AvgVolume50", "ATR_Ratio")
-            ):
+            if reuse_indicators:
                 x = prepared_df.copy(deep=False)
+                # 欠けている最小限の列を都度補完
+                if "SMA150" not in x.columns:
+                    try:
+                        x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
+                    except Exception:
+                        pass
+                if "ATR10" not in x.columns:
+                    try:
+                        x["ATR10"] = AverageTrueRange(
+                            x["High"], x["Low"], x["Close"], window=10
+                        ).average_true_range()
+                    except Exception:
+                        pass
+                if "AvgVolume50" not in x.columns:
+                    try:
+                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                        x["AvgVolume50"] = vol.rolling(50).mean()
+                    except Exception:
+                        pass
+                if "ATR_Ratio" not in x.columns:
+                    try:
+                        close_num = pd.to_numeric(x["Close"], errors="coerce")
+                        base_atr = x.get("ATR10", pd.Series(pd.NA, index=x.index))
+                        x["ATR_Ratio"] = base_atr.div(close_num.replace(0, pd.NA))
+                    except Exception:
+                        pass
                 if "Drop3D" not in x.columns:
                     if "Return_3D" in x.columns:
                         try:
@@ -404,10 +428,12 @@ def prepare_data_vectorized_system3(
                         close_num = pd.to_numeric(x["Close"], errors="coerce")
                         x["Drop3D"] = -(close_num.pct_change(3))
                 cond_price = x["Low"] >= 1
-                cond_volume = x["AvgVolume50"] >= 1_000_000
-                cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
+                cond_volume = x.get("AvgVolume50", pd.Series(0, index=x.index)) >= 1_000_000
+                cond_atr = x.get("ATR_Ratio", pd.Series(0, index=x.index)) >= (
+                    DEFAULT_ATR_RATIO_THRESHOLD
+                )
                 x["filter"] = cond_price & cond_volume & cond_atr
-                cond_close = x["Close"] > x["SMA150"]
+                cond_close = x["Close"] > x.get("SMA150", pd.Series(pd.NA, index=x.index))
                 cond_drop = x["Drop3D"] >= 0.125
                 x["setup"] = (x["filter"] & cond_close & cond_drop).astype(int)
                 result_df = x

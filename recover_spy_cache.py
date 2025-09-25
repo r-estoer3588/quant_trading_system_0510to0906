@@ -72,7 +72,9 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         folder = resolve_cache_dir()
     # 新方針: full_backup のみに保存する
     target_dirs = resolve_target_dirs(folder)
-    url = f"https://eodhistoricaldata.com/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
+    # API呼び出し用に小文字変換
+    api_symbol = symbol.lower()
+    url = f"https://eodhistoricaldata.com/api/eod/{api_symbol}.US?api_token={API_KEY}&period=d&fmt=json"
 
     try:
         print(f"[INFO] Fetching URL: {url}")

@@ -412,29 +412,101 @@ def prepare_data_vectorized_system5(
 
         # Fast-path: 共有指標が既にある場合は再計算を省略
         try:
-            if reuse_indicators and all(
-                c in prepared_df.columns
-                for c in (
-                    "SMA100",
-                    "ATR10",
-                    "ADX7",
-                    "RSI3",
-                    "AvgVolume50",
-                    "DollarVolume50",
-                    "ATR_Pct",
-                )
-            ):
+            if reuse_indicators:
                 x = prepared_df.copy(deep=False)
+                # 欠けている最小限の列を都度補完
+                if "SMA100" not in x.columns:
+                    try:
+                        x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
+                    except Exception:
+                        pass
+                if "ATR10" not in x.columns:
+                    try:
+                        x["ATR10"] = AverageTrueRange(
+                            x["High"], x["Low"], x["Close"], window=10
+                        ).average_true_range()
+                    except Exception:
+                        pass
+                if "ADX7" not in x.columns:
+                    try:
+                        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+                    except Exception:
+                        pass
+                if "RSI3" not in x.columns:
+                    try:
+                        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+                    except Exception:
+                        pass
+                if "AvgVolume50" not in x.columns:
+                    try:
+                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                        x["AvgVolume50"] = vol.rolling(50).mean()
+                    except Exception:
+                        pass
+                if "DollarVolume50" not in x.columns:
+                    try:
+                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+                    except Exception:
+                        pass
+                if "ATR_Pct" not in x.columns:
+                    try:
+                        close_num = pd.to_numeric(x["Close"], errors="coerce")
+                        atr10_ser = (
+                            pd.to_numeric(x["ATR10"], errors="coerce")
+                            if "ATR10" in x.columns
+                            else pd.Series(pd.NA, index=x.index, dtype="float64")
+                        )
+                        x["ATR_Pct"] = atr10_ser.div(close_num.replace(0, pd.NA))
+                    except Exception:
+                        pass
+
+                # 型を明示したSeriesを用意
+                avgvol50 = (
+                    pd.to_numeric(x["AvgVolume50"], errors="coerce")
+                    if "AvgVolume50" in x.columns
+                    else pd.Series(0.0, index=x.index, dtype="float64")
+                )
+                dollvol50 = (
+                    pd.to_numeric(x["DollarVolume50"], errors="coerce")
+                    if "DollarVolume50" in x.columns
+                    else pd.Series(0.0, index=x.index, dtype="float64")
+                )
+                atr_pct = (
+                    pd.to_numeric(x["ATR_Pct"], errors="coerce")
+                    if "ATR_Pct" in x.columns
+                    else pd.Series(0.0, index=x.index, dtype="float64")
+                )
+
+                sma100 = (
+                    pd.to_numeric(x["SMA100"], errors="coerce")
+                    if "SMA100" in x.columns
+                    else pd.Series(pd.NA, index=x.index, dtype="float64")
+                )
+                atr10 = (
+                    pd.to_numeric(x["ATR10"], errors="coerce")
+                    if "ATR10" in x.columns
+                    else pd.Series(0.0, index=x.index, dtype="float64")
+                )
+                adx7 = (
+                    pd.to_numeric(x["ADX7"], errors="coerce")
+                    if "ADX7" in x.columns
+                    else pd.Series(0.0, index=x.index, dtype="float64")
+                )
+                rsi3 = (
+                    pd.to_numeric(x["RSI3"], errors="coerce")
+                    if "RSI3" in x.columns
+                    else pd.Series(100.0, index=x.index, dtype="float64")
+                )
+                close_num = pd.to_numeric(x["Close"], errors="coerce")
+
                 x["filter"] = (
-                    (x["AvgVolume50"] > 500_000)
-                    & (x["DollarVolume50"] > 2_500_000)
-                    & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+                    (avgvol50 > 500_000)
+                    & (dollvol50 > 2_500_000)
+                    & (atr_pct > DEFAULT_ATR_PCT_THRESHOLD)
                 )
                 x["setup"] = (
-                    x["filter"]
-                    & (x["Close"] > x["SMA100"] + x["ATR10"])
-                    & (x["ADX7"] > 55)
-                    & (x["RSI3"] < 50)
+                    x["filter"] & (close_num > sma100 + atr10) & (adx7 > 55) & (rsi3 < 50)
                 ).astype(int)
                 result_df = x
                 try:

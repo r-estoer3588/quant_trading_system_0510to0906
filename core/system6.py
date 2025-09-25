@@ -277,10 +277,24 @@ def prepare_data_vectorized_system6(
             cached = _load_system6_cache(cache_path)
 
         try:
-            # Fast-path: 共有指標が既にある場合は再計算を省略
-            if reuse_indicators and all(c in df.columns for c in ("ATR10", "DollarVolume50")):
-                x = df.loc[:, SYSTEM6_BASE_COLUMNS + ["ATR10", "DollarVolume50"]].copy()
+            # Fast-path: todayモードでは最小限の列のみ補完して省力化
+            if reuse_indicators:
+                x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
                 x = x.sort_index()
+                if len(x) < 50:
+                    raise ValueError("insufficient_rows")
+                # 既存があれば流用、無ければ最小限の計算で補完
+                if "ATR10" in df.columns:
+                    x["ATR10"] = pd.to_numeric(df["ATR10"], errors="coerce")
+                else:
+                    x["ATR10"] = AverageTrueRange(
+                        x["High"], x["Low"], x["Close"], window=10
+                    ).average_true_range()
+                if "DollarVolume50" in df.columns:
+                    x["DollarVolume50"] = pd.to_numeric(df["DollarVolume50"], errors="coerce")
+                else:
+                    x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+                # 派生（軽量）
                 x["Return6D"] = x["Close"].pct_change(6)
                 x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
                     x["Close"].shift(1) > x["Close"].shift(2)

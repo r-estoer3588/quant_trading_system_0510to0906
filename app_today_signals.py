@@ -1417,7 +1417,7 @@ class UILogger:
         # ログデデュープ用（短時間に同一メッセージが来たら抑止）
         self._last_log: dict[str, float] = {}
 
-    def log(self, msg: str) -> None:
+    def log(self, msg: str, no_timestamp: bool = False) -> None:
         forwarded_from_cli = False
         try:
             forwarding_flag = getattr(_run_today_mod, "_LOG_FORWARDING", None)
@@ -1431,7 +1431,10 @@ class UILogger:
         except Exception:
             m, s = 0, 0
         now_txt = time.strftime("%Y-%m-%d %H:%M:%S")
-        line = f"[{now_txt} | {m}分{s}秒] {msg}"
+        if no_timestamp:
+            line = str(msg)
+        else:
+            line = f"[{now_txt} | {m}分{s}秒] {msg}"
         self.log_lines.append(line)
         if _has_st_ctx() and self.progress_ui.show_overall:
             if self._should_display(str(msg)):
@@ -1844,19 +1847,28 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     temp_progress_ui = ProgressUI({})
     temp_logger = UILogger(temp_start_time, temp_progress_ui)
 
-    # 営業日と注意事項の表示
-    temp_logger.log(f"📅 対象営業日（NYSE）: {today.date()}")
-    temp_logger.log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。")
-
     # ヘッダーメッセージの表示
-    temp_logger.log("####################################################################")
-    temp_logger.log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀")
+    temp_logger.log(
+        "####################################################################", no_timestamp=True
+    )
+    temp_logger.log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", no_timestamp=True)
 
     # 時刻とRUN-ID、銘柄数の表示
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     symbols_count = len(run_config.symbols) if run_config.symbols else 0
-    temp_logger.log(f"# ⏱️ {now_str} | 銘柄数：{symbols_count}　| RUN-ID: {run_id}")
-    temp_logger.log("####################################################################")
+    temp_logger.log(
+        f"# ⏱️ {now_str} | 銘柄数：{symbols_count}　| RUN-ID: {run_id}", no_timestamp=True
+    )
+    temp_logger.log(
+        "####################################################################", no_timestamp=True
+    )
+
+    # 営業日と注意事項の表示
+    temp_logger.log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
+    temp_logger.log(
+        "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True
+    )
+    temp_logger.log("", no_timestamp=True)  # 空行を追加
 
     # 既存の処理を継続
     indicator_days = _indicator_requirements()

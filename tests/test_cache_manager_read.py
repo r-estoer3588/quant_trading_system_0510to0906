@@ -210,10 +210,12 @@ def test_upsert_recomputes_indicators(tmp_path):
 
     updated_full = cm.read("AMRZ", "full")
     appended = updated_full[updated_full["date"] >= new_dates.min()]
-    for col in ("sma25", "atr10", "rsi3", "dollarvolume20"):
+    # 大文字統一後の列名でテスト
+    for col in ("SMA25", "ATR10", "RSI3", "DollarVolume20"):
         assert not appended[col].isna().any()
 
     updated_roll = cm.read("AMRZ", "rolling")
     tail = updated_roll.tail(len(new_dates))
-    for col in ("sma25", "atr10", "rsi3", "dollarvolume20"):
+    # 大文字統一後の列名でテスト
+    for col in ("SMA25", "ATR10", "RSI3", "DollarVolume20"):
         assert not tail[col].isna().any()

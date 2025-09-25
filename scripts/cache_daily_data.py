@@ -518,7 +518,9 @@ def get_with_retry(url: str, retries: int = DOWNLOAD_RETRIES, delay: float = 2.0
 
 
 def get_eodhd_data(symbol: str) -> pd.DataFrame | None:
-    url = f"{API_BASE}/api/eod/{symbol}.US?api_token={API_KEY}&period=d&fmt=json"
+    # API呼び出し用に小文字変換（内部管理は大文字のまま）
+    api_symbol = symbol.lower()
+    url = f"{API_BASE}/api/eod/{api_symbol}.US?api_token={API_KEY}&period=d&fmt=json"
     r = get_with_retry(url)
     if r is None:
         return None

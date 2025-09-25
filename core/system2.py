@@ -348,27 +348,92 @@ def prepare_data_vectorized_system2(
                 cached = None
 
         try:
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = df[df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
+            # Fast-path: todayモードでは最小限の列のみ補完して省力化
+            if reuse_indicators:
+                base_cols = ["Open", "High", "Low", "Close"]
+                if "Volume" in df.columns:
+                    base_cols.append("Volume")
+                x = df[base_cols].copy()
+                x = x.sort_index()
+                if len(x) < 20:
+                    raise ValueError("insufficient_rows")
+
+                # 既存があれば流用、無ければ最小限の計算で補完
+                if "RSI3" in df.columns:
+                    x["RSI3"] = pd.to_numeric(df["RSI3"], errors="coerce")
                 else:
-                    context_start = last_date - pd.Timedelta(days=20)
-                    recompute_src = df[df.index >= context_start]
-                    recomputed = _calc_indicators(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
-            else:
-                result_df = _calc_indicators(df)
+                    x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
+
+                if "ADX7" in df.columns:
+                    x["ADX7"] = pd.to_numeric(df["ADX7"], errors="coerce")
+                else:
+                    x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
+
+                if "ATR10" in df.columns:
+                    x["ATR10"] = pd.to_numeric(df["ATR10"], errors="coerce")
+                else:
+                    x["ATR10"] = AverageTrueRange(
+                        x["High"], x["Low"], x["Close"], window=10
+                    ).average_true_range()
+
+                if "DollarVolume20" in df.columns:
+                    x["DollarVolume20"] = pd.to_numeric(df["DollarVolume20"], errors="coerce")
+                else:
+                    if "Volume" in x.columns:
+                        x["DollarVolume20"] = (x["Close"] * x["Volume"]).rolling(20).mean()
+                    else:
+                        x["DollarVolume20"] = pd.Series(0.0, index=x.index, dtype="float64")
+
+                if "ATR_Ratio" in df.columns:
+                    x["ATR_Ratio"] = pd.to_numeric(df["ATR_Ratio"], errors="coerce")
+                else:
+                    close_num = pd.to_numeric(x["Close"], errors="coerce")
+                    x["ATR_Ratio"] = x["ATR10"].div(close_num.replace(0, pd.NA))
+
+                if "TwoDayUp" in df.columns:
+                    x["TwoDayUp"] = df["TwoDayUp"].astype(bool)
+                else:
+                    x["TwoDayUp"] = (x["Close"] > x["Close"].shift(1)) & (
+                        x["Close"].shift(1) > x["Close"].shift(2)
+                    )
+
+                # フィルター・セットアップ（軽量）
+                low_ser = pd.to_numeric(x["Low"], errors="coerce")
+                dv20_ser = pd.to_numeric(x["DollarVolume20"], errors="coerce")
+                atr_ratio_ser = pd.to_numeric(x["ATR_Ratio"], errors="coerce")
+                rsi3_ser = pd.to_numeric(x["RSI3"], errors="coerce")
+
+                x["filter"] = (low_ser >= 5) & (dv20_ser > 25_000_000) & (atr_ratio_ser > 0.03)
+                x["setup"] = x["filter"] & (rsi3_ser > 90) & x["TwoDayUp"]
+
+                result_df = x
                 try:
                     result_df.reset_index().to_feather(cache_path)
                 except Exception:
                     pass
+            else:
+                # 通常パス（キャッシュ差分再計算 or フル計算）
+                if cached is not None and not cached.empty:
+                    last_date = cached.index.max()
+                    new_rows = df[df.index > last_date]
+                    if new_rows.empty:
+                        result_df = cached
+                    else:
+                        context_start = last_date - pd.Timedelta(days=20)
+                        recompute_src = df[df.index >= context_start]
+                        recomputed = _calc_indicators(recompute_src)
+                        recomputed = recomputed[recomputed.index > last_date]
+                        result_df = pd.concat([cached, recomputed])
+                        try:
+                            result_df.reset_index().to_feather(cache_path)
+                        except Exception:
+                            pass
+                else:
+                    result_df = _calc_indicators(df)
+                    try:
+                        result_df.reset_index().to_feather(cache_path)
+                    except Exception:
+                        pass
             result_dict[sym] = result_df
             buffer.append(sym)
         except ValueError as e:

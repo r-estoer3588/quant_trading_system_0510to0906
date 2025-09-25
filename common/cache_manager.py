@@ -227,27 +227,27 @@ MAIN_INDICATOR_COLUMNS = (
     "low",
     "close",
     "volume",
-    "sma25",
-    "sma50",
-    "sma100",
-    "sma150",
-    "sma200",
-    "ema20",
-    "ema50",
-    "atr10",
-    "atr14",
-    "atr20",
-    "atr40",
-    "atr50",
-    "adx7",
-    "rsi3",
-    "rsi4",
-    "rsi14",
-    "roc200",
-    "hv50",
-    "dollarvolume20",
-    "dollarvolume50",
-    "avgvolume50",
+    "SMA25",
+    "SMA50",
+    "SMA100",
+    "SMA150",
+    "SMA200",
+    "EMA20",
+    "EMA50",
+    "ATR10",
+    "ATR14",
+    "ATR20",
+    "ATR40",
+    "ATR50",
+    "ADX7",
+    "RSI3",
+    "RSI4",
+    "RSI14",
+    "ROC200",
+    "HV50",
+    "DollarVolume20",
+    "DollarVolume50",
+    "AvgVolume50",
     "return_3d",
     "6d_return",
     "return6d",
@@ -354,7 +354,13 @@ class CacheManager:
         try:
             enriched = add_indicators(base_renamed)
             enriched = enriched.drop(columns=["Date"], errors="ignore")
-            enriched.columns = [str(c).lower() for c in enriched.columns]
+            # 指標列を標準化（大文字統一）、その他は小文字化
+            enriched = standardize_indicator_columns(enriched)
+            # 基本列（date, open, high等）のみ小文字に変換
+            basic_cols = {"open", "high", "low", "close", "volume", "date"}
+            enriched.columns = [
+                c.lower() if c.lower() in basic_cols else c for c in enriched.columns
+            ]
             enriched["date"] = pd.to_datetime(
                 enriched.get("date", base["date"]), errors="coerce"
             )
@@ -451,6 +457,9 @@ class CacheManager:
                 .drop_duplicates("date")
                 .reset_index(drop=True)
             )
+
+        # 指標列を大文字に標準化（新機能）
+        df = standardize_indicator_columns(df)
 
         self._perform_health_check(df, ticker, profile)
         return df
@@ -737,20 +746,20 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if "Volume" in x.columns:
         vol = pd.to_numeric(x["Volume"], errors="coerce")
 
-    # SMA/EMA
+    # SMA/EMA - 大文字統一
     for n in [25, 50, 100, 150, 200]:
-        x[f"sma{n}"] = close.rolling(n).mean()
+        x[f"SMA{n}"] = close.rolling(n).mean()
     for n in [20, 50]:
-        x[f"ema{n}"] = close.ewm(span=n, adjust=False).mean()
+        x[f"EMA{n}"] = close.ewm(span=n, adjust=False).mean()
 
-    # ATR
+    # ATR - 大文字統一
     tr = pd.concat(
         [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
     ).max(axis=1)
-    for n in [10, 14, 40, 50]:
-        x[f"atr{n}"] = tr.rolling(n).mean()
+    for n in [10, 14, 20, 40, 50]:
+        x[f"ATR{n}"] = tr.rolling(n).mean()
 
-    # RSI (Wilder)
+    # RSI (Wilder) - 大文字統一
     def _rsi(s: pd.Series, n: int) -> pd.Series:
         delta = s.diff()
         gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
@@ -758,20 +767,91 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         rs = gain / loss.replace(0, np.nan)
         return 100 - (100 / (1 + rs))
 
-    for n in [3, 14]:
-        x[f"rsi{n}"] = _rsi(close, n)
+    for n in [3, 4, 14]:
+        x[f"RSI{n}"] = _rsi(close, n)
 
-    # ROC & HV
-    x["roc200"] = close.pct_change(200) * 100.0
+    # ROC & HV - 大文字統一
+    x["ROC200"] = close.pct_change(200) * 100.0
     log_ret = (close / close.shift(1)).apply(np.log)
     std_dev = log_ret.rolling(50).std()
-    x["hv50"] = std_dev * np.sqrt(252) * 100.0
+    x["HV50"] = std_dev * np.sqrt(252) * 100.0
 
+    # DollarVolume - 大文字統一
     if vol is not None:
-        x["dollarvolume20"] = (close * vol).rolling(20).mean()
-        x["dollarvolume50"] = (close * vol).rolling(50).mean()
+        x["DollarVolume20"] = (close * vol).rolling(20).mean()
+        x["DollarVolume50"] = (close * vol).rolling(50).mean()
 
     return x.reset_index()
+
+
+def get_indicator_column_flexible(df: pd.DataFrame, indicator: str) -> pd.Series | None:
+    """指標列を大文字・小文字両対応で取得。大文字優先、小文字をフォールバック。
+    
+    Args:
+        df: 対象DataFrame
+        indicator: 指標名（例: "ATR10"）
+        
+    Returns:
+        該当する列のSeries、存在しない場合はNone
+    """
+    # 大文字優先
+    if indicator in df.columns:
+        return df[indicator]
+    
+    # 小文字フォールバック
+    lower_indicator = indicator.lower()
+    if lower_indicator in df.columns:
+        return df[lower_indicator]
+    
+    return None
+
+
+def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """指標列名を大文字に標準化。既存の小文字列は削除。
+    
+    Args:
+        df: 対象DataFrame
+        
+    Returns:
+        標準化されたDataFrame
+    """
+    result = df.copy()
+    
+    # 標準化する指標のマッピング（小文字 -> 大文字）
+    indicator_mapping = {
+        "atr10": "ATR10",
+        "atr14": "ATR14", 
+        "atr20": "ATR20",
+        "atr40": "ATR40",
+        "atr50": "ATR50",
+        "sma25": "SMA25",
+        "sma50": "SMA50",
+        "sma100": "SMA100",
+        "sma150": "SMA150",
+        "sma200": "SMA200",
+        "ema20": "EMA20",
+        "ema50": "EMA50",
+        "rsi3": "RSI3",
+        "rsi4": "RSI4", 
+        "rsi14": "RSI14",
+        "roc200": "ROC200",
+        "hv50": "HV50",
+        "dollarvolume20": "DollarVolume20",
+        "dollarvolume50": "DollarVolume50",
+        "avgvolume50": "AvgVolume50",
+        "adx7": "ADX7",
+    }
+    
+    # 小文字 -> 大文字への変換と重複削除
+    for old_name, new_name in indicator_mapping.items():
+        if old_name in result.columns and new_name not in result.columns:
+            # 小文字列を大文字にリネーム
+            result = result.rename(columns={old_name: new_name})
+        elif old_name in result.columns and new_name in result.columns:
+            # 両方存在する場合は小文字列を削除
+            result = result.drop(columns=[old_name])
+    
+    return result
 
 
 def base_cache_path(symbol: str) -> Path:
