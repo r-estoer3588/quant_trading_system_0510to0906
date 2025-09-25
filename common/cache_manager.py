@@ -786,41 +786,41 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def get_indicator_column_flexible(df: pd.DataFrame, indicator: str) -> pd.Series | None:
     """指標列を大文字・小文字両対応で取得。大文字優先、小文字をフォールバック。
-    
+
     Args:
         df: 対象DataFrame
         indicator: 指標名（例: "ATR10"）
-        
+
     Returns:
         該当する列のSeries、存在しない場合はNone
     """
     # 大文字優先
     if indicator in df.columns:
         return df[indicator]
-    
+
     # 小文字フォールバック
     lower_indicator = indicator.lower()
     if lower_indicator in df.columns:
         return df[lower_indicator]
-    
+
     return None
 
 
 def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
     """指標列名を大文字に標準化。既存の小文字列は削除。
-    
+
     Args:
         df: 対象DataFrame
-        
+
     Returns:
         標準化されたDataFrame
     """
     result = df.copy()
-    
+
     # 標準化する指標のマッピング（小文字 -> 大文字）
     indicator_mapping = {
         "atr10": "ATR10",
-        "atr14": "ATR14", 
+        "atr14": "ATR14",
         "atr20": "ATR20",
         "atr40": "ATR40",
         "atr50": "ATR50",
@@ -832,7 +832,7 @@ def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
         "ema20": "EMA20",
         "ema50": "EMA50",
         "rsi3": "RSI3",
-        "rsi4": "RSI4", 
+        "rsi4": "RSI4",
         "rsi14": "RSI14",
         "roc200": "ROC200",
         "hv50": "HV50",
@@ -841,7 +841,7 @@ def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
         "avgvolume50": "AvgVolume50",
         "adx7": "ADX7",
     }
-    
+
     # 小文字 -> 大文字への変換と重複削除
     for old_name, new_name in indicator_mapping.items():
         if old_name in result.columns and new_name not in result.columns:
@@ -850,7 +850,7 @@ def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
         elif old_name in result.columns and new_name in result.columns:
             # 両方存在する場合は小文字列を削除
             result = result.drop(columns=[old_name])
-    
+
     return result
 
 
