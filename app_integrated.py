@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -9,6 +11,7 @@ from common.logging_utils import setup_logging
 import common.ui_patch  # noqa: F401
 from common.ui_tabs import (
     render_batch_tab,
+    render_cache_health_tab,
     render_integrated_tab,
     render_metrics_tab,
     render_positions_tab,
@@ -35,6 +38,97 @@ except Exception:  # pragma: no cover
 
 # Load external translations once at startup
 load_translations_from_dir(Path(__file__).parent / "translations")
+
+
+def render_digest_log(log_file_path: Path, container: Any) -> None:
+    """
+    progress_today.jsonl からリアルタイムで進捗を表示する。
+
+    Args:
+        log_file_path: progress_today.jsonl へのパス
+        container: streamlit の container（st.empty() など）
+    """
+    try:
+        if not log_file_path.exists():
+            container.info(tr("No progress log available"))
+            return
+
+        # JSONLファイルを読み込み
+        lines = []
+        try:
+            with open(log_file_path, encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            container.error(f"Error reading progress log: {e}")
+            return
+
+        if not lines:
+            container.info(tr("Progress log is empty"))
+            return
+
+        # 最新の数行を表示用にパース
+        recent_events = []
+        for line in lines[-10:]:  # 最新10行
+            try:
+                event = json.loads(line)
+                recent_events.append(event)
+            except json.JSONDecodeError:
+                continue
+
+        if not recent_events:
+            container.info(tr("No valid progress events"))
+            return
+
+        # 表示用のマークダウンを構築
+        display_lines = []
+
+        # 最新イベント（強調表示）
+        latest_event = recent_events[-1]
+        timestamp = latest_event.get("timestamp", "").split("T")[-1].split(".")[0]  # HH:MM:SS
+        event_type = latest_event.get("event_type", "unknown")
+        level = latest_event.get("level", "info")
+        data = latest_event.get("data", {})
+
+        # レベルに応じたアイコン
+        level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "📝")
+
+        # 最新イベントの表示
+        display_lines.append("### 🔄 Latest Progress")
+        display_lines.append(f"{level_icon} **{event_type}** ({timestamp})")
+
+        # データの主要情報を表示
+        if data:
+            key_info = []
+            if "system" in data:
+                key_info.append(f"System: **{data['system']}**")
+            if "processed" in data and "total" in data:
+                percentage = data.get("percentage", 0)
+                key_info.append(
+                    f"Progress: **{data['processed']}/{data['total']} ({percentage}%)**"
+                )
+            if "phase" in data:
+                key_info.append(f"Phase: **{data['phase']}**")
+            if "status" in data:
+                key_info.append(f"Status: **{data['status']}**")
+
+            if key_info:
+                display_lines.append(" | ".join(key_info))
+
+        # 最近のイベント履歴（簡略化）
+        if len(recent_events) > 1:
+            display_lines.append("### 📋 Recent Events")
+            for event in recent_events[-5:-1]:  # 最新除く直近4件
+                timestamp = event.get("timestamp", "").split("T")[-1].split(".")[0]
+                event_type = event.get("event_type", "unknown")
+                level = event.get("level", "info")
+                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "📝")
+                display_lines.append(f"- {level_icon} {timestamp} {event_type}")
+
+        # 結合してcontainerに表示
+        container.markdown("\n".join(display_lines))
+
+    except Exception as e:
+        container.error(f"Failed to render progress log: {e}")
 
 
 def main() -> None:
@@ -67,7 +161,7 @@ def main() -> None:
             st.write("LOG LEVEL:", settings.logging.level)
 
     tabs = st.tabs(
-        [tr("Integrated"), tr("Batch"), tr("Metrics"), tr("Positions")]
+        [tr("Integrated"), tr("Batch"), tr("Metrics"), tr("Positions"), "🩺 Cache Health"]
         + [f"System{i}" for i in range(1, 8)]
     )
 
@@ -82,7 +176,10 @@ def main() -> None:
     with tabs[3]:
         render_positions_tab(settings, notifier)
 
-    system_tabs = tabs[4:]
+    with tabs[4]:
+        render_cache_health_tab(settings)
+
+    system_tabs = tabs[5:]
     for sys_idx, tab in enumerate(system_tabs, start=1):
         sys_name = f"System{sys_idx}"
         with tab:

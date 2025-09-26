@@ -1,0 +1,35 @@
+[
+  {
+    "key": "ctrl+shift+t",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Quick Test Run"
+  },
+  {
+    "key": "ctrl+shift+s",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Start Streamlit UI"
+  },
+  {
+    "key": "ctrl+shift+l",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Lint & Format"
+  },
+  {
+    "key": "ctrl+shift+r",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Run All Systems Today"
+  },
+  {
+    "key": "ctrl+shift+c",
+    "command": "workbench.action.tasks.runTask",
+    "args": "Cache Daily Data"
+  },
+  {
+    "key": "ctrl+alt+enter",
+    "command": "github.copilot.chat.insertIntoNewFile"
+  },
+  {
+    "key": "ctrl+shift+i",
+    "command": "github.copilot.generate"
+  }
+]

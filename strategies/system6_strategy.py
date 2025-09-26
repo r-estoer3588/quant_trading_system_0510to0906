@@ -121,7 +121,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
             return None
-        if not isinstance(entry_loc, (int, np.integer)):
+        if not isinstance(entry_loc, int | np.integer):
             return None
         entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):

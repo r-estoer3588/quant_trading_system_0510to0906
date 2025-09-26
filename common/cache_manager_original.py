@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
-from typing import ClassVar, Any, cast
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any, ClassVar, cast
 
-from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 
 from common.utils import describe_dtype, safe_filename
-from config.settings import get_settings, Settings
+from config.settings import Settings, get_settings
+from indicators_common import add_indicators
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     pct_cols = {
         "roc200",
         "return_3d",
-        "6d_return",
+        "return_6d",
         "return6d",
         "atr_ratio",
         "atr_pct",
@@ -171,7 +171,7 @@ def make_csv_formatters(
         _num_formatter(4): [
             "roc200",
             "return_3d",
-            "6d_return",
+            "return_6d",
             "return6d",
             "atr_ratio",
             "atr_pct",
@@ -249,7 +249,7 @@ MAIN_INDICATOR_COLUMNS = (
     "dollarvolume50",
     "avgvolume50",
     "return_3d",
-    "6d_return",
+    "return_6d",
     "return6d",
     "return_pct",
     "drop3d",
@@ -281,7 +281,7 @@ _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
     "dollarvolume50": 50,
     "avgvolume50": 50,
     "return_3d": 4,
-    "6d_return": 7,
+    "return_6d": 7,
     "return6d": 7,
     "return_pct": 2,
     "drop3d": 4,

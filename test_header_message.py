@@ -6,11 +6,12 @@ Test script for the header message functionality in execute_today_signals.
 import sys
 from pathlib import Path
 
+from app_today_signals import execute_today_signals, RunConfig
+
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from app_today_signals import execute_today_signals, RunConfig
 
 def test_header_message():
     """Test that the header message is displayed correctly."""

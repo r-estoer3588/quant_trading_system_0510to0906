@@ -41,7 +41,7 @@ class CacheHealthChecker:
         "dollarvolume50": 50,
         "avgvolume50": 50,
         "return_3d": 4,
-        "6d_return": 7,
+        "return_6d": 7,
         "return6d": 7,
         "return_pct": 2,
         "drop3d": 4,

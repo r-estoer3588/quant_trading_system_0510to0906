@@ -65,7 +65,7 @@ class CacheConstants:
         {
             "roc200",
             "return_3d",
-            "6d_return",
+            "return_6d",
             "return6d",
             "atr_ratio",
             "atr_pct",
@@ -170,7 +170,7 @@ class IndicatorMinObservations:
             "dollarvolume50": cls.DOLLARVOLUME50,
             "avgvolume50": cls.AVGVOLUME50,
             "return_3d": cls.RETURN_3D,
-            "6d_return": cls.RETURN_6D,
+            "return_6d": cls.RETURN_6D,
             "return6d": cls.RETURN6D,
             "return_pct": cls.RETURN_PCT,
             "drop3d": cls.DROP3D,

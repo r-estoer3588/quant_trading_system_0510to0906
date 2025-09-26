@@ -17,14 +17,14 @@ def test_filter_system1_prefers_indicator_columns():
             {
                 "Close": [6.0, 6.5],
                 "Volume": [10_000_000, 11_000_000],
-                "DollarVolume20": [45_000_000, 60_000_000],
+                "dollarvolume20": [45_000_000, 60_000_000],
             }
         ),
         "BBB": pd.DataFrame(
             {
                 "Close": [6.2],
                 "Volume": [10_000_000],
-                "DollarVolume20": [40_000_000],
+                "dollarvolume20": [40_000_000],
             }
         ),
     }
@@ -51,16 +51,16 @@ def test_filter_system2_uses_atr_ratio_indicator():
             {
                 "Close": [10.0],
                 "Low": [9.5],
-                "DollarVolume20": [30_000_000],
-                "ATR_Ratio": [0.04],
+                "dollarvolume20": [30_000_000],
+                "atr_ratio": [0.04],
             }
         ),
         "BBB": pd.DataFrame(
             {
                 "Close": [10.5],
                 "Low": [10.0],
-                "DollarVolume20": [30_000_000],
-                "ATR_Ratio": [0.02],
+                "dollarvolume20": [30_000_000],
+                "atr_ratio": [0.02],
             }
         ),
     }
@@ -75,8 +75,8 @@ def test_filter_system2_fallback_uses_atr10_when_ratio_missing():
                 "Close": [10.0],
                 "Low": [9.4],
                 "High": [10.8],
-                "DollarVolume20": [35_000_000],
-                "ATR10": [0.45],
+                "dollarvolume20": [35_000_000],
+                "atr10": [0.45],
             }
         )
     }
@@ -89,14 +89,14 @@ def test_filter_system3_requires_avg_volume_and_ratio():
         "AAA": pd.DataFrame(
             {
                 "Low": [1.5],
-                "AvgVolume50": [1_200_000],
+                "avgvolume50": [1_200_000],
                 "ATR_Ratio": [0.06],
             }
         ),
         "BBB": pd.DataFrame(
             {
                 "Low": [1.5],
-                "AvgVolume50": [900_000],
+                "avgvolume50": [900_000],
                 "ATR_Ratio": [0.06],
             }
         ),
@@ -109,13 +109,13 @@ def test_filter_system4_respects_hv_range():
     data = {
         "AAA": pd.DataFrame(
             {
-                "DollarVolume50": [150_000_000],
+                "dollarvolume50": [150_000_000],
                 "HV50": [25.0],
             }
         ),
         "BBB": pd.DataFrame(
             {
-                "DollarVolume50": [150_000_000],
+                "dollarvolume50": [150_000_000],
                 "HV50": [55.0],
             }
         ),
@@ -130,15 +130,15 @@ def test_filter_system5_uses_atr_pct_threshold():
     data = {
         "AAA": pd.DataFrame(
             {
-                "AvgVolume50": [700_000],
-                "DollarVolume50": [3_000_000],
+                "avgvolume50": [700_000],
+                "dollarvolume50": [3_000_000],
                 "ATR_Pct": [above],
             }
         ),
         "BBB": pd.DataFrame(
             {
-                "AvgVolume50": [700_000],
-                "DollarVolume50": [3_000_000],
+                "avgvolume50": [700_000],
+                "dollarvolume50": [3_000_000],
                 "ATR_Pct": [below],
             }
         ),
@@ -152,13 +152,13 @@ def test_filter_system6_requires_liquidity_threshold():
         "AAA": pd.DataFrame(
             {
                 "Low": [6.0],
-                "DollarVolume50": [15_000_000],
+                "dollarvolume50": [15_000_000],
             }
         ),
         "BBB": pd.DataFrame(
             {
                 "Low": [6.0],
-                "DollarVolume50": [5_000_000],
+                "dollarvolume50": [5_000_000],
             }
         ),
     }

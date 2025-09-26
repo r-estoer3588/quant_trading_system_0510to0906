@@ -636,7 +636,10 @@ class Notifier:
         summary: dict[str, Any],
         image_url: str | None = None,
     ) -> None:
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ "
+            f"{period_label}, 実行日 ・ {now_jst_str()}"
+        )
         fields = {k: str(v) for k, v in summary.items()}
         self.send(title, "", fields=fields, image_url=image_url)
         self.logger.info(
@@ -1098,7 +1101,10 @@ class FallbackNotifier(Notifier):
         summary: dict[str, Any],
         image_url: str | None = None,
     ) -> None:  # noqa: E501
-        title = f"📊 {system_name} {period_type} サマリー ・ {period_label}, 実行日 ・ {now_jst_str()}"
+        title = (
+            f"📊 {system_name} {period_type} サマリー ・ "
+            f"{period_label}, 実行日 ・ {now_jst_str()}"
+        )
         kv = ", ".join(f"{k}={v}" for k, v in list(summary.items())[:10])
         text = f"{title}\n{kv}" if kv else title
         if self._slack_send_text(text):

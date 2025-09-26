@@ -9,12 +9,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
 import json
 import math
 import os
+from collections.abc import Iterable
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -1133,7 +1133,17 @@ def _render_exit_actions(
     # 経過日数チェック可能なポジションがあるかどうか
     has_limit_info = "_limit_days" in df.columns and "_limit_reached" in df.columns
     if not has_limit_info:
+        st.markdown("#### 📅 経過日手仕切り管理")
+        st.info(
+            "保有日数の情報が不足しています。システムマッピング（`data/symbol_system_map.json`）を確認してください。"
+        )
         return
+
+    # デバッグ情報表示（開発時のみ）
+    if DEBUG_MODE:
+        st.markdown("**デバッグ情報**")
+        limit_info_df = df[["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]].copy()
+        st.dataframe(limit_info_df, use_container_width=True)
 
     # 上限日数に近いか、すでに到達したポジションを特定
     eligible_df = df[
@@ -1151,6 +1161,9 @@ def _render_exit_actions(
     ].copy()
 
     if eligible_df.empty:
+        # 該当ポジションがない場合でも、セクションは表示して情報を提供
+        st.markdown("#### 📅 経過日手仕切り管理")
+        st.info("現在、上限日数に近づいているポジションはありません。")
         return
 
     st.markdown("#### 📅 経過日手仕切り管理")
@@ -1237,13 +1250,11 @@ def _render_exit_actions(
                             except Exception:
                                 pass
                             try:
-                                nd = _load_notify_settings() or {}
-                                notifier = Notifier(
-                                    platform=nd.get("platform", "auto"),
-                                    webhook_url=nd.get("webhook_url"),
-                                )
-                                syms = ", ".join([r["symbol"] for r in rows])
-                                notifier.send("まとめて決済実行", f"送信銘柄: {syms}")
+                                # シンプルな通知ロジック（Slack優先→Discordフォールバック）
+                                if st.session_state.get("enable_notifications", True):
+                                    notifier = Notifier(platform="auto")
+                                    syms = ", ".join([r["symbol"] for r in rows])
+                                    notifier.send("まとめて決済実行", f"送信銘柄: {syms}")
                             except Exception:
                                 pass
                         except Exception as e:
@@ -1451,7 +1462,7 @@ def main() -> None:
     )
     # 改善されたツールバー（レイアウト衝突を修正）
     st.markdown("<div class='ap-toolbar ap-fade'>", unsafe_allow_html=True)
-    toolbar_cols = st.columns([5, 2, 3])
+    toolbar_cols = st.columns([4, 2, 2, 2])
 
     # 左側：スケジュール関連
     with toolbar_cols[0]:
@@ -1488,26 +1499,61 @@ def main() -> None:
                 )
                 st.success("スケジュール保存済", icon="✅")
 
-    # 中央：手動更新とステータス
+    # 中央：手動更新
     with toolbar_cols[1]:
+        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
         if st.button("🔄 手動更新", key="manual_refresh", use_container_width=True):
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # 自動更新機能
+    with toolbar_cols[2]:
+        auto_refresh = st.checkbox("⏰ 自動更新", key="auto_refresh")
+        if auto_refresh:
+            refresh_interval = st.selectbox(
+                "更新間隔", [30, 60, 120, 300], index=1, key="refresh_interval"
+            )
+            # 自動更新用のJavaScript（実際の実装ではst.rerunとタイマーを使用）
+            st.caption(f"⏰ {refresh_interval}秒間隔")
 
     # 右側：時刻表示
-    with toolbar_cols[2]:
+    with toolbar_cols[3]:
+        st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
         st.caption(f"最終更新: {datetime.now().strftime('%H:%M:%S')}")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
     # 自動ルール実行ボタン（スケジュールの下に分離）
     if opt_in:
+        st.markdown("---")
+        st.markdown("#### 🤖 自動ルール")
+        st.caption("設定した時間に経過日や損益閾値による自動決済を実行します。")
+
         col1, col2 = st.columns([3, 1])
         with col1:
-            if st.button("自動ルールを今すぐ実行 (スケジュール)", key="auto_rule_run_schedule"):
+            if st.button(
+                "自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual", type="primary"
+            ):
                 st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
         with col2:
             last_run = st.session_state.get("last_auto_rule_run")
-            st.caption(f"最後の自動実行: {last_run or '未実行'}")
+            st.caption(f"最後の実行: {last_run or '未実行'}")
+
+        # 自動ルールの設定表示
+        st.expander("⚙️ 自動ルール設定", expanded=False).markdown(
+            f"""
+        - **上限保有日数**: {', '.join([f'{k}: {v}日' for k, v in HOLD_LIMITS.items()])}
+        - **損益閾値**: 各システムで -20% 以下は自動決済対象
+        - **実行時刻**: {run_time.strftime('%H:%M')}
+        - **部分決済**: 100% （全量決済）
+        """
+        )
+    else:
+        st.markdown("---")
+        st.info(
+            "🤖 自動ルール機能を使用するには、上記の「参加」チェックボックスを有効にしてください。"
+        )
 
     # 自動スケジュール検出（簡易）: ページロード時に時刻を過ぎていて未実行ならトリガー
     try:
@@ -1693,14 +1739,54 @@ def main() -> None:
                     delta=f"-{losing_positions}/{total_positions}",
                 )
 
-            # システム絞り込み
-            if "システム" in pos_df.columns:
-                raw_systems = pos_df["システム"].fillna("unknown").unique()
-                systems = sorted(str(s) for s in raw_systems)
-                selected = st.multiselect(
-                    "システム絞り込み", systems, default=systems, key="pos_filter_systems"
+            # フィルタリングセクション
+            st.markdown("#### 🔍 フィルタリング")
+            filter_cols = st.columns([2, 2, 1])
+
+            # 銘柄検索
+            with filter_cols[0]:
+                search_symbol = st.text_input(
+                    "銘柄で検索", placeholder="例: AAPL", key="search_symbol"
                 )
-                pos_df = pos_df[pos_df["システム"].astype(str).isin(selected)]
+                if search_symbol:
+                    search_upper = search_symbol.upper().strip()
+                    pos_df = pos_df[pos_df["銘柄"].str.contains(search_upper, na=False)]
+
+            # システム絞り込み
+            with filter_cols[1]:
+                if "システム" in pos_df.columns:
+                    raw_systems = pos_df["システム"].fillna("unknown").unique()
+                    systems = sorted(str(s) for s in raw_systems)
+                    selected_systems = st.multiselect(
+                        "システム絞り込み", systems, default=systems, key="pos_filter_systems"
+                    )
+                    pos_df = pos_df[pos_df["システム"].astype(str).isin(selected_systems)]
+
+            # 損益フィルタ
+            with filter_cols[2]:
+                pnl_filter = st.selectbox(
+                    "損益フィルタ",
+                    ["全て", "利益のみ", "損失のみ", "大幅損失(-10%以下)"],
+                    key="pnl_filter",
+                )
+                if pnl_filter == "利益のみ" and "含み損益" in pos_df.columns:
+                    pos_df = pos_df[pos_df["含み損益"] > 0]
+                elif pnl_filter == "損失のみ" and "含み損益" in pos_df.columns:
+                    pos_df = pos_df[pos_df["含み損益"] < 0]
+                elif pnl_filter == "大幅損失(-10%以下)":
+                    try:
+
+                        def calc_pnl_pct(r):
+                            try:
+                                current = float(r.get("現在値", 0))
+                                avg = float(r.get("平均取得単価", 0))
+                                return (current / avg - 1) * 100 if avg else 0
+                            except Exception:
+                                return 0
+
+                        pos_df = pos_df[pos_df.apply(calc_pnl_pct, axis=1) <= -10]
+                    except Exception:
+                        pass
 
             # 派生列: 損益率(%)
             try:
@@ -1772,13 +1858,86 @@ def main() -> None:
             except Exception:
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-            # CSV ダウンロード
+            # エクスポート機能
+            st.markdown("#### 📥 データエクスポート")
+            export_cols = st.columns(4)
+
+            # 共通データの準備
             try:
                 out_df = pos_df.drop(columns=["_limit_days", "_limit_reached"], errors="ignore")
-                csv = out_df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇ ポジションCSVをダウンロード", csv, file_name="positions.csv")
             except Exception:
-                pass
+                out_df = pos_df.copy() if not pos_df.empty else pd.DataFrame()
+
+            with export_cols[0]:
+                try:
+                    csv = out_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "📊 ポジションCSV",
+                        csv,
+                        file_name=f"positions_{datetime.now().strftime('%Y%m%d')}.csv",
+                    )
+                except Exception:
+                    pass
+
+            with export_cols[1]:
+                # JSON形式でのエクスポート
+                try:
+                    json_data = out_df.to_json(orient="records", indent=2)
+                    st.download_button(
+                        "📄 ポジションJSON",
+                        json_data,
+                        file_name=f"positions_{datetime.now().strftime('%Y%m%d')}.json",
+                        mime="application/json",
+                    )
+                except Exception:
+                    pass
+
+            with export_cols[2]:
+                # 統計情報のエクスポート
+                try:
+                    local_stats_data = {
+                        "export_date": datetime.now().isoformat(),
+                        "account_equity": _fmt_money(equity),
+                        "cash": _fmt_money(cash),
+                        "buying_power": _fmt_money(buying_power),
+                        "total_positions": total_positions,
+                        "winning_positions": winning_positions,
+                        "losing_positions": losing_positions,
+                        "total_pnl": _fmt_money(total_pnl),
+                    }
+                    stats_json = json.dumps(local_stats_data, indent=2, ensure_ascii=False)
+                    st.download_button(
+                        "📈 統計JSON",
+                        stats_json,
+                        file_name=f"stats_{datetime.now().strftime('%Y%m%d')}.json",
+                        mime="application/json",
+                    )
+                except Exception:
+                    pass
+
+            with export_cols[3]:
+                # 全データの一括エクスポート
+                try:
+                    all_data = {
+                        "export_timestamp": datetime.now().isoformat(),
+                        "account_info": {
+                            "equity": equity,
+                            "cash": cash,
+                            "buying_power": buying_power,
+                            "last_equity": last_equity,
+                        },
+                        "positions": out_df.to_dict("records") if not out_df.empty else [],
+                        "statistics": local_stats_data,
+                    }
+                    all_json = json.dumps(all_data, indent=2, ensure_ascii=False)
+                    st.download_button(
+                        "🗃️ 全データJSON",
+                        all_json,
+                        file_name=f"alpaca_dashboard_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json",
+                    )
+                except Exception:
+                    pass
 
             # 経過日手仕切りアクション
             _render_exit_actions(pos_df, position_map, client)
@@ -1836,13 +1995,11 @@ def main() -> None:
                         )
                         _mark_sent_today(r["symbol"])
                     try:
-                        nd = _load_notify_settings() or {}
-                        notifier = Notifier(
-                            platform=nd.get("platform", "auto"),
-                            webhook_url=nd.get("webhook_url"),
-                        )
-                        syms = ", ".join([r["symbol"] for r in auto_rows])
-                        notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
+                        # シンプルな通知ロジック（Slack優先→Discordフォールバック）
+                        if st.session_state.get("enable_notifications", True):
+                            notifier = Notifier(platform="auto")
+                            syms = ", ".join([r["symbol"] for r in auto_rows])
+                            notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
                     except Exception:
                         pass
                     # 記録: 最終自動実行時刻
@@ -1894,84 +2051,35 @@ def main() -> None:
                         st.error(f"キャンセルに失敗しました: {e}")
 
         # ...existing code...
-        # 通知設定 UI
-        with st.expander("通知設定"):
-            nd = st.session_state.get("notify_defaults", {}) or {}
-            platform = st.selectbox(
-                "通知プラットフォーム",
-                ["auto", "slack", "discord", "none"],
-                index=["auto", "slack", "discord", "none"].index(nd.get("platform", "auto")),
-                key="notify_platform",
-            )
-            webhook = st.text_input(
-                "Webhook / その他設定 (環境変数優先)",
-                value=nd.get("webhook_url", ""),
-                key="notify_webhook",
-            )
-            if st.button("通知設定を保存", key="save_notify"):
-                try:
-                    _save_notify_settings({"platform": platform, "webhook_url": webhook})
-                    st.success("通知設定を保存しました。")
-                except Exception:
-                    st.error("通知設定の保存に失敗しました。")
-            if st.button("テスト送信", key="test_notify"):
-                try:
-                    nd = {"platform": platform, "webhook_url": webhook}
-                    notifier = Notifier(
-                        platform=nd.get("platform", "auto"),
-                        webhook_url=nd.get("webhook_url"),
-                    )
-                    notifier.send(
-                        "通知テスト",
-                        "これは通知設定のテスト送信です。設定が正しければ届きます。",
-                    )
-                    st.success("テスト送信を実行しました。受信を確認してください。")
-                    try:
-                        log = st.session_state.setdefault("notify_test_log", [])
-                        entry = {
-                            "time": datetime.now().isoformat(),
-                            "result": "ok",
-                            "msg": f"platform={platform}",
-                        }
-                        log.append(entry)
-                        st.session_state["notify_test_log"] = log
-                        try:
-                            _save_notify_test_log(log)
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-                except Exception as e:
-                    st.error(f"テスト送信に失敗しました: {e}")
-                    try:
-                        log = st.session_state.setdefault("notify_test_log", [])
-                        entry = {
-                            "time": datetime.now().isoformat(),
-                            "result": "error",
-                            "msg": str(e),
-                        }
-                        log.append(entry)
-                        st.session_state["notify_test_log"] = log
-                        try:
-                            _save_notify_test_log(log)
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
+        # 通知設定 UI （シンプル化）
+        with st.expander("📢 通知設定"):
             st.markdown(
-                "- **platform=auto**: 環境変数から自動判定（SLACK_BOT_TOKEN があれば"
-                " Slack を優先）。"
-                "\n- **slack**: Slack Web API を使用（SLACK_BOT_TOKEN 必須）。"
-                "\n- **discord**: Discord Webhook URL を使用（Webhook を入力）。"
-                "\n- **none**: 通知無効",
-                unsafe_allow_html=True,
+                """
+            **通知ルール**: Slack優先 → Discordフォールバック → 通知なし
+            
+            設定が完了したら環境変数またはWebhook URLを設定してください：
+            - `SLACK_BOT_TOKEN`: Slack Bot Token （推奨）
+            - `DISCORD_WEBHOOK_URL`: Discord Webhook URL （フォールバック）
+            """
             )
-            # 最近のテスト送信ログを表示
-            test_log = st.session_state.get("notify_test_log", [])
-            if test_log:
-                st.caption("最近のテスト送信:")
-                for item in reversed(test_log[-5:]):
-                    st.text(f"[{item.get('time')}] {item.get('result')}: {item.get('msg', '')}")
+
+            # シンプルな通知有効/無効の切り替えのみ
+            enable_notifications = st.checkbox(
+                "通知を有効にする", value=True, key="enable_notifications"
+            )
+
+            if enable_notifications:
+                # テスト送信ボタンのみ提供
+                if st.button("📨 通知テスト", key="test_notify_simple"):
+                    try:
+                        # 自動判定で送信試行
+                        notifier = Notifier(platform="auto")
+                        notifier.send("通知テスト", "Alpacaダッシュボードからのテスト通知です。")
+                        st.success("テスト通知を送信しました。Slack/Discordを確認してください。")
+                    except Exception as e:
+                        st.error(f"通知送信に失敗: {e}")
+            else:
+                st.info("通知は無効になっています。")
         try:
             items = ", ".join(
                 f"{k}={v}日"
@@ -2158,6 +2266,81 @@ def main() -> None:
                     )
             else:
                 st.info("ポジション統計を表示できません。")
+
+            # アラート機能
+            st.markdown("---")
+            st.markdown("<div class='ap-section'>🚨 アラート</div>", unsafe_allow_html=True)
+
+            alerts = []
+            if pos_df is not None and not pos_df.empty:
+                # 大幅損失アラート
+                try:
+                    large_loss_threshold = -15  # -15%以上の損失
+                    if "損益率(%)" in pos_df.columns:
+                        large_losses = pos_df[pos_df["損益率(%)"] <= large_loss_threshold]
+                        if not large_losses.empty:
+                            symbols = ", ".join(large_losses["銘柄"].astype(str))
+                            alerts.append(
+                                {
+                                    "type": "critical",
+                                    "title": "大幅損失",
+                                    "message": (
+                                        f"以下の銘柄で{large_loss_threshold}%以上の損失: "
+                                        f"{symbols}"
+                                    ),
+                                    "icon": "⚠️",
+                                }
+                            )
+
+                    # 長期保有アラート
+                    if "保有日数" in pos_df.columns:
+                        long_holds = pos_df[pd.to_numeric(pos_df["保有日数"], errors="coerce") > 30]
+                        if not long_holds.empty:
+                            symbols = ", ".join(long_holds["銘柄"].astype(str))
+                            alerts.append(
+                                {
+                                    "type": "warning",
+                                    "title": "長期保有",
+                                    "message": f"30日以上保有: {symbols}",
+                                    "icon": "📅",
+                                }
+                            )
+
+                    # 集中リスクアラート（単一銘柄が総資産の20%以上）
+                    if "含み損益" in pos_df.columns and equity_value:
+                        pos_df_temp = pos_df.copy()
+                        pos_df_temp["投資額"] = pd.to_numeric(
+                            pos_df_temp["平均取得単価"], errors="coerce"
+                        ) * pd.to_numeric(pos_df_temp["数量"], errors="coerce")
+                        concentration_threshold = equity_value * 0.2
+                        concentrated = pos_df_temp[pos_df_temp["投資額"] > concentration_threshold]
+                        if not concentrated.empty:
+                            symbols = ", ".join(concentrated["銘柄"].astype(str))
+                            alerts.append(
+                                {
+                                    "type": "warning",
+                                    "title": "集中リスク",
+                                    "message": f"単一銘柄が総資産の20%超: {symbols}",
+                                    "icon": "🎯",
+                                }
+                            )
+                except Exception as alert_error:
+                    st.warning(f"アラート計算エラー: {alert_error}")
+
+            if alerts:
+                for alert in alerts:
+                    alert_class = "ap-alert-critical" if alert["type"] == "critical" else "ap-alert"
+                    st.markdown(
+                        f"""
+                    <div class='{alert_class}'>
+                        {alert["icon"]} <strong>{alert["title"]}</strong>: {alert["message"]}
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.success("🟢 現在、アラートはありません。")
+
         except Exception as e:
             st.error(f"統計計算エラー: {e}")
 

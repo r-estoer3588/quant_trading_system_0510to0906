@@ -150,7 +150,7 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     pct_cols = {
         "roc200",
         "return_3d",
-        "6d_return",
+        "return_6d",
         "return6d",
         "atr_ratio",
         "atr_pct",

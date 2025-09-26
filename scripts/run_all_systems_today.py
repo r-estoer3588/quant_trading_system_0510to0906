@@ -52,8 +52,18 @@ _LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
 # ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
-_LOG_FILE_PATH: Path | None = None
-_LOG_FILE_MODE: str = "single"  # single | dated
+# レート制限ロガー
+_rate_limited_logger = None
+
+
+def _get_rate_limited_logger():
+    """レート制限ロガーを取得。"""
+    global _rate_limited_logger
+    if _rate_limited_logger is None:
+        from common.rate_limited_logging import create_rate_limited_logger
+
+        _rate_limited_logger = create_rate_limited_logger("run_all_systems_today", 3.0)
+    return _rate_limited_logger
 
 
 def _prepare_concat_frames(
@@ -1406,7 +1416,14 @@ def _load_basic_data(
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
             msg = f"📦 基礎データロード進捗: {done}/{total_syms} | ETA {m}分{s}秒"
-            _log(msg, ui=False)
+
+            # 進捗ログはDEBUGレベルでレート制限適用
+            rate_logger = _get_rate_limited_logger()
+            rate_logger.debug_rate_limited(
+                f"📦 基礎データロード進捗: {done}/{total_syms}",
+                interval=2.0,
+                message_key="基礎データ進捗",
+            )
             _emit_ui_log(msg)
         except Exception:
             _log(f"📦 基礎データロード進捗: {done}/{total_syms}", ui=False)
@@ -1457,7 +1474,12 @@ def _load_basic_data(
             f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
         ]
         if summary_parts:
-            _log("📊 基礎データロード内訳: " + " / ".join(summary_parts), ui=False)
+            rate_logger = _get_rate_limited_logger()
+            rate_logger.debug_rate_limited(
+                "📊 基礎データロード内訳: " + " / ".join(summary_parts),
+                interval=5.0,
+                message_key="基礎データ内訳",
+            )
     except Exception:
         pass
 
@@ -1555,10 +1577,22 @@ def _load_indicator_data(
                 eta_sec = int(remain / rate) if rate > 0 else 0
                 m, s = divmod(eta_sec, 60)
                 msg = f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
-                _log(msg, ui=False)
+
+                # 進捗ログはDEBUGレベルでレート制限適用
+                rate_logger = _get_rate_limited_logger()
+                rate_logger.debug_rate_limited(
+                    f"🧮 指標データロード進捗: {idx}/{total_syms}",
+                    interval=2.0,
+                    message_key="指標データ進捗",
+                )
                 _emit_ui_log(msg)
             except Exception:
-                _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
+                rate_logger = _get_rate_limited_logger()
+                rate_logger.debug_rate_limited(
+                    f"🧮 指標データロード進捗: {idx}/{total_syms}",
+                    interval=2.0,
+                    message_key="指標データ進捗",
+                )
                 _emit_ui_log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
     try:
         total_elapsed = int(max(0, _t.time() - start_ts))
@@ -1715,6 +1749,13 @@ def _submit_orders(
             elif side_val == "sell":
                 entry_map.pop(sym, None)
         save_entry_dates(entry_map)
+
+        # Emit progress event for notification
+        if ENABLE_PROGRESS_EVENTS:
+            emit_progress_event(
+                "notification_complete", {"notifications_sent": 1, "results_count": len(results)}
+            )
+
         notifier = create_notifier(platform="auto", fallback=True)
         notifier.send_trade_report("integrated", results)
         return out
@@ -3166,7 +3207,12 @@ def compute_today_signals(
         s1_total = stats1.get("total", len(symbols or []))
         s1_price = stats1.get("price_pass", 0)
         s1_dv = stats1.get("dv_pass", 0)
-        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
+        rate_logger = _get_rate_limited_logger()
+        rate_logger.debug_rate_limited(
+            f"🧪 system1内訳: 元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}",
+            interval=10.0,
+            message_key="system1内訳",
+        )
     except Exception:
         pass
     # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
@@ -3188,7 +3234,11 @@ def compute_today_signals(
         s4_total = stats4.get("total", len(symbols or []))
         s4_dv = stats4.get("dv_pass", 0)
         s4_hv = stats4.get("hv_pass", 0)
-        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
+        rate_limited_logger.debug_rate_limited(
+            f"🧪 system4内訳: 元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}",
+            message_key="system4_detail",
+            interval=10,
+        )
     except Exception:
         pass
     # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
@@ -3199,10 +3249,11 @@ def compute_today_signals(
         s5_av = stats5.get("avgvol_pass", 0)
         s5_dv = stats5.get("dv_pass", 0)
         s5_atr = stats5.get("atr_pass", 0)
-        _log(
-            "🧪 system5内訳: "
-            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
-            + f", {threshold_label}: {s5_atr}"
+        rate_limited_logger.debug_rate_limited(
+            f"🧪 system5内訳: 元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
+            f"{threshold_label}: {s5_atr}",
+            message_key="system5_detail",
+            interval=10,
         )
     except Exception:
         pass
@@ -3212,7 +3263,11 @@ def compute_today_signals(
         s6_total = stats6.get("total", len(symbols or []))
         s6_low = stats6.get("low_pass", 0)
         s6_dv = stats6.get("dv_pass", 0)
-        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+        rate_limited_logger.debug_rate_limited(
+            f"🧪 system6内訳: 元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}",
+            message_key="system6_detail",
+            interval=10,
+        )
     except Exception:
         pass
     # System7 は SPY 固定（参考情報のみ）
@@ -3220,7 +3275,9 @@ def compute_today_signals(
         spyp = (
             1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
         )
-        _log("🧪 system7内訳: SPY固定 | SPY存在=" + str(spyp))
+        rate_limited_logger.debug_rate_limited(
+            f"🧪 system7内訳: SPY固定 | SPY存在={spyp}", message_key="system7_detail", interval=10
+        )
     except Exception:
         pass
     _log(
@@ -4817,6 +4874,15 @@ def compute_today_signals(
     except Exception:
         default_long_ratio = 0.5
 
+    # Emit progress event for allocation start
+    if ENABLE_PROGRESS_EVENTS:
+        from common.progress_events import emit_progress_event
+
+        emit_progress_event(
+            "allocation_start",
+            {"total_candidates": len(per_system), "target_positions": max_positions_default},
+        )
+
     _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
     allocation_summary: AllocationSummary
     final_df, allocation_summary = finalize_allocation(
@@ -4834,6 +4900,16 @@ def compute_today_signals(
         default_long_ratio=default_long_ratio,
         default_max_positions=max_positions_default,
     )
+
+    # Emit progress event for allocation completion
+    if ENABLE_PROGRESS_EVENTS:
+        emit_progress_event(
+            "allocation_complete",
+            {
+                "final_positions": len(final_df) if final_df is not None else 0,
+                "active_positions_total": sum(allocation_summary.active_positions.values()),
+            },
+        )
 
     active_positions_map = dict(allocation_summary.active_positions)
     if active_positions_map:

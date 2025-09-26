@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 import json
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 from typing import ClassVar
 
-from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 
@@ -21,7 +20,8 @@ from common.dataframe_utils import (
     validate_required_columns,
 )
 from common.utils import safe_filename
-from config.settings import get_settings, Settings
+from config.settings import Settings, get_settings
+from indicators_common import add_indicators
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ MAIN_INDICATOR_COLUMNS = (
     "dollarvolume50",
     "avgvolume50",
     "return_3d",
-    "6d_return",
+    "return_6d",
     "return6d",
     "return_pct",
     "drop3d",

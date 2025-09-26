@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import ClassVar
 
 import pandas as pd
@@ -238,7 +238,7 @@ class CacheFileIO:
             _create_number_formatter(4): [
                 "roc200",
                 "return_3d",
-                "6d_return",
+                "return_6d",
                 "return6d",
                 "atr_ratio",
                 "atr_pct",

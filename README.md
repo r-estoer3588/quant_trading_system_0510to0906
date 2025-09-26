@@ -15,10 +15,50 @@ pip install -r requirements.txt
 2. `.env` を用意し `EODHD_API_KEY` に加え、Alpaca 連携を行う場合は
    `ALPACA_API_KEY` と `ALPACA_SECRET_KEY` を設定します。
 
+### 主要な環境変数
+
+- `EODHD_API_KEY`: EOD Historical Data API キー（必須）
+- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`: Alpaca ブローカー連携用
+- `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL`: Slack 通知設定
+- `DISCORD_WEBHOOK_URL`: Discord 通知設定
+
+### ログ・進捗関連の環境変数
+
+- `COMPACT_TODAY_LOGS`: 当日パイプラインの詳細ログを抑制（デフォルト: false）
+- `ENABLE_PROGRESS_EVENTS`: 進捗イベント出力を有効化（デフォルト: false）
+- `TODAY_SIGNALS_LOG_MODE`: ログファイル名形式（`single` または `dated`）
+- `ROLLING_ISSUES_VERBOSE_HEAD`: Rolling キャッシュ問題の詳細表示件数
+- `RUN_PLANNED_EXITS`: 自動手仕舞い実行モード（`off`/`open`/`close`/`auto`）
+
 ## 実行例
+
+### 基本実行
 
 - UI: `streamlit run app_integrated.py`
 - Alpaca ダッシュボード: `streamlit run app_alpaca_dashboard.py`
+- 当日パイプライン: `python scripts/run_all_systems_today.py --parallel --save-csv`
+
+### ログ最適化機能
+
+当日パイプラインのログ出力を制御する環境変数：
+
+```bash
+# コンパクトログモード（詳細ログをDEBUGレベルに変更）
+COMPACT_TODAY_LOGS=1 python scripts/run_all_systems_today.py
+
+# 進捗イベント出力有効化（UIでリアルタイム監視可能）
+ENABLE_PROGRESS_EVENTS=1 python scripts/run_all_systems_today.py
+
+# Rolling キャッシュ問題の詳細表示件数制限
+ROLLING_ISSUES_VERBOSE_HEAD=5 python scripts/run_all_systems_today.py
+
+# 全て同時使用
+COMPACT_TODAY_LOGS=1 ENABLE_PROGRESS_EVENTS=1 ROLLING_ISSUES_VERBOSE_HEAD=3 \
+    python scripts/run_all_systems_today.py --parallel --save-csv
+```
+
+### その他の実行例
+
 - 日次キャッシュ: `python scripts/cache_daily_data.py`
   - 並列度調整: `--max-workers 20` (デフォルト: 20)
   - API 取得並列度: `--fetch-workers 1` (デフォルト: 1、順次実行でレート制限遵守)
@@ -30,6 +70,36 @@ pip install -r requirements.txt
     実行したい場合は `--bulk-today` を指定するか、`scripts/update_from_bulk_last_day.py`
     を直接実行してください。
 - 簡易スケジューラ: `python -m schedulers.runner`
+
+### リアルタイム進捗監視
+
+`ENABLE_PROGRESS_EVENTS=1` で当日パイプラインを実行中、同時に Streamlit UI で進捗をリアルタイム監視できます：
+
+1. ターミナル 1: 当日パイプライン実行
+
+   ```bash
+   ENABLE_PROGRESS_EVENTS=1 python scripts/run_all_systems_today.py --parallel
+   ```
+
+2. ターミナル 2: UI 起動
+
+   ```bash
+   streamlit run app_integrated.py
+   ```
+
+3. UI の「当日シグナル」タブで「進捗ログを表示」をチェック
+   - `logs/progress_today.jsonl` を 1 秒間隔でポーリング
+   - システム実行開始、配分処理、通知完了などの主要イベントをリアルタイム表示
+   - 各システムの候補数、エントリ数、現在ポジション数などの詳細情報も含む
+
+### ログ最適化の効果
+
+- **通常モード**: 全詳細ログが INFO レベルで出力され、大量のメッセージが表示される
+- **コンパクトモード (`COMPACT_TODAY_LOGS=1`)**:
+  - システム内訳や進捗詳細が DEBUG レベルに変更
+  - レート制限により同種メッセージが適切な間隔（2-10 秒）で出力
+  - 重要な情報（エラー、最終結果など）は引き続き INFO レベルで表示
+  - ログファイルサイズが約 60-80%削減（実測値）
 
 ## テスト
 

@@ -25,6 +25,65 @@
   "python.testing.pytestArgs": ["tests"],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
+  "chat.mcp.autostart": "newAndOutdated",
+  "github.copilot.editor.enableAutoCompletions": true,
+  "github.copilot.chat.runCommands": "always",
+  "github.copilot.advanced": {
+    "automaticCommands": true,
+    "autoExecute": true
   },
-  "chat.mcp.autostart": "newAndOutdated"
+  "github.copilot.chat.allowExecuteCommand": true,
+  "github.copilot.chat.executeCommandInTerminal": "always",
+  "terminal.integrated.confirmOnExit": "never",
+  "terminal.integrated.confirmOnKill": "never",
+  // AI開発効率向上設定
+  "github.copilot.enable": {
+    "*": true,
+    "yaml": true,
+    "plaintext": true,
+    "markdown": true,
+    "json": true,
+    "jsonc": true
+  },
+  "github.copilot.chat.welcomeMessage": "never",
+  "github.copilot.chat.focusOnNewConversation": false,
+  "github.copilot.advanced.listCount": 10,
+  "github.copilot.advanced.inlineSuggestCount": 5,
+  // Python開発効率設定
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.completeFunctionParens": true,
+  "python.analysis.autoFormatStrings": true,
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "python.analysis.inlayHints.variableTypes": true,
+  "python.analysis.inlayHints.parameterTypes": true,
+  // ファイル自動保存・フォーマット設定
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit",
+    "source.fixAll.ruff": "explicit"
+  },
+  "editor.rulers": [88],
+  "editor.wordWrap": "wordWrapColumn",
+  "editor.wordWrapColumn": 88,
+  // テスト・デバッグ効率化
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.executeInFileDir": true,
+  // Git効率化
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.enableSmartCommit": true,
+  "git.postCommitCommand": "none",
+  // ターミナル効率化
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": ["-NoLogo"]
+    }
+  },
+  // エラー・警告の即座表示
+  "problems.decorations.enabled": true,
+  "editor.lightbulb.enabled": "onCode"
 }

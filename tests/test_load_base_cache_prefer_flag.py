@@ -12,7 +12,7 @@ def test_load_base_cache_prefers_precomputed(tmp_path, monkeypatch):
             "High": [1, 2, 3],
             "Low": [1, 2, 3],
             "Close": [1, 2, 3],
-            "ATR10": [0.1, 0.2, 0.15],
+            "atr10": [0.1, 0.2, 0.15],
         }
     )
     symbol = "TEST_PREF"
@@ -24,12 +24,12 @@ def test_load_base_cache_prefers_precomputed(tmp_path, monkeypatch):
     # load with prefer_precomputed_indicators=True should return the CSV content
     out = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
     assert out is not None
-    assert "ATR10" in out.columns or "atr10" in out.columns
+    assert "atr10" in out.columns
 
     # load with prefer_precomputed_indicators=False should compute indicators (still returns frame)
     out2 = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
     assert out2 is not None
-    assert "ATR10" in out2.columns or "atr10" in out2.columns
+    assert "atr10" in out2.columns
 
     # cleanup
     try:

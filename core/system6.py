@@ -13,15 +13,15 @@ from common.utils_spy import resolve_signal_entry_date
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 SYSTEM6_FEATURE_COLUMNS = [
-    "ATR10",
-    "DollarVolume50",
+    "atr10",
+    "dollarvolume50",
     "Return6D",
     "UpTwoDays",
     "filter",
     "setup",
 ]
 SYSTEM6_ALL_COLUMNS = SYSTEM6_BASE_COLUMNS + SYSTEM6_FEATURE_COLUMNS
-SYSTEM6_NUMERIC_COLUMNS = ["ATR10", "DollarVolume50", "Return6D"]
+SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "Return6D"]
 
 
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -33,15 +33,15 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     if len(x) < 50:
         raise ValueError("insufficient rows")
     try:
-        x["ATR10"] = AverageTrueRange(
+        x["atr10"] = AverageTrueRange(
             x["High"], x["Low"], x["Close"], window=10
         ).average_true_range()
-        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+        x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
         x["Return6D"] = x["Close"].pct_change(6)
         x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
             x["Close"].shift(1) > x["Close"].shift(2)
         )
-        x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
+        x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
         x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
         raise ValueError("calc_error") from exc
@@ -284,22 +284,22 @@ def prepare_data_vectorized_system6(
                 if len(x) < 50:
                     raise ValueError("insufficient_rows")
                 # 既存があれば流用、無ければ最小限の計算で補完
-                if "ATR10" in df.columns:
-                    x["ATR10"] = pd.to_numeric(df["ATR10"], errors="coerce")
+                if "atr10" in df.columns:
+                    x["atr10"] = pd.to_numeric(df["atr10"], errors="coerce")
                 else:
-                    x["ATR10"] = AverageTrueRange(
+                    x["atr10"] = AverageTrueRange(
                         x["High"], x["Low"], x["Close"], window=10
                     ).average_true_range()
-                if "DollarVolume50" in df.columns:
-                    x["DollarVolume50"] = pd.to_numeric(df["DollarVolume50"], errors="coerce")
+                if "dollarvolume50" in df.columns:
+                    x["dollarvolume50"] = pd.to_numeric(df["dollarvolume50"], errors="coerce")
                 else:
-                    x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+                    x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
                 # 派生（軽量）
                 x["Return6D"] = x["Close"].pct_change(6)
                 x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
                     x["Close"].shift(1) > x["Close"].shift(2)
                 )
-                x["filter"] = (x["Low"] >= 5) & (x["DollarVolume50"] > 10_000_000)
+                x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
                 x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
                 x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
                 x = x.loc[~x.index.duplicated()].sort_index()
@@ -505,7 +505,7 @@ def generate_candidates_system6(
                     "entry_date": entry_date,
                     "entry_price": last_price,
                     "Return6D": row["Return6D"],
-                    "ATR10": row["ATR10"],
+                    "atr10": row["atr10"],
                 }
                 candidates_by_date.setdefault(entry_date, []).append(rec)
         except Exception:

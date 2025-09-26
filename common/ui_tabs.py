@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
@@ -424,6 +425,57 @@ def _show_sys_result(df, capital):
 def render_integrated_tab(settings, notifier: Notifier) -> None:
     """統合バックテストタブの描画"""
     st.subheader(tr("Integrated Backtest (Systems 1-7)"))
+
+    # リアルタイム進捗表示セクション
+    with st.expander("🔄 Real-time Progress Monitor", expanded=False):
+        progress_container = st.empty()
+        auto_refresh = st.checkbox("Auto-refresh (every 1 sec)", value=False)
+
+        if auto_refresh:
+            # Use session state to track progress polling
+            if "progress_poll_count" not in st.session_state:
+                st.session_state.progress_poll_count = 0
+
+            # Import render_digest_log from app_integrated
+            try:
+                import app_integrated
+
+                logs_dir = Path(settings.LOGS_DIR)
+                progress_log = logs_dir / "progress_today.jsonl"
+                app_integrated.render_digest_log(progress_log, progress_container)
+
+                # Auto-refresh mechanism
+                st.session_state.progress_poll_count += 1
+                if st.session_state.progress_poll_count % 100 == 0:  # Reduce frequency
+                    import time as time_module
+
+                    time_module.sleep(0.1)
+                    st.rerun()
+                else:
+                    # Use a timer-based approach for smooth updates
+                    import time as time_module
+
+                    time_module.sleep(1)
+                    st.rerun()
+
+            except ImportError:
+                progress_container.warning(
+                    "Progress monitoring not available (app_integrated not found)"
+                )
+            except Exception as e:
+                progress_container.error(f"Progress monitoring error: {e}")
+        else:
+            # Manual refresh button
+            if st.button("🔄 Refresh Progress"):
+                try:
+                    import app_integrated
+
+                    logs_dir = Path(settings.LOGS_DIR)
+                    progress_log = logs_dir / "progress_today.jsonl"
+                    app_integrated.render_digest_log(progress_log, progress_container)
+                except Exception as e:
+                    progress_container.error(f"Failed to refresh progress: {e}")
+
     from common.holding_tracker import display_holding_heatmap, generate_holding_matrix
     from common.integrated_backtest import (
         DEFAULT_ALLOCATIONS,
@@ -1481,3 +1533,50 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             st.info(tr("no logs to show"))
         if not any_logs2:
             st.info(tr("no logs to show"))
+
+
+def render_cache_health_tab(settings) -> None:
+    """
+    Cache健全性とrolling cache分析を行うタブを描画する。
+    """
+    st.title("🩺 Cache Health Dashboard")
+    st.write("rolling cacheの健全性と整備状況を監視・分析します。")
+
+    # タブ内でサブタブを作成
+    subtab1, subtab2, subtab3 = st.tabs(
+        ["🔍 基本ヘルスチェック", "🎯 システム別カバレッジ", "💡 推奨アクション"]
+    )
+
+    with subtab1:
+        st.write("### Cache基本状況")
+        from common.ui_components import display_cache_health_dashboard
+
+        display_cache_health_dashboard()
+
+    with subtab2:
+        st.write("### システム別カバレッジ分析")
+        from common.ui_components import display_system_cache_coverage
+
+        display_system_cache_coverage()
+
+    with subtab3:
+        st.write("### 推奨アクションと改善提案")
+
+        # 分析実行ボタン
+        if st.button("🔍 詳細分析実行", key="cache_analysis_for_recommendations"):
+            from common.cache_manager import CacheManager
+            from common.ui_components import display_cache_recommendations
+            from config.settings import get_settings
+
+            try:
+                settings = get_settings(create_dirs=True)
+                cache_manager = CacheManager(settings)
+                analysis_result = cache_manager.analyze_rolling_gaps()
+
+                # 推奨アクションを表示
+                display_cache_recommendations(analysis_result)
+
+            except Exception as e:
+                st.error(f"分析エラー: {str(e)}")
+        else:
+            st.info("上のボタンをクリックして詳細分析を実行してください。")

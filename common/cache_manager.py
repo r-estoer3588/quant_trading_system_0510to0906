@@ -1,23 +1,134 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import atexit
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
-from typing import ClassVar, Any, cast
+import threading
+from collections import defaultdict
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any, ClassVar, cast
 
-from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 
 from common.utils import describe_dtype, safe_filename
-from config.settings import get_settings, Settings
+from config.settings import Settings, get_settings
+from indicators_common import add_indicators
 
 logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
+
+
+class _RollingIssueAggregator:
+    """
+    rolling cache未整備ログを集約し、冗長出力を制御するクラス。
+
+    環境変数:
+    - COMPACT_TODAY_LOGS=1: 集約機能有効化
+    - ROLLING_ISSUES_VERBOSE_HEAD=N: 先頭N件のみ詳細WARNING、以降はDEBUG
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self.compact_mode = os.getenv("COMPACT_TODAY_LOGS", "0") == "1"
+        self.verbose_head = int(os.getenv("ROLLING_ISSUES_VERBOSE_HEAD", "20"))
+        self.issues = defaultdict(list)  # category -> [symbols]
+        self.warning_count = 0
+        self.logger = logging.getLogger(__name__)
+        self._initialized = True
+
+        if self.compact_mode:
+            # プロセス終了時にサマリーを出力
+            atexit.register(self._output_summary)
+
+    def report_issue(self, category: str, symbol: str, message: str = "") -> None:
+        """
+        rolling cache の未整備問題を報告する。
+
+        Args:
+            category: 問題カテゴリ（例: "missing_rolling", "insufficient_data"）
+            symbol: 対象シンボル
+            message: 追加メッセージ（省略可）
+        """
+        if not self.compact_mode:
+            # 従来通りの個別WARNING
+            full_msg = f"[{category}] {symbol}"
+            if message:
+                full_msg += f": {message}"
+            self.logger.warning(full_msg)
+            return
+
+        # 集約モード
+        self.issues[category].append(symbol)
+        self.warning_count += 1
+
+        # 先頭N件のみ詳細WARNING
+        if len(self.issues[category]) <= self.verbose_head:
+            full_msg = f"[{category}] {symbol}"
+            if message:
+                full_msg += f": {message}"
+            self.logger.warning(full_msg)
+        else:
+            # N件を超えたらDEBUGレベル
+            full_msg = f"[{category}] {symbol}"
+            if message:
+                full_msg += f": {message}"
+            self.logger.debug(full_msg)
+
+    def _output_summary(self) -> None:
+        """プロセス終了時にカテゴリ別サマリを出力する。"""
+        if not self.issues:
+            return
+
+        self.logger.info("=== Rolling Cache Issues Summary ===")
+        total_issues = sum(len(symbols) for symbols in self.issues.values())
+        self.logger.info(f"Total issues reported: {total_issues}")
+
+        for category, symbols in self.issues.items():
+            unique_symbols = list(set(symbols))  # 重複除去
+            count = len(unique_symbols)
+
+            if count <= 10:
+                symbol_list = ", ".join(unique_symbols)
+                self.logger.info(f"[{category}]: {count} symbols - {symbol_list}")
+            else:
+                sample = ", ".join(unique_symbols[:5])
+                self.logger.info(
+                    f"[{category}]: {count} symbols - {sample} ... (+{count-5} more)"
+                )
+
+
+# グローバルインスタンス
+_rolling_issue_aggregator = _RollingIssueAggregator()
+
+
+def report_rolling_issue(category: str, symbol: str, message: str = "") -> None:
+    """
+    rolling cache の未整備問題をグローバルアグリゲーターに報告する。
+
+    Args:
+        category: 問題カテゴリ（例: "missing_rolling", "insufficient_data"）
+        symbol: 対象シンボル
+        message: 追加メッセージ（省略可）
+    """
+    _rolling_issue_aggregator.report_issue(category, symbol, message)
 
 
 def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -55,7 +166,7 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     pct_cols = {
         "roc200",
         "return_3d",
-        "6d_return",
+        "return_6d",
         "return6d",
         "atr_ratio",
         "atr_pct",
@@ -171,7 +282,7 @@ def make_csv_formatters(
         _num_formatter(4): [
             "roc200",
             "return_3d",
-            "6d_return",
+            "return_6d",
             "return6d",
             "atr_ratio",
             "atr_pct",
@@ -227,29 +338,29 @@ MAIN_INDICATOR_COLUMNS = (
     "low",
     "close",
     "volume",
-    "SMA25",
-    "SMA50",
-    "SMA100",
-    "SMA150",
-    "SMA200",
-    "EMA20",
-    "EMA50",
-    "ATR10",
-    "ATR14",
-    "ATR20",
-    "ATR40",
-    "ATR50",
-    "ADX7",
-    "RSI3",
-    "RSI4",
-    "RSI14",
-    "ROC200",
-    "HV50",
-    "DollarVolume20",
-    "DollarVolume50",
-    "AvgVolume50",
+    "sma25",
+    "sma50",
+    "sma100",
+    "sma150",
+    "sma200",
+    "ema20",
+    "ema50",
+    "atr10",
+    "atr14",
+    "atr20",
+    "atr40",
+    "atr50",
+    "adx7",
+    "rsi3",
+    "rsi4",
+    "rsi14",
+    "roc200",
+    "hv50",
+    "dollarvolume20",
+    "dollarvolume50",
+    "avgvolume50",
     "return_3d",
-    "6d_return",
+    "return_6d",
     "return6d",
     "return_pct",
     "drop3d",
@@ -281,7 +392,7 @@ _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
     "dollarvolume50": 50,
     "avgvolume50": 50,
     "return_3d": 4,
-    "6d_return": 7,
+    "return_6d": 7,
     "return6d": 7,
     "return_pct": 2,
     "drop3d": 4,
@@ -442,6 +553,11 @@ class CacheManager:
 
         df = self._read_with_fallback(path, ticker, profile)
         if df is None:
+            # rolling cacheが見つからない場合は集約ログに報告
+            if profile == "rolling":
+                report_rolling_issue(
+                    "missing_rolling", ticker, "rolling cache not found"
+                )
             return None
 
         # Normalize columns
@@ -689,6 +805,154 @@ class CacheManager:
         msg = f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}"
         logger.info(msg)
         return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
+
+    def analyze_rolling_gaps(self, system_symbols: list[str] | None = None) -> dict:
+        """
+        rolling cache の整備状況を分析し、未整備シンボルの詳細ログを集約する。
+
+        Args:
+            system_symbols: 分析対象シンボルのリスト。Noneの場合はbase cacheの全シンボル
+                を対象とする。
+
+        Returns:
+            分析結果辞書:
+            - total_symbols: 分析対象シンボル数
+            - available_in_rolling: rolling cacheに存在するシンボル数
+            - missing_from_rolling: rolling cacheに存在しないシンボル数
+            - missing_symbols: 未整備シンボルのリスト
+            - coverage_percentage: カバレッジ率（%）
+        """
+        logger.info(f"{self._ui_prefix} 🔍 rolling cache整備状況の分析を開始")
+
+        # 分析対象シンボルの決定
+        if system_symbols is None:
+            # base cacheから全シンボルを取得
+            base_files = list(self.full_dir.parent.glob(f"{BASE_SUBDIR}/*.*"))
+            system_symbols = [p.stem for p in base_files if not p.name.startswith("_")]
+            logger.info(
+                f"{self._ui_prefix} base cacheから{len(system_symbols)}シンボルを検出"
+            )
+        else:
+            logger.info(
+                f"{self._ui_prefix} 指定された{len(system_symbols)}シンボルを分析対象とします"
+            )
+
+        available_symbols = []
+        missing_symbols = []
+
+        # 各シンボルのrolling cache存在確認
+        for symbol in system_symbols:
+            rolling_data = self.read(symbol, "rolling")
+            if rolling_data is not None and not rolling_data.empty:
+                available_symbols.append(symbol)
+            else:
+                missing_symbols.append(symbol)
+                # 集約ログに未整備を報告
+                report_rolling_issue("missing_from_analysis", symbol)
+
+        total_symbols = len(system_symbols)
+        available_count = len(available_symbols)
+        missing_count = len(missing_symbols)
+        coverage_percentage = (
+            (available_count / total_symbols * 100) if total_symbols > 0 else 0
+        )
+
+        # 結果ログ
+        logger.info(f"{self._ui_prefix} 📊 分析完了:")
+        logger.info(f"{self._ui_prefix}   - 分析対象: {total_symbols}シンボル")
+        logger.info(
+            f"{self._ui_prefix}   - rolling cache整備済み: {available_count}シンボル"
+        )
+        logger.info(
+            f"{self._ui_prefix}   - rolling cache未整備: {missing_count}シンボル"
+        )
+        logger.info(f"{self._ui_prefix}   - カバレッジ: {coverage_percentage:.1f}%")
+
+        if missing_symbols:
+            # 集約ログによる未整備シンボル報告（既存のwarningを置き換え）
+            for symbol in missing_symbols[:10]:  # 先頭10件を詳細報告
+                report_rolling_issue("missing_analysis_detailed", symbol)
+
+            # 従来の形式のログも条件付きで維持（集約無効時のフォールバック）
+            if not _rolling_issue_aggregator.compact_mode:
+                logger.warning(
+                    f"{self._ui_prefix} 🚨 未整備シンボル: {missing_symbols[:10]}"
+                )
+                if len(missing_symbols) > 10:
+                    logger.warning(
+                        f"{self._ui_prefix}   ... 他{len(missing_symbols) - 10}シンボル"
+                    )
+
+        return {
+            "total_symbols": total_symbols,
+            "available_in_rolling": available_count,
+            "missing_from_rolling": missing_count,
+            "missing_symbols": missing_symbols,
+            "coverage_percentage": coverage_percentage,
+        }
+
+    def get_rolling_health_summary(self) -> dict:
+        """
+        rolling cache の健全性サマリーを取得する。
+
+        Returns:
+            健全性サマリー辞書:
+            - meta_exists: メタファイルの存在
+            - meta_content: メタファイルの内容
+            - rolling_files_count: rolling cacheファイル数
+            - target_length: 目標データ長
+            - anchor_symbol_status: アンカーシンボル（SPY）の状態
+        """
+        logger.info(f"{self._ui_prefix} 🩺 rolling cache健全性チェックを開始")
+
+        # メタファイル確認
+        meta_exists = self.rolling_meta_path.exists()
+        meta_content = {}
+        if meta_exists:
+            try:
+                with open(self.rolling_meta_path, encoding="utf-8") as f:
+                    meta_content = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"{self._ui_prefix} メタファイル読み込み失敗: {e}")
+
+        # rolling cacheファイル数
+        rolling_files = [
+            p for p in self.rolling_dir.glob("*.*") if not p.name.startswith("_")
+        ]
+        rolling_files_count = len(rolling_files)
+
+        # 目標データ長
+        target_length = self._rolling_target_len
+
+        # SPYアンカーの状態確認
+        spy_data = self.read("SPY", "rolling")
+        anchor_status = {
+            "exists": spy_data is not None and not spy_data.empty,
+            "rows": len(spy_data) if spy_data is not None else 0,
+            "meets_target": False,
+        }
+        if spy_data is not None:
+            anchor_status["meets_target"] = len(spy_data) >= target_length
+
+        result = {
+            "meta_exists": meta_exists,
+            "meta_content": meta_content,
+            "rolling_files_count": rolling_files_count,
+            "target_length": target_length,
+            "anchor_symbol_status": anchor_status,
+        }
+
+        logger.info(f"{self._ui_prefix} ✅ 健全性チェック完了:")
+        logger.info(
+            f"{self._ui_prefix}   - メタファイル: {'存在' if meta_exists else '不在'}"
+        )
+        logger.info(f"{self._ui_prefix}   - rolling files: {rolling_files_count}個")
+        spy_status = "正常" if anchor_status["meets_target"] else "要確認"
+        logger.info(
+            f"{self._ui_prefix}   - SPY状態: {spy_status} ({anchor_status['rows']}行)"
+        )
+
+        return result
 
 
 def _base_dir() -> Path:
