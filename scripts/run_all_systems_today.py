@@ -3290,6 +3290,7 @@ def compute_today_signals(
         s4_total = stats4.get("total", len(symbols or []))
         s4_dv = stats4.get("dv_pass", 0)
         s4_hv = stats4.get("hv_pass", 0)
+        rate_limited_logger = _get_rate_limited_logger()
         rate_limited_logger.debug_rate_limited(
             f"🧪 system4内訳: 元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}",
             message_key="system4_detail",
@@ -3305,6 +3306,7 @@ def compute_today_signals(
         s5_av = stats5.get("avgvol_pass", 0)
         s5_dv = stats5.get("dv_pass", 0)
         s5_atr = stats5.get("atr_pass", 0)
+        rate_limited_logger = _get_rate_limited_logger()
         rate_limited_logger.debug_rate_limited(
             f"🧪 system5内訳: 元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
             f"{threshold_label}: {s5_atr}",
@@ -3319,6 +3321,7 @@ def compute_today_signals(
         s6_total = stats6.get("total", len(symbols or []))
         s6_low = stats6.get("low_pass", 0)
         s6_dv = stats6.get("dv_pass", 0)
+        rate_limited_logger = _get_rate_limited_logger()
         rate_limited_logger.debug_rate_limited(
             f"🧪 system6内訳: 元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}",
             message_key="system6_detail",
@@ -3331,6 +3334,7 @@ def compute_today_signals(
         spyp = (
             1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
         )
+        rate_limited_logger = _get_rate_limited_logger()
         rate_limited_logger.debug_rate_limited(
             f"🧪 system7内訳: SPY固定 | SPY存在={spyp}", message_key="system7_detail", interval=10
         )

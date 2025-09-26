@@ -26,27 +26,28 @@ CLI:
 
 from __future__ import annotations
 
-# Ensure project root on sys.path when executed directly via `python scripts/bench_system6.py`
-import sys
-from pathlib import Path as _Path
-
-_ROOT = _Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+from __future__ import annotations
 
 import argparse
 import csv
-import json
 import dataclasses
+import json
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import Path as _Path
 from statistics import mean
 
 import pandas as pd
 
-from config.settings import get_settings
+# Ensure project root on sys.path when executed directly via `python scripts/bench_system6.py`
+_ROOT = _Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from common.cache_manager import CacheManager, load_base_cache
+from config.settings import get_settings
 from strategies.system6_strategy import System6Strategy
 
 
