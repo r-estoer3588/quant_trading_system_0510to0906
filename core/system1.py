@@ -86,15 +86,15 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     """No-op indicator computation - check precomputed indicators exist."""
     x = df.copy()
-    
+
     # Required precomputed indicators (lowercase, from indicators_common)
     required_indicators = ["sma25", "sma50", "roc200", "atr20", "dollarvolume20"]
-    
+
     # Check if all required indicators exist - if not, raise error
     missing_indicators = [col for col in required_indicators if col not in x.columns]
     if missing_indicators:
         raise ValueError(f"missing precomputed indicators: {missing_indicators}")
-    
+
     # Use precomputed indicators only (no calculation)
     # Create strategy-specific derived columns
     x["filter"] = (x["Low"] >= 5) & (x["dollarvolume20"] > 50_000_000)
@@ -127,11 +127,13 @@ def _compute_indicators(
 
     # Required precomputed indicators (lowercase, from indicators_common)
     required_indicators = ["sma25", "sma50", "roc200", "atr20", "dollarvolume20"]
-    
-    # Check if all required indicators exist
+
+    # Check if all required indicators exist - immediate stop if missing
     missing_indicators = [col for col in required_indicators if col not in df.columns]
     if missing_indicators:
-        return symbol, None  # Early exit if any indicator missing
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System1 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
+        )
 
     try:
         # Use existing processing logic but with precomputed indicators only
@@ -203,8 +205,9 @@ def prepare_data_vectorized_system1(
                         missing[sym] = df
                         continue
                     if not required.issubset(have):
-                        missing[sym] = df
-                        continue
+                        raise RuntimeError(
+                            f"IMMEDIATE_STOP: System1 missing precomputed indicators {required - have} for {sym}. Daily signal execution must be stopped."
+                        )
                     # derive filter/setup if absent
                     if "filter" not in x.columns:
                         try:
@@ -332,33 +335,33 @@ def prepare_data_vectorized_system1(
     # Regular mode: process in main thread
     result_dict: dict[str, pd.DataFrame] = {}
     total_symbols = len(raw_data_dict)
-    
+
     for i, (sym, df) in enumerate(raw_data_dict.items(), 1):
         try:
             if df is None or df.empty:
                 if skip_callback:
                     skip_callback(sym, "empty_dataframe")
                 continue
-                
+
             # Required precomputed indicators (lowercase, from indicators_common)
             required_indicators = ["sma25", "sma50", "roc200", "atr20", "dollarvolume20"]
-            
+
             # Check if all required indicators exist
             missing_indicators = [col for col in required_indicators if col not in df.columns]
             if missing_indicators:
                 if skip_callback:
                     skip_callback(sym, f"missing_precomputed:{','.join(missing_indicators)}")
                 continue
-                
+
             # Use only precomputed indicators - no calculation
             x = _prepare_source_frame(df)
             x = _compute_indicators_frame(x)
             result_dict[sym] = x
-            
+
         except Exception as e:
             if skip_callback:
                 skip_callback(sym, f"processing_error:{e}")
-                
+
         if progress_callback:
             try:
                 progress_callback(i, total_symbols)
@@ -380,51 +383,53 @@ def generate_roc200_ranking_system1(
     """Generate ROC200 ranking from prepared data."""
     candidates = []
     total = len(prepared_data)
-    
+
     for i, (symbol, df) in enumerate(prepared_data.items(), 1):
         try:
             if df is None or df.empty:
                 continue
-                
+
             # Use lowercase column names consistently
             if "roc200" not in df.columns:
                 continue
-                
+
             # Get data for entry date
             available_dates = df.index[df.index <= entry_date]
             if available_dates.empty:
                 continue
-                
+
             target_date = available_dates[-1]
             row = df.loc[target_date]
-            
+
             # Check setup conditions
             if not row.get("setup", False):
                 continue
-                
-            candidates.append({
-                "symbol": symbol,
-                "entry_date": target_date,
-                "roc200": row["roc200"],
-                "setup": True,
-            })
-            
+
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "entry_date": target_date,
+                    "roc200": row["roc200"],
+                    "setup": True,
+                }
+            )
+
         except Exception:
             continue
-            
+
         if progress_callback and i % 100 == 0:
             try:
                 progress_callback(i, total)
             except Exception:
                 pass
-    
+
     if not candidates:
         return pd.DataFrame()
-        
+
     # Convert to DataFrame and sort by ROC200 descending
     result_df = pd.DataFrame(candidates)
     result_df = result_df.sort_values("roc200", ascending=False).head(top_n)
-    
+
     return result_df
 
 
@@ -433,8 +438,72 @@ def total_days_for_system1() -> int:
     return max(25, 50, 200, 20)  # SMA25, SMA50, ROC200, ATR20
 
 
+def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
+    """Return the total number of unique dates across prepared data."""
+    all_dates = set()
+    for df in data_dict.values():
+        if df is None or df.empty:
+            continue
+        if "Date" in df.columns:
+            date_series = pd.to_datetime(df["Date"]).dt.normalize()
+        else:
+            date_series = pd.to_datetime(df.index).normalize()
+        all_dates.update(date_series)
+    return len(sorted(all_dates))
+
+
+def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwargs):
+    """Generate daily ROC200 ranking filtered by SPY trend."""
+    from common.utils_spy import resolve_signal_entry_date
+
+    on_progress = kwargs.get("on_progress")
+    on_log = kwargs.get("on_log")
+    all_signals = []
+
+    for symbol, df in data_dict.items():
+        if "setup" not in df.columns or df["setup"].sum() == 0:
+            continue
+        sig_df = df[df["setup"]][["ROC200", "ATR20", "Open"]].copy()
+        sig_df["symbol"] = symbol
+        idx_norm = pd.to_datetime(sig_df.index, errors="coerce").normalize()
+        sig_df["Date"] = idx_norm
+
+        # last_price（直近終値）を取得
+        last_price = None
+        if "Close" in df.columns and not df["Close"].empty:
+            last_price = df["Close"].iloc[-1]
+        sig_df["entry_price"] = last_price
+
+        # entry_date 計算
+        base_dates = pd.to_datetime(sig_df.index, errors="coerce").to_series(index=sig_df.index)
+        sig_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
+        sig_df = sig_df.dropna(subset=["entry_date"])
+
+        all_signals.append(sig_df)
+
+    if not all_signals:
+        return {}, None
+
+    all_df = pd.concat(all_signals)
+
+    # entry_date単位でランキング作成
+    candidates_by_date: dict[pd.Timestamp, list[dict]] = {}
+    for date, group in all_df.groupby("entry_date"):
+        ranked = group.sort_values("ROC200", ascending=False).copy()
+        total = len(ranked)
+        if total == 0:
+            candidates_by_date[date] = []
+            continue
+        ranked.loc[:, "rank"] = range(1, total + 1)
+        ranked.loc[:, "rank_total"] = total
+        candidates_by_date[date] = ranked.to_dict("records")
+
+    return candidates_by_date, None
+
+
 __all__ = [
     "prepare_data_vectorized_system1",
-    "generate_roc200_ranking_system1", 
+    "generate_roc200_ranking_system1",
+    "get_total_days_system1",
     "total_days_for_system1",
 ]

@@ -35,6 +35,7 @@
   "github.copilot.chat.runCommands": "always",
   "github.copilot.chat.executeCommand": "always",
   "github.copilot.terminal.executeCommand": "always",
+  "github.copilot.chat.useProjectFiles": true,
   "github.copilot.advanced": {
     "automaticCommands": true,
     "autoExecute": true

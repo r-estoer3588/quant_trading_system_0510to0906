@@ -66,39 +66,42 @@ def test_extract_rolling_with_indicators(tmp_path):
     first_date = pd.to_datetime(rolling_df.iloc[0]["date"])
     assert first_date == start_expected
 
+    # 標準化後の大文字指標名をチェック（standardize_indicator_columns適用後）
     indicator_cols = {
-        "sma25",
-        "sma50",
-        "sma100",
-        "sma150",
-        "sma200",
-        "roc200",
-        "atr10",
-        "atr20",
-        "atr40",
-        "atr50",
-        "rsi3",
-        "rsi4",
-        "adx7",
-        "dollarvolume20",
-        "dollarvolume50",
-        "avgvolume50",
-        "atr_ratio",
-        "atr_pct",
-        "return_3d",
-        "return_6d",
-        "uptwodays",
-        "twodayup",
-        "hv50",
-        "min_50",
-        "max_70",
+        "SMA25",
+        "SMA50",
+        "SMA100",
+        "SMA150",
+        "SMA200",
+        "ROC200",
+        "ATR10",
+        "ATR20",
+        "ATR40",
+        "ATR50",
+        "RSI3",
+        "RSI4",
+        "ADX7",
+        "DollarVolume20",
+        "DollarVolume50",
+        "AvgVolume50",
+        "ATR_Ratio",  # 標準化済み大文字
+        "ATR_Pct",  # 標準化済み大文字
+        "Return_3D",  # 標準化済み大文字
+        "Return_6D",  # 標準化済み大文字
+        "Return_Pct",  # 標準化済み大文字
+        "UpTwoDays",  # 標準化済み大文字
+        "TwoDayUp",  # 標準化済み大文字
+        "Drop3D",  # 標準化済み大文字
+        "HV50",  # 標準化済み大文字（hv50→HV50）
+        "min_50",  # 小文字のまま（マッピングなし）
+        "max_70",  # 小文字のまま（マッピングなし）
     }
     missing = indicator_cols - set(rolling_df.columns)
     assert not missing
 
     last_row = rolling_df.iloc[-1]
-    assert pd.notna(last_row["sma200"])
-    assert pd.notna(last_row["atr20"])
+    assert pd.notna(last_row["SMA200"])
+    assert pd.notna(last_row["ATR20"])
 
 
 def test_extract_subset_and_target_days(tmp_path):

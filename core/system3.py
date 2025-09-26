@@ -92,18 +92,38 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     x = df.copy()
-    x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
-    x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
-    x["Drop3D"] = -(x["Close"].pct_change(3))
-    x["AvgVolume50"] = x["Volume"].rolling(50).mean()
-    x["ATR_Ratio"] = x["ATR10"] / x["Close"]
 
+    # Required precomputed indicators (lowercase)
+    required_indicators = ["sma150", "atr10", "atr_ratio"]
+    missing_indicators = [col for col in required_indicators if col not in x.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System3 missing precomputed indicators {missing_indicators}. Daily signal execution must be stopped."
+        )
+
+    # Calculate derived indicators that cannot be precomputed
+    # Only calculate Drop3D if not already present (optimization for precomputed data)
+    if "Drop3D" not in x.columns:
+        x["Drop3D"] = -(x["Close"].pct_change(3))
+
+    # Use precomputed volume average (try dollarvolume50 first, fallback to AvgVolume50)
+    if "dollarvolume50" in x.columns:
+        volume_condition = x["dollarvolume50"] >= 1_000_000
+    elif "AvgVolume50" in x.columns:  # Legacy fallback
+        volume_condition = x["AvgVolume50"] >= 1_000_000
+    else:
+        # Calculate if neither precomputed version exists
+        x["AvgVolume50"] = x["Volume"].rolling(50).mean()
+        volume_condition = x["AvgVolume50"] >= 1_000_000
+
+    # Use precomputed indicators with lowercase names
     cond_price = x["Low"] >= 1
-    cond_volume = x["AvgVolume50"] >= 1_000_000
-    cond_atr = x["ATR_Ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
+    cond_volume = volume_condition
+    cond_atr = x["atr_ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
     x["filter"] = cond_price & cond_volume & cond_atr
-    cond_close = x["Close"] > x["SMA150"]
+    cond_close = x["Close"] > x["sma150"]
     cond_drop = x["Drop3D"] >= 0.125
     cond_setup = x["filter"] & cond_close & cond_drop
     x["setup"] = cond_setup.astype(int)
@@ -111,9 +131,11 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+
     # 子プロセスから親へ簡易進捗を送る（存在すれば）
     try:
         q = globals().get("_PROGRESS_QUEUE")
@@ -124,12 +146,20 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
                 pass
     except Exception:
         pass
+
     try:
         prepared = _prepare_source_frame(df)
     except ValueError:
         return symbol, None
-    except Exception:
-        return symbol, None
+
+    # Early exit: check required precomputed indicators exist
+    required_indicators = ["sma150", "atr10", "atr_ratio"]
+    missing_indicators = [col for col in required_indicators if col not in prepared.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System3 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
+        )
+
     try:
         res = _compute_indicators_frame(prepared)
     except Exception:
@@ -389,88 +419,57 @@ def prepare_data_vectorized_system3(
             _on_symbol_done()
             continue
 
-        # Fast-path: 共有指標が既にある場合は再計算を省略
+        # プリコンピューテッド指標のみ使用：再計算を完全除去
         try:
-            if reuse_indicators:
-                x = prepared_df.copy(deep=False)
-                # 欠けている最小限の列を都度補完
-                if "SMA150" not in x.columns:
+            x = prepared_df.copy(deep=False)
+
+            # Check required precomputed indicators early exit
+            required_indicators = ["sma150", "atr10", "atr_ratio"]
+            missing_indicators = [col for col in required_indicators if col not in x.columns]
+            if missing_indicators:
+                raise RuntimeError(
+                    f"IMMEDIATE_STOP: System3 missing precomputed indicators {missing_indicators} for {sym}. Daily signal execution must be stopped."
+                )
+
+            # Only calculate non-precomputable derived indicators
+            if "Drop3D" not in x.columns:
+                if "Return_3D" in x.columns:
                     try:
-                        x["SMA150"] = SMAIndicator(x["Close"], window=150).sma_indicator()
+                        x["Drop3D"] = -(pd.to_numeric(x["Return_3D"], errors="coerce"))
                     except Exception:
-                        pass
-                if "ATR10" not in x.columns:
-                    try:
-                        x["ATR10"] = AverageTrueRange(
-                            x["High"], x["Low"], x["Close"], window=10
-                        ).average_true_range()
-                    except Exception:
-                        pass
-                if "AvgVolume50" not in x.columns:
-                    try:
-                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-                        x["AvgVolume50"] = vol.rolling(50).mean()
-                    except Exception:
-                        pass
-                if "ATR_Ratio" not in x.columns:
-                    try:
-                        close_num = pd.to_numeric(x["Close"], errors="coerce")
-                        base_atr = x.get("ATR10", pd.Series(pd.NA, index=x.index))
-                        x["ATR_Ratio"] = base_atr.div(close_num.replace(0, pd.NA))
-                    except Exception:
-                        pass
-                if "Drop3D" not in x.columns:
-                    if "Return_3D" in x.columns:
-                        try:
-                            x["Drop3D"] = -(pd.to_numeric(x["Return_3D"], errors="coerce"))
-                        except Exception:
-                            close_num = pd.to_numeric(x["Close"], errors="coerce")
-                            x["Drop3D"] = -(close_num.pct_change(3))
-                    else:
                         close_num = pd.to_numeric(x["Close"], errors="coerce")
                         x["Drop3D"] = -(close_num.pct_change(3))
-                cond_price = x["Low"] >= 1
-                cond_volume = x.get("AvgVolume50", pd.Series(0, index=x.index)) >= 1_000_000
-                cond_atr = x.get("ATR_Ratio", pd.Series(0, index=x.index)) >= (
-                    DEFAULT_ATR_RATIO_THRESHOLD
-                )
-                x["filter"] = cond_price & cond_volume & cond_atr
-                cond_close = x["Close"] > x.get("SMA150", pd.Series(pd.NA, index=x.index))
-                cond_drop = x["Drop3D"] >= 0.125
-                x["setup"] = (x["filter"] & cond_close & cond_drop).astype(int)
-                result_df = x
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
-                result_dict[sym] = result_df
-                _on_symbol_done(sym, include_in_buffer=True)
-                continue
-
-            # 通常パス（キャッシュ差分再計算 or フル計算）
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = prepared_df[prepared_df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
                 else:
-                    context_start = last_date - pd.Timedelta(days=150)
-                    recompute_src = prepared_df[prepared_df.index >= context_start]
-                    recomputed = _compute_indicators_frame(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
+                    close_num = pd.to_numeric(x["Close"], errors="coerce")
+                    x["Drop3D"] = -(close_num.pct_change(3))
+
+            # System3 filtering logic using precomputed indicators (lowercase)
+            cond_price = x["Low"] >= 1
+
+            # Use precomputed volume average
+            if "dollarvolume50" in x.columns:
+                cond_volume = x["dollarvolume50"] >= 1_000_000
+            elif "AvgVolume50" in x.columns:  # Fallback
+                cond_volume = x["AvgVolume50"] >= 1_000_000
             else:
-                result_df = _compute_indicators_frame(prepared_df)
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
+                # Last resort: calculate if neither exists
+                x["AvgVolume50"] = x["Volume"].rolling(50).mean()
+                cond_volume = x["AvgVolume50"] >= 1_000_000
+
+            cond_atr = x["atr_ratio"] >= DEFAULT_ATR_RATIO_THRESHOLD
+            x["filter"] = cond_price & cond_volume & cond_atr
+            cond_close = x["Close"] > x["sma150"]
+            cond_drop = x["Drop3D"] >= 0.125
+            x["setup"] = (x["filter"] & cond_close & cond_drop).astype(int)
+
+            result_df = x
+            try:
+                result_df.reset_index().to_feather(cache_path)
+            except Exception:
+                pass
             result_dict[sym] = result_df
             _on_symbol_done(sym, include_in_buffer=True)
+            continue
         except ValueError as e:
             skipped += 1
             if skip_callback:

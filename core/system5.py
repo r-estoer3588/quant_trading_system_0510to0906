@@ -102,30 +102,57 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     x = df.copy()
-    x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-    x["ATR10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
-    x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-    x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-    x["AvgVolume50"] = vol.rolling(50).mean()
-    x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
-    x["ATR_Pct"] = x["ATR10"].div(x["Close"].replace(0, pd.NA))
+
+    # Required precomputed indicators (lowercase)
+    required_indicators = ["sma100", "atr10", "adx7", "rsi3"]
+    missing_indicators = [col for col in required_indicators if col not in x.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System5 missing precomputed indicators {missing_indicators}. Daily signal execution must be stopped."
+        )
+
+    # Use precomputed volume averages
+    if "dollarvolume50" in x.columns:
+        x["DollarVolume50"] = x["dollarvolume50"]
+    else:
+        # Fallback: calculate if not precomputed
+        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+
+    if "avgvolume50" in x.columns:
+        x["AvgVolume50"] = x["avgvolume50"]
+    else:
+        # Fallback: calculate if not precomputed
+        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+        x["AvgVolume50"] = vol.rolling(50).mean()
+
+    # Use precomputed ATR ratio
+    if "atr_ratio" in x.columns:
+        x["ATR_Pct"] = x["atr_ratio"]
+    else:
+        # Fallback: calculate from precomputed ATR10
+        x["ATR_Pct"] = x["atr10"].div(x["Close"].replace(0, pd.NA))
+
+    # System5 filtering logic using precomputed indicators (lowercase)
     x["filter"] = (
         (x["AvgVolume50"] > 500_000)
         & (x["DollarVolume50"] > 2_500_000)
         & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
     )
     x["setup"] = (
-        x["filter"] & (x["Close"] > x["SMA100"] + x["ATR10"]) & (x["ADX7"] > 55) & (x["RSI3"] < 50)
+        x["filter"] & (x["Close"] > x["sma100"] + x["atr10"]) & (x["adx7"] > 55) & (x["rsi3"] < 50)
     ).astype(int)
     return x
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+
     # 子プロセスから親へ簡易進捗を送る（存在すれば）
     try:
         q = globals().get("_PROGRESS_QUEUE")
@@ -142,6 +169,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         return symbol, None
     except Exception:
         return symbol, None
+
+    # Early exit: check required precomputed indicators exist
+    required_indicators = ["sma100", "atr10", "adx7", "rsi3"]
+    missing_indicators = [col for col in required_indicators if col not in prepared.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System5 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
+        )
+
     try:
         res = _compute_indicators_frame(prepared)
     except Exception:
@@ -402,137 +438,70 @@ def prepare_data_vectorized_system5(
             _on_symbol_done()
             continue
 
-        # Fast-path: 共有指標が既にある場合は再計算を省略
+        # プリコンピューテッド指標のみ使用：再計算を完全除去
         try:
-            if reuse_indicators:
-                x = prepared_df.copy(deep=False)
-                # 欠けている最小限の列を都度補完
-                if "SMA100" not in x.columns:
-                    try:
-                        x["SMA100"] = SMAIndicator(x["Close"], window=100).sma_indicator()
-                    except Exception:
-                        pass
-                if "ATR10" not in x.columns:
-                    try:
-                        x["ATR10"] = AverageTrueRange(
-                            x["High"], x["Low"], x["Close"], window=10
-                        ).average_true_range()
-                    except Exception:
-                        pass
-                if "ADX7" not in x.columns:
-                    try:
-                        x["ADX7"] = ADXIndicator(x["High"], x["Low"], x["Close"], window=7).adx()
-                    except Exception:
-                        pass
-                if "RSI3" not in x.columns:
-                    try:
-                        x["RSI3"] = RSIIndicator(x["Close"], window=3).rsi()
-                    except Exception:
-                        pass
-                if "AvgVolume50" not in x.columns:
-                    try:
-                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-                        x["AvgVolume50"] = vol.rolling(50).mean()
-                    except Exception:
-                        pass
-                if "DollarVolume50" not in x.columns:
-                    try:
-                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-                        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
-                    except Exception:
-                        pass
-                if "ATR_Pct" not in x.columns:
-                    try:
-                        close_num = pd.to_numeric(x["Close"], errors="coerce")
-                        atr10_ser = (
-                            pd.to_numeric(x["ATR10"], errors="coerce")
-                            if "ATR10" in x.columns
-                            else pd.Series(pd.NA, index=x.index, dtype="float64")
-                        )
-                        x["ATR_Pct"] = atr10_ser.div(close_num.replace(0, pd.NA))
-                    except Exception:
-                        pass
+            x = prepared_df.copy(deep=False)
 
-                # 型を明示したSeriesを用意
-                avgvol50 = (
-                    pd.to_numeric(x["AvgVolume50"], errors="coerce")
-                    if "AvgVolume50" in x.columns
-                    else pd.Series(0.0, index=x.index, dtype="float64")
-                )
-                dollvol50 = (
-                    pd.to_numeric(x["DollarVolume50"], errors="coerce")
-                    if "DollarVolume50" in x.columns
-                    else pd.Series(0.0, index=x.index, dtype="float64")
-                )
-                atr_pct = (
-                    pd.to_numeric(x["ATR_Pct"], errors="coerce")
-                    if "ATR_Pct" in x.columns
-                    else pd.Series(0.0, index=x.index, dtype="float64")
+            # Check required precomputed indicators - early exit
+            required_indicators = ["sma100", "atr10", "adx7", "rsi3"]
+            missing_indicators = [col for col in required_indicators if col not in x.columns]
+            if missing_indicators:
+                raise RuntimeError(
+                    f"IMMEDIATE_STOP: System5 missing precomputed indicators {missing_indicators} for {sym}. Daily signal execution must be stopped."
                 )
 
-                sma100 = (
-                    pd.to_numeric(x["SMA100"], errors="coerce")
-                    if "SMA100" in x.columns
-                    else pd.Series(pd.NA, index=x.index, dtype="float64")
-                )
-                atr10 = (
-                    pd.to_numeric(x["ATR10"], errors="coerce")
-                    if "ATR10" in x.columns
-                    else pd.Series(0.0, index=x.index, dtype="float64")
-                )
-                adx7 = (
-                    pd.to_numeric(x["ADX7"], errors="coerce")
-                    if "ADX7" in x.columns
-                    else pd.Series(0.0, index=x.index, dtype="float64")
-                )
-                rsi3 = (
-                    pd.to_numeric(x["RSI3"], errors="coerce")
-                    if "RSI3" in x.columns
-                    else pd.Series(100.0, index=x.index, dtype="float64")
-                )
-                close_num = pd.to_numeric(x["Close"], errors="coerce")
-
-                x["filter"] = (
-                    (avgvol50 > 500_000)
-                    & (dollvol50 > 2_500_000)
-                    & (atr_pct > DEFAULT_ATR_PCT_THRESHOLD)
-                )
-                x["setup"] = (
-                    x["filter"] & (close_num > sma100 + atr10) & (adx7 > 55) & (rsi3 < 50)
-                ).astype(int)
-                result_df = x
+            # Use precomputed volume averages
+            if "dollarvolume50" in x.columns:
+                x["DollarVolume50"] = x["dollarvolume50"]
+            elif "DollarVolume50" not in x.columns:
                 try:
-                    result_df.reset_index().to_feather(cache_path)
+                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                    x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
                 except Exception:
                     pass
-                result_dict[sym] = result_df
-                _on_symbol_done(sym, include_in_buffer=True)
-                continue
 
-            # 通常パス（キャッシュ差分再計算 or フル計算）
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = prepared_df[prepared_df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
-                else:
-                    context_start = last_date - pd.Timedelta(days=100)
-                    recompute_src = prepared_df[prepared_df.index >= context_start]
-                    recomputed = _compute_indicators_frame(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
-            else:
-                result_df = _compute_indicators_frame(prepared_df)
+            if "avgvolume50" in x.columns:
+                x["AvgVolume50"] = x["avgvolume50"]
+            elif "AvgVolume50" not in x.columns:
                 try:
-                    result_df.reset_index().to_feather(cache_path)
+                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                    x["AvgVolume50"] = vol.rolling(50).mean()
                 except Exception:
                     pass
+
+            # Use precomputed ATR ratio
+            if "atr_ratio" in x.columns:
+                x["ATR_Pct"] = x["atr_ratio"]
+            elif "ATR_Pct" not in x.columns:
+                try:
+                    close_num = pd.to_numeric(x["Close"], errors="coerce")
+                    atr10_ser = x["atr10"]
+                    x["ATR_Pct"] = atr10_ser.div(close_num.replace(0, pd.NA))
+                except Exception:
+                    pass
+
+            # System5 filtering logic using precomputed indicators (lowercase)
+            x["filter"] = (
+                (x["AvgVolume50"] > 500_000)
+                & (x["DollarVolume50"] > 2_500_000)
+                & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+            )
+            close_num = pd.to_numeric(x["Close"], errors="coerce")
+            x["setup"] = (
+                x["filter"]
+                & (close_num > x["sma100"] + x["atr10"])
+                & (x["adx7"] > 55)
+                & (x["rsi3"] < 50)
+            ).astype(int)
+
+            result_df = x
+            try:
+                result_df.reset_index().to_feather(cache_path)
+            except Exception:
+                pass
             result_dict[sym] = result_df
             _on_symbol_done(sym, include_in_buffer=True)
+            continue
         except ValueError as e:
             skipped += 1
             skipped_calc_errors += 1

@@ -64,7 +64,7 @@ def test_precompute_shared_indicators_enriches_frames_and_writes_cache(tmp_path,
         "AvgVolume50",
         "ATR_Ratio",
         "Return_3D",
-        "return_6d",
+        "Return_6D",  # 標準化後の大文字版
         "HV50",
         "min_50",
         "max_70",

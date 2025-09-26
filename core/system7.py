@@ -37,6 +37,12 @@ def prepare_data_vectorized_system7(
             df = df_raw.copy()
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
+        # Early exit: check required precomputed indicators exist (lowercase)
+        if "atr50" not in df.columns:
+            raise RuntimeError(
+                "IMMEDIATE_STOP: System7 missing precomputed indicator atr50 for SPY. Daily signal execution must be stopped."
+            )
+
         cache_path = os.path.join(cache_dir, "SPY.feather")
         use_cache = bool(reuse_indicators and len(df) >= 300)
         cached: pd.DataFrame | None = None
@@ -49,12 +55,22 @@ def prepare_data_vectorized_system7(
                 cached = None
 
         def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+            """プリコンピューテッド指標版：ATR50計算除去、早期終了追加"""
             x = src.copy()
-            x["ATR50"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=50
-            ).average_true_range()
+
+            # Check if precomputed ATR50 exists
+            if "atr50" not in x.columns:
+                raise RuntimeError(
+                    "IMMEDIATE_STOP: System7 missing precomputed indicator atr50. Daily signal execution must be stopped."
+                )
+
+            # Use precomputed ATR50 (lowercase) and create uppercase version for consistency
+            x["ATR50"] = x["atr50"]
+
+            # Calculate non-precomputable indicators
             x["min_50"] = x["Low"].rolling(50).min().round(4)
             x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
+
             # max_70 は既存値を尊重（全行埋まっていれば再計算しない）
             if "max_70" not in x.columns:
                 x["max_70"] = x["Close"].rolling(70).max()

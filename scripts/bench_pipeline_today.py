@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -102,6 +103,7 @@ def _get_memory_mb() -> float:
         process = psutil.Process()
         return process.memory_info().rss / (1024 * 1024)
     except ImportError:
+        # psutilが利用できない場合は簡易的な値を返す
         return 0.0
 
 
@@ -248,27 +250,56 @@ def run_pipeline_benchmark(
 
     symbols = universe_result["symbols"]
 
-    # Phase2: 基礎データ読込
+    # Phase2: 基礎データ読込（最適化版）
     def phase2_load_basic_data():
-        # CacheManager を使った基礎データ読み込みをシミュレート
+        # 並列バッチ読み込みを使用（Phase2ボトルネック解消）
         data = {}
         cache_hits = 0
         cache_misses = 0
 
-        for symbol in symbols:
-            try:
-                df = cache_manager.read(symbol, "rolling")
-                if df is None or df.empty:
-                    # フォールバック
-                    df = cache_manager.read(symbol, "full")
-                    cache_misses += 1
-                else:
-                    cache_hits += 1
+        try:
+            # 新しい並列読み込み機能を使用
+            cpu_count = os.cpu_count() or 4
+            max_workers = min(max(4, cpu_count), len(symbols))
 
-                if df is not None and not df.empty:
-                    data[symbol] = df
-            except Exception:
-                cache_misses += 1
+            parallel_data = cache_manager.read_batch_parallel(
+                symbols=symbols,
+                profile="rolling",
+                max_workers=max_workers,
+                fallback_profile="full",
+                progress_callback=None,  # ベンチマーク中は進捗コールバック無効
+            )
+
+            # 結果を集計
+            for symbol in symbols:
+                if symbol in parallel_data:
+                    df = parallel_data[symbol]
+                    if df is not None and not df.empty:
+                        # メモリ最適化を適用
+                        df_optimized = cache_manager.optimize_dataframe_memory(df)
+                        data[symbol] = df_optimized
+                        cache_hits += 1
+                    else:
+                        cache_misses += 1
+                else:
+                    cache_misses += 1
+
+        except Exception:
+            # 並列処理失敗時は従来の逐次処理にフォールバック
+            for symbol in symbols:
+                try:
+                    df = cache_manager.read(symbol, "rolling")
+                    if df is None or df.empty:
+                        # フォールバック
+                        df = cache_manager.read(symbol, "full")
+                        cache_misses += 1
+                    else:
+                        cache_hits += 1
+
+                    if df is not None and not df.empty:
+                        data[symbol] = df
+                except Exception:
+                    cache_misses += 1
 
         return {
             "data": data,

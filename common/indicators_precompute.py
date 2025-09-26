@@ -14,6 +14,11 @@ try:
 except Exception:  # pragma: no cover
     get_settings = None  # type: ignore
 
+try:
+    from common.cache_manager import standardize_indicator_columns
+except Exception:  # pragma: no cover
+    standardize_indicator_columns = None  # type: ignore
+
 # 共有前計算で付与する主な指標（説明用）。
 # インポート時点で参照可能にし、呼び出し側の from ... import を安全化する。
 PRECOMPUTED_INDICATORS = (
@@ -42,8 +47,10 @@ PRECOMPUTED_INDICATORS = (
     # 派生・補助指標
     "Return_3D",
     "Return_6D",
+    "Return_Pct",  # 新規追加：リターン率
     "UpTwoDays",
     "TwoDayUp",
+    "Drop3D",  # 新規追加：3日間下落率
     "HV50",
     "min_50",
     "max_70",
@@ -124,9 +131,11 @@ def precompute_shared_indicators(
         "ATR_Pct",
         # 派生・補助指標
         "Return_3D",
-        "return_6d",
+        "Return_6D",
+        "Return_Pct",  # 新規追加：リターン率
         "UpTwoDays",
         "TwoDayUp",
+        "Drop3D",  # 新規追加：3日間下落率
         "HV50",
         "min_50",
         "max_70",
@@ -136,7 +145,11 @@ def precompute_shared_indicators(
     def _cache_dir() -> Path:
         try:
             settings = get_settings(create_dirs=True) if get_settings else None
-            base = Path(settings.outputs.signals_dir) if settings else Path("data_cache/signals")
+            base = (
+                Path(settings.outputs.signals_dir)
+                if settings
+                else Path("data_cache/signals")
+            )
         except Exception:
             base = Path("data_cache/signals")
         p = base / "shared_indicators"
@@ -161,7 +174,9 @@ def precompute_shared_indicators(
                         # Date 正規化
                         col = "Date" if "Date" in df.columns else None
                         if col:
-                            df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
+                            df[col] = pd.to_datetime(
+                                df[col], errors="coerce"
+                            ).dt.normalize()
                         return df
                 except Exception:
                     continue
@@ -192,9 +207,13 @@ def precompute_shared_indicators(
                 try:
                     src = work.copy()
                     if "Date" in src.columns:
-                        src_dates = pd.to_datetime(src["Date"], errors="coerce").dt.normalize()
+                        src_dates = pd.to_datetime(
+                            src["Date"], errors="coerce"
+                        ).dt.normalize()
                     else:
-                        src_dates = pd.to_datetime(src.index, errors="coerce").normalize()
+                        src_dates = pd.to_datetime(
+                            src.index, errors="coerce"
+                        ).normalize()
                         src = src.reset_index(drop=True)
                         src["Date"] = src_dates
                     cached_local = cached.copy()
@@ -222,13 +241,17 @@ def precompute_shared_indicators(
                     else:
                         # 安全に文脈を付けて再計算（最大の必要窓は 200 と想定 + 10% 余裕）
                         ctx_days = 220
-                        src_recent = src[src["Date"] >= (last - pd.Timedelta(days=ctx_days))]
+                        src_recent = src[
+                            src["Date"] >= (last - pd.Timedelta(days=ctx_days))
+                        ]
                         # 差分再計算
                         recomputed = add_indicators(src_recent)
                         # 以前の最終日より新しい行だけを採用
                         recomputed_new = recomputed[recomputed["Date"] > last]
                         # FutureWarning 回避: 空/全NAのフレームは concat から除外
-                        is_empty = recomputed_new is None or getattr(recomputed_new, "empty", True)
+                        is_empty = recomputed_new is None or getattr(
+                            recomputed_new, "empty", True
+                        )
                         is_all_na = False
                         try:
                             if not is_empty:
@@ -238,7 +261,9 @@ def precompute_shared_indicators(
                         if is_empty or is_all_na:
                             ind_df = cached_local
                         else:
-                            merged = pd.concat([cached_local, recomputed_new], ignore_index=True)
+                            merged = pd.concat(
+                                [cached_local, recomputed_new], ignore_index=True
+                            )
                             ind_df = merged
                 except Exception:
                     ind_df = add_indicators(work)
@@ -249,14 +274,23 @@ def precompute_shared_indicators(
                 merged = df.copy()
                 for c in new_cols:
                     merged[c] = ind_df[c]
+                # 指標列の標準化を適用
+                if standardize_indicator_columns:
+                    merged = standardize_indicator_columns(merged)
                 if getattr(ind_df, "attrs", {}).get("_precompute_skip_cache"):
                     try:
                         merged.attrs["_precompute_skip_cache"] = True
                     except Exception:
                         pass
                 return sym, merged
+            # 新規指標がない場合でも標準化を適用
+            if standardize_indicator_columns:
+                df = standardize_indicator_columns(df)
             return sym, df
         except Exception:
+            # エラー時も標準化を適用
+            if standardize_indicator_columns:
+                df = standardize_indicator_columns(df)
             return sym, df
 
     # 並列指定があれば件数に関わらず並列実行する（ワーカー数は銘柄数を超えない）
@@ -271,11 +305,17 @@ def precompute_shared_indicators(
                 out[sym] = res
                 # キャッシュ書き込み（新規列も含むテーブル）
                 try:
-                    skip_cache = bool(getattr(res, "attrs", {}).get("_precompute_skip_cache"))
+                    skip_cache = bool(
+                        getattr(res, "attrs", {}).get("_precompute_skip_cache")
+                    )
                 except Exception:
                     skip_cache = False
                 try:
-                    if not skip_cache and res is not None and not getattr(res, "empty", True):
+                    if (
+                        not skip_cache
+                        and res is not None
+                        and not getattr(res, "empty", True)
+                    ):
                         _write_cache(sym, res)
                 except Exception:
                     pass
@@ -298,11 +338,17 @@ def precompute_shared_indicators(
             sym, res = _calc(item)
             out[sym] = res
             try:
-                skip_cache = bool(getattr(res, "attrs", {}).get("_precompute_skip_cache"))
+                skip_cache = bool(
+                    getattr(res, "attrs", {}).get("_precompute_skip_cache")
+                )
             except Exception:
                 skip_cache = False
             try:
-                if not skip_cache and res is not None and not getattr(res, "empty", True):
+                if (
+                    not skip_cache
+                    and res is not None
+                    and not getattr(res, "empty", True)
+                ):
                     _write_cache(sym, res)
             except Exception:
                 pass

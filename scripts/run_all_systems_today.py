@@ -1484,17 +1484,55 @@ def _load_basic_data(
 
     processed = 0
     if use_parallel and max_workers and total_syms > 1:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_load_one, sym): sym for sym in symbols}
-            for fut in as_completed(futures):
-                try:
-                    sym, df = fut.result()
-                except Exception:
-                    sym, df = futures[fut], None
-                if df is not None and not getattr(df, "empty", True):
-                    data[sym] = df
-                processed += 1
+        # 新しい並列バッチ読み込みを使用（Phase2最適化）
+        try:
+            _log(f"🚀 並列バッチ読み込み開始: {total_syms}シンボル, workers={max_workers}")
+
+            def progress_callback_internal(loaded, total):
+                nonlocal processed
+                processed = loaded
                 _report_progress(processed)
+
+            # CacheManagerの並列読み込み機能を活用
+            parallel_data = cache_manager.read_batch_parallel(
+                symbols=symbols,
+                profile="rolling",
+                max_workers=max_workers,
+                fallback_profile="full",
+                progress_callback=progress_callback_internal,
+            )
+
+            # 結果を既存のデータフォーマットに合わせて処理
+            for sym, df in parallel_data.items():
+                if df is not None and not getattr(df, "empty", True):
+                    # 既存の_normalize_loadedと同様の処理を適用
+                    normalized = _normalize_loaded(df)
+                    if normalized is not None and not getattr(normalized, "empty", True):
+                        data[sym] = normalized
+                        _record_stat("rolling")
+                    else:
+                        _record_stat("failed")
+                else:
+                    _record_stat("failed")
+
+            _log(f"✅ 並列バッチ読み込み完了: {len(data)}/{total_syms}件成功")
+
+        except Exception as e:
+            # 並列処理失敗時はフォールバック
+            _log(f"⚠️ 並列バッチ読み込み失敗、従来処理にフォールバック: {e}")
+            data.clear()
+            processed = 0
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_load_one, sym): sym for sym in symbols}
+                for fut in as_completed(futures):
+                    try:
+                        sym, df = fut.result()
+                    except Exception:
+                        sym, df = futures[fut], None
+                    if df is not None and not getattr(df, "empty", True):
+                        data[sym] = df
+                    processed += 1
+                    _report_progress(processed)
     else:
         for sym in symbols:
             sym, df = _load_one(sym)

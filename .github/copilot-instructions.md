@@ -19,11 +19,13 @@
 - `data_cache/full_backup/`：原本バックアップ（復旧用）
 - **必須**：CSV 直読禁止、必ず `common/cache_manager.py::CacheManager` 経由
 
-**当日運用フロー**：
+**当日運用フロー（8 フェーズ処理）**：
 
 1. `scripts/cache_daily_data.py`：データ更新（EODHD API）
-2. `scripts/run_all_systems_today.py --parallel --save-csv`：全システム実行 → 配分 → 通知 →CSV 出力
-3. 結果は `results_csv/` に保存、ログは `logs/` に蓄積
+2. `scripts/run_all_systems_today.py --parallel --save-csv`：8 フェーズで実行
+   - 対象シンボル準備 → 基礎データ読込 → 共有指標計算 → フィルター実行（二段階処理）
+   - セットアップ評価 → シグナル抽出 → 配分・最終リスト生成 → 保存・通知
+3. 結果は `results_csv/` と `data_cache/signals/` に保存、ログは `logs/` に蓄積
 
 ## 重要な制約・パターン
 
@@ -34,9 +36,11 @@
 
 **System 特性**：
 
-- ロング：1/3/4/5、ショート：2/6/7
-- System7 は SPY 固定（アンカー用途、変更禁止）
-- スコア並び順が System ごとに異なる（`common/today_signals.py` 参照）
+- **ロング：1/3/4/5、ショート：2/6/7**
+- **System7 は SPY 固定**（アンカー用途、変更禁止）
+- **Two-Phase 処理**：Filter 列 →Setup 列の二段階判定
+- **ランキング基準**：System1=ROC200↑、System2=ADX7↑、System3=3 日下落 ↑、System4=RSI4↓、System5=ADX7↑、System6=6 日上昇 ↑
+- **配分システム**：スロット制/金額制、Alpaca 連携、`data/symbol_system_map.json` 活用
 
 **設定優先度**：JSON > YAML > .env（`config/settings.py::get_settings()` で管理）
 
@@ -71,3 +75,4 @@ pre-commit run --files <changed_files>
    - `app_today_signals.py`：UI での当日シグナル表示
    - `common/today_signals.py`：当日シグナル抽出ロジック
    - `scripts/run_all_systems_today.py`：当日パイプライン実行スクリプト
+   - **重要**：各 System 用指標キャッシュは `data_cache/indicators_systemX_cache/` に保存

@@ -89,21 +89,39 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     x = df.copy()
-    x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
-    x["ATR40"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=40).average_true_range()
+
+    # Required precomputed indicators (lowercase)
+    required_indicators = ["sma200", "atr40", "rsi4"]
+    missing_indicators = [col for col in required_indicators if col not in x.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System4 missing precomputed indicators {missing_indicators}. Daily signal execution must be stopped."
+        )
+
+    # Calculate non-precomputable derived indicators
     pct = x["Close"].pct_change()
     log_ret = pct.apply(lambda r: np.log1p(r) if pd.notnull(r) else r)
     x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
-    x["RSI4"] = RSIIndicator(x["Close"], window=4).rsi()
-    x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+
+    # Use precomputed dollar volume (try dollarvolume50 first)
+    if "dollarvolume50" not in x.columns:
+        # Fallback: calculate if not precomputed
+        x["DollarVolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+    else:
+        # Use precomputed version with consistent naming
+        x["DollarVolume50"] = x["dollarvolume50"]
+
     return x
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    """プリコンピューテッド指標版：計算除去、早期終了追加"""
     df = get_cached_data(symbol)
     if df is None or df.empty:
         return symbol, None
+
     # If a progress queue is provided via globals (set by parent), emit a simple
     # started marker so the parent can reflect progress even when using
     # ProcessPoolExecutor.
@@ -122,6 +140,14 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         return symbol, None
     except Exception:
         return symbol, None
+
+    # Early exit: check required precomputed indicators exist
+    required_indicators = ["sma200", "atr40", "rsi4"]
+    missing_indicators = [col for col in required_indicators if col not in prepared.columns]
+    if missing_indicators:
+        raise RuntimeError(
+            f"IMMEDIATE_STOP: System4 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
+        )
     try:
         res = _compute_indicators_frame(prepared)
         try:
@@ -395,78 +421,51 @@ def prepare_data_vectorized_system4(
             _on_symbol_done()
             continue
 
-        # Fast-path: 共有指標が既にある場合は再計算を省略
+        # プリコンピューテッド指標のみ使用：再計算を完全除去
         try:
-            if reuse_indicators:
-                x = prepared_df.copy(deep=False)
-                # 欠けている最小限の列を都度補完
-                if "SMA200" not in x.columns:
-                    try:
-                        x["SMA200"] = SMAIndicator(x["Close"], window=200).sma_indicator()
-                    except Exception:
-                        pass
-                if "ATR40" not in x.columns:
-                    try:
-                        x["ATR40"] = AverageTrueRange(
-                            x["High"], x["Low"], x["Close"], window=40
-                        ).average_true_range()
-                    except Exception:
-                        pass
-                if "HV50" not in x.columns:
-                    try:
-                        pct = x["Close"].pct_change()
-                        log_ret = pct.apply(lambda r: np.log1p(r) if pd.notnull(r) else r)
-                        x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
-                    except Exception:
-                        pass
-                if "RSI4" not in x.columns:
-                    try:
-                        x["RSI4"] = RSIIndicator(x["Close"], window=4).rsi()
-                    except Exception:
-                        pass
-                if "DollarVolume50" not in x.columns:
-                    try:
-                        vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
-                        x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
-                    except Exception:
-                        pass
-                # 通常フィルター/セットアップだけ評価
-                cond_dv = x["DollarVolume50"] > 100_000_000
-                cond_hv = x["HV50"].between(10, 40)
-                x["filter"] = cond_dv & cond_hv
-                x["setup"] = x["filter"] & (x["Close"] > x["SMA200"])
-                result_df = x
-                try:
-                    result_df.reset_index().to_feather(cache_path)
-                except Exception:
-                    pass
-                result_dict[sym] = result_df
-                _on_symbol_done(sym, include_in_buffer=True)
-                continue
+            x = prepared_df.copy(deep=False)
 
-            # 通常パス（キャッシュ差分再計算 or フル計算）
-            if cached is not None and not cached.empty:
-                last_date = cached.index.max()
-                new_rows = prepared_df[prepared_df.index > last_date]
-                if new_rows.empty:
-                    result_df = cached
-                else:
-                    context_start = last_date - pd.Timedelta(days=200)
-                    recompute_src = prepared_df[prepared_df.index >= context_start]
-                    recomputed = _compute_indicators_frame(recompute_src)
-                    recomputed = recomputed[recomputed.index > last_date]
-                    result_df = pd.concat([cached, recomputed])
-                    try:
-                        result_df.reset_index().to_feather(cache_path)
-                    except Exception:
-                        pass
-            else:
-                result_df = _compute_indicators_frame(prepared_df)
+            # Check required precomputed indicators - early exit
+            required_indicators = ["sma200", "atr40", "rsi4"]
+            missing_indicators = [col for col in required_indicators if col not in x.columns]
+            if missing_indicators:
+                raise RuntimeError(
+                    f"IMMEDIATE_STOP: System4 missing precomputed indicators {missing_indicators} for {sym}. Daily signal execution must be stopped."
+                )
+
+            # Only calculate non-precomputable derived indicators
+            if "HV50" not in x.columns:
                 try:
-                    result_df.reset_index().to_feather(cache_path)
+                    pct = x["Close"].pct_change()
+                    log_ret = pct.apply(lambda r: np.log1p(r) if pd.notnull(r) else r)
+                    x["HV50"] = log_ret.rolling(50).std() * np.sqrt(252) * 100
                 except Exception:
                     pass
+
+            # Use precomputed dollar volume
+            if "dollarvolume50" in x.columns:
+                x["DollarVolume50"] = x["dollarvolume50"]
+            elif "DollarVolume50" not in x.columns:
+                try:
+                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                    x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
+                except Exception:
+                    pass
+
+            # System4 filtering logic using precomputed indicators (lowercase)
+            cond_dv = x["DollarVolume50"] > 100_000_000
+            cond_hv = x["HV50"].between(10, 40)
+            x["filter"] = cond_dv & cond_hv
+            x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
+
+            result_df = x
+            try:
+                result_df.reset_index().to_feather(cache_path)
+            except Exception:
+                pass
             result_dict[sym] = result_df
+            _on_symbol_done(sym, include_in_buffer=True)
+            continue
             _on_symbol_done(sym, include_in_buffer=True)
         except ValueError as e:
             skipped += 1
