@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import pandas as pd
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import Mock, patch
 from pathlib import Path
 import tempfile
 import shutil
@@ -290,8 +289,8 @@ class TestUtilityFunctionsCoverage:
                 pass
 
         # Test with file read errors
-        mock_csv.side_effect = IOError("File read error")
-        mock_parquet.side_effect = IOError("File read error")
+        mock_csv.side_effect = OSError("File read error")
+        mock_parquet.side_effect = OSError("File read error")
         mock_exists.return_value = True
 
         try:

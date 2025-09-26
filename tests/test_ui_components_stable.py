@@ -6,10 +6,7 @@ Focus on stable, basic functionality testing to achieve coverage
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-import pytest
-import streamlit as st
+from unittest.mock import Mock, patch
 
 from common import ui_components as ui_comp
 

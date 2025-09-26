@@ -8,7 +8,6 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 import pytest
-from datetime import datetime
 
 from common.testing import set_test_determinism
 

@@ -358,7 +358,7 @@ _ROLLING_IMPORTANT_COLUMNS = [
     "rsi3",
     "rsi14",
     "hv50",
-    "return6d",
+    "return_6d",
     "drop3d",
 ]
 
@@ -399,7 +399,7 @@ _ROLLING_COLUMN_LOOKBACK: dict[str, int] = {
     "rsi3": 3,
     "rsi14": 14,
     "hv50": 50,
-    "return6d": 6,
+    "return_6d": 6,
     "drop3d": 3,
 }
 
@@ -1574,9 +1574,9 @@ def _indicator_requirements() -> dict[str, int]:
         "SMA25": int(25 * 1.1),
         "ATR20": int(20 * 1.1),
         "ADX7": int(7 * 1.1),
-        "RETURN6": int(6 * 1.1),
+        "RETURN_6D": int(6 * 1.1),
         "Drop3D": int(3 * 1.1),
-        "Return6D": int(6 * 1.1),
+        "return_6d": int(6 * 1.1),
     }
 
 
@@ -1870,9 +1870,10 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     try:
         from common.cache_manager import CacheManager
 
-        cm = CacheManager()
+        settings = get_settings()
+        cm = CacheManager(settings)
         # SPYデータでキャッシュの新しさを確認
-        spy_df = cm.load_rolling_cache("SPY")
+        spy_df = cm.read("SPY", "rolling")
         if spy_df is not None and not spy_df.empty:
             import pandas as pd
 

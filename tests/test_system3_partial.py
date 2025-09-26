@@ -7,11 +7,7 @@ System3（473行, 0%→30-40%目標) の効率的カバレッジ向上
 
 import pytest
 import pandas as pd
-import numpy as np
 from unittest.mock import patch, MagicMock
-import tempfile
-import os
-from pathlib import Path
 
 
 class TestGetTotalDaysSystem3:

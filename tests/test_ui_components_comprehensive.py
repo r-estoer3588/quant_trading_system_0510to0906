@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 
 import numpy as np
@@ -187,7 +187,7 @@ class TestProgressLogging:
 
     def test_default_log_callback_formatting(self):
         """デフォルトログコールバックのフォーマットテスト"""
-        func = getattr(ui_comp, "default_log_callback")
+        func = ui_comp.default_log_callback
         start_time = time.time() - 60  # 1 minute ago
 
         result = func(25, 100, start_time, prefix="処理中")
@@ -199,7 +199,7 @@ class TestProgressLogging:
 
     def test_default_log_callback_zero_processed(self):
         """処理件数0でのテスト"""
-        func = getattr(ui_comp, "default_log_callback")
+        func = ui_comp.default_log_callback
         start_time = time.time()
 
         result = func(0, 100, start_time)
@@ -351,7 +351,7 @@ class TestLogProcessingComprehensive:
 
     def test_extract_zero_reason_comprehensive(self):
         """包括的なゼロ理由抽出テスト"""
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
 
         # Test various log patterns
         test_cases = [

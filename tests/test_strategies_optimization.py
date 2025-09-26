@@ -7,7 +7,7 @@ system1_strategy.py から system7_strategy.py までの効率的カバレッジ
 
 import pytest
 import pandas as pd
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy

@@ -5,12 +5,10 @@ Focus on show_results, run_backtest_app, and other major functions
 
 from __future__ import annotations
 
-import tempfile
-from unittest.mock import Mock, patch, MagicMock, mock_open
+from unittest.mock import Mock, patch, mock_open
 import pytest
 import pandas as pd
 import numpy as np
-import streamlit as st
 
 from common import ui_components as ui_comp
 

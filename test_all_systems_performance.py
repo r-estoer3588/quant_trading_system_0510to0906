@@ -6,7 +6,7 @@
 import time
 import sys
 import random
-from typing import Dict, Any, List
+from typing import Any
 
 sys.path.append(".")
 
@@ -21,7 +21,7 @@ from common.cache_manager import load_base_cache
 from common.testing import set_test_determinism
 
 
-def load_sample_data(num_symbols: int = 1000) -> Dict[str, Any]:
+def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
     """1000銘柄のサンプルデータを読み込み"""
     print(f"📦 {num_symbols}銘柄のサンプルデータ読み込み中...")
 
@@ -110,8 +110,8 @@ def load_sample_data(num_symbols: int = 1000) -> Dict[str, Any]:
 
 
 def test_system_performance(
-    system_class, system_name: str, raw_data: Dict[str, Any]
-) -> Dict[str, float]:
+    system_class, system_name: str, raw_data: dict[str, Any]
+) -> dict[str, float]:
     """個別システムの性能テスト"""
     print(f"\n{'='*50}")
     print(f"🔍 {system_name} 性能テスト開始")

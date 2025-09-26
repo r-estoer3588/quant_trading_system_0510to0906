@@ -57,16 +57,13 @@ class CacheConstants:
         {"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"}
     )
 
-    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset(
-        {"rsi3", "rsi4", "rsi14", "adx7"}
-    )
+    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset({"rsi3", "rsi4", "rsi14", "adx7"})
 
     PERCENTAGE_COLUMNS: ClassVar[frozenset[str]] = frozenset(
         {
             "roc200",
             "return_3d",
             "return_6d",
-            "return6d",
             "atr_ratio",
             "atr_pct",
             "hv50",
@@ -75,9 +72,7 @@ class CacheConstants:
     )
 
     # 必須OHLCV列
-    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset(
-        {"open", "high", "low", "close"}
-    )
+    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset({"open", "high", "low", "close"})
 
     REQUIRED_OHLCV_COLUMNS: ClassVar[frozenset[str]] = frozenset(
         {"open", "high", "low", "close", "volume"}
@@ -136,7 +131,6 @@ class IndicatorMinObservations:
     # リターン系
     RETURN_3D: ClassVar[int] = 4
     RETURN_6D: ClassVar[int] = 7
-    RETURN6D: ClassVar[int] = 7
     RETURN_PCT: ClassVar[int] = 2
     DROP3D: ClassVar[int] = 4
 
@@ -171,7 +165,6 @@ class IndicatorMinObservations:
             "avgvolume50": cls.AVGVOLUME50,
             "return_3d": cls.RETURN_3D,
             "return_6d": cls.RETURN_6D,
-            "return6d": cls.RETURN6D,
             "return_pct": cls.RETURN_PCT,
             "drop3d": cls.DROP3D,
             "atr_ratio": cls.ATR_RATIO,

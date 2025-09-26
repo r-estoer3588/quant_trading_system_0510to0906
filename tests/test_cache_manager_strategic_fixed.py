@@ -6,12 +6,10 @@ Building on 58% baseline by focusing on uncovered methods
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock, mock_open
+from unittest.mock import Mock, patch
 import tempfile
 from pathlib import Path
 import pytest
-from collections import defaultdict
 
 from common.cache_manager import (
     CacheManager,
@@ -23,8 +21,6 @@ from common.cache_manager import (
     report_rolling_issue,
     _RollingIssueAggregator,
 )
-from common.cache_exceptions import CacheError
-from config.settings import get_settings
 from common.testing import set_test_determinism
 
 

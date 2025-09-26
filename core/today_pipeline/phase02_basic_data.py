@@ -60,7 +60,7 @@ class RequiredColumns:
         "rsi3",
         "rsi14",
         "hv50",
-        "return6d",
+        "return_6d",
         "drop3d",
     )
     nan_threshold: float = 0.20

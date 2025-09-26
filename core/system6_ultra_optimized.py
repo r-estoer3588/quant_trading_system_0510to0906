@@ -4,22 +4,20 @@ System6 候補生成の超高速化版
 """
 
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Optional, Callable
+from collections.abc import Callable
 import time
 
-from common.i18n import tr
 from common.utils_spy import resolve_signal_entry_date
 
 
 def generate_candidates_ultra_fast_system6(
-    prepared_dict: Dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame],
     top_n: int = 10,
-    progress_callback: Optional[Callable] = None,
-    log_callback: Optional[Callable] = None,
-    skip_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
+    log_callback: Callable | None = None,
+    skip_callback: Callable | None = None,
     **kwargs,
-) -> List[Tuple[str, Dict]]:
+) -> list[tuple[str, dict]]:
     """
     System6用の超高速候補生成
 
@@ -156,14 +154,14 @@ def generate_candidates_ultra_fast_system6(
 
 
 def prepare_data_ultra_optimized_system6(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
-    progress_callback: Optional[Callable] = None,
-    log_callback: Optional[Callable] = None,
-    skip_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
+    log_callback: Callable | None = None,
+    skip_callback: Callable | None = None,
     reuse_indicators: bool = True,
     **kwargs,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     System6用の超最適化データ準備
     30分達成を目指した根本的最適化

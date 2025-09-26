@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import pandas as pd
-import numpy as np
 from unittest.mock import Mock, patch
 import tempfile
 from pathlib import Path

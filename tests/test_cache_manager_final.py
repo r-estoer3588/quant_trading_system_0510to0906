@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import json
 import os
-import pandas as pd
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch
 import tempfile
 from pathlib import Path
 import pytest
 
 from common.cache_manager import CacheManager, _RollingIssueAggregator
-from config.settings import get_settings
 from common.testing import set_test_determinism
 
 

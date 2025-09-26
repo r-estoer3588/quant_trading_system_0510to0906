@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import os
 import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 import tempfile
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -392,7 +391,7 @@ class TestErrorHandlingAndEdgeCases:
 
     def test_default_log_callback_edge_cases(self):
         """デフォルトログコールバックのエッジケース"""
-        func = getattr(ui_comp, "default_log_callback")
+        func = ui_comp.default_log_callback
 
         # Test with zero time elapsed
         start_time = time.time()
@@ -409,7 +408,7 @@ class TestErrorHandlingAndEdgeCases:
 
     def test_extract_zero_reason_various_patterns(self):
         """ゼロ理由抽出の様々なパターン"""
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
 
         test_cases = [
             # Different zero reason patterns

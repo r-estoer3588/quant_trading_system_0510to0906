@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import os
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import tempfile
 from pathlib import Path
 import pytest
@@ -16,12 +15,10 @@ import pytest
 from common.cache_manager import (
     CacheManager,
     _RollingIssueAggregator,
-    report_rolling_issue,
     round_dataframe,
     make_csv_formatters,
     _write_dataframe_to_csv,
 )
-from config.settings import get_settings
 from common.testing import set_test_determinism
 
 

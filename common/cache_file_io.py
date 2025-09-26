@@ -57,9 +57,7 @@ class CacheFileIO:
             elif path.suffix == ".csv":
                 return self._read_csv_with_fallback(path)
             else:
-                raise CacheFileIOError(
-                    f"サポートされていないファイル形式: {path.suffix}"
-                )
+                raise CacheFileIOError(f"サポートされていないファイル形式: {path.suffix}")
         except Exception as e:
             logger.error(f"ファイル読み込み失敗: {path.name} ({e})")
             # CSVフォールバック
@@ -184,18 +182,12 @@ class CacheFileIO:
                     formatted = f"{float(x):.{decimal_places}f}"
                     if thousands_sep:
                         integer_part, _, fractional_part = formatted.partition(".")
-                        integer_part = _add_thousands_separator(
-                            integer_part, thousands_sep
-                        )
+                        integer_part = _add_thousands_separator(integer_part, thousands_sep)
                         formatted = (
-                            f"{integer_part}.{fractional_part}"
-                            if fractional_part
-                            else integer_part
+                            f"{integer_part}.{fractional_part}" if fractional_part else integer_part
                         )
                     return (
-                        formatted.replace(".", decimal_point)
-                        if decimal_point != "."
-                        else formatted
+                        formatted.replace(".", decimal_point) if decimal_point != "." else formatted
                     )
                 except (ValueError, TypeError):
                     return str(x)
@@ -239,7 +231,7 @@ class CacheFileIO:
                 "roc200",
                 "return_3d",
                 "return_6d",
-                "return6d",
+                "return_6d",
                 "atr_ratio",
                 "atr_pct",
                 "hv50",

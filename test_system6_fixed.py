@@ -244,7 +244,7 @@ def test_system6_fixed():
         time_saved = original_total_time - fixed_total_time
         reduction_pct = (time_saved / original_total_time) * 100
 
-        print(f"🚀 固定版効果:")
+        print("🚀 固定版効果:")
         print(f"   • 高速化倍率: {speedup:.1f}x")
         print(f"   • 時間短縮: {time_saved:.1f}秒 ({time_saved/60:.1f}分)")
         print(f"   • 短縮率: {reduction_pct:.1f}%")

@@ -216,7 +216,7 @@ class TestLogProcessing:
         ]
 
         # 動的にアクセス
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
         result = func(logs)
 
         # Should extract the reason (implementation may vary)
@@ -224,14 +224,14 @@ class TestLogProcessing:
 
     def test_extract_zero_reason_from_logs_empty_logs(self):
         """空のログリストでのテスト"""
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
         result = func([])
 
         assert result is None
 
     def test_extract_zero_reason_from_logs_none_input(self):
         """Noneが渡された場合のテスト"""
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
         result = func(None)
 
         assert result is None
@@ -244,7 +244,7 @@ class TestLogProcessing:
             "バックテスト実行中...",
         ]
 
-        func = getattr(ui_comp, "extract_zero_reason_from_logs")
+        func = ui_comp.extract_zero_reason_from_logs
         result = func(logs)
 
         assert result is None
@@ -279,7 +279,7 @@ class TestParameterValidation:
         """カスタムprefixでのテスト"""
         start_time = time.time() - 30
 
-        func = getattr(ui_comp, "default_log_callback")
+        func = ui_comp.default_log_callback
         result = func(25, 50, start_time, prefix="カスタム進捗")
 
         assert "カスタム進捗" in result

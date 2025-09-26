@@ -6,9 +6,7 @@ Focus on functions that can be tested without complex external dependencies
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import Mock, patch
 import os
 import tempfile
 

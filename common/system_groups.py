@@ -101,9 +101,7 @@ def summarize_group_totals(
     for key in sorted(normalized_counts.keys()):
         if key in used:
             continue
-        total_value = (
-            float(normalized_values.get(key, 0.0)) if values is not None else None
-        )
+        total_value = float(normalized_values.get(key, 0.0)) if values is not None else None
         summary.append((key, int(normalized_counts[key]), total_value))
 
     return summary
@@ -177,9 +175,7 @@ def format_cache_coverage_report(
             "coverage": f"{coverage_percentage:.1f}%",
         },
         "missing_symbols_preview": missing_summary,
-        "recommendations": _generate_cache_recommendations(
-            coverage_percentage, missing_count
-        ),
+        "recommendations": _generate_cache_recommendations(coverage_percentage, missing_count),
     }
 
 
@@ -195,9 +191,7 @@ def _generate_cache_recommendations(coverage: float, missing_count: int) -> list
 
     elif coverage < 70:
         recommendations.append("⚡ 重要: rolling cache整備率を向上させる必要があります")
-        recommendations.append(
-            "🔧 確認: cache_daily_data.pyによる日次データ更新の実行状況"
-        )
+        recommendations.append("🔧 確認: cache_daily_data.pyによる日次データ更新の実行状況")
 
     elif coverage < 90:
         recommendations.append("📈 改善: 残り未整備シンボルの対応を推奨します")
@@ -206,9 +200,7 @@ def _generate_cache_recommendations(coverage: float, missing_count: int) -> list
         recommendations.append("🎉 excellent: rolling cache整備状況は良好です")
 
     if missing_count > 0:
-        recommendations.append(
-            f"📊 詳細: 未整備{missing_count}シンボルの個別確認を推奨"
-        )
+        recommendations.append(f"📊 詳細: 未整備{missing_count}シンボルの個別確認を推奨")
 
     return recommendations
 
@@ -268,9 +260,7 @@ def analyze_system_symbols_coverage(
             "available": group_available,
             "missing": len(group_missing),
             "coverage_percentage": group_coverage,
-            "status": (
-                "✅" if group_coverage >= 90 else "⚠️" if group_coverage >= 70 else "🚨"
-            ),
+            "status": ("✅" if group_coverage >= 90 else "⚠️" if group_coverage >= 70 else "🚨"),
         }
 
     return {

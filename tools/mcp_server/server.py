@@ -85,8 +85,6 @@ def _text(message: str) -> list[Any]:
     return [types.TextContent(type="text", text=message)]
 
 
-
-
 async def _run_sync(func, *args, **kwargs):
     if anyio is not None:
         return await anyio.to_thread.run_sync(lambda: func(*args, **kwargs))

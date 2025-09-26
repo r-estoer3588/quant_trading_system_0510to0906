@@ -8,7 +8,6 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 from unittest.mock import patch
-import logging
 
 from common.dataframe_utils import (
     DataFrameNormalizationError,

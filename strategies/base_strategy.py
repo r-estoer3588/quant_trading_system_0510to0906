@@ -21,7 +21,7 @@ class StrategyBase(ABC):
             return
 
         try:
-            settings = get_settings(create_dirs=True)
+            settings = get_settings(create_dirs=False)
         except Exception as exc:
             logger.error("設定の初期化に失敗: %s", exc)
             self.config = {}

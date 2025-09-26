@@ -8,9 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 from unittest.mock import Mock, patch, MagicMock
-import pytest
 import time
-from datetime import datetime, timedelta
 
 from common import ui_components
 from common.testing import set_test_determinism

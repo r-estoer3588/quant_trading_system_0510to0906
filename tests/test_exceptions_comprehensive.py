@@ -8,8 +8,7 @@ common/exceptions.py の包括的テストスイート
 import pytest
 import threading
 import time
-from unittest.mock import Mock, patch, MagicMock
-from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock, patch
 
 from common.exceptions import (
     TradingError,

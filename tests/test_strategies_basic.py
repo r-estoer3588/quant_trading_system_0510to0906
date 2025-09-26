@@ -6,8 +6,7 @@ Focus on base_strategy and system strategy initialization
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 from datetime import datetime
 

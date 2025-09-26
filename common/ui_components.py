@@ -166,9 +166,7 @@ def _load_symbol_cached(
     戻り値は (symbol, DataFrame|None)
     """
     try:
-        df = load_base_cache(
-            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
         if df is not None and not df.empty:
             return symbol, df
     except Exception:
@@ -178,9 +176,7 @@ def _load_symbol_cached(
     return symbol, None
 
 
-def load_symbol(
-    symbol: str, cache_dir: str = "data_cache"
-) -> tuple[str, pd.DataFrame | None]:
+def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.DataFrame | None]:
     base_path = str(base_cache_path(symbol))
     raw_path = os.path.join(cache_dir, f"{safe_filename(symbol)}.csv")
     return _load_symbol_cached(
@@ -192,9 +188,7 @@ def load_symbol(
     )
 
 
-def fetch_data(
-    symbols, max_workers: int = 8, ui_manager=None
-) -> dict[str, pd.DataFrame]:
+def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> dict[str, pd.DataFrame]:
     data_dict: dict[str, pd.DataFrame] = {}
     total = len(symbols)
     # UIManagerのフェーズ（fetch）があればそこへ出力
@@ -538,15 +532,12 @@ def run_backtest_app(
     key_debug = f"{system_name}_debug_logs"
 
     has_prev = any(
-        k in st.session_state
-        for k in [key_results, key_cands, f"{system_name}_capital_saved"]
+        k in st.session_state for k in [key_results, key_cands, f"{system_name}_capital_saved"]
     )
     if has_prev:
         with st.expander("前回の結果（リランでも保持）", expanded=False):
             prev_res = st.session_state.get(key_results)
-            prev_cap = st.session_state.get(
-                key_capital_saved, st.session_state.get(key_capital, 0)
-            )
+            prev_cap = st.session_state.get(key_capital_saved, st.session_state.get(key_capital, 0))
             if prev_res is not None and getattr(prev_res, "empty", False) is False:
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
@@ -584,9 +575,7 @@ def run_backtest_app(
         st.session_state[debug_key] = True
     st.checkbox(tr("show debug logs"), key=debug_key)
 
-    use_auto = st.checkbox(
-        tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto"
-    )
+    use_auto = st.checkbox(tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto")
     _init_cap = int(st.session_state.get(key_capital_saved, 1000))
     capital = st.number_input(
         tr("capital (USD)"),
@@ -918,20 +907,14 @@ def show_signal_trade_summary(
             sym: int(df.get("setup", pd.Series(dtype=int)).sum())
             for sym, df in (source_df or {}).items()
         }
-        signal_counts = pd.DataFrame(
-            signal_counts.items(), columns=["symbol", "Signal_Count"]
-        )
+        signal_counts = pd.DataFrame(signal_counts.items(), columns=["symbol", "Signal_Count"])
 
     if trades_df is not None and not trades_df.empty:
-        trade_counts = (
-            trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
-        )
+        trade_counts = trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
     else:
         trade_counts = pd.DataFrame(columns=["symbol", "Trade_Count"])
 
-    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(
-        0
-    )
+    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(0)
     summary_df["Signal_Count"] = summary_df["Signal_Count"].astype(int)
     summary_df["Trade_Count"] = summary_df["Trade_Count"].astype(int)
 
@@ -974,14 +957,10 @@ def display_roc200_ranking(
         st.info(tr("ランキングデータがありません"))
         return
     df = ranking_df.copy()
-    df["Date"] = (
-        pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
-    )
+    df["Date"] = pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
     df = df.reset_index(drop=True)
     if "ROC200_Rank" not in df.columns and "ROC200" in df.columns:
-        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(
-            ascending=False, method="first"
-        )
+        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(ascending=False, method="first")
     if years:
         start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
         df = df[df["Date"] >= start_date]
@@ -1010,9 +989,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     os.makedirs(trade_dir, exist_ok=True)
 
     if signal_counts_df is not None and not signal_counts_df.empty:
-        signal_path = os.path.join(
-            sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv"
-        )
+        signal_path = os.path.join(sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv")
         try:
             settings = get_settings(create_dirs=True)
             round_dec = getattr(settings.cache, "round_decimals", None)
@@ -1050,9 +1027,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             st.dataframe(trades_df[cols] if cols else trades_df)
         except Exception:
             pass
-        trade_path = os.path.join(
-            trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv"
-        )
+        trade_path = os.path.join(trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv")
         try:
             try:
                 settings = get_settings(create_dirs=True)
@@ -1078,9 +1053,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             pass
 
 
-def save_prepared_data_cache(
-    data_dict: dict[str, pd.DataFrame], system_name: str = "SystemX"
-):
+def save_prepared_data_cache(data_dict: dict[str, pd.DataFrame], system_name: str = "SystemX"):
     """Save prepared per-symbol CSVs under `data_cache/` (Streamlit UI helper).
 
     This implementation attempts to round numeric columns according to
@@ -1186,9 +1159,7 @@ def display_cache_health_dashboard() -> None:
             if st.button("🧹 Rolling Cache Prune実行"):
                 with st.spinner("Prune実行中..."):
                     prune_result = cache_manager.prune_rolling_if_needed()
-                    st.success(
-                        f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理"
-                    )
+                    st.success(f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理")
 
     except Exception as e:
         st.error(f"Cache health dashboard エラー: {str(e)}")
@@ -1268,9 +1239,7 @@ def display_system_cache_coverage() -> None:
         overall_analysis = cache_manager.analyze_rolling_gaps()
 
         # システム別カバレッジ分析
-        coverage_analysis = analyze_system_symbols_coverage(
-            system_symbols_map, overall_analysis
-        )
+        coverage_analysis = analyze_system_symbols_coverage(system_symbols_map, overall_analysis)
 
         # グループ別サマリー表示
         st.write("### 📈 グループ別サマリー")
@@ -1281,9 +1250,7 @@ def display_system_cache_coverage() -> None:
                 group_stats = group_data[group_name]
                 col1, col2, col3, col4 = st.columns(4)
 
-                group_display = (
-                    "Long Systems" if group_name == "long" else "Short Systems"
-                )
+                group_display = "Long Systems" if group_name == "long" else "Short Systems"
                 st.write(f"**{group_display}**")
 
                 with col1:

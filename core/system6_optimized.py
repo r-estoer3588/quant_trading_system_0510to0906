@@ -5,9 +5,7 @@ System6 30分達成のための最適化版
 
 import pandas as pd
 import time
-from typing import Dict, Optional, Callable, Any
-from common.i18n import tr
-from common.utils import is_today_run
+from collections.abc import Callable
 
 
 def has_required_indicators_system6(df: pd.DataFrame) -> bool:
@@ -45,7 +43,7 @@ def use_precomputed_indicators_system6(df: pd.DataFrame) -> pd.DataFrame:
     return result_df
 
 
-def early_filter_system6(raw_data_dict: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+def early_filter_system6(raw_data_dict: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """System6用の早期フィルタリング - 明らかに条件を満たさない銘柄を除外"""
     filtered_dict = {}
 
@@ -80,14 +78,14 @@ def early_filter_system6(raw_data_dict: Dict[str, pd.DataFrame]) -> Dict[str, pd
 
 
 def prepare_data_optimized_system6(
-    raw_data_dict: Dict[str, pd.DataFrame],
+    raw_data_dict: dict[str, pd.DataFrame],
     *,
-    progress_callback: Optional[Callable] = None,
-    log_callback: Optional[Callable] = None,
-    skip_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
+    log_callback: Callable | None = None,
+    skip_callback: Callable | None = None,
     reuse_indicators: bool = True,
     **kwargs,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     System6用の30分達成最適化版データ準備
 

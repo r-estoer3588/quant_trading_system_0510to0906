@@ -6,11 +6,12 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
+from collections.abc import Callable
 
 from dotenv import load_dotenv
 
-validate_config_dict: Optional[Callable[[Mapping[str, object]], Any]]
+validate_config_dict: Callable[[Mapping[str, object]], Any] | None
 try:  # optional import for validation
     from .schemas import validate_config_dict  # noqa: F401
 except Exception:  # pragma: no cover

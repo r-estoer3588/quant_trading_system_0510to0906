@@ -15,9 +15,7 @@ def _ensure_utf8() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             try:
-                reconfig = getattr(
-                    stream, "reconfigure"
-                )  # runtime attribute (TextIOWrapper)
+                reconfig = stream.reconfigure  # runtime attribute (TextIOWrapper)
                 reconfig(encoding="utf-8")  # type: ignore[misc]
             except Exception:
                 pass

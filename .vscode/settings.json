@@ -1,5 +1,10 @@
 {
   "python.defaultInterpreterPath": "C:\\Users\\stair\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.executeInFileDir": false,
+  "terminal.integrated.env.windows": {
+    "PYTHONPATH": "C:\\Repos\\quant_trading_system"
+  },
   "files.watcherExclude": {
     "**/.git/**": true,
     "**/.venv/**": true,
@@ -28,6 +33,8 @@
   "chat.mcp.autostart": "newAndOutdated",
   "github.copilot.editor.enableAutoCompletions": true,
   "github.copilot.chat.runCommands": "always",
+  "github.copilot.chat.executeCommand": "always",
+  "github.copilot.terminal.executeCommand": "always",
   "github.copilot.advanced": {
     "automaticCommands": true,
     "autoExecute": true
@@ -68,8 +75,6 @@
   "editor.wordWrapColumn": 88,
   // テスト・デバッグ効率化
   "python.testing.autoTestDiscoverOnSaveEnabled": true,
-  "python.terminal.activateEnvironment": true,
-  "python.terminal.executeInFileDir": true,
   // Git効率化
   "git.autofetch": true,
   "git.confirmSync": false,

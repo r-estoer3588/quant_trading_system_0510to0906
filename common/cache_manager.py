@@ -110,9 +110,7 @@ class _RollingIssueAggregator:
                 self.logger.info(f"[{category}]: {count} symbols - {symbol_list}")
             else:
                 sample = ", ".join(unique_symbols[:5])
-                self.logger.info(
-                    f"[{category}]: {count} symbols - {sample} ... (+{count-5} more)"
-                )
+                self.logger.info(f"[{category}]: {count} symbols - {sample} ... (+{count-5} more)")
 
 
 # グローバルインスタンス
@@ -418,9 +416,7 @@ class CacheManager:
         self._ui_prefix = "[CacheManager]"
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(
-        self, ticker: str, profile: str, category: str, message: str
-    ) -> None:
+    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
         key = (ticker, profile, category)
         if key in self._warned:
             return
@@ -453,9 +449,7 @@ class CacheManager:
             "close": "Close",
             "volume": "Volume",
         }
-        base_renamed = base.rename(
-            columns={k: v for k, v in case_map.items() if k in base.columns}
-        )
+        base_renamed = base.rename(columns={k: v for k, v in case_map.items() if k in base.columns})
         base_renamed["Date"] = base_renamed["date"]
 
         try:
@@ -468,9 +462,7 @@ class CacheManager:
             enriched.columns = [
                 c.lower() if c.lower() in basic_cols else c for c in enriched.columns
             ]
-            enriched["date"] = pd.to_datetime(
-                enriched.get("date", base["date"]), errors="coerce"
-            )
+            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
 
             # Overwrite indicator columns with freshly computed values while
             # preserving original OHLCV and date columns. This ensures appended
@@ -508,9 +500,7 @@ class CacheManager:
             return base_dir / f"{ticker}.feather"
         return base_dir / f"{ticker}.csv"
 
-    def _read_with_fallback(
-        self, path: Path, ticker: str, profile: str
-    ) -> pd.DataFrame | None:
+    def _read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
         """Reads a file with specific logic for different formats and fallbacks."""
         if not path.exists():
             return None
@@ -551,9 +541,7 @@ class CacheManager:
         if df is None:
             # rolling cacheが見つからない場合は集約ログに報告
             if profile == "rolling":
-                report_rolling_issue(
-                    "missing_rolling", ticker, "rolling cache not found"
-                )
+                report_rolling_issue("missing_rolling", ticker, "rolling cache not found")
             return None
 
         # Normalize columns
@@ -586,9 +574,7 @@ class CacheManager:
         try:
             # settings may be a SimpleNamespace in tests; use getattr fallbacks
             if profile == "rolling":
-                round_dec = getattr(
-                    getattr(self, "rolling_cfg", None), "round_decimals", None
-                )
+                round_dec = getattr(getattr(self, "rolling_cfg", None), "round_decimals", None)
             else:
                 # Prefer nested settings.cache.round_decimals when available
                 round_dec = None
@@ -633,9 +619,7 @@ class CacheManager:
             warnings: list[tuple[str, float]] = []
             for col in cols:
                 try:
-                    series = pd.to_numeric(df[col], errors="coerce").reset_index(
-                        drop=True
-                    )
+                    series = pd.to_numeric(df[col], errors="coerce").reset_index(drop=True)
                 except Exception:
                     continue
 
@@ -684,14 +668,10 @@ class CacheManager:
             if col in df.columns:
                 vals = pd.to_numeric(df[col], errors="coerce")
                 if not vals.empty and (vals <= 0).all():
-                    msg = (
-                        f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
-                    )
+                    msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
                     self._warn_once(ticker, profile, f"non_positive:{col}", msg)
 
-    def _perform_health_check(
-        self, df: pd.DataFrame, ticker: str, profile: str
-    ) -> None:
+    def _perform_health_check(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
         """Performs a series of health checks on the DataFrame."""
         if df is None or df.empty:
             return
@@ -702,9 +682,7 @@ class CacheManager:
             self._check_non_positive_prices(df, ticker, profile)
         except Exception as e:
             msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})"
-            self._warn_once(
-                ticker, profile, f"healthcheck_error:{type(e).__name__}", msg
-            )
+            self._warn_once(ticker, profile, f"healthcheck_error:{type(e).__name__}", msg)
 
     def upsert_both(self, ticker: str, new_rows: pd.DataFrame) -> None:
         """Upserts new rows into both 'full' and 'rolling' caches."""
@@ -721,18 +699,10 @@ class CacheManager:
         if cur is None or cur.empty:
             merged = new_rows.copy() if new_rows is not None else pd.DataFrame()
         else:
-            merged = (
-                pd.concat([cur, new_rows], ignore_index=True)
-                if new_rows is not None
-                else cur
-            )
+            merged = pd.concat([cur, new_rows], ignore_index=True) if new_rows is not None else cur
 
         if not merged.empty:
-            merged = (
-                merged.sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)
-            )
+            merged = merged.sort_values("date").drop_duplicates("date").reset_index(drop=True)
             if profile == "rolling":
                 merged = self._enforce_rolling_window(merged)
             merged = self._recompute_indicators(merged)
@@ -748,9 +718,7 @@ class CacheManager:
         if "date" not in df.columns or df.empty:
             return df
         target_len = self._rolling_target_len
-        return (
-            df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
-        )
+        return df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
 
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
         """Prunes the rolling cache if enough new data has been added."""
@@ -825,9 +793,7 @@ class CacheManager:
             # base cacheから全シンボルを取得
             base_files = list(self.full_dir.parent.glob(f"{BASE_SUBDIR}/*.*"))
             system_symbols = [p.stem for p in base_files if not p.name.startswith("_")]
-            logger.info(
-                f"{self._ui_prefix} base cacheから{len(system_symbols)}シンボルを検出"
-            )
+            logger.info(f"{self._ui_prefix} base cacheから{len(system_symbols)}シンボルを検出")
         else:
             logger.info(
                 f"{self._ui_prefix} 指定された{len(system_symbols)}シンボルを分析対象とします"
@@ -849,19 +815,13 @@ class CacheManager:
         total_symbols = len(system_symbols)
         available_count = len(available_symbols)
         missing_count = len(missing_symbols)
-        coverage_percentage = (
-            (available_count / total_symbols * 100) if total_symbols > 0 else 0
-        )
+        coverage_percentage = (available_count / total_symbols * 100) if total_symbols > 0 else 0
 
         # 結果ログ
         logger.info(f"{self._ui_prefix} 📊 分析完了:")
         logger.info(f"{self._ui_prefix}   - 分析対象: {total_symbols}シンボル")
-        logger.info(
-            f"{self._ui_prefix}   - rolling cache整備済み: {available_count}シンボル"
-        )
-        logger.info(
-            f"{self._ui_prefix}   - rolling cache未整備: {missing_count}シンボル"
-        )
+        logger.info(f"{self._ui_prefix}   - rolling cache整備済み: {available_count}シンボル")
+        logger.info(f"{self._ui_prefix}   - rolling cache未整備: {missing_count}シンボル")
         logger.info(f"{self._ui_prefix}   - カバレッジ: {coverage_percentage:.1f}%")
 
         if missing_symbols:
@@ -871,13 +831,9 @@ class CacheManager:
 
             # 従来の形式のログも条件付きで維持（集約無効時のフォールバック）
             if not _rolling_issue_aggregator.compact_mode:
-                logger.warning(
-                    f"{self._ui_prefix} 🚨 未整備シンボル: {missing_symbols[:10]}"
-                )
+                logger.warning(f"{self._ui_prefix} 🚨 未整備シンボル: {missing_symbols[:10]}")
                 if len(missing_symbols) > 10:
-                    logger.warning(
-                        f"{self._ui_prefix}   ... 他{len(missing_symbols) - 10}シンボル"
-                    )
+                    logger.warning(f"{self._ui_prefix}   ... 他{len(missing_symbols) - 10}シンボル")
 
         return {
             "total_symbols": total_symbols,
@@ -912,9 +868,7 @@ class CacheManager:
                 logger.warning(f"{self._ui_prefix} メタファイル読み込み失敗: {e}")
 
         # rolling cacheファイル数
-        rolling_files = [
-            p for p in self.rolling_dir.glob("*.*") if not p.name.startswith("_")
-        ]
+        rolling_files = [p for p in self.rolling_dir.glob("*.*") if not p.name.startswith("_")]
         rolling_files_count = len(rolling_files)
 
         # 目標データ長
@@ -939,14 +893,10 @@ class CacheManager:
         }
 
         logger.info(f"{self._ui_prefix} ✅ 健全性チェック完了:")
-        logger.info(
-            f"{self._ui_prefix}   - メタファイル: {'存在' if meta_exists else '不在'}"
-        )
+        logger.info(f"{self._ui_prefix}   - メタファイル: {'存在' if meta_exists else '不在'}")
         logger.info(f"{self._ui_prefix}   - rolling files: {rolling_files_count}個")
         spy_status = "正常" if anchor_status["meets_target"] else "要確認"
-        logger.info(
-            f"{self._ui_prefix}   - SPY状態: {spy_status} ({anchor_status['rows']}行)"
-        )
+        logger.info(f"{self._ui_prefix}   - SPY状態: {spy_status} ({anchor_status['rows']}行)")
 
         return result
 
@@ -994,9 +944,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
-        )
+        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}")
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -1118,9 +1066,7 @@ def base_cache_path(symbol: str) -> Path:
     return _base_dir() / f"{safe_filename(symbol)}.csv"
 
 
-def save_base_cache(
-    symbol: str, df: pd.DataFrame, settings: Settings | None = None
-) -> Path:
+def save_base_cache(symbol: str, df: pd.DataFrame, settings: Settings | None = None) -> Path:
     """Saves the base cache DataFrame to a CSV file."""
     path = base_cache_path(symbol)
     df_reset = df.reset_index() if df.index.name is not None else df
@@ -1207,11 +1153,7 @@ def load_base_cache(
         df = None  # Force rebuild
 
     if df is None and rebuild_if_missing:
-        raw = (
-            cm.read(symbol, "full")
-            or cm.read(symbol, "rolling")
-            or _read_legacy_cache(symbol)
-        )
+        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling") or _read_legacy_cache(symbol)
         if raw is not None and not raw.empty:
             # If caller prefers to reuse precomputed indicator columns and
             # the raw frame appears to contain indicator columns, avoid
@@ -1229,9 +1171,7 @@ def load_base_cache(
                 if "date" in out.columns and "Date" not in out.columns:
                     out = out.rename(columns={"date": "Date"})
                 # If index is a DatetimeIndex and there's no Date column, expose it
-                if "Date" not in out.columns and isinstance(
-                    out.index, pd.DatetimeIndex
-                ):
+                if "Date" not in out.columns and isinstance(out.index, pd.DatetimeIndex):
                     try:
                         out = out.reset_index()
                         # ensure the date column is named 'Date'

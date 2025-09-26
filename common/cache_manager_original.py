@@ -23,9 +23,9 @@ BASE_SUBDIR = "base"
 def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     """Return a DataFrame rounded to the requested number of decimals.
 
-    pandas.DataFrame.round は数値列のみを対象とし、日付や文字列列には影響しない。
-    ただし ``decimals`` が不正値の場合や丸め処理が例外を送出した場合は、
-    元の DataFrame をそのまま返す。
+    pandas.DataFrame.round は数値列�Eみを対象とし、日付や斁E���E列には影響しなぁE��E
+    ただぁE``decimals`` が不正値の場合や丸め�E琁E��例外を送�Eした場合�E、E
+    允E�E DataFrame をそのまま返す、E
     """
     if df is None or decimals is None:
         return df
@@ -56,7 +56,7 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
         "roc200",
         "return_3d",
         "return_6d",
-        "return6d",
+        "return_6d",
         "atr_ratio",
         "atr_pct",
         "hv50",
@@ -172,7 +172,7 @@ def make_csv_formatters(
             "roc200",
             "return_3d",
             "return_6d",
-            "return6d",
+            "return_6d",
             "atr_ratio",
             "atr_pct",
             "hv50",
@@ -220,7 +220,7 @@ def _write_dataframe_to_csv(df: pd.DataFrame, path: Path, settings: Settings) ->
             logger.error(f"Failed to write CSV fallback {path.name}: {e2}")
 
 
-# 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
+# 健全性チェチE��で参�Eする主要指標�E�E�読み込み後�E小文字化される！E
 MAIN_INDICATOR_COLUMNS = (
     "open",
     "high",
@@ -250,14 +250,14 @@ MAIN_INDICATOR_COLUMNS = (
     "avgvolume50",
     "return_3d",
     "return_6d",
-    "return6d",
+    "return_6d",
     "return_pct",
     "drop3d",
     "atr_ratio",
     "atr_pct",
 )
 
-# 各指標列が有効値を持つために最低限必要とする観測日数の目安
+# 吁E��標�Eが有効値を持つために最低限忁E��とする観測日数の目宁E
 _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
     "sma25": 20,
     "sma50": 50,
@@ -282,7 +282,7 @@ _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
     "avgvolume50": 50,
     "return_3d": 4,
     "return_6d": 7,
-    "return6d": 7,
+    "return_6d": 7,
     "return_pct": 2,
     "drop3d": 4,
     "atr_ratio": 11,
@@ -292,9 +292,9 @@ _INDICATOR_MIN_OBSERVATIONS: dict[str, int] = {
 
 class CacheManager:
     """
-    二層キャッシュ管理（full / rolling）。
-    - 既存のフォーマット(csv/parquet)は自動検出・踏襲
-    - system5/6スタイルのコメント・進捗ログ粒度を踏襲
+    二層キャチE��ュ管琁E��Eull / rolling�E�、E
+    - 既存�EフォーマッチEcsv/parquet)は自動検�E・踏襲
+    - system5/6スタイルのコメント�E進捗ログ粒度を踏襲
     """
 
     _GLOBAL_WARNED: ClassVar[set[tuple[str, str, str]]] = set()
@@ -311,9 +311,7 @@ class CacheManager:
         self._ui_prefix = "[CacheManager]"
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(
-        self, ticker: str, profile: str, category: str, message: str
-    ) -> None:
+    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
         key = (ticker, profile, category)
         if key in self._warned:
             return
@@ -346,18 +344,14 @@ class CacheManager:
             "close": "Close",
             "volume": "Volume",
         }
-        base_renamed = base.rename(
-            columns={k: v for k, v in case_map.items() if k in base.columns}
-        )
+        base_renamed = base.rename(columns={k: v for k, v in case_map.items() if k in base.columns})
         base_renamed["Date"] = base_renamed["date"]
 
         try:
             enriched = add_indicators(base_renamed)
             enriched = enriched.drop(columns=["Date"], errors="ignore")
             enriched.columns = [str(c).lower() for c in enriched.columns]
-            enriched["date"] = pd.to_datetime(
-                enriched.get("date", base["date"]), errors="coerce"
-            )
+            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
 
             # Overwrite indicator columns with freshly computed values while
             # preserving original OHLCV and date columns. This ensures appended
@@ -395,9 +389,7 @@ class CacheManager:
             return base_dir / f"{ticker}.feather"
         return base_dir / f"{ticker}.csv"
 
-    def _read_with_fallback(
-        self, path: Path, ticker: str, profile: str
-    ) -> pd.DataFrame | None:
+    def _read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
         """Reads a file with specific logic for different formats and fallbacks."""
         if not path.exists():
             return None
@@ -420,7 +412,7 @@ class CacheManager:
                     raise
             return None
         except Exception as e:
-            msg = f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})"
+            msg = f"{self._ui_prefix} 読み込み失敁E {path.name} ({e})"
             self._warn_once(ticker, profile, f"read_error:{path.name}", msg)
             # Try CSV as a last resort if another format failed
             if path.suffix != ".csv":
@@ -465,9 +457,7 @@ class CacheManager:
         try:
             # settings may be a SimpleNamespace in tests; use getattr fallbacks
             if profile == "rolling":
-                round_dec = getattr(
-                    getattr(self, "rolling_cfg", None), "round_decimals", None
-                )
+                round_dec = getattr(getattr(self, "rolling_cfg", None), "round_decimals", None)
             else:
                 # Prefer nested settings.cache.round_decimals when available
                 round_dec = None
@@ -512,15 +502,13 @@ class CacheManager:
             warnings: list[tuple[str, float]] = []
             for col in cols:
                 try:
-                    series = pd.to_numeric(df[col], errors="coerce").reset_index(
-                        drop=True
-                    )
+                    series = pd.to_numeric(df[col], errors="coerce").reset_index(drop=True)
                 except Exception:
                     continue
 
                 lookback = int(_INDICATOR_MIN_OBSERVATIONS.get(col.lower(), 0))
 
-                # If series is shorter than lookback, skip — indicator not applicable
+                # If series is shorter than lookback, skip  Eindicator not applicable
                 # This handles newly listed stocks where NaN is expected
                 if lookback and len(series) <= lookback:
                     continue
@@ -544,17 +532,17 @@ class CacheManager:
             if warnings:
                 # Log a single warning summarizing affected columns
                 parts = ", ".join(f"{c}:{r:.2%}" for c, r in warnings)
-                msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: NaN率高 ({parts})"
+                msg = f"{self._ui_prefix} ⚠�E�E{ticker} {profile} cache: NaN玁E��E({parts})"
                 self._warn_once(ticker, profile, f"nan_rate:{parts}", msg)
         except Exception as e:
-            logger.error(f"{self._ui_prefix} NaN率チェック失敗: {e}")
+            logger.error(f"{self._ui_prefix} NaN玁E��ェチE��失敁E {e}")
 
     def _check_column_dtypes(self, df: pd.DataFrame, ticker: str, profile: str):
         """Checks for incorrect dtypes in OHLCV columns."""
         for col in ["open", "high", "low", "close", "volume"]:
             if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
                 dtype_repr = describe_dtype(df[col])
-                msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}型不一致 ({dtype_repr})"
+                msg = f"{self._ui_prefix} ⚠�E�E{ticker} {profile} cache: {col}型不一致 ({dtype_repr})"
                 self._warn_once(ticker, profile, f"dtype:{col}:{dtype_repr}", msg)
 
     def _check_non_positive_prices(self, df: pd.DataFrame, ticker: str, profile: str):
@@ -563,14 +551,10 @@ class CacheManager:
             if col in df.columns:
                 vals = pd.to_numeric(df[col], errors="coerce")
                 if not vals.empty and (vals <= 0).all():
-                    msg = (
-                        f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
-                    )
+                    msg = f"{self._ui_prefix} ⚠�E�E{ticker} {profile} cache: {col}全て非正値"
                     self._warn_once(ticker, profile, f"non_positive:{col}", msg)
 
-    def _perform_health_check(
-        self, df: pd.DataFrame, ticker: str, profile: str
-    ) -> None:
+    def _perform_health_check(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
         """Performs a series of health checks on the DataFrame."""
         if df is None or df.empty:
             return
@@ -580,10 +564,8 @@ class CacheManager:
             self._check_column_dtypes(df, ticker, profile)
             self._check_non_positive_prices(df, ticker, profile)
         except Exception as e:
-            msg = f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})"
-            self._warn_once(
-                ticker, profile, f"healthcheck_error:{type(e).__name__}", msg
-            )
+            msg = f"{self._ui_prefix} ⚠�E�E{ticker} {profile} cache: 健全性チェチE��失敁E({e})"
+            self._warn_once(ticker, profile, f"healthcheck_error:{type(e).__name__}", msg)
 
     def upsert_both(self, ticker: str, new_rows: pd.DataFrame) -> None:
         """Upserts new rows into both 'full' and 'rolling' caches."""
@@ -600,18 +582,10 @@ class CacheManager:
         if cur is None or cur.empty:
             merged = new_rows.copy() if new_rows is not None else pd.DataFrame()
         else:
-            merged = (
-                pd.concat([cur, new_rows], ignore_index=True)
-                if new_rows is not None
-                else cur
-            )
+            merged = pd.concat([cur, new_rows], ignore_index=True) if new_rows is not None else cur
 
         if not merged.empty:
-            merged = (
-                merged.sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)
-            )
+            merged = merged.sort_values("date").drop_duplicates("date").reset_index(drop=True)
             if profile == "rolling":
                 merged = self._enforce_rolling_window(merged)
             merged = self._recompute_indicators(merged)
@@ -627,9 +601,7 @@ class CacheManager:
         if "date" not in df.columns or df.empty:
             return df
         target_len = self._rolling_target_len
-        return (
-            df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
-        )
+        return df.tail(target_len).reset_index(drop=True) if len(df) > target_len else df
 
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
         """Prunes the rolling cache if enough new data has been added."""
@@ -641,7 +613,7 @@ class CacheManager:
 
         anchor_df = self.read(anchor_ticker, "rolling")
         if anchor_df is None or anchor_df.empty:
-            logger.info(f"{self._ui_prefix} rolling未整備のためpruneスキップ")
+            logger.info(f"{self._ui_prefix} rolling未整備�EためpruneスキチE�E")
             return {"pruned_files": 0, "dropped_rows_total": 0}
 
         cur_rows = len(anchor_df)
@@ -650,11 +622,11 @@ class CacheManager:
 
         prune_chunk = int(self.rolling_cfg.prune_chunk_days)
         if progressed < prune_chunk:
-            msg = f"{self._ui_prefix} 進捗{progressed}営業日 (<{prune_chunk}) のためprune不要"
+            msg = f"{self._ui_prefix} 進捗{progressed}営業日 (<{prune_chunk}) のためprune不要E
             logger.info(msg)
             return {"pruned_files": 0, "dropped_rows_total": 0}
 
-        msg = f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日"
+        msg = f"{self._ui_prefix} ⏳ prune開姁E anchor={anchor_ticker}, 進捁E{progressed}営業日"
         logger.info(msg)
         pruned_files, dropped_total = 0, 0
 
@@ -677,7 +649,7 @@ class CacheManager:
         self.rolling_meta_path.write_text(
             json.dumps({"anchor_rows_at_prune": cur_rows}, indent=2), encoding="utf-8"
         )
-        msg = f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}"
+        msg = f"{self._ui_prefix} ✁Eprune完亁E files={pruned_files}, dropped_rows={dropped_total}"
         logger.info(msg)
         return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
 
@@ -690,7 +662,7 @@ def _base_dir() -> Path:
 
 
 def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """OHLCVのDataFrameに共通ベース指標を付加して返す。"""
+    """OHLCVのDataFrameに共通�Eース持E��を付加して返す、E""
     if df is None or df.empty:
         return df
 
@@ -725,9 +697,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
-        )
+        logger.warning(f"{__name__}: 忁E���E欠落のためインジ計算をスキチE�E: missing={missing_cols}")
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -778,9 +748,7 @@ def base_cache_path(symbol: str) -> Path:
     return _base_dir() / f"{safe_filename(symbol)}.csv"
 
 
-def save_base_cache(
-    symbol: str, df: pd.DataFrame, settings: Settings | None = None
-) -> Path:
+def save_base_cache(symbol: str, df: pd.DataFrame, settings: Settings | None = None) -> Path:
     """Saves the base cache DataFrame to a CSV file."""
     path = base_cache_path(symbol)
     df_reset = df.reset_index() if df.index.name is not None else df
@@ -867,11 +835,7 @@ def load_base_cache(
         df = None  # Force rebuild
 
     if df is None and rebuild_if_missing:
-        raw = (
-            cm.read(symbol, "full")
-            or cm.read(symbol, "rolling")
-            or _read_legacy_cache(symbol)
-        )
+        raw = cm.read(symbol, "full") or cm.read(symbol, "rolling") or _read_legacy_cache(symbol)
         if raw is not None and not raw.empty:
             # If caller prefers to reuse precomputed indicator columns and
             # the raw frame appears to contain indicator columns, avoid
@@ -889,9 +853,7 @@ def load_base_cache(
                 if "date" in out.columns and "Date" not in out.columns:
                     out = out.rename(columns={"date": "Date"})
                 # If index is a DatetimeIndex and there's no Date column, expose it
-                if "Date" not in out.columns and isinstance(
-                    out.index, pd.DatetimeIndex
-                ):
+                if "Date" not in out.columns and isinstance(out.index, pd.DatetimeIndex):
                     try:
                         out = out.reset_index()
                         # ensure the date column is named 'Date'

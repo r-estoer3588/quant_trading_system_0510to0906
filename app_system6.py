@@ -40,7 +40,7 @@ def display_return6d_ranking(
     top_n: int = 100,
 ) -> None:
     if not candidates_by_date:
-        st.warning(tr("Return6Dランキングデータがありません"))
+        st.warning(tr("return_6dランキングデータがありません"))
         return
     rows: list[dict[str, Any]] = []
     total = len(candidates_by_date)
@@ -57,7 +57,7 @@ def display_return6d_ranking(
                 {
                     "Date": date,
                     "symbol": c.get("symbol"),
-                    "Return6D": c.get("Return6D"),
+                    "return_6d": c.get("return_6d"),
                 }
             )
         log_with_progress(
@@ -68,26 +68,26 @@ def display_return6d_ranking(
             unit=tr("days"),
         )
     progress.empty()
-    log_area.write(tr("Return6Dランキング完了"))
+    log_area.write(tr("return_6dランキング完了"))
     df = pd.DataFrame(rows)
     df["Date"] = pd.to_datetime(df["Date"])  # type: ignore[arg-type]
     start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
     df = df[df["Date"] >= start_date]
-    df["Return6D_Rank"] = df.groupby("Date")["Return6D"].rank(
+    df["return_6d_Rank"] = df.groupby("Date")["return_6d"].rank(
         ascending=False,
         method="first",
     )
-    df = df.sort_values(["Date", "Return6D_Rank"], ascending=[True, True])
+    df = df.sort_values(["Date", "return_6d_Rank"], ascending=[True, True])
     df = df.groupby("Date").head(top_n)
     title = tr(
-        "{display_name} Return6D ランキング（直近{years}年 / 上位{top_n}銘柄）",
+        "{display_name} return_6d ランキング（直近{years}年 / 上位{top_n}銘柄）",
         display_name=DISPLAY_NAME,
         years=years,
         top_n=top_n,
     )
     with st.expander(title, expanded=False):
         st.dataframe(
-            df.reset_index(drop=True)[["Date", "Return6D_Rank", "symbol", "Return6D"]],
+            df.reset_index(drop=True)[["Date", "return_6d_Rank", "symbol", "return_6d"]],
             hide_index=False,
         )
 
@@ -95,7 +95,7 @@ def display_return6d_ranking(
 def run_tab(ui_manager: UIManager | None = None) -> None:
     st.header(
         tr(
-            "{display_name} バックテスト（Return6D ランキング）",
+            "{display_name} バックテスト（return_6d ランキング）",
             display_name=DISPLAY_NAME,
         )
     )

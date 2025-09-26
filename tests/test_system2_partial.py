@@ -5,10 +5,8 @@ core/system2.py の部分的テストスイート
 独立ユーティリティ関数の戦略的カバレッジ
 """
 
-import pytest
 import pandas as pd
-from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from core.system2 import (
     get_total_days_system2,

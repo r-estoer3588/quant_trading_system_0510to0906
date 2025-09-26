@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from unittest.mock import patch, mock_open
-import tempfile
-import os
+from unittest.mock import patch
 
 from core.system7 import get_total_days_system7, generate_candidates_system7
 from common.testing import set_test_determinism

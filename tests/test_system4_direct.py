@@ -1,9 +1,7 @@
 """System4直接関数テスト - import問題回避版"""
 
-import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 
 class TestSystem4DirectFunctions:

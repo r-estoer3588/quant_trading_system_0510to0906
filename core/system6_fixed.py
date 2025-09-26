@@ -1,13 +1,11 @@
 """System6 fixed version - Uses pre-computed indicators from indicators_common.py"""
 
-import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 
 from common.i18n import tr
-from common.utils import BatchSizeMonitor, get_cached_data, is_today_run, resolve_batch_size
+from common.utils import BatchSizeMonitor, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]

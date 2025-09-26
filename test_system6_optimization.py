@@ -198,7 +198,7 @@ def test_system6_optimization():
             speedup = total_legacy_time / total_opt_time
             time_saved = total_legacy_time - total_opt_time
 
-            print(f"\n🚀 最適化効果:")
+            print("\n🚀 最適化効果:")
             print(f"   • 高速化倍率: {speedup:.1f}x")
             print(f"   • 時間短縮: {time_saved:.1f}秒 ({time_saved/60:.1f}分)")
             print(f"   • 短縮率: {(time_saved/total_legacy_time)*100:.1f}%")

@@ -30,9 +30,7 @@ except Exception:  # pragma: no cover
 try:
     if load_dotenv is not None:
         _ROOT = Path(__file__).resolve().parents[1]
-        load_dotenv(
-            dotenv_path=_ROOT / ".env", override=False
-        )  # does nothing if missing
+        load_dotenv(dotenv_path=_ROOT / ".env", override=False)  # does nothing if missing
 except Exception:
     pass
 
@@ -227,15 +225,11 @@ def _group_trades_by_side(
         g = groups.setdefault(side, {"rows": [], "total": 0.0})
         g["rows"].append(row)
         g["total"] += notional
-    headers = (
-        ["SYMBOL"] + (["SYSTEM"] if include_system else []) + ["QTY", "PRICE", "AMOUNT"]
-    )
+    headers = ["SYMBOL"] + (["SYSTEM"] if include_system else []) + ["QTY", "PRICE", "AMOUNT"]
     for g in groups.values():
         g["headers"] = headers
     impact_str = (
-        impact_date.date().isoformat()
-        if impact_date
-        else datetime.now(tz=_JST).date().isoformat()
+        impact_date.date().isoformat() if impact_date else datetime.now(tz=_JST).date().isoformat()
     )
     return impact_str, groups
 
@@ -281,9 +275,7 @@ class Notifier:
             r = requests.post(url, json=payload, timeout=10)
             if 200 <= r.status_code < 300:
                 return
-            self.logger.warning(
-                "送信失敗 status=%s body=%s", r.status_code, truncate(r.text, 100)
-            )
+            self.logger.warning("送信失敗 status=%s body=%s", r.status_code, truncate(r.text, 100))
         except Exception as e:  # pragma: no cover
             self.logger.warning("送信エラー %s", e)
         self.logger.error("送信に失敗しました: %s", masked)
@@ -331,9 +323,7 @@ class Notifier:
                 msg = resp.get("error") if resp else str(e)
             except Exception:
                 msg = str(e)
-            self.logger.warning(
-                "Slack API error on channel=%s: %s", channel, truncate(msg, 300)
-            )
+            self.logger.warning("Slack API error on channel=%s: %s", channel, truncate(msg, 300))
             return False
         except Exception as e:  # pragma: no cover
             self.logger.warning("Slack API exception on channel=%s: %s", channel, e)
@@ -412,19 +402,13 @@ class Notifier:
                         }
                     )
             if image_url:
-                blocks.append(
-                    {"type": "image", "image_url": image_url, "alt_text": title}
-                )
+                blocks.append({"type": "image", "image_url": image_url, "alt_text": title})
             fallback = truncate(f"{title}\n{desc}", 3000)
             payload = {"text": fallback, "blocks": blocks}
         self.logger.info(
             "send title=%s fields=%d image=%s",
             truncate(title, 50),
-            (
-                0
-                if not fields
-                else (len(fields) if isinstance(fields, list) else len(fields))
-            ),
+            (0 if not fields else (len(fields) if isinstance(fields, list) else len(fields))),
             bool(image_url),
         )
         if channel:
@@ -453,16 +437,12 @@ class Notifier:
         if mention:
             if self.platform == "slack":
                 tag = (
-                    "<!channel>"
-                    if str(mention).lower() in {"channel", "@everyone"}
-                    else "<!here>"
+                    "<!channel>" if str(mention).lower() in {"channel", "@everyone"} else "<!here>"
                 )
                 desc = f"{tag}\n" + desc
             else:
                 content = (
-                    "@everyone"
-                    if str(mention).lower() in {"channel", "@everyone"}
-                    else "@here"
+                    "@everyone" if str(mention).lower() in {"channel", "@everyone"} else "@here"
                 )
 
         payload: dict[str, Any]
@@ -527,19 +507,13 @@ class Notifier:
                         }
                     )
             if image_url:
-                blocks.append(
-                    {"type": "image", "image_url": image_url, "alt_text": title}
-                )
+                blocks.append({"type": "image", "image_url": image_url, "alt_text": title})
             fallback = truncate(f"{title}\n{desc}", 3000)
             payload = {"text": fallback, "blocks": blocks}
         self.logger.info(
             "send+mention title=%s fields=%d image=%s",
             truncate(title, 50),
-            (
-                0
-                if not fields
-                else (len(fields) if isinstance(fields, list) else len(fields))
-            ),
+            (0 if not fields else (len(fields) if isinstance(fields, list) else len(fields))),
             bool(image_url),
         )
         if channel:
@@ -556,14 +530,10 @@ class Notifier:
             else COLOR_SHORT if direction == "short" else COLOR_NEUTRAL
         )
         title = f"📢 {system_name} 日次シグナル ・ {now_jst_str()}"
-        ch = channel or (
-            os.getenv("SLACK_CHANNEL_SIGNALS") if self.platform == "slack" else None
-        )
+        ch = channel or (os.getenv("SLACK_CHANNEL_SIGNALS") if self.platform == "slack" else None)
         if not signals:
             self.send(title, "本日のシグナルはありません", color=color, channel=ch)
-            self.logger.info(
-                "signals %s direction=%s count=0", system_name, direction or "none"
-            )
+            self.logger.info("signals %s direction=%s count=0", system_name, direction or "none")
             return
         emoji = "🟢" if direction == "long" else ("🔴" if direction == "short" else "")
         items = [f"{emoji} {s}" if emoji else s for s in signals]
@@ -572,9 +542,7 @@ class Notifier:
         if len(signals) > 10:
             preview += " ..."
         summary = (
-            f"シグナル数: {len(signals)}\n{preview}"
-            if preview
-            else f"シグナル数: {len(signals)}"
+            f"シグナル数: {len(signals)}\n{preview}" if preview else f"シグナル数: {len(signals)}"
         )
         self.send(title, summary, fields=fields, color=color, channel=ch)
         self.logger.info(
@@ -594,17 +562,11 @@ class Notifier:
         channel: str | None = None,
     ) -> None:
         period_with_run = (
-            f"{period}, 実行日 ・ {now_jst_str()}"
-            if period
-            else f"実行日 ・ {now_jst_str()}"
+            f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
         )
-        self.send_backtest_ex(
-            system_name, period_with_run, stats, ranking, channel=channel
-        )
+        self.send_backtest_ex(system_name, period_with_run, stats, ranking, channel=channel)
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:3])
-        self.logger.info(
-            "backtest %s stats=%s top=%d", system_name, summary, min(len(ranking), 10)
-        )
+        self.logger.info("backtest %s stats=%s top=%d", system_name, summary, min(len(ranking), 10))
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]]) -> None:
         impact, groups = _group_trades_by_side(trades)
@@ -642,9 +604,7 @@ class Notifier:
         )
         fields = {k: str(v) for k, v in summary.items()}
         self.send(title, "", fields=fields, image_url=image_url)
-        self.logger.info(
-            "summary %s %s keys=%d", system_name, period_type, len(summary)
-        )
+        self.logger.info("summary %s %s keys=%d", system_name, period_type, len(summary))
 
     def send_backtest_ex(
         self,
@@ -671,12 +631,7 @@ class Notifier:
             for i, item in enumerate(ranking[:10], start=1):
                 try:
                     if isinstance(item, dict):
-                        sym = (
-                            item.get("symbol")
-                            or item.get("sym")
-                            or item.get("ticker")
-                            or "?"
-                        )
+                        sym = item.get("symbol") or item.get("sym") or item.get("ticker") or "?"
                         roc = item.get("roc")
                         vol = item.get("volume") or item.get("vol")
                         part = f"{sym}"
@@ -693,18 +648,10 @@ class Notifier:
                 lines.append("…")
             desc = "ROC200 TOP10\n" + "\n".join(lines)
         if mention and getattr(self, "platform", "") == "slack":
-            tag = (
-                "<!channel>"
-                if str(mention).lower() in {"channel", "@everyone"}
-                else "<!here>"
-            )
+            tag = "<!channel>" if str(mention).lower() in {"channel", "@everyone"} else "<!here>"
             desc = f"{tag}\n" + desc
-        ch = channel or (
-            os.getenv("SLACK_CHANNEL_EQUITY") if self.platform == "slack" else None
-        )
-        self.send(
-            title, desc, fields=fields, color=color, image_url=image_url, channel=ch
-        )
+        ch = channel or (os.getenv("SLACK_CHANNEL_EQUITY") if self.platform == "slack" else None)
+        self.send(title, desc, fields=fields, color=color, image_url=image_url, channel=ch)
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:3])
         self.logger.info(
             "backtest_ex %s stats=%s top=%d",
@@ -729,15 +676,11 @@ class BroadcastNotifier:
             platform = getattr(n, "platform", "?")
             try:
                 getattr(n, fn_name)(*args, **kwargs)
-                self.logger.info(
-                    "broadcast %s succeeded platform=%s", fn_name, platform
-                )
+                self.logger.info("broadcast %s succeeded platform=%s", fn_name, platform)
                 any_succeeded = True
                 break  # 成功したら以降の通知は行わない（Slack成功時はDiscordに送らない）
             except Exception as e:  # pragma: no cover
-                self.logger.warning(
-                    "broadcast %s failed platform=%s %s", fn_name, platform, e
-                )
+                self.logger.warning("broadcast %s failed platform=%s %s", fn_name, platform, e)
                 # 継続して次の Notifier（例: Slack失敗時にDiscordへ）を試す
 
         if not any_succeeded:
@@ -768,15 +711,12 @@ class FallbackNotifier(Notifier):
         self._logger = _setup_logger()
         self._slack_token = os.getenv("SLACK_BOT_TOKEN", "").strip()
         self._slack_default_ch = (
-            os.getenv("SLACK_CHANNEL", "").strip()
-            or os.getenv("SLACK_CHANNEL_ID", "").strip()
+            os.getenv("SLACK_CHANNEL", "").strip() or os.getenv("SLACK_CHANNEL_ID", "").strip()
         )
         try:
             discord_url = os.getenv("DISCORD_WEBHOOK_URL")
             self._discord = (
-                Notifier(platform="discord", webhook_url=discord_url)
-                if discord_url
-                else None
+                Notifier(platform="discord", webhook_url=discord_url) if discord_url else None
             )
         except Exception:
             self._discord = None
@@ -807,9 +747,7 @@ class FallbackNotifier(Notifier):
                     msg = resp.get("error") if resp else str(e)
                 except Exception:
                     msg = str(e)
-                self._logger.warning(
-                    "fallback: Slack API error: %s", truncate(msg, 200)
-                )
+                self._logger.warning("fallback: Slack API error: %s", truncate(msg, 200))
             except Exception as e:
                 self._logger.warning("fallback: Slack API exception: %s", e)
         return False
@@ -839,9 +777,7 @@ class FallbackNotifier(Notifier):
                 msg = resp.get("error") if resp else str(e)
             except Exception:
                 msg = str(e)
-            self._logger.warning(
-                "fallback: Slack file upload error: %s", truncate(msg, 200)
-            )
+            self._logger.warning("fallback: Slack file upload error: %s", truncate(msg, 200))
             return False
         except Exception as e:
             self._logger.warning("fallback: Slack file upload exception: %s", e)
@@ -918,11 +854,7 @@ class FallbackNotifier(Notifier):
     ) -> None:  # noqa: E501
         tag = None
         if mention:
-            tag = (
-                "@everyone"
-                if str(mention).lower() in {"channel", "@everyone"}
-                else "@here"
-            )
+            tag = "@everyone" if str(mention).lower() in {"channel", "@everyone"} else "@here"
         text = (
             f"{('@' + tag.split('@')[-1]) + ' ' if tag else ''}{title}\n{message}"
             if message
@@ -967,9 +899,7 @@ class FallbackNotifier(Notifier):
         if len(signals) > 10:
             preview += " ..."
         summary = (
-            f"シグナル数: {len(signals)}\n{preview}"
-            if preview
-            else f"シグナル数: {len(signals)}"
+            f"シグナル数: {len(signals)}\n{preview}" if preview else f"シグナル数: {len(signals)}"
         )
         blocks: list[dict[str, Any]] = [
             {
@@ -999,13 +929,9 @@ class FallbackNotifier(Notifier):
         channel: str | None = None,
     ) -> None:  # noqa: E501
         period_with_run = (
-            f"{period}, 実行日 ・ {now_jst_str()}"
-            if period
-            else f"実行日 ・ {now_jst_str()}"
+            f"{period}, 実行日 ・ {now_jst_str()}" if period else f"実行日 ・ {now_jst_str()}"
         )
-        self.send_backtest_ex(
-            system_name, period_with_run, stats, ranking, channel=channel
-        )
+        self.send_backtest_ex(system_name, period_with_run, stats, ranking, channel=channel)
 
     def send_backtest_ex(
         self,
@@ -1029,12 +955,7 @@ class FallbackNotifier(Notifier):
             for i, item in enumerate(ranking[:10], start=1):
                 try:
                     if isinstance(item, dict):
-                        sym = (
-                            item.get("symbol")
-                            or item.get("sym")
-                            or item.get("ticker")
-                            or "?"
-                        )
+                        sym = item.get("symbol") or item.get("sym") or item.get("ticker") or "?"
                         roc = item.get("roc")
                         vol = item.get("volume") or item.get("vol")
                         part = f"{sym}"
@@ -1086,9 +1007,7 @@ class FallbackNotifier(Notifier):
             if self._slack_send_text(text):
                 continue
             side_trades = [
-                t
-                for t in trades
-                if str(t.get("action", t.get("side", ""))).upper() == side
+                t for t in trades if str(t.get("action", t.get("side", ""))).upper() == side
             ]
             if not self._discord_call("send_trade_report", system_name, side_trades):
                 raise RuntimeError("notification failed (slack+discord)")

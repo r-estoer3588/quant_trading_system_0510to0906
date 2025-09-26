@@ -28,8 +28,9 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
-    def __init__(self):
+    def __init__(self, fixed_mode: bool = False):
         super().__init__()
+        self.fixed_mode = fixed_mode
 
     def prepare_data(
         self,
@@ -42,9 +43,12 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         use_process_pool: bool = False,
         enable_optimization: bool = True,  # 最適化版の有効化フラグ
         ultra_mode: bool = False,  # 超最適化モード（デフォルト無効）
-        fixed_mode: bool = True,  # 固定版モード（デフォルト有効）
+        fixed_mode: bool | None = None,  # 固定版モード（Noneならインスタンス変数使用）
         **kwargs,
     ):
+        # fixed_modeが指定されていない場合はインスタンス変数を使用
+        if fixed_mode is None:
+            fixed_mode = self.fixed_mode
         if isinstance(raw_data_or_symbols, dict):
             symbols = list(raw_data_or_symbols.keys())
             raw_dict = None if use_process_pool else raw_data_or_symbols
@@ -115,10 +119,13 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         log_callback=None,
         skip_callback=None,
         batch_size: int | None = None,
-        fixed_mode: bool = True,  # 固定版モード（デフォルト有効）
+        fixed_mode: bool | None = None,  # 固定版モード（Noneならインスタンス変数使用）
         ultra_mode: bool = False,  # 超最適化モード
         **kwargs,
-    ):
+    ) -> tuple[dict, pd.DataFrame | None]:
+        # fixed_modeが指定されていない場合はインスタンス変数を使用
+        if fixed_mode is None:
+            fixed_mode = self.fixed_mode
         prepared_dict = data_dict
         top_n = kwargs.pop("top_n", None)
         if top_n is None:

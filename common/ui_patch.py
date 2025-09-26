@@ -111,9 +111,7 @@ try:
                 fname = args[2]
             try:
                 # シグナル/トレードの CSV は常に非表示（自動保存のため）
-                if isinstance(fname, str) and (
-                    "_signals_" in fname or "_trades_" in fname
-                ):
+                if isinstance(fname, str) and ("_signals_" in fname or "_trades_" in fname):
                     return False
             except Exception:
                 pass
@@ -161,9 +159,7 @@ try:  # noqa: WPS501
         # 最大DD（負値）とピーク資産比の%を計算
         try:
             dd_value = float(df2["drawdown"].min())
-            dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             dd_value, dd_pct = 0.0, 0.0
 
@@ -211,9 +207,7 @@ try:  # noqa: WPS501
                 }
             )
             _st.subheader(_tr("yearly summary"))
-            _st.dataframe(
-                yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
-            )
+            _st.dataframe(yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
             # 月次サマリー
             ms = daily.resample("ME").first()
             me = daily.resample("ME").last()
@@ -225,9 +219,7 @@ try:  # noqa: WPS501
                 }
             )
             _st.subheader(_tr("monthly summary"))
-            _st.dataframe(
-                monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
-            )
+            _st.dataframe(monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
         except Exception:
             pass
 

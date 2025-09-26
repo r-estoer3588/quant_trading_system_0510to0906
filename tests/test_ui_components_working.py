@@ -6,9 +6,7 @@ Focus only on functions that definitely exist and can be tested easily
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import Mock, patch
 
 from common import ui_components
 from common.testing import set_test_determinism
@@ -39,7 +37,7 @@ class TestWorkingFunctions:
         except Exception:
             # If signature is wrong, just test it exists
             assert hasattr(ui_components, "default_log_callback")
-            assert callable(getattr(ui_components, "default_log_callback"))
+            assert callable(ui_components.default_log_callback)
 
     def test_summarize_results_exists_and_works(self):
         """Test summarize_results function - we know this works"""
@@ -131,7 +129,7 @@ class TestMoreComplexFunctions:
     def test_prepare_backtest_data_exists(self):
         """Test prepare_backtest_data exists and can be called with minimal mocking"""
         assert hasattr(ui_components, "prepare_backtest_data")
-        assert callable(getattr(ui_components, "prepare_backtest_data"))
+        assert callable(ui_components.prepare_backtest_data)
 
         # Try to call with mock strategy
         mock_strategy = Mock()
@@ -155,7 +153,7 @@ class TestMoreComplexFunctions:
     def test_run_backtest_with_logging_exists(self):
         """Test run_backtest_with_logging exists"""
         assert hasattr(ui_components, "run_backtest_with_logging")
-        assert callable(getattr(ui_components, "run_backtest_with_logging"))
+        assert callable(ui_components.run_backtest_with_logging)
 
     def test_save_functions_exist(self):
         """Test save functions exist"""
