@@ -124,6 +124,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         if top_n is None:
             try:
                 from config.settings import get_settings
+
                 top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
             except Exception:
                 top_n = 10
@@ -135,11 +136,12 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         if batch_size is None:
             try:
                 from config.settings import get_settings
+
                 batch_size = get_settings(create_dirs=False).data.batch_size
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-            
+
         # 固定版を優先使用
         if fixed_mode:
             return generate_candidates_system6_fixed(
@@ -150,7 +152,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 skip_callback=skip_callback,
                 batch_size=batch_size,
             )
-        
+
         # 超最適化版
         if ultra_mode:
             return generate_candidates_ultra_fast_system6(
@@ -161,7 +163,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 skip_callback=skip_callback,
                 batch_size=batch_size,
             )
-            
+
         # 従来版
         return generate_candidates_system6(
             prepared_dict,

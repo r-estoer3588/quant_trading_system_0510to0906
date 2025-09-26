@@ -407,54 +407,60 @@ class TestIntegrationScenarios:
 
 class TestPrepareDataVectorizedSystem2:
     """prepare_data_vectorized_system2 関数の基本テスト"""
-    
+
     def test_empty_raw_data_dict(self):
         """空辞書の処理"""
         result = prepare_data_vectorized_system2(None)
         assert result == {}
-        
+
         result = prepare_data_vectorized_system2({})
         assert result == {}
-    
+
     def test_single_symbol_with_indicators(self):
         """既存インジケーター付きデータの高速パス処理"""
         # 必要な指標がすでに含まれたDataFrame
-        df = pd.DataFrame({
-            'Open': [100.0, 101.0, 102.0],
-            'High': [101.0, 102.0, 103.0],
-            'Low': [99.0, 100.0, 101.0],
-            'Close': [100.5, 101.5, 102.5],
-            'Volume': [1000000, 1100000, 1200000],
-            'RSI3': [85.0, 90.0, 95.0],
-            'ADX7': [25.0, 30.0, 35.0],
-            'ATR10': [2.0, 2.1, 2.2],
-            'DollarVolume20': [30000000, 35000000, 40000000],
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03']))
-        
-        raw_data = {'AAPL': df}
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 101.0, 102.0],
+                "High": [101.0, 102.0, 103.0],
+                "Low": [99.0, 100.0, 101.0],
+                "Close": [100.5, 101.5, 102.5],
+                "Volume": [1000000, 1100000, 1200000],
+                "RSI3": [85.0, 90.0, 95.0],
+                "ADX7": [25.0, 30.0, 35.0],
+                "ATR10": [2.0, 2.1, 2.2],
+                "DollarVolume20": [30000000, 35000000, 40000000],
+            },
+            index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+        )
+
+        raw_data = {"AAPL": df}
         result = prepare_data_vectorized_system2(raw_data, reuse_indicators=True)
-        
+
         # 結果にAAPLが含まれている
-        assert 'AAPL' in result
-        result_df = result['AAPL']
-        
+        assert "AAPL" in result
+        result_df = result["AAPL"]
+
         # 必要な列が追加されている
-        expected_columns = ['ATR_Ratio', 'TwoDayUp', 'setup']
+        expected_columns = ["ATR_Ratio", "TwoDayUp", "setup"]
         for col in expected_columns:
             assert col in result_df.columns
-    
+
     def test_reuse_indicators_false(self):
         """インジケーター再計算の処理"""
-        df = pd.DataFrame({
-            'Open': [100.0, 101.0],
-            'High': [101.0, 102.0],
-            'Low': [99.0, 100.0],
-            'Close': [100.5, 101.5],
-            'Volume': [1000000, 1100000],
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02']))
-        
-        raw_data = {'AAPL': df}
-        
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 101.0],
+                "High": [101.0, 102.0],
+                "Low": [99.0, 100.0],
+                "Close": [100.5, 101.5],
+                "Volume": [1000000, 1100000],
+            },
+            index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
+        )
+
+        raw_data = {"AAPL": df}
+
         # reuse_indicators=False で強制再計算（データ量少ないので簡単にテスト）
         try:
             result = prepare_data_vectorized_system2(raw_data, reuse_indicators=False)
@@ -463,94 +469,98 @@ class TestPrepareDataVectorizedSystem2:
         except Exception:
             # データが少なすぎてインジケーター計算に失敗する場合は許容
             pass
-    
-    @patch('common.utils.get_cached_data')
+
+    @patch("common.utils.get_cached_data")
     def test_symbols_parameter_filtering(self, mock_get_cached):
         """symbols パラメーターによるフィルタリング"""
         # モックデータ
-        df = pd.DataFrame({
-            'Close': [100.0],
-            'RSI3': [85.0],
-            'ADX7': [25.0],
-        }, index=pd.to_datetime(['2023-01-01']))
-        
-        mock_get_cached.return_value = df
-        
-        raw_data = {'AAPL': df, 'TSLA': df}
-        
-        # AAPLのみを指定
-        result = prepare_data_vectorized_system2(
-            raw_data, 
-            symbols=['AAPL'],
-            reuse_indicators=True
+        df = pd.DataFrame(
+            {
+                "Close": [100.0],
+                "RSI3": [85.0],
+                "ADX7": [25.0],
+            },
+            index=pd.to_datetime(["2023-01-01"]),
         )
-        
+
+        mock_get_cached.return_value = df
+
+        raw_data = {"AAPL": df, "TSLA": df}
+
+        # AAPLのみを指定
+        result = prepare_data_vectorized_system2(raw_data, symbols=["AAPL"], reuse_indicators=True)
+
         # AAPLのみが処理される
-        assert 'AAPL' in result
+        assert "AAPL" in result
         # TSLAは symbols で指定されていないため、結果に含まれないかもしれない
-    
+
     def test_progress_callback_integration(self):
         """progress_callback の呼び出し確認"""
-        df = pd.DataFrame({
-            'Close': [100.0],
-            'RSI3': [85.0],
-        }, index=pd.to_datetime(['2023-01-01']))
-        
-        raw_data = {'AAPL': df}
-        
+        df = pd.DataFrame(
+            {
+                "Close": [100.0],
+                "RSI3": [85.0],
+            },
+            index=pd.to_datetime(["2023-01-01"]),
+        )
+
+        raw_data = {"AAPL": df}
+
         # コールバック記録用
         callback_calls = []
-        
+
         def progress_callback(symbol, progress):
             callback_calls.append((symbol, progress))
-        
+
         try:
             result = prepare_data_vectorized_system2(
-                raw_data,
-                progress_callback=progress_callback,
-                reuse_indicators=True
+                raw_data, progress_callback=progress_callback, reuse_indicators=True
             )
             # エラーなく実行できればOK
             assert isinstance(result, dict)
         except Exception:
             # データ不足でエラーの場合は許容
             pass
-    
+
     def test_batch_size_parameter(self):
         """batch_size パラメーターの処理"""
-        df = pd.DataFrame({
-            'Close': [100.0, 101.0],
-            'RSI3': [85.0, 90.0],
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02']))
-        
-        raw_data = {'AAPL': df}
-        
+        df = pd.DataFrame(
+            {
+                "Close": [100.0, 101.0],
+                "RSI3": [85.0, 90.0],
+            },
+            index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
+        )
+
+        raw_data = {"AAPL": df}
+
         try:
             result = prepare_data_vectorized_system2(
-                raw_data,
-                batch_size=1,  # 小さなバッチサイズ
-                reuse_indicators=True
+                raw_data, batch_size=1, reuse_indicators=True  # 小さなバッチサイズ
             )
             assert isinstance(result, dict)
         except Exception:
             # バッチ処理でエラーの場合は許容
             pass
-    
+
     def test_use_process_pool_parameter(self):
         """use_process_pool パラメーターの処理"""
-        df = pd.DataFrame({
-            'Close': [100.0],
-            'RSI3': [85.0],
-        }, index=pd.to_datetime(['2023-01-01']))
-        
-        raw_data = {'AAPL': df}
-        
+        df = pd.DataFrame(
+            {
+                "Close": [100.0],
+                "RSI3": [85.0],
+            },
+            index=pd.to_datetime(["2023-01-01"]),
+        )
+
+        raw_data = {"AAPL": df}
+
         try:
             result = prepare_data_vectorized_system2(
                 raw_data,
                 use_process_pool=True,
                 max_workers=1,  # 1つのワーカーで安全にテスト
-                reuse_indicators=True
+                reuse_indicators=True,
             )
             assert isinstance(result, dict)
         except Exception:

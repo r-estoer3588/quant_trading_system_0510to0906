@@ -16,275 +16,265 @@ from strategies.base_strategy import StrategyBase
 
 class TestSystem1StrategyBasics:
     """System1Strategy の基本メソッドテスト"""
-    
+
     def setup_method(self):
         """各テストの前処理"""
         self.strategy = System1Strategy()
-    
+
     def test_system_name_attribute(self):
         """SYSTEM_NAME 属性の確認"""
         assert self.strategy.SYSTEM_NAME == "system1"
-    
+
     def test_inheritance_structure(self):
         """継承構造の確認"""
         assert isinstance(self.strategy, StrategyBase)
         # AlpacaOrderMixinも継承している
-        assert hasattr(self.strategy, 'submit_bracket_order')
-    
+        assert hasattr(self.strategy, "submit_bracket_order")
+
     def test_get_total_days_basic(self):
         """get_total_days メソッドの基本動作"""
         # モックデータ
         data_dict = {
-            'AAPL': pd.DataFrame({
-                'Date': ['2023-01-01', '2023-01-02', '2023-01-03'],
-                'Close': [100, 101, 102]
-            }),
-            'TSLA': pd.DataFrame({
-                'Date': ['2023-01-01', '2023-01-04'],  # 重複日あり
-                'Close': [200, 201]
-            })
+            "AAPL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            ),
+            "TSLA": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-04"], "Close": [200, 201]}  # 重複日あり
+            ),
         }
-        
+
         result = self.strategy.get_total_days(data_dict)
         # system1のget_total_days_system1に委譲されることを期待
         assert isinstance(result, int)
         assert result > 0
-    
+
     def test_get_total_days_empty_dict(self):
         """空辞書の get_total_days 処理"""
         result = self.strategy.get_total_days({})
         assert result == 0
-    
-    @patch('core.system1.prepare_data_vectorized_system1')
+
+    @patch("core.system1.prepare_data_vectorized_system1")
     def test_prepare_data_delegation(self, mock_prepare):
         """prepare_data メソッドのコア関数委譲"""
-        mock_prepare.return_value = {'AAPL': pd.DataFrame()}
-        
-        raw_data = {'AAPL': pd.DataFrame({'Close': [100]})}
+        mock_prepare.return_value = {"AAPL": pd.DataFrame()}
+
+        raw_data = {"AAPL": pd.DataFrame({"Close": [100]})}
         result = self.strategy.prepare_data(raw_data)
-        
+
         # core.system1.prepare_data_vectorized_system1 が呼ばれる
         mock_prepare.assert_called_once()
-        assert result == {'AAPL': pd.DataFrame()}
-    
-    @patch('core.system1.prepare_data_vectorized_system1')
+        assert result == {"AAPL": pd.DataFrame()}
+
+    @patch("core.system1.prepare_data_vectorized_system1")
     def test_prepare_data_with_callbacks(self, mock_prepare):
         """prepare_data のコールバック処理"""
         mock_prepare.return_value = {}
-        
+
         progress_callback = Mock()
         log_callback = Mock()
-        
+
         self.strategy.prepare_data(
             {},
             progress_callback=progress_callback,
             log_callback=log_callback,
-            reuse_indicators=True
+            reuse_indicators=True,
         )
-        
+
         # コールバックがコア関数に渡される
         mock_prepare.assert_called_once()
         call_kwargs = mock_prepare.call_args[1]
-        assert call_kwargs['progress_callback'] == progress_callback
-        assert call_kwargs['log_callback'] == log_callback
-        assert call_kwargs['reuse_indicators'] is True
-    
-    @patch('core.system1.generate_roc200_ranking_system1')
+        assert call_kwargs["progress_callback"] == progress_callback
+        assert call_kwargs["log_callback"] == log_callback
+        assert call_kwargs["reuse_indicators"] is True
+
+    @patch("core.system1.generate_roc200_ranking_system1")
     def test_generate_candidates_delegation(self, mock_generate):
         """generate_candidates メソッドのコア関数委譲"""
-        mock_generate.return_value = ({'2023-01-02': []}, None)
-        
-        data_dict = {'AAPL': pd.DataFrame()}
+        mock_generate.return_value = ({"2023-01-02": []}, None)
+
+        data_dict = {"AAPL": pd.DataFrame()}
         result = self.strategy.generate_candidates(data_dict)
-        
+
         # core.system1.generate_roc200_ranking_system1 が呼ばれる
         mock_generate.assert_called_once()
-        assert result == ({'2023-01-02': []}, None)
-    
-    @patch('core.system1.generate_roc200_ranking_system1')
+        assert result == ({"2023-01-02": []}, None)
+
+    @patch("core.system1.generate_roc200_ranking_system1")
     def test_generate_candidates_with_market_df(self, mock_generate):
         """generate_candidates の market_df パラメーター"""
         mock_generate.return_value = ({}, None)
-        
-        market_df = pd.DataFrame({'Close': [100]})
+
+        market_df = pd.DataFrame({"Close": [100]})
         self.strategy.generate_candidates({}, market_df=market_df)
-        
+
         # market_df がコア関数に渡される
-        call_kwargs = mock_generate.call_args[1] 
-        assert 'market_df' in call_kwargs
-    
+        call_kwargs = mock_generate.call_args[1]
+        assert "market_df" in call_kwargs
+
     def test_compute_entry_basic_calculation(self):
         """compute_entry の基本計算ロジック"""
-        df = pd.DataFrame({
-            'Close': [100.0, 105.0, 110.0],
-            'ATR10': [2.0, 2.1, 2.2]
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03']))
-        
-        candidate = {
-            'symbol': 'AAPL',
-            'entry_date': pd.Timestamp('2023-01-02'),
-            'rank': 1
-        }
-        
+        df = pd.DataFrame(
+            {"Close": [100.0, 105.0, 110.0], "ATR10": [2.0, 2.1, 2.2]},
+            index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+        )
+
+        candidate = {"symbol": "AAPL", "entry_date": pd.Timestamp("2023-01-02"), "rank": 1}
+
         current_capital = 10000.0
-        
+
         result = self.strategy.compute_entry(df, candidate, current_capital)
-        
+
         # 結果の基本構造確認
         assert isinstance(result, dict)
-        assert 'entry_price' in result
-        assert 'stop_price' in result
-        assert 'position_size' in result
-        assert 'capital_required' in result
-        
+        assert "entry_price" in result
+        assert "stop_price" in result
+        assert "position_size" in result
+        assert "capital_required" in result
+
         # 価格が正の値
-        assert result['entry_price'] > 0
-        assert result['stop_price'] > 0
-    
+        assert result["entry_price"] > 0
+        assert result["stop_price"] > 0
+
     def test_compute_entry_insufficient_data(self):
         """compute_entry のデータ不足処理"""
         df = pd.DataFrame()  # 空DataFrame
-        
-        candidate = {
-            'symbol': 'AAPL',
-            'entry_date': pd.Timestamp('2023-01-02')
-        }
-        
+
+        candidate = {"symbol": "AAPL", "entry_date": pd.Timestamp("2023-01-02")}
+
         result = self.strategy.compute_entry(df, candidate, 10000.0)
-        
+
         # エラー処理でNoneが返される可能性
         if result is None:
             assert True
         else:
             # 最低限の構造は維持されている
             assert isinstance(result, dict)
-    
+
     def test_compute_exit_basic_calculation(self):
         """compute_exit の基本計算"""
-        df = pd.DataFrame({
-            'Close': [100.0, 95.0, 105.0, 110.0],
-            'ATR10': [2.0, 2.0, 2.0, 2.0]
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04']))
-        
+        df = pd.DataFrame(
+            {"Close": [100.0, 95.0, 105.0, 110.0], "ATR10": [2.0, 2.0, 2.0, 2.0]},
+            index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"]),
+        )
+
         entry_idx = 1  # 2023-01-02
         entry_price = 95.0
         stop_price = 85.0  # ATR based stop
-        
+
         result = self.strategy.compute_exit(df, entry_idx, entry_price, stop_price)
-        
+
         # 結果の基本構造確認
         assert isinstance(result, dict)
-        assert 'exit_idx' in result
-        assert 'exit_price' in result
-        assert 'exit_reason' in result
-        
+        assert "exit_idx" in result
+        assert "exit_price" in result
+        assert "exit_reason" in result
+
         # 正常な値の範囲チェック
-        if result['exit_idx'] is not None:
-            assert result['exit_idx'] >= entry_idx
-            assert result['exit_price'] > 0
-            assert result['exit_reason'] in ['stop_loss', 'time_stop', 'manual']
-    
+        if result["exit_idx"] is not None:
+            assert result["exit_idx"] >= entry_idx
+            assert result["exit_price"] > 0
+            assert result["exit_reason"] in ["stop_loss", "time_stop", "manual"]
+
     def test_compute_exit_immediate_stop(self):
         """compute_exit の即座ストップロス"""
-        df = pd.DataFrame({
-            'Close': [100.0, 80.0],  # 大幅下落
-            'ATR10': [2.0, 2.0]
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02']))
-        
+        df = pd.DataFrame(
+            {"Close": [100.0, 80.0], "ATR10": [2.0, 2.0]},  # 大幅下落
+            index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
+        )
+
         entry_idx = 0
         entry_price = 100.0
         stop_price = 90.0
-        
+
         result = self.strategy.compute_exit(df, entry_idx, entry_price, stop_price)
-        
+
         # ストップロスが発動される
-        if result['exit_idx'] is not None:
-            assert result['exit_reason'] == 'stop_loss'
-            assert result['exit_price'] <= stop_price
-    
-    @patch('common.backtest_utils.simulate_trades_with_risk')
+        if result["exit_idx"] is not None:
+            assert result["exit_reason"] == "stop_loss"
+            assert result["exit_price"] <= stop_price
+
+    @patch("common.backtest_utils.simulate_trades_with_risk")
     def test_run_backtest_delegation(self, mock_simulate):
         """run_backtest のsimulate_trades_with_risk委譲"""
         mock_simulate.return_value = pd.DataFrame()
-        
-        candidates_by_date = {'2023-01-02': []}
-        data_dict = {'AAPL': pd.DataFrame()}
-        
+
+        candidates_by_date = {"2023-01-02": []}
+        data_dict = {"AAPL": pd.DataFrame()}
+
         result = self.strategy.run_backtest(candidates_by_date, data_dict)
-        
+
         # simulate_trades_with_risk が呼ばれる
         mock_simulate.assert_called_once()
-        
+
         # 呼び出し時にstrategy自身が渡される
         call_args = mock_simulate.call_args
         assert call_args[0][2] == self.strategy  # strategy parameter
-    
-    @patch('common.backtest_utils.simulate_trades_with_risk')
+
+    @patch("common.backtest_utils.simulate_trades_with_risk")
     def test_run_backtest_with_parameters(self, mock_simulate):
         """run_backtest のパラメーター渡し"""
         mock_simulate.return_value = pd.DataFrame()
-        
+
         self.strategy.run_backtest(
-            {},
-            {},
-            initial_capital=50000,
-            max_positions=5,
-            position_size_pct=0.15
+            {}, {}, initial_capital=50000, max_positions=5, position_size_pct=0.15
         )
-        
+
         # パラメーターが渡される
         call_kwargs = mock_simulate.call_args[1]
-        assert call_kwargs['initial_capital'] == 50000
-        assert call_kwargs['max_positions'] == 5
-        assert call_kwargs['position_size_pct'] == 0.15
+        assert call_kwargs["initial_capital"] == 50000
+        assert call_kwargs["max_positions"] == 5
+        assert call_kwargs["position_size_pct"] == 0.15
 
 
 class TestSystem1StrategyIntegration:
     """System1Strategy の統合シナリオ"""
-    
+
     def test_full_workflow_simulation(self):
         """完全なワークフローシミュレーション"""
         strategy = System1Strategy()
-        
+
         # 1. データ準備（モック）
         raw_data = {
-            'AAPL': pd.DataFrame({
-                'Open': [100, 101, 102],
-                'High': [102, 103, 104],
-                'Low': [99, 100, 101],
-                'Close': [101, 102, 103],
-                'Volume': [1000000, 1100000, 1200000]
-            }, index=pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03']))
+            "AAPL": pd.DataFrame(
+                {
+                    "Open": [100, 101, 102],
+                    "High": [102, 103, 104],
+                    "Low": [99, 100, 101],
+                    "Close": [101, 102, 103],
+                    "Volume": [1000000, 1100000, 1200000],
+                },
+                index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+            )
         }
-        
+
         # 基本的な属性確認のみ（実際のデータ処理はモック化）
         assert strategy.SYSTEM_NAME == "system1"
-        assert hasattr(strategy, 'prepare_data')
-        assert hasattr(strategy, 'generate_candidates')
-        assert hasattr(strategy, 'run_backtest')
-        
+        assert hasattr(strategy, "prepare_data")
+        assert hasattr(strategy, "generate_candidates")
+        assert hasattr(strategy, "run_backtest")
+
         # get_total_days は実行可能
         total_days = strategy.get_total_days(raw_data)
         assert total_days > 0
-        
+
     def test_error_handling_robustness(self):
         """エラーハンドリングの堅牢性"""
         strategy = System1Strategy()
-        
+
         # None入力の処理
         try:
             strategy.get_total_days(None)
         except (TypeError, AttributeError):
             # 期待されるエラー
             pass
-        
+
         # 空辞書は正常処理
         result = strategy.get_total_days({})
         assert result == 0
-        
+
         # 不正な形式のデータ
         try:
-            bad_data = {'AAPL': 'not_a_dataframe'}
+            bad_data = {"AAPL": "not_a_dataframe"}
             strategy.get_total_days(bad_data)
         except (AttributeError, TypeError):
             # 期待されるエラー
@@ -293,84 +283,78 @@ class TestSystem1StrategyIntegration:
 
 class TestSystem2StrategyBasics:
     """System2Strategy の基本メソッドテスト"""
-    
+
     def setup_method(self):
         """各テストの前処理"""
         self.strategy = System2Strategy()
-    
+
     def test_system_name_attribute(self):
         """SYSTEM_NAME 属性の確認"""
         assert self.strategy.SYSTEM_NAME == "system2"
-    
+
     def test_inheritance_structure(self):
         """継承構造の確認"""
         assert isinstance(self.strategy, StrategyBase)
         # AlpacaOrderMixinも継承している
-        assert hasattr(self.strategy, 'submit_bracket_order')
-    
+        assert hasattr(self.strategy, "submit_bracket_order")
+
     def test_get_total_days_basic(self):
         """get_total_days メソッドの基本動作"""
         # モックデータ
         data_dict = {
-            'AAPL': pd.DataFrame({
-                'Date': ['2023-01-01', '2023-01-02'],
-                'Close': [100, 101]
-            }),
-            'TSLA': pd.DataFrame({
-                'Date': ['2023-01-03'],
-                'Close': [200]
-            })
+            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}),
+            "TSLA": pd.DataFrame({"Date": ["2023-01-03"], "Close": [200]}),
         }
-        
+
         result = self.strategy.get_total_days(data_dict)
         # system2のget_total_days_system2に委譲されることを期待
         assert isinstance(result, int)
         assert result > 0
-    
+
     def test_get_total_days_empty_dict(self):
         """空辞書の get_total_days 処理"""
         result = self.strategy.get_total_days({})
         assert result == 0
-    
-    @patch('core.system2.prepare_data_vectorized_system2')
+
+    @patch("core.system2.prepare_data_vectorized_system2")
     def test_prepare_data_delegation(self, mock_prepare):
         """prepare_data メソッドのコア関数委譲"""
-        mock_prepare.return_value = {'AAPL': pd.DataFrame()}
-        
-        raw_data = {'AAPL': pd.DataFrame({'Close': [100]})}
+        mock_prepare.return_value = {"AAPL": pd.DataFrame()}
+
+        raw_data = {"AAPL": pd.DataFrame({"Close": [100]})}
         result = self.strategy.prepare_data(raw_data)
-        
+
         # core.system2.prepare_data_vectorized_system2 が呼ばれる
         mock_prepare.assert_called_once()
-        assert result == {'AAPL': pd.DataFrame()}
-    
-    @patch('core.system2.generate_candidates_system2')
+        assert result == {"AAPL": pd.DataFrame()}
+
+    @patch("core.system2.generate_candidates_system2")
     def test_generate_candidates_delegation(self, mock_generate):
         """generate_candidates メソッドのコア関数委譲"""
-        mock_generate.return_value = ({'2023-01-02': []}, None)
-        
-        data_dict = {'AAPL': pd.DataFrame()}
+        mock_generate.return_value = ({"2023-01-02": []}, None)
+
+        data_dict = {"AAPL": pd.DataFrame()}
         result = self.strategy.generate_candidates(data_dict)
-        
+
         # core.system2.generate_candidates_system2 が呼ばれる
         mock_generate.assert_called_once()
-        assert result == ({'2023-01-02': []}, None)
-    
+        assert result == ({"2023-01-02": []}, None)
+
     def test_compute_entry_basic_structure(self):
         """compute_entry の基本構造確認"""
-        df = pd.DataFrame({
-            'Close': [100.0, 105.0],
-            'ATR10': [2.0, 2.1]
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02']))
-        
+        df = pd.DataFrame(
+            {"Close": [100.0, 105.0], "ATR10": [2.0, 2.1]},
+            index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
+        )
+
         candidate = {
-            'symbol': 'AAPL',
-            'entry_date': pd.Timestamp('2023-01-02'),
-            'entry_price': 105.0
+            "symbol": "AAPL",
+            "entry_date": pd.Timestamp("2023-01-02"),
+            "entry_price": 105.0,
         }
-        
+
         current_capital = 10000.0
-        
+
         try:
             result = self.strategy.compute_entry(df, candidate, current_capital)
             # 結果の基本確認
@@ -379,18 +363,18 @@ class TestSystem2StrategyBasics:
         except Exception:
             # System2の複雑な処理でエラーが発生する可能性を許容
             pass
-    
+
     def test_compute_exit_basic_structure(self):
         """compute_exit の基本構造確認"""
-        df = pd.DataFrame({
-            'Close': [100.0, 95.0, 105.0],
-            'ATR10': [2.0, 2.0, 2.0]
-        }, index=pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03']))
-        
+        df = pd.DataFrame(
+            {"Close": [100.0, 95.0, 105.0], "ATR10": [2.0, 2.0, 2.0]},
+            index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+        )
+
         entry_idx = 0
         entry_price = 100.0
         stop_price = 90.0
-        
+
         try:
             result = self.strategy.compute_exit(df, entry_idx, entry_price, stop_price)
             # 結果の基本確認
