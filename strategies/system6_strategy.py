@@ -162,14 +162,24 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
 
         # 超最適化版
         if ultra_mode:
-            return generate_candidates_ultra_fast_system6(
+            candidates_list = generate_candidates_ultra_fast_system6(
                 prepared_dict,
                 top_n=top_n,
                 progress_callback=progress_callback,
                 log_callback=log_callback,
                 skip_callback=skip_callback,
-                batch_size=batch_size,
             )
+            # list[tuple[str, dict]] から tuple[dict, DataFrame | None] に変換
+            candidates_by_date = {}
+            for date_str, candidate_dict in candidates_list:
+                try:
+                    date_key = pd.Timestamp(date_str)
+                    if date_key not in candidates_by_date:
+                        candidates_by_date[date_key] = []
+                    candidates_by_date[date_key].append(candidate_dict)
+                except Exception:
+                    continue
+            return candidates_by_date, None
 
         # 従来版
         return generate_candidates_system6(

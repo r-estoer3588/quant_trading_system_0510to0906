@@ -98,7 +98,7 @@ class TestBasicStructures:
         for i in range(1, 8):
             system_key = f"System{i}"
             assert system_key in DEFAULT_ALLOCATIONS
-            assert isinstance(DEFAULT_ALLOCATIONS[system_key], (int, float))
+            assert isinstance(DEFAULT_ALLOCATIONS[system_key], int | float)
 
         # Sum of all allocations should be close to 2.0 (long bucket + short bucket)
         total = sum(DEFAULT_ALLOCATIONS.values())

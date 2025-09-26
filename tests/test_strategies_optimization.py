@@ -201,7 +201,7 @@ class TestSystem1StrategyBasics:
         candidates_by_date = {"2023-01-02": []}
         data_dict = {"AAPL": pd.DataFrame()}
 
-        result = self.strategy.run_backtest(candidates_by_date, data_dict)
+        self.strategy.run_backtest(candidates_by_date, data_dict)
 
         # simulate_trades_with_risk が呼ばれる
         mock_simulate.assert_called_once()
@@ -442,7 +442,7 @@ class TestSystem3StrategyBasics:
             system3_strategy.compute_entry(None)
         except Exception as e:
             # エラーが発生しても適切にハンドリングされることを確認
-            assert isinstance(e, (TypeError, AttributeError, ValueError))
+            assert isinstance(e, TypeError | AttributeError | ValueError)
 
 
 class TestSystem4StrategyBasics:
@@ -499,7 +499,7 @@ class TestSystem4StrategyBasics:
             system4_strategy.compute_entry(None)
         except Exception as e:
             # エラーが発生しても適切にハンドリングされることを確認
-            assert isinstance(e, (TypeError, AttributeError, ValueError))
+            assert isinstance(e, TypeError | AttributeError | ValueError)
 
 
 class TestSystem5StrategyBasics:
@@ -556,7 +556,7 @@ class TestSystem5StrategyBasics:
             system5_strategy.compute_entry(None)
         except Exception as e:
             # エラーが発生しても適切にハンドリングされることを確認
-            assert isinstance(e, (TypeError, AttributeError, ValueError))
+            assert isinstance(e, TypeError | AttributeError | ValueError)
 
 
 class TestSystem6StrategyBasics:
@@ -613,7 +613,7 @@ class TestSystem6StrategyBasics:
             system6_strategy.compute_entry(None)
         except Exception as e:
             # エラーが発生しても適切にハンドリングされることを確認
-            assert isinstance(e, (TypeError, AttributeError, ValueError))
+            assert isinstance(e, TypeError | AttributeError | ValueError)
 
 
 class TestSystem7StrategyBasics:
@@ -670,11 +670,12 @@ class TestSystem7StrategyBasics:
             system7_strategy.compute_entry(None)
         except Exception as e:
             # エラーが発生しても適切にハンドリングされることを確認
-            assert isinstance(e, (TypeError, AttributeError, ValueError))
+            assert isinstance(e, TypeError | AttributeError | ValueError)
 
 
 # テスト実行例：
-# pytest tests/test_strategies_optimization.py::TestSystem3StrategyBasics::test_system_name_system3 -v
+# pytest tests/test_strategies_optimization.py::TestSystem3StrategyBasics::\
+# test_system_name_system3 -v
 
 
 if __name__ == "__main__":

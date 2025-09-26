@@ -102,7 +102,7 @@ class TestRollingIssueAggregatorCompact:
             _RollingIssueAggregator._instance = None
 
             aggregator = _RollingIssueAggregator()
-            assert aggregator.compact_mode == True
+            assert aggregator.compact_mode
             assert aggregator.verbose_head == 5
 
             # Test reporting with compact mode
@@ -138,7 +138,7 @@ class TestRollingIssueAggregatorCompact:
             _RollingIssueAggregator._instance = None
             aggregator = _RollingIssueAggregator()
 
-            assert aggregator.compact_mode == False
+            assert not aggregator.compact_mode
 
             with patch.object(aggregator.logger, "warning") as mock_warning:
                 aggregator.report_issue("test", "SYMBOL", "message")

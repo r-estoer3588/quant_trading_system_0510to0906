@@ -142,7 +142,7 @@ class TestCacheManagerUncoveredMethods:
             settings = get_settings()
             settings.cache.full_dir = str(self.temp_dir / "new_full")
             settings.cache.rolling_dir = str(self.temp_dir / "new_rolling")
-            manager = CacheManager(settings)
+            CacheManager(settings)
         except Exception:
             # Expected - may fail with mock, but coverage achieved
             pass
@@ -345,7 +345,7 @@ class TestCacheManagerAdvancedFeatures:
         initial_warned_count = len(self.manager._warned)
 
         # Add a warning
-        with patch("common.cache_manager.logger.warning") as mock_warning:
+        with patch("common.cache_manager.logger.warning"):
             self.manager._warn_once("TEST", "test", "test", "Test warning")
 
         # Warning set should have grown
@@ -359,7 +359,7 @@ class TestCacheManagerAdvancedFeatures:
 
         # Various path operations should handle non-existent paths gracefully
         try:
-            health = self.manager.get_rolling_health_summary()
+            self.manager.get_rolling_health_summary()
         except Exception:
             pass  # Expected - health check may require existing files
 

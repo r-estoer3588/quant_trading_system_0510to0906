@@ -276,7 +276,7 @@ class TestComputeIndicatorsFrame:
         # DollarVolume20 should be 10 * 10M = 100M > 50M threshold
         assert "filter" in result.columns
         # After warm-up period, filter should be True
-        assert result["filter"].iloc[-1] == True
+        assert result["filter"].iloc[-1]
 
     def test_compute_indicators_roc200_calculation(self):
         """Test ROC200 calculation specifically"""

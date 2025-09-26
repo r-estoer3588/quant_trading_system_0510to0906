@@ -35,7 +35,7 @@ def test_dir_creation():
 
     print("3. Testing get_settings(create_dirs=True)...")
     start = time.time()
-    settings2 = get_settings(create_dirs=True)
+    get_settings(create_dirs=True)
     elapsed = time.time() - start
     print(f"   Done in {elapsed:.3f}s")
 

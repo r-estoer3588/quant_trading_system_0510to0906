@@ -150,7 +150,18 @@ class BaseCachePool:
         min_last_date: pd.Timestamp | None = None,
         allowed_recent_dates: set[pd.Timestamp] | None = None,
     ) -> tuple[pd.DataFrame | None, bool]:
-        """base 繧ｭ繝｣繝・す繝･繧貞叙蠕励＠縲∬ｾ樊嶌縺ｫ菫晄戟縺吶ｋ縲・"""
+        """base キャッシュから銘柄シンボルの DataFrame を取得する。
+
+        Returns (df, from_cache):
+            - df: 取得または再構築された DataFrame（存在しなければ None）
+            - from_cache: True=共有キャッシュ命中 / False=新規ロード
+
+        フィルタ条件:
+            rebuild_if_missing: キャッシュ欠損時にベースデータを再構築するか
+            min_last_date: 末尾日付がこの日付(正規化)未満なら stale とみなす
+            allowed_recent_dates: 許可された最終日付集合（存在し、かつ一致しなければ stale）
+        stale 判定時はキャッシュを破棄して再ロードを試みる。
+        """
 
         allowed_set = set(allowed_recent_dates or ())
         if min_last_date is not None:
@@ -5230,6 +5241,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--planned-exits-dry-run",
         action="store_true",
         help="手仕舞い計画の自動実行をドライランにする（既定は実発注）",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="パイプライン全体のフェーズ別実行時間を計測し logs/perf にレポート保存",
     )
     return parser
 

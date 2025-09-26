@@ -53,7 +53,7 @@ class TestWorkingFunctions:
         result = ui_components.summarize_results(results_df, 10000.0)
 
         # Function returns tuple (dict, DataFrame) not just dict
-        assert isinstance(result, (dict, tuple))
+        assert isinstance(result, dict | tuple)
         if isinstance(result, tuple):
             assert len(result) == 2
             assert isinstance(result[0], dict)
@@ -144,7 +144,7 @@ class TestMoreComplexFunctions:
                 )
 
                 # Any non-exception result is good for coverage
-                assert result is None or isinstance(result, (dict, pd.DataFrame))
+                assert result is None or isinstance(result, dict | pd.DataFrame)
 
         except Exception:
             # Expected - complex function with many dependencies

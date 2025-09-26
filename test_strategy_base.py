@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test StrategyBase instantiation."""
 
+import pandas as pd
 from strategies.base_strategy import StrategyBase
 
 

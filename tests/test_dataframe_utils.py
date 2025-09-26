@@ -215,7 +215,7 @@ class TestEnsureNumericColumns:
 
         # Mock pd.to_numeric to raise an exception
         with patch("pandas.to_numeric", side_effect=Exception("Conversion error")):
-            result = ensure_numeric_columns(df, ["price"])
+            ensure_numeric_columns(df, ["price"])
 
             # Should log warning
             mock_logger.warning.assert_called()

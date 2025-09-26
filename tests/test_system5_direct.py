@@ -1,9 +1,7 @@
 """System5直接関数テスト - import問題回避版 (Long mean-reversion with high ADX)"""
 
-import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 
 class TestSystem5DirectFunctions:
@@ -15,7 +13,7 @@ class TestSystem5DirectFunctions:
         def mock_get_total_days_system5(data_dict):
             """get_total_days_system5 の簡易模擬実装"""
             total_days = 0
-            for symbol, df in data_dict.items():
+            for _symbol, df in data_dict.items():
                 if isinstance(df, pd.DataFrame) and not df.empty:
                     total_days += len(df)
             return total_days
@@ -205,7 +203,7 @@ class TestSystem5DirectFunctions:
 
         # mean-reversion指標確認
         assert len(prepared_dict) == 2
-        for symbol, df in prepared_dict.items():
+        for _symbol, df in prepared_dict.items():
             assert "RSI14" in df.columns
             assert "ADX14" in df.columns
             assert "SMA20" in df.columns

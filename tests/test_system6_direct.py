@@ -1,9 +1,7 @@
 """System6直接関数テスト - import問題回避版 (Short strategy with high ADX)"""
 
-import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 
 class TestSystem6DirectFunctions:
@@ -15,7 +13,7 @@ class TestSystem6DirectFunctions:
         def mock_get_total_days_system6(data_dict):
             """get_total_days_system6 の簡易模擬実装"""
             total_days = 0
-            for symbol, df in data_dict.items():
+            for _symbol, df in data_dict.items():
                 if isinstance(df, pd.DataFrame) and not df.empty:
                     total_days += len(df)
             return total_days
@@ -204,7 +202,7 @@ class TestSystem6DirectFunctions:
 
         # Short指標確認
         assert len(prepared_dict) == 2
-        for symbol, df in prepared_dict.items():
+        for _symbol, df in prepared_dict.items():
             assert "RSI14" in df.columns
             assert "ADX14" in df.columns
             assert "SMA20" in df.columns

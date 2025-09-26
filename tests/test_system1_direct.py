@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import numpy as np
 
 from common.testing import set_test_determinism
@@ -25,10 +25,8 @@ with patch("common.cache_manager.CacheManager"):
         _normalize_index,
         _prepare_source_frame,
         _compute_indicators_frame,
-        _compute_indicators,
         prepare_data_vectorized_system1,
         get_total_days_system1,
-        generate_roc200_ranking_system1,
     )
 
 
@@ -286,7 +284,7 @@ class TestSystem1DirectFunctions:
         assert len(candidates_by_date) > 0
 
         # 各日のcandidate構造検証
-        for date, candidates in candidates_by_date.items():
+        for _date, candidates in candidates_by_date.items():
             assert isinstance(candidates, list)
             assert len(candidates) <= 2  # top_n=2
             if candidates:

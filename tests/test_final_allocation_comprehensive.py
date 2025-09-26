@@ -255,8 +255,8 @@ class TestFinalizeAllocation:
             pass
 
 
-class TestLoadSymbolSystemMap:
-    """Test load_symbol_system_map function"""
+class TestLoadSymbolSystemMapDuplicate:
+    """Test load_symbol_system_map function - additional tests"""
 
     def setup_method(self):
         set_test_determinism()
@@ -322,8 +322,8 @@ class TestLoadSymbolSystemMap:
         assert len(result) == 3
 
 
-class TestFinalizeAllocation:
-    """Test finalize_allocation function - the main entry point"""
+class TestFinalizeAllocationDuplicate:
+    """Test finalize_allocation function - additional tests"""
 
     def setup_method(self):
         set_test_determinism()
@@ -496,9 +496,7 @@ class TestAllocationErrorHandling:
 
         with patch("core.final_allocation.get_settings"):
             try:
-                result = finalize_allocation(
-                    candidates=invalid_candidates, active_positions={}, mode="slot"
-                )
+                finalize_allocation(candidates=invalid_candidates, active_positions={}, mode="slot")
                 # Should handle gracefully or raise appropriate exception
             except (TypeError, AttributeError, ValueError):
                 # Expected for invalid input

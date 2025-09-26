@@ -34,15 +34,13 @@ def generate_candidates_ultra_fast_system6(
     start_time = time.time()
 
     # フィルタリング後の銘柄に対してセットアップ条件をベクトル化してチェック
-    candidates = []
     total_symbols = len(prepared_dict)
 
     if total_symbols == 0:
         return []
 
     # バッチ処理で高速化
-    batch_size = min(100, max(10, total_symbols // 5))
-    processed = 0
+    min(100, max(10, total_symbols // 5))
 
     # セットアップ通過銘柄の事前スクリーニング
     setup_passed = []
@@ -238,7 +236,7 @@ def prepare_data_ultra_optimized_system6(
     if total == 0:
         return result_dict
 
-    phase2_start = time.time() - start_time
+    time.time() - start_time
     precomputed_used = 0
     recalculated = 0
 

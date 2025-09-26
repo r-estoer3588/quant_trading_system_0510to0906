@@ -88,8 +88,8 @@ def prepare_data_fixed_system6(
         batch_size = resolve_batch_size(total, batch_size)
 
     start_time = time.time()
-    batch_monitor = BatchSizeMonitor(batch_size)
-    batch_start = time.time()
+    BatchSizeMonitor(batch_size)
+    time.time()
     processed, skipped = 0, 0
     buffer: list[str] = []
 

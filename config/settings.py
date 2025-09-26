@@ -229,9 +229,9 @@ def _coerce_int(val: Any, default: int) -> int:
     """Best-effort int coercion with safe fallbacks for mypy clarity."""
     if isinstance(val, bool):  # bool is int subclass, but keep semantic clarity
         return int(val)
-    if isinstance(val, (int,)):
+    if isinstance(val, int):
         return val
-    if isinstance(val, (float,)):
+    if isinstance(val, float):
         try:
             return int(val)
         except Exception:
@@ -253,9 +253,9 @@ def _positive_int_or_none(value: object | None) -> int | None:
             return None
     if isinstance(value, bool):  # bool -> int 変換しない（正の整数条件外）
         return None
-    if isinstance(value, (int,)):
+    if isinstance(value, int):
         parsed = value
-    elif isinstance(value, (float,)):
+    elif isinstance(value, float):
         iv = int(value)
         parsed = iv
     elif isinstance(value, str):  # str は上で strip 済み

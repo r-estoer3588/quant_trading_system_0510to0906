@@ -256,10 +256,13 @@ def run_backtest_with_logging_ui(
         s = str(msg)
         if s.startswith("💰"):
             debug_logs.append(s)
-            if hasattr(bt, "trade_log_area"):
-                bt.trade_log_area.text(s)
+            trade_log_area = getattr(bt, "trade_log_area", None)
+            if trade_log_area:
+                trade_log_area.text(s)
         else:
-            bt.log_area.text(s)
+            log_area = getattr(bt, "log_area", None)
+            if log_area:
+                log_area.text(s)
 
     results_df = strategy.run_backtest(
         prepared_dict,

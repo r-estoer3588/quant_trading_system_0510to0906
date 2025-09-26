@@ -207,7 +207,7 @@ class TestComplexFunctionMocking:
                     )
 
                     # Any result is good for coverage
-                    assert result is None or isinstance(result, (dict, pd.DataFrame, tuple))
+                    assert result is None or isinstance(result, dict | pd.DataFrame | tuple)
 
                 except Exception:
                     # Expected - function has complex dependencies

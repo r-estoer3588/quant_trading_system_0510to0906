@@ -371,7 +371,7 @@ class TestLogProcessingComprehensive:
             (None, None),  # None input
         ]
 
-        for logs, expected in test_cases:
+        for logs, _expected in test_cases:
             result = func(logs)
             # Accept any reasonable result for now
             assert result is None or isinstance(result, str)
@@ -465,7 +465,7 @@ class TestFileAndCacheOperations:
         """準備データキャッシュ保存のモックテスト"""
         data_dict = {"AAPL": create_sample_dataframe(5)}
 
-        with patch("pandas.DataFrame.to_csv") as mock_to_csv:
+        with patch("pandas.DataFrame.to_csv"):
             with patch("os.makedirs"):
                 with patch("builtins.open", mock_open_func()):
                     try:

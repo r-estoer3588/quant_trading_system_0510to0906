@@ -189,7 +189,7 @@ class TestUtilityFunctionsCoverage:
         assert agg1 is agg2
 
         # Test issue reporting
-        with patch("common.cache_manager.logger") as mock_logger:
+        with patch("common.cache_manager.logger"):
             report_rolling_issue("test_category", "TEST_SYMBOL", "test message")
             # Should call logger methods
 
@@ -252,7 +252,7 @@ class TestCacheManagerAdvancedFeatures:
                 mock_file_path = self.temp_dir / "TEST.csv"
                 mock_path.return_value = mock_file_path
 
-                result_path = save_base_cache("TEST", test_data, self.mock_settings)
+                save_base_cache("TEST", test_data, self.mock_settings)
                 assert mock_path.called
 
         # Test load with error handling
@@ -260,7 +260,7 @@ class TestCacheManagerAdvancedFeatures:
             mock_file_path = self.temp_dir / "MISSING.csv"  # Non-existent file
             mock_path.return_value = mock_file_path
 
-            result = load_base_cache("MISSING")
+            load_base_cache("MISSING")
             # Should handle missing file gracefully
 
     def test_error_handling_comprehensive(self):

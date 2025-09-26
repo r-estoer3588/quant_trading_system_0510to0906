@@ -269,7 +269,7 @@ class TestSystem3DirectFunctions:
         assert "GOOGL" in result
 
         # 各銘柄のDataFrameが処理されていることを確認
-        for sym, df in result.items():
+        for _sym, df in result.items():
             assert isinstance(df, pd.DataFrame)
             assert "SMA5" in df.columns  # 指標が追加されている
             assert "setup" in df.columns  # setupカラムが追加されている
@@ -328,7 +328,8 @@ class TestSystem3DirectFunctions:
 
 
 # テスト実行例：
-# pytest tests/test_system3_direct.py::TestSystem3DirectFunctions::test_system3_get_total_days_direct -v
+# pytest tests/test_system3_direct.py::TestSystem3DirectFunctions::\
+# test_system3_get_total_days_direct -v
 
 
 if __name__ == "__main__":

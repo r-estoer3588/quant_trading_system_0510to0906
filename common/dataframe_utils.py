@@ -149,7 +149,6 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
         "roc200",
         "return_3d",
         "return_6d",
-        "return_6d",
         "atr_ratio",
         "atr_pct",
         "hv50",

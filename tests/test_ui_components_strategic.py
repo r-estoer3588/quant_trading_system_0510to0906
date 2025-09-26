@@ -33,7 +33,7 @@ class TestBacktestFunctionsCoverage:
             with (
                 patch("common.ui_components.fetch_data") as mock_fetch,
                 patch("common.ui_components.get_all_tickers") as mock_get_tickers,
-                patch("streamlit.info") as mock_info,
+                patch("streamlit.info"),
             ):
 
                 # Setup comprehensive mocks
@@ -61,7 +61,7 @@ class TestBacktestFunctionsCoverage:
                             strategy=mock_strategy, symbols=test_symbols, system_name=system_name
                         )
                         # Any result type is acceptable for coverage
-                        assert result is None or isinstance(result, (dict, tuple, pd.DataFrame))
+                        assert result is None or isinstance(result, dict | tuple | pd.DataFrame)
                     except Exception:
                         # Expected - complex dependencies
                         pass

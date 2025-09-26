@@ -186,7 +186,7 @@ class TestSystem4DirectFunctions:
         assert "AAPL" in result and "GOOGL" in result
 
         # 各DataFrameに指標が追加されていることを確認
-        for sym, df in result.items():
+        for _sym, df in result.items():
             assert "SMA20" in df.columns
             assert "RSI14" in df.columns
             assert "setup" in df.columns

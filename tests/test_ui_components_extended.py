@@ -339,8 +339,8 @@ class TestResultSummarizationDetailed:
             assert abs(summary["win_rate"] - 50.0) < 0.01  # 1 win out of 2
 
             # Check extreme values don't break calculation
-            assert isinstance(summary["total_return"], (int, float))
-            assert isinstance(summary["max_dd"], (int, float))
+            assert isinstance(summary["total_return"], int | float)
+            assert isinstance(summary["max_dd"], int | float)
 
 
 class TestFontAndInternationalization:

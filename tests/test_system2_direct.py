@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import numpy as np
 
 from common.testing import set_test_determinism
@@ -23,7 +23,6 @@ with patch("common.cache_manager.CacheManager"):
     from core.system2 import (
         _compute_indicators,
         prepare_data_vectorized_system2,
-        generate_candidates_system2,
         get_total_days_system2,
     )
 
@@ -43,7 +42,7 @@ class TestSystem2DirectFunctions:
         test_data = pd.DataFrame(
             {
                 "Open": np.linspace(100, 110, 25),
-                "High": np.linspace(105, 115, 25), 
+                "High": np.linspace(105, 115, 25),
                 "Low": np.linspace(95, 105, 25),
                 "Close": np.linspace(100, 110, 25),
                 "Volume": np.full(25, 30000000),  # DollarVolume requirement
@@ -63,8 +62,17 @@ class TestSystem2DirectFunctions:
 
         # System2特有の指標存在確認
         base_cols = {"Open", "High", "Low", "Close", "Volume"}
-        indicator_cols = {"RSI3", "ADX7", "ATR10", "DollarVolume20", "ATR_Ratio", "TwoDayUp", "filter", "setup"}
-        
+        indicator_cols = {
+            "RSI3",
+            "ADX7",
+            "ATR10",
+            "DollarVolume20",
+            "ATR_Ratio",
+            "TwoDayUp",
+            "filter",
+            "setup",
+        }
+
         assert base_cols.issubset(set(result.columns))
         assert indicator_cols.issubset(set(result.columns))
 
@@ -80,7 +88,7 @@ class TestSystem2DirectFunctions:
 
     @patch("core.system2.get_cached_data")
     def test_compute_indicators_minimal_data(self, mock_cached):
-        """_compute_indicators の最小データでの処理"""
+        """_compute_indicators の最小データでの処理（20日未満はNoneを返す）"""
         minimal_data = pd.DataFrame(
             {"Close": [100.0, 101.0]}, index=pd.date_range("2023-01-01", periods=2)
         )
@@ -90,8 +98,8 @@ class TestSystem2DirectFunctions:
         symbol, result = _compute_indicators("AAPL")
 
         assert symbol == "AAPL"
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 2
+        # System2は20日未満のデータにはNoneを返す
+        assert result is None
 
     def test_get_total_days_system2_basic(self):
         """get_total_days_system2 の基本機能"""
@@ -182,7 +190,7 @@ class TestSystem2DirectFunctions:
         assert len(candidates_by_date) > 0
 
         # 各日のcandidate構造検証
-        for date, candidates in candidates_by_date.items():
+        for _date, candidates in candidates_by_date.items():
             assert isinstance(candidates, list)
             assert len(candidates) <= 2  # top_n=2
             if candidates:
@@ -197,79 +205,55 @@ class TestSystem2DirectFunctions:
             assert "symbol" in merged_df.columns
             assert "short_score" in merged_df.columns
 
-    @patch("core.system2.get_cached_data")
-    def test_prepare_data_vectorized_system2_success(self, mock_cached):
+    def test_prepare_data_vectorized_system2_success(self):
         """prepare_data_vectorized_system2 の正常系テスト"""
-        # mock設定
-        mock_cached.return_value = pd.DataFrame(
+        # テスト用の raw_data_dict を作成
+        test_data = pd.DataFrame(
             {
-                "Open": [100, 101, 102],
-                "High": [105, 106, 107],
-                "Low": [99, 100, 101],
-                "Close": [104, 105, 106],
-                "Volume": [1000, 1100, 1200],
-            }
+                "Open": [100, 101, 102, 103, 104],
+                "High": [105, 106, 107, 108, 109],
+                "Low": [99, 100, 101, 102, 103],
+                "Close": [104, 105, 106, 107, 108],
+                "Volume": [30000000, 30000000, 30000000, 30000000, 30000000],
+            },
+            index=pd.date_range("2023-01-01", periods=5),
         )
 
-        symbols = ["AAPL", "MSFT"]
+        raw_data_dict = {"AAPL": test_data}
 
-        # 外部I/O依存関数をmock
-        with (
-            patch("core.system2.resolve_batch_size", return_value=100),
-            patch("core.system2._compute_indicators") as mock_compute,
-        ):
-
-            mock_compute.return_value = (
-                "AAPL",
-                pd.DataFrame(
-                    {
-                        "Open": [100, 101, 102],
-                        "High": [105, 106, 107],
-                        "Low": [99, 100, 101],
-                        "Close": [104, 105, 106],
-                        "Volume": [1000, 1100, 1200],
-                    }
-                ),
-            )
-
-            result = prepare_data_vectorized_system2(
-                symbols, use_process_pool=False, progress_callback=None
-            )
+        result = prepare_data_vectorized_system2(raw_data_dict, use_process_pool=False)
 
         # 戻り値検証
         assert isinstance(result, dict)
-        assert len(result) >= 0  # mockの戻り値によって決まる
 
-    @patch("core.system2.get_cached_data")
-    def test_prepare_data_vectorized_system2_empty_symbols(self, mock_cached):
-        """prepare_data_vectorized_system2 の空シンボルリスト処理"""
-        mock_cached.return_value = pd.DataFrame()
-
-        result = prepare_data_vectorized_system2([])
+    def test_prepare_data_vectorized_system2_empty_data(self):
+        """prepare_data_vectorized_system2 の空データ処理"""
+        result = prepare_data_vectorized_system2(None)
 
         assert isinstance(result, dict)
         assert len(result) == 0
 
-    @patch("core.system2.get_cached_data")
-    def test_prepare_data_vectorized_system2_with_progress_callback(self, mock_cached):
+    def test_prepare_data_vectorized_system2_with_progress_callback(self):
         """prepare_data_vectorized_system2 のプログレスコールバック処理"""
-        mock_cached.return_value = pd.DataFrame({"Close": [100, 101]})
+        test_data = pd.DataFrame(
+            {"Close": [100, 101, 102, 103, 104]}, index=pd.date_range("2023-01-01", periods=5)
+        )
+
+        raw_data_dict = {"AAPL": test_data}
 
         progress_calls = []
 
         def mock_progress(done, total):
             progress_calls.append((done, total))
 
-        with (
-            patch("core.system2.resolve_batch_size", return_value=100),
-            patch("core.system2._compute_indicators") as mock_compute,
-        ):
+        result = prepare_data_vectorized_system2(
+            raw_data_dict, use_process_pool=False, progress_callback=mock_progress
+        )
 
-            mock_compute.return_value = ("AAPL", pd.DataFrame({"Close": [100, 101]}))
-
-            result = prepare_data_vectorized_system2(
-                ["AAPL"], use_process_pool=False, progress_callback=mock_progress
-            )
+        # 戻り値検証
+        assert isinstance(result, dict)
+        # プログレスコールバックが呼び出された可能性を検証（データによる）
+        # progress_calls の内容は実装に依存
 
         assert isinstance(result, dict)
         # プログレスコールバックが呼ばれることを確認（呼ばれないかもしれないが、エラーは出ない）

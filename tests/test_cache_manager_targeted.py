@@ -34,7 +34,7 @@ class TestRollingIssueAggregatorComprehensive:
             aggregator = _RollingIssueAggregator.__new__(_RollingIssueAggregator)
             aggregator.__init__()
 
-            assert aggregator.compact_mode == True
+            assert aggregator.compact_mode
             assert aggregator.verbose_head == 2
 
             # Test issue reporting in compact mode
@@ -171,7 +171,7 @@ class TestCacheManagerEdgeCases:
 
         # Should attempt CSV fallback after parquet fails
         with patch("common.cache_manager.logger"):
-            result = self.manager._read_with_fallback(fake_parquet, "TEST", "profile")
+            self.manager._read_with_fallback(fake_parquet, "TEST", "profile")
             # May return None or data depending on CSV fallback success
 
 

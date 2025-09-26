@@ -217,7 +217,7 @@ class TestDataPreparationFunctions:
 
         # Should return data within date range
         assert isinstance(result, dict)
-        for symbol, df in result.items():
+        for _symbol, df in result.items():
             if len(df) > 0:
                 assert df["Date"].min() >= pd.to_datetime("2023-06-01")
                 assert df["Date"].max() <= pd.to_datetime("2023-08-31")
