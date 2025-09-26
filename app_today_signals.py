@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 import logging
 import os
-from pathlib import Path
 import platform
 import sys
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
+import scripts.run_all_systems_today as _run_today_mod
 from common import broker_alpaca as ba
 from common import universe as univ
 from common.alpaca_order import submit_orders_df
@@ -37,7 +38,6 @@ from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
-import scripts.run_all_systems_today as _run_today_mod
 
 if TYPE_CHECKING:  # pragma: no cover - static typing only
     try:
@@ -1865,9 +1865,40 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # 営業日と注意事項の表示
     temp_logger.log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
-    temp_logger.log(
-        "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True
-    )
+
+    # データの新しさをチェックして必要な場合のみ警告を表示
+    try:
+        from common.cache_manager import CacheManager
+
+        cm = CacheManager()
+        # SPYデータでキャッシュの新しさを確認
+        spy_df = cm.load_rolling_cache("SPY")
+        if spy_df is not None and not spy_df.empty:
+            import pandas as pd
+
+            # last_cache_dateを計算するための簡単な実装
+            if "date" in spy_df.columns:
+                last_date = pd.to_datetime(spy_df["date"]).max()
+            elif spy_df.index.name == "date" or hasattr(spy_df.index, "date"):
+                last_date = pd.to_datetime(spy_df.index).max()
+            else:
+                last_date = None
+
+            if last_date is not None:
+                last_cache_date = pd.Timestamp(last_date).normalize()
+                days_behind = (today - last_cache_date).days
+                if days_behind > 1:  # 1営業日より古い場合のみ警告
+                    temp_logger.log(
+                        f"ℹ️ 注: キャッシュデータが{days_behind}日古いため、"
+                        "直近営業日ベースで計算します。",
+                        no_timestamp=True,
+                    )
+    except Exception:
+        # エラー時は従来通り警告を表示
+        temp_logger.log(
+            "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True
+        )
+
     temp_logger.log("", no_timestamp=True)  # 空行を追加
 
     # 既存の処理を継続

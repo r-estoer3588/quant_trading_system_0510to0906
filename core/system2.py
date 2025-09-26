@@ -173,8 +173,8 @@ def prepare_data_vectorized_system2(
             if len(out_fast) == len(raw_data_dict):
                 return out_fast
             # Otherwise, compute only for missing symbols and merge
-            result_dict: dict[str, pd.DataFrame] = {}
-            result_dict.update(out_fast)
+            # 結果辞書（fast-path + 不足分計算結果）
+            result_dict: dict[str, pd.DataFrame] = dict(out_fast)
             if missing:
                 computed = prepare_data_vectorized_system2(
                     missing,
@@ -208,8 +208,9 @@ def prepare_data_vectorized_system2(
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(total, batch_size)
-        result_dict: dict[str, pd.DataFrame] = {}
-        buffer: list[str] = []
+        # プロセスプール用の結果辞書（再定義を避けるため新しい局所名を使用）
+        result_dict = {}
+        pool_buffer: list[str] = []
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(_compute_indicators, sym): sym for sym in symbols}
@@ -217,7 +218,7 @@ def prepare_data_vectorized_system2(
                 sym, df = fut.result()
                 if df is not None:
                     result_dict[sym] = df
-                    buffer.append(sym)
+                    pool_buffer.append(sym)
                 else:
                     if skip_callback:
                         try:
@@ -241,13 +242,13 @@ def prepare_data_vectorized_system2(
                         f"📊 インジケーター計算 {i}/{total} 件 完了 | "
                         f"経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒\n"
                     )
-                    if buffer:
-                        msg += f"銘柄: {', '.join(buffer)}"
+                    if pool_buffer:
+                        msg += f"銘柄: {', '.join(pool_buffer)}"
                     try:
                         log_callback(msg)
                     except Exception:
                         pass
-                    buffer.clear()
+                    pool_buffer.clear()
         return result_dict
 
     total = len(raw_data_dict)
@@ -263,7 +264,7 @@ def prepare_data_vectorized_system2(
     start_time = time.time()
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
-    buffer = []
+    buffer: list[str] = []  # serial path buffer
     result_dict: dict[str, pd.DataFrame] = {}
     skipped_count = 0
 
@@ -517,7 +518,7 @@ def generate_candidates_system2(
         setup_df["entry_price"] = last_price
         base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
         setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
-        setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        setup_df = setup_df.dropna(subset=["entry_date"])
         all_signals.append(setup_df)
 
     if not all_signals:
@@ -525,7 +526,8 @@ def generate_candidates_system2(
 
     all_df = pd.concat(all_signals)
 
-    candidates_by_date = {}
+    # entry_date 単位のシグナル候補: date -> list[dict]
+    candidates_by_date: dict[pd.Timestamp, list[dict]] = {}
     for date, group in all_df.groupby("entry_date"):
         ranked = group.sort_values("ADX7", ascending=False).copy()
         total = len(ranked)

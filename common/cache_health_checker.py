@@ -1,4 +1,4 @@
-"""データの健全性チェック機能"""
+"""チE�Eタの健全性チェチE��機�E"""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class CacheHealthChecker:
-    """キャッシュデータの健全性をチェックするクラス"""
+    """キャチE��ュチE�Eタの健全性をチェチE��するクラス"""
 
     _GLOBAL_WARNINGS: ClassVar[set[tuple[str, str, str]]] = set()
 
-    # 各指標列が有効値を持つために最低限必要とする観測日数
+    # 吁E��標�Eが有効値を持つために最低限忁E��とする観測日数
     INDICATOR_MIN_OBSERVATIONS = {
         "sma25": 20,
         "sma50": 50,
@@ -42,7 +42,6 @@ class CacheHealthChecker:
         "avgvolume50": 50,
         "return_3d": 4,
         "return_6d": 7,
-        "return6d": 7,
         "return_pct": 2,
         "drop3d": 4,
         "atr_ratio": 11,
@@ -56,7 +55,7 @@ class CacheHealthChecker:
     def check_dataframe_health(
         self, df: pd.DataFrame, ticker: str, profile: str
     ) -> dict[str, bool]:
-        """DataFrameの健全性を総合的にチェック"""
+        """DataFrameの健全性を総合皁E��チェチE��"""
         if df is None or df.empty:
             return {"overall_health": True}
 
@@ -68,25 +67,25 @@ class CacheHealthChecker:
         }
 
         try:
-            # NaN率チェック
+            # NaN玁E��ェチE��
             if not self._check_nan_rates(df, ticker, profile):
                 results["nan_rates_ok"] = False
                 results["overall_health"] = False
 
-            # データ型チェック
+            # チE�Eタ型チェチE��
             if not self._check_column_dtypes(df, ticker, profile):
                 results["dtypes_ok"] = False
                 results["overall_health"] = False
 
-            # 価格値チェック
+            # 価格値チェチE��
             if not self._check_non_positive_prices(df, ticker, profile):
                 results["prices_positive"] = False
                 results["overall_health"] = False
 
         except Exception as e:
             error_msg = (
-                f"{self.ui_prefix} ⚠️ {ticker} {profile} cache: "
-                f"健全性チェック失敗 ({e})"
+                f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
+                f"健全性チェチE��失敁E({e})"
             )
             self._warn_once(
                 ticker, profile, f"healthcheck_error:{type(e).__name__}", error_msg
@@ -98,7 +97,7 @@ class CacheHealthChecker:
     def _warn_once(
         self, ticker: str, profile: str, category: str, message: str
     ) -> None:
-        """同じ警告を重複して出力しないようにする"""
+        """同じ警告を重褁E��て出力しなぁE��ぁE��する"""
         key = (ticker, profile, category)
         if key in self.warnings:
             return
@@ -106,12 +105,12 @@ class CacheHealthChecker:
         logger.warning(message)
 
     def _check_nan_rates(self, df: pd.DataFrame, ticker: str, profile: str) -> bool:
-        """指標列のNaN率をチェック"""
+        """持E���EのNaN玁E��チェチE��"""
         try:
             if df is None or df.empty:
                 return True
 
-            # DataFrame内に存在する指標列を特定
+            # DataFrame冁E��存在する持E���Eを特宁E
             indicator_columns = [
                 col
                 for col in df.columns
@@ -121,7 +120,7 @@ class CacheHealthChecker:
             if not indicator_columns:
                 return True
 
-            # 最近のデータウィンドウでNaN率を評価
+            # 最近�EチE�EタウィンドウでNaN玁E��評価
             recent_window = min(len(df), 120)
             problematic_columns = []
 
@@ -135,16 +134,16 @@ class CacheHealthChecker:
 
                 lookback_days = self.INDICATOR_MIN_OBSERVATIONS.get(col.lower(), 0)
 
-                # 全体がNaNの場合
+                # 全体がNaNの場吁E
                 if series.isna().all():
                     problematic_columns.append((col, 1.0))
                     continue
 
-                # データが少なすぎる場合はスキップ
+                # チE�Eタが少なすぎる場合�EスキチE�E
                 if lookback_days and len(series) <= lookback_days:
                     continue
 
-                # 最近のデータでNaN率を計算
+                # 最近�EチE�EタでNaN玁E��計箁E
                 recent_data = series.tail(recent_window)
                 try:
                     nan_ratio = float(recent_data.isna().mean())
@@ -159,8 +158,8 @@ class CacheHealthChecker:
                     f"{col}:{ratio:.2%}" for col, ratio in problematic_columns
                 )
                 warning_msg = (
-                    f"{self.ui_prefix} ⚠️ {ticker} {profile} cache: "
-                    f"NaN率高 ({issues})"
+                    f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
+                    f"NaN玁E��E({issues})"
                 )
                 self._warn_once(ticker, profile, f"nan_rate:{issues}", warning_msg)
                 return False
@@ -168,11 +167,11 @@ class CacheHealthChecker:
             return True
 
         except Exception as e:
-            logger.error(f"{self.ui_prefix} NaN率チェック失敗: {e}")
+            logger.error(f"{self.ui_prefix} NaN玁E��ェチE��失敁E {e}")
             return False
 
     def _check_column_dtypes(self, df: pd.DataFrame, ticker: str, profile: str) -> bool:
-        """OHLCV列のデータ型をチェック"""
+        """OHLCV列�EチE�Eタ型をチェチE��"""
         health_ok = True
         ohlcv_columns = ["open", "high", "low", "close", "volume"]
 
@@ -180,7 +179,7 @@ class CacheHealthChecker:
             if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
                 dtype_description = describe_dtype(df[col])
                 warning_msg = (
-                    f"{self.ui_prefix} ⚠️ {ticker} {profile} cache: "
+                    f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
                     f"{col}型不一致 ({dtype_description})"
                 )
                 self._warn_once(
@@ -193,7 +192,7 @@ class CacheHealthChecker:
     def _check_non_positive_prices(
         self, df: pd.DataFrame, ticker: str, profile: str
     ) -> bool:
-        """価格列が非正値でないかチェック"""
+        """価格列が非正値でなぁE��チェチE��"""
         health_ok = True
         price_columns = ["close", "high", "low"]
 
@@ -203,7 +202,7 @@ class CacheHealthChecker:
                     values = pd.to_numeric(df[col], errors="coerce")
                     if not values.empty and (values <= 0).all():
                         warning_msg = (
-                            f"{self.ui_prefix} ⚠️ {ticker} {profile} cache: "
+                            f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
                             f"{col}全て非正値"
                         )
                         self._warn_once(
@@ -211,7 +210,7 @@ class CacheHealthChecker:
                         )
                         health_ok = False
                 except Exception:
-                    # 数値変換に失敗した場合もデータ型の問題として扱う
+                    # 数値変換に失敗した場合もチE�Eタ型�E問題として扱ぁE
                     health_ok = False
 
         return health_ok

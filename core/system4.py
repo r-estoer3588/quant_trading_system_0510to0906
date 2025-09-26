@@ -51,7 +51,7 @@ def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
     if idx is None:
         raise ValueError("invalid_date_index")
     try:
-        if pd.isna(idx).all():  # type: ignore[attr-defined]
+        if pd.isna(idx).all():
             raise ValueError("invalid_date_index")
     except Exception:
         pass

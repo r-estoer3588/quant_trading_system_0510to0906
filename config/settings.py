@@ -6,18 +6,18 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 from dotenv import load_dotenv
 
-try:
-    # optional import for validation
-    from .schemas import validate_config_dict
+validate_config_dict: Optional[Callable[[Mapping[str, object]], Any]]
+try:  # optional import for validation
+    from .schemas import validate_config_dict  # noqa: F401
 except Exception:  # pragma: no cover
     validate_config_dict = None
 
 try:
-    import yaml
+    import yaml  # type: ignore[import-untyped]  # stubs 任意: types-PyYAML 導入で解除可
 except Exception:  # pragma: no cover
     yaml = None  # PyYAML が未導入でも動くように（後述のガードで対応）
 
@@ -208,8 +208,11 @@ class Settings:
 
 
 def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
     try:
-        return int(os.getenv(name, default))
+        return int(raw.strip())
     except Exception:
         return default
 
@@ -221,6 +224,25 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _coerce_int(val: Any, default: int) -> int:
+    """Best-effort int coercion with safe fallbacks for mypy clarity."""
+    if isinstance(val, bool):  # bool is int subclass, but keep semantic clarity
+        return int(val)
+    if isinstance(val, (int,)):
+        return val
+    if isinstance(val, (float,)):
+        try:
+            return int(val)
+        except Exception:
+            return default
+    if isinstance(val, str):
+        try:
+            return int(val.strip())
+        except Exception:
+            return default
+    return default
+
+
 def _positive_int_or_none(value: object | None) -> int | None:
     if value is None:
         return None
@@ -228,9 +250,19 @@ def _positive_int_or_none(value: object | None) -> int | None:
         value = value.strip()
         if not value:
             return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool):  # bool -> int 変換しない（正の整数条件外）
+        return None
+    if isinstance(value, (int,)):
+        parsed = value
+    elif isinstance(value, (float,)):
+        iv = int(value)
+        parsed = iv
+    elif isinstance(value, str):  # str は上で strip 済み
+        try:
+            parsed = int(value)
+        except Exception:
+            return None
+    else:
         return None
     return parsed if parsed > 0 else None
 
@@ -259,19 +291,24 @@ def _load_yaml_config(project_root: Path) -> dict[str, Any]:
             "PyYAML が見つかりません。requirements.txt に PyYAML を追加しインストールしてください。"
         )
     default_path = project_root / "config" / "config.yaml"
-    return _load_config_generic("APP_CONFIG", default_path, lambda f: yaml.safe_load(f))
+    return _load_config_generic(
+        "APP_CONFIG",
+        default_path,
+        lambda f: yaml.safe_load(f) if yaml is not None else {},
+    )
 
 
 def _load_yaml_config_validated(project_root: Path) -> dict[str, Any]:
     """YAMLを読み込み、可能ならPydanticで検証・正規化して返す。"""
-    data = _load_yaml_config(project_root)
+    data: dict[str, Any] = _load_yaml_config(project_root)
     if not data:
         return data
     if validate_config_dict is None:
         return data
     try:
         model = validate_config_dict(data)
-        return model.model_dump()
+        dumped = model.model_dump()
+        return dict(dumped)
     except Exception:
         return data
 
@@ -284,7 +321,7 @@ def _load_json_config(project_root: Path) -> dict[str, Any]:
 
 def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
     """JSON > YAML の優先順位で読み込み、可能ならPydanticで検証して返す。"""
-    data = _load_json_config(project_root)
+    data: dict[str, Any] = _load_json_config(project_root)
     if not data:
         data = _load_yaml_config(project_root)
     if not data:
@@ -293,7 +330,8 @@ def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
         return data
     try:
         model = validate_config_dict(data)
-        return model.model_dump()
+        dumped = model.model_dump()
+        return dict(dumped)
     except Exception:
         return data
 
@@ -304,9 +342,11 @@ def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
 
 
 def _build_risk_config(cfg: dict[str, Any]) -> RiskConfig:
+    raw_max_pos = os.getenv("MAX_POSITIONS", cfg.get("max_positions", 10))
+    max_pos_val = _coerce_int(raw_max_pos, 10)
     return RiskConfig(
         risk_pct=float(os.getenv("RISK_PCT", cfg.get("risk_pct", 0.02))),
-        max_positions=int(os.getenv("MAX_POSITIONS", cfg.get("max_positions", 10))),
+        max_positions=max_pos_val,
         max_pct=float(os.getenv("MAX_PCT", cfg.get("max_pct", 0.10))),
     )
 
@@ -323,10 +363,14 @@ def _build_data_config(cfg: dict[str, Any], root: Path) -> DataConfig:
             root,
             os.getenv("DATA_CACHE_RECENT_DIR", cfg.get("cache_recent_dir", "data_cache_recent")),
         ),
-        max_workers=_env_int("THREADS_DEFAULT", int(cfg.get("max_workers", 8))),
-        batch_size=_env_int("BATCH_SIZE", int(cfg.get("batch_size", 100))),
-        request_timeout=_env_int("REQUEST_TIMEOUT", int(cfg.get("request_timeout", 10))),
-        download_retries=_env_int("DOWNLOAD_RETRIES", int(cfg.get("download_retries", 3))),
+        max_workers=_env_int("THREADS_DEFAULT", _coerce_int(cfg.get("max_workers", 8), 8)),
+        batch_size=_env_int("BATCH_SIZE", _coerce_int(cfg.get("batch_size", 100), 100)),
+        request_timeout=_env_int(
+            "REQUEST_TIMEOUT", _coerce_int(cfg.get("request_timeout", 10), 10)
+        ),
+        download_retries=_env_int(
+            "DOWNLOAD_RETRIES", _coerce_int(cfg.get("download_retries", 3), 3)
+        ),
         api_throttle_seconds=_env_float(
             "API_THROTTLE_SECONDS", float(cfg.get("api_throttle_seconds", 1.5))
         ),
@@ -344,8 +388,8 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
         if not (override_val is None and env_override_raw.strip() not in {"", "0"}):
             max_symbols_final = override_val
 
-    stale_days = int(rolling_cfg.get("max_stale_days", 2))
-    staleness_days = int(rolling_cfg.get("max_staleness_days", stale_days))
+    stale_days = _coerce_int(rolling_cfg.get("max_stale_days", 2), 2)
+    staleness_days = _coerce_int(rolling_cfg.get("max_staleness_days", stale_days), stale_days)
 
     cache_round = _positive_int_or_none(
         os.getenv("CACHE_ROUND_DECIMALS", cfg.get("round_decimals"))
@@ -369,22 +413,22 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             field_sep=str(cfg.get("csv_field_sep", ",")),
         ),
         rolling=CacheRollingConfig(
-            base_lookback_days=int(rolling_cfg.get("base_lookback_days", 300)),
-            buffer_days=int(rolling_cfg.get("buffer_days", 30)),
+            base_lookback_days=_coerce_int(rolling_cfg.get("base_lookback_days", 300), 300),
+            buffer_days=_coerce_int(rolling_cfg.get("buffer_days", 30), 30),
             workers=_positive_int_or_none(rolling_cfg.get("workers")),
             max_staleness_days=staleness_days,
-            prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
+            prune_chunk_days=_coerce_int(rolling_cfg.get("prune_chunk_days", 30), 30),
             meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
             max_stale_days=stale_days,
             max_symbols=max_symbols_final,
             round_decimals=rolling_round,
-            adaptive_window_count=int(rolling_cfg.get("adaptive_window_count", 8)),
+            adaptive_window_count=_coerce_int(rolling_cfg.get("adaptive_window_count", 8), 8),
             adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
             adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
-            adaptive_step=int(rolling_cfg.get("adaptive_step", 1)),
-            adaptive_min_workers=int(rolling_cfg.get("adaptive_min_workers", 1)),
+            adaptive_step=_coerce_int(rolling_cfg.get("adaptive_step", 1), 1),
+            adaptive_min_workers=_coerce_int(rolling_cfg.get("adaptive_min_workers", 1), 1),
             adaptive_max_workers=_positive_int_or_none(rolling_cfg.get("adaptive_max_workers")),
-            adaptive_report_seconds=int(rolling_cfg.get("adaptive_report_seconds", 10)),
+            adaptive_report_seconds=_coerce_int(rolling_cfg.get("adaptive_report_seconds", 10), 10),
             csv=CsvConfig(
                 decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
                 thousands_sep=(
@@ -399,12 +443,17 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
 
 
 def _build_backtest_config(cfg: dict[str, Any]) -> BacktestConfig:
+    max_symbols_val = _coerce_int(cfg.get("max_symbols", 500), 500)
+    top_n_val = _coerce_int(cfg.get("top_n_rank", 50), 50)
+    init_cap_val = _coerce_int(
+        os.getenv("DEFAULT_CAPITAL", cfg.get("initial_capital", 100000)), 100000
+    )
     return BacktestConfig(
         start_date=str(cfg.get("start_date", "2018-01-01")),
         end_date=str(cfg.get("end_date", "2024-12-31")),
-        max_symbols=int(cfg.get("max_symbols", 500)),
-        top_n_rank=int(cfg.get("top_n_rank", 50)),
-        initial_capital=int(os.getenv("DEFAULT_CAPITAL", cfg.get("initial_capital", 100000))),
+        max_symbols=max_symbols_val,
+        top_n_rank=top_n_val,
+        initial_capital=init_cap_val,
     )
 
 
@@ -458,7 +507,9 @@ def _build_ui_config(cfg: dict[str, Any]) -> UIConfig:
         return out or default_map
 
     return UIConfig(
-        default_capital=int(os.getenv("DEFAULT_CAPITAL", cfg.get("default_capital", 100000))),
+        default_capital=_coerce_int(
+            os.getenv("DEFAULT_CAPITAL", cfg.get("default_capital", 100000)), 100000
+        ),
         default_long_ratio=_dlr,
         long_allocations=_as_alloc_map(
             cfg.get("long_allocations"),

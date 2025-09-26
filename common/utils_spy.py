@@ -150,7 +150,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
             path = p
             break
     if path is None or not path.exists():
-        _st_emit("error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)"))
+        _st_emit(
+            "error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)")
+        )
         return None
 
     # backtest 時は full_backup の存在を必須とし、無ければエラーメッセージを表示
@@ -173,7 +175,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
 
         # 直近情報の表示（UIが無い場面では無視される）
         try:
-            _st_emit("write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date())))
+            _st_emit(
+                "write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date()))
+            )
         except Exception:
             pass
 
@@ -181,7 +185,9 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         today = pd.Timestamp.today().normalize()
         latest_trading_day = get_latest_nyse_trading_day(today)
         try:
-            _st_emit("write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date())))
+            _st_emit(
+                "write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date()))
+            )
         except Exception:
             pass
 
@@ -287,8 +293,10 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
         tzinfo = getattr(raw, "tzinfo", None)
         if tzinfo is None:
             try:
-                localized = raw.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
-                if pd.isna(localized):  # type: ignore[truthy-bool]
+                localized = raw.tz_localize(
+                    "America/New_York", ambiguous="NaT", nonexistent="NaT"
+                )
+                if pd.isna(localized):
                     raise ValueError
                 return localized
             except Exception:
@@ -335,12 +343,27 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
 
 
 try:
-    from pandas._libs.tslibs.nattype import NaTType
-except Exception:
-    NaTType = type(pd.NaT)
+    from pandas._libs.tslibs.nattype import NaTType  # type: ignore
+except Exception:  # pragma: no cover
+    NaTType = type(pd.NaT)  # fallback alias
 
 
-def resolve_signal_entry_date(base_date) -> pd.Timestamp | NaTType:
+from typing import overload
+
+
+@overload
+def resolve_signal_entry_date(base_date: None) -> NaTType: ...
+
+
+@overload
+def resolve_signal_entry_date(
+    base_date: int | float | str | pd.Timestamp,
+) -> pd.Timestamp | NaTType: ...
+
+
+def resolve_signal_entry_date(
+    base_date: int | float | str | pd.Timestamp | None,
+) -> pd.Timestamp | NaTType:
     """シグナル日から翌営業日（取引予定日）を算出する。
 
     - base_date が欠損・変換不可の場合は NaT を返す。
@@ -480,7 +503,9 @@ def get_spy_with_indicators(spy_df=None):
             flattened_cols: list[str] = []
             for col in spy_df.columns:
                 if isinstance(col, tuple):
-                    flattened = next((part for part in col if part not in (None, "")), None)
+                    flattened = next(
+                        (part for part in col if part not in (None, "")), None
+                    )
                     if flattened is None:
                         flattened = col[-1] if col else ""
                     flattened_cols.append(flattened)
@@ -513,9 +538,14 @@ def get_spy_with_indicators(spy_df=None):
 
         close_series = spy_df["Close"]
         if isinstance(close_series, pd.DataFrame):
-            try:
-                close_series = close_series.iloc[:, 0]  # type: ignore[index]
-            except Exception:
+            # DataFrame -> first column Series (only if shape[1] > 0)
+            if close_series.shape[1] > 0:
+                try:
+                    first_col = close_series.columns[0]
+                    close_series = close_series[first_col]
+                except Exception:
+                    close_series = close_series.squeeze()
+            else:
                 close_series = close_series.squeeze()
 
         if isinstance(close_series, pd.Series):

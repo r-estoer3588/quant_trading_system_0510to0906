@@ -86,7 +86,7 @@ def test_extract_rolling_with_indicators(tmp_path):
         "atr_ratio",
         "atr_pct",
         "return_3d",
-        "6d_return",
+        "return_6d",
         "uptwodays",
         "twodayup",
         "hv50",

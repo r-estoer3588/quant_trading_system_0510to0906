@@ -47,7 +47,7 @@ def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
     if idx is None:
         raise ValueError("invalid_date_index")
     try:
-        if pd.isna(idx).all():  # type: ignore[attr-defined]
+        if pd.isna(idx).all():
             raise ValueError("invalid_date_index")
     except Exception:
         pass
@@ -167,9 +167,7 @@ def _compute_indicators(
                 if "Date" in cached.columns:
                     cached["Date"] = pd.to_datetime(cached["Date"], errors="coerce").dt.normalize()
                     cached = (
-                        cached.dropna(subset=["Date"])  # type: ignore[arg-type]
-                        .sort_values("Date")
-                        .drop_duplicates("Date")
+                        cached.dropna(subset=["Date"]).sort_values("Date").drop_duplicates("Date")
                     )
                     cached = cached.set_index("Date")
                 else:
@@ -632,7 +630,7 @@ def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwa
             last_price = df["Close"].iloc[-1]
         sig_df["entry_price"] = last_price
         sig_df["entry_date"] = sig_df["Date"].map(resolve_signal_entry_date)
-        sig_df = sig_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        sig_df = sig_df.dropna(subset=["entry_date"])
         all_signals.append(sig_df.reset_index(drop=True))
 
     if not all_signals:

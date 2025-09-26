@@ -11,6 +11,15 @@ from core.system6 import (
     get_total_days_system6,
     prepare_data_vectorized_system6,
 )
+from core.system6_optimized import prepare_data_optimized_system6
+from core.system6_ultra_optimized import (
+    prepare_data_ultra_optimized_system6,
+    generate_candidates_ultra_fast_system6,
+)
+from core.system6_fixed import (
+    prepare_data_fixed_system6,
+    generate_candidates_system6_fixed,
+)
 
 from .base_strategy import StrategyBase
 from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_ATR_MULTIPLE_DEFAULT
@@ -31,6 +40,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         skip_callback=None,
         batch_size: int | None = None,
         use_process_pool: bool = False,
+        enable_optimization: bool = True,  # 最適化版の有効化フラグ
+        ultra_mode: bool = False,  # 超最適化モード（デフォルト無効）
+        fixed_mode: bool = True,  # 固定版モード（デフォルト有効）
         **kwargs,
     ):
         if isinstance(raw_data_or_symbols, dict):
@@ -40,6 +52,43 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             symbols = list(raw_data_or_symbols)
             raw_dict = None
 
+        # 固定版の使用判定（既存インジケーター活用）
+        if fixed_mode and not use_process_pool and raw_dict is not None:
+            # 固定版を使用（既存インジケーター活用、再計算なし）
+            return prepare_data_fixed_system6(
+                raw_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
+                **kwargs,
+            )
+
+        # 超最適化版の使用判定（30分達成のため）
+        if ultra_mode and enable_optimization and not use_process_pool and raw_dict is not None:
+            # 超最適化版を使用
+            return prepare_data_ultra_optimized_system6(
+                raw_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
+                **kwargs,
+            )
+
+        # 最適化版の使用判定（当日実行時に有効化）
+        if enable_optimization and not use_process_pool and raw_dict is not None:
+            # 30分達成のための最適化版を使用
+            return prepare_data_optimized_system6(
+                raw_dict,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
+                **kwargs,
+            )
+
+        # 従来版（並列処理や無効化時）
         if batch_size is None and not use_process_pool and raw_dict is not None:
             try:
                 from config.settings import get_settings
@@ -66,6 +115,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         log_callback=None,
         skip_callback=None,
         batch_size: int | None = None,
+        fixed_mode: bool = True,  # 固定版モード（デフォルト有効）
+        ultra_mode: bool = False,  # 超最適化モード
         **kwargs,
     ):
         prepared_dict = data_dict
@@ -73,7 +124,6 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         if top_n is None:
             try:
                 from config.settings import get_settings
-
                 top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
             except Exception:
                 top_n = 10
@@ -85,11 +135,34 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         if batch_size is None:
             try:
                 from config.settings import get_settings
-
                 batch_size = get_settings(create_dirs=False).data.batch_size
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
+            
+        # 固定版を優先使用
+        if fixed_mode:
+            return generate_candidates_system6_fixed(
+                prepared_dict,
+                top_n=top_n,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                batch_size=batch_size,
+            )
+        
+        # 超最適化版
+        if ultra_mode:
+            return generate_candidates_ultra_fast_system6(
+                prepared_dict,
+                top_n=top_n,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
+                skip_callback=skip_callback,
+                batch_size=batch_size,
+            )
+            
+        # 従来版
         return generate_candidates_system6(
             prepared_dict,
             top_n=top_n,

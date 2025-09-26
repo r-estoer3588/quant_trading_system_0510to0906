@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import multiprocessing
+import os
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
-import multiprocessing
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-import json
-import logging
-import os
 from pathlib import Path
 from threading import Lock
-import threading
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
 
@@ -20,8 +20,11 @@ import pandas as pd
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
-from common.cache_manager import CacheManager, load_base_cache
-from common.cache_manager import round_dataframe  # noqa: E402
+from common.cache_manager import (
+    CacheManager,
+    load_base_cache,
+    round_dataframe,  # noqa: E402
+)
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -47,17 +50,20 @@ from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from tools.notify_metrics import send_metrics_notification
 
+# 進捗イベント有効化フラグ�E�環墁E��数から取得！E
+ENABLE_PROGRESS_EVENTS = os.getenv("ENABLE_PROGRESS_EVENTS", "0") == "1"
+
 _LOG_CALLBACK = None
 _LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
 _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 
-# ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
+# ログファイル設定（デフォルト�E固定ファイル�E�。忁E��に応じて日付付きへ刁E��、E
 # レート制限ロガー
 _rate_limited_logger = None
 
 
 def _get_rate_limited_logger():
-    """レート制限ロガーを取得。"""
+    """レート制限ロガーを取得、E""
     global _rate_limited_logger
     if _rate_limited_logger is None:
         from common.rate_limited_logging import create_rate_limited_logger
@@ -69,7 +75,7 @@ def _get_rate_limited_logger():
 def _prepare_concat_frames(
     frames: Sequence[pd.DataFrame | None],
 ) -> list[pd.DataFrame]:
-    """Drop全NA列を除去し、空データを連結対象から外す。"""
+    """Drop全NA列を除去し、空チE�Eタを連結対象から外す、E""
 
     cleaned: list[pd.DataFrame] = []
     for frame in frames:
@@ -87,7 +93,7 @@ def _prepare_concat_frames(
 
 @dataclass(slots=True)
 class BaseCachePool:
-    """base キャッシュの共有辞書をスレッドセーフに管理する補助クラス。"""
+    """base キャチE��ュの共有辞書をスレチE��セーフに管琁E��る補助クラス、E""
 
     cache_manager: CacheManager
     shared: dict[str, pd.DataFrame] | None = None
@@ -108,7 +114,7 @@ class BaseCachePool:
         min_last_date: pd.Timestamp | None = None,
         allowed_recent_dates: set[pd.Timestamp] | None = None,
     ) -> tuple[pd.DataFrame | None, bool]:
-        """base 繧ｭ繝｣繝・す繝･繧貞叙蠕励＠縲∬ｾ樊嶌縺ｫ菫晄戟縺吶ｋ縲・"""
+        """base 繧�E�繝｣繝�Eす繝･繧貞叙蠕励�E�縲∬�E�樊嶌縺�E�菫晁E��縺吶�E�縲・"""
 
         allowed_set = set(allowed_recent_dates or ())
         if min_last_date is not None:
@@ -196,7 +202,7 @@ class BaseCachePool:
         return df, False
 
     def sync_to(self, target: dict[str, pd.DataFrame] | None) -> None:
-        """既存の外部辞書へ共有キャッシュを反映する。"""
+        """既存�E外部辞書へ共有キャチE��ュを反映する、E""
 
         if target is None or self.shared is None or target is self.shared:
             return
@@ -219,7 +225,7 @@ class BaseCachePool:
 
 @dataclass(slots=True)
 class TodayRunContext:
-    """保持共有状態とコールバックを集約した当日シグナル実行用コンテキスト。"""
+    """保持共有状態とコールバックを集紁E��た当日シグナル実行用コンチE��スト、E""
 
     settings: Any
     cache_manager: CacheManager
@@ -252,7 +258,7 @@ class TodayRunContext:
 def _get_account_equity() -> float:
     """Return current account equity via Alpaca API.
 
-    失敗した場合は 0.0 を返す（テスト環境など API 未設定時の安全対策）。
+    失敗した場合�E 0.0 を返す�E�テスト環墁E��ど API 未設定時の安�E対策）、E
     """
     try:
         client = ba.get_client(paper=True)
@@ -263,12 +269,12 @@ def _get_account_equity() -> float:
 
 
 def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) -> None:
-    """today_signals 用のロガーファイルを構成する。
+    """today_signals 用のロガーファイルを構�Eする、E
 
     mode:
       - "single": 固定ファイル `today_signals.log`
-      - "dated":  日付付き `today_signals_YYYYMMDD_HHMM.log`（JST）
-    run_id: 予約（現状未使用）。将来、ファイル名に含めたい場合に利用。
+      - "dated":  日付付き `today_signals_YYYYMMDD_HHMM.log`�E�EST�E�E
+    run_id: 予紁E��現状未使用�E�。封E��、ファイル名に含めたぁE��合に利用、E
     """
     global _LOG_FILE_PATH, _LOG_FILE_MODE
     _LOG_FILE_MODE = mode or "single"
@@ -306,23 +312,23 @@ def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) 
                         except Exception:
                             pass
             except Exception:
-                # ハンドラ情報取得に失敗した場合は無視
+                # ハンドラ惁E��取得に失敗した場合�E無要E
                 pass
-        # 以降、_get_today_logger() が適切なハンドラを追加する
+        # 以降、_get_today_logger() が適刁E��ハンドラを追加する
     except Exception:
         pass
 
 
 def _get_today_logger() -> logging.Logger:
-    """today_signals 用のファイルロガーを取得。
+    """today_signals 用のファイルロガーを取得、E
 
-    デフォルトは `logs/today_signals.log`。
-    `_configure_today_logger(mode="dated")` 適用時は日付付きファイルに出力。
-    UI 有無に関係なく、完全な実行ログを常にファイルへ残す。
+    チE��ォルト�E `logs/today_signals.log`、E
+    `_configure_today_logger(mode="dated")` 適用時�E日付付きファイルに出力、E
+    UI 有無に関係なく、完�Eな実行ログを常にファイルへ残す、E
     """
     logger = logging.getLogger("today_signals")
     logger.setLevel(logging.INFO)
-    # ルートロガーへの伝播を止めて重複出力を防止
+    # ルートロガーへの伝播を止めて重褁E�E力を防止
     try:
         logger.propagate = False
     except Exception:
@@ -332,9 +338,9 @@ def _get_today_logger() -> logging.Logger:
         logger.propagate = False
     except Exception:
         pass
-    # 目標ファイルパスを決定
+    # 目標ファイルパスを決宁E
     try:
-        # 環境変数でも日付別ログ指定を許可（UI 実行など main() を経ない場合）
+        # 環墁E��数でも日付別ログ持E��を許可�E�EI 実行など main() を経なぁE��合！E
         if globals().get("_LOG_FILE_PATH") is None:
             try:
                 import os as _os
@@ -375,7 +381,7 @@ def _get_today_logger() -> logging.Logger:
     except Exception:
         log_path = Path("logs") / "today_signals.log"
 
-    # 既存の同一ファイルハンドラがあるか確認
+    # 既存�E同一ファイルハンドラがあるか確誁E
     has_handler = False
     for h in list(logger.handlers):
         try:
@@ -399,7 +405,7 @@ def _get_today_logger() -> logging.Logger:
 
 
 def _emit_ui_log(message: str) -> None:
-    """UI 側のログコールバックが登録されていれば、そのまま文字列を送信する。"""
+    """UI 側のログコールバックが登録されてぁE��ば、そのまま斁E���Eを送信する、E""
     try:
         cb = globals().get("_LOG_CALLBACK")
         if cb and callable(cb):
@@ -409,12 +415,12 @@ def _emit_ui_log(message: str) -> None:
             finally:
                 _LOG_FORWARDING.reset(token)
     except Exception:
-        # UI コールバック未設定や例外は黙って無視（CLI 実行時を考慮）
+        # UI コールバック未設定や例外�E黙って無視！ELI 実行時を老E�E�E�E
         pass
 
 
 def _drain_stage_event_queue() -> None:
-    """メインスレッドでステージ進捗イベントを処理し、UI 表示を更新する。"""
+    """メインスレチE��でスチE�Eジ進捗イベントを処琁E��、UI 表示を更新する、E""
 
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -423,7 +429,7 @@ def _drain_stage_event_queue() -> None:
 
     events: list[StageEvent] = GLOBAL_STAGE_METRICS.drain_events()
 
-    # もしプロセスマネージャー経由の進捗キューが存在すればそこからも取り出す
+    # もしプロセスマネージャー経由の進捗キューが存在すればそこからも取り�EぁE
     try:
         _mgr = globals().get("_PROGRESS_MANAGER")
     except Exception:
@@ -482,10 +488,10 @@ def _get_stage_snapshot(system: str) -> StageSnapshot | None:
 
 
 def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
-    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
+    """CLI 出力には [HH:MM:SS | m刁E秒] を付与。忁E��に応じて UI コールバックを抑制、E""
     import time as _t
 
-    # 初回呼び出しで開始時刻を設定
+    # 初回呼び出しで開始時刻を設宁E
     try:
         global _LOG_START_TS
         if _LOG_START_TS is None:
@@ -493,7 +499,7 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
     except Exception:
         _LOG_START_TS = None
 
-    # プレフィックスを作成（現在時刻 + 分秒経過）
+    # プレフィチE��スを作�E�E�現在時刻 + 刁E��経過�E�E
     try:
         if no_timestamp:
             prefix = ""
@@ -501,24 +507,24 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
             now = _t.strftime("%H:%M:%S")
             elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
             m, s = divmod(int(elapsed), 60)
-            prefix = f"[{now} | {m}分{s}秒] "
+            prefix = f"[{now} | {m}刁Es}秒] "
     except Exception:
         prefix = ""
 
-    # キーワードによる除外判定（全体）
+    # キーワードによる除外判定（�E体！E
     try:
         import os as _os
 
-        # SHOW_INDICATOR_LOGS が真でない限り、インジケーター系の進捗ログを抑制
+        # SHOW_INDICATOR_LOGS が真でなぁE��り、インジケーター系の進捗ログを抑制
         _show_ind_logs = (_os.environ.get("SHOW_INDICATOR_LOGS") or "").strip().lower()
         _hide_indicator_logs = _show_ind_logs not in {"1", "true", "yes", "on"}
         _indicator_skip = (
-            "インジケーター計算",
-            "指標計算",
-            "共有指標",
-            "指標データロード",
-            "📊 指標計算",
-            "🧮 共有指標",
+            "インジケーター計箁E,
+            "持E��計箁E,
+            "共有指樁E,
+            "持E��データローチE,
+            "📊 持E��計箁E,
+            "🧮 共有指樁E,
         )
         _skip_all = _GLOBAL_SKIP_KEYWORDS + (_indicator_skip if _hide_indicator_logs else ())
         if any(k in str(msg) for k in _skip_all):
@@ -527,7 +533,7 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
     except Exception:
         ui_allowed = ui
 
-    # CLI へは整形して出力
+    # CLI へは整形して出劁E
     out = f"{prefix}{msg}"
     try:
         print(out, flush=True)
@@ -547,11 +553,11 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
     except Exception:
         pass
 
-    # UI 側のコールバックにはフィルタ済みで通知（UI での重複プレフィックス回避）
+    # UI 側のコールバックにはフィルタ済みで通知�E�EI での重褁E�EレフィチE��ス回避�E�E
     if ui_allowed:
         _emit_ui_log(str(msg))
 
-    # 常にファイルへもINFOで出力（UI/CLI の別なく完全なログを保存）
+    # 常にファイルへめENFOで出力！EI/CLI の別なく完�Eなログを保存！E
     try:
         _get_today_logger().info(str(msg))
     except Exception:
@@ -562,29 +568,29 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
-# ログ出力から除外するキーワード
-# ログ全体から除外するキーワード（CLI/UI 共通）
-# インジケーター計算自体は CLI に出したいので除外しない。
+# ログ出力から除外するキーワーチE
+# ログ全体から除外するキーワード！ELI/UI 共通！E
+# インジケーター計算�E体�E CLI に出したぁE�Eで除外しなぁE��E
 _GLOBAL_SKIP_KEYWORDS = (
-    "バッチ時間",
+    "バッチ時閁E,
     "batch time",
-    # 銘柄の長いダンプは CLI でも非表示にする
+    # 銘柄の長ぁE��ンプ�E CLI でも非表示にする
     "銘柄:",
 )
-# UI 表示からのみ除外するキーワード
+# UI 表示からのみ除外するキーワーチE
 _UI_ONLY_SKIP_KEYWORDS = (
-    "進捗",
+    "進捁E,
     "候補抽出",
     "候補日数",
 )
 
 
 def _filter_logs(lines: list[str], ui: bool = False) -> list[str]:
-    """キーワードに基づいてログ行を除外する。
+    """キーワードに基づぁE��ログ行を除外する、E
 
     Args:
-        lines: 対象ログ行のリスト。
-        ui: True の場合は UI 限定の除外キーワードも適用。
+        lines: 対象ログ行�Eリスト、E
+        ui: True の場合�E UI 限定�E除外キーワードも適用、E
     """
 
     skip_keywords = _GLOBAL_SKIP_KEYWORDS + (_UI_ONLY_SKIP_KEYWORDS if ui else ())
@@ -634,7 +640,7 @@ def _save_prev_counts(signals_dir: Path, per_system_map: dict[str, pd.DataFrame]
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """列名を大文字OHLCVに統一"""
+    """列名を大斁E��OHLCVに統一"""
     col_map = {
         "open": "Open",
         "high": "High",
@@ -1362,34 +1368,34 @@ def _load_basic_data(
             if needs_rebuild:
                 reason_map = {
                     "stale": "鮮度不足",
-                    "missing_date": "日付欠損",
+                    "missing_date": "日付欠搁E,
                     "length": "行数不足",
                 }
                 reason_key = rebuild_reason or (
                     "missing" if df is None or getattr(df, "empty", True) else "unknown"
                 )
-                reason_label = reason_map.get(reason_key, "未整備")
+                reason_label = reason_map.get(reason_key, "未整傁E)
                 detail_parts: list[str] = []
                 if rebuild_reason == "stale":
-                    gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
+                    gap_label = f"約{gap_days}営業日" if gap_days is not None else "不�E"
                     last_label = (
-                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
+                        str(last_seen_date.date()) if last_seen_date is not None else "不�E"
                     )
                     detail_parts.append(f"最終日={last_label}")
-                    detail_parts.append(f"ギャップ={gap_label}")
+                    detail_parts.append(f"ギャチE�E={gap_label}")
                 elif rebuild_reason == "length" and df is not None:
                     try:
                         detail_parts.append(f"len={len(df)}/{target_len}")
                     except Exception:
                         pass
                 elif rebuild_reason == "missing_date":
-                    detail_parts.append("date列欠損")
+                    detail_parts.append("date列欠搁E)
                 if df is None or getattr(df, "empty", True):
-                    detail_parts.append("rolling未生成")
-                skip_msg = f"⛔ rolling未整備: {sym} ({reason_label})"
+                    detail_parts.append("rolling未生�E")
+                skip_msg = f"⛁Erolling未整傁E {sym} ({reason_label})"
                 if detail_parts:
                     skip_msg += " | " + ", ".join(detail_parts)
-                skip_msg += " → 手動で rolling キャッシュを更新してください"
+                skip_msg += " ↁE手動で rolling キャチE��ュを更新してください"
                 _log(skip_msg, ui=False)
                 _record_stat("manual_rebuild_required")
                 _record_stat("failed")
@@ -1415,19 +1421,19 @@ def _load_basic_data(
             remain = max(0, total_syms - done)
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
-            msg = f"📦 基礎データロード進捗: {done}/{total_syms} | ETA {m}分{s}秒"
+            msg = f"📦 基礎データロード進捁E {done}/{total_syms} | ETA {m}刁Es}私E
 
             # 進捗ログはDEBUGレベルでレート制限適用
             rate_logger = _get_rate_limited_logger()
             rate_logger.debug_rate_limited(
-                f"📦 基礎データロード進捗: {done}/{total_syms}",
+                f"📦 基礎データロード進捁E {done}/{total_syms}",
                 interval=2.0,
-                message_key="基礎データ進捗",
+                message_key="基礎データ進捁E,
             )
             _emit_ui_log(msg)
         except Exception:
-            _log(f"📦 基礎データロード進捗: {done}/{total_syms}", ui=False)
-            _emit_ui_log(f"📦 基礎データロード進捗: {done}/{total_syms}")
+            _log(f"📦 基礎データロード進捁E {done}/{total_syms}", ui=False)
+            _emit_ui_log(f"📦 基礎データロード進捁E {done}/{total_syms}")
 
     processed = 0
     if use_parallel and max_workers and total_syms > 1:
@@ -1454,21 +1460,21 @@ def _load_basic_data(
         total_elapsed = max(0.0, perf_counter() - start_ts)
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
-        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒" + (
-            " | 並列=ON" if use_parallel and max_workers else " | 並列=OFF"
+        done_msg = f"📦 基礎データロード完亁E {len(data)}/{total_syms} | 所要E{m}刁Es}私E + (
+            " | 並刁EON" if use_parallel and max_workers else " | 並刁EOFF"
         )
         _log(done_msg)
         _emit_ui_log(done_msg)
     except Exception:
-        _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
-        _emit_ui_log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
+        _log(f"📦 基礎データロード完亁E {len(data)}/{total_syms}")
+        _emit_ui_log(f"📦 基礎データロード完亁E {len(data)}/{total_syms}")
 
     try:
         summary_map = {
             "prefetched": "事前供給",
             "rolling": "rolling再利用",
-            "manual_rebuild_required": "手動対応",
-            "failed": "失敗",
+            "manual_rebuild_required": "手動対忁E,
+            "failed": "失敁E,
         }
         summary_parts = [
             f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
@@ -1476,9 +1482,9 @@ def _load_basic_data(
         if summary_parts:
             rate_logger = _get_rate_limited_logger()
             rate_logger.debug_rate_limited(
-                "📊 基礎データロード内訳: " + " / ".join(summary_parts),
+                "📊 基礎データロード�E訳: " + " / ".join(summary_parts),
                 interval=5.0,
-                message_key="基礎データ内訳",
+                message_key="基礎データ冁E��",
             )
     except Exception:
         pass
@@ -1542,14 +1548,14 @@ def _load_indicator_data(
             needs_rebuild = df is None or getattr(df, "empty", True)
             if needs_rebuild:
                 if df is None or getattr(df, "empty", True):
-                    reason_desc = "rolling未生成"
+                    reason_desc = "rolling未生�E"
                 else:
                     try:
                         reason_desc = f"len={len(df)}/{target_len}"
                     except Exception:
                         reason_desc = "行数不足"
                 _log(
-                    f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
+                    f"⛁Erolling未整傁E {sym} ({reason_desc}) ↁE手動更新を実行してください",
                     ui=False,
                 )
                 continue
@@ -1576,33 +1582,33 @@ def _load_indicator_data(
                 remain = max(0, total_syms - idx)
                 eta_sec = int(remain / rate) if rate > 0 else 0
                 m, s = divmod(eta_sec, 60)
-                msg = f"🧮 指標データロード進捗: {idx}/{total_syms} | ETA {m}分{s}秒"
+                msg = f"🧮 持E��データロード進捁E {idx}/{total_syms} | ETA {m}刁Es}私E
 
                 # 進捗ログはDEBUGレベルでレート制限適用
                 rate_logger = _get_rate_limited_logger()
                 rate_logger.debug_rate_limited(
-                    f"🧮 指標データロード進捗: {idx}/{total_syms}",
+                    f"🧮 持E��データロード進捁E {idx}/{total_syms}",
                     interval=2.0,
-                    message_key="指標データ進捗",
+                    message_key="持E��データ進捁E,
                 )
                 _emit_ui_log(msg)
             except Exception:
                 rate_logger = _get_rate_limited_logger()
                 rate_logger.debug_rate_limited(
-                    f"🧮 指標データロード進捗: {idx}/{total_syms}",
+                    f"🧮 持E��データロード進捁E {idx}/{total_syms}",
                     interval=2.0,
-                    message_key="指標データ進捗",
+                    message_key="持E��データ進捁E,
                 )
-                _emit_ui_log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+                _emit_ui_log(f"🧮 持E��データロード進捁E {idx}/{total_syms}")
     try:
         total_elapsed = int(max(0, _t.time() - start_ts))
         m, s = divmod(total_elapsed, 60)
-        done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        done_msg = f"🧮 持E��データロード完亁E {len(data)}/{total_syms} | 所要E{m}刁Es}私E
         _log(done_msg)
         _emit_ui_log(done_msg)
     except Exception:
-        _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
-        _emit_ui_log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
+        _log(f"🧮 持E��データロード完亁E {len(data)}/{total_syms}")
+        _emit_ui_log(f"🧮 持E��データロード完亁E {len(data)}/{total_syms}")
     return data
 
 
@@ -1641,14 +1647,14 @@ def _submit_orders(
     retries: int = 2,
     delay: float = 0.5,
 ) -> pd.DataFrame:
-    """final_df をもとに Alpaca へ注文送信（shares 必須）。
-    返り値: 実行結果の DataFrame（order_id/status/error を含む）
+    """final_df をもとに Alpaca へ注斁E��信�E�Ehares 忁E��）、E
+    返り値: 実行結果の DataFrame�E�Erder_id/status/error を含む�E�E
     """
     if final_df is None or final_df.empty:
         _log("(submit) final_df is empty; skip")
         return pd.DataFrame()
     if "shares" not in final_df.columns:
-        _log("(submit) shares 列がありません。資金配分モードで実行してください。")
+        _log("(submit) shares 列がありません。賁E��配�Eモードで実行してください、E)
         return pd.DataFrame()
     try:
         client = ba.get_client(paper=paper)
@@ -1706,7 +1712,7 @@ def _submit_orders(
                     "price": price_val,
                     "system": system,
                     "entry_date": entry_date,
-                    # Streamlit/Arrow 互換のため UUID を文字列化
+                    # Streamlit/Arrow 互換のため UUID を文字�E匁E
                     "order_id": (
                         str(getattr(order, "id", ""))
                         if getattr(order, "id", None) is not None
@@ -1729,7 +1735,7 @@ def _submit_orders(
             )
     if results:
         out = pd.DataFrame(results)
-        # 念のため order_id 列が存在すれば文字列化（他経路で UUID 型が混じるのを防ぐ）
+        # 念のため order_id 列が存在すれば斁E���E化（他経路で UUID 型が混じるのを防ぐ！E
         try:
             if "order_id" in out.columns:
                 out["order_id"] = out["order_id"].apply(
@@ -1800,7 +1806,7 @@ def _initialize_run_context(
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
 ) -> TodayRunContext:
-    """当日シグナル実行前に共有設定・状態をまとめたコンテキストを生成する。"""
+    """当日シグナル実行前に共有設定�E状態をまとめたコンチE��ストを生�Eする、E""
 
     settings = get_settings(create_dirs=True)
     cache_manager = CacheManager(settings)
@@ -1852,9 +1858,9 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
         log = _get_today_logger()
         try:
             fetched = build_symbol_universe_from_settings(settings, logger=log)
-        except Exception as exc:  # pragma: no cover - ネットワーク例外のみログ
+        except Exception as exc:  # pragma: no cover - ネットワーク例外�Eみログ
             fetched = []
-            msg = f"⚠️ NASDAQ/EODHD銘柄リストの取得に失敗しました: {exc}"
+            msg = f"⚠�E�ENASDAQ/EODHD銘柄リスト�E取得に失敗しました: {exc}"
             _log(msg)
             if log_callback:
                 try:
@@ -1877,7 +1883,7 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
             if limit_val is not None and len(fetched) > limit_val:
                 fetched = fetched[:limit_val]
                 label = limit_src or "TODAY_SYMBOL_LIMIT"
-                info = f"🎯 シンボル数を制限 ({label}={limit_val})"
+                info = f"🎯 シンボル数を制陁E({label}={limit_val})"
                 _log(info)
                 if log_callback:
                     try:
@@ -1919,14 +1925,14 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     except Exception:
         universe_total = len(symbols)
 
-    _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数：{universe_total}")
-    # ヘッダー部分に追加で銘柄数を表示
-    _log(f"# 📊 銘柄数：{universe_total}", ui=False, no_timestamp=True)
+    _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数�E�{universe_total}")
+    # ヘッダー部刁E��追加で銘柄数を表示
+    _log(f"# 📊 銘柄数�E�{universe_total}", ui=False, no_timestamp=True)
     _log(f"📋 サンプル: {', '.join(symbols[:10])}" f"{'...' if len(symbols) > 10 else ''}")
 
     if log_callback:
         try:
-            log_callback("🧭 シンボル決定完了。基礎データのロードへ…")
+            log_callback("🧭 シンボル決定完亁E��基礎データのロードへ…")
         except Exception:
             pass
     if progress_callback:
@@ -1967,7 +1973,7 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         cov_total = len(symbols)
         cov_missing = max(0, cov_total - cov_have)
         _log(
-            "🧮 データカバレッジ: "
+            "🧮 チE�EタカバレチE��: "
             + f"rolling取得済み {cov_have}/{cov_total} | missing={cov_missing}"
         )
         if cov_missing > 0:
@@ -1976,9 +1982,9 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
             if len(missing_syms) > 10:
                 preview += " …"
             _log(
-                "⚠️ rolling未整備: "
-                + f"{cov_missing}銘柄 → 手動でキャッシュを更新してください"
-                + (f" | 例: {preview}" if preview else ""),
+                "⚠�E�Erolling未整傁E "
+                + f"{cov_missing}銘柄 ↁE手動でキャチE��ュを更新してください"
+                + (f" | 侁E {preview}" if preview else ""),
                 ui=False,
             )
     except Exception:
@@ -2003,11 +2009,11 @@ def _precompute_shared_indicators_phase(
             precompute_shared_indicators,
         )
 
-        # Rolling データに既に指標が含まれているかチェック
-        sample_symbols = list(basic_data.keys())[:5]  # サンプル数銘柄をチェック
+        # Rolling チE�Eタに既に持E��が含まれてぁE��かチェチE��
+        sample_symbols = list(basic_data.keys())[:5]  # サンプル数銘柄をチェチE��
         indicators_already_exist = True
 
-        # 指標の存在をより柔軟にチェック（大文字・小文字両対応）
+        # 持E���E存在をより柔軟にチェチE���E�大斁E���E小文字両対応！E
         from common.cache_manager import get_indicator_column_flexible
 
         for sym in sample_symbols:
@@ -2031,26 +2037,26 @@ def _precompute_shared_indicators_phase(
                 total_indicators += 1
                 if get_indicator_column_flexible(df, indicator) is not None:
                     indicators_found += 1
-                # ATRの代替をチェック（ATR14など）
+                # ATRの代替をチェチE���E�ETR14など�E�E
                 elif indicator.startswith("ATR") and any(
                     col.upper().startswith("ATR") and any(c.isdigit() for c in col)
                     for col in df.columns
                 ):
                     indicators_found += 1
-                # RSIの代替をチェック（RSI3, RSI14など）
+                # RSIの代替をチェチE���E�ESI3, RSI14など�E�E
                 elif indicator.startswith("RSI") and any(
                     col.upper().startswith("RSI") and any(c.isdigit() for c in col)
                     for col in df.columns
                 ):
                     indicators_found += 1
 
-            # 7つ中5つ以上の指標があれば最適化を適用
+            # 7つ中5つ以上�E持E��があれば最適化を適用
             if indicators_found < 5:
                 indicators_already_exist = False
                 break
 
         if indicators_already_exist:
-            _log("🧮 共有指標の前計算: スキップ（rollingデータに既に指標が含まれています）")
+            _log("🧮 共有指標�E前計箁E スキチE�E�E�EollingチE�Eタに既に持E��が含まれてぁE��す！E)
             return basic_data
 
         try:
@@ -2059,18 +2065,18 @@ def _precompute_shared_indicators_phase(
             thr_syms = 300
         if len(basic_data) < max(0, thr_syms):
             _log(
-                f"🧮 共有指標の前計算: スキップ（対象銘柄 {len(basic_data)} 件 < 閾値 {thr_syms}）"
+                f"🧮 共有指標�E前計箁E スキチE�E�E�対象銘柄 {len(basic_data)} 件 < 閾値 {thr_syms}�E�E
             )
             return basic_data
 
         try:
             _log(
-                "🧮 共有指標の前計算を開始: "
+                "🧮 共有指標�E前計算を開姁E "
                 + ", ".join(list(PRECOMPUTED_INDICATORS)[:8])
                 + (" …" if len(PRECOMPUTED_INDICATORS) > 8 else "")
             )
         except Exception:
-            _log("🧮 共有指標の前計算を開始 (ATR/SMA/ADX ほか)")
+            _log("🧮 共有指標�E前計算を開姁E(ATR/SMA/ADX ほぁE")
 
         force_parallel = _os.environ.get("PRECOMPUTE_PARALLEL", "").lower()
         try:
@@ -2092,7 +2098,7 @@ def _precompute_shared_indicators_phase(
         if use_parallel:
             max_workers = max(1, min(int(pre_workers), len(basic_data)))
             try:
-                _log(f"🧵 前計算 並列ワーカー: {max_workers}")
+                _log(f"🧵 前計箁E並列ワーカー: {max_workers}")
             except Exception:
                 pass
         else:
@@ -2110,9 +2116,9 @@ def _precompute_shared_indicators_phase(
         elapsed = int(max(0, _perf() - pre_start))
         m, s = divmod(elapsed, 60)
         mode_label = "ON" if use_parallel else "OFF"
-        _log(f"🧮 共有指標の前計算が完了 | 所要 {m}分{s}秒 | 並列={mode_label}")
+        _log(f"🧮 共有指標�E前計算が完亁E| 所要E{m}刁Es}私E| 並刁E{mode_label}")
     except Exception as e:
-        _log(f"⚠️ 共有指標の前計算に失敗: {e}")
+        _log(f"⚠�E�E共有指標�E前計算に失敁E {e}")
     return basic_data
 
 
@@ -2186,7 +2192,7 @@ def _save_and_notify_phase(
     order_1_7: Sequence[str],
     metrics_summary_context: Mapping[str, Any] | None,
 ) -> None:
-    """保存および通知フェーズを担当する補助関数。"""
+    """保存およ�E通知フェーズを担当する補助関数、E""
 
     signals_dir = ctx.signals_dir
     notify = ctx.notify
@@ -2272,7 +2278,7 @@ def _save_and_notify_phase(
                     f"Tgt {tgt} / FIL {fil} / STU {stu} / TRD {trd} / Entry {ent} / Exit {ex_txt}"
                 )
                 lines.append({"name": sys_name, "value": value})
-            title = "📈 本日の最終メトリクス（system別）"
+            title = "📈 本日の最終メトリクス�E�Eystem別�E�E
             td = ctx.today
             try:
                 td_str = str(getattr(td, "date", lambda: None)() or td)
@@ -2299,20 +2305,20 @@ def _save_and_notify_phase(
             minutes, seconds = divmod(remainder, 60)
             duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             summary_pairs = [
-                ("指定銘柄総数", f"{int(tgt_base):,}"),
+                ("持E��銘柁E��数", f"{int(tgt_base):,}"),
                 (
-                    "開始時間/完了時間",
-                    f"{start_time_str} / {end_time_str} (所要: {duration_str})",
+                    "開始時閁E完亁E��閁E,
+                    f"{start_time_str} / {end_time_str} (所要E {duration_str})",
                 ),
                 (
-                    "開始時資産/完了時資産",
+                    "開始時賁E��/完亁E��賁E��",
                     f"${start_equity_val:,.2f} / ${end_equity_val:,.2f}",
                 ),
                 (
-                    "エントリー銘柄数/エグジット銘柄数",
+                    "エントリー銘柄数/エグジチE��銘柄数",
                     f"{total_entries} / {total_exits}",
                 ),
-                ("利益額/損失額", f"${profit_amt:,.2f} / ${loss_amt:,.2f}"),
+                ("利益顁E損失顁E, f"${profit_amt:,.2f} / ${loss_amt:,.2f}"),
             ]
             summary_fields = [
                 {"name": key, "value": value, "inline": True} for key, value in summary_pairs
@@ -2334,7 +2340,7 @@ def _save_and_notify_phase(
             if final_df is not None and not getattr(final_df, "empty", True):
                 send_signal_notification(final_df)
         except Exception:
-            _log("⚠️ 通知に失敗しました。")
+            _log("⚠�E�E通知に失敗しました、E)
 
     if save_csv and final_df is not None and not final_df.empty:
         mode = (csv_name_mode or "date").lower()
@@ -2374,13 +2380,13 @@ def _save_and_notify_phase(
             except Exception:
                 out_df = df
             out_df.to_csv(out, index=False)
-        _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
+        _log(f"💾 保孁E {signals_dir} にCSVを書き�Eしました")
 
     _safe_progress_call(progress_callback, 8, 8, "done")
 
     try:
         cnt = 0 if final_df is None else len(final_df)
-        _log(f"✅ シグナル検出処理 終了 | 最終候補 {cnt} 件")
+        _log(f"✁Eシグナル検�E処琁E終亁E| 最終候裁E{cnt} 件")
     except Exception:
         pass
 
@@ -2394,8 +2400,8 @@ def _save_and_notify_phase(
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False, no_timestamp=True)
-    _log(f"# ⏱️ {end_txt} | RUN-ID: {run_id}", ui=False, no_timestamp=True)
+    _log("# 🏁🏁🏁  本日のシグナル 実行終亁E(Engine)  🏁🏁🏁", ui=False, no_timestamp=True)
+    _log(f"# ⏱�E�E{end_txt} | RUN-ID: {run_id}", ui=False, no_timestamp=True)
     try:
         print("#" * 68 + "\n", flush=True)
     except Exception:
@@ -2690,11 +2696,11 @@ def _ensure_rolling_cache_fresh(
     max_lag_days: int = 2,
 ) -> pd.DataFrame:
     """
-    rolling_dfの最終日付がtodayからmax_lag_days以上ズレている場合、
-    baseからrollingを再生成し、rollingへ書き戻す。
+    rolling_dfの最終日付がtodayからmax_lag_days以上ズレてぁE��場合、E
+    baseからrollingを�E生�Eし、rollingへ書き戻す、E
     """
     if rolling_df is None or getattr(rolling_df, "empty", True):
-        # 欠損時はbaseから再生成
+        # 欠損時はbaseから再生戁E
         base_df = cast(Any, cache_manager).read(symbol, layer="base", rows=base_rows)
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
@@ -2711,7 +2717,7 @@ def _ensure_rolling_cache_fresh(
         return rolling_df
     lag_days = (today - last_date).days
     if lag_days > max_lag_days:
-        # 鮮度不足: baseからrolling再生成
+        # 鮮度不足: baseからrolling再生戁E
         base_df = cast(Any, cache_manager).read(symbol, layer="base", rows=base_rows)
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
@@ -2943,7 +2949,7 @@ def _prepare_system6_data(
             except Exception:
                 continue
             try:
-                ret_pass = float(last.get("Return6D", 0)) > 0.20
+                ret_pass = float(last.get("return_6d", 0)) > 0.20
             except Exception:
                 ret_pass = False
             if not ret_pass:
@@ -2956,7 +2962,7 @@ def _prepare_system6_data(
                 pass
         _log(
             "?? system6????????: "
-            + f"??????={s6_filter}, Return6D>20%: {s6_ret}, "
+            + f"??????={s6_filter}, return_6d>20%: {s6_ret}, "
             + f"UpTwoDays: {s6_combo}"
         )
         try:
@@ -3000,17 +3006,17 @@ def compute_today_signals(
     notify: bool = True,
     log_callback: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
-    # 追加: 並列実行時などに system ごとの開始/完了を通知する軽量コールバック
-    # phase は "start" | "done" を想定
+    # 追加: 並列実行時などに system ごとの開姁E完亁E��通知する軽量コールバック
+    # phase は "start" | "done" を想宁E
     per_system_progress: Callable[[str, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """当日シグナル抽出＋配分の本体。
+    """当日シグナル抽出�E��E刁E�E本体、E
 
     Args:
-        symbols: 対象シンボルリスト。
-        parallel: True の場合はシステムごとのシグナル抽出を並行実行する。
+        symbols: 対象シンボルリスト、E
+        parallel: True の場合�EシスチE��ごとのシグナル抽出を並行実行する、E
 
     戻り値: (final_df, per_system_df_dict)
     """
@@ -3034,7 +3040,7 @@ def compute_today_signals(
     except Exception:
         pass
 
-    # CLI 経由で未設定の場合（UI 等）、既定で日付別ログに切替
+    # CLI 経由で未設定�E場合！EI 等）、既定で日付別ログに刁E��
     try:
         if globals().get("_LOG_FILE_PATH") is None:
             import os as _os
@@ -3064,7 +3070,7 @@ def compute_today_signals(
     per_system_progress = ctx.per_system_progress
     parallel = ctx.parallel
 
-    # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
+    # CLI実行時のStreamlit警告を抑制�E�EIコンチE��ストが無ぁE��合�Eみ�E�E
     try:
         import logging as _lg
         import os as _os
@@ -3100,26 +3106,50 @@ def compute_today_signals(
     today = get_signal_target_trading_day().normalize()
     ctx.today = today
 
-    # Run start banner (CLI only) - 最初に実行開始メッセージを表示
+    # Run start banner (CLI only) - 最初に実行開始メチE��ージを表示
     try:
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False, no_timestamp=True)
+    _log("# 🚀🚀🚀  本日のシグナル 実行開姁E(Engine)  🚀🚀🚀", ui=False, no_timestamp=True)
     try:
         import time as _time
 
         now_str = _time.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         now_str = ""
-    _log(f"# ⏱️ {now_str} | RUN-ID: {_run_id}", ui=False, no_timestamp=True)
+    _log(f"# ⏱�E�E{now_str} | RUN-ID: {_run_id}", ui=False, no_timestamp=True)
     try:
         print("#" * 68 + "\n", flush=True)
     except Exception:
         pass
 
-    _log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
-    _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True)
+    _log(f"📅 対象営業日�E�EYSE�E�E {today.date()}", no_timestamp=True)
+
+    # チE�Eタの新しさをチェチE��して忁E��な場合�Eみ警告を表示
+    try:
+        from common.cache_manager import CacheManager
+
+        cm = CacheManager()
+        # SPYチE�EタでキャチE��ュの新しさを確誁E
+        spy_df = cm.load_rolling_cache("SPY")
+        if spy_df is not None and not spy_df.empty:
+            last_cache_date = _extract_last_cache_date(spy_df)
+            if last_cache_date is not None:
+                last_cache_date = pd.Timestamp(last_cache_date).normalize()
+                days_behind = (today - last_cache_date).days
+                if days_behind > 1:  # 1営業日より古ぁE��合�Eみ警呁E
+                    _log(
+                        f"ℹ�E�E注: キャチE��ュチE�Eタが{days_behind}日古ぁE��め、E
+                        "直近営業日ベ�Eスで計算します、E,
+                        no_timestamp=True,
+                    )
+    except Exception:
+        # エラー時�E従来通り警告を表示
+        _log(
+            "ℹ�E�E注: EODHDは当日終値が未反映のため、直近営業日ベ�Eスで計算します、E, no_timestamp=True
+        )
+
     _log("", no_timestamp=True)  # 空行を追加
     # 開始直後に前回結果をまとめて表示
     try:
@@ -3128,7 +3158,7 @@ def compute_today_signals(
             for i in range(1, 8):
                 key = f"system{i}"
                 v = int(prev.get(key, 0))
-                icon = "✅" if v > 0 else "❌"
+                icon = "✁E if v > 0 else "❁E
                 _log(f"🧾 {icon} (前回結果) {key}: {v} 件{' 🚫' if v == 0 else ''}")
     except Exception:
         pass
@@ -3165,7 +3195,7 @@ def compute_today_signals(
         "system5": system5_syms,
         "system6": system6_syms,
     }
-    # 各システムのフィルター通過件数をUIへ通知
+    # 吁E��スチE��のフィルター通過件数をUIへ通知
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
     except Exception:
@@ -3188,7 +3218,7 @@ def compute_today_signals(
             )
         except Exception:
             pass
-    # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
+    # System2 フィルター冁E��の可視化�E�価格・売買代金�EATR比率の段階通過数�E�E
     try:
         stats2 = filter_stats.get("system2", {})
         s2_total = stats2.get("total", len(symbols or []))
@@ -3196,12 +3226,12 @@ def compute_today_signals(
         c_dv = stats2.get("dv_pass", 0)
         c_atr = stats2.get("atr_pass", 0)
         _log(
-            "🧪 system2内訳: "
-            + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
+            "🧪 system2冁E��: "
+            + f"允E{s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
         )
     except Exception:
         pass
-    # System1 フィルター内訳（価格・売買代金）
+    # System1 フィルター冁E���E�価格・売買代金！E
     try:
         stats1 = filter_stats.get("system1", {})
         s1_total = stats1.get("total", len(symbols or []))
@@ -3209,13 +3239,13 @@ def compute_today_signals(
         s1_dv = stats1.get("dv_pass", 0)
         rate_logger = _get_rate_limited_logger()
         rate_logger.debug_rate_limited(
-            f"🧪 system1内訳: 元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}",
+            f"🧪 system1冁E��: 允E{s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}",
             interval=10.0,
-            message_key="system1内訳",
+            message_key="system1冁E��",
         )
     except Exception:
         pass
-    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
+    # System3 フィルター冁E���E�Eow>=1 ↁEAvgVol50>=1M ↁEATR_Ratio>=5%�E�E
     try:
         stats3 = filter_stats.get("system3", {})
         s3_total = stats3.get("total", len(symbols or []))
@@ -3223,25 +3253,25 @@ def compute_today_signals(
         s3_av = stats3.get("avgvol_pass", 0)
         s3_atr = stats3.get("atr_pass", 0)
         _log(
-            "🧪 system3内訳: "
-            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+            "🧪 system3冁E��: "
+            + f"允E{s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
         )
     except Exception:
         pass
-    # System4 フィルター内訳（DV50>=100M → HV50 10〜40）
+    # System4 フィルター冁E���E�EV50>=100M ↁEHV50 10、E0�E�E
     try:
         stats4 = filter_stats.get("system4", {})
         s4_total = stats4.get("total", len(symbols or []))
         s4_dv = stats4.get("dv_pass", 0)
         s4_hv = stats4.get("hv_pass", 0)
         rate_limited_logger.debug_rate_limited(
-            f"🧪 system4内訳: 元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}",
+            f"🧪 system4冁E��: 允E{s4_total}, DV50>=100M: {s4_dv}, HV50 10、E0: {s4_hv}",
             message_key="system4_detail",
             interval=10,
         )
     except Exception:
         pass
-    # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
+    # System5 フィルター冁E���E�EvgVol50>500k ↁEDV50>2.5M ↁEATR_Pct>閾値�E�E
     try:
         threshold_label = format_atr_pct_threshold_label()
         stats5 = filter_stats.get("system5", {})
@@ -3250,33 +3280,33 @@ def compute_today_signals(
         s5_dv = stats5.get("dv_pass", 0)
         s5_atr = stats5.get("atr_pass", 0)
         rate_limited_logger.debug_rate_limited(
-            f"🧪 system5内訳: 元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
+            f"🧪 system5冁E��: 允E{s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
             f"{threshold_label}: {s5_atr}",
             message_key="system5_detail",
             interval=10,
         )
     except Exception:
         pass
-    # System6 フィルター内訳（Low>=5 → DV50>10M）
+    # System6 フィルター冁E���E�Eow>=5 ↁEDV50>10M�E�E
     try:
         stats6 = filter_stats.get("system6", {})
         s6_total = stats6.get("total", len(symbols or []))
         s6_low = stats6.get("low_pass", 0)
         s6_dv = stats6.get("dv_pass", 0)
         rate_limited_logger.debug_rate_limited(
-            f"🧪 system6内訳: 元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}",
+            f"🧪 system6冁E��: 允E{s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}",
             message_key="system6_detail",
             interval=10,
         )
     except Exception:
         pass
-    # System7 は SPY 固定（参考情報のみ）
+    # System7 は SPY 固定（参老E��報のみ�E�E
     try:
         spyp = (
             1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
         )
         rate_limited_logger.debug_rate_limited(
-            f"🧪 system7内訳: SPY固定 | SPY存在={spyp}", message_key="system7_detail", interval=10
+            f"🧪 system7冁E��: SPY固宁E| SPY存在={spyp}", message_key="system7_detail", interval=10
         )
     except Exception:
         pass
@@ -3295,20 +3325,20 @@ def compute_today_signals(
         except Exception:
             pass
 
-    # 各システム用の生データ辞書を事前フィルター後の銘柄で構築
-    _log("🧮 指標計算用データロード中 (system1)…")
+    # 吁E��スチE��用の生データ辞書を事前フィルター後�E銘柄で構篁E
+    _log("🧮 持E��計算用チE�Eタロード中 (system1)…")
     raw_data_system1 = _subset_data(basic_data, system1_syms)
-    _log(f"🧮 指標データ: system1={len(raw_data_system1)}銘柄")
-    # System1 セットアップ内訳（最新日の setup 判定数）を CLI に出力
+    _log(f"🧮 持E��データ: system1={len(raw_data_system1)}銘柄")
+    # System1 セチE��アチE�E冁E���E�最新日の setup 判定数�E�を CLI に出劁E
     s1_setup = None
     s1_setup_eff = None
     s1_spy_gate = None
     try:
-        # フィルタ通過は事前フィルター結果（system1_syms）由来で確定
+        # フィルタ通過は事前フィルター結果�E�Eystem1_syms�E�由来で確宁E
         s1_filter = int(len(system1_syms))
-        # 直近日の SMA25>SMA50 を集計（事前計算済み列を参照）
+        # 直近日の SMA25>SMA50 を集計（事前計算済み列を参�E�E�E
         s1_setup_calc = 0
-        # 市場条件（SPYのClose>SMA100）を先に判定
+        # 市場条件�E�EPYのClose>SMA100�E�を先に判宁E
         _spy_ok = None
         try:
             if "SPY" in (basic_data or {}):
@@ -3334,22 +3364,22 @@ def compute_today_signals(
             if sma_pass:
                 s1_setup_calc += 1
         s1_setup = int(s1_setup_calc)
-        # 出力順: フィルタ通過 → SPY>SMA100 → SMA25>SMA50
+        # 出力頁E フィルタ通過 ↁESPY>SMA100 ↁESMA25>SMA50
         if _spy_ok is None:
             _log(
-                f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SPY>SMA100: -, "
+                f"🧩 system1セチE��アチE�E冁E��: フィルタ通過={s1_filter}, SPY>SMA100: -, "
                 f"SMA25>SMA50: {s1_setup}"
             )
         else:
             _log(
-                f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SPY>SMA100: {_spy_ok}, "
+                f"🧩 system1セチE��アチE�E冁E��: フィルタ通過={s1_filter}, SPY>SMA100: {_spy_ok}, "
                 f"SMA25>SMA50: {s1_setup}"
             )
-        # UI の STUpass へ反映（50%時点）
+        # UI の STUpass へ反映�E�E0%時点�E�E
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
-                # SPY ゲート（Close>SMA100）が偽なら STUpass は 0 扱い
+                # SPY ゲート！Elose>SMA100�E�が偽なめESTUpass は 0 扱ぁE
                 s1_setup_eff = int(s1_setup)
                 try:
                     if isinstance(_spy_ok, int) and _spy_ok == 0:
@@ -3359,7 +3389,7 @@ def compute_today_signals(
                 cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
         except Exception:
             pass
-        # 参考: System1 の SPY gate 状態を UI に補足表示
+        # 参老E System1 の SPY gate 状態を UI に補足表示
         try:
             cb_note = globals().get("_PER_SYSTEM_NOTE")
             if cb_note and callable(cb_note):
@@ -3380,10 +3410,10 @@ def compute_today_signals(
         s1_spy_gate = _spy_ok
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system2)…")
+    _log("🧮 持E��計算用チE�Eタロード中 (system2)…")
     raw_data_system2 = _subset_data(basic_data, system2_syms)
-    _log(f"🧮 指標データ: system2={len(raw_data_system2)}銘柄")
-    # System2 セットアップ内訳: フィルタ通過, RSI3>90, TwoDayUp
+    _log(f"🧮 持E��データ: system2={len(raw_data_system2)}銘柄")
+    # System2 セチE��アチE�E冁E��: フィルタ通過, RSI3>90, TwoDayUp
     s2_setup = None
     try:
         s2_filter = int(len(system2_syms))
@@ -3411,7 +3441,7 @@ def compute_today_signals(
                 pass
         s2_setup = int(s2_combo)
         _log(
-            "🧩 system2セットアップ内訳: "
+            "🧩 system2セチE��アチE�E冁E��: "
             + f"フィルタ通過={s2_filter}, RSI3>90: {s2_rsi}, "
             + f"TwoDayUp: {s2_setup}"
         )
@@ -3423,10 +3453,10 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system3)…")
+    _log("🧮 持E��計算用チE�Eタロード中 (system3)…")
     raw_data_system3 = _subset_data(basic_data, system3_syms)
-    _log(f"🧮 指標データ: system3={len(raw_data_system3)}銘柄")
-    # System3 セットアップ内訳: フィルタ通過, Close>SMA150, 3日下落率>=12.5%
+    _log(f"🧮 持E��データ: system3={len(raw_data_system3)}銘柄")
+    # System3 セチE��アチE�E冁E��: フィルタ通過, Close>SMA150, 3日下落玁E=12.5%
     s3_setup = None
     try:
         s3_filter = int(len(system3_syms))
@@ -3455,9 +3485,9 @@ def compute_today_signals(
                 s3_combo += 1
         s3_setup = int(s3_combo)
         _log(
-            "🧩 system3セットアップ内訳: "
+            "🧩 system3セチE��アチE�E冁E��: "
             + f"フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3日下落率>=12.5%: {s3_setup}"
+            + f"3日下落玁E=12.5%: {s3_setup}"
         )
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
@@ -3467,10 +3497,10 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system4)…")
+    _log("🧮 持E��計算用チE�Eタロード中 (system4)…")
     raw_data_system4 = _subset_data(basic_data, system4_syms)
-    _log(f"🧮 指標データ: system4={len(raw_data_system4)}銘柄")
-    # System4 セットアップ内訳: フィルタ通過, Close>SMA200
+    _log(f"🧮 持E��データ: system4={len(raw_data_system4)}銘柄")
+    # System4 セチE��アチE�E冁E��: フィルタ通過, Close>SMA200
     try:
         s4_filter = int(len(system4_syms))
         s4_close = 0
@@ -3487,7 +3517,7 @@ def compute_today_signals(
                     s4_close += 1
             except Exception:
                 pass
-        _log(f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
+        _log(f"🧩 system4セチE��アチE�E冁E��: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
         try:
             cb2 = globals().get("_PER_SYSTEM_STAGE")
             if cb2 and callable(cb2):
@@ -3496,10 +3526,10 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system5)…")
+    _log("🧮 持E��計算用チE�Eタロード中 (system5)…")
     raw_data_system5 = _subset_data(basic_data, system5_syms)
-    _log(f"🧮 指標データ: system5={len(raw_data_system5)}銘柄")
-    # System5 セットアップ内訳: フィルタ通過, Close>SMA100+ATR10, ADX7>55, RSI3<50
+    _log(f"🧮 持E��データ: system5={len(raw_data_system5)}銘柄")
+    # System5 セチE��アチE�E冁E��: フィルタ通過, Close>SMA100+ATR10, ADX7>55, RSI3<50
     s5_setup = None
     try:
         s5_filter = int(len(system5_syms))
@@ -3538,7 +3568,7 @@ def compute_today_signals(
                 s5_combo += 1
         s5_setup = int(s5_combo)
         _log(
-            "🧩 system5セットアップ内訳: "
+            "🧩 system5セチE��アチE�E冁E��: "
             + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_setup}"
         )
@@ -3550,10 +3580,10 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    _log("🧮 指標計算用データロード中 (system6)…")
+    _log("🧮 持E��計算用チE�Eタロード中 (system6)…")
     raw_data_system6 = _subset_data(basic_data, system6_syms)
-    _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
-    # System6 セットアップ内訳: フィルタ通過, Return6D>20%, UpTwoDays
+    _log(f"🧮 持E��データ: system6={len(raw_data_system6)}銘柄")
+    # System6 セチE��アチE�E冁E��: フィルタ通過, return_6d>20%, UpTwoDays
     s6_setup = None
     try:
         s6_filter = int(len(system6_syms))
@@ -3568,7 +3598,7 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                ret_pass = float(last.get("Return6D", 0)) > 0.20
+                ret_pass = float(last.get("return_6d", 0)) > 0.20
             except Exception:
                 ret_pass = False
             if not ret_pass:
@@ -3581,8 +3611,8 @@ def compute_today_signals(
                 pass
         s6_setup = int(s6_combo)
         _log(
-            "🧩 system6セットアップ内訳: "
-            + f"フィルタ通過={s6_filter}, Return6D>20%: {s6_ret}, "
+            "🧩 system6セチE��アチE�E冁E��: "
+            + f"フィルタ通過={s6_filter}, return_6d>20%: {s6_ret}, "
             + f"UpTwoDays: {s6_setup}"
         )
         try:
@@ -3604,11 +3634,11 @@ def compute_today_signals(
     else:
         spy_df = None
         _log(
-            "⚠️ SPY がキャッシュに見つかりません (base/full_backup/rolling を確認)。"
-            "SPY.csv を data_cache/base もしくは data_cache/full_backup に配置してください。"
+            "⚠�E�ESPY がキャチE��ュに見つかりません (base/full_backup/rolling を確誁E、E
+            "SPY.csv めEdata_cache/base もしく�E data_cache/full_backup に配置してください、E
         )
 
-    # ストラテジ初期化
+    # ストラチE��初期匁E
     strategy_objs = [
         System1Strategy(),
         System2Strategy(),
@@ -3619,14 +3649,14 @@ def compute_today_signals(
         System7Strategy(),
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
-    # エンジン層はUI依存を排除（UI表示はlog/progressコールバック側に任せる）
+    # エンジン層はUI依存を排除�E�EI表示はlog/progressコールバック側に任せる�E�E
 
     def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
         logs: list[str] = []
 
         def _local_log(message: str) -> None:
             logs.append(str(message))
-            # UI コールバックがあればフィルタ済みで送信、無ければ CLI に出力
+            # UI コールバックがあれ�Eフィルタ済みで送信、無ければ CLI に出劁E
             try:
                 cb = globals().get("_LOG_CALLBACK")
             except Exception:
@@ -3665,20 +3695,20 @@ def compute_today_signals(
             base = basic_data
         if name == "system4" and spy_df is None:
             _local_log(
-                "⚠️ System4 は SPY 指標が必要ですが "
-                + "SPY データがありません。"
-                + "スキップします。"
+                "⚠�E�ESystem4 は SPY 持E��が忁E��ですが "
+                + "SPY チE�Eタがありません、E
+                + "スキチE�Eします、E
             )
-            return name, pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
-        _local_log(f"🔎 {name}: シグナル抽出を開始")
+            return name, pd.DataFrame(), f"❁E{name}: 0 件 🚫", logs
+        _local_log(f"🔎 {name}: シグナル抽出を開姁E)
         pool_outcome: str | None = None
         df = pd.DataFrame()
         try:
-            # 段階進捗: 0/25/50/75/100 を UI 側に橋渡し
+            # 段階進捁E 0/25/50/75/100 めEUI 側に橋渡ぁE
             stage_state: dict[int, tuple[int | None, int | None, int | None, int | None]] = {}
             phase_names = {
                 0: "フィルターフェーズ",
-                25: "セットアップフェーズ",
+                25: "セチE��アチE�Eフェーズ",
                 50: "トレード候補フェーズ",
                 75: "エントリーフェーズ",
             }
@@ -3708,31 +3738,31 @@ def compute_today_signals(
 
                 if progress == 0:
                     if filter_int is not None:
-                        return f"🧪 {name}: フィルターチェック開始 (対象 {filter_int} 銘柄)"
-                    return f"🧪 {name}: フィルターチェックを開始"
+                        return f"🧪 {name}: フィルターチェチE��開姁E(対象 {filter_int} 銘柄)"
+                    return f"🧪 {name}: フィルターチェチE��を開姁E
                 if progress == 25:
                     if filter_int is not None:
                         return f"🧪 {name}: フィルター通過 {filter_int} 銘柄"
-                    return f"🧪 {name}: フィルター処理が完了"
+                    return f"🧪 {name}: フィルター処琁E��完亁E
                 if progress == 50:
                     if filter_int is not None and setup_int is not None:
-                        return "🧩 " + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
+                        return "🧩 " + f"{name}: セチE��アチE�E通過 {setup_int}/{filter_int} 銘柄"
                     if setup_int is not None:
-                        return f"🧩 {name}: セットアップ通過 {setup_int} 銘柄"
-                    return f"🧩 {name}: セットアップ判定が完了"
+                        return f"🧩 {name}: セチE��アチE�E通過 {setup_int} 銘柄"
+                    return f"🧩 {name}: セチE��アチE�E判定が完亁E
                 if progress == 75:
                     if candidate_int is not None:
-                        return f"🧮 {name}: 候補抽出中 (当日候補 {candidate_int} 銘柄)"
+                        return f"🧮 {name}: 候補抽出中 (当日候裁E{candidate_int} 銘柄)"
                     return f"🧮 {name}: 候補抽出を実行中"
                 if progress == 100:
                     if final_int is not None:
                         parts: list[str] = []
                         if candidate_int is not None:
-                            parts.append(f"候補 {candidate_int} 銘柄")
+                            parts.append(f"候裁E{candidate_int} 銘柄")
                         parts.append(f"エントリー {final_int} 銘柄")
                         joined = " / ".join(parts)
-                        return f"✅ {name}: エントリーステージ完了 ({joined})"
-                    return f"✅ {name}: エントリーステージ完了"
+                        return f"✁E{name}: エントリースチE�Eジ完亁E({joined})"
+                    return f"✁E{name}: エントリースチE�Eジ完亁E
                 return None
 
             def _format_phase_completion(
@@ -3747,35 +3777,35 @@ def compute_today_signals(
                     return None
                 if prev_stage == 0:
                     if filter_int is not None:
-                        return f"🏁 {name}: {label}のプロセスプールが完了 (通過 {filter_int} 銘柄)"
-                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                        return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E(通過 {filter_int} 銘柄)"
+                    return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E
                 if prev_stage == 25:
                     if setup_int is not None and filter_int is not None:
                         return (
-                            f"🏁 {name}: {label}のプロセスプールが完了 "
-                            f"(セットアップ通過 {setup_int}/{filter_int} 銘柄)"
+                            f"🏁 {name}: {label}のプロセスプ�Eルが完亁E"
+                            f"(セチE��アチE�E通過 {setup_int}/{filter_int} 銘柄)"
                         )
                     if setup_int is not None:
                         return (
-                            f"🏁 {name}: {label}のプロセスプールが完了 "
-                            f"(セットアップ通過 {setup_int} 銘柄)"
+                            f"🏁 {name}: {label}のプロセスプ�Eルが完亁E"
+                            f"(セチE��アチE�E通過 {setup_int} 銘柄)"
                         )
-                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                    return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E
                 if prev_stage == 50:
                     if candidate_int is not None:
                         return (
-                            f"🏁 {name}: {label}のプロセスプールが完了 "
-                            f"(当日候補 {candidate_int} 銘柄)"
+                            f"🏁 {name}: {label}のプロセスプ�Eルが完亁E"
+                            f"(当日候裁E{candidate_int} 銘柄)"
                         )
-                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                    return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E
                 if prev_stage == 75:
                     if final_int is not None:
                         parts: list[str] = [f"エントリー {final_int} 銘柄"]
                         if candidate_int is not None:
-                            parts.append(f"候補 {candidate_int} 銘柄")
+                            parts.append(f"候裁E{candidate_int} 銘柄")
                         joined = " / ".join(parts)
-                        return f"🏁 {name}: {label}のプロセスプールが完了 ({joined})"
-                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                        return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E({joined})"
+                    return f"🏁 {name}: {label}のプロセスプ�Eルが完亁E
                 return None
 
             def _stage(
@@ -3797,7 +3827,7 @@ def compute_today_signals(
                 # Only call the per-system UI callback directly from the
                 # main thread. When running in background threads (e.g.
                 # via ThreadPoolExecutor) we must avoid invoking Streamlit
-                # APIs from non-main threads — instead record the stage
+                # APIs from non-main threads  Einstead record the stage
                 # into GLOBAL_STAGE_METRICS and let the main thread drain
                 # and forward events.
                 try:
@@ -3809,12 +3839,12 @@ def compute_today_signals(
                         cb2(name, progress_val, f_int, s_int, c_int, fin_int)
                     except Exception:
                         pass
-                # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
+                # TRDlist件数スナップショチE��を更新�E�後段のメインスレチE��通知で使用�E�E
                 if use_process_pool:
                     try:
-                        # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
-                        # 登録する。None と 0 や空文字列のような微妙な差を吸収する
-                        # ため、整数化した値で比較する。
+                        # 正規化したタプルで前回値と比輁E��、変化があれ�E忁E��イベントを
+                        # 登録する、Eone と 0 めE��斁E���Eのような微妙な差を吸収すめE
+                        # ため、整数化した値で比輁E��る、E
                         key = (
                             _safe_stage_int(f_int),
                             _safe_stage_int(s_int),
@@ -3825,9 +3855,9 @@ def compute_today_signals(
                         if prev != key:
                             stage_state[progress_val] = key
                             try:
-                                # 常に emit_event=True でイベントを積む（UI 側で重複
-                                # 表示抑制する責務を負わせることも可能だが、ここは
-                                # イベントの喪失を避けるため明示的に通知する）
+                                # 常に emit_event=True でイベントを積�E�E�EI 側で重褁E
+                                # 表示抑制する責務を負わせることも可能だが、ここ�E
+                                # イベント�E喪失を避けるため明示皁E��通知する�E�E
                                 GLOBAL_STAGE_METRICS.record_stage(
                                     name,
                                     progress_val,
@@ -3852,7 +3882,7 @@ def compute_today_signals(
                                 _local_log(msg)
                             if progress_val in phase_names and progress_val not in phase_started:
                                 _local_log(
-                                    f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始"
+                                    f"⚙︁E{name}: {phase_names[progress_val]}のプロセスプ�Eルを開姁E
                                 )
                                 phase_started.add(progress_val)
                     except Exception:
@@ -3872,7 +3902,7 @@ def compute_today_signals(
 
             import os as _os
 
-            # プロセスプール利用可否（環境変数で上書き可）
+            # プロセスプ�Eル利用可否�E�環墁E��数で上書き可�E�E
             env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
             env_pp = env_pp_raw.strip().lower()
             if env_pp in {"1", "true", "yes", "on"}:
@@ -3883,11 +3913,11 @@ def compute_today_signals(
                 use_process_pool = False
                 if env_pp:
                     _local_log(
-                        "⚠️ "
-                        + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません。"
-                        + "プロセスプールを無効化します。"
+                        "⚠�E�E"
+                        + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません、E
+                        + "プロセスプ�Eルを無効化します、E
                     )
-            # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
+            # ワーカー数は環墁E��数があれ�E優先、無ければ設宁ETHREADS_DEFAULT)に連勁E
             try:
                 _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
                 if _env_workers:
@@ -3900,7 +3930,7 @@ def compute_today_signals(
                         max_workers = None
             except Exception:
                 max_workers = None
-            # ルックバックは『必要指標の最大窓＋α』を動的推定
+            # ルチE��バックは『忁E��指標�E最大窓＋α』を動的推宁E
             try:
                 settings2 = get_settings(create_dirs=True)
                 lb_default = int(
@@ -3909,8 +3939,8 @@ def compute_today_signals(
             except Exception:
                 settings2 = None
                 lb_default = 300
-            # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
-            # ルックバックのマージン/最小日数は環境変数で上書き可能
+            # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスチE��チE���E�E
+            # ルチE��バックのマ�Eジン/最小日数は環墁E��数で上書き可能
             try:
                 margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
             except Exception:
@@ -3918,15 +3948,15 @@ def compute_today_signals(
             need_map: dict[str, int] = {
                 "system1": int(220 * (1 + margin)),
                 "system2": int(120 * (1 + margin)),
-                # SMA150 を安定に計算するため 170 日程度を要求
+                # SMA150 を安定に計算するためE170 日程度を要汁E
                 "system3": int(170 * (1 + margin)),
-                # SMA200 系のため 220 日程度を要求
+                # SMA200 系のため 220 日程度を要汁E
                 "system4": int(220 * (1 + margin)),
                 "system5": int(140 * (1 + margin)),
                 "system6": int(80 * (1 + margin)),
                 "system7": int(80 * (1 + margin)),
             }
-            # 戦略側が get_total_days を実装していれば優先
+            # 戦略側ぁEget_total_days を実裁E��てぁE��ば優允E
             custom_need = None
             try:
                 fn = getattr(stg, "get_total_days", None)
@@ -3950,11 +3980,11 @@ def compute_today_signals(
             min_required = custom_need or need_map.get(name, lb_default)
             lookback_days = min(lb_default, max(min_floor, int(min_required)))
             _t0 = __import__("time").time()
-            # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
+            # プロセスプ�Eル利用時も stage_progress を渡し、要所の進捗ログを�E有すめE
             _stage_cb = _stage
             _log_cb = None if use_process_pool else _local_log
-            # プロセスプール利用時は Manager().Queue を生成して子プロセスから
-            # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
+            # プロセスプ�Eル利用時�E Manager().Queue を生成して子�Eロセスから
+            # 進捗を送れるよぁE��する。globals に置ぁE��子が参�Eできるようにする、E
             if use_process_pool:
                 try:
                     mgr = multiprocessing.Manager()  # noqa: F401 (kept for child access)
@@ -3967,13 +3997,13 @@ def compute_today_signals(
             if use_process_pool:
                 workers_label = str(max_workers) if max_workers is not None else "auto"
                 _local_log(
-                    f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
+                    f"⚙︁E{name}: USE_PROCESS_POOL=1 でプロセスプ�Eル実行を開姁E
                     + f" (workers={workers_label})"
-                    + " | 並列化: インジケーター計算/前処理"
+                    + " | 並列化: インジケーター計箁E前�E琁E
                 )
                 _local_log(
-                    f"🧭 {name}: フィルター・セットアップ・候補抽出は"
-                    "メインプロセスで進行状況を記録します"
+                    f"🧭 {name}: フィルター・セチE��アチE�E・候補抽出は"
+                    "メインプロセスで進行状況を記録しまぁE
                 )
             df = stg.get_today_signals(
                 base,
@@ -3986,17 +4016,17 @@ def compute_today_signals(
                 max_workers=max_workers,
                 lookback_days=lookback_days,
             )
-            # 子プロセスからキューへ送られた進捗は上で作られた globals 上の
-            # _PROGRESS_QUEUE に蓄積される。_drain_stage_event_queue がそれを
-            # 定期的に取り出し、UI 更新に転換する。
+            # 子�Eロセスからキューへ送られた進捗�E上で作られた globals 上�E
+            # _PROGRESS_QUEUE に蓁E��される、Edrain_stage_event_queue がそれを
+            # 定期皁E��取り出し、UI 更新に転換する、E
             if use_process_pool:
                 pool_outcome = "success"
             _elapsed = int(max(0, __import__("time").time() - _t0))
             _m, _s = divmod(_elapsed, 60)
-            _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
+            _local_log(f"⏱�E�E{name}: 経過 {_m}刁E_s}私E)
         except Exception as e:  # noqa: BLE001
-            _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
-            # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
+            _local_log(f"⚠�E�E{name}: シグナル抽出に失敗しました: {e}")
+            # プロセスプ�Eル異常時�Eフォールバック�E�非プ�Eル�E�で一度だけ�E試衁E
             try:
                 msg = str(e).lower()
             except Exception:
@@ -4014,7 +4044,7 @@ def compute_today_signals(
                 ]
             )
             if needs_fallback:
-                _local_log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
+                _local_log("🛟 フォールバック再試衁E プロセスプ�Eル無効化で実行しまぁE)
                 try:
                     _t0b = __import__("time").time()
                     df = stg.get_today_signals(
@@ -4030,11 +4060,11 @@ def compute_today_signals(
                     )
                     _elapsed_b = int(max(0, __import__("time").time() - _t0b))
                     _m2, _s2 = divmod(_elapsed_b, 60)
-                    _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                    _local_log(f"⏱�E�E{name} (fallback): 経過 {_m2}刁E_s2}私E)
                     if use_process_pool:
                         pool_outcome = "fallback"
                 except Exception as e2:  # noqa: BLE001
-                    _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
+                    _local_log(f"❁E{name}: フォールバックも失敁E {e2}")
                     if use_process_pool:
                         pool_outcome = "error"
                     df = pd.DataFrame()
@@ -4043,11 +4073,11 @@ def compute_today_signals(
         finally:
             if use_process_pool:
                 if pool_outcome == "success":
-                    _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
+                    _local_log(f"🏁 {name}: プロセスプ�Eル実行が完亁E��ました")
                 elif pool_outcome == "fallback":
-                    _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+                    _local_log(f"🏁 {name}: プロセスプ�Eル実行を終亁E��フォールバック実行済み�E�E)
                 else:
-                    _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
+                    _local_log(f"🏁 {name}: プロセスプ�Eル実行を終亁E��結果: 失敗！E)
         if not df.empty:
             if "score_key" in df.columns and len(df):
                 first_key = df["score_key"].iloc[0]
@@ -4059,11 +4089,11 @@ def compute_today_signals(
         if df is not None and not df.empty:
             msg = f"📊 {name}: {len(df)} 件"
         else:
-            msg = f"❌ {name}: 0 件 🚫"
+            msg = f"❁E{name}: 0 件 🚫"
         _local_log(msg)
         return name, df, msg, logs
 
-    # 抽出開始前にセットアップ通過のまとめを出力
+    # 抽出開始前にセチE��アチE�E通過のまとめを出劁E
     try:
         setup_summary = []
         for name, val in (
@@ -4081,20 +4111,20 @@ def compute_today_signals(
             except Exception:
                 continue
         if setup_summary:
-            _log("🧩 セットアップ通過まとめ: " + ", ".join(setup_summary))
+            _log("🧩 セチE��アチE�E通過まとめE " + ", ".join(setup_summary))
     except Exception:
         pass
 
-    _log("🚀 各システムの当日シグナル抽出を開始")
+    _log("🚀 吁E��スチE��の当日シグナル抽出を開姁E)
     per_system: dict[str, pd.DataFrame] = {}
     total = len(strategies)
-    # 事前に全システムへステージ0%（filter開始）を同時通知（UI同期表示用）
+    # 事前に全シスチE��へスチE�Eジ0%�E�Eilter開始）を同時通知�E�EI同期表示用�E�E
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
     except Exception:
         cb2 = None
     if cb2 and callable(cb2):
-        # 0% ステージの「対象→」はユニバース総数ベース（SPYは除外）
+        # 0% スチE�Eジの「対象→」�Eユニバース総数ベ�Eス�E�EPYは除外！E
         try:
             universe_total = sum(1 for s in (symbols or []) if str(s).upper() != "SPY")
         except Exception:
@@ -4124,9 +4154,9 @@ def compute_today_signals(
                         per_system_progress(name, "start")
                     except Exception:
                         pass
-                # CLI専用: 各システム開始を即時表示（UIには出さない）
+                # CLI専用: 吁E��スチE��開始を即時表示�E�EIには出さなぁE��E
                 try:
-                    _log(f"▶ {name} 開始", ui=False)
+                    _log(f"▶ {name} 開姁E, ui=False)
                 except Exception:
                     pass
                 fut = executor.submit(_run_strategy, name, stg)
@@ -4208,7 +4238,7 @@ def compute_today_signals(
                     except Exception:
                         _cnt = -1
                     try:
-                        _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
+                        _log(f"✁E{name} 完亁E {('?' if _cnt < 0 else _cnt)}件", ui=False)
                     except Exception:
                         pass
                     if progress_callback:
@@ -4235,24 +4265,24 @@ def compute_today_signals(
                     progress_callback(5, 8, name)
                 except Exception:
                     pass
-            # 順次実行時も開始を通知
+            # 頁E��実行時も開始を通知
             if per_system_progress:
                 try:
                     per_system_progress(name, "start")
                 except Exception:
                     pass
-            # CLI専用: 各システム開始を即時表示（UIには出さない）
+            # CLI専用: 吁E��スチE��開始を即時表示�E�EIには出さなぁE��E
             try:
-                _log(f"▶ {name} 開始", ui=False)
+                _log(f"▶ {name} 開姁E, ui=False)
             except Exception:
                 pass
             name, df, msg, logs = _run_strategy(name, stg)
             per_system[name] = df
             _drain_stage_event_queue()
-            # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
+            # CLI専用: ワーカー収集ログを常に出力！EIには送らなぁE��E
             for line in _filter_logs(logs, ui=False):
                 _log(f"[{name}] {line}", ui=False)
-            # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
+            # 即晁E TRDlist�E�候補件数�E�を75%段階として通知�E�上限はmax_positions�E�E
             try:
                 cb2 = globals().get("_PER_SYSTEM_STAGE")
             except Exception:
@@ -4309,46 +4339,46 @@ def compute_today_signals(
                     per_system_progress(name, "done")
                 except Exception:
                     pass
-            # CLI専用: 完了を簡潔表示（件数付き）
+            # CLI専用: 完亁E��簡潔表示�E�件数付き�E�E
             try:
                 _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
             except Exception:
                 _cnt = -1
             try:
-                _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
+                _log(f"✁E{name} 完亁E {('?' if _cnt < 0 else _cnt)}件", ui=False)
             except Exception:
                 pass
         _drain_stage_event_queue()
-        # 即時の75%再通知は行わない（メインスレッド側で一括通知）
-        # 前回結果は開始時にまとめて出力するため、ここでは出さない
+        # 即時�E75%再通知は行わなぁE��メインスレチE��側で一括通知�E�E
+        # 前回結果は開始時にまとめて出力するため、ここでは出さなぁE
         if progress_callback:
             try:
                 progress_callback(6, 8, "strategies_done")
             except Exception:
                 pass
 
-    # システム別の順序を明示（1..7）に固定
+    # シスチE��別の頁E��を明示�E�E..7�E�に固宁E
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
     ctx.per_system_frames = dict(per_system)
 
     metrics_summary_context = None
 
-    # 並列実行時はワーカースレッドからの UI 更新が抑制されるため、
-    # メインスレッドで候補件数（TRDlist）を75%段階として通知する
+    # 並列実行時はワーカースレチE��からの UI 更新が抑制されるため、E
+    # メインスレチE��で候補件数�E�ERDlist�E�を75%段階として通知する
     try:
         cb2 = globals().get("_PER_SYSTEM_STAGE")
     except Exception:
         cb2 = None
     if cb2 and callable(cb2):
         try:
-            # UIのTRDlist表示は最大ポジション数を超えないよう丸める
+            # UIのTRDlist表示は最大ポジション数を趁E��なぁE��ぁE��める
             try:
                 _mx = int(get_settings(create_dirs=False).risk.max_positions)
             except Exception:
                 _mx = 10
             for _name in order_1_7:
-                # ワーカーからのスナップショットがあれば優先（型ゆらぎ等を超えて信頼できる値）
+                # ワーカーからのスナップショチE��があれ�E優先（型めE��ぎ等を趁E��て信頼できる値�E�E
                 _cand_cnt = None
                 try:
                     snapshot = _get_stage_snapshot(_name)
@@ -4367,9 +4397,9 @@ def compute_today_signals(
         except Exception:
             pass
 
-    # メトリクス保存前に、当日のトレード候補Top10を簡易出力（デバッグ/可視化用）
+    # メトリクス保存前に、当日のトレード候補Top10を簡易�E力（デバッグ/可視化用�E�E
     try:
-        # 追加: 候補日キーの診断（today/prev日正規化の確認）
+        # 追加: 候補日キーの診断�E�Eoday/prev日正規化の確認！E
         try:
             from common.today_signals import get_latest_nyse_trading_day as _gln  # type: ignore
         except Exception:
@@ -4394,7 +4424,7 @@ def compute_today_signals(
             all_rows.append(x)
         if all_rows:
             concat_rows = _prepare_concat_frames(all_rows)
-            _log("📝 事前トレードリスト(Top10, メトリクス保存前)")
+            _log("📝 事前トレードリスチETop10, メトリクス保存前)")
             if concat_rows:
                 merged = pd.concat(concat_rows, ignore_index=True)
                 merged = merged.sort_values("_sort_val", kind="stable", na_position="last")
@@ -4416,16 +4446,16 @@ def compute_today_signals(
                 if not top10.empty:
                     _log(top10[cols].to_string(index=False))
                 else:
-                    _log("(候補なし)")
+                    _log("(候補なぁE")
             else:
-                _log("(候補なし)")
-        # 追加: システム別のTop10を個別に出力（system2〜system6）
+                _log("(候補なぁE")
+        # 追加: シスチE��別のTop10を個別に出力！Eystem2〜system6�E�E
         try:
             for _sys_name in [f"system{i}" for i in range(2, 7)]:
                 _df = per_system.get(_sys_name, pd.DataFrame())
-                _log(f"📝 事前トレードリスト({_sys_name} Top10, メトリクス保存前)")
+                _log(f"📝 事前トレードリスチE{_sys_name} Top10, メトリクス保存前)")
                 if _df is None or getattr(_df, "empty", True):
-                    _log("(候補なし)")
+                    _log("(候補なぁE")
                     continue
                 x = _df.copy()
                 if "score" in x.columns:
@@ -4459,8 +4489,8 @@ def compute_today_signals(
                 if not top10_s.empty:
                     _log(top10_s[cols_s].to_string(index=False))
                 else:
-                    _log("(候補なし)")
-            # 追加: 各systemで entry_date のユニーク日付を出力（最大3件）
+                    _log("(候補なぁE")
+            # 追加: 各systemで entry_date のユニ�Eク日付を出力（最大3件�E�E
             try:
                 if "entry_date" in _df.columns and not _df.empty:
                     uniq = sorted(
@@ -4472,7 +4502,7 @@ def compute_today_signals(
                     )
                     sample_dates = ", ".join([str(d) for d in uniq[:3]])
                     _log(
-                        f"🗓️ {_sys_name} entry日ユニーク: {sample_dates}"
+                        f"🗓�E�E{_sys_name} entry日ユニ�Eク: {sample_dates}"
                         + (" ..." if len(uniq) > 3 else "")
                     )
             except Exception:
@@ -4485,10 +4515,10 @@ def compute_today_signals(
     positions_cache: list[Any] | None = None
     symbol_system_map_cache: dict[str, str] | None = None
 
-    # --- 日次メトリクス（事前フィルタ通過数・候補数）の保存 ---
+    # --- 日次メトリクス�E�事前フィルタ通過数・候補数�E��E保孁E---
     try:
         metrics_rows = []
-        # 事前フィルタ通過数（存在しないシステムは0扱い）
+        # 事前フィルタ通過数�E�存在しなぁE��スチE��は0扱ぁE��E
         prefilter_map = {
             "system1": len(locals().get("system1_syms", []) or []),
             "system2": len(locals().get("system2_syms", []) or []),
@@ -4498,7 +4528,7 @@ def compute_today_signals(
             "system6": len(locals().get("system6_syms", []) or []),
             "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
         }
-        # 候補数（per_systemの行数）
+        # 候補数�E�Eer_systemの行数�E�E
         for sys_name in order_1_7:
             df_sys = per_system.get(sys_name, pd.DataFrame())
             candidates = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
@@ -4538,12 +4568,12 @@ def compute_today_signals(
                     )
                 else:
                     metrics_out.to_csv(out_fp, index=False, encoding="utf-8")
-                _log(f"📈 メトリクス保存: {out_fp} に {len(metrics_rows)} 行を追記")
+                _log(f"📈 メトリクス保孁E {out_fp} に {len(metrics_rows)} 行を追訁E)
             except Exception as e:
-                _log(f"⚠️ メトリクス保存に失敗: {e}")
-            # 通知: 最終ステージ形式（Tgt/FILpass/STUpass/TRDlist/Entry/Exit）で送信
+                _log(f"⚠�E�Eメトリクス保存に失敁E {e}")
+            # 通知: 最終スチE�Eジ形式！Egt/FILpass/STUpass/TRDlist/Entry/Exit�E�で送信
             try:
-                # 0%のTgtはユニバース総数（SPY除く）
+                # 0%のTgtはユニバース総数�E�EPY除く！E
                 try:
                     tgt_base = sum(1 for s in (symbols or []) if str(s).upper() != "SPY")
                 except Exception:
@@ -4554,7 +4584,7 @@ def compute_today_signals(
                     except Exception:
                         pass
 
-                # Exit 件数を簡易推定（Alpaca の保有ポジションと各 Strategy の compute_exit を利用）
+                # Exit 件数を簡易推定！Elpaca の保有ポジションと吁EStrategy の compute_exit を利用�E�E
                 if positions_cache is None or symbol_system_map_cache is None:
                     positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
 
@@ -4567,7 +4597,7 @@ def compute_today_signals(
                         # 価格ロード関数は共通ローダーを利用
                         from common.data_loader import load_price as _load_price  # lazy import
 
-                        # SPY から本日の基準日（最新営業日）を推定
+                        # SPY から本日の基準日�E�最新営業日�E�を推宁E
                         latest_trading_day = None
                         try:
                             spy_df0 = _load_price("SPY", cache_profile="rolling")
@@ -4578,7 +4608,7 @@ def compute_today_signals(
                         except Exception:
                             latest_trading_day = None
 
-                        # エントリー日のローカル記録と system 推定マップ
+                        # エントリー日のローカル記録と system 推定�EチE�E
                         entry_map0 = load_entry_dates()
                         symbol_map_local = symbol_system_map0 or {}
 
@@ -4605,7 +4635,7 @@ def compute_today_signals(
                                 entry_date_str0 = entry_map0.get(sym)
                                 if not entry_date_str0:
                                     continue
-                                # 価格データ読込（full）
+                                # 価格チE�Eタ読込�E�Eull�E�E
                                 dfp = _load_price(sym, cache_profile="full")
                                 if dfp is None or dfp.empty:
                                     continue
@@ -4625,7 +4655,7 @@ def compute_today_signals(
                                     latest_trading_day = pd.to_datetime([dfp2.index[-1]])[
                                         0
                                     ].normalize()
-                                # エントリー日のインデックス
+                                # エントリー日のインチE��クス
                                 try:
                                     idx = dfp2.index
                                     ent_dt = pd.to_datetime([entry_date_str0])[0].normalize()
@@ -4641,7 +4671,7 @@ def compute_today_signals(
                                 except Exception:
                                     continue
 
-                                # Strategy毎の entry/stop を近似（UIと同等の簡易版）
+                                # Strategy毎�E entry/stop を近似�E�EIと同等�E簡易版�E�E
                                 entry_price0 = None
                                 stop_price0 = None
                                 try:
@@ -4736,7 +4766,7 @@ def compute_today_signals(
                                 )
                                 if is_today_exit0:
                                     if system0 == "system5":
-                                        # System5 は翌日寄り決済のためカウント対象外
+                                        # System5 は翌日寁E��決済�Eためカウント対象夁E
                                         pass
                                     else:
                                         counts[system0] = counts.get(system0, 0) + 1
@@ -4752,7 +4782,7 @@ def compute_today_signals(
                     )
                     or {}
                 )
-                # UI へも Exit 件数を送る（早期に可視化）
+                # UI へめEExit 件数を送る�E�早期に可視化�E�E
                 try:
                     cb_exit = globals().get("_PER_SYSTEM_EXIT")
                 except Exception:
@@ -4771,7 +4801,7 @@ def compute_today_signals(
                                 pass
                     except Exception:
                         pass
-                # エグジット件数を UI ログへも要約表示
+                # エグジチE��件数めEUI ログへも要紁E��示
                 try:
                     exit_counts_norm = {
                         str(k).strip().lower(): int(v)
@@ -4792,11 +4822,11 @@ def compute_today_signals(
                         except Exception:
                             pass
                     if cnt_val > 0:
-                        _log(f"🚪 {_sys_name}: 本日エグジット予定 {cnt_val} 件")
+                        _log(f"🚪 {_sys_name}: 本日エグジチE��予宁E{cnt_val} 件")
                         exit_logged = True
                 if not exit_logged:
-                    _log("🚪 本日エグジット予定はありません")
-                # 既に集計済みの値を再構成
+                    _log("🚪 本日エグジチE��予定�Eありません")
+                # 既に雁E��済みの値を�E構�E
                 setup_map = {
                     "system1": int(
                         (s1_setup_eff if s1_setup_eff is not None else (s1_setup or 0)) or 0
@@ -4816,7 +4846,7 @@ def compute_today_signals(
                     "setup_map": dict(setup_map),
                     "tgt_base": int(tgt_base),
                 }
-                # UI が StageTracker を登録していれば、ユニバース総数を通知して表示を揃える
+                # UI ぁEStageTracker を登録してぁE��ば、ユニバース総数を通知して表示を揃える
                 try:
                     cb_stage_set = globals().get("_SET_STAGE_UNIVERSE_TARGET")
                 except Exception:
@@ -4841,16 +4871,16 @@ def compute_today_signals(
                 ]
             )
             if summary:
-                _log(f"📊 メトリクス概要: {summary}")
+                _log(f"📊 メトリクス概要E {summary}")
         except Exception:
             pass
     except Exception:
-        _log("⚠️ メトリクス集計で例外が発生しました（処理続行）")
+        _log("⚠�E�Eメトリクス雁E��で例外が発生しました�E��E琁E��行！E)
 
     if positions_cache is None or symbol_system_map_cache is None:
         positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
 
-    # 1) 枠配分（スロット）モード or 2) 金額配分モード
+    # 1) 枠配�E�E�スロチE���E�モーチEor 2) 金額�E刁E��ーチE
     try:
         settings_alloc_long = getattr(settings.ui, "long_allocations", {}) or {}
         settings_alloc_short = getattr(settings.ui, "short_allocations", {}) or {}
@@ -4883,7 +4913,7 @@ def compute_today_signals(
             {"total_candidates": len(per_system), "target_positions": max_positions_default},
         )
 
-    _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
+    _log("🧷 候補�E配�E�E�スロチE��方弁Eor 金額�E刁E��を実衁E)
     allocation_summary: AllocationSummary
     final_df, allocation_summary = finalize_allocation(
         per_system,
@@ -4933,7 +4963,7 @@ def compute_today_signals(
             if limit > 0 and remain < limit:
                 lines.append(f"{name}={remain}/{limit}")
         if lines:
-            _log("🪧 利用可能スロット (残/上限): " + ", ".join(lines))
+            _log("🪧 利用可能スロチE�� (殁E上限): " + ", ".join(lines))
     except Exception:
         pass
 
@@ -4951,7 +4981,7 @@ def compute_today_signals(
         long_msg = ", ".join(_fmt_slot(name) for name in long_alloc_norm)
         short_msg = ", ".join(_fmt_slot(name) for name in short_alloc_norm)
         _log(
-            "🧮 枠配分（利用可能スロット/候補数）: "
+            "🧮 枠配�E�E�利用可能スロチE��/候補数�E�E "
             + (long_msg if long_msg else "-")
             + " | "
             + (short_msg if short_msg else "-")
@@ -4959,20 +4989,20 @@ def compute_today_signals(
     else:
         cap_long = float(allocation_summary.capital_long or 0.0)
         cap_short = float(allocation_summary.capital_short or 0.0)
-        _log(f"💰 金額配分: long=${cap_long:,.0f}, short=${cap_short:,.0f}")
+        _log(f"💰 金額�E刁E long=${cap_long:,.0f}, short=${cap_short:,.0f}")
         try:
             budgets = allocation_summary.budgets or {}
             long_lines = [f"{name}=${budgets.get(name, 0.0):,.0f}" for name in long_alloc_norm]
             short_lines = [f"{name}=${budgets.get(name, 0.0):,.0f}" for name in short_alloc_norm]
             if long_lines:
-                _log("📊 long予算内訳: " + ", ".join(long_lines))
+                _log("📊 long予算�E訳: " + ", ".join(long_lines))
             if short_lines:
-                _log("📊 short予算内訳: " + ", ".join(short_lines))
+                _log("📊 short予算�E訳: " + ", ".join(short_lines))
         except Exception:
             pass
 
     if not final_df.empty:
-        # 並びは side → system番号 → 各systemのスコア方向（RSI系のみ昇順、それ以外は降順）
+        # 並びは side ↁEsystem番号 ↁE各systemのスコア方向！ESI系のみ昁E��E��それ以外�E降頁E��E
         tmp = final_df.copy()
         if "system" in tmp.columns:
             try:
@@ -4981,18 +5011,18 @@ def compute_today_signals(
                 )
             except Exception:
                 tmp["_system_no"] = 0
-        # 一旦 side, system 番号で安定ソート
+        # 一旦 side, system 番号で安定ソーチE
         tmp = tmp.sort_values(
             [c for c in ["side", "_system_no"] if c in tmp.columns], kind="stable"
         )
-        # system ごとに score を方向指定で並べ替え
+        # system ごとに score を方向指定で並べ替ぁE
         try:
             parts2: list[pd.DataFrame] = []
             for sys_name, g in tmp.groupby("system", sort=False):
                 if "score" in g.columns:
                     asc = False
                     try:
-                        # system4（RSI系）はスコア小さいほど良い
+                        # system4�E�ESI系�E��Eスコア小さぁE��ど良ぁE
                         if isinstance(sys_name, str) and sys_name.lower() == "system4":
                             asc = True
                     except Exception:
@@ -5006,12 +5036,12 @@ def compute_today_signals(
             pass
         tmp = tmp.drop(columns=["_system_no"], errors="ignore")
         final_df = tmp.reset_index(drop=True)
-        # 先頭に連番（1始まり）を付与
+        # 先頭に連番�E�E始まり）を付丁E
         try:
             final_df.insert(0, "no", range(1, len(final_df) + 1))
         except Exception:
             pass
-        # system別の件数/金額サマリを出力
+        # system別の件数/金額サマリを�E劁E
         try:
             if "position_value" in final_df.columns:
                 grp = (
@@ -5040,31 +5070,31 @@ def compute_today_signals(
                 summary_lines = format_group_counts(counts_map)
                 if summary_lines:
                     _log("🧾 Long/Shortサマリ: " + ", ".join(summary_lines))
-            # system ごとの最終エントリー数を出力
+            # system ごとの最終エントリー数を�E劁E
             try:
                 if isinstance(grp, dict):
                     for k, v in grp.items():
-                        _log(f"✅ {k}: {int(v)} 件")
+                        _log(f"✁E{k}: {int(v)} 件")
                 else:
                     for _, r in grp.iterrows():
-                        _log(f"✅ {r['system']}: {int(r['count'])} 件")
+                        _log(f"✁E{r['system']}: {int(r['count'])} 件")
             except Exception:
                 pass
-            # 追加: エントリー銘柄の system ごとのまとめ
+            # 追加: エントリー銘柄の system ごとのまとめE
             try:
                 lines = []
                 for sys_name, g in final_df.groupby("system"):
                     syms = ", ".join(list(g["symbol"].astype(str))[:20])
                     lines.append(f"{sys_name}: {syms}")
                 if lines:
-                    _log("🧾 エントリー内訳:\n" + "\n".join(lines))
+                    _log("🧾 エントリー冁E��:\n" + "\n".join(lines))
             except Exception:
                 pass
         except Exception:
             pass
         _log(f"📊 最終候補件数: {len(final_df)}")
     else:
-        _log("📭 最終候補は0件でした")
+        _log("📭 最終候補�E0件でした")
     if progress_callback:
         try:
             progress_callback(7, 8, "finalize")
@@ -5090,57 +5120,57 @@ def compute_today_signals(
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="全システム当日シグナル抽出・集約")
+    parser = argparse.ArgumentParser(description="全シスチE��当日シグナル抽出・雁E��E)
     parser.add_argument(
         "--symbols",
         nargs="*",
-        help="対象シンボル。未指定なら設定のauto_tickersを使用",
+        help="対象シンボル。未持E��なら設定�Eauto_tickersを使用",
     )
     parser.add_argument(
         "--slots-long",
         type=int,
         default=None,
-        help="買いサイドの最大採用数（スロット方式）",
+        help="買ぁE��イド�E最大採用数�E�スロチE��方式！E,
     )
     parser.add_argument(
         "--slots-short",
         type=int,
         default=None,
-        help="売りサイドの最大採用数（スロット方式）",
+        help="売りサイド�E最大採用数�E�スロチE��方式！E,
     )
     parser.add_argument(
         "--capital-long",
         type=float,
         default=None,
-        help=("買いサイド予算（ドル）。指定時は金額配分モード"),
+        help=("買ぁE��イド予算（ドル�E�。指定時は金額�E刁E��ーチE),
     )
     parser.add_argument(
         "--capital-short",
         type=float,
         default=None,
-        help=("売りサイド予算（ドル）。指定時は金額配分モード"),
+        help=("売りサイド予算（ドル�E�。指定時は金額�E刁E��ーチE),
     )
     parser.add_argument(
         "--save-csv",
         action="store_true",
-        help="signalsディレクトリにCSVを保存する",
+        help="signalsチE��レクトリにCSVを保存すめE,
     )
     parser.add_argument(
         "--parallel",
         action="store_true",
-        help="システムごとの当日シグナル抽出を並列実行する",
+        help="シスチE��ごとの当日シグナル抽出を並列実行すめE,
     )
     # Alpaca 自動発注オプション
     parser.add_argument(
         "--alpaca-submit",
         action="store_true",
-        help="Alpaca に自動発注（shares 必須）",
+        help="Alpaca に自動発注�E�Ehares 忁E��！E,
     )
     parser.add_argument(
         "--order-type",
         choices=["market", "limit"],
         default="market",
-        help="注文種別",
+        help="注斁E��別",
     )
     parser.add_argument(
         "--tif",
@@ -5151,37 +5181,37 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--live",
         action="store_true",
-        help="ライブ口座で発注（デフォルトはPaper）",
+        help="ライブ口座で発注�E�デフォルト�EPaper�E�E,
     )
     parser.add_argument(
         "--log-file-mode",
         choices=["single", "dated"],
         default=None,
-        help="ログ保存形式: single=固定 today_signals.log / dated=日付別ファイル",
+        help="ログ保存形弁E single=固宁Etoday_signals.log / dated=日付別ファイル",
     )
     parser.add_argument(
         "--csv-name-mode",
         choices=["date", "datetime", "runid"],
         default=None,
         help=(
-            "CSVファイル名の形式: date=YYYY-MM-DD / "
+            "CSVファイル名�E形弁E date=YYYY-MM-DD / "
             "datetime=YYYY-MM-DD_HHMM / runid=YYYY-MM-DD_RUNID"
         ),
     )
-    # 計画 -> 実行ブリッジ（安全のため既定はドライラン）
+    # 計画 -> 実行ブリチE���E�安�Eのため既定�Eドライラン�E�E
     parser.add_argument(
         "--run-planned-exits",
         choices=["off", "open", "close", "auto"],
         default=None,
         help=(
-            "手仕舞い計画の自動実行: off=無効 / open=寄り(OPG) / "
-            "close=引け(CLS) / auto=時間帯で自動判定"
+            "手仕�EぁE��画の自動実衁E off=無効 / open=寁E��(OPG) / "
+            "close=引け(CLS) / auto=時間帯で自動判宁E
         ),
     )
     parser.add_argument(
         "--planned-exits-dry-run",
         action="store_true",
-        help="手仕舞い計画の自動実行をドライランにする（既定は実発注）",
+        help="手仕�EぁE��画の自動実行をドライランにする�E�既定�E実発注�E�E,
     )
     return parser
 
@@ -5197,7 +5227,7 @@ def configure_logging_for_cli(args: argparse.Namespace) -> None:
     _configure_today_logger(mode=mode)
     try:
         sel_path = globals().get("_LOG_FILE_PATH")
-        _log(f"📝 ログ保存先: {sel_path}", ui=False)
+        _log(f"📝 ログ保存�E: {sel_path}", ui=False)
     except Exception:
         pass
 
@@ -5217,10 +5247,10 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
 
 def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
     if final_df.empty:
-        _log("📭 本日の最終候補はありません。")
+        _log("📭 本日の最終候補�Eありません、E)
         return []
 
-    _log("\n=== 最終候補（推奨） ===")
+    _log("\n=== 最終候補（推奨�E�E===")
     cols = [
         "symbol",
         "system",
@@ -5294,15 +5324,15 @@ def maybe_run_planned_exits(args: argparse.Namespace) -> None:
                 else ("close" if ("1550" <= hhmm <= "1600") else "off")
             )
         if sel in {"open", "close"}:
-            _log(f"⏱️ 手仕舞い計画の自動実行: {sel} (dry_run={dry_run})")
+            _log(f"⏱�E�E手仕�EぁE��画の自動実衁E {sel} (dry_run={dry_run})")
             try:
                 df_exec = _run_planned(sel, dry_run=dry_run)
                 if df_exec is not None and not df_exec.empty:
                     _log(df_exec.to_string(index=False), ui=False)
                 else:
-                    _log("対象の手仕舞い計画はありません。", ui=False)
+                    _log("対象の手仕�EぁE��画はありません、E, ui=False)
             except Exception as e:
-                _log(f"⚠️ 手仕舞い計画の自動実行に失敗: {e}")
+                _log(f"⚠�E�E手仕�EぁE��画の自動実行に失敁E {e}")
 
 
 def main():

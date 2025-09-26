@@ -52,9 +52,11 @@ def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
     if idx is None:
         raise ValueError("invalid_date_index")
     try:
-        if pd.isna(idx).all():  # type: ignore[attr-defined]
+        # pandas >=1.5: pd.isna for Index returns ndarray-like; .all() is valid
+        if pd.isna(idx).all():
             raise ValueError("invalid_date_index")
     except Exception:
+        # Defensive: if idx has unexpected type
         pass
     x = df.copy()
     x.index = pd.Index(idx)
@@ -539,7 +541,8 @@ def generate_candidates_system3(
         setup_df["entry_price"] = last_price
         base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
         setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
-        setup_df = setup_df.dropna(subset=["entry_date"])  # type: ignore[arg-type]
+        # subset is List[str]; ensure typing consistent for mypy
+        setup_df = setup_df.dropna(subset=["entry_date"])
         setup_df = setup_df[["symbol", "entry_date", "Drop3D", "ATR10", "entry_price"]]
         all_signals.append(setup_df)
         buffer.append(sym)

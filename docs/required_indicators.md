@@ -1,52 +1,52 @@
-# 必要指標リスト
+# 忁E��指標リスチE
 
-本システム（`docs` フォルダおよび `app_system1.py`〜`app_system7.py`）で参照される指標をまとめた。
+本シスチE���E�Edocs` フォルダおよび `app_system1.py`〜`app_system7.py`�E�で参�Eされる指標をまとめた、E
 
-1. **SMA25**：25 日単純移動平均
-2. **SMA50**：50 日単純移動平均
-3. **SMA100**：100 日単純移動平均
-4. **SMA150**：150 日単純移動平均
-5. **SMA200**：200 日単純移動平均
-6. **ATR3**：3ATR。過去 10 日・40 日・50 日など複数期間で使用
-7. **ATR1.5**：1.5ATR。過去 40 日などで使用
-8. **ATR1**：1ATR。過去 10 日などで使用
-9. **ATR2.5**：2.5ATR。過去 10 日などで使用
-10. **ATR**：過去 10 日、過去 50 日、過去 40 日、4%ATR など複数期間で使用
-11. **ADX7**：7 日 ADX
-12. **Return6D（旧称 RETURN6）**：6 日リターン
-13. **return_pct**：総リターン
-14. **Drop3D**：3 日ドロップ
-15. **HV50**：50 日ヒストリカルボラティリティ（年率換算）
+1. **SMA25**�E�E5 日単純移動平坁E
+2. **SMA50**�E�E0 日単純移動平坁E
+3. **SMA100**�E�E00 日単純移動平坁E
+4. **SMA150**�E�E50 日単純移動平坁E
+5. **SMA200**�E�E00 日単純移動平坁E
+6. **ATR3**�E�EATR。過去 10 日・40 日・50 日など褁E��期間で使用
+7. **ATR1.5**�E�E.5ATR。過去 40 日などで使用
+8. **ATR1**�E�EATR。過去 10 日などで使用
+9. **ATR2.5**�E�E.5ATR。過去 10 日などで使用
+10. **ATR**�E�過去 10 日、E��去 50 日、E��去 40 日、E%ATR など褁E��期間で使用
+11. **ADX7**�E�E 日 ADX
+12. **return_6d�E�旧称 RETURN6�E�E*�E�E 日リターン
+13. **return_pct**�E�総リターン
+14. **Drop3D**�E�E 日ドロチE�E
+15. **HV50**�E�E0 日ヒストリカルボラチE��リチE���E�年玁E��算！E
 
-## 指標と使用システム対応表
+## 持E��と使用シスチE��対応表
 
-| 指標                                  | 使用システム                                                  | 実装状況                                      |
+| 持E��E                                 | 使用シスチE��                                                  | 実裁E��況E                                     |
 | ------------------------------------- | ------------------------------------------------------------- | --------------------------------------------- |
-| SMA25                                 | System1                                                       | 列として実装済 (`SMA25`)                      |
-| SMA50                                 | System1                                                       | 列として実装済 (`SMA50`)                      |
-| SMA100                                | System1, System5                                              | 列として実装済 (`SMA100`)                     |
-| SMA150                                | System3                                                       | 列として実装済 (`SMA150`)                     |
-| SMA200                                | System4                                                       | 列として実装済 (`SMA200`)                     |
+| SMA25                                 | System1                                                       | 列として実裁E��E(`SMA25`)                      |
+| SMA50                                 | System1                                                       | 列として実裁E��E(`SMA50`)                      |
+| SMA100                                | System1, System5                                              | 列として実裁E��E(`SMA100`)                     |
+| SMA150                                | System3                                                       | 列として実裁E��E(`SMA150`)                     |
+| SMA200                                | System4                                                       | 列として実裁E��E(`SMA200`)                     |
 | ATR3                                  | System2, System5, System6, System7                            | ストップ計算で `stop_atr_multiple=3` を使用   |
 | ATR1.5                                | System4                                                       | ストップ計算で `stop_atr_multiple=1.5` を使用 |
 | ATR1                                  | System5                                                       | `Close > SMA100 + ATR10` 判定で使用           |
 | ATR2.5                                | System3                                                       | ストップ計算で `stop_atr_multiple=2.5` を使用 |
-| ATR（10 日・20 日・40 日・50 日など） | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`ATR10` 等)                   |
-| ADX7                                  | System2, System5                                              | 列として実装済 (`ADX7`)                       |
-| Return6D（旧称 RETURN6）              | System6                                                       | 列として実装済 (`Return6D`)                   |
-| return_pct                            | System1, System2, System3, System4, System5, System6, System7 | 列として実装済 (`return_pct`)                 |
-| Drop3D                                | System3                                                       | 列として実装済 (`Drop3D`)                     |
-| HV50                                  | System4                                                       | 列として実装済 (`HV50`)                       |
+| ATR�E�E0 日・20 日・40 日・50 日など�E�E| System1, System2, System3, System4, System5, System6, System7 | 列として実裁E��E(`ATR10` 筁E                   |
+| ADX7                                  | System2, System5                                              | 列として実裁E��E(`ADX7`)                       |
+| return_6d�E�旧称 RETURN6�E�E             | System6                                                       | 列として実裁E��E(`return_6d`)                   |
+| return_pct                            | System1, System2, System3, System4, System5, System6, System7 | 列として実裁E��E(`return_pct`)                 |
+| Drop3D                                | System3                                                       | 列として実裁E��E(`Drop3D`)                     |
+| HV50                                  | System4                                                       | 列として実裁E��E(`HV50`)                       |
 
 ## 補足
 
-- ATR は「過去 10 日」「過去 40 日」「過去 50 日」「3ATR」「1.5ATR」「2.5ATR」「1ATR」「4%ATR」など複数パターンが存在する。
-- SMA は「25 日」「50 日」「100 日」「150 日」「200 日」など複数の期間を参照する。
-- ADX は 7 日値を使用し、必要に応じて高い順ランキング（`ADX7_High`）や 55 以上の閾値判定を行う。
-- Return 系指標は「Return6D（旧称 RETURN6）」「return_pct」などを含む。
-- Drop3D は「3 日ドロップ」として使用される。
+- ATR は「過去 10 日」「過去 40 日」「過去 50 日」、EATR」、E.5ATR」、E.5ATR」、EATR」、E%ATR」など褁E��パターンが存在する、E
+- SMA は、E5 日」、E0 日」、E00 日」、E50 日」、E00 日」など褁E��の期間を参照する、E
+- ADX は 7 日値を使用し、忁E��に応じて高い頁E��ンキング�E�EADX7_High`�E�や 55 以上�E閾値判定を行う、E
+- Return 系持E���E「Return6D�E�旧称 RETURN6�E�」「return_pct」などを含む、E
+- Drop3D は、E 日ドロチE�E」として使用される、E
 
-## システム別フィルター
+## シスチE��別フィルター
 
 ### System1
 
@@ -83,9 +83,9 @@
 
 ### System7
 
-- フィルターなし
+- フィルターなぁE
 
-## システム別セットアップ
+## シスチE��別セチE��アチE�E
 
 ### System1
 

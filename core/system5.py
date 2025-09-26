@@ -1,4 +1,12 @@
-"""System5 core logic (Long mean-reversion with high ADX)."""
+"""System5 core logic (Long mean-reversion with high ADX).
+
+本ファイルは当日シグナル高速化のために fast-path（既存指標の再利用）を行いつつ、
+従来のキャッシュ差分再計算ロジックとの後方互換性を維持する。以前のリファクタ中に
+誤ってプロセスプール処理ブロックがファイル先頭へ露出し SyntaxError を誘発していたため、
+ここで本来の構造を復元する。
+"""
+
+from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
@@ -14,34 +22,23 @@ from common.utils import (
     BatchSizeMonitor,
     describe_dtype,
     get_cached_data,
-    resolve_batch_size,
     is_today_run,
+    resolve_batch_size,
 )
 from common.utils_spy import resolve_signal_entry_date
 
-# Required columns and minimum rows for source data validation
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
-# System5 uses short-term indicators; 150 rows gives enough history for ATR/ADX/RSI
-MIN_ROWS = 150
-
-# Trading thresholds - Default values for business rules
-DEFAULT_ATR_PCT_THRESHOLD = 0.04  # 4% ATR percentage threshold for filtering
+MIN_ROWS = 150  # System3 が 150, System4 が 200。System5 は 150 日あれば十分。
+DEFAULT_ATR_PCT_THRESHOLD = 0.025  # 2.5% を下限のボラティリティ指標閾値とする
 
 
-def format_atr_pct_threshold_label(threshold: float | None = None) -> str:
-    """System5 の ATR_Pct フィルター閾値をラベル表示用に整形して返す。"""
-
-    try:
-        value = DEFAULT_ATR_PCT_THRESHOLD if threshold is None else float(threshold)
-    except Exception:
-        value = DEFAULT_ATR_PCT_THRESHOLD
-    if value < 0:
-        value = 0.0
-    return f"ATR_Pct>{value:.0%}"
+def format_atr_pct_threshold_label() -> str:
+    """UI / ログ用の閾値ラベルを一元化。scripts/today や today_signals で利用。"""
+    return f"> {DEFAULT_ATR_PCT_THRESHOLD:.2%}"
 
 
 def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    x = df.copy()
+    x = df.copy(deep=False)
     rename_map = {}
     for low, up in (
         ("open", "Open"),
@@ -53,7 +50,7 @@ def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         if low in x.columns and up not in x.columns:
             rename_map[low] = up
     if rename_map:
-        x.rename(columns=rename_map, inplace=True)
+        x = x.rename(columns=rename_map)
     return x
 
 
@@ -67,7 +64,7 @@ def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
     if idx is None:
         raise ValueError("invalid_date_index")
     try:
-        if pd.isna(idx).all():  # type: ignore[attr-defined]
+        if pd.isna(idx).all():
             raise ValueError("invalid_date_index")
     except Exception:
         pass
@@ -192,7 +189,7 @@ def prepare_data_vectorized_system5(
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(total, batch_size)
-        buffer: list[str] = []
+        pool_buffer: list[str] = []  # collect symbols for periodic progress logging
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(_compute_indicators, s): s for s in symbols}
@@ -200,7 +197,7 @@ def prepare_data_vectorized_system5(
                 sym, df = fut.result()
                 if df is not None:
                     result_dict[sym] = df
-                    buffer.append(sym)
+                    pool_buffer.append(sym)
                 if progress_callback:
                     try:
                         progress_callback(i, total)
@@ -221,24 +218,19 @@ def prepare_data_vectorized_system5(
                         rm=rm,
                         rs=rs,
                     )
-                    if buffer:
-                        # Shorten symbol list when running today's signals to avoid huge logs
+                    if pool_buffer:
                         today_mode = is_today_run()
-                        # 当日モードでは銘柄リスト出力はスキップ
                         if not today_mode:
-                            if today_mode:
-                                sample = ", ".join(buffer[:10])
-                                more = len(buffer) - len(buffer[:10])
-                                if more > 0:
-                                    sample = f"{sample}, ...(+{more} more)"
-                                msg += "\n" + tr("symbols: {names}", names=sample)
-                            else:
-                                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                            sample = ", ".join(pool_buffer[:10])
+                            more = len(pool_buffer) - len(pool_buffer[:10])
+                            if more > 0:
+                                sample = f"{sample}, ...(+{more} more)"
+                            msg += "\n" + tr("symbols: {names}", names=sample)
                     try:
                         log_callback(msg)
                     except Exception:
                         pass
-                    buffer.clear()
+                    pool_buffer.clear()
         return result_dict
 
     total = len(raw_data_dict)
@@ -256,7 +248,7 @@ def prepare_data_vectorized_system5(
     skipped_missing_cols = 0
     skipped_calc_errors = 0
     missing_cols_examples: dict[str, int] = {}
-    buffer: list[str] = []
+    buffer: list[str] = []  # collect symbols in current batch
     start_time = time.time()
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()

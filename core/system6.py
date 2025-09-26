@@ -15,13 +15,13 @@ SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 SYSTEM6_FEATURE_COLUMNS = [
     "atr10",
     "dollarvolume50",
-    "Return6D",
+    "return_6d",
     "UpTwoDays",
     "filter",
     "setup",
 ]
 SYSTEM6_ALL_COLUMNS = SYSTEM6_BASE_COLUMNS + SYSTEM6_FEATURE_COLUMNS
-SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "Return6D"]
+SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "return_6d"]
 
 
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -37,12 +37,12 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["High"], x["Low"], x["Close"], window=10
         ).average_true_range()
         x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["Return6D"] = x["Close"].pct_change(6)
+        x["return_6d"] = x["Close"].pct_change(6)
         x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
             x["Close"].shift(1) > x["Close"].shift(2)
         )
         x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
-        x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
+        x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
         raise ValueError("calc_error") from exc
     x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
@@ -171,7 +171,8 @@ def prepare_data_vectorized_system6(
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(total, batch_size)
-        buffer: list[str] = []
+
+        pool_buffer: list[str] = []
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(_compute_indicators, s): s for s in symbols}
@@ -179,7 +180,7 @@ def prepare_data_vectorized_system6(
                 sym, df = fut.result()
                 if df is not None:
                     result_dict[sym] = df
-                    buffer.append(sym)
+                    pool_buffer.append(sym)
                 else:
                     if skip_callback:
                         try:
@@ -209,15 +210,15 @@ def prepare_data_vectorized_system6(
                         rm=rm,
                         rs=rs,
                     )
-                    if buffer:
+                    if pool_buffer:
                         try:
                             today_mode = is_today_run()
                         except Exception:
                             today_mode = False
                         if not today_mode:
                             # Avoid logging very long symbol lists; show concise sample and count
-                            sample = ", ".join(buffer[:10])
-                            more = len(buffer) - len(buffer[:10])
+                            sample = ", ".join(pool_buffer[:10])
+                            more = len(pool_buffer) - len(pool_buffer[:10])
                             if more > 0:
                                 sample = f"{sample}, ...(+{more} more)"
                             msg += "\n" + tr("symbols: {names}", names=sample)
@@ -225,7 +226,7 @@ def prepare_data_vectorized_system6(
                         log_callback(msg)
                     except Exception:
                         pass
-                    buffer.clear()
+                    pool_buffer.clear()
         return result_dict
 
     total = len(raw_data_dict)
@@ -295,12 +296,12 @@ def prepare_data_vectorized_system6(
                 else:
                     x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
                 # 派生（軽量）
-                x["Return6D"] = x["Close"].pct_change(6)
+                x["return_6d"] = x["Close"].pct_change(6)
                 x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
                     x["Close"].shift(1) > x["Close"].shift(2)
                 )
                 x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
-                x["setup"] = x["filter"] & (x["Return6D"] > 0.20) & x["UpTwoDays"]
+                x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
                 x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
                 x = x.loc[~x.index.duplicated()].sort_index()
                 x.index = pd.to_datetime(x.index).tz_localize(None)
@@ -504,7 +505,7 @@ def generate_candidates_system6(
                     "symbol": sym,
                     "entry_date": entry_date,
                     "entry_price": last_price,
-                    "Return6D": row["Return6D"],
+                    "return_6d": row["return_6d"],
                     "atr10": row["atr10"],
                 }
                 candidates_by_date.setdefault(entry_date, []).append(rec)
@@ -555,7 +556,7 @@ def generate_candidates_system6(
         if df.empty:
             candidates_by_date[date] = []
             continue
-        df = df.sort_values("Return6D", ascending=False)
+        df = df.sort_values("return_6d", ascending=False)
         total = len(df)
         df.loc[:, "rank"] = list(range(1, total + 1))
         df.loc[:, "rank_total"] = total
