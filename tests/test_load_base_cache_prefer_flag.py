@@ -1,6 +1,8 @@
-import pandas as pd
-from common.cache_manager import load_base_cache, base_cache_path
 import os
+
+import pandas as pd
+
+from common.cache_manager import base_cache_path, load_base_cache
 
 
 def test_load_base_cache_prefers_precomputed(tmp_path, monkeypatch):

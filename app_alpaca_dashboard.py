@@ -1533,7 +1533,7 @@ def main() -> None:
         col1, col2 = st.columns([3, 1])
         with col1:
             if st.button(
-                "自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual", type="primary"
+                "自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual_top", type="primary"
             ):
                 st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
         with col2:
@@ -2134,7 +2134,7 @@ def main() -> None:
         st.caption(
             "※自動実行はオプトイン時に手動トリガーされます（将来はスケジューリング対応予定）。"
         )
-    if st.button("自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual"):
+    if st.button("自動ルールを今すぐ実行 (手動)", key="auto_rule_run_manual_bottom"):
         st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
 
     with tab_summary:
