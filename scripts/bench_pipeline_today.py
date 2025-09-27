@@ -446,7 +446,7 @@ def main():
     args = parser.parse_args()
 
     settings = get_settings(create_dirs=False)
-    logs_root = getattr(settings, "LOGS_DIR", None) or getattr(settings.outputs, "logs_dir")
+    logs_root = getattr(settings, "LOGS_DIR", None) or settings.outputs.logs_dir
     perf_dir = Path(logs_root) / "perf"
     perf_dir.mkdir(parents=True, exist_ok=True)
 
@@ -487,20 +487,20 @@ def main():
             writer.writerow(phase.to_row())
 
     # コンソール出力
-    print(f"\n=== Pipeline Benchmark Results ===")
+    print("\n=== Pipeline Benchmark Results ===")
     print(f"Total duration: {result.total_duration_sec:.2f}s")
     print(f"Symbols processed: {result.symbols_processed}")
     print(f"Cache hit ratio: {result.cache_hit_ratio:.1%}")
     print(
         f"Final candidates: Long={result.final_long_candidates}, Short={result.final_short_candidates}"
     )
-    print(f"\nPhase breakdown:")
+    print("\nPhase breakdown:")
     for phase in result.phases:
         print(
             f"  {phase.phase:<20} {phase.duration_sec:6.2f}s  ({phase.symbols_in}→{phase.symbols_out} symbols, {phase.candidates_count} candidates)"
         )
 
-    print(f"\nResults saved:")
+    print("\nResults saved:")
     print(f"  JSON (detailed): {json_path}")
     print(f"  CSV (summary):   {csv_path}")
 

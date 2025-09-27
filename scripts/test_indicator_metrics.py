@@ -8,9 +8,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import List
 
-import pandas as pd
 
 # プロジェクトルートをパスに追加
 ROOT = Path(__file__).parent.parent
@@ -21,7 +19,7 @@ from common.indicator_metrics import create_instrumented_add_indicators, get_met
 from config.settings import get_settings
 
 
-def test_indicator_metrics(symbols: List[str], samples: int = 10):
+def test_indicator_metrics(symbols: list[str], samples: int = 10):
     """指標メトリクス機能のテスト"""
     print("=== 指標スキップメトリクス テスト ===")
 
@@ -83,7 +81,7 @@ def test_indicator_metrics(symbols: List[str], samples: int = 10):
     return processed_count
 
 
-def get_sample_symbols(cache_mgr: CacheManager, n: int = 20) -> List[str]:
+def get_sample_symbols(cache_mgr: CacheManager, n: int = 20) -> list[str]:
     """サンプル銘柄を取得"""
     rolling_dir = Path(cache_mgr.settings.cache.rolling_dir)
     if not rolling_dir.exists():

@@ -10,7 +10,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -28,9 +28,9 @@ class IndicatorMetrics:
     timestamp: str = ""
 
     # 詳細内訳
-    existing_indicators: List[str] = field(default_factory=list)
-    computed_indicators: List[str] = field(default_factory=list)
-    failed_indicators: List[str] = field(default_factory=list)
+    existing_indicators: list[str] = field(default_factory=list)
+    computed_indicators: list[str] = field(default_factory=list)
+    failed_indicators: list[str] = field(default_factory=list)
 
     @property
     def skip_rate(self) -> float:
@@ -57,7 +57,7 @@ class IndicatorMetrics:
 class IndicatorMetricsCollector:
     """指標メトリクス収集クラス"""
 
-    def __init__(self, output_dir: Optional[Path] = None):
+    def __init__(self, output_dir: Path | None = None):
         """
         Args:
             output_dir: メトリクス出力ディレクトリ（デフォルト: logs/indicator_metrics/）
@@ -75,7 +75,7 @@ class IndicatorMetricsCollector:
             self.logger.setLevel(logging.INFO)
 
         # メトリクス収集リスト
-        self.metrics_history: List[IndicatorMetrics] = []
+        self.metrics_history: list[IndicatorMetrics] = []
 
     def wrap_add_indicators(self, add_indicators_func):
         """add_indicators関数をラップしてメトリクス収集"""
@@ -167,7 +167,7 @@ class IndicatorMetricsCollector:
 
         return wrapper
 
-    def _get_expected_indicators(self) -> List[str]:
+    def _get_expected_indicators(self) -> list[str]:
         """add_indicatorsが生成する可能性のある全指標リスト"""
         indicators = []
 
@@ -225,7 +225,7 @@ class IndicatorMetricsCollector:
         if len(self.metrics_history) % 100 == 0:
             self.export_metrics()
 
-    def export_metrics(self, filename: Optional[str] = None):
+    def export_metrics(self, filename: str | None = None):
         """メトリクスをCSV出力"""
         if not self.metrics_history:
             return
@@ -261,7 +261,7 @@ class IndicatorMetricsCollector:
 
         self.logger.info(f"Metrics exported to {filepath} ({len(data)} records)")
 
-    def get_summary_stats(self) -> Dict[str, Any]:
+    def get_summary_stats(self) -> dict[str, Any]:
         """サマリー統計を取得"""
         if not self.metrics_history:
             return {}
@@ -292,7 +292,7 @@ class IndicatorMetricsCollector:
 
 
 # グローバルインスタンス（シングルトン的利用）
-_global_collector: Optional[IndicatorMetricsCollector] = None
+_global_collector: IndicatorMetricsCollector | None = None
 
 
 def get_metrics_collector() -> IndicatorMetricsCollector:

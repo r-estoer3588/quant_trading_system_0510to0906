@@ -10,9 +10,6 @@ import time
 import pandas as pd
 
 from common.utils import (
-    BatchSizeMonitor,
-    describe_dtype,
-    drop_duplicate_columns,
     get_cached_data,
     resolve_batch_size,
 )
@@ -108,7 +105,6 @@ def _compute_indicators(
     reuse_indicators: bool,
 ) -> tuple[str, pd.DataFrame | None]:
     """Check precomputed indicators for a single symbol - no computation."""
-    import os
 
     df = get_cached_data(symbol)
     if df is None or df.empty:
@@ -454,7 +450,6 @@ def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
 
 def generate_roc200_ranking_system1(data_dict: dict, spy_df: pd.DataFrame, **kwargs):
     """Generate daily ROC200 ranking filtered by SPY trend."""
-    from common.utils_spy import resolve_signal_entry_date
 
     on_progress = kwargs.get("on_progress")
     on_log = kwargs.get("on_log")

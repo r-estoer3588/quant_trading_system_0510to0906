@@ -9,7 +9,6 @@ import numpy as np
 import logging
 from pathlib import Path
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple, Set, Union
 from datetime import datetime
 import json
 import random
@@ -36,18 +35,18 @@ class ExtendedHealthMetrics:
 
     # NaN詳細分析
     nan_rate_overall: float
-    nan_columns: Dict[str, float]  # カラム別NaN率
-    columns_with_high_nan: List[str]  # 高NaN率カラム
+    nan_columns: dict[str, float]  # カラム別NaN率
+    columns_with_high_nan: list[str]  # 高NaN率カラム
 
     # カラム完全性
-    expected_columns: List[str]
-    missing_columns: List[str]
-    unexpected_columns: List[str]
+    expected_columns: list[str]
+    missing_columns: list[str]
+    unexpected_columns: list[str]
 
     # データ正規化検証
-    price_anomalies: Dict[str, int]
+    price_anomalies: dict[str, int]
     volume_anomalies: int
-    indicator_anomalies: Dict[str, int]
+    indicator_anomalies: dict[str, int]
 
     # 時系列品質
     date_gaps: int  # 欠損日数
@@ -55,12 +54,12 @@ class ExtendedHealthMetrics:
     chronological_order: bool  # 日付順序
 
     # 既存チェック結果
-    basic_health_results: Dict[str, bool]
+    basic_health_results: dict[str, bool]
 
     # メタデータ
     analysis_timestamp: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """辞書形式変換"""
         return asdict(self)
 
@@ -71,7 +70,7 @@ class ExtendedCacheHealthChecker:
     def __init__(
         self,
         nan_threshold: float = 0.5,
-        sample_size: Optional[int] = None,
+        sample_size: int | None = None,
         max_workers: int = 4,
     ):
         """
@@ -153,7 +152,7 @@ class ExtendedCacheHealthChecker:
             "full_backup": self.expected_base_columns,
         }
 
-    def _get_sample_files(self, cache_dir: Path, profile: str) -> List[Path]:
+    def _get_sample_files(self, cache_dir: Path, profile: str) -> list[Path]:
         """ファイルサンプリング"""
         if not cache_dir.exists():
             logger.warning(f"Cache directory not found: {cache_dir}")
@@ -176,7 +175,7 @@ class ExtendedCacheHealthChecker:
         logger.info(f"Sampled {len(sampled)} files for analysis")
         return sampled
 
-    def _analyze_time_series_quality(self, df: pd.DataFrame) -> Tuple[int, int, bool]:
+    def _analyze_time_series_quality(self, df: pd.DataFrame) -> tuple[int, int, bool]:
         """時系列品質分析"""
         date_gaps = 0
         duplicate_dates = 0
@@ -214,7 +213,7 @@ class ExtendedCacheHealthChecker:
 
     def _analyze_data_anomalies(
         self, df: pd.DataFrame
-    ) -> Tuple[Dict[str, int], int, Dict[str, int]]:
+    ) -> tuple[dict[str, int], int, dict[str, int]]:
         """データ異常値分析"""
         price_anomalies = {}
         volume_anomalies = 0
@@ -270,7 +269,7 @@ class ExtendedCacheHealthChecker:
 
     def _analyze_single_file(
         self, file_path: Path, profile: str
-    ) -> Optional[ExtendedHealthMetrics]:
+    ) -> ExtendedHealthMetrics | None:
         """単一ファイル分析"""
         try:
             # ファイル読み込み
@@ -342,7 +341,7 @@ class ExtendedCacheHealthChecker:
             logger.error(f"Failed to analyze {file_path}: {str(e)}")
             return None
 
-    def analyze_profile(self, profile: str) -> List[ExtendedHealthMetrics]:
+    def analyze_profile(self, profile: str) -> list[ExtendedHealthMetrics]:
         """プロファイル分析（並列処理）"""
         cache_dir = self.settings.DATA_CACHE_DIR / profile
         sample_files = self._get_sample_files(cache_dir, profile)
@@ -369,8 +368,8 @@ class ExtendedCacheHealthChecker:
         return results
 
     def generate_comprehensive_report(
-        self, all_results: Dict[str, List[ExtendedHealthMetrics]]
-    ) -> Dict:
+        self, all_results: dict[str, list[ExtendedHealthMetrics]]
+    ) -> dict:
         """包括的レポート生成"""
         report = {
             "analysis_metadata": {
@@ -465,10 +464,10 @@ class ExtendedCacheHealthChecker:
 
     def export_results(
         self,
-        all_results: Dict[str, List[ExtendedHealthMetrics]],
-        report: Dict,
-        output_dir: Optional[Path] = None,
-    ) -> Tuple[Path, Path]:
+        all_results: dict[str, list[ExtendedHealthMetrics]],
+        report: dict,
+        output_dir: Path | None = None,
+    ) -> tuple[Path, Path]:
         """結果エクスポート"""
         if output_dir is None:
             output_dir = self.settings.LOGS_DIR / "extended_cache_health"
@@ -562,11 +561,11 @@ def main():
 
     # 推奨事項
     if report["recommendations"]:
-        print(f"\n=== 推奨事項 ===")
+        print("\n=== 推奨事項 ===")
         for i, rec in enumerate(report["recommendations"], 1):
             print(f"{i}. {rec}")
 
-    print(f"\n結果出力:")
+    print("\n結果出力:")
     print(f"  詳細CSV: {csv_path}")
     print(f"  レポートJSON: {json_path}")
 

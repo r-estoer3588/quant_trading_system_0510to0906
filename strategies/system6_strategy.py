@@ -5,20 +5,10 @@ import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
-from common.utils import resolve_batch_size
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
     prepare_data_vectorized_system6,
-)
-from core.system6_optimized import prepare_data_optimized_system6
-from core.system6_ultra_optimized import (
-    prepare_data_ultra_optimized_system6,
-    generate_candidates_ultra_fast_system6,
-)
-from core.system6_fixed import (
-    prepare_data_fixed_system6,
-    generate_candidates_system6_fixed,
 )
 
 from .base_strategy import StrategyBase

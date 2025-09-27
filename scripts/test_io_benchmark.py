@@ -39,7 +39,7 @@ def test_io_optimization():
     print(f"バッチサイズ: {benchmark.chunk_size}")
 
     try:
-        print(f"\nベンチマーク実行開始...")
+        print("\nベンチマーク実行開始...")
         results = benchmark.run_comprehensive_benchmark(profile=profile, sample_size=sample_size)
 
         if not results:
@@ -53,7 +53,7 @@ def test_io_optimization():
         csv_path, json_path = benchmark.export_benchmark_results(results, report)
 
         # 結果表示
-        print(f"\n=== 性能比較結果 ===")
+        print("\n=== 性能比較結果 ===")
         baseline_time = None
         baseline_throughput = None
 
@@ -94,7 +94,7 @@ def test_io_optimization():
 
         # パフォーマンスサマリー
         perf = report["performance_summary"]
-        print(f"=== 最優秀結果 ===")
+        print("=== 最優秀結果 ===")
         print(
             f"最高スループット: {perf['best_throughput']['method']} "
             f"({perf['best_throughput']['value']:.2f} MB/s)"
@@ -111,13 +111,13 @@ def test_io_optimization():
         # 推奨事項
         recommendations = report.get("recommendations", [])
         if recommendations:
-            print(f"\n=== 推奨事項 ===")
+            print("\n=== 推奨事項 ===")
             for i, rec in enumerate(recommendations, 1):
                 print(f"{i}. {rec}")
         else:
-            print(f"\n✅ 特定の手法が明確に優位ではありません")
+            print("\n✅ 特定の手法が明確に優位ではありません")
 
-        print(f"\n=== 詳細出力ファイル ===")
+        print("\n=== 詳細出力ファイル ===")
         print(f"CSV詳細: {csv_path}")
         print(f"JSONレポート: {json_path}")
 
@@ -127,9 +127,9 @@ def test_io_optimization():
 
             print(f"\n✅ pyarrow利用可能: バージョン {pyarrow.__version__}")
         except ImportError:
-            print(f"\n⚠️ pyarrow未インストール - pip install pyarrow で高速化可能")
+            print("\n⚠️ pyarrow未インストール - pip install pyarrow で高速化可能")
 
-        print(f"\n✅ I/O最適化ベンチマークテスト完了")
+        print("\n✅ I/O最適化ベンチマークテスト完了")
 
     except Exception as e:
         logger.error(f"ベンチマーク実行中にエラー: {e}")

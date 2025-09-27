@@ -113,7 +113,7 @@ def test_phase2_performance():
         else:
             print(f"⚠️  目標未達: {parallel_time:.3f}秒 > 0.5秒")
 
-    print(f"\n💾 メモリ最適化機能も実装済み")
+    print("\n💾 メモリ最適化機能も実装済み")
     print(f"🧵 並列ワーカー数: {max_workers}")
 
 

@@ -7,7 +7,6 @@
 """
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 import time
 
 import pandas as pd
@@ -446,7 +445,6 @@ def generate_candidates_system2(
     """セットアップ通過銘柄を日別に ADX7 降順で抽出。
     返却: (candidates_by_date, merged_df=None)
     """
-    from common.utils_spy import resolve_signal_entry_date
 
     all_signals = []
     for sym, df in prepared_dict.items():

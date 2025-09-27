@@ -201,7 +201,7 @@ def main():  # pragma: no cover
 
     settings = get_settings(create_dirs=False)
     # settings.outputs.logs_dir (新構成) / 旧互換 LOGS_DIR のどちらか
-    logs_root = getattr(settings, "LOGS_DIR", None) or getattr(settings.outputs, "logs_dir")
+    logs_root = getattr(settings, "LOGS_DIR", None) or settings.outputs.logs_dir
     perf_dir = Path(logs_root) / "perf"
     perf_dir.mkdir(parents=True, exist_ok=True)
 

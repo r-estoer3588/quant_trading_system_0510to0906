@@ -7,7 +7,6 @@ run_backtest は strategy 側にカスタム実装が残る。
 import os
 
 import pandas as pd
-from ta.volatility import AverageTrueRange
 
 from common.utils_spy import resolve_signal_entry_date
 

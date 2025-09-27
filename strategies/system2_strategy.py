@@ -6,7 +6,6 @@ import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
-from common.utils import resolve_batch_size
 from core.system2 import (
     generate_candidates_system2,
     get_total_days_system2,

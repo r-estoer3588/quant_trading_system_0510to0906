@@ -18,7 +18,6 @@ if str(_ROOT) not in sys.path:
 from common.cache_manager import CacheManager
 from config.settings import get_settings
 import pandas as pd
-import numpy as np
 
 
 def test_ultra_optimized_phase2():

@@ -3,18 +3,14 @@
 """
 
 import time
-import os
 import sys
 from pathlib import Path
-import mmap
-import struct
 
 # パス設定
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from common.cache_manager import CacheManager
 from config.settings import get_settings
 import pandas as pd
 import numpy as np
@@ -104,7 +100,7 @@ def benchmark_io_methods():
         print(f"{method:15}: {elapsed:.3f}秒 (x{speedup:.2f})")
 
     # === 最速方法での50ファイル測定 ===
-    print(f"\n--- 最速方法での50ファイル実測 ---")
+    print("\n--- 最速方法での50ファイル実測 ---")
 
     all_files = list(rolling_dir.glob("*.csv"))[:50]
 
@@ -114,7 +110,7 @@ def benchmark_io_methods():
     for file_path in all_files:
         try:
             # ヘッダーチェック + 最適読み込み
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 first_line = f.readline().strip()
 
             # 基本的なOHLCVカラムがあるかチェック

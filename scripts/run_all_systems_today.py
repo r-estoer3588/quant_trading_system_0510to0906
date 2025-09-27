@@ -46,7 +46,7 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
-from common.cache_manager import round_dataframe  # noqa: E402
+from common.dataframe_utils import round_dataframe  # noqa: E402
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals

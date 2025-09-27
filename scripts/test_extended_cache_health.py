@@ -56,7 +56,7 @@ def test_extended_health_check():
         return
 
     # レポート生成
-    print(f"\nレポート生成中...")
+    print("\nレポート生成中...")
     try:
         report = checker.generate_comprehensive_report(all_results)
         csv_path, json_path = checker.export_results(all_results, report)
@@ -87,27 +87,27 @@ def test_extended_health_check():
         # 推奨事項
         recommendations = report.get("recommendations", [])
         if recommendations:
-            print(f"\n=== 推奨事項 ===")
+            print("\n=== 推奨事項 ===")
             for i, rec in enumerate(recommendations, 1):
                 print(f"{i}. {rec}")
         else:
-            print(f"\n✅ 特に問題は検出されませんでした")
+            print("\n✅ 特に問題は検出されませんでした")
 
         # 全体統計
         overall = report.get("overall_statistics", {})
         if overall:
-            print(f"\n=== 全体統計 ===")
+            print("\n=== 全体統計 ===")
             print(f"総銘柄数: {overall.get('total_symbols_analyzed', 'N/A')}")
             print(f"平均行数/ファイル: {overall.get('average_rows_per_file', 'N/A')}")
             print(f"平均カラム数/ファイル: {overall.get('average_columns_per_file', 'N/A')}")
             print(f"全体健全性率: {overall.get('overall_health_rate', 'N/A')}%")
 
-        print(f"\n=== 出力ファイル ===")
+        print("\n=== 出力ファイル ===")
         print(f"詳細CSV: {csv_path}")
         print(f"レポートJSON: {json_path}")
 
         # 結果詳細の一部表示
-        print(f"\n=== サンプル詳細（最初の2件）===")
+        print("\n=== サンプル詳細（最初の2件）===")
         sample_count = 0
         for profile, metrics_list in all_results.items():
             if sample_count >= 2:
@@ -129,7 +129,7 @@ def test_extended_health_check():
                 )
                 sample_count += 1
 
-        print(f"\n✅ 拡張キャッシュヘルスチェックテスト完了")
+        print("\n✅ 拡張キャッシュヘルスチェックテスト完了")
 
     except Exception as e:
         logger.error(f"レポート生成失敗: {e}")

@@ -6,9 +6,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import ClassVar
 
-import numpy as np
 import pandas as pd
 
 from common.utils import describe_dtype

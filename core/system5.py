@@ -13,9 +13,6 @@ import os
 import time
 
 import pandas as pd
-from ta.momentum import RSIIndicator
-from ta.trend import ADXIndicator, SMAIndicator
-from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import (

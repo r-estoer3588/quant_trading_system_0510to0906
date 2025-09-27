@@ -301,7 +301,6 @@ def _process_symbol_worker(args: tuple) -> tuple[str, bool, str | None]:
 def _write_dual_format(cm: CacheManager, df: pd.DataFrame, symbol: str) -> None:
     """Write both CSV and Feather formats for better performance."""
     import shutil
-    from pathlib import Path
 
     # Get rolling directory
     rolling_dir = cm.rolling_dir
@@ -309,7 +308,7 @@ def _write_dual_format(cm: CacheManager, df: pd.DataFrame, symbol: str) -> None:
 
     # Apply rounding if configured
     round_dec = getattr(getattr(cm, "rolling_cfg", None), "round_decimals", None)
-    from common.cache_manager import round_dataframe
+    from common.dataframe_utils import round_dataframe
 
     df_to_write = round_dataframe(df, round_dec)
 

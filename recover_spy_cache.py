@@ -87,10 +87,10 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         # これにより full_backup, base, rolling すべてに適切な指標付きで保存される
         try:
             cache_manager.upsert_both(symbol, df)
-            print(f"✅ SPY データを CacheManager 経由で保存しました")
-            print(f"   - full_backup: 全指標付きデータ")
-            print(f"   - base: ベース指標付きデータ")
-            print(f"   - rolling: 直近300+30日のデータ")
+            print("✅ SPY データを CacheManager 経由で保存しました")
+            print("   - full_backup: 全指標付きデータ")
+            print("   - base: ベース指標付きデータ")
+            print("   - rolling: 直近300+30日のデータ")
         except Exception as e:
             print(f"❌ CacheManager による保存に失敗: {e}", file=sys.stderr)
 

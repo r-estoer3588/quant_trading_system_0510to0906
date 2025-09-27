@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import Dict, List, Set, Tuple
 
 from common.cache_manager import get_indicator_column_flexible
-from config.settings import get_settings
 
 
 class IndicatorValidationError(Exception):
@@ -58,11 +56,11 @@ COMMON_REQUIRED_INDICATORS = {
 
 
 def validate_precomputed_indicators(
-    data_dict: Dict[str, pd.DataFrame],
-    systems: List[int] | None = None,
+    data_dict: dict[str, pd.DataFrame],
+    systems: list[int] | None = None,
     strict_mode: bool = True,
     log_callback=None,
-) -> Tuple[bool, Dict[str, List[str]]]:
+) -> tuple[bool, dict[str, list[str]]]:
     """
     指標事前計算状況を検証し、不足があればエラーレポートを返す
 
@@ -150,7 +148,7 @@ def validate_precomputed_indicators(
     return validation_passed, missing_report
 
 
-def quick_indicator_check(data_dict: Dict[str, pd.DataFrame], log_callback=None) -> bool:
+def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None) -> bool:
     """
     高速な指標存在チェック（サンプル銘柄のみ）
 

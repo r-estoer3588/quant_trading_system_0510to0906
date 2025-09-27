@@ -11,11 +11,9 @@
 """
 
 import pandas as pd
-import numpy as np
 import logging
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union, Callable
 from datetime import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,7 +45,7 @@ class IOBenchmarkResult:
     throughput_mb_per_sec: float
     memory_peak_mb: float
     success_rate: float
-    error_messages: List[str]
+    error_messages: list[str]
 
     # データ品質指標
     total_rows: int
@@ -55,10 +53,10 @@ class IOBenchmarkResult:
     average_columns_per_file: float
 
     # システム負荷指標
-    cpu_time_seconds: Optional[float] = None
-    gc_collections: Optional[int] = None
+    cpu_time_seconds: float | None = None
+    gc_collections: int | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "method": self.method_name,
             "files": self.file_count,
@@ -109,8 +107,8 @@ class IOOptimizationBenchmark:
         return 0.0
 
     def _get_file_sample(
-        self, cache_dir: Path, sample_size: Optional[int] = None
-    ) -> List[Tuple[Path, float]]:
+        self, cache_dir: Path, sample_size: int | None = None
+    ) -> list[tuple[Path, float]]:
         """ファイルサンプル取得（パス, サイズMB）"""
         if not cache_dir.exists():
             return []
@@ -144,7 +142,7 @@ class IOOptimizationBenchmark:
         logger.info(f"Selected {len(file_info)} files from {cache_dir}")
         return file_info
 
-    def _method_sequential_pandas(self, files: List[Tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_sequential_pandas(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
         """1. シーケンシャル pandas.read_csv"""
         method_name = "Sequential_pandas"
         start_time = time.time()
@@ -207,7 +205,7 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def _method_threaded_pandas(self, files: List[Tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_threaded_pandas(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
         """2. ThreadPool並列 pandas.read_csv"""
         method_name = f"Threaded_pandas_{self.max_workers}workers"
         start_time = time.time()
@@ -220,7 +218,7 @@ class IOOptimizationBenchmark:
         total_rows = 0
         total_columns = 0
 
-        def load_single_file(file_info: Tuple[Path, float]) -> Optional[pd.DataFrame]:
+        def load_single_file(file_info: tuple[Path, float]) -> pd.DataFrame | None:
             """単一ファイル読み込み"""
             file_path, _ = file_info
             try:
@@ -278,7 +276,7 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def _method_pyarrow_csv(self, files: List[Tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_pyarrow_csv(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
         """3. pyarrow.csv高速パーサー"""
         method_name = "PyArrow_CSV"
 
@@ -359,7 +357,7 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def _method_batched_concat(self, files: List[Tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_batched_concat(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
         """4. バッチread→concat最適化"""
         method_name = f"Batched_concat_{self.chunk_size}batch"
         start_time = time.time()
@@ -435,7 +433,7 @@ class IOOptimizationBenchmark:
 
     def run_comprehensive_benchmark(
         self, profile: str = "rolling", sample_size: int = 20
-    ) -> List[IOBenchmarkResult]:
+    ) -> list[IOBenchmarkResult]:
         """包括的I/Oベンチマーク実行"""
         logger.info(f"Starting I/O benchmark - profile: {profile}, sample: {sample_size}")
 
@@ -474,7 +472,7 @@ class IOOptimizationBenchmark:
 
         return results
 
-    def generate_benchmark_report(self, results: List[IOBenchmarkResult]) -> Dict:
+    def generate_benchmark_report(self, results: list[IOBenchmarkResult]) -> dict:
         """ベンチマークレポート生成"""
         if not results:
             return {"error": "No benchmark results available"}
@@ -541,10 +539,10 @@ class IOOptimizationBenchmark:
 
     def export_benchmark_results(
         self,
-        results: List[IOBenchmarkResult],
-        report: Dict,
-        output_dir: Optional[Path] = None,
-    ) -> Tuple[Path, Path]:
+        results: list[IOBenchmarkResult],
+        report: dict,
+        output_dir: Path | None = None,
+    ) -> tuple[Path, Path]:
         """ベンチマーク結果出力"""
         if output_dir is None:
             output_dir = self.settings.LOGS_DIR / "io_benchmark"
@@ -589,7 +587,7 @@ def main():
     # ロギング設定
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    print(f"I/O最適化ベンチマーク開始")
+    print("I/O最適化ベンチマーク開始")
     print(f"プロファイル: {args.profile}")
     print(f"サンプルサイズ: {args.sample}")
     print(f"並列ワーカー: {args.workers}")
@@ -611,7 +609,7 @@ def main():
     csv_path, json_path = benchmark.export_benchmark_results(results, report)
 
     # 結果表示
-    print(f"\n=== I/O性能ベンチマーク結果 ===")
+    print("\n=== I/O性能ベンチマーク結果 ===")
     perf = report["performance_summary"]
     print(
         f"最高スループット: {perf['best_throughput']['method']} "
@@ -626,7 +624,7 @@ def main():
         f"({perf['lowest_memory']['value']:.1f}MB)"
     )
 
-    print(f"\n=== 各手法詳細 ===")
+    print("\n=== 各手法詳細 ===")
     for result in results:
         print(f"{result.method_name}:")
         print(f"  実行時間: {result.wall_clock_seconds:.3f}秒")
@@ -638,11 +636,11 @@ def main():
     # 推奨事項
     recommendations = report.get("recommendations", [])
     if recommendations:
-        print(f"\n=== 推奨事項 ===")
+        print("\n=== 推奨事項 ===")
         for i, rec in enumerate(recommendations, 1):
             print(f"{i}. {rec}")
 
-    print(f"\n結果出力:")
+    print("\n結果出力:")
     print(f"  詳細CSV: {csv_path}")
     print(f"  レポートJSON: {json_path}")
 

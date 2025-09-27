@@ -8,7 +8,6 @@ import time
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.utils import get_cached_data
 from core.system7 import (
     generate_candidates_system7,
     get_total_days_system7,

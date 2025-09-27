@@ -5,8 +5,6 @@ import os
 import time
 
 import pandas as pd
-from ta.trend import SMAIndicator
-from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
 from common.utils import (
