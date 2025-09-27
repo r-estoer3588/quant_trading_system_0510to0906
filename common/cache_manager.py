@@ -497,11 +497,18 @@ class CacheManager:
             return df
 
     def _detect_path(self, base_dir: Path, ticker: str) -> Path:
-        """Detects the cache file path, defaulting based on settings."""
-        for ext in [".csv", ".parquet", ".feather"]:
+        """Detects the cache file path, prioritizing feather for rolling profile."""
+        # For rolling profile, prioritize feather for better performance
+        if base_dir == self.rolling_dir:
+            search_order = [".feather", ".parquet", ".csv"]
+        else:
+            search_order = [".csv", ".parquet", ".feather"]
+
+        for ext in search_order:
             if (p := base_dir / f"{ticker}{ext}").exists():
                 return p
 
+        # Default format selection based on settings
         fmt = (self.file_format or "auto").lower()
         if fmt == "parquet":
             return base_dir / f"{ticker}.parquet"

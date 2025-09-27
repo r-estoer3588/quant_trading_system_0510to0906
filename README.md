@@ -127,6 +127,19 @@ pytest -q
 - `docs/` – ドキュメント
 - `tests/` – テスト
 
+## データストレージ最適化
+
+### デュアルフォーマット対応
+- `data_cache/rolling/`：CSV + Feather 同時保存
+- パフォーマンス：Feather優先読み取り、CSV自動フォールバック
+- ファイルサイズ：Feather は CSV の約74%（重複列削除効果）
+- 対応範囲：6,200+銘柄すべて
+
+### 重複列クリーンアップ
+- 削除対象：`open/Open/OPEN` 等の冗長列（約7列）
+- 優先順位：PascalCase > ALL_CAPS > lowercase
+- データ削減：列数を約40%削減（58→35列）
+
 ## キャッシュ階層（base / rolling / full_backup）
 
 - base: 指標付与済みの長期データ（バックテスト・分析の既定）。

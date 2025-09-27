@@ -197,7 +197,13 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
     enriched = add_indicators(calc_for_ind)
 
-    enriched["date"] = pd.to_datetime(enriched.get("date", enriched.get("Date")), errors="coerce")
+    # Clean duplicate columns (Open/open, High/high, etc.) - keep PascalCase versions
+    enriched = _clean_duplicate_columns(enriched)
+
+    # normalize date column
+    date_col = enriched.get("date", enriched.get("Date"))
+    if date_col is not None:
+        enriched["date"] = pd.to_datetime(date_col, errors="coerce")
     enriched = enriched.drop(columns=["Date"], errors="ignore")
     enriched = enriched.dropna(subset=["date"]).sort_values("date")
     if target_days > 0:
@@ -206,6 +212,56 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
     cols = ["date"] + [c for c in enriched.columns if c != "date"]
     return enriched.loc[:, cols]
+
+
+def _clean_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove duplicate columns comprehensively, keeping PascalCase/uppercase versions."""
+    if df is None or df.empty:
+        return df
+
+    columns = df.columns.tolist()
+    duplicates_to_remove = []
+
+    # Build case-insensitive mapping to find duplicates
+    col_mapping = {}
+    for col in columns:
+        key = col.lower()
+        if key not in col_mapping:
+            col_mapping[key] = []
+        col_mapping[key].append(col)
+
+    # For each group of similar columns, keep the best one
+    for key, similar_cols in col_mapping.items():
+        if len(similar_cols) <= 1:
+            continue
+
+        # Priority order: PascalCase > ALL_CAPS > lowercase
+        priority_scores = []
+        for col in similar_cols:
+            if col.isupper():  # ATR10, SMA25, etc.
+                score = 3
+            elif col[0].isupper():  # Open, Close, DollarVolume20, etc.
+                score = 2
+            elif "_" in col:  # adjusted_close, return_3d, etc.
+                score = 1
+            else:  # lowercase: atr10, sma25, etc.
+                score = 0
+            priority_scores.append((score, col))
+
+        # Sort by priority (highest first) and keep the best one
+        priority_scores.sort(reverse=True)
+        best_col = priority_scores[0][1]
+
+        # Mark others for removal
+        for _, col in priority_scores[1:]:
+            duplicates_to_remove.append(col)
+
+    # Remove duplicate columns
+    if duplicates_to_remove:
+        print(f"🧹 重複列クリーンアップ: {len(duplicates_to_remove)}列削除")
+        df = df.drop(columns=duplicates_to_remove)
+
+    return df
 
 
 def _process_symbol_worker(args: tuple) -> tuple[str, bool, str | None]:
@@ -233,12 +289,51 @@ def _process_symbol_worker(args: tuple) -> tuple[str, bool, str | None]:
             except Exception:
                 pass
         try:
-            cm.write_atomic(enriched, symbol, "rolling")
+            # Write both CSV and Feather formats
+            _write_dual_format(cm, enriched, symbol)
         except Exception as exc:
             return (symbol, False, f"write_error:{exc}")
         return (symbol, True, None)
     except Exception as exc:
         return (symbol, False, f"{type(exc).__name__}:{exc}")
+
+
+def _write_dual_format(cm: CacheManager, df: pd.DataFrame, symbol: str) -> None:
+    """Write both CSV and Feather formats for better performance."""
+    import shutil
+    from pathlib import Path
+
+    # Get rolling directory
+    rolling_dir = cm.rolling_dir
+    rolling_dir.mkdir(parents=True, exist_ok=True)
+
+    # Apply rounding if configured
+    round_dec = getattr(getattr(cm, "rolling_cfg", None), "round_decimals", None)
+    from common.cache_manager import round_dataframe
+
+    df_to_write = round_dataframe(df, round_dec)
+
+    # Write CSV (for compatibility)
+    csv_path = rolling_dir / f"{symbol}.csv"
+    csv_tmp = rolling_dir / f"{symbol}.csv.tmp"
+    try:
+        from common.cache_manager import _write_dataframe_to_csv
+
+        _write_dataframe_to_csv(df_to_write, csv_tmp, cm.settings)
+        shutil.move(csv_tmp, csv_path)
+    finally:
+        if csv_tmp.exists():
+            csv_tmp.unlink(missing_ok=True)
+
+    # Write Feather (for performance)
+    feather_path = rolling_dir / f"{symbol}.feather"
+    feather_tmp = rolling_dir / f"{symbol}.feather.tmp"
+    try:
+        df_to_write.reset_index(drop=True).to_feather(feather_tmp)
+        shutil.move(feather_tmp, feather_path)
+    finally:
+        if feather_tmp.exists():
+            feather_tmp.unlink(missing_ok=True)
 
 
 def _resolve_symbol_universe(

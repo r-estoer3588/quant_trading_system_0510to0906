@@ -3236,6 +3236,32 @@ def compute_today_signals(
     basic_data = _load_universe_basic_data(ctx, symbols)
 
     basic_data = _precompute_shared_indicators_phase(ctx, basic_data)
+
+    # ✨ NEW: 指標事前計算チェック（不足時は即座停止）
+    try:
+        from common.indicators_validation import (
+            validate_precomputed_indicators,
+            IndicatorValidationError,
+        )
+
+        target_systems = [1, 2, 3, 4, 5, 6, 7]  # 全System対象
+        _log("🔍 指標事前計算状況をチェック中...")
+
+        validate_precomputed_indicators(
+            basic_data,
+            systems=target_systems,
+            strict_mode=True,  # 不足時は即座停止
+            log_callback=_log,
+        )
+
+    except IndicatorValidationError as e:
+        _log(f"❌ 指標チェックエラー: {e}")
+        _log("💡 解決方法: python scripts/build_rolling_with_indicators.py --workers 4")
+        raise SystemExit(1) from e
+    except Exception as e:
+        _log(f"⚠️  指標チェック処理でエラー: {e}")
+        # チェック処理自体のエラーは継続（後方互換性）
+
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
     filter_stats: dict[str, dict[str, int]] = {
         "system1": {},
