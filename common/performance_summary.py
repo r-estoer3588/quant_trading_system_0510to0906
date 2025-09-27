@@ -47,7 +47,7 @@ def _equity_from_trades(trades_df: pd.DataFrame, initial_capital: float) -> pd.S
     df = df.sort_values("exit_date")
 
     equity = initial_capital + df["pnl"].cumsum()
-    equity.index = df["exit_date"].values
+    equity.index = pd.to_datetime(df["exit_date"].values)
     return equity
 
 

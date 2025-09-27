@@ -61,10 +61,6 @@ def _import_alpaca_requests():
 
 _alpaca_trading_requests = _import_alpaca_requests()
 
-        return importlib.import_module("alpaca.trading.requests")
-    except Exception:
-        return None
-
 
 def _running_in_streamlit() -> bool:
     try:

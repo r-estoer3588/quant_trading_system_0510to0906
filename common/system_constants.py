@@ -78,28 +78,53 @@ ADX_PERIOD_DEFAULT = 7
 DOLLAR_VOLUME_PERIOD_DEFAULT = 20
 
 # === システム別必須指標リスト ===
-SYSTEM1_REQUIRED_INDICATORS = [
-    "roc200", "sma200", "dollarvolume20", "filter", "setup"
-]
+SYSTEM1_REQUIRED_INDICATORS = ["roc200", "sma200", "dollarvolume20", "filter", "setup"]
 
 SYSTEM2_REQUIRED_INDICATORS = [
-    "rsi3", "adx7", "atr10", "dollarvolume20", "atr_ratio", "TwoDayUp", "filter", "setup"
+    "rsi3",
+    "adx7",
+    "atr10",
+    "dollarvolume20",
+    "atr_ratio",
+    "TwoDayUp",
+    "filter",
+    "setup",
 ]
 
 SYSTEM3_REQUIRED_INDICATORS = [
-    "atr10", "dollarvolume20", "atr_ratio", "Drop3D", "filter", "setup"
+    "atr10",
+    "dollarvolume20",
+    "atr_ratio",
+    "Drop3D",
+    "filter",
+    "setup",
 ]
 
 SYSTEM4_REQUIRED_INDICATORS = [
-    "rsi4", "sma200", "hv50", "dollarvolume20", "filter", "setup"
+    "rsi4",
+    "sma200",
+    "hv50",
+    "dollarvolume20",
+    "filter",
+    "setup",
 ]
 
 SYSTEM5_REQUIRED_INDICATORS = [
-    "adx7", "atr10", "dollarvolume20", "atr_pct", "filter", "setup"
+    "adx7",
+    "atr10",
+    "dollarvolume20",
+    "atr_pct",
+    "filter",
+    "setup",
 ]
 
 SYSTEM6_REQUIRED_INDICATORS = [
-    "atr10", "dollarvolume50", "return_6d", "UpTwoDays", "filter", "setup"
+    "atr10",
+    "dollarvolume50",
+    "return_6d",
+    "UpTwoDays",
+    "filter",
+    "setup",
 ]
 
 SYSTEM7_REQUIRED_INDICATORS = [
@@ -162,13 +187,13 @@ SYSTEM_CONFIGS = {
 
 def get_system_config(system_name: str) -> dict:
     """指定されたシステムの設定を取得する。
-    
+
     Args:
         system_name: システム名（例: "system1", "system2"）
-        
+
     Returns:
         システム設定辞書
-        
+
     Raises:
         KeyError: 未知のシステム名の場合
     """
@@ -179,19 +204,24 @@ __all__ = [
     # 基本定数
     "REQUIRED_COLUMNS",
     "DEFAULT_MIN_PRICE",
-    "DEFAULT_MIN_DOLLAR_VOLUME", 
+    "DEFAULT_MIN_DOLLAR_VOLUME",
     "DEFAULT_ATR_RATIO_THRESHOLD",
-    
     # システム別最小行数
-    "MIN_ROWS_SYSTEM1", "MIN_ROWS_SYSTEM2", "MIN_ROWS_SYSTEM3",
-    "MIN_ROWS_SYSTEM4", "MIN_ROWS_SYSTEM5", "MIN_ROWS_SYSTEM6", "MIN_ROWS_SYSTEM7",
-    
+    "MIN_ROWS_SYSTEM1",
+    "MIN_ROWS_SYSTEM2",
+    "MIN_ROWS_SYSTEM3",
+    "MIN_ROWS_SYSTEM4",
+    "MIN_ROWS_SYSTEM5",
+    "MIN_ROWS_SYSTEM6",
+    "MIN_ROWS_SYSTEM7",
     # システム別必須指標
-    "SYSTEM1_REQUIRED_INDICATORS", "SYSTEM2_REQUIRED_INDICATORS", 
-    "SYSTEM3_REQUIRED_INDICATORS", "SYSTEM4_REQUIRED_INDICATORS",
-    "SYSTEM5_REQUIRED_INDICATORS", "SYSTEM6_REQUIRED_INDICATORS",
+    "SYSTEM1_REQUIRED_INDICATORS",
+    "SYSTEM2_REQUIRED_INDICATORS",
+    "SYSTEM3_REQUIRED_INDICATORS",
+    "SYSTEM4_REQUIRED_INDICATORS",
+    "SYSTEM5_REQUIRED_INDICATORS",
+    "SYSTEM6_REQUIRED_INDICATORS",
     "SYSTEM7_REQUIRED_INDICATORS",
-    
     # 設定管理
     "SYSTEM_CONFIGS",
     "get_system_config",

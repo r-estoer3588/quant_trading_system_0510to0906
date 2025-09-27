@@ -1,9 +1,9 @@
-"""System2 core logic (Short RSI spike).
+"""System3 core logic (Long mean-reversion).
 
-RSI3-based short spike strategy:
-- Indicators: RSI3, ADX7, ATR10, DollarVolume20, ATR_Ratio, TwoDayUp (precomputed only)
-- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>0.03, RSI3>90, TwoDayUp
-- Candidate generation: ADX7 descending ranking by date, extract top_n
+3-day drop mean-reversion strategy:
+- Indicators: ATR10, DollarVolume20, ATR_Ratio, Drop3D (precomputed only)
+- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>=0.05, Drop3D>=0.125
+- Candidate generation: Drop3D descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
 
@@ -14,8 +14,8 @@ import pandas as pd
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import (
-    SYSTEM2_REQUIRED_INDICATORS,
-    MIN_ROWS_SYSTEM2,
+    SYSTEM3_REQUIRED_INDICATORS,
+    MIN_ROWS_SYSTEM3,
     get_system_config,
 )
 from common.utils import get_cached_data
@@ -23,7 +23,7 @@ from common.utils_spy import resolve_signal_entry_date
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
-    """Check precomputed indicators and apply System2-specific filters.
+    """Check precomputed indicators and apply System3-specific filters.
     
     Args:
         symbol: Target symbol to process
@@ -37,25 +37,24 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM2_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns]
         if missing_indicators:
             return symbol, None
 
-        # Apply System2-specific filters and setup
+        # Apply System3-specific filters and setup
         x = df.copy()
         
-        # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>0.03
+        # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
         x["filter"] = (
             (x["Close"] >= 5.0) & 
             (x["dollarvolume20"] > 25_000_000) &
-            (x["atr_ratio"] > 0.03)
+            (x["atr_ratio"] >= 0.05)
         )
         
-        # Setup: Filter + RSI3>90 + TwoDayUp
+        # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
         x["setup"] = (
             x["filter"] & 
-            (x["rsi3"] > 90) &
-            (x["twodayup"] == True)
+            (x["drop3d"] >= 0.125)
         )
         
         return symbol, x
@@ -64,7 +63,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         return symbol, None
 
 
-def prepare_data_vectorized_system2(
+def prepare_data_vectorized_system3(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
     progress_callback=None,
@@ -77,7 +76,7 @@ def prepare_data_vectorized_system2(
     max_workers: int | None = None,
     **kwargs,
 ) -> dict[str, pd.DataFrame]:
-    """System2 data preparation processing (RSI3 spike strategy).
+    """System3 data preparation processing (3-day drop mean-reversion strategy).
     
     Execute high-speed processing using precomputed indicators.
     
@@ -100,33 +99,32 @@ def prepare_data_vectorized_system2(
         try:
             # Early check - verify required indicators exist
             valid_data_dict, error_symbols = check_precomputed_indicators(
-                raw_data_dict, SYSTEM2_REQUIRED_INDICATORS, "System2", skip_callback
+                raw_data_dict, SYSTEM3_REQUIRED_INDICATORS, "System3", skip_callback
             )
             
             if valid_data_dict:
-                # Apply System2-specific filters
+                # Apply System3-specific filters
                 prepared_dict = {}
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
                     
-                    # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>0.03
+                    # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
                     x["filter"] = (
                         (x["Close"] >= 5.0) & 
                         (x["dollarvolume20"] > 25_000_000) &
-                        (x["atr_ratio"] > 0.03)
+                        (x["atr_ratio"] >= 0.05)
                     )
                     
-                    # Setup: Filter + RSI3>90 + TwoDayUp
+                    # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
                     x["setup"] = (
                         x["filter"] & 
-                        (x["rsi3"] > 90) &
-                        (x["twodayup"] == True)
+                        (x["drop3d"] >= 0.125)
                     )
                     
                     prepared_dict[symbol] = x
                 
                 if log_callback:
-                    log_callback(f"System2: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(f"System3: Fast-path processed {len(prepared_dict)} symbols")
                 
                 return prepared_dict
                 
@@ -136,7 +134,7 @@ def prepare_data_vectorized_system2(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System2: Fast-path failed, falling back to normal processing")
+                log_callback("System3: Fast-path failed, falling back to normal processing")
     
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -145,11 +143,11 @@ def prepare_data_vectorized_system2(
         target_symbols = list(raw_data_dict.keys())
     else:
         if log_callback:
-            log_callback("System2: No symbols provided, returning empty dict")
+            log_callback("System3: No symbols provided, returning empty dict")
         return {}
     
     if log_callback:
-        log_callback(f"System2: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(f"System3: Starting normal processing for {len(target_symbols)} symbols")
     
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -161,20 +159,20 @@ def prepare_data_vectorized_system2(
         progress_callback=progress_callback,
         log_callback=log_callback,
         skip_callback=skip_callback,
-        system_name="System2",
+        system_name="System3",
     )
     
     return results
 
 
-def generate_candidates_system2(
+def generate_candidates_system3(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
 ) -> tuple[dict, pd.DataFrame | None]:
-    """System2 candidate generation (ADX7 descending ranking).
+    """System3 candidate generation (Drop3D descending ranking).
     
     Args:
         prepared_dict: Prepared data dictionary
@@ -187,7 +185,7 @@ def generate_candidates_system2(
     """
     if not prepared_dict:
         if log_callback:
-            log_callback("System2: No data provided for candidate generation")
+            log_callback("System3: No data provided for candidate generation")
         return {}, None
         
     if top_n is None:
@@ -201,7 +199,7 @@ def generate_candidates_system2(
             
     if not all_dates:
         if log_callback:
-            log_callback("System2: No valid dates found in data")
+            log_callback("System3: No valid dates found in data")
         return {}, None
         
     all_dates = sorted(all_dates)
@@ -210,9 +208,9 @@ def generate_candidates_system2(
     all_candidates = []
     
     if log_callback:
-        log_callback(f"System2: Generating candidates for {len(all_dates)} dates")
+        log_callback(f"System3: Generating candidates for {len(all_dates)} dates")
     
-    # Execute ADX7 ranking by date
+    # Execute Drop3D ranking by date
     for i, date in enumerate(all_dates):
         date_candidates = []
         
@@ -227,25 +225,25 @@ def generate_candidates_system2(
                 if not row.get("setup", False):
                     continue
                     
-                # Get ADX7 value
-                adx7_val = row.get("adx7", 0)
-                if pd.isna(adx7_val) or adx7_val <= 0:
+                # Get Drop3D value
+                drop3d_val = row.get("drop3d", 0)
+                if pd.isna(drop3d_val) or drop3d_val < 0.125:
                     continue
                     
                 date_candidates.append({
                     "symbol": symbol,
                     "date": date,
-                    "adx7": adx7_val,
-                    "rsi3": row.get("rsi3", 0),
+                    "drop3d": drop3d_val,
+                    "atr_ratio": row.get("atr_ratio", 0),
                     "close": row.get("Close", 0),
                 })
                 
             except Exception:
                 continue
         
-        # Sort by ADX7 descending and extract top_n
+        # Sort by Drop3D descending and extract top_n
         if date_candidates:
-            date_candidates.sort(key=lambda x: x["adx7"], reverse=True)
+            date_candidates.sort(key=lambda x: x["drop3d"], reverse=True)
             top_candidates = date_candidates[:top_n]
             
             candidates_by_date[date] = top_candidates
@@ -259,20 +257,20 @@ def generate_candidates_system2(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
     else:
         candidates_df = None
         
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback(f"System2: Generated {total_candidates} candidates across {unique_dates} dates")
+        log_callback(f"System3: Generated {total_candidates} candidates across {unique_dates} dates")
     
     return candidates_by_date, candidates_df
 
 
-def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:
-    """Get total days count for System2 data.
+def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:
+    """Get total days count for System3 data.
     
     Args:
         data_dict: Data dictionary
@@ -284,7 +282,7 @@ def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:
 
 
 __all__ = [
-    "prepare_data_vectorized_system2",
-    "generate_candidates_system2", 
-    "get_total_days_system2",
+    "prepare_data_vectorized_system3",
+    "generate_candidates_system3", 
+    "get_total_days_system3",
 ]

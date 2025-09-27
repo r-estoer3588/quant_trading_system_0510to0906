@@ -13,7 +13,7 @@ import pandas as pd
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
 from core.system1 import (
-    generate_roc200_ranking_system1,
+    generate_candidates_system1,
     get_total_days_system1,
     prepare_data_vectorized_system1,
 )
@@ -37,13 +37,16 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
-        market_df = self._get_market_df(data_dict, market_df)
 
-        return generate_roc200_ranking_system1(
+        # Extract progress/log callbacks from kwargs if present
+        progress_callback = kwargs.get("progress_callback", kwargs.get("on_progress"))
+        log_callback = kwargs.get("log_callback", kwargs.get("on_log"))
+
+        return generate_candidates_system1(
             data_dict,
-            market_df,
             top_n=top_n,
-            **kwargs,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
         )
 
     def run_backtest(
