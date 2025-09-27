@@ -115,6 +115,8 @@ class CacheConfig:
     round_decimals: int | None = 4
     # CSV locale defaults (applies when writing CSV files)
     csv: CsvConfig = field(default_factory=CsvConfig)
+    # rolling cache無効化: TrueでrollingをbaseからのTail処理に変更
+    disable_rolling_cache: bool = False
 
 
 @dataclass(frozen=True)

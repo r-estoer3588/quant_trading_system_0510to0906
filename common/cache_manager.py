@@ -428,6 +428,27 @@ class CacheManager:
         self._warned.add(key)
         logger.warning(message)
 
+    def _read_base_and_tail(self, ticker: str, tail_rows: int = 330) -> pd.DataFrame | None:
+        """baseキャッシュを読み込み、rolling相当の行数でtail処理を行う"""
+        try:
+            # baseディレクトリから読み込み
+            base_dir = self.full_dir.parent / "base"
+            path = self._detect_path(base_dir, ticker)
+            
+            if not path.exists():
+                return None
+                
+            df = self._read_with_fallback(path, ticker, "base")
+            if df is None or df.empty:
+                return None
+                
+            # tail処理でrolling相当のサイズに
+            return df.tail(tail_rows)
+            
+        except Exception as e:
+            logger.warning(f"Failed to read base and tail for {ticker}: {e}")
+            return None
+
     def _recompute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Recalculate derived indicator columns when base OHLC data is updated."""
         if df is None or df.empty or "date" not in df.columns:
@@ -552,6 +573,16 @@ class CacheManager:
 
     def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
         """Reads data from the cache, handling different formats and normalization."""
+        
+        # rolling無効化設定のチェック
+        if profile == "rolling" and getattr(self.settings.cache, 'disable_rolling_cache', False):
+            # rollingが無効化されている場合、baseから読み込んでtail処理
+            base_df = self._read_base_and_tail(ticker)
+            if base_df is not None:
+                return base_df
+            # baseが無い場合はfull_backupにフォールバック
+            profile = "full"
+        
         base = self.full_dir if profile == "full" else self.rolling_dir
         path = self._detect_path(base, ticker)
 

@@ -17,65 +17,57 @@ from common.io_optimization_benchmark import IOOptimizationBenchmark
 
 def test_io_optimization():
     """I/O最適化テスト実行"""
-    
+
     # ロギング設定
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
-    
+
     print("=== 並列I/O最適化ベンチマークテスト ===")
-    
+
     # ベンチマーク設定
     benchmark = IOOptimizationBenchmark(
-        max_workers=3,  # 軽量テスト用
-        chunk_size=5,   # 小バッチサイズ
-        memory_monitoring=True
+        max_workers=3, chunk_size=5, memory_monitoring=True  # 軽量テスト用  # 小バッチサイズ
     )
-    
+
     # テスト実行パラメータ
     profile = "rolling"  # 豊富なファイルが期待される
-    sample_size = 10     # 軽量テスト
-    
+    sample_size = 10  # 軽量テスト
+
     print(f"対象プロファイル: {profile}")
     print(f"サンプルサイズ: {sample_size}")
     print(f"並列ワーカー: {benchmark.max_workers}")
     print(f"バッチサイズ: {benchmark.chunk_size}")
-    
+
     try:
         print(f"\nベンチマーク実行開始...")
-        results = benchmark.run_comprehensive_benchmark(
-            profile=profile,
-            sample_size=sample_size
-        )
-        
+        results = benchmark.run_comprehensive_benchmark(profile=profile, sample_size=sample_size)
+
         if not results:
             print("⚠️ ベンチマーク結果が空です - ファイルが見つからない可能性があります")
             return
-        
+
         print(f"\n{len(results)}種類の手法でベンチマーク完了")
-        
+
         # レポート生成
         report = benchmark.generate_benchmark_report(results)
         csv_path, json_path = benchmark.export_benchmark_results(results, report)
-        
+
         # 結果表示
         print(f"\n=== 性能比較結果 ===")
         baseline_time = None
         baseline_throughput = None
-        
+
         for result in results:
             method = result.method_name
             wall_time = result.wall_clock_seconds
             throughput = result.throughput_mb_per_sec
             memory = result.memory_peak_mb
             success = result.success_rate * 100
-            
+
             # 改善率計算（初期化）
             time_improvement = ""
             throughput_improvement = ""
-            
+
             # ベースライン設定（Sequential）
             if "Sequential" in method:
                 baseline_time = wall_time
@@ -89,9 +81,9 @@ def test_io_optimization():
                 if baseline_throughput and baseline_throughput > 0:
                     throughput_change = (throughput / baseline_throughput - 1) * 100
                     throughput_improvement = f" ({throughput_change:+.1f}%)"
-                
+
                 print(f"{method}:")
-            
+
             print(f"  実行時間: {wall_time:.3f}秒{time_improvement}")
             print(f"  スループット: {throughput:.2f} MB/s{throughput_improvement}")
             print(f"  メモリピーク: {memory:.1f}MB")
@@ -99,17 +91,23 @@ def test_io_optimization():
             if result.error_messages:
                 print(f"  エラー: {len(result.error_messages)}件")
             print()
-        
+
         # パフォーマンスサマリー
         perf = report["performance_summary"]
         print(f"=== 最優秀結果 ===")
-        print(f"最高スループット: {perf['best_throughput']['method']} "
-              f"({perf['best_throughput']['value']:.2f} MB/s)")
-        print(f"最速実行: {perf['fastest_wall_time']['method']} "
-              f"({perf['fastest_wall_time']['value']:.3f}秒)")
-        print(f"最小メモリ: {perf['lowest_memory']['method']} "
-              f"({perf['lowest_memory']['value']:.1f}MB)")
-        
+        print(
+            f"最高スループット: {perf['best_throughput']['method']} "
+            f"({perf['best_throughput']['value']:.2f} MB/s)"
+        )
+        print(
+            f"最速実行: {perf['fastest_wall_time']['method']} "
+            f"({perf['fastest_wall_time']['value']:.3f}秒)"
+        )
+        print(
+            f"最小メモリ: {perf['lowest_memory']['method']} "
+            f"({perf['lowest_memory']['value']:.1f}MB)"
+        )
+
         # 推奨事項
         recommendations = report.get("recommendations", [])
         if recommendations:
@@ -118,20 +116,21 @@ def test_io_optimization():
                 print(f"{i}. {rec}")
         else:
             print(f"\n✅ 特定の手法が明確に優位ではありません")
-        
+
         print(f"\n=== 詳細出力ファイル ===")
         print(f"CSV詳細: {csv_path}")
         print(f"JSONレポート: {json_path}")
-        
+
         # pyarrow可用性チェック
         try:
             import pyarrow
+
             print(f"\n✅ pyarrow利用可能: バージョン {pyarrow.__version__}")
         except ImportError:
             print(f"\n⚠️ pyarrow未インストール - pip install pyarrow で高速化可能")
-        
+
         print(f"\n✅ I/O最適化ベンチマークテスト完了")
-        
+
     except Exception as e:
         logger.error(f"ベンチマーク実行中にエラー: {e}")
         raise

@@ -77,6 +77,6 @@ pre-commit run --files <changed_files>
    - `scripts/run_all_systems_today.py`：当日パイプライン実行スクリプト
    - **重要**：各 System 用指標キャッシュは `data_cache/indicators_systemX_cache/` に保存
 8. **ファイル形式**：デュアルフォーマット対応
-   - `data_cache/rolling/`：CSV + Feather 両対応（build時自動生成）
-   - `CacheManager`：Feather優先、CSV自動フォールバック
-   - **注意**：小ファイルではCSVが高速、大ファイルでFeather有効
+   - `data_cache/rolling/`：CSV + Feather 両対応（build 時自動生成）
+   - `CacheManager`：Feather 優先、CSV 自動フォールバック
+   - **注意**：小ファイルでは CSV が高速、大ファイルで Feather 有効
