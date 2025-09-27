@@ -35,37 +35,13 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         self,
         raw_data_or_symbols,
         reuse_indicators: bool | None = None,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        use_process_pool: bool = False,
         **kwargs,
     ):
-        """インジケーター計算をコア関数へ委譲。"""
-        if isinstance(raw_data_or_symbols, dict):
-            symbols = list(raw_data_or_symbols.keys())
-            raw_dict = None if use_process_pool else raw_data_or_symbols
-        else:
-            symbols = list(raw_data_or_symbols)
-            raw_dict = None
-
-        if batch_size is None and not use_process_pool and raw_dict is not None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(raw_dict), batch_size)
-        return prepare_data_vectorized_system2(
-            raw_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            batch_size=batch_size,
-            symbols=symbols,
-            use_process_pool=use_process_pool,
-            skip_callback=skip_callback,
+        """System2のデータ準備（共通テンプレート使用）"""
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system2,
+            reuse_indicators=reuse_indicators,
             **kwargs,
         )
 
@@ -73,21 +49,9 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     # 候補生成（共通コアへ委譲）
     # -------------------------------
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
-        prepared_dict = data_dict
-        top_n_override = kwargs.pop("top_n", None)
-        if top_n_override is not None:
-            try:
-                top_n = max(0, int(top_n_override))
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                from config.settings import get_settings
-
-                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-            except Exception:
-                top_n = 10
-        return generate_candidates_system2(prepared_dict, top_n=top_n)
+        """候補生成（共通メソッド使用）"""
+        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        return generate_candidates_system2(data_dict, top_n=top_n)
 
     # -------------------------------
     # バックテスト実行（共通シミュレーター）

@@ -12,7 +12,7 @@ import pandas_market_calendars as mcal
 import streamlit as st
 from ta.trend import SMAIndicator
 
-from common.cache_manager import round_dataframe
+from common.dataframe_utils import round_dataframe
 from common.i18n import tr
 from config.settings import get_settings
 

@@ -1,24 +1,8 @@
-"""CLI ツール: 共有指標を前計算し CSV として書き出す。
-
-当日シグナル実行の前に ATR/SMA/RSI などの共有指標が必要になる場合、
-このスクリプトを使って事前計算と CSV への書き出しを行える。
-既存の ``precompute_shared_indicators`` を利用し、計算結果は
-``data_cache/signals/shared_indicators``（既定）に保存される。
-"""
-
-from __future__ import annotations
-
-import argparse
-from collections.abc import Iterable
-from pathlib import Path
-
-import pandas as pd
-
-from common.cache_manager import round_dataframe
-from common.data_loader import load_price
-from common.indicators_precompute import precompute_shared_indicators
-from common.universe import load_universe_file
-from config.settings import get_settings
+# DEPRECATED: このツールは共有指標前計算フェーズの削除により無効化されています
+raise NotImplementedError(
+    "export_shared_indicators_csv.py は無効化されています。"
+    "代わりに scripts/build_rolling_with_indicators.py を使用してください。"
+)
 
 
 def _parse_args() -> argparse.Namespace:

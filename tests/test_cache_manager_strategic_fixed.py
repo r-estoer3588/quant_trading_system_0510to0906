@@ -16,11 +16,10 @@ from common.cache_manager import (
     get_indicator_column_flexible,
     save_base_cache,
     load_base_cache,
-    round_dataframe,
-    make_csv_formatters,
     report_rolling_issue,
-    _RollingIssueAggregator,
 )
+from common.cache_format import round_dataframe, make_csv_formatters
+from common.cache_warnings import _RollingIssueAggregator
 from common.testing import set_test_determinism
 
 

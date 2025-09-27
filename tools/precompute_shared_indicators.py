@@ -1,10 +1,16 @@
+from __future__ import annotations
+
+# DEPRECATED: このツールは共有指標前計算フェーズの削除により無効化されています
+raise NotImplementedError(
+    "precompute_shared_indicators.py は無効化されています。"
+    "代わりに scripts/build_rolling_with_indicators.py を使用してください。"
+)
+
 """Precompute shared indicators cache for the current universe.
 
 Run outside market hours to warm the shared_indicators cache so that
 runtime precomputation becomes differential and faster.
 """
-
-from __future__ import annotations
 
 import os
 

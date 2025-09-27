@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    from common.cache_manager import round_dataframe  # type: ignore
+    from common.dataframe_utils import round_dataframe  # type: ignore
 except Exception:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:

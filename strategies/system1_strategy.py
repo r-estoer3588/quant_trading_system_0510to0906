@@ -25,70 +25,20 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
 
-    def prepare_data(self, raw_data_dict, reuse_indicators: bool | None = None, **kwargs):
-        progress_callback = kwargs.pop("progress_callback", None)
-        log_callback = kwargs.pop("log_callback", None)
-        skip_callback = kwargs.pop("skip_callback", None)
-        use_process_pool = kwargs.pop("use_process_pool", False)
-
-        if isinstance(raw_data_dict, dict):
-            symbols = list(raw_data_dict.keys())
-            raw_dict = None if use_process_pool else raw_data_dict
-        else:
-            symbols = list(raw_data_dict)
-            raw_dict = None
-
-        try:
-            return prepare_data_vectorized_system1(
-                raw_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                use_process_pool=use_process_pool,
-                symbols=symbols,
-                **kwargs,
-            )
-        except Exception as e:
-            # フォールバック: プロセスプールを使わず・指標を再計算
-            if log_callback:
-                try:
-                    log_callback(
-                        "⚠️ system1: prepare_data 失敗のためフォールバック再試行"
-                        "（非プール・再計算）: "
-                        f"{e}"
-                    )
-                except Exception:
-                    pass
-            fb_kwargs = dict(kwargs)
-            fb_kwargs["reuse_indicators"] = False
-            return prepare_data_vectorized_system1(
-                raw_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                use_process_pool=False,
-                symbols=symbols,
-                **fb_kwargs,
-            )
+    def prepare_data(self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs):
+        """System1のデータ準備（共通テンプレート + フォールバック対応）"""
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system1,
+            reuse_indicators=reuse_indicators,
+            **kwargs,
+        )
 
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
-        top_n_override = kwargs.pop("top_n", None)
-        if top_n_override is not None:
-            try:
-                top_n = max(0, int(top_n_override))
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                from config.settings import get_settings
+        """候補生成（共通メソッド使用）"""
+        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        market_df = self._get_market_df(data_dict, market_df)
 
-                top_n = get_settings(create_dirs=False).backtest.top_n_rank
-            except Exception:
-                top_n = 10
-        if market_df is None:
-            market_df = data_dict.get("SPY")
-            if market_df is None:
-                raise ValueError("SPY data not found in data_dict.")
         return generate_roc200_ranking_system1(
             data_dict,
             market_df,
@@ -112,25 +62,16 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         return trades_df
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
-        """翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定"""
-        try:
-            entry_ts = pd.to_datetime(candidate["entry_date"]).normalize()
-            # Use get_indexer to tolerate non-unique or non-exact match behavior
-            idxer = pd.to_datetime(df.index).normalize().get_indexer([entry_ts])
-            entry_idx = int(idxer[0]) if idxer.size > 0 else -1
-        except Exception:
+        """翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定（共通メソッド使用）"""
+        result = self._compute_entry_common(
+            df,
+            candidate,
+            atr_column="ATR20",
+            stop_multiplier=self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1),
+        )
+        if result is None:
             return None
-        if entry_idx <= 0 or entry_idx >= len(df):
-            return None
-        entry_price = float(df.iloc[entry_idx]["Open"])
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR20"])
-        except Exception:
-            return None
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1))
-        stop_price = entry_price - stop_mult * atr
-        if entry_price - stop_price <= 0:
-            return None
+        entry_price, stop_price, _ = result
         return entry_price, stop_price
 
     def get_total_days(self, data_dict: dict) -> int:

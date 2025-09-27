@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 from common.utils import get_cached_data, safe_filename
 from config.settings import get_settings
 

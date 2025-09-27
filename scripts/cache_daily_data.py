@@ -70,26 +70,13 @@ def _migrate_root_csv_to_full() -> None:
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from indicators_common import add_indicators  # noqa: E402
 
-from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from common.cache_manager import (
+    CacheManager,
+    compute_base_indicators,
+    save_base_cache,
+)  # noqa: E402
 
-try:
-    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
-except ImportError:  # pragma: no cover - tests may stub cache_manager
-
-    def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
-        if decimals is None:
-            return df
-        try:
-            decimals_int = int(decimals)
-        except Exception:
-            return df
-        try:
-            return df.copy().round(decimals_int)
-        except Exception:
-            try:
-                return df.round(decimals_int)
-            except Exception:
-                return df
+from common.cache_format import round_dataframe, safe_filename  # noqa: E402
 
 
 from common.symbol_universe import build_symbol_universe  # noqa: E402
@@ -604,13 +591,6 @@ class CacheJob:
         return CacheResult(self.symbol, self.message, self.used_api, self.success)
 
 
-def safe_filename(symbol: str) -> str:
-    # Windows 予約語を避ける（大文字小文字無視）
-    if symbol.upper() in RESERVED_WORDS:
-        return symbol + "_RESV"
-    return symbol
-
-
 def _prepare_cache_job(
     symbol: str,
     output_dir: Path,
@@ -710,11 +690,8 @@ def _process_cache_job(job: CacheJob) -> CacheResult:
             logging.warning("%s: base計算に失敗 (%s)", job.symbol, exc)
             return job.to_result()
         if base_df is not None and not base_df.empty:
-            base_reset = round_dataframe(
-                base_df.reset_index(),
-                CACHE_ROUND_DECIMALS,
-            )
-            base_reset.to_csv(job.basepath, index=False)
+            # Use save_base_cache to write feather format for base cache
+            save_base_cache(job.symbol, base_df)
         return CacheResult(job.symbol, job.message, job.used_api, True)
 
     # mode == "save_full"
@@ -750,11 +727,8 @@ def _process_cache_job(job: CacheJob) -> CacheResult:
             logging.warning("%s: base計算に失敗 (%s)", job.symbol, exc)
             base_df = None
         if base_df is not None and not base_df.empty:
-            base_reset = round_dataframe(
-                base_df.reset_index(),
-                CACHE_ROUND_DECIMALS,
-            )
-            base_reset.to_csv(job.basepath, index=False)
+            # Use save_base_cache to write feather format for base cache
+            save_base_cache(job.symbol, base_df)
             base_saved = True
 
     msg = job.message

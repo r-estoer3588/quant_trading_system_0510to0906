@@ -28,167 +28,39 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
-    def __init__(self, fixed_mode: bool = False):
+    def __init__(self):
+        """System6初期化（特殊分岐を廃止し他システムに統一）"""
         super().__init__()
-        self.fixed_mode = fixed_mode
 
     def prepare_data(
         self,
         raw_data_or_symbols,
         reuse_indicators: bool | None = None,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        use_process_pool: bool = False,
-        enable_optimization: bool = True,  # 最適化版の有効化フラグ
-        ultra_mode: bool = False,  # 超最適化モード（デフォルト無効）
-        fixed_mode: bool | None = None,  # 固定版モード（Noneならインスタンス変数使用）
         **kwargs,
     ):
-        # fixed_modeが指定されていない場合はインスタンス変数を使用
-        if fixed_mode is None:
-            fixed_mode = self.fixed_mode
-        if isinstance(raw_data_or_symbols, dict):
-            symbols = list(raw_data_or_symbols.keys())
-            raw_dict = None if use_process_pool else raw_data_or_symbols
-        else:
-            symbols = list(raw_data_or_symbols)
-            raw_dict = None
-
-        # 固定版の使用判定（既存インジケーター活用）
-        if fixed_mode and not use_process_pool and raw_dict is not None:
-            # 固定版を使用（既存インジケーター活用、再計算なし）
-            return prepare_data_fixed_system6(
-                raw_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
-                **kwargs,
-            )
-
-        # 超最適化版の使用判定（30分達成のため）
-        if ultra_mode and enable_optimization and not use_process_pool and raw_dict is not None:
-            # 超最適化版を使用
-            return prepare_data_ultra_optimized_system6(
-                raw_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
-                **kwargs,
-            )
-
-        # 最適化版の使用判定（当日実行時に有効化）
-        if enable_optimization and not use_process_pool and raw_dict is not None:
-            # 30分達成のための最適化版を使用
-            return prepare_data_optimized_system6(
-                raw_dict,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                reuse_indicators=reuse_indicators if reuse_indicators is not None else True,
-                **kwargs,
-            )
-
-        # 従来版（並列処理や無効化時）
-        if batch_size is None and not use_process_pool and raw_dict is not None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(raw_dict), batch_size)
-        return prepare_data_vectorized_system6(
-            raw_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
-            batch_size=batch_size,
-            symbols=symbols,
-            use_process_pool=use_process_pool,
+        """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system6,
+            reuse_indicators=reuse_indicators,
+            **kwargs,
         )
 
     def generate_candidates(
         self,
         data_dict,
         market_df=None,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        fixed_mode: bool | None = None,  # 固定版モード（Noneならインスタンス変数使用）
-        ultra_mode: bool = False,  # 超最適化モード
         **kwargs,
     ) -> tuple[dict, pd.DataFrame | None]:
-        # fixed_modeが指定されていない場合はインスタンス変数を使用
-        if fixed_mode is None:
-            fixed_mode = self.fixed_mode
-        prepared_dict = data_dict
-        top_n = kwargs.pop("top_n", None)
-        if top_n is None:
-            try:
-                from config.settings import get_settings
+        """候補生成（共通メソッド使用、特殊分岐廃止）"""
+        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        batch_size = self._get_batch_size_setting(len(data_dict))
 
-                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                top_n = max(0, int(top_n))
-            except Exception:
-                top_n = 10
-        if batch_size is None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-
-        # 固定版を優先使用
-        if fixed_mode:
-            return generate_candidates_system6_fixed(
-                prepared_dict,
-                top_n=top_n,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-                batch_size=batch_size,
-            )
-
-        # 超最適化版
-        if ultra_mode:
-            candidates_list = generate_candidates_ultra_fast_system6(
-                prepared_dict,
-                top_n=top_n,
-                progress_callback=progress_callback,
-                log_callback=log_callback,
-                skip_callback=skip_callback,
-            )
-            # list[tuple[str, dict]] から tuple[dict, DataFrame | None] に変換
-            candidates_by_date = {}
-            for date_str, candidate_dict in candidates_list:
-                try:
-                    date_key = pd.Timestamp(date_str)
-                    if date_key not in candidates_by_date:
-                        candidates_by_date[date_key] = []
-                    candidates_by_date[date_key].append(candidate_dict)
-                except Exception:
-                    continue
-            return candidates_by_date, None
-
-        # 従来版
         return generate_candidates_system6(
-            prepared_dict,
+            data_dict,
             top_n=top_n,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
             batch_size=batch_size,
+            **kwargs,
         )
 
     def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):

@@ -35,35 +35,17 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     def prepare_data(
         self,
-        raw_data_dict,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
+        raw_data_or_symbols,
+        reuse_indicators: bool | None = None,
         **kwargs,
     ):
-        """インジケーター計算をコア関数へ委譲"""
-        kwargs.pop("single_mode", None)
-        if isinstance(raw_data_dict, dict):
-            tmp: dict[str, pd.DataFrame] = {}
-            for k, v in raw_data_dict.items():
-                if isinstance(k, str) and isinstance(v, pd.DataFrame):
-                    tmp[k] = v
-            prepared_input = tmp
-        else:
-            tmp2: dict[str, pd.DataFrame] = {}
-            try:
-                for s in list(raw_data_dict):  # type: ignore[arg-type]
-                    df = get_cached_data(s)
-                    if df is not None and isinstance(df, pd.DataFrame):
-                        tmp2[str(s)] = df
-            except Exception:
-                tmp2 = {}
-            prepared_input = tmp2
-        return prepare_data_vectorized_system7(
-            prepared_input,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
+        """System7のデータ準備（共通テンプレート使用）"""
+        kwargs.pop("single_mode", None)  # System7固有の引数を除去
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system7,
+            reuse_indicators=reuse_indicators,
+            **kwargs,
         )
 
     def generate_candidates(self, data_dict, market_df=None, **kwargs):

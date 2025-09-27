@@ -19,7 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from common.cache_manager import (
+    CacheManager,
+    compute_base_indicators,
+    save_base_cache,
+)  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 
 try:
@@ -638,7 +642,8 @@ def append_to_cache(
                     # ensure column name casing matches expectations
                     base_reset.rename(columns={"Close": "Close"}, inplace=True)
 
-                base_reset.to_csv(base_path, index=False)
+                # Save base cache using CacheManager's save_base_cache function (now supports feather)
+                base_path = save_base_cache(sym_norm, base_reset, cm.settings)
             except Exception as exc:
                 print(f"{sym_norm}: write base error - {exc}")
 

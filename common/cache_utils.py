@@ -4,7 +4,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 import common.i18n as i18n
 from common.utils import safe_filename
 from config.settings import get_settings

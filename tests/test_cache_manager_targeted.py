@@ -14,11 +14,13 @@ import pytest
 
 from common.cache_manager import (
     CacheManager,
-    _RollingIssueAggregator,
+)
+from common.cache_format import (
     round_dataframe,
     make_csv_formatters,
-    _write_dataframe_to_csv,
+    write_dataframe_to_csv as _write_dataframe_to_csv,
 )
+from common.cache_warnings import _RollingIssueAggregator
 from common.testing import set_test_determinism
 
 
