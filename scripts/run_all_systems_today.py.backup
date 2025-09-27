@@ -45,11 +45,6 @@ import pandas as pd
 
 # 抽出: フィルタ/条件/低レベルヘルパは common.today_filters へ分離
 from common.today_filters import (
-    _pick_series,
-    _last_scalar,
-    _calc_dollar_volume_from_series,
-    _calc_average_volume_from_series,
-    _resolve_atr_ratio,
     _system1_conditions,
     _system2_conditions,
     _system3_conditions,
@@ -67,8 +62,9 @@ from common.today_filters import (
 # 抽出: データローダ関数は common.today_data_loader へ分離
 from common.today_data_loader import (
     load_basic_data,
-    load_indicator_data,
 )
+
+# 抽出: 戦略実行ハーネスは common.strategy_runner へ分離
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
@@ -1672,8 +1668,8 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         symbol_data,
         today=ctx.today,
         base_cache=ctx.base_cache,
-        log_callback=lambda msg: None,
-        ui_log_callback=lambda msg: None,
+        log_callback=lambda msg, ui=False: None,
+        ui_log_callback=lambda msg, ui=False: None,
     )
     ctx.basic_data = basic_data
 
@@ -3242,246 +3238,199 @@ def compute_today_signals(
         System7Strategy(),
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
+    # エンジン層はUI依存を排除（UI表示はlog/progressコールバック側に任せる）
 
-    # 各システムの当日シグナル抽出を並列実行
-    _log("🚀 各システムの当日シグナル抽出を開始")
+    # def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
+    #     # 元の _run_strategy 関数は common/strategy_runner.py に移動されました
+    #     # この関数は現在使用されていません
 
-    per_system = {}
-    system_names = [f"system{i}" for i in range(1, 8)]
+    # 統合処理ハーネス呼び出し
+    per_system = integrated_compute_today_signals(
+        strategies=strategies,
+        raw_data={
+            phase_names = {
+                0: "フィルターフェーズ",
+                25: "セットアップフェーズ",
+                50: "トレード候補フェーズ",
+                75: "エントリーフェーズ",
+            }
+            prev_phase_map = {25: 0, 50: 25, 75: 50, 100: 75}
+            phase_started: set[int] = set()
+            phase_completed: set[int] = set()
 
-    for system_name in system_names:
-        _log(f"▶ {system_name} 開始")
-        try:
-            if system_name == "system1":
-                raw_data = raw_data_system1
-            elif system_name == "system2":
-                raw_data = raw_data_system2
-            elif system_name == "system3":
-                raw_data = raw_data_system3
-            elif system_name == "system4":
-                raw_data = raw_data_system4
-            elif system_name == "system5":
-                raw_data = raw_data_system5
-            elif system_name == "system6":
-                raw_data = raw_data_system6
-            elif system_name == "system7":
-                raw_data = {"SPY": basic_data.get("SPY")}
-            else:
-                raw_data = basic_data
+            def _safe_stage_int(value: int | float | None) -> int | None:
+                try:
+                    if value is None:
+                        return None
+                    return int(value)
+                except Exception:
+                    return None
 
-            strategy = strategies.get(system_name)
-            if strategy is None:
-                _log(f"[{system_name}] ❌ strategy not found")
-                per_system[system_name] = pd.DataFrame()
-                continue
+            def _format_stage_message(
+                progress: int,
+                filter_count: int | None,
+                setup_count: int | None,
+                candidate_count: int | None,
+                final_count: int | None,
+            ) -> str | None:
+                filter_int = _safe_stage_int(filter_count)
+                setup_int = _safe_stage_int(setup_count)
+                candidate_int = _safe_stage_int(candidate_count)
+                final_int = _safe_stage_int(final_count)
 
-            # システム固有のロジック実行
-            if system_name == "system4" and spy_df is None:
-                _log(
-                    f"[{system_name}] ⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
-                )
-                per_system[system_name] = pd.DataFrame()
-                continue
+                if progress == 0:
+                    if filter_int is not None:
+                        return f"🧪 {name}: フィルターチェック開始 (対象 {filter_int} 銘柄)"
+                    return f"🧪 {name}: フィルターチェックを開始"
+                if progress == 25:
+                    if filter_int is not None:
+                        return f"🧪 {name}: フィルター通過 {filter_int} 銘柄"
+                    return f"🧪 {name}: フィルター処理が完了"
+                if progress == 50:
+                    if filter_int is not None and setup_int is not None:
+                        return "🧩 " + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
+                    if setup_int is not None:
+                        return f"🧩 {name}: セットアップ通過 {setup_int} 銘柄"
+                    return f"🧩 {name}: セットアップ判定が完了"
+                if progress == 75:
+                    if candidate_int is not None:
+                        return f"🧮 {name}: 候補抽出中 (当日候補 {candidate_int} 銘柄)"
+                    return f"🧮 {name}: 候補抽出を実行中"
+                if progress == 100:
+                    if final_int is not None:
+                        parts: list[str] = []
+                        if candidate_int is not None:
+                            parts.append(f"候補 {candidate_int} 銘柄")
+                        parts.append(f"エントリー {final_int} 銘柄")
+                        joined = " / ".join(parts)
+                        return f"✅ {name}: エントリーステージ完了 ({joined})"
+                    return f"✅ {name}: エントリーステージ完了"
+                return None
 
-            _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
+            def _format_phase_completion(
+                prev_stage: int,
+                filter_int: int | None,
+                setup_int: int | None,
+                candidate_int: int | None,
+                final_int: int | None,
+            ) -> str | None:
+                label = phase_names.get(prev_stage)
+                if not label:
+                    return None
+                if prev_stage == 0:
+                    if filter_int is not None:
+                        return f"🏁 {name}: {label}のプロセスプールが完了 (通過 {filter_int} 銘柄)"
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 25:
+                    if setup_int is not None and filter_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(セットアップ通過 {setup_int}/{filter_int} 銘柄)"
+                        )
+                    if setup_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(セットアップ通過 {setup_int} 銘柄)"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 50:
+                    if candidate_int is not None:
+                        return (
+                            f"🏁 {name}: {label}のプロセスプールが完了 "
+                            f"(当日候補 {candidate_int} 銘柄)"
+                        )
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                if prev_stage == 75:
+                    if final_int is not None:
+                        parts: list[str] = [f"エントリー {final_int} 銘柄"]
+                        if candidate_int is not None:
+                            parts.append(f"候補 {candidate_int} 銘柄")
+                        joined = " / ".join(parts)
+                        return f"🏁 {name}: {label}のプロセスプールが完了 ({joined})"
+                    return f"🏁 {name}: {label}のプロセスプールが完了"
+                return None
 
-            # 簡単な候補生成実行
-            candidates, _ = strategy.generate_candidates(raw_data)
-            if candidates:
-                # 候補をDataFrameに変換
-                rows = []
-                for date_key, symbols_data in candidates.items():
-                    if isinstance(symbols_data, dict):
-                        for symbol, data in symbols_data.items():
-                            rows.append(
-                                {
-                                    "system": system_name,
-                                    "symbol": symbol,
-                                    "entry_date": date_key,
-                                    "side": (
-                                        "long" if int(system_name[-1]) in [1, 3, 4, 5] else "short"
-                                    ),
-                                    **data,
-                                }
-                            )
-                df = pd.DataFrame(rows) if rows else pd.DataFrame()
-            else:
-                df = pd.DataFrame()
-
-            per_system[system_name] = df
-            count = len(df) if not df.empty else 0
-            _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
-
-        except Exception as e:
-            _log(f"[{system_name}] ⚠️ {system_name}: シグナル抽出に失敗しました: {e}")
-            per_system[system_name] = pd.DataFrame()
-            _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
-
-        _log(f"✅ {system_name} 完了: {len(per_system[system_name])}件")
-
-    # 進捗通知
-    if progress_callback:
-        try:
-            progress_callback(6, 8, "strategies_done")
-        except Exception:
-            pass
-
-    # システム別の順序を明示（1..7）に固定
-    order_1_7 = [f"system{i}" for i in range(1, 8)]
-    per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
-    ctx.per_system_frames = dict(per_system)
-
-    # メトリクス概要計算
-
-
-def _format_stage_message(
-    progress: int,
-    filter_count: int | None = None,
-    setup_count: int | None = None,
-    candidate_count: int | None = None,
-    final_count: int | None = None,
-) -> str | None:
-    """進捗段階に応じたメッセージをフォーマット"""
-    if progress < 0 or progress > 100:
-        return None
-
-    filter_int = _safe_stage_int(filter_count)
-    setup_int = _safe_stage_int(setup_count)
-    candidate_int = _safe_stage_int(candidate_count)
-    final_int = _safe_stage_int(final_count)
-
-    # システム名はグローバルから取得（この関数の外で定義されている想定）
-    name = "System"  # デフォルト値
-
-    if progress == 0:
-        if filter_int is not None:
-            return f"🧪 {name}: フィルターチェック開始 (対象 {filter_int} 銘柄)"
-        return f"🧪 {name}: フィルターチェックを開始"
-    if progress == 25:
-        if filter_int is not None:
-            return f"🧪 {name}: フィルター通過 {filter_int} 銘柄"
-        return f"🧪 {name}: フィルター処理が完了"
-    if progress == 50:
-        if filter_int is not None and setup_int is not None:
-            return "🧩 " + f"{name}: セットアップ通過 {setup_int}/{filter_int} 銘柄"
-        if setup_int is not None:
-            return f"🧩 {name}: セットアップ通過 {setup_int} 銘柄"
-        return f"🧩 {name}: セットアップ判定が完了"
-    if progress == 75:
-        if candidate_int is not None:
-            return f"🧮 {name}: 候補抽出中 (当日候補 {candidate_int} 銘柄)"
-        return f"🧮 {name}: 候補抽出を実行中"
-    if progress == 100:
-        if final_int is not None:
-            parts: list[str] = []
-            if candidate_int is not None:
-                parts.append(f"候補 {candidate_int} 銘柄")
-            parts.append(f"エントリー {final_int} 銘柄")
-            joined = " / ".join(parts)
-            return f"✅ {name}: エントリーステージ完了 ({joined})"
-        return f"✅ {name}: エントリーステージ完了"
-    return None
-
-
-def _format_phase_completion(
-    prev_stage: int,
-    filter_int: int | None,
-    setup_int: int | None,
-    candidate_int: int | None,
-    final_int: int | None,
-) -> str | None:
-    """フェーズ完了メッセージをフォーマット"""
-    # phase_namesはグローバルスコープから取得する想定
-    phase_names = {0: "フィルタリング", 25: "セットアップ", 50: "候補抽出", 75: "最終選定"}
-    name = "System"  # デフォルト値
-
-    label = phase_names.get(prev_stage)
-    if not label:
-        return None
-
-    if prev_stage == 0:
-        if filter_int is not None:
-            return f"🏁 {name}: {label}のプロセスプールが完了 (通過 {filter_int} 銘柄)"
-        return f"🏁 {name}: {label}のプロセスプールが完了"
-
-    if prev_stage == 25:
-        if setup_int is not None and filter_int is not None:
-            return (
-                f"🏁 {name}: {label}のプロセスプールが完了 "
-                f"(セットアップ通過 {setup_int}/{filter_int} 銘柄)"
-            )
-        if setup_int is not None:
-            return (
-                f"🏁 {name}: {label}のプロセスプールが完了 " f"(セットアップ通過 {setup_int} 銘柄)"
-            )
-        return f"🏁 {name}: {label}のプロセスプールが完了"
-
-    if prev_stage == 50:
-        if candidate_int is not None:
-            return f"🏁 {name}: {label}のプロセスプールが完了 " f"(当日候補 {candidate_int} 銘柄)"
-        return f"🏁 {name}: {label}のプロセスプールが完了"
-
-    if prev_stage == 75:
-        if final_int is not None:
-            parts: list[str] = [f"エントリー {final_int} 銘柄"]
-            if candidate_int is not None:
-                parts.append(f"候補 {candidate_int} 銘柄")
-            joined = " / ".join(parts)
-            return f"🏁 {name}: {label}のプロセスプールが完了 ({joined})"
-        return f"🏁 {name}: {label}のプロセスプールが完了"
-
-    return None
-
-    def _stage(
-        v: int,
-        f: int | None = None,
-        s: int | None = None,
-        c: int | None = None,
-        fin: int | None = None,
-    ) -> None:
-        progress_val = max(0, min(100, int(v)))
-        f_int = _safe_stage_int(f)
-        s_int = _safe_stage_int(s)
-        c_int = _safe_stage_int(c)
-        fin_int = _safe_stage_int(fin)
-        try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-        except Exception:
-            cb2 = None
-        # Only call the per-system UI callback directly from the
-        # main thread. When running in background threads (e.g.
-        # via ThreadPoolExecutor) we must avoid invoking Streamlit
-        # APIs from non-main threads — instead record the stage
-        # into GLOBAL_STAGE_METRICS and let the main thread drain
-        # and forward events.
-        try:
-            is_main = threading.current_thread() is threading.main_thread()
-        except Exception:
-            is_main = False
-        if cb2 and callable(cb2) and is_main:
-            try:
-                cb2(name, progress_val, f_int, s_int, c_int, fin_int)
-            except Exception:
-                pass
-        # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
-        if use_process_pool:
-            try:
-                # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
-                # 登録する。None と 0 や空文字列のような微妙な差を吸収する
-                # ため、整数化した値で比較する。
-                key = (
-                    _safe_stage_int(f_int),
-                    _safe_stage_int(s_int),
-                    _safe_stage_int(c_int),
-                    _safe_stage_int(fin_int),
-                )
-                prev = stage_state.get(progress_val)
-                if prev != key:
-                    stage_state[progress_val] = key
+            def _stage(
+                v: int,
+                f: int | None = None,
+                s: int | None = None,
+                c: int | None = None,
+                fin: int | None = None,
+            ) -> None:
+                progress_val = max(0, min(100, int(v)))
+                f_int = _safe_stage_int(f)
+                s_int = _safe_stage_int(s)
+                c_int = _safe_stage_int(c)
+                fin_int = _safe_stage_int(fin)
+                try:
+                    cb2 = globals().get("_PER_SYSTEM_STAGE")
+                except Exception:
+                    cb2 = None
+                # Only call the per-system UI callback directly from the
+                # main thread. When running in background threads (e.g.
+                # via ThreadPoolExecutor) we must avoid invoking Streamlit
+                # APIs from non-main threads — instead record the stage
+                # into GLOBAL_STAGE_METRICS and let the main thread drain
+                # and forward events.
+                try:
+                    is_main = threading.current_thread() is threading.main_thread()
+                except Exception:
+                    is_main = False
+                if cb2 and callable(cb2) and is_main:
                     try:
-                        # 常に emit_event=True でイベントを積む（UI 側で重複
-                        # 表示抑制する責務を負わせることも可能だが、ここは
-                        # イベントの喪失を避けるため明示的に通知する）
+                        cb2(name, progress_val, f_int, s_int, c_int, fin_int)
+                    except Exception:
+                        pass
+                # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
+                if use_process_pool:
+                    try:
+                        # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
+                        # 登録する。None と 0 や空文字列のような微妙な差を吸収する
+                        # ため、整数化した値で比較する。
+                        key = (
+                            _safe_stage_int(f_int),
+                            _safe_stage_int(s_int),
+                            _safe_stage_int(c_int),
+                            _safe_stage_int(fin_int),
+                        )
+                        prev = stage_state.get(progress_val)
+                        if prev != key:
+                            stage_state[progress_val] = key
+                            try:
+                                # 常に emit_event=True でイベントを積む（UI 側で重複
+                                # 表示抑制する責務を負わせることも可能だが、ここは
+                                # イベントの喪失を避けるため明示的に通知する）
+                                GLOBAL_STAGE_METRICS.record_stage(
+                                    name,
+                                    progress_val,
+                                    f_int,
+                                    s_int,
+                                    c_int,
+                                    fin_int,
+                                    emit_event=True,
+                                )
+                            except Exception:
+                                pass
+                            prev_stage_val = prev_phase_map.get(progress_val)
+                            if prev_stage_val is not None and prev_stage_val not in phase_completed:
+                                completion_msg = _format_phase_completion(
+                                    prev_stage_val, f_int, s_int, c_int, fin_int
+                                )
+                                if completion_msg:
+                                    _local_log(completion_msg)
+                                phase_completed.add(prev_stage_val)
+                            msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
+                            if msg:
+                                _local_log(msg)
+                            if progress_val in phase_names and progress_val not in phase_started:
+                                _local_log(
+                                    f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始"
+                                )
+                                phase_started.add(progress_val)
+                    except Exception:
+                        pass
+                else:
+                    try:
                         GLOBAL_STAGE_METRICS.record_stage(
                             name,
                             progress_val,
@@ -3489,232 +3438,202 @@ def _format_phase_completion(
                             s_int,
                             c_int,
                             fin_int,
-                            emit_event=True,
                         )
                     except Exception:
                         pass
-                    prev_stage_val = prev_phase_map.get(progress_val)
-                    if prev_stage_val is not None and prev_stage_val not in phase_completed:
-                        completion_msg = _format_phase_completion(
-                            prev_stage_val, f_int, s_int, c_int, fin_int
-                        )
-                        if completion_msg:
-                            _local_log(completion_msg)
-                        phase_completed.add(prev_stage_val)
-                    msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
-                    if msg:
-                        _local_log(msg)
-                    if progress_val in phase_names and progress_val not in phase_started:
-                        _local_log(f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始")
-                        phase_started.add(progress_val)
-            except Exception:
-                pass
-        else:
-            try:
-                GLOBAL_STAGE_METRICS.record_stage(
-                    name,
-                    progress_val,
-                    f_int,
-                    s_int,
-                    c_int,
-                    fin_int,
-                )
-            except Exception:
-                pass
 
-    import os as _os
+            import os as _os
 
-    # プロセスプール利用可否（環境変数で上書き可）
-    env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
-    env_pp = env_pp_raw.strip().lower()
-    if env_pp in {"1", "true", "yes", "on"}:
-        use_process_pool = True
-    elif env_pp in {"0", "false", "no", "off"}:
-        use_process_pool = False
-    else:
-        use_process_pool = False
-        if env_pp:
-            _local_log(
-                "⚠️ "
-                + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません。"
-                + "プロセスプールを無効化します。"
-            )
-    # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
-    try:
-        _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
-        if _env_workers:
-            max_workers = int(_env_workers) or None
-        else:
+            # プロセスプール利用可否（環境変数で上書き可）
+            env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
+            env_pp = env_pp_raw.strip().lower()
+            if env_pp in {"1", "true", "yes", "on"}:
+                use_process_pool = True
+            elif env_pp in {"0", "false", "no", "off"}:
+                use_process_pool = False
+            else:
+                use_process_pool = False
+                if env_pp:
+                    _local_log(
+                        "⚠️ "
+                        + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません。"
+                        + "プロセスプールを無効化します。"
+                    )
+            # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
             try:
-                _st = get_settings(create_dirs=False)
-                max_workers = int(getattr(_st, "THREADS_DEFAULT", 8)) or None
+                _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
+                if _env_workers:
+                    max_workers = int(_env_workers) or None
+                else:
+                    try:
+                        _st = get_settings(create_dirs=False)
+                        max_workers = int(getattr(_st, "THREADS_DEFAULT", 8)) or None
+                    except Exception:
+                        max_workers = None
             except Exception:
                 max_workers = None
-    except Exception:
-        max_workers = None
-    # ルックバックは『必要指標の最大窓＋α』を動的推定
-    try:
-        settings2 = get_settings(create_dirs=True)
-        lb_default = int(
-            settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
-        )
-    except Exception:
-        settings2 = None
-        lb_default = 300
-    # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
-    # ルックバックのマージン/最小日数は環境変数で上書き可能
-    try:
-        margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
-    except Exception:
-        margin = 0.15
-    need_map: dict[str, int] = {
-        "system1": int(220 * (1 + margin)),
-        "system2": int(120 * (1 + margin)),
-        # SMA150 を安定に計算するため 170 日程度を要求
-        "system3": int(170 * (1 + margin)),
-        # SMA200 系のため 220 日程度を要求
-        "system4": int(220 * (1 + margin)),
-        "system5": int(140 * (1 + margin)),
-        "system6": int(80 * (1 + margin)),
-        "system7": int(80 * (1 + margin)),
-    }
-    # 戦略側が get_total_days を実装していれば優先
-    custom_need = None
-    try:
-        fn = getattr(stg, "get_total_days", None)
-        if callable(fn):
-            _val = fn(base)
-            if isinstance(_val, int | float):
-                custom_need = int(_val)
-            elif isinstance(_val, str):
-                try:
-                    custom_need = int(float(_val))
-                except Exception:
-                    custom_need = None
-            else:
-                custom_need = None
-    except Exception:
-        custom_need = None
-    try:
-        min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
-    except Exception:
-        min_floor = 80
-    min_required = custom_need or need_map.get(name, lb_default)
-    lookback_days = min(lb_default, max(min_floor, int(min_required)))
-    _t0 = __import__("time").time()
-    # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
-    _stage_cb = _stage
-    _log_cb = None if use_process_pool else _local_log
-    # プロセスプール利用時は Manager().Queue を生成して子プロセスから
-    # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
-    if use_process_pool:
-        try:
-            mgr = multiprocessing.Manager()  # noqa: F401 (kept for child access)
-            progress_q = mgr.Queue()
-            globals()["_PROGRESS_MANAGER"] = mgr
-            globals()["_PROGRESS_QUEUE"] = progress_q
-        except Exception:
-            globals().pop("_PROGRESS_MANAGER", None)
-            globals().pop("_PROGRESS_QUEUE", None)
-    if use_process_pool:
-        workers_label = str(max_workers) if max_workers is not None else "auto"
-        _local_log(
-            f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
-            + f" (workers={workers_label})"
-            + " | 並列化: インジケーター計算/前処理"
-        )
-        _local_log(
-            f"🧭 {name}: フィルター・セットアップ・候補抽出は"
-            "メインプロセスで進行状況を記録します"
-        )
-    try:
-        df = stg.get_today_signals(
-            base,
-            market_df=spy_df,
-            today=today,
-            progress_callback=None,
-            log_callback=_log_cb,
-            stage_progress=_stage_cb,
-            use_process_pool=use_process_pool,
-            max_workers=max_workers,
-            lookback_days=lookback_days,
-        )
-        # 子プロセスからキューへ送られた進捗は上で作られた globals 上の
-        # _PROGRESS_QUEUE に蓄積される。_drain_stage_event_queue がそれを
-        # 定期的に取り出し、UI 更新に転換する。
-        if use_process_pool:
-            pool_outcome = "success"
-        _elapsed = int(max(0, __import__("time").time() - _t0))
-        _m, _s = divmod(_elapsed, 60)
-        _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
-    except Exception as e:  # noqa: BLE001
-        _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
-        # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
-        try:
-            msg = str(e).lower()
-        except Exception:
-            msg = ""
-        if use_process_pool and pool_outcome is None:
-            pool_outcome = "error"
-        needs_fallback = any(
-            k in msg
-            for k in [
-                "process pool",
-                "a child process terminated",
-                "terminated abruptly",
-                "forkserver",
-                "__main__",
-            ]
-        )
-        if needs_fallback:
-            _local_log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
+            # ルックバックは『必要指標の最大窓＋α』を動的推定
             try:
-                _t0b = __import__("time").time()
-                df = stg.get_today_signals(
-                    base,
-                    market_df=spy_df,
-                    today=today,
-                    progress_callback=None,
-                    log_callback=_local_log,
-                    stage_progress=None,
-                    use_process_pool=False,
-                    max_workers=None,
-                    lookback_days=lookback_days,
+                settings2 = get_settings(create_dirs=True)
+                lb_default = int(
+                    settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
                 )
-                _elapsed_b = int(max(0, __import__("time").time() - _t0b))
-                _m2, _s2 = divmod(_elapsed_b, 60)
-                _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
-                if use_process_pool:
-                    pool_outcome = "fallback"
-            except Exception as e2:  # noqa: BLE001
-                _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
-                if use_process_pool:
-                    pool_outcome = "error"
-                df = pd.DataFrame()
-        else:
-            df = pd.DataFrame()
-    finally:
-        if use_process_pool:
-            if pool_outcome == "success":
-                _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
-            elif pool_outcome == "fallback":
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+            except Exception:
+                settings2 = None
+                lb_default = 300
+            # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
+            # ルックバックのマージン/最小日数は環境変数で上書き可能
+            try:
+                margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
+            except Exception:
+                margin = 0.15
+            need_map: dict[str, int] = {
+                "system1": int(220 * (1 + margin)),
+                "system2": int(120 * (1 + margin)),
+                # SMA150 を安定に計算するため 170 日程度を要求
+                "system3": int(170 * (1 + margin)),
+                # SMA200 系のため 220 日程度を要求
+                "system4": int(220 * (1 + margin)),
+                "system5": int(140 * (1 + margin)),
+                "system6": int(80 * (1 + margin)),
+                "system7": int(80 * (1 + margin)),
+            }
+            # 戦略側が get_total_days を実装していれば優先
+            custom_need = None
+            try:
+                fn = getattr(stg, "get_total_days", None)
+                if callable(fn):
+                    _val = fn(base)
+                    if isinstance(_val, int | float):
+                        custom_need = int(_val)
+                    elif isinstance(_val, str):
+                        try:
+                            custom_need = int(float(_val))
+                        except Exception:
+                            custom_need = None
+                    else:
+                        custom_need = None
+            except Exception:
+                custom_need = None
+            try:
+                min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
+            except Exception:
+                min_floor = 80
+            min_required = custom_need or need_map.get(name, lb_default)
+            lookback_days = min(lb_default, max(min_floor, int(min_required)))
+            _t0 = __import__("time").time()
+            # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
+            _stage_cb = _stage
+            _log_cb = None if use_process_pool else _local_log
+            # プロセスプール利用時は Manager().Queue を生成して子プロセスから
+            # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
+            if use_process_pool:
+                try:
+                    mgr = multiprocessing.Manager()  # noqa: F401 (kept for child access)
+                    progress_q = mgr.Queue()
+                    globals()["_PROGRESS_MANAGER"] = mgr
+                    globals()["_PROGRESS_QUEUE"] = progress_q
+                except Exception:
+                    globals().pop("_PROGRESS_MANAGER", None)
+                    globals().pop("_PROGRESS_QUEUE", None)
+            if use_process_pool:
+                workers_label = str(max_workers) if max_workers is not None else "auto"
+                _local_log(
+                    f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
+                    + f" (workers={workers_label})"
+                    + " | 並列化: インジケーター計算/前処理"
+                )
+                _local_log(
+                    f"🧭 {name}: フィルター・セットアップ・候補抽出は"
+                    "メインプロセスで進行状況を記録します"
+                )
+            df = stg.get_today_signals(
+                base,
+                market_df=spy_df,
+                today=today,
+                progress_callback=None,
+                log_callback=_log_cb,
+                stage_progress=_stage_cb,
+                use_process_pool=use_process_pool,
+                max_workers=max_workers,
+                lookback_days=lookback_days,
+            )
+            # 子プロセスからキューへ送られた進捗は上で作られた globals 上の
+            # _PROGRESS_QUEUE に蓄積される。_drain_stage_event_queue がそれを
+            # 定期的に取り出し、UI 更新に転換する。
+            if use_process_pool:
+                pool_outcome = "success"
+            _elapsed = int(max(0, __import__("time").time() - _t0))
+            _m, _s = divmod(_elapsed, 60)
+            _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
+        except Exception as e:  # noqa: BLE001
+            _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
+            # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
+            try:
+                msg = str(e).lower()
+            except Exception:
+                msg = ""
+            if use_process_pool and pool_outcome is None:
+                pool_outcome = "error"
+            needs_fallback = any(
+                k in msg
+                for k in [
+                    "process pool",
+                    "a child process terminated",
+                    "terminated abruptly",
+                    "forkserver",
+                    "__main__",
+                ]
+            )
+            if needs_fallback:
+                _local_log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
+                try:
+                    _t0b = __import__("time").time()
+                    df = stg.get_today_signals(
+                        base,
+                        market_df=spy_df,
+                        today=today,
+                        progress_callback=None,
+                        log_callback=_local_log,
+                        stage_progress=None,
+                        use_process_pool=False,
+                        max_workers=None,
+                        lookback_days=lookback_days,
+                    )
+                    _elapsed_b = int(max(0, __import__("time").time() - _t0b))
+                    _m2, _s2 = divmod(_elapsed_b, 60)
+                    _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                    if use_process_pool:
+                        pool_outcome = "fallback"
+                except Exception as e2:  # noqa: BLE001
+                    _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
+                    if use_process_pool:
+                        pool_outcome = "error"
+                    df = pd.DataFrame()
             else:
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
-    if not df.empty:
-        if "score_key" in df.columns and len(df):
-            first_key = df["score_key"].iloc[0]
+                df = pd.DataFrame()
+        finally:
+            if use_process_pool:
+                if pool_outcome == "success":
+                    _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
+                elif pool_outcome == "fallback":
+                    _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+                else:
+                    _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
+        if not df.empty:
+            if "score_key" in df.columns and len(df):
+                first_key = df["score_key"].iloc[0]
+            else:
+                first_key = None
+            asc = _asc_by_score_key(first_key)
+            df = df.sort_values("score", ascending=asc, na_position="last")
+            df = df.reset_index(drop=True)
+        if df is not None and not df.empty:
+            msg = f"📊 {name}: {len(df)} 件"
         else:
-            first_key = None
-        asc = _asc_by_score_key(first_key)
-        df = df.sort_values("score", ascending=asc, na_position="last")
-        df = df.reset_index(drop=True)
-    if df is not None and not df.empty:
-        msg = f"📊 {name}: {len(df)} 件"
-    else:
-        msg = f"❌ {name}: 0 件 🚫"
-    _local_log(msg)
-    return name, df, msg, logs
+            msg = f"❌ {name}: 0 件 🚫"
+        _local_log(msg)
+        return name, df, msg, logs
 
     # 抽出開始前にセットアップ通過のまとめを出力
     try:
@@ -3768,37 +3687,28 @@ def _format_phase_completion(
                 progress_callback(5, 8, "run_strategies")
             except Exception:
                 pass
-        with ThreadPoolExecutor() as executor:
-            futures: dict[Future, str] = {}
-            for name, stg in strategies.items():
-                # systemごとの開始を通知
-                if per_system_progress:
-                    try:
-                        per_system_progress(name, "start")
-                    except Exception:
-                        pass
-                # CLI専用: 各システム開始を即時表示（UIには出さない）
-                try:
-                    _log(f"▶ {name} 開始", ui=False)
-                except Exception:
-                    pass
-                fut = executor.submit(_run_strategy, name, stg)
-                futures[fut] = name
-            pending: set[Future] = set(futures.keys())
-            completed_count = 0
-            while pending:
-                done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
-                _drain_stage_event_queue()
-                if not done:
-                    continue
-                for fut in done:
-                    name, df, msg, logs = fut.result()
-                    per_system[name] = df
-                    try:
-                        cb2 = globals().get("_PER_SYSTEM_STAGE")
-                    except Exception:
-                        cb2 = None
-                    if cb2 and callable(cb2):
+        # 新しい戦略実行ハーネス（並列実行）を使用
+        per_system = run_strategies_parallel(
+            strategies=strategies,
+            raw_data_mapping={
+                "system1": raw_data_system1,
+                "system2": raw_data_system2,
+                "system3": raw_data_system3,
+                "system4": raw_data_system4,
+                "system5": raw_data_system5,
+                "system6": raw_data_system6,
+                "system7": {"SPY": basic_data.get("SPY")},
+            },
+            basic_data=basic_data,
+            spy_df=spy_df,
+            per_system_progress=per_system_progress,
+            log_callback=globals().get("_LOG_CALLBACK"),
+            drain_stage_event_queue=_drain_stage_event_queue,
+            filter_logs=_filter_logs,
+            get_stage_snapshot=_get_stage_snapshot,
+            global_stage_metrics=GLOBAL_STAGE_METRICS,
+        )
+        # 元の並列処理の後続部分は不要（新しいハーネスで処理済み）
                         try:
                             try:
                                 _mx = int(get_settings(create_dirs=False).risk.max_positions)
@@ -3882,95 +3792,28 @@ def _format_phase_completion(
             except Exception:
                 pass
     else:
-        for _idx, (name, stg) in enumerate(strategies.items(), start=1):
-            if progress_callback:
-                try:
-                    progress_callback(5, 8, name)
-                except Exception:
-                    pass
-            # 順次実行時も開始を通知
-            if per_system_progress:
-                try:
-                    per_system_progress(name, "start")
-                except Exception:
-                    pass
-            # CLI専用: 各システム開始を即時表示（UIには出さない）
-            try:
-                _log(f"▶ {name} 開始", ui=False)
-            except Exception:
-                pass
-            name, df, msg, logs = _run_strategy(name, stg)
-            per_system[name] = df
-            _drain_stage_event_queue()
-            # CLI専用: ワーカー収集ログを常に出力（UIには送らない）
-            for line in _filter_logs(logs, ui=False):
-                _log(f"[{name}] {line}", ui=False)
-            # 即時: TRDlist（候補件数）を75%段階として通知（上限はmax_positions）
-            try:
-                cb2 = globals().get("_PER_SYSTEM_STAGE")
-            except Exception:
-                cb2 = None
-            if cb2 and callable(cb2):
-                try:
-                    try:
-                        _mx = int(get_settings(create_dirs=False).risk.max_positions)
-                    except Exception:
-                        _mx = 10
-                    _cand_cnt: int | None
-                    try:
-                        snapshot = _get_stage_snapshot(name)
-                        _cand_cnt = (
-                            None
-                            if snapshot is None or snapshot.candidate_count is None
-                            else int(snapshot.candidate_count)
-                        )
-                    except Exception:
-                        _cand_cnt = None
-                    if _cand_cnt is None:
-                        _cand_cnt = (
-                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                        )
-                    if _mx > 0:
-                        _cand_cnt = min(int(_cand_cnt), int(_mx))
-                    _entry_cnt: int
-                    try:
-                        _entry_cnt = (
-                            0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-                        )
-                    except Exception:
-                        _entry_cnt = 0
-                    if _mx > 0:
-                        _entry_cnt = min(int(_entry_cnt), int(_mx))
-                    try:
-                        GLOBAL_STAGE_METRICS.record_stage(
-                            name,
-                            100,
-                            None,
-                            None,
-                            _cand_cnt,
-                            _entry_cnt,
-                            emit_event=False,
-                        )
-                    except Exception:
-                        pass
-                    cb2(name, 75, None, None, int(_cand_cnt), None)
-                    cb2(name, 100, None, None, int(_cand_cnt), int(_entry_cnt))
-                except Exception:
-                    pass
-            if per_system_progress:
-                try:
-                    per_system_progress(name, "done")
-                except Exception:
-                    pass
-            # CLI専用: 完了を簡潔表示（件数付き）
-            try:
-                _cnt = 0 if (df is None or getattr(df, "empty", True)) else int(len(df))
-            except Exception:
-                _cnt = -1
-            try:
-                _log(f"✅ {name} 完了: {('?' if _cnt < 0 else _cnt)}件", ui=False)
-            except Exception:
-                pass
+        # 新しい戦略実行ハーネス（シリアル実行）を使用
+        per_system = run_strategies_serial(
+            strategies=strategies,
+            raw_data_mapping={
+                "system1": raw_data_system1,
+                "system2": raw_data_system2,
+                "system3": raw_data_system3,
+                "system4": raw_data_system4,
+                "system5": raw_data_system5,
+                "system6": raw_data_system6,
+                "system7": {"SPY": basic_data.get("SPY")},
+            },
+            basic_data=basic_data,
+            spy_df=spy_df,
+            per_system_progress=per_system_progress,
+            log_callback=globals().get("_LOG_CALLBACK"),
+            drain_stage_event_queue=_drain_stage_event_queue,
+            filter_logs=_filter_logs,
+            get_stage_snapshot=_get_stage_snapshot,
+            global_stage_metrics=GLOBAL_STAGE_METRICS,
+            progress_callback=progress_callback,
+        )
         _drain_stage_event_queue()
         # 即時の75%再通知は行わない（メインスレッド側で一括通知）
         # 前回結果は開始時にまとめて出力するため、ここでは出さない

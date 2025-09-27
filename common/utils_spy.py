@@ -338,24 +338,26 @@ try:
     from pandas._libs.tslibs.nattype import NaTType  # type: ignore
 except Exception:  # pragma: no cover
     NaTType = type(pd.NaT)  # fallback alias
+except ImportError:
+    from pandas._typing import NaTType  # type: ignore
 
 
 from typing import overload
 
 
 @overload
-def resolve_signal_entry_date(base_date: None) -> NaTType: ...
+def resolve_signal_entry_date(base_date: None) -> pd.NaTType: ...
 
 
 @overload
 def resolve_signal_entry_date(
     base_date: int | float | str | pd.Timestamp,
-) -> pd.Timestamp | NaTType: ...
+) -> pd.Timestamp | pd.NaTType: ...
 
 
 def resolve_signal_entry_date(
     base_date: int | float | str | pd.Timestamp | None,
-) -> pd.Timestamp | NaTType:
+) -> pd.Timestamp | pd.NaTType:
     """シグナル日から翌営業日（取引予定日）を算出する。
 
     - base_date が欠損・変換不可の場合は NaT を返す。

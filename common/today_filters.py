@@ -8,6 +8,7 @@ run_all_systems_today.py からロジックを分離（責務分割）:
 注意: 公開 API (関数シグネチャ・戻り値) は run_all_systems_today.py と互換。
       依存: pandas のみ（外部 I/O なし / CacheManager 依存なし）
 """
+
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -35,6 +36,7 @@ __all__ = [
 ]
 
 # ----------------------------- 基本ヘルパ ----------------------------- #
+
 
 def _pick_series(df: pd.DataFrame, names: Sequence[str]):
     """候補列名リストから最初に存在する列を Series として返す。
@@ -182,6 +184,7 @@ def _resolve_atr_ratio(
 
 # ------------------------- System 条件関数群 ------------------------- #
 
+
 def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     close_series = _pick_series(df, ["Close", "close"])
     last_close = _last_scalar(close_series)
@@ -290,6 +293,7 @@ def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
 
 
 # ------------------------- filter_systemX 群 ------------------------- #
+
 
 def filter_system1(symbols, data, stats: dict[str, int] | None = None):
     result: list[str] = []

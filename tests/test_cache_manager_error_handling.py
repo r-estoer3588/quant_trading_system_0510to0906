@@ -15,7 +15,6 @@ import pytest
 from common.cache_manager import (
     CacheManager,
     _read_legacy_cache,
-    _write_dataframe_to_csv,
     load_base_cache,
     save_base_cache,
 )

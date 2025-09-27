@@ -15,11 +15,8 @@ from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import (
     SYSTEM1_REQUIRED_INDICATORS,
-    MIN_ROWS_SYSTEM1,
-    get_system_config,
 )
 from common.utils import get_cached_data
-from common.utils_spy import resolve_signal_entry_date
 
 # --- Backward compatibility helpers for legacy direct tests ---
 # Some tests (tests/test_system1_direct.py) expect internal helper functions
@@ -355,8 +352,70 @@ def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
     return get_total_days(data_dict)
 
 
+def generate_roc200_ranking_system1(
+    data_dict: dict[str, pd.DataFrame], date: str, top_n: int = 20, log_callback=None
+) -> list[dict]:
+    """Generate ROC200-based ranking for a specific date.
+
+    Args:
+        data_dict: Dictionary of prepared data
+        date: Target date (YYYY-MM-DD format)
+        top_n: Number of top candidates to return
+        log_callback: Optional logging callback
+
+    Returns:
+        List of candidate dictionaries with symbol, ROC200, and other metrics
+    """
+    if not data_dict:
+        if log_callback:
+            log_callback("System1: No data available for ranking")
+        return []
+
+    target_date = pd.to_datetime(date)
+    candidates = []
+
+    for symbol, df in data_dict.items():
+        try:
+            if df is None or target_date not in df.index:
+                continue
+
+            row = df.loc[target_date]
+
+            # Check setup conditions
+            if not row.get("setup", False):
+                continue
+
+            # Get ROC200 value
+            roc200_val = row.get("roc200", 0)
+            if pd.isna(roc200_val) or roc200_val <= 0:
+                continue
+
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "roc200": float(roc200_val),
+                    "close": float(row.get("Close", 0)),
+                    "sma200": float(row.get("sma200", 0)),
+                    "setup": bool(row.get("setup", False)),
+                }
+            )
+
+        except Exception:
+            continue
+
+    # Sort by ROC200 descending and take top_n
+    candidates.sort(key=lambda x: x["roc200"], reverse=True)
+    result = candidates[:top_n]
+
+    if log_callback:
+        log_callback(f"System1: Generated {len(result)} ROC200 candidates for {date}")
+
+    return result
+
+
 __all__ = [
     "prepare_data_vectorized_system1",
     "generate_candidates_system1",
     "get_total_days_system1",
+    "generate_roc200_ranking_system1",
 ]

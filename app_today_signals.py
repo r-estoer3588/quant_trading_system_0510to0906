@@ -2893,6 +2893,7 @@ def _log_and_notify(
 ):
     """Log to both logger and optional callbacks."""
     import pandas as pd
+
     _get_today_logger().log(level, message)
     if notifier:
         try:

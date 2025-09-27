@@ -39,8 +39,7 @@ def prepare_data_vectorized_system7(
         # Early exit: check required precomputed indicators exist (lowercase)
         if "atr50" not in df.columns:
             raise RuntimeError(
-                "IMMEDIATE_STOP: System7 missing indicator atr50 for SPY. "
-                "Daily signal execution must be stopped."
+                "IMMEDIATE_STOP: System7 missing precomputed indicator atr50 for SPY. Daily signal execution must be stopped."
             )
 
         cache_path = os.path.join(cache_dir, "SPY.feather")
@@ -61,8 +60,7 @@ def prepare_data_vectorized_system7(
             # Check if precomputed ATR50 exists
             if "atr50" not in x.columns:
                 raise RuntimeError(
-                    "IMMEDIATE_STOP: System7 missing indicator atr50. "
-                    "Daily signal execution must be stopped."
+                    "IMMEDIATE_STOP: System7 missing precomputed indicator atr50. Daily signal execution must be stopped."
                 )
 
             # Use precomputed ATR50 (lowercase) and create uppercase version for consistency

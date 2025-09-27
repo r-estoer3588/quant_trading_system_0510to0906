@@ -39,9 +39,7 @@ class CacheManager:
         # 入出力管理
         self.file_manager = CacheFileManager(settings)
 
-    def _read_base_and_tail(
-        self, ticker: str, tail_rows: int = 330
-    ) -> pd.DataFrame | None:
+    def _read_base_and_tail(self, ticker: str, tail_rows: int = 330) -> pd.DataFrame | None:
         """baseキャッシュを読み込み、rolling相当の行数でtail処理を行う"""
         try:
             # baseディレクトリから読み込み
@@ -88,9 +86,7 @@ class CacheManager:
             "close": "Close",
             "volume": "Volume",
         }
-        base_renamed = base.rename(
-            columns={k: v for k, v in case_map.items() if k in base.columns}
-        )
+        base_renamed = base.rename(columns={k: v for k, v in case_map.items() if k in base.columns})
         base_renamed["Date"] = base_renamed["date"]
 
         try:
@@ -103,9 +99,7 @@ class CacheManager:
             enriched.columns = [
                 c.lower() if c.lower() in basic_cols else c for c in enriched.columns
             ]
-            enriched["date"] = pd.to_datetime(
-                enriched.get("date", base["date"]), errors="coerce"
-            )
+            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
 
             # Overwrite indicator columns with freshly computed values while
             # preserving original OHLCV and date columns. This ensures appended
@@ -148,9 +142,7 @@ class CacheManager:
                         self.file_manager.write_atomic(df, path, ticker, profile)
                         logger.debug(f"Generated rolling cache for {ticker}")
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to save generated rolling for {ticker}: {e}"
-                        )
+                        logger.warning(f"Failed to save generated rolling for {ticker}: {e}")
 
                 return df
 
@@ -274,9 +266,7 @@ class CacheManager:
             for file_path in rolling_files:
                 ticker_name = file_path.stem
                 try:
-                    df = self.file_manager.read_with_fallback(
-                        file_path, ticker_name, "rolling"
-                    )
+                    df = self.file_manager.read_with_fallback(file_path, ticker_name, "rolling")
                     if df is None or df.empty or "date" not in df.columns:
                         continue
 
@@ -389,9 +379,7 @@ class CacheManager:
                 "insufficient_list": insufficient_data[:10],
                 "stale_list": stale_data[:10],
                 "reference_date": (
-                    reference_date.strftime("%Y-%m-%d")
-                    if pd.notna(reference_date)
-                    else "N/A"
+                    reference_date.strftime("%Y-%m-%d") if pd.notna(reference_date) else "N/A"
                 ),
             }
 
@@ -420,9 +408,7 @@ class CacheManager:
             for file_path in rolling_files[:20]:  # サンプリング
                 try:
                     ticker = file_path.stem
-                    df = self.file_manager.read_with_fallback(
-                        file_path, ticker, "rolling"
-                    )
+                    df = self.file_manager.read_with_fallback(file_path, ticker, "rolling")
                     if df is not None and not df.empty:
                         readable_files += 1
                         total_rows += len(df)
@@ -444,9 +430,7 @@ class CacheManager:
                 "total_files": total_files,
                 "readable_files": readable_files,
                 "sample_total_rows": total_rows,
-                "avg_rows_per_file": (
-                    total_rows / readable_files if readable_files > 0 else 0
-                ),
+                "avg_rows_per_file": (total_rows / readable_files if readable_files > 0 else 0),
                 "sample_date_ranges": date_range_info,
             }
 
@@ -478,9 +462,7 @@ class CacheManager:
             return symbol, df
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_symbol = {
-                executor.submit(read_single, sym): sym for sym in symbols
-            }
+            future_to_symbol = {executor.submit(read_single, sym): sym for sym in symbols}
 
             for future in as_completed(future_to_symbol):
                 symbol, df = future.result()
@@ -547,9 +529,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
-        )
+        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}")
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -663,9 +643,7 @@ def base_cache_path(symbol: str) -> Path:
     return _base_dir() / f"{safe_filename(symbol)}.csv"
 
 
-def save_base_cache(
-    symbol: str, df: pd.DataFrame, settings: Settings | None = None
-) -> Path:
+def save_base_cache(symbol: str, df: pd.DataFrame, settings: Settings | None = None) -> Path:
     """Base キャッシュを feather 形式で保存し、パスを返す。"""
     if settings is None:
         settings = get_settings(create_dirs=True)
@@ -677,9 +655,7 @@ def save_base_cache(
     tmp_path = path.with_suffix(path.suffix + ".tmp")
 
     # データ前処理
-    df_reset = (
-        df.reset_index() if hasattr(df, "index") and df.index.name is not None else df
-    )
+    df_reset = df.reset_index() if hasattr(df, "index") and df.index.name is not None else df
     df_reset = df_reset.rename(columns={c: str(c).lower() for c in df_reset.columns})
 
     # 設定に基づく丸め処理

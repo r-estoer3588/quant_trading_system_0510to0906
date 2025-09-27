@@ -8,6 +8,7 @@ run_all_systems_today.py からデータ読み込み責務を分離（責務分�
 注意: 公開 API は run_all_systems_today.py と互換。
       依存: CacheManager, Settings, pandas, threading（外部 UI コール不含）
 """
+
 from __future__ import annotations
 
 import os
@@ -33,6 +34,7 @@ def _get_rate_limited_logger():
         _rate_limited_logger = create_rate_limited_logger("today_data_loader", 3.0)
     return _rate_limited_logger
 
+
 __all__ = [
     "_extract_last_cache_date",
     "_recent_trading_days",
@@ -42,6 +44,7 @@ __all__ = [
 ]
 
 # ----------------------------- データ操作ヘルパ ----------------------------- #
+
 
 def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     """キャッシュデータから最終日付を抽出。"""
@@ -80,7 +83,7 @@ def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.T
             dates.append(current)
             current = current - pd.Timedelta(days=1)
         return dates
-    
+
     out: list[pd.Timestamp] = []
     seen: set[pd.Timestamp] = set()
     current = pd.Timestamp(today).normalize()
@@ -165,6 +168,7 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 # ----------------------------- 基礎データローダ ----------------------------- #
 
+
 def load_basic_data(
     symbols: list[str],
     cache_manager: CacheManager,
@@ -179,12 +183,12 @@ def load_basic_data(
 ) -> dict[str, pd.DataFrame]:
     """
     基礎データ（OHLCV + 基本指標）を読み込み。
-    
+
     読み込み順序:
     1. symbol_data (事前提供)
     2. rolling キャッシュ
     3. base キャッシュから rolling 生成
-    
+
     Args:
         symbols: 対象シンボル一覧
         cache_manager: キャッシュ管理オブジェクト
@@ -195,10 +199,11 @@ def load_basic_data(
         base_cache: ベースキャッシュ (未使用, 互換性維持)
         log_callback: ログコールバック
         ui_log_callback: UI ログコールバック
-    
+
     Returns:
         {symbol: DataFrame} の辞書
     """
+
     def _log(msg: str, ui: bool = True) -> None:
         if log_callback:
             log_callback(msg, ui)
@@ -462,7 +467,7 @@ def load_basic_data(
 
             # 進捗ログはDEBUGレベルでレート制限適用
             try:
-                rate_logger = get_rate_limited_logger()
+                rate_logger = _get_rate_limited_logger()
                 rate_logger.debug_rate_limited(
                     f"📦 基礎データロード進捗: {done}/{total_syms}",
                     interval=2.0,
@@ -569,7 +574,7 @@ def load_basic_data(
         ]
         if summary_parts:
             try:
-                rate_logger = get_rate_limited_logger()
+                rate_logger = _get_rate_limited_logger()
                 rate_logger.debug_rate_limited(
                     "📊 基礎データロード内訳: " + " / ".join(summary_parts),
                     interval=5.0,
@@ -585,6 +590,7 @@ def load_basic_data(
 
 # ----------------------------- 指標データローダ ----------------------------- #
 
+
 def load_indicator_data(
     symbols: list[str],
     cache_manager: CacheManager,
@@ -596,18 +602,19 @@ def load_indicator_data(
 ) -> dict[str, pd.DataFrame]:
     """
     指標データ（事前計算済み指標含む完全なデータセット）を読み込み。
-    
+
     Args:
         symbols: 対象シンボル一覧
-        cache_manager: キャッシュ管理オブジェクト  
+        cache_manager: キャッシュ管理オブジェクト
         settings: 設定オブジェクト
         symbol_data: 事前ロード済みデータ
         log_callback: ログコールバック
         ui_log_callback: UI ログコールバック
-    
+
     Returns:
         {symbol: DataFrame} の辞書
     """
+
     def _log(msg: str, ui: bool = True) -> None:
         if log_callback:
             log_callback(msg, ui)
@@ -620,7 +627,7 @@ def load_indicator_data(
     total_syms = len(symbols)
     start_ts = time.time()
     chunk = 500
-    
+
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = None
@@ -659,7 +666,7 @@ def load_indicator_data(
                 df = None
             if df is None or df.empty:
                 df = cache_manager.read(sym, "rolling")
-            
+
             try:
                 target_len = int(
                     settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
@@ -682,7 +689,7 @@ def load_indicator_data(
                         ui=False,
                     )
                 continue
-            
+
             if df is not None and not df.empty:
                 try:
                     if "Date" not in df.columns:
@@ -699,7 +706,7 @@ def load_indicator_data(
                 data[sym] = df
         except Exception:
             continue
-            
+
         if total_syms > 0 and idx % chunk == 0:
             try:
                 elapsed = max(0.001, time.time() - start_ts)
@@ -711,7 +718,7 @@ def load_indicator_data(
 
                 # 進捗ログはDEBUGレベルでレート制限適用
                 try:
-                    rate_logger = get_rate_limited_logger()
+                    rate_logger = _get_rate_limited_logger()
                     rate_logger.debug_rate_limited(
                         f"🧮 指標データロード進捗: {idx}/{total_syms}",
                         interval=2.0,
