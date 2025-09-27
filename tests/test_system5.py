@@ -5,6 +5,17 @@ import pytest
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD  # , _rename_ohlcv  # Function removed
 from strategies.system5_strategy import System5Strategy
 
+# Import needed function from archived version
+try:
+    from tools.archive.system5_old import _compute_indicators_frame
+except ImportError:
+    # Fallback if not available
+    def _compute_indicators_frame(df):
+        """Minimal fallback implementation"""
+        from common.indicators_common import add_indicators
+
+        return add_indicators(df)
+
 
 @pytest.fixture
 def dummy_data():

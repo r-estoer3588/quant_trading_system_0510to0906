@@ -13,12 +13,50 @@ slot-based or capital allocation mode.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypeAlias, TypedDict
 
 import pandas as pd
+
+# Type aliases for better readability
+PositionDict: TypeAlias = dict[str, Any]
+SystemName: TypeAlias = str
+Symbol: TypeAlias = str
+StrategyMapping: TypeAlias = Mapping[str, object]
+
+
+class AllocationConfig(TypedDict):
+    """Type definition for allocation configuration."""
+
+    long_allocations: NotRequired[dict[SystemName, float]]
+    short_allocations: NotRequired[dict[SystemName, float]]
+    max_positions: NotRequired[int]
+    risk_pct: NotRequired[float]
+    max_pct: NotRequired[float]
+
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
+
+class AllocationConstants:
+    """Centralized constants for allocation logic."""
+
+    DEFAULT_RISK_PCT = 0.02
+    DEFAULT_MAX_PCT = 0.10
+    DEFAULT_MAX_POSITIONS = 10
+    DEFAULT_CAPITAL = 100_000.0
+    DEFAULT_LONG_RATIO = 0.5
+    MAX_ITERATIONS = 10_000  # 無限ループ防止
+
+    # エラーメッセージ
+    MSG_INVALID_ALLOCATION = "Invalid allocation weights: {}"
+    MSG_POSITION_CALC_ERROR = "Error calculating position size for {}: {}"
+    MSG_EMPTY_DATA = "No data available for system {}"
+
 
 DEFAULT_LONG_ALLOCATIONS: dict[str, float] = {
     "system1": 0.25,
@@ -69,34 +107,60 @@ def _load_allocations_from_settings() -> tuple[dict[str, float], dict[str, float
 
 
 def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | None:
-    """Attempt to convert ``value`` to a positive float.
+    """Attempt to convert value to a positive float with improved error handling.
 
-    Returns ``None`` if conversion fails, value is ``None``/empty string, the
-    numeric result is negative (and zero when ``allow_zero`` is False), or
-    the value is infinite or NaN.
+    Args:
+        value: Value to convert
+        allow_zero: Whether to allow zero values
 
-    This helper centralises Optional[float] sanitation so that mypy does not
-    see patterns like ``float(x)`` where ``x`` is ``float | None``.
+    Returns:
+        Converted float value or None if invalid
+
+    Raises:
+        Never raises - returns None for all errors
     """
     if value in (None, ""):
+        logger.debug("Empty value provided for float conversion")
         return None
+
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.debug(f"Failed to convert {value!r} to float: {e}")
         return None
+
+    # Validation checks
     if f < 0:
+        logger.debug(f"Negative value rejected: {f}")
         return None
     if not allow_zero and f == 0:
+        logger.debug("Zero value rejected (allow_zero=False)")
         return None
-    # Reject infinite or NaN values
     if not (0 <= f < float("inf")):
+        logger.debug(f"Invalid numeric value: {f}")
         return None
+
     return f
 
 
 @dataclass(slots=True)
 class AllocationSummary:
-    """Summary of the final allocation step."""
+    """Summary of the final allocation step.
+
+    Attributes:
+        mode: Allocation mode ('slot' or 'capital')
+        long_allocations: Weight distribution for long systems
+        short_allocations: Weight distribution for short systems
+        active_positions: Current position count by system
+        available_slots: Available slots for new positions by system
+        final_counts: Final allocated positions by system
+        slot_allocation: Slot distribution by system (slot mode only)
+        slot_candidates: Available candidates by system (slot mode only)
+        budgets: Budget allocation by system (capital mode only)
+        budget_remaining: Remaining budget by system (capital mode only)
+        capital_long: Total long-side capital (capital mode only)
+        capital_short: Total short-side capital (capital mode only)
+    """
 
     mode: str
     long_allocations: dict[str, float]
@@ -111,42 +175,90 @@ class AllocationSummary:
     capital_long: float | None = None
     capital_short: float | None = None
 
+    def __post_init__(self) -> None:
+        """Validate allocation summary after initialization."""
+        if self.mode not in ("slot", "capital"):
+            logger.warning(f"Unknown allocation mode: {self.mode}")
+
+        # Validate that slot mode has slot-specific data
+        if self.mode == "slot" and self.slot_allocation is None:
+            logger.warning("Slot mode summary missing slot_allocation data")
+
+        # Validate that capital mode has capital-specific data
+        if self.mode == "capital" and self.budgets is None:
+            logger.warning("Capital mode summary missing budgets data")
+
 
 def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
-    """Load ``data/symbol_system_map.json``.
+    """Load symbol-to-system mapping from JSON file.
 
     The helper normalises keys/values to lower case so that lookups become
     case-insensitive.
-    """
 
+    Args:
+        path: Path to the JSON file. Defaults to 'data/symbol_system_map.json'
+
+    Returns:
+        Dictionary mapping symbols to system names. Empty dict if file
+        cannot be loaded or parsed.
+
+    Raises:
+        Never raises - returns empty dict on all errors
+    """
     if path is None:
         path = Path("data/symbol_system_map.json")
+
     path = Path(path)
     if not path.exists():
+        logger.debug(f"Symbol system map file not found: {path}")
         return {}
+
     try:
         content = path.read_text(encoding="utf-8")
-    except OSError:
+    except OSError as e:
+        logger.warning(f"Failed to read symbol system map: {e}")
         return {}
+
     try:
         raw = json.loads(content)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in symbol system map: {e}")
         return {}
+
+    if not isinstance(raw, dict):
+        logger.error(f"Symbol system map must be a dictionary, got {type(raw)}")
+        return {}
+
     result: dict[str, str] = {}
     for key, value in raw.items():
         key_str = str(key).strip()
         val_str = str(value).strip()
         if not key_str or not val_str:
+            logger.debug(f"Skipping empty key/value pair: {key!r} -> {value!r}")
             continue
         result[key_str.lower()] = val_str.lower()
+
+    logger.debug(f"Loaded {len(result)} symbol-system mappings")
     return result
 
 
 def _get_position_attr(obj: object, name: str) -> Any:
-    if hasattr(obj, name):
-        return getattr(obj, name)
-    if isinstance(obj, Mapping):
-        return obj.get(name)
+    """Get attribute from position object safely.
+
+    Args:
+        obj: Position object (could be object with attributes or dict)
+        name: Attribute name to retrieve
+
+    Returns:
+        Attribute value or None if not found
+    """
+    try:
+        if hasattr(obj, name):
+            return getattr(obj, name)
+        if isinstance(obj, Mapping):
+            return obj.get(name)
+    except Exception as e:
+        logger.debug(f"Error accessing attribute {name}: {e}")
     return None
 
 
@@ -154,55 +266,88 @@ def count_active_positions_by_system(
     positions: Sequence[object] | None,
     symbol_system_map: Mapping[str, str] | None,
 ) -> dict[str, int]:
-    """Return a mapping of ``system -> active position count``.
+    """Return a mapping of system names to active position counts.
 
-    Parameters
-    ----------
-    positions:
-        Iterable of Alpaca position objects (or dictionaries).  Only entries
-        with a positive ``qty`` are counted.
-    symbol_system_map:
-        Mapping of ``symbol`` to ``system``.  Keys are compared in a
-        case-insensitive fashion.
+    Args:
+        positions: Iterable of Alpaca position objects (or dictionaries).
+                  Only entries with a positive qty are counted.
+        symbol_system_map: Mapping of symbol to system name.
+                          Keys are compared case-insensitively.
+
+    Returns:
+        Dictionary mapping system names to position counts
+
+    Notes:
+        - SPY short positions are automatically assigned to system7
+        - Invalid or zero quantity positions are ignored
+        - Position objects can be either objects with attributes or dictionaries
     """
-
     if positions is None:
         positions = []
     if symbol_system_map is None:
         symbol_system_map = {}
 
+    # Normalize the symbol system map for case-insensitive lookups
     norm_map: dict[str, str] = {}
     for key, value in symbol_system_map.items():
-        key_str = str(key).strip()
-        val_str = str(value).strip()
-        if not key_str or not val_str:
+        try:
+            key_str = str(key).strip()
+            val_str = str(value).strip()
+            if not key_str or not val_str:
+                logger.debug(f"Skipping empty key/value in symbol_system_map: {key!r} -> {value!r}")
+                continue
+            norm_map[key_str.upper()] = val_str.lower()
+        except Exception as e:
+            logger.warning(f"Error processing symbol_system_map entry {key!r} -> {value!r}: {e}")
             continue
-        norm_map[key_str.upper()] = val_str.lower()
 
     counts: dict[str, int] = {}
-    for pos in positions:
-        symbol_raw = _get_position_attr(pos, "symbol")
-        if symbol_raw is None:
-            continue
-        sym = str(symbol_raw).strip().upper()
-        if not sym:
-            continue
-        qty_raw = _get_position_attr(pos, "qty")
+    for i, pos in enumerate(positions):
         try:
-            qty_val = abs(float(qty_raw)) if qty_raw is not None else 0.0
-        except (TypeError, ValueError):
-            qty_val = 0.0
-        if qty_val <= 0:
-            continue
-        side_raw = _get_position_attr(pos, "side")
-        side = str(side_raw).strip().lower() if side_raw is not None else ""
-        system = norm_map.get(sym) or norm_map.get(sym.lower())
-        if not system:
-            if sym == "SPY" and side == "short":
-                system = "system7"
-            else:
+            # Extract symbol
+            symbol_raw = _get_position_attr(pos, "symbol")
+            if symbol_raw is None:
+                logger.debug(f"Position {i} missing symbol")
                 continue
-        counts[system] = counts.get(system, 0) + 1
+
+            sym = str(symbol_raw).strip().upper()
+            if not sym:
+                logger.debug(f"Position {i} has empty symbol")
+                continue
+
+            # Extract and validate quantity
+            qty_raw = _get_position_attr(pos, "qty")
+            try:
+                qty_val = abs(float(qty_raw)) if qty_raw is not None else 0.0
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Position {i} invalid quantity {qty_raw!r}: {e}")
+                qty_val = 0.0
+
+            if qty_val <= 0:
+                logger.debug(f"Position {i} has zero/negative quantity: {qty_val}")
+                continue
+
+            # Extract side for special SPY handling
+            side_raw = _get_position_attr(pos, "side")
+            side = str(side_raw).strip().lower() if side_raw is not None else ""
+
+            # Determine system
+            system = norm_map.get(sym) or norm_map.get(sym.lower())
+            if not system:
+                # Special case: SPY short positions go to system7
+                if sym == "SPY" and side == "short":
+                    system = "system7"
+                else:
+                    logger.debug(f"No system mapping found for symbol: {sym}")
+                    continue
+
+            counts[system] = counts.get(system, 0) + 1
+
+        except Exception as e:
+            logger.warning(f"Error processing position {i}: {e}")
+            continue
+
+    logger.debug(f"Counted active positions: {dict(counts)}")
     return counts
 
 
@@ -210,26 +355,58 @@ def _normalize_allocations(
     weights: Mapping[str, float] | None,
     defaults: Mapping[str, float],
 ) -> dict[str, float]:
+    """Normalize allocation weights to sum to 1.0.
+
+    Args:
+        weights: Raw allocation weights by system
+        defaults: Default weights to use if weights is empty/invalid
+
+    Returns:
+        Normalized weights that sum to 1.0
+
+    Notes:
+        - Invalid weights (negative, zero, non-numeric) are filtered out
+        - If all weights are invalid, defaults are used
+        - If defaults are also invalid, equal weights are assigned
+    """
     filtered: dict[str, float] = {}
+
     if weights:
         for key, value in weights.items():
             try:
                 numeric = float(value)
-            except (TypeError, ValueError):
+                if numeric > 0:  # Only positive weights allowed
+                    filtered[str(key).strip().lower()] = numeric
+                else:
+                    logger.debug(f"Skipping non-positive weight: {key}={value}")
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Skipping invalid weight {key}={value!r}: {e}")
                 continue
-            if numeric <= 0:
-                continue
-            filtered[str(key).strip().lower()] = numeric
+
+    # Fall back to defaults if no valid weights provided
     if not filtered:
-        filtered = {k: float(v) for k, v in defaults.items() if float(v) > 0}
+        logger.debug("No valid weights provided, using defaults")
+        try:
+            filtered = {k: float(v) for k, v in defaults.items() if float(v) > 0}
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid default weights: {e}")
+            filtered = {}
+
+    # Calculate total for normalization
     total = sum(filtered.values())
     if total <= 0:
-        # Fallback to equal weights
+        # Final fallback: equal weights
+        logger.warning("All weights are zero/negative, using equal weights")
         n = len(defaults)
         if n == 0:
+            logger.error("No systems available for equal weight allocation")
             return {}
         return {k: 1.0 / n for k in defaults}
-    return {k: v / total for k, v in filtered.items()}
+
+    # Normalize to sum to 1.0
+    normalized = {k: v / total for k, v in filtered.items()}
+    logger.debug(f"Normalized allocations: {normalized}")
+    return normalized
 
 
 def _candidate_count(df: pd.DataFrame | None) -> int:
@@ -576,7 +753,11 @@ def _sort_final_frame(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         pass
 
-    tmp = tmp.drop(columns=["_system_no"], errors="ignore")
+    # Drop _system_no column if it exists
+    if "_system_no" in tmp.columns:
+        tmp = tmp.drop(columns=["_system_no"])
+
+    # Add sequential numbering
     try:
         tmp.insert(0, "no", range(1, len(tmp) + 1))
     except Exception:

@@ -12,9 +12,9 @@ NotImplementedError によりモジュールが直接インポートできない
 unittest.mock.patch を使用して関数の動作をテストします。
 """
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd
@@ -320,7 +320,7 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
 
         # 並列実行テスト
         log_calls = []
-        
+
         def mock_log(msg: str) -> None:
             log_calls.append(msg)
 
@@ -383,7 +383,7 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         }
 
         log_calls = []
-        
+
         def mock_log(msg: str) -> None:
             log_calls.append(msg)
 
@@ -452,7 +452,7 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         basic_data = {f"STOCK{i}": self.test_df.copy() for i in range(1, 5)}
 
         log_calls = []
-        
+
         def mock_log(msg: str) -> None:
             log_calls.append(msg)
 

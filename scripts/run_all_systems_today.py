@@ -3678,54 +3678,41 @@ def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
     min_required = custom_need or need_map.get(name, lb_default)
     lookback_days = min(lb_default, max(min_floor, int(min_required)))
     return lookback_days
-    try:
-        settings2 = get_settings(create_dirs=True)
-        lb_default = int(
-            settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
-        )
-    except Exception:
-        settings2 = None
-        lb_default = 300
-    # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
-    # ルックバックのマージン/最小日数は環境変数で上書き可能
-    try:
-        margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
-    except Exception:
-        margin = 0.15
-    need_map: dict[str, int] = {
-        "system1": int(220 * (1 + margin)),
-        "system2": int(120 * (1 + margin)),
-        # SMA150 を安定に計算するため 170 日程度を要求
-        "system3": int(170 * (1 + margin)),
-        # SMA200 系のため 220 日程度を要求
-        "system4": int(220 * (1 + margin)),
-        "system5": int(140 * (1 + margin)),
-        "system6": int(80 * (1 + margin)),
-        "system7": int(80 * (1 + margin)),
-    }
-    # 戦略側が get_total_days を実装していれば優先
-    custom_need = None
-    try:
-        fn = getattr(stg, "get_total_days", None)
-        if callable(fn):
-            _val = fn(base)
-            if isinstance(_val, int | float):
-                custom_need = int(_val)
-            elif isinstance(_val, str):
-                try:
-                    custom_need = int(float(_val))
-                except Exception:
-                    custom_need = None
-            else:
-                custom_need = None
-    except Exception:
-        custom_need = None
-    try:
-        min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
-    except Exception:
-        min_floor = 80
-    min_required = custom_need or need_map.get(name, lb_default)
-    lookback_days = min(lb_default, max(min_floor, int(min_required)))
+
+
+# Let's clean up from here and find the actual function that needs these variables
+def _run_strategy_with_proper_scope(
+    name: str,
+    stg,
+    base,
+    spy_df,
+    today,
+    _log,
+    settings=None,
+    symbols=None,
+    strategies=None,
+    parallel: bool = False,
+    progress_callback=None,
+    per_system_progress=None,
+    basic_data=None,
+    s1_setup=0,
+    s2_setup=0,
+    s3_setup=0,
+    s5_setup=0,
+    s6_setup=0,
+    s1_setup_eff=None,
+):
+    """Run strategy with properly scoped variables."""
+    # Initialize variables
+    logs = []  # Initialize logs list
+    pool_outcome = "none"
+
+    # Configure process pool settings
+    use_process_pool, max_workers = _configure_process_pool_and_workers(name=name, _log=_log)
+
+    # Configure lookback days
+    lookback_days = _configure_lookback_days(name=name, stg=stg, base=base)
+
     _t0 = __import__("time").time()
     # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
     _stage_cb = _stage
@@ -3839,9 +3826,23 @@ def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
     else:
         msg = f"❌ {name}: 0 件 🚫"
     _log(msg)
+    logs = []  # Initialize logs list for return statement
+
+    # Initialize setup variables if not already defined
+    s1_setup = locals().get("s1_setup", 0)
+    s1_setup_eff = locals().get("s1_setup_eff", None)
+    s2_setup = locals().get("s2_setup", 0)
+    s3_setup = locals().get("s3_setup", 0)
+    s5_setup = locals().get("s5_setup", 0)
+    s6_setup = locals().get("s6_setup", 0)
+    basic_data = locals().get("basic_data", {})
+
     return name, df, msg, logs
 
-    # 抽出開始前にセットアップ通過のまとめを出力
+
+# Setup summary code that was after return - moved to proper location
+def _log_setup_summary():
+    """Log setup summary - this function should be called before strategy execution"""
     try:
         setup_summary = []
         for name, val in (

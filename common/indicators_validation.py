@@ -80,6 +80,7 @@ def validate_precomputed_indicators(
         systems = list(SYSTEM_REQUIRED_INDICATORS.keys())
 
     if log_callback is None:
+
         def log_callback(x: str) -> None:
             pass
 
@@ -149,7 +150,9 @@ def validate_precomputed_indicators(
     return validation_passed, missing_report
 
 
-def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None) -> bool:
+def quick_indicator_check(
+    data_dict: dict[str, pd.DataFrame], log_callback=None
+) -> bool:
     """
     高速な指標存在チェック（サンプル銘柄のみ）
 
@@ -160,6 +163,7 @@ def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None)
         return True
 
     if log_callback is None:
+
         def log_callback(x: str) -> None:
             pass
 
