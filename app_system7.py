@@ -220,7 +220,7 @@ def run_tab(
                         except Exception:
                             round_dec = None
                         try:
-                            from common.cache_manager import round_dataframe
+                            from common.cache_format import round_dataframe
 
                             out_df = round_dataframe(df_log, round_dec)
                         except Exception:
@@ -275,7 +275,7 @@ def run_tab(
                         except Exception:
                             round_dec = None
                         try:
-                            from common.cache_manager import round_dataframe
+                            from common.cache_format import round_dataframe
 
                             out_df = round_dataframe(df_low, round_dec)
                         except Exception:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 from config.settings import get_settings
 
 p = Path("C:/Users/stair/Downloads/rolling_cache_missing_20250921_155609.csv")

@@ -27,7 +27,7 @@ from common.cache_manager import (
 from config.settings import get_settings  # noqa: E402
 
 try:
-    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+    from common.cache_format import round_dataframe  # type: ignore # noqa: E402
 except ImportError:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:

@@ -316,9 +316,8 @@ def _write_dual_format(cm: CacheManager, df: pd.DataFrame, symbol: str) -> None:
     csv_path = rolling_dir / f"{symbol}.csv"
     csv_tmp = rolling_dir / f"{symbol}.csv.tmp"
     try:
-        from common.cache_manager import _write_dataframe_to_csv
-
-        _write_dataframe_to_csv(df_to_write, csv_tmp, cm.settings)
+        # Use standard pandas CSV writing with explicit format settings
+        df_to_write.to_csv(csv_tmp, index=True, float_format="%.6f")
         shutil.move(csv_tmp, csv_path)
     finally:
         if csv_tmp.exists():

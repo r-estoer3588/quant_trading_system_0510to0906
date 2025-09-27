@@ -170,7 +170,7 @@ def to_frame(summary: PerformanceSummary) -> pd.DataFrame:
 
 def save_summary_csv(summary: PerformanceSummary, path: str) -> None:
     try:
-        from common.cache_manager import round_dataframe
+        from common.cache_format import round_dataframe
         from config.settings import get_settings
 
         try:
