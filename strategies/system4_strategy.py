@@ -77,7 +77,6 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system4(
             prepared_dict,
-            market_df,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,

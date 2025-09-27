@@ -145,6 +145,8 @@ def generate_candidates_system7(
     top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
+    batch_size: int | None = None,
+    **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     if "SPY" not in prepared_dict:

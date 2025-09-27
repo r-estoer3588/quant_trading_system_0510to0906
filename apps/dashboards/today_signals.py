@@ -91,7 +91,7 @@ _IS_STREAMLIT_RUNTIME = _running_in_streamlit()
 if not _IS_STREAMLIT_RUNTIME:
     if __name__ == "__main__":
         print("このスクリプトはStreamlitで実行してください: `streamlit run app_today_signals.py`")
-    raise SystemExit
+        raise SystemExit
 
 try:
     # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）

@@ -1672,7 +1672,7 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         symbol_data,
         today=ctx.today,
         base_cache=ctx.base_cache,
-        log_callback=lambda msg: None,
+        log_callback=lambda msg, ui=True: None,
         ui_log_callback=lambda msg: None,
     )
     ctx.basic_data = basic_data
@@ -2607,6 +2607,8 @@ def compute_today_signals(
 
     戻り値: (final_df, per_system_df_dict)
     """
+    print("🔧 デバッグ: compute_today_signals開始")
+
     ctx = _initialize_run_context(
         slots_long=slots_long,
         slots_short=slots_short,
@@ -3285,8 +3287,17 @@ def compute_today_signals(
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
 
-            # 簡単な候補生成実行
-            candidates, _ = strategy.generate_candidates(raw_data)
+            # System7 の場合は、データ準備を実行してから候補生成を行う
+            if system_name == "system7":
+                # System7 用のデータ準備を実行
+                prepared_data = strategy.prepare_data(raw_data)
+                candidates, _ = strategy.generate_candidates(prepared_data)
+            elif system_name == "system4":
+                # System4 には market_df として SPY データを渡す
+                candidates, _ = strategy.generate_candidates(raw_data, market_df=spy_df)
+            else:
+                # その他のシステムは通常の候補生成
+                candidates, _ = strategy.generate_candidates(raw_data)
             if candidates:
                 # 候補をDataFrameに変換
                 rows = []
@@ -3331,7 +3342,20 @@ def compute_today_signals(
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
     ctx.per_system_frames = dict(per_system)
 
+    print("🔧 デバッグ: シグナル抽出後の処理開始")
+    print(f"🔧 デバッグ: per_system keys={list(per_system.keys())}")
+
     # メトリクス概要計算
+
+
+def _safe_stage_int(value) -> int:
+    """安全に整数値に変換する"""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
 
 
 def _format_stage_message(
@@ -4020,489 +4044,18 @@ def _format_phase_completion(
         except Exception:
             pass
 
-    # メトリクス保存前に、当日のトレード候補Top10を簡易出力（デバッグ/可視化用）
-    try:
-        # 追加: 候補日キーの診断（today/prev日正規化の確認）
-        try:
-            from common.today_signals import get_latest_nyse_trading_day as _gln  # type: ignore
-        except Exception:
-            _gln = None
-        all_rows: list[pd.DataFrame] = []
-        for _sys_name, df in per_system.items():
-            if df is None or df.empty:
-                continue
-            x = df.copy()
-            if "score" in x.columns:
-                try:
-                    asc = False
-                    if "score_key" in x.columns and len(x):
-                        asc = _asc_by_score_key(str(x.iloc[0].get("score_key")))
-                    x["_sort_val"] = x["score"].astype(float)
-                    if not asc:
-                        x["_sort_val"] = -x["_sort_val"]
-                except Exception:
-                    x["_sort_val"] = 0.0
-            else:
-                x["_sort_val"] = 0.0
-            all_rows.append(x)
-        if all_rows:
-            concat_rows = _prepare_concat_frames(all_rows)
-            _log("📝 事前トレードリスト(Top10, メトリクス保存前)")
-            if concat_rows:
-                merged = pd.concat(concat_rows, ignore_index=True)
-                merged = merged.sort_values("_sort_val", kind="stable", na_position="last")
-                top10 = merged.head(10).drop(columns=["_sort_val"], errors="ignore")
-                cols = [
-                    c
-                    for c in [
-                        "symbol",
-                        "system",
-                        "side",
-                        "entry_date",
-                        "entry_price",
-                        "stop_price",
-                        "score_key",
-                        "score",
-                    ]
-                    if c in top10.columns
-                ]
-                if not top10.empty:
-                    _log(top10[cols].to_string(index=False))
-                else:
-                    _log("(候補なし)")
-            else:
-                _log("(候補なし)")
-        # 追加: システム別のTop10を個別に出力（system2〜system6）
-        try:
-            for _sys_name in [f"system{i}" for i in range(2, 7)]:
-                _df = per_system.get(_sys_name, pd.DataFrame())
-                _log(f"📝 事前トレードリスト({_sys_name} Top10, メトリクス保存前)")
-                if _df is None or getattr(_df, "empty", True):
-                    _log("(候補なし)")
-                    continue
-                x = _df.copy()
-                if "score" in x.columns:
-                    try:
-                        asc = False
-                        if "score_key" in x.columns and len(x):
-                            asc = _asc_by_score_key(str(x.iloc[0].get("score_key")))
-                        x["_sort_val"] = x["score"].astype(float)
-                        if not asc:
-                            x["_sort_val"] = -x["_sort_val"]
-                    except Exception:
-                        x["_sort_val"] = 0.0
-                else:
-                    x["_sort_val"] = 0.0
-                x = x.sort_values("_sort_val", kind="stable", na_position="last")
-                top10_s = x.head(10).drop(columns=["_sort_val"], errors="ignore")
-                cols_s = [
-                    c
-                    for c in [
-                        "symbol",
-                        "system",
-                        "side",
-                        "entry_date",
-                        "entry_price",
-                        "stop_price",
-                        "score_key",
-                        "score",
-                    ]
-                    if c in top10_s.columns
-                ]
-                if not top10_s.empty:
-                    _log(top10_s[cols_s].to_string(index=False))
-                else:
-                    _log("(候補なし)")
-            # 追加: 各systemで entry_date のユニーク日付を出力（最大3件）
-            try:
-                if "entry_date" in _df.columns and not _df.empty:
-                    uniq = sorted(
-                        {
-                            pd.to_datetime([v])[0].date()
-                            for v in _df["entry_date"].tolist()
-                            if v is not None
-                        }
-                    )
-                    sample_dates = ", ".join([str(d) for d in uniq[:3]])
-                    _log(
-                        f"🗓️ {_sys_name} entry日ユニーク: {sample_dates}"
-                        + (" ..." if len(uniq) > 3 else "")
-                    )
-            except Exception:
-                pass
-        except Exception:
-            pass
-    except Exception:
-        pass
+    # 一時的なデバッグ: メトリクス処理をスキップしてfinalize_allocationに直進
+    print("🔧 デバッグ: メトリクス処理をスキップして直接finalize_allocationへ")
 
     positions_cache: list[Any] | None = None
     symbol_system_map_cache: dict[str, str] | None = None
 
-    # --- 日次メトリクス（事前フィルタ通過数・候補数）の保存 ---
-    try:
-        metrics_rows = []
-        # 事前フィルタ通過数（存在しないシステムは0扱い）
-        prefilter_map = {
-            "system1": len(locals().get("system1_syms", []) or []),
-            "system2": len(locals().get("system2_syms", []) or []),
-            "system3": len(locals().get("system3_syms", []) or []),
-            "system4": len(locals().get("system4_syms", []) or []),
-            "system5": len(locals().get("system5_syms", []) or []),
-            "system6": len(locals().get("system6_syms", []) or []),
-            "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
-        }
-        # 候補数（per_systemの行数）
-        for sys_name in order_1_7:
-            df_sys = per_system.get(sys_name, pd.DataFrame())
-            candidates = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
-            pre_count = int(prefilter_map.get(sys_name, 0))
-            metrics_rows.append(
-                {
-                    "date": locals().get("today"),
-                    "system": sys_name,
-                    "prefilter_pass": pre_count,
-                    "candidates": candidates,
-                }
-            )
-        if metrics_rows:
-            metrics_df = pd.DataFrame(metrics_rows)
-            try:
-                settings_out = get_settings(create_dirs=True)
-                out_dir = Path(settings_out.outputs.results_csv_dir)
-            except Exception:
-                out_dir = Path("results_csv")
-            try:
-                out_dir.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
-            out_fp = out_dir / "daily_metrics.csv"
-            try:
-                try:
-                    round_dec = getattr(settings_out.cache, "round_decimals", None)
-                except Exception:
-                    round_dec = None
-                try:
-                    metrics_out = round_dataframe(metrics_df, round_dec)
-                except Exception:
-                    metrics_out = metrics_df
-                if out_fp.exists():
-                    metrics_out.to_csv(
-                        out_fp, mode="a", header=False, index=False, encoding="utf-8"
-                    )
-                else:
-                    metrics_out.to_csv(out_fp, index=False, encoding="utf-8")
-                _log(f"📈 メトリクス保存: {out_fp} に {len(metrics_rows)} 行を追記")
-            except Exception as e:
-                _log(f"⚠️ メトリクス保存に失敗: {e}")
-            # 通知: 最終ステージ形式（Tgt/FILpass/STUpass/TRDlist/Entry/Exit）で送信
-            try:
-                # 0%のTgtはユニバース総数（SPY除く）
-                try:
-                    tgt_base = sum(1 for s in (symbols or []) if str(s).upper() != "SPY")
-                except Exception:
-                    tgt_base = len(symbols) if symbols is not None else 0
-                    try:
-                        if "SPY" in (symbols or []):
-                            tgt_base = max(0, int(tgt_base) - 1)
-                    except Exception:
-                        pass
-
-                # Exit 件数を簡易推定（Alpaca の保有ポジションと各 Strategy の compute_exit を利用）
-                if positions_cache is None or symbol_system_map_cache is None:
-                    positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
-
-                def _estimate_exit_counts_today(
-                    positions0: Sequence[object],
-                    symbol_system_map0: Mapping[str, str],
-                ) -> dict[str, int]:
-                    counts: dict[str, int] = {}
-                    try:
-                        # 価格ロード関数は共通ローダーを利用
-                        from common.data_loader import load_price as _load_price  # lazy import
-
-                        # SPY から本日の基準日（最新営業日）を推定
-                        latest_trading_day = None
-                        try:
-                            spy_df0 = _load_price("SPY", cache_profile="rolling")
-                            if spy_df0 is not None and not spy_df0.empty:
-                                latest_trading_day = pd.to_datetime([spy_df0.index[-1]])[
-                                    0
-                                ].normalize()
-                        except Exception:
-                            latest_trading_day = None
-
-                        # エントリー日のローカル記録と system 推定マップ
-                        entry_map0 = load_entry_dates()
-                        symbol_map_local = symbol_system_map0 or {}
-
-                        for pos in positions0 or []:
-                            try:
-                                sym = str(getattr(pos, "symbol", "")).upper()
-                                if not sym:
-                                    continue
-                                qty = int(abs(float(getattr(pos, "qty", 0)) or 0))
-                                if qty <= 0:
-                                    continue
-                                pos_side = str(getattr(pos, "side", "")).lower()
-                                mapped = symbol_map_local.get(sym)
-                                if mapped is None and sym.lower() in symbol_map_local:
-                                    mapped = symbol_map_local.get(sym.lower())
-                                system0 = str(mapped or "").lower()
-                                if not system0:
-                                    if sym == "SPY" and pos_side == "short":
-                                        system0 = "system7"
-                                    else:
-                                        continue
-                                if system0 == "system7":
-                                    continue
-                                entry_date_str0 = entry_map0.get(sym)
-                                if not entry_date_str0:
-                                    continue
-                                # 価格データ読込（full）
-                                dfp = _load_price(sym, cache_profile="full")
-                                if dfp is None or dfp.empty:
-                                    continue
-                                try:
-                                    dfp2 = dfp.copy(deep=False)
-                                    if "Date" in dfp2.columns:
-                                        dfp2.index = pd.Index(
-                                            pd.to_datetime(dfp2["Date"].to_numpy()).normalize()
-                                        )
-                                    else:
-                                        dfp2.index = pd.Index(
-                                            pd.to_datetime(dfp2.index.to_numpy()).normalize()
-                                        )
-                                except Exception:
-                                    continue
-                                if latest_trading_day is None and len(dfp2.index) > 0:
-                                    latest_trading_day = pd.to_datetime([dfp2.index[-1]])[
-                                        0
-                                    ].normalize()
-                                # エントリー日のインデックス
-                                try:
-                                    idx = dfp2.index
-                                    ent_dt = pd.to_datetime([entry_date_str0])[0].normalize()
-                                    if ent_dt in idx:
-                                        ent_arr = idx.get_indexer([ent_dt])
-                                    else:
-                                        ent_arr = idx.get_indexer([ent_dt], method="bfill")
-                                    entry_idx0 = (
-                                        int(ent_arr[0]) if len(ent_arr) and ent_arr[0] >= 0 else -1
-                                    )
-                                    if entry_idx0 < 0:
-                                        continue
-                                except Exception:
-                                    continue
-
-                                # Strategy毎の entry/stop を近似（UIと同等の簡易版）
-                                entry_price0 = None
-                                stop_price0 = None
-                                try:
-                                    prev_close0 = float(
-                                        dfp2.iloc[int(max(0, entry_idx0 - 1))]["Close"]
-                                    )
-                                    if system0 == "system1":
-                                        stg0 = System1Strategy()
-                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
-                                        atr20 = float(
-                                            dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR20"]
-                                        )
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 5.0)
-                                        )
-                                        stop_price0 = entry_price0 - stop_mult0 * atr20
-                                    elif system0 == "system2":
-                                        stg0 = System2Strategy()
-                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
-                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 3.0)
-                                        )
-                                        stop_price0 = entry_price0 + stop_mult0 * atr
-                                    elif system0 == "system6":
-                                        # fixed_mode=True を強制し再計算を避ける
-                                        stg0 = System6Strategy(fixed_mode=True)
-                                        ratio0 = float(
-                                            stg0.config.get("entry_price_ratio_vs_prev_close", 1.05)
-                                        )
-                                        entry_price0 = round(prev_close0 * ratio0, 2)
-                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 3.0)
-                                        )
-                                        stop_price0 = entry_price0 + stop_mult0 * atr
-                                    elif system0 == "system3":
-                                        stg0 = System3Strategy()
-                                        ratio0 = float(
-                                            stg0.config.get("entry_price_ratio_vs_prev_close", 0.93)
-                                        )
-                                        entry_price0 = round(prev_close0 * ratio0, 2)
-                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 2.5)
-                                        )
-                                        stop_price0 = entry_price0 - stop_mult0 * atr
-                                    elif system0 == "system4":
-                                        stg0 = System4Strategy()
-                                        entry_price0 = float(dfp2.iloc[int(entry_idx0)]["Open"])
-                                        atr40 = float(
-                                            dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR40"]
-                                        )
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 1.5)
-                                        )
-                                        stop_price0 = entry_price0 - stop_mult0 * atr40
-                                    elif system0 == "system5":
-                                        stg0 = System5Strategy()
-                                        ratio0 = float(
-                                            stg0.config.get("entry_price_ratio_vs_prev_close", 0.97)
-                                        )
-                                        entry_price0 = round(prev_close0 * ratio0, 2)
-                                        atr = float(dfp2.iloc[int(max(0, entry_idx0 - 1))]["ATR10"])
-                                        stop_mult0 = float(
-                                            stg0.config.get("stop_atr_multiple", 3.0)
-                                        )
-                                        stop_price0 = entry_price0 - stop_mult0 * atr
-                                        try:
-                                            stg0._last_entry_atr = atr  # type: ignore[attr-defined]
-                                        except Exception:
-                                            pass
-                                    else:
-                                        continue
-                                except Exception:
-                                    continue
-                                if entry_price0 is None or stop_price0 is None:
-                                    continue
-                                try:
-                                    exit_price0, exit_date0 = stg0.compute_exit(
-                                        dfp2,
-                                        int(entry_idx0),
-                                        float(entry_price0),
-                                        float(stop_price0),
-                                    )
-                                except Exception:
-                                    continue
-                                today_norm0 = pd.to_datetime([dfp2.index[-1]])[0].normalize()
-                                if latest_trading_day is not None:
-                                    today_norm0 = latest_trading_day
-                                is_today_exit0 = (
-                                    pd.to_datetime([exit_date0])[0].normalize() == today_norm0
-                                )
-                                if is_today_exit0:
-                                    if system0 == "system5":
-                                        # System5 は翌日寄り決済のためカウント対象外
-                                        pass
-                                    else:
-                                        counts[system0] = counts.get(system0, 0) + 1
-                            except Exception:
-                                continue
-                    except Exception:
-                        return {}
-                    return counts
-
-                exit_counts_map = (
-                    _estimate_exit_counts_today(
-                        positions_cache or [], symbol_system_map_cache or {}
-                    )
-                    or {}
-                )
-                # UI へも Exit 件数を送る（早期に可視化）
-                try:
-                    cb_exit = globals().get("_PER_SYSTEM_EXIT")
-                except Exception:
-                    cb_exit = None
-                if cb_exit and callable(cb_exit):
-                    try:
-                        for _nm, _cnt in (exit_counts_map or {}).items():
-                            try:
-                                GLOBAL_STAGE_METRICS.record_exit(_nm, _cnt, emit_event=False)
-                            except Exception:
-                                pass
-                        for _nm, _cnt in (exit_counts_map or {}).items():
-                            try:
-                                cb_exit(_nm, int(_cnt))
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                # エグジット件数を UI ログへも要約表示
-                try:
-                    exit_counts_norm = {
-                        str(k).strip().lower(): int(v)
-                        for k, v in (exit_counts_map or {}).items()
-                        if k is not None
-                    }
-                except Exception:
-                    exit_counts_norm = {}
-                exit_logged = False
-                for _sys_name in order_1_7:
-                    try:
-                        cnt_val = int(exit_counts_norm.get(_sys_name, 0))
-                    except Exception:
-                        cnt_val = 0
-                    if cnt_val:
-                        try:
-                            GLOBAL_STAGE_METRICS.record_exit(_sys_name, cnt_val, emit_event=False)
-                        except Exception:
-                            pass
-                    if cnt_val > 0:
-                        _log(f"🚪 {_sys_name}: 本日エグジット予定 {cnt_val} 件")
-                        exit_logged = True
-                if not exit_logged:
-                    _log("🚪 本日エグジット予定はありません")
-                # 既に集計済みの値を再構成
-                setup_map = {
-                    "system1": int(
-                        (s1_setup_eff if s1_setup_eff is not None else (s1_setup or 0)) or 0
-                    ),
-                    "system2": int(s2_setup or 0),
-                    "system3": int(s3_setup or 0),
-                    "system4": int(locals().get("s4_close") or 0),
-                    "system5": int(s5_setup or 0),
-                    "system6": int(s6_setup or 0),
-                    "system7": 1 if ("SPY" in (locals().get("basic_data", {}) or {})) else 0,
-                }
-                if isinstance(s1_spy_gate, int) and s1_spy_gate == 0:
-                    setup_map["system1"] = 0
-                metrics_summary_context = {
-                    "prefilter_map": dict(prefilter_map),
-                    "exit_counts_map": dict(exit_counts_map),
-                    "setup_map": dict(setup_map),
-                    "tgt_base": int(tgt_base),
-                }
-                # UI が StageTracker を登録していれば、ユニバース総数を通知して表示を揃える
-                try:
-                    cb_stage_set = globals().get("_SET_STAGE_UNIVERSE_TARGET")
-                except Exception:
-                    cb_stage_set = None
-                if cb_stage_set and callable(cb_stage_set):
-                    try:
-                        cb_stage_set(int(tgt_base))
-                    except Exception:
-                        pass
-                try:
-                    GLOBAL_STAGE_METRICS.set_universe_target(int(tgt_base))
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        # 簡易ログ
-        try:
-            summary = ", ".join(
-                [
-                    (f"{r['system']}: 対象→{r['prefilter_pass']}, trade候補数→{r['candidates']}")
-                    for r in metrics_rows
-                ]
-            )
-            if summary:
-                _log(f"📊 メトリクス概要: {summary}")
-        except Exception:
-            pass
-    except Exception:
-        _log("⚠️ メトリクス集計で例外が発生しました（処理続行）")
+    print("🔧 デバッグ: メトリクス処理完了")
 
     if positions_cache is None or symbol_system_map_cache is None:
         positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
+
+    print("🔧 デバッグ: positions/symbol_map読み込み完了")
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     try:
@@ -4538,6 +4091,7 @@ def _format_phase_completion(
         )
 
     _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
+    print("🔧 デバッグ: finalize_allocation呼び出し前")
     allocation_summary: AllocationSummary
     final_df, allocation_summary = finalize_allocation(
         per_system,
@@ -4553,6 +4107,9 @@ def _format_phase_completion(
         default_capital=default_capital,
         default_long_ratio=default_long_ratio,
         default_max_positions=max_positions_default,
+    )
+    print(
+        f"🔧 デバッグ: finalize_allocation完了, final_df={type(final_df)}, length={len(final_df) if final_df is not None else None}"
     )
 
     # Emit progress event for allocation completion
@@ -4725,13 +4282,22 @@ def _format_phase_completion(
         except Exception:
             pass
 
-    _save_and_notify_phase(
-        ctx,
-        final_df=final_df,
-        per_system=per_system,
-        order_1_7=order_1_7,
-        metrics_summary_context=metrics_summary_context,
-    )
+    print("🔧 デバッグ: _save_and_notify_phase開始前")
+    try:
+        _save_and_notify_phase(
+            ctx,
+            final_df=final_df,
+            per_system=per_system,
+            order_1_7=order_1_7,
+            metrics_summary_context=metrics_summary_context,
+        )
+        print("🔧 デバッグ: _save_and_notify_phase完了")
+    except Exception as e:
+        print(f"🔧 デバッグ: _save_and_notify_phaseでエラー: {e}")
+        import traceback
+
+        print(f"🔧 デバッグ: トレースバック: {traceback.format_exc()}")
+        # エラーが発生しても処理を継続
 
     # clear callback
     try:
@@ -4740,7 +4306,10 @@ def _format_phase_completion(
         pass
 
     ctx.final_signals = final_df
-    return final_df, per_system
+    print(
+        f"🔧 デバッグ: compute_today_signals正常終了, final_df={len(final_df)}, allocation_summary={allocation_summary}"
+    )
+    return final_df, allocation_summary
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -4862,7 +4431,8 @@ def configure_logging_for_cli(args: argparse.Namespace) -> None:
 
 
 def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    return compute_today_signals(
+    print("🔧 デバッグ: run_signal_pipeline開始")
+    result = compute_today_signals(
         args.symbols,
         slots_long=args.slots_long,
         slots_short=args.slots_short,
@@ -4872,6 +4442,8 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         csv_name_mode=args.csv_name_mode,
         parallel=args.parallel,
     )
+    print(f"🔧 デバッグ: compute_today_signals結果 = {result}")
+    return result
 
 
 def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:

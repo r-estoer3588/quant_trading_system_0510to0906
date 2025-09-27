@@ -162,6 +162,8 @@ def generate_candidates_system4(
     top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
+    batch_size: int | None = None,
+    **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System4 candidate generation (RSI4 ascending ranking).
 

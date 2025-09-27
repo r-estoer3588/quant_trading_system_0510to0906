@@ -239,6 +239,8 @@ def generate_candidates_system1(
     top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
+    batch_size: int | None = None,
+    **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System1 candidate generation (ROC200 descending ranking).
 

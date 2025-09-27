@@ -170,6 +170,8 @@ def generate_candidates_system5(
     top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
+    batch_size: int | None = None,
+    **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System5 candidate generation (ADX7 descending ranking).
 
