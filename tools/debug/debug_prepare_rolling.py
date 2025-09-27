@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Debug the _prepare_rolling_frame function step by step."""
+"""Debug tool for analyzing the _prepare_rolling_frame function step by step."""
 
 import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent
+import pandas as pd
+
+# Add project root to path
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import pandas as pd
 from common.cache_manager import CacheManager
 from common.indicators_common import add_indicators
 from config.settings import get_settings
@@ -21,13 +23,22 @@ def debug_prepare_rolling_frame():
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
 
-    # Get a sample symbol
-    csv_path = next(cm.full_dir.glob("*.csv"))
+    # Get a sample symbol - skip if no data available
+    csv_files = list(cm.full_dir.glob("*.csv"))
+    if not csv_files:
+        print("❌ CSVファイルが見つかりません。データがない可能性があります。")
+        return
+
+    csv_path = csv_files[0]
     symbol = csv_path.stem
     print(f"\n📊 シンボル: {symbol}")
 
     # Read raw data
     df = cm.read(symbol, "full")
+    if df is None or df.empty:
+        print(f"❌ シンボル {symbol} のデータが取得できませんでした。")
+        return
+
     print(f"🔴 Raw データ: {len(df.columns)} 列")
     print(f"📝 Raw 列名: {list(df.columns)}")
 
@@ -89,8 +100,12 @@ def debug_prepare_rolling_frame():
 
     # Step 7: Indicator calculation
     print(f"\n7️⃣ 指標計算前: {len(calc.columns)} 列")
-    enriched = add_indicators(calc)
-    print(f"7️⃣ 指標計算後: {len(enriched.columns)} 列")
+    try:
+        enriched = add_indicators(calc)
+        print(f"7️⃣ 指標計算後: {len(enriched.columns)} 列")
+    except Exception as e:
+        print(f"❌ 指標計算でエラー: {e}")
+        return
 
     # Find what changed
     added = set(enriched.columns) - set(calc.columns)
@@ -102,7 +117,7 @@ def debug_prepare_rolling_frame():
         print(f"   🗑️ 削除列: {sorted(removed)}")
 
     # Step 8: Final cleanup (simulate _clean_duplicate_columns)
-    print(f"\n8️⃣ 重複クリーンアップ前の列:")
+    print("\n8️⃣ 重複クリーンアップ前の列:")
     all_cols = enriched.columns.tolist()
     col_mapping = {}
     for col in all_cols:
@@ -137,6 +152,19 @@ def debug_prepare_rolling_frame():
                 print(f"     ❌ 削除: {col}")
 
     print(f"\n🧹 削除対象: {duplicates_to_remove}")
+
+    # Summary
+    print("\n📊 要約:")
+    print(f"   • Raw データ: {len(df.columns)} 列")
+    print(f"   • 指標計算後: {len(enriched.columns)} 列")
+    print(f"   • 追加された列: {len(added)}")
+    print(f"   • 重複削除対象: {len(duplicates_to_remove)}")
+
+    if len(enriched) > 0:
+        print(f"   • データ行数: {len(enriched)}")
+        print("✅ デバッグ完了")
+    else:
+        print("❌ データが空です")
 
 
 if __name__ == "__main__":

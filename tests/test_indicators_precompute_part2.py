@@ -320,7 +320,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
 
         # 並列実行テスト
         log_calls = []
-        mock_log = lambda msg: log_calls.append(msg)
+        
+        def mock_log(msg: str) -> None:
+            log_calls.append(msg)
 
         result = precompute_shared_indicators_mock(
             basic_data, parallel=True, max_workers=2, log=mock_log
@@ -381,7 +383,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         }
 
         log_calls = []
-        mock_log = lambda msg: log_calls.append(msg)
+        
+        def mock_log(msg: str) -> None:
+            log_calls.append(msg)
 
         result = precompute_shared_indicators_mock(basic_data, parallel=False, log=mock_log)
 
@@ -448,7 +452,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         basic_data = {f"STOCK{i}": self.test_df.copy() for i in range(1, 5)}
 
         log_calls = []
-        mock_log = lambda msg: log_calls.append(msg)
+        
+        def mock_log(msg: str) -> None:
+            log_calls.append(msg)
 
         result = precompute_with_eta_mock(basic_data, log=mock_log)
 

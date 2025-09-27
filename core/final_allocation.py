@@ -12,9 +12,9 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,40 @@ DEFAULT_SHORT_ALLOCATIONS: dict[str, float] = {
     "system6": 0.40,
     "system7": 0.20,
 }
+
+
+def _load_allocations_from_settings() -> tuple[dict[str, float], dict[str, float]]:
+    """Load allocation settings from configuration.
+
+    Returns:
+        Tuple of (long_allocations, short_allocations) dictionaries.
+        Falls back to DEFAULT_*_ALLOCATIONS if settings are unavailable.
+    """
+    try:
+        from config.settings import get_settings
+
+        settings = get_settings()
+
+        # UIセクションから配分設定を取得
+        long_alloc = getattr(settings.ui, "long_allocations", {}) or {}
+        short_alloc = getattr(settings.ui, "short_allocations", {}) or {}
+
+        # 設定がある場合はそれを使用、無い場合はデフォルトを使用
+        if long_alloc:
+            long_result = {str(k): float(v) for k, v in long_alloc.items() if float(v) > 0}
+        else:
+            long_result = DEFAULT_LONG_ALLOCATIONS.copy()
+
+        if short_alloc:
+            short_result = {str(k): float(v) for k, v in short_alloc.items() if float(v) > 0}
+        else:
+            short_result = DEFAULT_SHORT_ALLOCATIONS.copy()
+
+        return long_result, short_result
+
+    except Exception:
+        # 設定読み込みに失敗した場合はデフォルトを返す
+        return DEFAULT_LONG_ALLOCATIONS.copy(), DEFAULT_SHORT_ALLOCATIONS.copy()
 
 
 def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | None:
@@ -597,8 +631,14 @@ def finalize_allocation(
         str(name).strip().lower(): df for name, df in per_system.items()
     }
 
-    long_alloc = _normalize_allocations(long_allocations, DEFAULT_LONG_ALLOCATIONS)
-    short_alloc = _normalize_allocations(short_allocations, DEFAULT_SHORT_ALLOCATIONS)
+    # 配分設定が提供されていない場合は、設定ファイルから読み込む
+    if long_allocations is None and short_allocations is None:
+        config_long_alloc, config_short_alloc = _load_allocations_from_settings()
+        long_alloc = _normalize_allocations(config_long_alloc, DEFAULT_LONG_ALLOCATIONS)
+        short_alloc = _normalize_allocations(config_short_alloc, DEFAULT_SHORT_ALLOCATIONS)
+    else:
+        long_alloc = _normalize_allocations(long_allocations, DEFAULT_LONG_ALLOCATIONS)
+        short_alloc = _normalize_allocations(short_allocations, DEFAULT_SHORT_ALLOCATIONS)
 
     systems = sorted({*per_system_norm.keys(), *long_alloc.keys(), *short_alloc.keys()})
     max_pos_map = _resolve_max_positions(strategies, systems, default_max_positions)

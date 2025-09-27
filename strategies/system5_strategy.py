@@ -20,7 +20,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
 
     def __init__(self):
+        """System5初期化、_last_entry_atr属性を追加。"""
         super().__init__()
+        self._last_entry_atr: float = 0.0
 
     def prepare_data(
         self,
@@ -88,7 +90,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         )
         return trades_df
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -169,7 +171,8 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         return exit_price, exit_date
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (exit_price - entry_price) * shares
+        """ロングのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_long(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}

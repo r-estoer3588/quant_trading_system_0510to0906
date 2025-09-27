@@ -20,9 +20,6 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM4
 class System4Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system4"
 
-    def __init__(self):
-        super().__init__()
-
     # インジケータ計算（コア委譲）
     def prepare_data(
         self,
@@ -98,7 +95,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         return trades_df
 
     # システムフック群
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -138,7 +135,8 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         return last_close, df.index[-1]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (exit_price - entry_price) * shares
+        """ロングのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_long(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}

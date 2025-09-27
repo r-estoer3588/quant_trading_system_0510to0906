@@ -235,29 +235,13 @@ class TestComputeIndicatorsFrame:
         """Test _compute_indicators_frame filter column logic"""
         # Skip this test - _compute_indicators_frame is internal/private
         pytest.skip("_compute_indicators_frame is internal implementation detail")
-        expected_filter = [True, False, True]  # 10>=5 & 30M>25M, 3>=5 & 20M>25M, 12>=5 & 40M>25M
-        assert result["filter"].tolist() == expected_filter
+        # expected_filter = [True, False, True]  # 10>=5 & 30M>25M, 3>=5 & 20M>25M, 12>=5 & 40M>25M
+        # assert result["filter"].tolist() == expected_filter
 
     def test_compute_indicators_roc200_calculation(self):
         """Test ROC200 calculation specifically (from precomputed indicators)"""
-        # Create test frame with precomputed indicators
-        dates = pd.date_range("2023-01-01", periods=3, freq="D")
-        df = pd.DataFrame(
-            {
-                "Open": [100, 110, 120],
-                "High": [105, 115, 125],
-                "Low": [95, 105, 115],
-                "Close": [100, 110, 120],  # 20% total increase
-                "Volume": [1000, 1100, 1200],
-                # Add required precomputed indicators
-                "sma25": [98, 108, 118],
-                "sma50": [96, 106, 116],
-                "roc200": [5.0, 10.0, 20.0],  # Known ROC200 values
-                "atr20": [2.0, 2.5, 3.0],
-                "dollarvolume20": [30_000_000, 35_000_000, 40_000_000],
-            },
-            index=dates,
-        )
+        # Create test frame with precomputed indicators (dates removed)
+        # df removed (unused test frame)
 
         # Skip this test - _compute_indicators_frame is not available for isolated testing
         pytest.skip("_compute_indicators_frame uses internal/private functions")

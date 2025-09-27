@@ -2,6 +2,20 @@
 
 Streamlit ベースのアプリで 7 つの売買システムを可視化・バックテストします。
 
+## 📚 ドキュメント
+
+詳細なドキュメントは **[docs/](./docs/)** フォルダに整理されています：
+
+- 🚀 **[クイックスタート](./docs/#quick-start)** - 初回セットアップから基本操作まで
+- 📊 **[システム仕様](./docs/systems/)** - System1-7 の詳細仕様と資産配分
+- 🔧 **[技術文書](./docs/technical/)** - アーキテクチャ・指標計算・処理フロー
+- 🏃 **[運用ガイド](./docs/operations/)** - 自動実行・通知・監視設定
+- 🤖 **[AI 連携](./docs/technical/mcp_integration_plan.md)** - MCP 統合と VS Code 連携
+
+> **[📋 統合ドキュメント目次はこちら](./docs/README.md)**
+
+---
+
 ## セットアップ
 
 1. 仮想環境を作成し依存関係をインストール:
@@ -170,13 +184,25 @@ python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
 
 ## ディレクトリ構成
 
-- `apps/app_integrated.py` – 統合 UI
-- `strategies/` – 戦略ラッパ
-- `core/` – 各システム純ロジック
-- `common/` – 共通ユーティリティ
-- `config/` – 設定
-- `docs/` – ドキュメント
-- `tests/` – テスト
+```
+├── apps/              # Streamlit UI
+│   ├── app_integrated.py    # 統合ダッシュボード
+│   └── dashboards/          # 専用ダッシュボード
+├── strategies/        # 戦略ラッパークラス
+├── core/             # システム純ロジック (system1.py - system7.py)
+├── common/           # 共通ユーティリティ・バックテスト基盤
+├── config/           # 設定管理 (settings.py, config.yaml)
+├── docs/             # 📚 **統合ドキュメント** (詳細仕様・技術文書)
+│   ├── systems/           # System1-7仕様書
+│   ├── technical/         # アーキテクチャ・指標計算
+│   ├── operations/        # 運用・自動実行・通知
+│   └── today_signal_scan/ # シグナル処理8フェーズ
+├── data/             # 設定ファイル・マッピング
+├── scripts/          # 実行スクリプト
+└── tests/            # テストスイート
+```
+
+> **詳細は [📋 docs/README.md](./docs/README.md) を参照**
 
 ## データストレージ最適化
 

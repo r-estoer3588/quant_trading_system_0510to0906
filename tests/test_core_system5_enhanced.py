@@ -11,8 +11,6 @@ System5 implements a high ADX mean-reversion strategy with volatility filters:
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
 
 import sys
 import os
@@ -363,7 +361,7 @@ class TestSystem5CandidateGeneration:
         assert len(candidates) == 0
 
 
-class TestSystem5Utilities:
+class TestSystem5UtilitiesExtended:
     """Test suite for System5 utility functions."""
 
     def test_get_total_days_system5(self):

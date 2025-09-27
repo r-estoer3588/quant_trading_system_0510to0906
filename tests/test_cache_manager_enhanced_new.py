@@ -3,19 +3,20 @@ Comprehensive tests for common.cache_manager module.
 Focus on key functionality: initialization, read/write operations, health checks.
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from common.cache_manager import (
     CacheManager,
+    _base_dir,
     compute_base_indicators,
     get_indicator_column_flexible,
     standardize_indicator_columns,
-    _base_dir,
 )
 
 
@@ -135,7 +136,7 @@ class TestCacheManagerReadOperations:
         # Mock file_manager.detect_path and read_with_fallback
         with (
             patch.object(manager.file_manager, "detect_path") as mock_detect,
-            patch.object(manager.file_manager, "read_with_fallback") as mock_read,
+            patch.object(manager.file_manager, "read_with_fallback"),  # mock_read removed
         ):
 
             mock_path = Mock()
@@ -258,7 +259,7 @@ class TestCacheManagerHealthAndAnalysis:
         """Test prune_rolling_if_needed basic functionality."""
         manager = cache_manager_with_temp_dirs
 
-        with patch("common.cache_manager.report_rolling_issue") as mock_report:
+        with patch("common.cache_manager.report_rolling_issue"):  # mock_report removed
             result = manager.prune_rolling_if_needed("SPY")
             assert isinstance(result, dict)
 

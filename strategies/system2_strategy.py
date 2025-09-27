@@ -24,9 +24,6 @@ from .constants import (
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system2"
 
-    def __init__(self):
-        super().__init__()
-
     # -------------------------------
     # データ準備（共通コアへ委譲）
     # -------------------------------
@@ -72,9 +69,18 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
     # -------------------------------
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
-        """エントリー価格とストップを返す（ショート）。
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+        """
+        エントリー価格とストップを返す（ショート）。
         - candidate["entry_date"] の行をもとに、ギャップ条件とATRベースのストップを計算。
+
+        Args:
+            df: 価格データ
+            candidate: エントリー候補情報
+            _current_capital: 現在資本（未使用、インターフェース互換性のため）
+
+        Returns:
+            (entry_price, stop_price) または None
         """
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
@@ -129,8 +135,8 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        """ショートのPnL。"""
-        return (entry_price - exit_price) * shares
+        """ショートのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_short(entry_price, exit_price, shares)
 
     # --- テスト用の最小RSI3計算 ---
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:

@@ -1,6 +1,7 @@
 """
 Working Settings tests based on actual structure
 """
+
 from pathlib import Path
 
 from config.settings import get_settings
@@ -15,8 +16,8 @@ class TestSettingsBasicStructure:
 
         # Should return a Settings object
         assert settings is not None
-        assert hasattr(settings, 'cache')
-        assert hasattr(settings, 'DATA_CACHE_DIR')
+        assert hasattr(settings, "cache")
+        assert hasattr(settings, "DATA_CACHE_DIR")
 
     def test_get_settings_singleton_behavior(self):
         """Test settings singleton behavior"""
@@ -30,13 +31,13 @@ class TestSettingsBasicStructure:
         """Test settings has cache configuration"""
         settings = get_settings()
 
-        assert hasattr(settings, 'cache')
+        assert hasattr(settings, "cache")
         cache = settings.cache
 
-        assert hasattr(cache, 'full_dir')
-        assert hasattr(cache, 'rolling_dir')
-        assert hasattr(cache, 'rolling')
-        assert hasattr(cache, 'file_format')
+        assert hasattr(cache, "full_dir")
+        assert hasattr(cache, "rolling_dir")
+        assert hasattr(cache, "rolling")
+        assert hasattr(cache, "file_format")
 
     def test_cache_rolling_config_structure(self):
         """Test cache rolling configuration structure"""
@@ -44,10 +45,10 @@ class TestSettingsBasicStructure:
         rolling = settings.cache.rolling
 
         # Test actual attributes that exist
-        assert hasattr(rolling, 'base_lookback_days')
-        assert hasattr(rolling, 'buffer_days')
-        assert hasattr(rolling, 'meta_file')
-        assert hasattr(rolling, 'max_staleness_days')
+        assert hasattr(rolling, "base_lookback_days")
+        assert hasattr(rolling, "buffer_days")
+        assert hasattr(rolling, "meta_file")
+        assert hasattr(rolling, "max_staleness_days")
 
         # Test types
         assert isinstance(rolling.base_lookback_days, int)
@@ -58,12 +59,12 @@ class TestSettingsBasicStructure:
         """Test logging configuration structure"""
         settings = get_settings()
 
-        assert hasattr(settings, 'logging')
+        assert hasattr(settings, "logging")
         logging_config = settings.logging
 
-        assert hasattr(logging_config, 'level')
-        assert hasattr(logging_config, 'rotation')
-        assert hasattr(logging_config, 'filename')
+        assert hasattr(logging_config, "level")
+        assert hasattr(logging_config, "rotation")
+        assert hasattr(logging_config, "filename")
 
         # Test types
         assert isinstance(logging_config.level, str)
@@ -105,9 +106,9 @@ class TestSettingsDataTypes:
         # Test boolean fields
         assert isinstance(settings.cache.disable_rolling_cache, bool)
 
-        if hasattr(settings, 'ui'):
+        if hasattr(settings, "ui"):
             ui = settings.ui
-            if hasattr(ui, 'debug_mode'):
+            if hasattr(ui, "debug_mode"):
                 assert isinstance(ui.debug_mode, bool)
 
     def test_string_values_not_empty(self):
@@ -126,27 +127,27 @@ class TestSettingsOptionalAttributes:
         """Test data config if it exists"""
         settings = get_settings()
 
-        if hasattr(settings, 'data'):
+        if hasattr(settings, "data"):
             data = settings.data
-            assert hasattr(data, 'vendor') or hasattr(data, 'max_workers')
+            assert hasattr(data, "vendor") or hasattr(data, "max_workers")
 
     def test_ui_config_if_exists(self):
         """Test UI config if it exists"""
         settings = get_settings()
 
-        if hasattr(settings, 'ui'):
+        if hasattr(settings, "ui"):
             ui = settings.ui
             # UI config might have various attributes
-            assert hasattr(ui, 'default_capital') or hasattr(ui, 'debug_mode')
+            assert hasattr(ui, "default_capital") or hasattr(ui, "debug_mode")
 
     def test_risk_config_if_exists(self):
         """Test risk config if it exists"""
         settings = get_settings()
 
-        if hasattr(settings, 'risk'):
+        if hasattr(settings, "risk"):
             risk = settings.risk
             # Risk config should have some risk-related attributes
-            assert hasattr(risk, 'risk_pct') or hasattr(risk, 'max_positions')
+            assert hasattr(risk, "risk_pct") or hasattr(risk, "max_positions")
 
 
 class TestSettingsValidation:
@@ -170,14 +171,14 @@ class TestSettingsValidation:
         """Test logging level is valid"""
         settings = get_settings()
 
-        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         assert settings.logging.level in valid_levels
 
     def test_file_format_valid(self):
         """Test cache file format is valid"""
         settings = get_settings()
 
-        valid_formats = ['auto', 'csv', 'feather', 'parquet']
+        valid_formats = ["auto", "csv", "feather", "parquet"]
         assert settings.cache.file_format in valid_formats
 
 
@@ -189,7 +190,7 @@ class TestSettingsDirectoryPaths:
         settings = get_settings()
 
         # These should exist and be Path objects
-        assert hasattr(settings, 'DATA_CACHE_DIR')
+        assert hasattr(settings, "DATA_CACHE_DIR")
         assert isinstance(settings.DATA_CACHE_DIR, Path)
 
         # Cache directories
@@ -207,7 +208,7 @@ class TestSettingsDirectoryPaths:
 
         # Should contain reasonable path components
         cache_dir_str = str(settings.DATA_CACHE_DIR)
-        assert 'cache' in cache_dir_str.lower() or 'data' in cache_dir_str.lower()
+        assert "cache" in cache_dir_str.lower() or "data" in cache_dir_str.lower()
 
 
 class TestSettingsRobustnessSimple:
@@ -237,7 +238,7 @@ class TestSettingsRobustnessSimple:
         rolling = settings.cache.rolling
         csv_config = rolling.csv
 
-        assert hasattr(csv_config, 'decimal_point')
+        assert hasattr(csv_config, "decimal_point")
         assert isinstance(csv_config.decimal_point, str)
 
     def test_settings_optional_none_handling(self):
@@ -278,17 +279,17 @@ class TestSettingsIntegrationSimple:
         settings = get_settings()
 
         # Top level attributes
-        major_attrs = ['cache', 'logging', 'DATA_CACHE_DIR']
+        major_attrs = ["cache", "logging", "DATA_CACHE_DIR"]
         for attr in major_attrs:
             assert hasattr(settings, attr), f"Missing {attr}"
 
         # Cache structure
-        cache_attrs = ['full_dir', 'rolling_dir', 'file_format', 'rolling']
+        cache_attrs = ["full_dir", "rolling_dir", "file_format", "rolling"]
         for attr in cache_attrs:
             assert hasattr(settings.cache, attr), f"Missing cache.{attr}"
 
         # Rolling structure
-        rolling_attrs = ['base_lookback_days', 'buffer_days', 'meta_file']
+        rolling_attrs = ["base_lookback_days", "buffer_days", "meta_file"]
         for attr in rolling_attrs:
             assert hasattr(settings.cache.rolling, attr), f"Missing rolling.{attr}"
 

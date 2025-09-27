@@ -5,8 +5,8 @@ Focus on testing the NotImplementedError, _ensure_price_columns_upper, and basic
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
@@ -195,8 +195,8 @@ class TestIndicatorsPrecomputePart1:
         # Mock the function inline since we can't import it
         def _cache_dir_mock() -> Path:
             try:
-                # Mock get_settings function
-                settings = None
+                # Mock get_settings function (settings removed)
+                # settings = None  # unused
                 base = Path("data_cache/signals")
             except Exception:
                 base = Path("data_cache/signals")

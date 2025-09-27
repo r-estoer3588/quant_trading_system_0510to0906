@@ -18,10 +18,6 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
-    def __init__(self):
-        """System6初期化（特殊分岐を廃止し他システムに統一）"""
-        super().__init__()
-
     def prepare_data(
         self,
         raw_data_or_symbols,
@@ -68,7 +64,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         return trades_df
 
     # シミュレーター用フック（System6: Short）
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -131,7 +127,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         return exit_price, exit_date
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (entry_price - exit_price) * shares
+        """ショートのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_short(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}

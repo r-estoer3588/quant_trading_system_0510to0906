@@ -12,16 +12,16 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterable
 import concurrent.futures
-from dataclasses import dataclass, field
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -31,11 +31,11 @@ if str(ROOT_DIR) not in sys.path:
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 
 from common.cache_manager import CacheManager  # noqa: E402
+from common.indicators_common import add_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.symbols_manifest import MANIFEST_FILENAME, load_symbol_manifest  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
-from common.indicators_common import add_indicators  # noqa: E402
 
 # json already imported at top
 
@@ -271,7 +271,7 @@ def _clean_duplicate_columns(df: pd.DataFrame, skip_cleanup: bool = False) -> pd
 
         # Sort by priority (highest first) and keep the best one
         priority_scores.sort(reverse=True)
-        best_col = priority_scores[0][1]
+        # best_col = priority_scores[0][1]  # Unused variable removed
 
         # Mark others for removal
         for _, col in priority_scores[1:]:

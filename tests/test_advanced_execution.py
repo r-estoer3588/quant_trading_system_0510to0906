@@ -3,12 +3,13 @@
 18%→25%+ を目指す最終プッシュ
 """
 
-import pytest
-import sys
 import os
-import pandas as pd
+import sys
+from datetime import datetime
+
 import numpy as np
-from datetime import datetime, timedelta
+import pandas as pd
+import pytest
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +58,7 @@ class TestAdvancedDataOperations:
         # 金融指標計算
         volatility = np.std(returns) * np.sqrt(252)
         sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)
-        max_drawdown = np.min(np.cumsum(returns))
+        # max_drawdown calculation removed (unused)
 
         # 移動平均計算
         sma_20 = np.convolve(prices, np.ones(20) / 20, mode="valid")
@@ -83,7 +84,7 @@ class TestAdvancedDataOperations:
 
         # タイムゾーン操作
         utc_time = pd.Timestamp.now(tz="UTC")
-        jst_time = utc_time.tz_convert("Asia/Tokyo")
+        # jst_time conversion removed (unused)
 
         # 日付フォーマット変換
         formatted_dates = {

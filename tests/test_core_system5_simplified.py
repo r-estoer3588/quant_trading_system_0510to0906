@@ -9,7 +9,6 @@ System5 implements high ADX mean-reversion with filters:
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch
 
 import sys
 import os

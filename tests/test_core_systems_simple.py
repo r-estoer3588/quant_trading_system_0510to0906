@@ -1,6 +1,7 @@
 """
 Simplified core system tests focusing on existing functions
 """
+
 import pandas as pd
 import numpy as np
 import pytest
@@ -14,7 +15,7 @@ from core.system1 import (
     _prepare_source_frame,
     _normalize_index,
     _rename_ohlcv,
-    get_total_days_system1
+    get_total_days_system1,
 )
 
 # Skip allocation functions - they don't exist in current codebase
@@ -24,22 +25,24 @@ HAS_ALLOCATION = False
 @pytest.fixture
 def sample_stock_data():
     """Sample stock data with indicators"""
-    dates = pd.date_range('2024-01-01', periods=50, freq='D')
+    dates = pd.date_range("2024-01-01", periods=50, freq="D")
 
     np.random.seed(42)  # For reproducible tests
     close_prices = [100 * (1 + np.random.normal(0, 0.01)) ** i for i in range(50)]
 
-    df = pd.DataFrame({
-        'Open': [p * np.random.uniform(0.995, 1.005) for p in close_prices],
-        'High': [p * np.random.uniform(1.001, 1.015) for p in close_prices],
-        'Low': [p * np.random.uniform(0.985, 0.999) for p in close_prices],
-        'Close': close_prices,
-        'Volume': np.random.randint(100000, 1000000, 50),
-
-        # Basic indicators
-        'RSI_14': np.random.uniform(20, 80, 50),
-        'ROC_200': np.random.uniform(-0.1, 0.1, 50),
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "Open": [p * np.random.uniform(0.995, 1.005) for p in close_prices],
+            "High": [p * np.random.uniform(1.001, 1.015) for p in close_prices],
+            "Low": [p * np.random.uniform(0.985, 0.999) for p in close_prices],
+            "Close": close_prices,
+            "Volume": np.random.randint(100000, 1000000, 50),
+            # Basic indicators
+            "RSI_14": np.random.uniform(20, 80, 50),
+            "ROC_200": np.random.uniform(-0.1, 0.1, 50),
+        },
+        index=dates,
+    )
 
     return df
 
@@ -51,7 +54,15 @@ class TestSystem1HelperFunctions:
         """Test OHLCV column renaming"""
         # Create data with lowercase columns
         test_data = sample_stock_data.copy()
-        test_data.columns = [col.lower() for col in test_data.columns if col in ['Open', 'High', 'Low', 'Close', 'Volume']] + [col for col in test_data.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+        test_data.columns = [
+            col.lower()
+            for col in test_data.columns
+            if col in ["Open", "High", "Low", "Close", "Volume"]
+        ] + [
+            col
+            for col in test_data.columns
+            if col not in ["Open", "High", "Low", "Close", "Volume"]
+        ]
 
         result = _rename_ohlcv(test_data)
 
@@ -69,7 +80,7 @@ class TestSystem1HelperFunctions:
     def test_normalize_index_with_date_column(self, sample_stock_data):
         """Test index normalization with Date column"""
         test_data = sample_stock_data.copy()
-        test_data['Date'] = test_data.index.date
+        test_data["Date"] = test_data.index.date
 
         result = _normalize_index(test_data)
 
@@ -117,16 +128,13 @@ class TestSystem1DataPreparation:
 
     def test_prepare_data_vectorized_basic(self, sample_stock_data):
         """Test vectorized data preparation"""
-        data_dict = {
-            'AAPL': sample_stock_data,
-            'GOOGL': sample_stock_data.copy()
-        }
+        data_dict = {"AAPL": sample_stock_data, "GOOGL": sample_stock_data.copy()}
 
         result = prepare_data_vectorized_system1(data_dict)
 
         assert isinstance(result, dict)
-        assert 'AAPL' in result
-        assert 'GOOGL' in result
+        assert "AAPL" in result
+        assert "GOOGL" in result
 
     def test_prepare_data_vectorized_empty(self):
         """Test vectorized preparation with empty dict"""
@@ -139,11 +147,7 @@ class TestSystem1DataPreparation:
 
     def test_prepare_data_vectorized_none_values(self, sample_stock_data):
         """Test vectorized preparation with None values"""
-        data_dict = {
-            'AAPL': sample_stock_data,
-            'GOOGL': None,
-            'MSFT': sample_stock_data.copy()
-        }
+        data_dict = {"AAPL": sample_stock_data, "GOOGL": None, "MSFT": sample_stock_data.copy()}
 
         result = prepare_data_vectorized_system1(data_dict)
 
@@ -152,10 +156,7 @@ class TestSystem1DataPreparation:
 
     def test_get_total_days_system1_basic(self, sample_stock_data):
         """Test total days calculation"""
-        data_dict = {
-            'AAPL': sample_stock_data,
-            'GOOGL': sample_stock_data.copy()
-        }
+        data_dict = {"AAPL": sample_stock_data, "GOOGL": sample_stock_data.copy()}
 
         result = get_total_days_system1(data_dict)
 
@@ -175,19 +176,14 @@ class TestSystem1DataPreparation:
 class TestSystem1CandidateGeneration:
     """Test System1 candidate generation"""
 
-    @patch('core.system1.get_cached_data')
+    @patch("core.system1.get_cached_data")
     def test_generate_candidates_basic(self, mock_get_cached_data, sample_stock_data):
         """Test basic candidate generation"""
         # Setup mock
-        prepared_dict = {
-            'AAPL': sample_stock_data,
-            'GOOGL': sample_stock_data.copy()
-        }
+        prepared_dict = {"AAPL": sample_stock_data, "GOOGL": sample_stock_data.copy()}
 
         try:
-            result = generate_candidates_system1(
-                prepared_dict, top_n=5
-            )
+            result = generate_candidates_system1(prepared_dict, top_n=5)
 
             # Result should be tuple
             if result is not None:
@@ -203,9 +199,7 @@ class TestSystem1CandidateGeneration:
         empty_dict = {}
 
         try:
-            result = generate_candidates_system1(
-                empty_dict, top_n=5
-            )
+            result = generate_candidates_system1(empty_dict, top_n=5)
 
             # Should handle empty dict gracefully
             if result is not None:
@@ -221,13 +215,16 @@ class TestEdgeCasesAndRobustness:
 
     def test_functions_with_nan_data(self):
         """Test functions handle NaN data"""
-        nan_data = pd.DataFrame({
-            'Open': [100, np.nan, 102],
-            'High': [102, np.nan, 104],
-            'Low': [98, np.nan, 100],
-            'Close': [101, np.nan, 103],
-            'Volume': [1000000, np.nan, 1200000]
-        }, index=pd.date_range('2024-01-01', periods=3))
+        nan_data = pd.DataFrame(
+            {
+                "Open": [100, np.nan, 102],
+                "High": [102, np.nan, 104],
+                "Low": [98, np.nan, 100],
+                "Close": [101, np.nan, 103],
+                "Volume": [1000000, np.nan, 1200000],
+            },
+            index=pd.date_range("2024-01-01", periods=3),
+        )
 
         # Test helper functions
         functions_to_test = [
@@ -246,10 +243,9 @@ class TestEdgeCasesAndRobustness:
 
     def test_functions_with_minimal_data(self):
         """Test functions with minimal data"""
-        minimal_data = pd.DataFrame({
-            'Close': [100],
-            'Volume': [1000000]
-        }, index=pd.date_range('2024-01-01', periods=1))
+        minimal_data = pd.DataFrame(
+            {"Close": [100], "Volume": [1000000]}, index=pd.date_range("2024-01-01", periods=1)
+        )
 
         functions_to_test = [
             _rename_ohlcv,
@@ -296,14 +292,14 @@ class TestDataIntegrity:
 
         if len(result) > 0:
             # Check that common columns maintain reasonable types
-            for col in ['Close', 'Volume']:
+            for col in ["Close", "Volume"]:
                 if col in result.columns and col in original_dtypes.index:
                     # Should maintain numeric types
                     assert pd.api.types.is_numeric_dtype(result[col])
 
     def test_vectorized_prep_maintains_keys(self, sample_stock_data):
         """Test vectorized preparation maintains dictionary keys"""
-        symbols = ['AAPL', 'GOOGL', 'MSFT']
+        symbols = ["AAPL", "GOOGL", "MSFT"]
         data_dict = {symbol: sample_stock_data for symbol in symbols}
 
         result = prepare_data_vectorized_system1(data_dict)
@@ -350,8 +346,8 @@ class TestSystem1Integration:
                 pass
 
         # Step 3: Vectorized preparation
-        data_dict = {'AAPL': sample_stock_data}
+        data_dict = {"AAPL": sample_stock_data}
         vectorized_result = prepare_data_vectorized_system1(data_dict)
 
         assert isinstance(vectorized_result, dict)
-        assert 'AAPL' in vectorized_result
+        assert "AAPL" in vectorized_result

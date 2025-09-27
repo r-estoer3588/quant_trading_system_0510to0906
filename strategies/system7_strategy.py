@@ -29,9 +29,6 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     SYSTEM_NAME = "system7"
 
-    def __init__(self):
-        super().__init__()
-
     def prepare_data(
         self,
         raw_data_or_symbols,
@@ -173,7 +170,8 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         return pd.DataFrame(results)
 
     @staticmethod
-    def _safe_positive(value: object) -> float | None:
+    def _safe_positive(value) -> float | None:
+        """値を安全に正の浮動小数点数に変換"""
         try:
             out = float(value)
         except (TypeError, ValueError):
@@ -245,7 +243,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         atr_series = tr.rolling(window, min_periods=min_periods).mean()
         return System7Strategy._latest_positive(atr_series)
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         key = candidate.get("entry_date")
         if key is None:
             return None

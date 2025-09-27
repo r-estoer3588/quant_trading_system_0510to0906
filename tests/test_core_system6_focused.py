@@ -4,7 +4,6 @@ Core System6 Focused Tests - Rise6D Short Mean-Reversion Strategy Testing
 
 import pytest
 import pandas as pd
-from datetime import datetime, timedelta
 from unittest.mock import Mock
 
 from core.system6 import (

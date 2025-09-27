@@ -2629,7 +2629,7 @@ def compute_today_signals(
     """
 
     # デフォルト戻り値を事前に設定（シグナル0件や早期returnの場合に使用）
-    final_df = pd.DataFrame()
+    # final_df = pd.DataFrame()  # Unused variable removed
     per_system: dict[str, pd.DataFrame] = {}
 
     _log("🔧 デバッグ: compute_today_signals開始")
@@ -2667,13 +2667,13 @@ def compute_today_signals(
         pass
 
     _run_id = ctx.run_id
-    settings = ctx.settings
+    # settings = ctx.settings  # Unused variable removed
     # install log callback for helpers
     globals()["_LOG_CALLBACK"] = ctx.log_callback
     signals_dir = ctx.signals_dir
 
-    run_start_time = ctx.run_start_time
-    start_equity = ctx.start_equity
+    # run_start_time = ctx.run_start_time  # Unused variable removed
+    # start_equity = ctx.start_equity  # Unused variable removed
     slots_long = ctx.slots_long
     slots_short = ctx.slots_short
     capital_long = ctx.capital_long
@@ -2952,7 +2952,7 @@ def compute_today_signals(
     # System1 セットアップ内訳（最新日の setup 判定数）を CLI に出力
     s1_setup = None
     s1_setup_eff = None
-    s1_spy_gate = None
+    # s1_spy_gate = None  # Unused variable removed
     try:
         # フィルタ通過は事前フィルター結果（system1_syms）由来で確定
         s1_filter = int(len(system1_syms))
@@ -3027,7 +3027,7 @@ def compute_today_signals(
             pass
         if s1_setup_eff is None:
             s1_setup_eff = s1_setup
-        s1_spy_gate = _spy_ok
+        # s1_spy_gate = _spy_ok  # Unused variable removed
     except Exception:
         pass
     _log("🧮 指標計算用データロード中 (system2)…")
@@ -3484,99 +3484,118 @@ def _format_phase_completion(
 
     return None
 
-    def _stage(
-        v: int,
-        f: int | None = None,
-        s: int | None = None,
-        c: int | None = None,
-        fin: int | None = None,
-    ) -> None:
-        progress_val = max(0, min(100, int(v)))
-        f_int = _safe_stage_int(f)
-        s_int = _safe_stage_int(s)
-        c_int = _safe_stage_int(c)
-        fin_int = _safe_stage_int(fin)
-        try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-        except Exception:
-            cb2 = None
-        # Only call the per-system UI callback directly from the
-        # main thread. When running in background threads (e.g.
-        # via ThreadPoolExecutor) we must avoid invoking Streamlit
-        # APIs from non-main threads — instead record the stage
-        # into GLOBAL_STAGE_METRICS and let the main thread drain
-        # and forward events.
-        try:
-            is_main = threading.current_thread() is threading.main_thread()
-        except Exception:
-            is_main = False
-        if cb2 and callable(cb2) and is_main:
-            try:
-                cb2(name, progress_val, f_int, s_int, c_int, fin_int)
-            except Exception:
-                pass
-        # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
-        if use_process_pool:
-            try:
-                # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
-                # 登録する。None と 0 や空文字列のような微妙な差を吸収する
-                # ため、整数化した値で比較する。
-                key = (
-                    _safe_stage_int(f_int),
-                    _safe_stage_int(s_int),
-                    _safe_stage_int(c_int),
-                    _safe_stage_int(fin_int),
-                )
-                prev = stage_state.get(progress_val)
-                if prev != key:
-                    stage_state[progress_val] = key
-                    try:
-                        # 常に emit_event=True でイベントを積む（UI 側で重複
-                        # 表示抑制する責務を負わせることも可能だが、ここは
-                        # イベントの喪失を避けるため明示的に通知する）
-                        GLOBAL_STAGE_METRICS.record_stage(
-                            name,
-                            progress_val,
-                            f_int,
-                            s_int,
-                            c_int,
-                            fin_int,
-                            emit_event=True,
-                        )
-                    except Exception:
-                        pass
-                    prev_stage_val = prev_phase_map.get(progress_val)
-                    if prev_stage_val is not None and prev_stage_val not in phase_completed:
-                        completion_msg = _format_phase_completion(
-                            prev_stage_val, f_int, s_int, c_int, fin_int
-                        )
-                        if completion_msg:
-                            _log(completion_msg)
-                        phase_completed.add(prev_stage_val)
-                    msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
-                    if msg:
-                        _log(msg)
-                    if progress_val in phase_names and progress_val not in phase_started:
-                        _log(f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始")
-                        phase_started.add(progress_val)
-            except Exception:
-                pass
-        else:
-            try:
-                GLOBAL_STAGE_METRICS.record_stage(
-                    name,
-                    progress_val,
-                    f_int,
-                    s_int,
-                    c_int,
-                    fin_int,
-                )
-            except Exception:
-                pass
 
-    import os as _os
+def _stage(
+    v: int,
+    f: int | None = None,
+    s: int | None = None,
+    c: int | None = None,
+    fin: int | None = None,
+) -> None:
+    # These variables need to be initialized within function scope
+    stage_state: dict[int, tuple[int, int, int, int]] = {}
+    phase_completed: set[int] = set()
+    prev_phase_map: dict[int, int] = {25: 0, 50: 25, 75: 50, 100: 75}
+    phase_started: set[int] = set()
+    phase_names = {0: "フィルタリング", 25: "セットアップ", 50: "候補抽出", 75: "最終選定"}
+    use_process_pool = False  # Default value
 
-    # プロセスプール利用可否（環境変数で上書き可）
+    progress_val = max(0, min(100, int(v)))
+    f_int = _safe_stage_int(f)
+    s_int = _safe_stage_int(s)
+    c_int = _safe_stage_int(c)
+    fin_int = _safe_stage_int(fin)
+    try:
+        cb2 = globals().get("_PER_SYSTEM_STAGE")
+    except Exception:
+        cb2 = None
+    # Only call the per-system UI callback directly from the
+    # main thread. When running in background threads (e.g.
+    # via ThreadPoolExecutor) we must avoid invoking Streamlit
+    # APIs from non-main threads — instead record the stage
+    # into GLOBAL_STAGE_METRICS and let the main thread drain
+    # and forward events.
+    try:
+        is_main = threading.current_thread() is threading.main_thread()
+    except Exception:
+        is_main = False
+    if cb2 and callable(cb2) and is_main:
+        try:
+            cb2(
+                "", progress_val, f_int, s_int, c_int, fin_int
+            )  # name needs to be defined or passed
+        except Exception:
+            pass
+    # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
+    if use_process_pool:
+        try:
+            # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
+            # 登録する。None と 0 や空文字列のような微妙な差を吸収する
+            # ため、整数化した値で比較する。
+            key = (
+                _safe_stage_int(f_int),
+                _safe_stage_int(s_int),
+                _safe_stage_int(c_int),
+                _safe_stage_int(fin_int),
+            )
+            prev = stage_state.get(progress_val)
+            if prev != key:
+                stage_state[progress_val] = key
+                try:
+                    # 常に emit_event=True でイベントを積む（UI 側で重複
+                    # 表示抑制する責務を負わせることも可能だが、ここは
+                    # イベントの喪失を避けるため明示的に通知する）
+                    GLOBAL_STAGE_METRICS.record_stage(
+                        "",  # name needs to be defined or passed
+                        progress_val,
+                        f_int,
+                        s_int,
+                        c_int,
+                        fin_int,
+                        emit_event=True,
+                    )
+                except Exception:
+                    pass
+                prev_stage_val = prev_phase_map.get(progress_val)
+                if prev_stage_val is not None and prev_stage_val not in phase_completed:
+                    completion_msg = _format_phase_completion(
+                        prev_stage_val, f_int, s_int, c_int, fin_int
+                    )
+                    if completion_msg:
+                        _log = print  # Fallback log function
+                        _log(completion_msg)
+                    phase_completed.add(prev_stage_val)
+                msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
+                if msg:
+                    _log = print  # Fallback log function
+                    _log(msg)
+                if progress_val in phase_names and progress_val not in phase_started:
+                    _log = print  # Fallback log function
+                    _log(f"⚙️ : {phase_names[progress_val]}のプロセスプールを開始")
+                    phase_started.add(progress_val)
+        except Exception:
+            pass
+    else:
+        try:
+            GLOBAL_STAGE_METRICS.record_stage(
+                "",  # name needs to be defined or passed
+                progress_val,
+                f_int,
+                s_int,
+                c_int,
+                fin_int,
+            )
+        except Exception:
+            pass
+
+
+# Global variable imports at the top level
+import os as _os
+
+
+# プロセスプール利用可否（環境変数で上書き可）
+def _configure_process_pool_and_workers(name: str = "", _log=print) -> tuple[bool, int | None]:
+    """Configure process pool usage and worker count based on environment variables."""
     env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
     env_pp = env_pp_raw.strip().lower()
     if env_pp in {"1", "true", "yes", "on"}:
@@ -3604,7 +3623,61 @@ def _format_phase_completion(
                 max_workers = None
     except Exception:
         max_workers = None
+    return use_process_pool, max_workers
+
+
+def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
+    """Configure lookback days based on strategy requirements."""
     # ルックバックは『必要指標の最大窓＋α』を動的推定
+    try:
+        settings2 = get_settings(create_dirs=True)
+        lb_default = int(
+            settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
+        )
+    except Exception:
+        settings2 = None
+        lb_default = 300
+    # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
+    # ルックバックのマージン/最小日数は環境変数で上書き可能
+    try:
+        margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
+    except Exception:
+        margin = 0.15
+    need_map: dict[str, int] = {
+        "system1": int(220 * (1 + margin)),
+        "system2": int(120 * (1 + margin)),
+        # SMA150 を安定に計算するため 170 日程度を要求
+        "system3": int(170 * (1 + margin)),
+        # SMA200 系のため 220 日程度を要求
+        "system4": int(220 * (1 + margin)),
+        "system5": int(140 * (1 + margin)),
+        "system6": int(80 * (1 + margin)),
+        "system7": int(80 * (1 + margin)),
+    }
+    # 戦略側が get_total_days を実装していれば優先
+    custom_need = None
+    try:
+        fn = getattr(stg, "get_total_days", None)
+        if callable(fn):
+            _val = fn(base)
+            if isinstance(_val, int | float):
+                custom_need = int(_val)
+            elif isinstance(_val, str):
+                try:
+                    custom_need = int(float(_val))
+                except Exception:
+                    custom_need = None
+            else:
+                custom_need = None
+    except Exception:
+        custom_need = None
+    try:
+        min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
+    except Exception:
+        min_floor = 80
+    min_required = custom_need or need_map.get(name, lb_default)
+    lookback_days = min(lb_default, max(min_floor, int(min_required)))
+    return lookback_days
     try:
         settings2 = get_settings(create_dirs=True)
         lb_default = int(
@@ -4338,7 +4411,7 @@ def _format_phase_completion(
     except Exception:
         pass
 
-    ctx.final_signals = final_df
+    # Note: ctx.final_signals was removed as ctx is not defined in this scope
     _log(
         f"🔧 デバッグ: compute_today_signals終了直前 - final_df: {type(final_df)}, allocation_summary: {type(allocation_summary)}"
     )

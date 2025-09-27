@@ -64,8 +64,18 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         )
         return trades_df
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
-        """翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定（共通メソッド使用）"""
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+        """
+        翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定。
+
+        Args:
+            df: 価格データ
+            candidate: エントリー候補情報
+            _current_capital: 現在資本（未使用、インターフェース互換性のため）
+
+        Returns:
+            (entry_price, stop_price) または None
+        """
         result = self._compute_entry_common(
             df,
             candidate,
@@ -80,10 +90,22 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def get_total_days(self, data_dict: dict) -> int:
         return get_total_days_system1(data_dict)
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
-        """Day-based exit for System1 (long):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, _entry_price: float, stop_price: float
+    ):
+        """
+        Day-based exit for System1 (long):
         - Stop hit: if Low <= stop -> exit same day at stop_price
         - Otherwise, max-hold days then exit on close
+
+        Args:
+            df: 価格データ
+            entry_idx: エントリーインデックス
+            _entry_price: エントリー価格（未使用、インターフェース互換性のため）
+            stop_price: ストップ価格
+
+        Returns:
+            (exit_price, exit_date): 決済価格と日付のタプル
         """
         try:
             from .constants import MAX_HOLD_DAYS_DEFAULT
