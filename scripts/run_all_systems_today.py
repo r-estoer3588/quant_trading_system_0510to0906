@@ -16,8 +16,8 @@ patches without altering CLI flags or public behavior.
 """
 
 import argparse
-from pathlib import Path as _PathBootstrap
 import sys
+from pathlib import Path as _PathBootstrap
 
 # --- ensure repository root on sys.path (script executed from repo root or elsewhere) ---
 try:  # noqa: SIM105
@@ -26,17 +26,17 @@ try:  # noqa: SIM105
         sys.path.insert(0, str(_project_root))
 except Exception:  # pragma: no cover - defensive; failure is non-fatal
     pass
+import json
+import logging
+import multiprocessing
+import os
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-import json
-import logging
-import multiprocessing
-import os
 from pathlib import Path
-import threading
 from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
@@ -4489,17 +4489,18 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
     # 戻り値がNoneの場合のフォールバック
     if result is None:
         import pandas as pd
+
         return pd.DataFrame(), {}
-    
+
     # AllocationSummaryを辞書に変換する必要がある場合
     final_df, allocation_summary = result
-    if hasattr(allocation_summary, '__dict__'):
+    if hasattr(allocation_summary, "__dict__"):
         # AllocationSummaryオブジェクトから適切な辞書形式に変換
         per_system_dict = {}
     else:
         # 既に辞書形式の場合
         per_system_dict = allocation_summary if isinstance(allocation_summary, dict) else {}
-    
+
     return final_df, per_system_dict
 
 
