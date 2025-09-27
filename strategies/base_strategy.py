@@ -205,8 +205,8 @@ class StrategyBase(ABC):
         batch_size設定の共通取得処理
         """
         try:
-            from config.settings import get_settings
             from common.utils import resolve_batch_size
+            from config.settings import get_settings
 
             batch_size = get_settings(create_dirs=False).data.batch_size
             return resolve_batch_size(data_size, batch_size)

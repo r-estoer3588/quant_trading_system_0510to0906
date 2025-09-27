@@ -2,18 +2,19 @@
 極限最適化: メモリマッピング + 超軽量データ構造
 """
 
-import time
-import sys
 from pathlib import Path
+import sys
+import time
 
 # パス設定 - tests/experimental/ から2階層上のルートへ
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from config.settings import get_settings
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+from config.settings import get_settings
 
 
 def benchmark_io_methods():

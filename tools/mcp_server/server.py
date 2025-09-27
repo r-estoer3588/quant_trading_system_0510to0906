@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
-import asyncio
-
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 try:
@@ -72,8 +71,9 @@ except Exception:  # pragma: no cover - optional runtime dependency
 
         stdio = _StdIo()
 
-from . import operations as ops
 from typing import TYPE_CHECKING
+
+from . import operations as ops
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .operations import BacktestResult  # type: ignore

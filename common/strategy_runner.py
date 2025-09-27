@@ -12,16 +12,16 @@ run_all_systems_today.py から戦略実行の責務を分離:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import threading
 import time
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any
-from collections.abc import Callable
 
 import pandas as pd
 
-from config.settings import get_settings
 from common.stage_metrics import GLOBAL_STAGE_METRICS
+from config.settings import get_settings
 
 __all__ = [
     "StrategyRunner",

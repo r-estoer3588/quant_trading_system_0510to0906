@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
-import app_integrated
+import apps.app_integrated as app_integrated
 
 
 class DummyStreamlit:

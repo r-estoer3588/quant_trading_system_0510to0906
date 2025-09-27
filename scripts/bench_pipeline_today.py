@@ -42,15 +42,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import asdict, dataclass
 import json
 import os
-import time
-from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
-
-import sys
 from pathlib import Path as _Path
+import sys
+import time
+from typing import Any
 
 _ROOT = _Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -215,7 +214,7 @@ def run_pipeline_benchmark(
 
     # Phase1: シンボル準備
     def phase1_prepare_universe():
-        from common.universe import load_universe_file, build_universe_from_cache
+        from common.universe import build_universe_from_cache, load_universe_file
 
         try:
             symbols = load_universe_file()
@@ -390,7 +389,7 @@ def run_pipeline_benchmark(
         long_candidates = 0
         short_candidates = 0
 
-        for sys_name, sys_data in system_result["per_system"].items():
+        for _sys_name, sys_data in system_result["per_system"].items():
             cand_count = len(sys_data["candidates"])
             if sys_data.get("type") == "long":
                 long_candidates += cand_count

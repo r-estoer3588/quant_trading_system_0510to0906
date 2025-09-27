@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 import os
-from unittest.mock import Mock, patch
-import tempfile
 from pathlib import Path
+import tempfile
+from unittest.mock import Mock, patch
+
 import pytest
 
 from common.cache_manager import CacheManager
+from common.cache_manager_old import _RollingIssueAggregator
 from common.testing import set_test_determinism
 
 

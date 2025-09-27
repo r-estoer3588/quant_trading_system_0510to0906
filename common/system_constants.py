@@ -103,6 +103,7 @@ SYSTEM3_REQUIRED_INDICATORS = [
 SYSTEM4_REQUIRED_INDICATORS = [
     "rsi4",
     "sma200",
+    "atr40",  # Required for ATR ratio calculation
     "hv50",
     "dollarvolume20",
     "filter",

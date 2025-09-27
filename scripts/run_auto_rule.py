@@ -15,17 +15,17 @@ Notes:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from common import broker_alpaca as ba
-from common.notifier import Notifier
 from common.alpaca_order import submit_exit_orders_df
+from common.notifier import Notifier
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"

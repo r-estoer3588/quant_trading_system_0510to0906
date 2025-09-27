@@ -37,8 +37,9 @@ DEFAULT_SHORT_ALLOCATIONS: dict[str, float] = {
 def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | None:
     """Attempt to convert ``value`` to a positive float.
 
-    Returns ``None`` if conversion fails, value is ``None``/empty string, or the
-    numeric result is negative (and zero when ``allow_zero`` is False).
+    Returns ``None`` if conversion fails, value is ``None``/empty string, the
+    numeric result is negative (and zero when ``allow_zero`` is False), or
+    the value is infinite or NaN.
 
     This helper centralises Optional[float] sanitation so that mypy does not
     see patterns like ``float(x)`` where ``x`` is ``float | None``.
@@ -52,6 +53,9 @@ def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | Non
     if f < 0:
         return None
     if not allow_zero and f == 0:
+        return None
+    # Reject infinite or NaN values
+    if not (0 <= f < float("inf")):
         return None
     return f
 

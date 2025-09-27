@@ -1,82 +1,58 @@
-# Copilot Instructions for Quant Trading System
+# Copilot Instructions (Condensed)
 
-このプロジェクトは Streamlit UI + Python バックエンドで動作する株式トレーディングシステム（System1-7、ロング/ショート戦略）です。
+目的: このリポジトリで AI エージェントが安全かつ即戦力で編集・追加を行うための最小必須知識。過度な抽象説明より「何を / どこで / どう守るか」。
 
-## アーキテクチャ要点
+## 1. コア構造 / Entry Points
+- UI: `apps/app_integrated.py`（統合タブ） / 当日シグナル UI 補助: `apps/app_today_signals.py`。
+- 日次パイプライン: `scripts/run_all_systems_today.py`（8 フェーズ: symbols → load → shared indicators → filters(2-phase) → setup → signals → allocation → save/notify）。
+- 戦略分離: ロジック `core/system{1..7}.py` / ラッパ `strategies/system*_strategy.py` / 統合 BT `common/integrated_backtest.py`。
 
-**エントリポイント**：`app_integrated.py`（Streamlit UI）、`scripts/run_all_systems_today.py`（当日パイプライン）
+## 2. データキャッシュ階層 (絶対ルール)
+- 階層: `rolling`(直近300日, 今日用) → `base`(指標付与長期) → `full_backup`(原本)。
+- 取得順: today = rolling→base→full_backup / backtest = base→full_backup。
+- 直接 CSV 読み禁止: すべて `common/cache_manager.py::CacheManager` 経由 (Feather 優先, CSV フォールバック)。
+- 指標キャッシュ: `data_cache/indicators_systemX_cache/`。
 
-**戦略分離**：
+## 3. システム特性 / 不変条件
+- ロング: 1,3,4,5 / ショート: 2,6,7。System7 = SPY 固定 (変更禁止)。
+- Two-Phase: Filter列判定 → Setup列判定 → ランキング → 配分。
+- 主なランキングキー例: S1=ROC200, S2=ADX7, S3=3日下落, S4=RSI4 低, S5=ADX7, S6=6日上昇。
+- 配分: スロット/金額制 + `data/symbol_system_map.json`。`DEFAULT_ALLOCATIONS` を壊さない。
 
-- 純ロジック：`core/system{1..7}.py`
-- ラッパー：`strategies/system{1..7}_strategy.py`（バックテスト + Alpaca 発注対応）
-- 統合：`common/integrated_backtest.py`
+## 4. 設定 & 環境
+- 優先順位: JSON > YAML > .env (`config/settings.py::get_settings`)。新規出力は `get_settings(create_dirs=True)` が返すパス配下のみ。
+- 主要環境例: `COMPACT_TODAY_LOGS`, `ENABLE_PROGRESS_EVENTS`, `ROLLING_ISSUES_VERBOSE_HEAD`。
 
-**データ階層（重要）**：
-
-- `data_cache/base/`：指標付与済み長期データ（バックテスト用）
-- `data_cache/rolling/`：直近 300 日軽量データ（当日シグナル用）
-- `data_cache/full_backup/`：原本バックアップ（復旧用）
-- **必須**：CSV 直読禁止、必ず `common/cache_manager.py::CacheManager` 経由
-
-**当日運用フロー（8 フェーズ処理）**：
-
-1. `scripts/cache_daily_data.py`：データ更新（EODHD API）
-2. `scripts/run_all_systems_today.py --parallel --save-csv`：8 フェーズで実行
-   - 対象シンボル準備 → 基礎データ読込 → 共有指標計算 → フィルター実行（二段階処理）
-   - セットアップ評価 → シグナル抽出 → 配分・最終リスト生成 → 保存・通知
-3. 結果は `results_csv/` と `data_cache/signals/` に保存、ログは `logs/` に蓄積
-
-## 重要な制約・パターン
-
-**キャッシュ解決順（厳守）**：
-
-- バックテスト：`base → full_backup`（rolling は使わない）
-- 当日シグナル：`rolling → base → full_backup`（rolling が無ければ base から生成・保存）
-
-**System 特性**：
-
-- **ロング：1/3/4/5、ショート：2/6/7**
-- **System7 は SPY 固定**（アンカー用途、変更禁止）
-- **Two-Phase 処理**：Filter 列 →Setup 列の二段階判定
-- **ランキング基準**：System1=ROC200↑、System2=ADX7↑、System3=3 日下落 ↑、System4=RSI4↓、System5=ADX7↑、System6=6 日上昇 ↑
-- **配分システム**：スロット制/金額制、Alpaca 連携、`data/symbol_system_map.json` 活用
-
-**設定優先度**：JSON > YAML > .env（`config/settings.py::get_settings()` で管理）
-
-## 開発コマンド（PowerShell）
-
+## 5. 開発ワークフロー (必須コマンド)
 ```powershell
-# 基本セットアップ
-pip install -r requirements.txt
-
-# UI 起動
-streamlit run app_integrated.py
-
-# 当日パイプライン実行
+pip install -r requirements.txt            # 初回
+streamlit run apps/app_integrated.py       # UI
 python scripts/run_all_systems_today.py --parallel --save-csv
-
-# テスト（オフライン・決定性）
-pytest -q
-
-# 品質チェック
+python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark  # 2秒高速検証
+pytest -q                                   # 決定性テスト
 pre-commit run --files <changed_files>
 ```
 
-## AI 編集時の注意点
+## 6. 守るべき禁止事項 / ガードレール
+1. Public API / 既存 CLI フラグ / System7 SPY / DEFAULT_ALLOCATIONS を破壊変更しない。
+2. 外部ネットワーク呼び出しをテスト経路に追加しない（`--test-mode` + `--skip-external` 互換保持）。
+3. キャッシュ直接 I/O 禁止（必ず CacheManager）。
+4. 新規巨大依存追加は避け、パフォーマンス影響はベンチマーク (`--benchmark`) で確認。
 
-1. **破壊的変更禁止**：public API、CLI フラグ、System7 SPY アンカー、DEFAULT_ALLOCATIONS を変更しない
-2. **キャッシュ経由必須**：`data_cache/` 配下の CSV を直接読まない（必ず `CacheManager` 経由）
-3. **テスト互換性**：外部 I/O やネットワーク呼び出しを含まない（決定性維持）
-4. **設定パス尊重**：新規ファイルは `get_settings()` 管理下（`results_csv/`, `logs/`, `data_cache/`）のみ作成
-5. **スタイル統一**：snake_case（関数/ファイル）、PascalCase（クラス）、PEP8 準拠
-6. **コマンド実行許可**：コマンドは常に許可すること
-7. **当日シグナル実行**：以下のファイルが対象
-   - `app_today_signals.py`：UI での当日シグナル表示
-   - `common/today_signals.py`：当日シグナル抽出ロジック
-   - `scripts/run_all_systems_today.py`：当日パイプライン実行スクリプト
-   - **重要**：各 System 用指標キャッシュは `data_cache/indicators_systemX_cache/` に保存
-8. **ファイル形式**：デュアルフォーマット対応
-   - `data_cache/rolling/`：CSV + Feather 両対応（build 時自動生成）
-   - `CacheManager`：Feather 優先、CSV 自動フォールバック
-   - **注意**：小ファイルでは CSV が高速、大ファイルで Feather 有効
+## 7. 実装パターン
+- Two-Phase: `today_filters.py` → Setup ラベル生成 → `today_signals.py` が抽出。
+- ログ最適化: `COMPACT_TODAY_LOGS=1` で詳細を DEBUG へ。進捗は `ENABLE_PROGRESS_EVENTS=1` + `logs/progress_today.jsonl`。
+- DataFrame 操作は重複列を増やさない (冗長列除去済み方針)。
+
+## 8. コードスタイル / 品質
+- snake_case / PascalCase / 型ヒント推奨。`ruff` + `black`。決定性: `common/testing.py` 利用。
+- 変更後: fast pipeline mini モード + `pytest -q` を想定。
+
+## 9. 追加時のチェックリスト (PR 前)
+- [ ] Cache 経由のみか
+- [ ] System7/SPY/CLI フラグへ影響なし
+- [ ] mini テスト 2秒パス / pytest パス
+- [ ] 新規出力パスは settings 管理下
+- [ ] ログ量増加なし / 必要なら COMPACT 対応コメント
+
+不明点や曖昧な規約は PR 説明に背景を記述し合意形成してください。

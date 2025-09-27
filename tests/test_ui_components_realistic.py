@@ -5,10 +5,11 @@ Focus on functions that can be tested without complex external dependencies
 
 from __future__ import annotations
 
-import pandas as pd
-from unittest.mock import Mock, patch
 import os
 import tempfile
+from unittest.mock import Mock, patch
+
+import pandas as pd
 
 from common import ui_components as ui_comp
 from common.testing import set_test_determinism

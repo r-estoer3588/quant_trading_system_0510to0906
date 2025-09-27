@@ -5,19 +5,20 @@
 - 不要列の事前除外
 """
 
-import time
 import os
-import sys
 from pathlib import Path
+import sys
+import time
 
 # パス設定 - tests/experimental/ から2階層上のルートへ
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import pandas as pd
+
 from common.cache_manager import CacheManager
 from config.settings import get_settings
-import pandas as pd
 
 
 def test_ultra_optimized_phase2():

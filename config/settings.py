@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 import json
 import os
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 from dotenv import load_dotenv
 

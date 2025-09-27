@@ -5,9 +5,10 @@ System3 部分攻略テスト（import問題回避版）
 System3（473行, 0%→30-40%目標) の効率的カバレッジ向上
 """
 
-import pytest
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
-from unittest.mock import patch, MagicMock
+import pytest
 
 
 class TestGetTotalDaysSystem3:

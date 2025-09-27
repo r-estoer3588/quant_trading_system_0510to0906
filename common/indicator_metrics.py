@@ -6,10 +6,10 @@ add_indicators の計算統計を収集・可視化する機能を提供。
 
 from __future__ import annotations
 
-import logging
-import time
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
+import time
 from typing import Any
 
 import pandas as pd
@@ -51,7 +51,9 @@ class IndicatorMetrics:
         """成功率（％）"""
         if self.total_indicators == 0:
             return 100.0
-        return ((self.existing_count + self.computed_count) / self.total_indicators) * 100
+        return (
+            (self.existing_count + self.computed_count) / self.total_indicators
+        ) * 100
 
 
 class IndicatorMetricsCollector:
@@ -100,7 +102,9 @@ class IndicatorMetricsCollector:
             start_time = time.time()
 
             # メトリクス初期化
-            metrics = IndicatorMetrics(symbol=symbol, timestamp=pd.Timestamp.now().isoformat())
+            metrics = IndicatorMetrics(
+                symbol=symbol, timestamp=pd.Timestamp.now().isoformat()
+            )
 
             # 期待される全指標リスト（add_indicatorsが生成する可能性のある列）
             expected_indicators = self._get_expected_indicators()
@@ -128,7 +132,10 @@ class IndicatorMetricsCollector:
                     if indicator in new_columns:
                         metrics.computed_indicators.append(indicator)
                         metrics.computed_count += 1
-                    elif indicator not in initial_columns and indicator not in final_columns:
+                    elif (
+                        indicator not in initial_columns
+                        and indicator not in final_columns
+                    ):
                         # 期待されていたが生成されなかった指標
                         metrics.failed_indicators.append(indicator)
                         metrics.failed_count += 1
@@ -158,7 +165,9 @@ class IndicatorMetricsCollector:
                 metrics.total_indicators = len(expected_indicators)
                 metrics.failed_count = metrics.total_indicators - metrics.existing_count
                 metrics.failed_indicators = [
-                    i for i in expected_indicators if i not in metrics.existing_indicators
+                    i
+                    for i in expected_indicators
+                    if i not in metrics.existing_indicators
                 ]
 
                 self._record_metrics(metrics)
@@ -231,7 +240,8 @@ class IndicatorMetricsCollector:
             return
 
         filename = (
-            filename or f"indicator_metrics_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename
+            or f"indicator_metrics_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
         )
         filepath = self.output_dir / filename
 
@@ -316,7 +326,7 @@ def create_instrumented_add_indicators():
         # 通常通り使用（symbolパラメータ追加）
         result_df = add_indicators(df, symbol="AAPL")
     """
-    from indicators_common import add_indicators as original_add_indicators
+    from common.indicators_common import add_indicators as original_add_indicators
 
     collector = get_metrics_collector()
     return collector.wrap_add_indicators(original_add_indicators)

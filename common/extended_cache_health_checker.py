@@ -4,18 +4,19 @@
 既存のCacheHealthCheckerを拡張し、詳細分析・レポート・サンプリング機能を追加
 """
 
-import pandas as pd
-import numpy as np
-import logging
-from pathlib import Path
-from dataclasses import dataclass, asdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
+import logging
+from pathlib import Path
 import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config.settings import get_settings
+import numpy as np
+import pandas as pd
+
 from common.cache_health_checker import CacheHealthChecker
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -477,7 +478,7 @@ class ExtendedCacheHealthChecker:
         # 詳細CSV出力
         csv_path = output_dir / f"extended_health_details_{timestamp}.csv"
         all_records = []
-        for profile, metrics_list in all_results.items():
+        for _profile, metrics_list in all_results.items():
             for metrics in metrics_list:
                 all_records.append(metrics.to_dict())
 

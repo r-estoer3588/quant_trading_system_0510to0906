@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Test AlpacaOrderMixin + StrategyBase combination."""
 
-from strategies.base_strategy import StrategyBase
 from common.alpaca_order import AlpacaOrderMixin
+from strategies.base_strategy import StrategyBase
 
 
 class TestStrategy(AlpacaOrderMixin, StrategyBase):

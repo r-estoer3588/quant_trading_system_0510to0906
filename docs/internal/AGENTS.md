@@ -47,4 +47,3 @@
 - 型: `mypy .`（段階的に厳格化）。
 - CI: GitHub Actions で `ruff/black/isort/mypy/bandit/pip-audit/pytest` を Py3.10–3.12 で実行。
 - ブランチ/バージョン: `feat/*`, `fix/*`, `chore/*`。SemVer、`CHANGELOG.md` 更新。
-

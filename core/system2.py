@@ -13,9 +13,7 @@ import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
-from common.system_constants import (
-    SYSTEM2_REQUIRED_INDICATORS,
-)
+from common.system_constants import SYSTEM2_REQUIRED_INDICATORS
 from common.utils import get_cached_data
 
 
@@ -47,7 +45,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         )
 
         # Setup: Filter + RSI3>90 + TwoDayUp
-        x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
+        x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["TwoDayUp"]
 
         return symbol, x
 
@@ -108,7 +106,7 @@ def prepare_data_vectorized_system2(
                     )
 
                     # Setup: Filter + RSI3>90 + TwoDayUp
-                    x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
+                    x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["TwoDayUp"]
 
                     prepared_dict[symbol] = x
 

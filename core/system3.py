@@ -13,9 +13,7 @@ import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
-from common.system_constants import (
-    SYSTEM3_REQUIRED_INDICATORS,
-)
+from common.system_constants import SYSTEM3_REQUIRED_INDICATORS
 from common.utils import get_cached_data
 
 
@@ -47,7 +45,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         )
 
         # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-        x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
+        x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
 
         return symbol, x
 
@@ -108,7 +106,7 @@ def prepare_data_vectorized_system3(
                     )
 
                     # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-                    x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
+                    x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
 
                     prepared_dict[symbol] = x
 
@@ -217,7 +215,7 @@ def generate_candidates_system3(
                     continue
 
                 # Get Drop3D value
-                drop3d_val = row.get("drop3d", 0)
+                drop3d_val = row.get("Drop3D", 0)
                 if pd.isna(drop3d_val) or drop3d_val < 0.125:
                     continue
 

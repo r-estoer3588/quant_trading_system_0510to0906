@@ -5,8 +5,9 @@ Focus only on functions that definitely exist and can be tested easily
 
 from __future__ import annotations
 
-import pandas as pd
 from unittest.mock import Mock, patch
+
+import pandas as pd
 
 from common import ui_components
 from common.testing import set_test_determinism

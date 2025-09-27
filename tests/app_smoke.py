@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
-import app_integrated as app
+import apps.app_integrated as app
 
 settings = SimpleNamespace(
     RESULTS_DIR=Path("results"),

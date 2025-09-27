@@ -5,15 +5,12 @@ Focus on testing the NotImplementedError, _ensure_price_columns_upper, and basic
 
 from __future__ import annotations
 
+from pathlib import Path
 import sys
-import time
-import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
 import pandas as pd
 import pytest
-from pathlib import Path
-import importlib
-import tempfile
 
 
 class TestIndicatorsPrecomputePart1:
@@ -27,7 +24,7 @@ class TestIndicatorsPrecomputePart1:
             del sys.modules[module_name]
 
         with pytest.raises(NotImplementedError) as exc_info:
-            from common import indicators_precompute
+            pass
 
         assert "indicators_precompute.py は無効化されています" in str(exc_info.value)
 

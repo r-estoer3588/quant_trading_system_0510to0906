@@ -6,15 +6,13 @@ Focus on base_strategy and system strategy initialization
 from __future__ import annotations
 
 import pandas as pd
-from unittest.mock import Mock, patch
 import pytest
-from datetime import datetime
 
+from common.testing import set_test_determinism
 from strategies.base_strategy import StrategyBase
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy
 from strategies.system3_strategy import System3Strategy
-from common.testing import set_test_determinism
 
 
 class MockStrategy(StrategyBase):

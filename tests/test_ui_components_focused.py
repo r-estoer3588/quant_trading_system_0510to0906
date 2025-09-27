@@ -6,9 +6,10 @@ Targeting 50%+ coverage by testing show_results, signal processing, and display 
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
-import pytest
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
 from common import ui_components as ui_comp
 

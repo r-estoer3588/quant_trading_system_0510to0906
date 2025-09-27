@@ -26,18 +26,16 @@ CLI:
 
 from __future__ import annotations
 
-from __future__ import annotations
-
 import argparse
 import csv
 import dataclasses
-import json
-import sys
-import time
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from pathlib import Path as _Path
 from statistics import mean
+import sys
+import time
 
 import pandas as pd
 

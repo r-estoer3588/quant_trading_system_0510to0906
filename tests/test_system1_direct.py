@@ -11,22 +11,23 @@ System3-6で実証済みのmock手法を使用：
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
-import numpy as np
 
 from common.testing import set_test_determinism
 
 # cache_manager import 問題を回避してSystem1をimport
 with patch("common.cache_manager.CacheManager"):
     from core.system1 import (
-        _rename_ohlcv,
+        _compute_indicators_frame,
         _normalize_index,
         _prepare_source_frame,
-        _compute_indicators_frame,
-        prepare_data_vectorized_system1,
+        _rename_ohlcv,
         get_total_days_system1,
+        prepare_data_vectorized_system1,
     )
 
 

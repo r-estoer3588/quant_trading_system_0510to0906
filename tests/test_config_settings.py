@@ -5,25 +5,26 @@ Focus on utility functions and configuration loading
 
 from __future__ import annotations
 
-import os
 import json
-import tempfile
+import os
 from pathlib import Path
+import tempfile
 from unittest.mock import patch
+
 import pytest
 
-from config.settings import (
-    _env_int,
-    _env_float,
-    _positive_int_or_none,
-    _as_path,
-    _load_config_generic,
-    get_settings,
-    RiskConfig,
-    DataConfig,
-    UIConfig,
-)
 from common.testing import set_test_determinism
+from config.settings import (
+    DataConfig,
+    RiskConfig,
+    UIConfig,
+    _as_path,
+    _env_float,
+    _env_int,
+    _load_config_generic,
+    _positive_int_or_none,
+    get_settings,
+)
 
 
 class TestEnvironmentUtilities:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
+import time
 
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints

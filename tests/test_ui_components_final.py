@@ -5,10 +5,11 @@ Simple, focused tests for remaining functions
 
 from __future__ import annotations
 
-import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch
 import time
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
 
 from common import ui_components
 from common.testing import set_test_determinism

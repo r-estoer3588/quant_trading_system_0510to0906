@@ -6,16 +6,15 @@ Focuses on uncovered functions and branches
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from unittest.mock import Mock, patch
-import pytest
-import tempfile
 
 import pandas as pd
+import pytest
 import streamlit as st
 
 from common import ui_components as ui_comp
-
 
 # ============================================================================
 # Test Complex Functions Not Covered Yet

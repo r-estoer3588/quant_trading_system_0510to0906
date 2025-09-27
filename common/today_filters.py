@@ -11,8 +11,10 @@ run_all_systems_today.py からロジックを分離（責務分割）:
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+
 import pandas as pd
+
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD  # 振る舞い維持: 元スクリプトの閾値
 
 __all__ = [

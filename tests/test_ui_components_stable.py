@@ -5,8 +5,9 @@ Focus on stable, basic functionality testing to achieve coverage
 
 from __future__ import annotations
 
-import pandas as pd
 from unittest.mock import Mock, patch
+
+import pandas as pd
 
 from common import ui_components as ui_comp
 

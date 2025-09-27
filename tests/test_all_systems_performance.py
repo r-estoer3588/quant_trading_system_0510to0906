@@ -3,13 +3,15 @@
 全システム（System1-7）パフォーマンステスト用スクリプト
 1000銘柄限定で各システムの処理時間を測定・比較する
 """
-import time
-import sys
 import random
+import sys
+import time
 from typing import Any
 
 sys.path.append(".")
 
+from common.cache_manager import load_base_cache
+from common.testing import set_test_determinism
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy
 from strategies.system3_strategy import System3Strategy
@@ -17,8 +19,6 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-from common.cache_manager import load_base_cache
-from common.testing import set_test_determinism
 
 
 def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:

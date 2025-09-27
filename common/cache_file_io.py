@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
+import shutil
 from typing import ClassVar
 
 import pandas as pd

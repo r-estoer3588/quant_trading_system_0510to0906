@@ -6,21 +6,22 @@ Focus on key functions: finalize_allocation, load_symbol_system_map, AllocationS
 from __future__ import annotations
 
 import json
-import pandas as pd
-from unittest.mock import Mock, patch
-import tempfile
 from pathlib import Path
+import tempfile
+from unittest.mock import Mock, patch
+
+import pandas as pd
 import pytest
 
+from common.testing import set_test_determinism
 from core.final_allocation import (
-    AllocationSummary,
-    load_symbol_system_map,
-    finalize_allocation,
     DEFAULT_LONG_ALLOCATIONS,
     DEFAULT_SHORT_ALLOCATIONS,
+    AllocationSummary,
     count_active_positions_by_system,
+    finalize_allocation,
+    load_symbol_system_map,
 )
-from common.testing import set_test_determinism
 
 
 class TestAllocationSummary:

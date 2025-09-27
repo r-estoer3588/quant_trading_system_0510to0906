@@ -9,12 +9,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import math
 import os
-import sys
 from pathlib import Path
-from collections.abc import Iterable
+import sys
 
 # プロジェクトルート（apps/dashboards/ から2階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parents[2]))
@@ -230,7 +230,7 @@ def _inject_css() -> None:
             --danger-color: #d62728;
             --warning-color: #ff9800;
             --info-color: #17a2b8;
-            
+
             --bg-primary: #ffffff;
             --bg-secondary: #f8f9fa;
             --bg-card: #ffffff;
@@ -238,7 +238,7 @@ def _inject_css() -> None:
             --text-primary: #212529;
             --text-secondary: #6c757d;
             --text-muted: #adb5bd;
-            
+
             --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
             --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
             --border-radius: 0.5rem;
@@ -249,7 +249,7 @@ def _inject_css() -> None:
             --spacing-lg: 1.5rem;
             --spacing-xl: 3rem;
         }
-        
+
         /* Dark theme support */
         @media (prefers-color-scheme: dark) {
             :root {
@@ -262,12 +262,12 @@ def _inject_css() -> None:
                 --text-muted: #808080;
             }
         }
-        
+
         /* Base layout improvements */
         .main > div {
             padding-top: var(--spacing-sm) !important;
         }
-        
+
         /* Typography */
         .ap-title {
             font-size: 2rem;
@@ -279,7 +279,7 @@ def _inject_css() -> None:
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        
+
         .ap-section {
             font-size: 1.25rem;
             font-weight: 600;
@@ -288,7 +288,7 @@ def _inject_css() -> None:
             border-bottom: 2px solid var(--border-color);
             padding-bottom: var(--spacing-sm);
         }
-        
+
         /* Toolbar */
         .ap-toolbar {
             position: sticky;
@@ -301,28 +301,28 @@ def _inject_css() -> None:
             border-bottom: 1px solid var(--border-color);
             box-shadow: var(--shadow-sm);
         }
-        
+
         /* Toolbar内のコンポーネント間隔調整 */
         .ap-toolbar .stColumns {
             gap: var(--spacing-md);
         }
-        
+
         .ap-toolbar .stButton > button {
             height: 2.5rem;
             font-size: 0.9rem;
             font-weight: 600;
             border-radius: var(--border-radius-sm);
         }
-        
+
         .ap-toolbar .stTimeInput > div > div > input {
             height: 2rem;
             font-size: 0.85rem;
         }
-        
+
         .ap-toolbar .stCheckbox {
             margin-top: 0.25rem;
         }
-        
+
         /* Cards */
         .ap-card {
             background: var(--bg-card);
@@ -333,12 +333,12 @@ def _inject_css() -> None:
             box-shadow: var(--shadow-md);
             transition: all 0.3s ease;
         }
-        
+
         .ap-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.2);
         }
-        
+
         /* Metrics */
         .ap-metric {
             text-align: center;
@@ -349,12 +349,12 @@ def _inject_css() -> None:
             box-shadow: var(--shadow-sm);
             transition: all 0.3s ease;
         }
-        
+
         .ap-metric:hover {
             transform: translateY(-1px);
             box-shadow: var(--shadow-md);
         }
-        
+
         .ap-metric .label {
             font-size: 0.875rem;
             color: var(--text-secondary);
@@ -362,7 +362,7 @@ def _inject_css() -> None:
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         .ap-metric .value {
             font-size: 2rem;
             font-weight: bold;
@@ -370,26 +370,26 @@ def _inject_css() -> None:
             margin-bottom: var(--spacing-xs);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         }
-        
+
         .ap-metric .delta-pos {
             color: var(--success-color);
             font-size: 0.875rem;
             font-weight: 600;
         }
-        
+
         .ap-metric .delta-neg {
             color: var(--danger-color);
             font-size: 0.875rem;
             font-weight: 600;
         }
-        
+
         /* Metric components (for summary cards) */
         .ap-metric-icon {
             font-size: 2rem;
             text-align: center;
             margin-bottom: var(--spacing-sm);
         }
-        
+
         .ap-metric-value {
             font-size: 2.5rem;
             font-weight: bold;
@@ -399,7 +399,7 @@ def _inject_css() -> None:
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
             line-height: 1.1;
         }
-        
+
         .ap-metric-label {
             font-size: 1rem;
             color: var(--text-secondary);
@@ -408,7 +408,7 @@ def _inject_css() -> None:
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         /* Badges */
         .ap-badge {
             display: inline-block;
@@ -420,32 +420,32 @@ def _inject_css() -> None:
             letter-spacing: 0.5px;
             margin: var(--spacing-xs);
         }
-        
+
         .ap-badge.good {
             background: rgba(44, 160, 44, 0.1);
             color: var(--success-color);
             border: 1px solid rgba(44, 160, 44, 0.3);
         }
-        
+
         .ap-badge.warn {
             background: rgba(255, 152, 0, 0.1);
             color: var(--warning-color);
             border: 1px solid rgba(255, 152, 0, 0.3);
         }
-        
+
         .ap-badge.danger {
             background: rgba(214, 39, 40, 0.1);
             color: var(--danger-color);
             border: 1px solid rgba(214, 39, 40, 0.3);
         }
-        
+
         /* Statistics */
         .ap-stat-grid {
             display: grid;
             gap: var(--spacing-md);
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         }
-        
+
         .ap-stat-card {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
@@ -453,7 +453,7 @@ def _inject_css() -> None:
             padding: var(--spacing-lg);
             box-shadow: var(--shadow-sm);
         }
-        
+
         .ap-stat-item {
             display: flex;
             justify-content: space-between;
@@ -461,42 +461,42 @@ def _inject_css() -> None:
             padding: var(--spacing-sm) 0;
             border-bottom: 1px solid var(--border-color);
         }
-        
+
         .ap-stat-item:last-child {
             border-bottom: none;
         }
-        
+
         .ap-stat-label {
             font-weight: 500;
             color: var(--text-secondary);
         }
-        
+
         .ap-stat-value {
             font-weight: bold;
             color: var(--text-primary);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         }
-        
+
         .ap-stat-value.green {
             color: var(--success-color);
         }
-        
+
         .ap-stat-value.red {
             color: var(--danger-color);
         }
-        
+
         /* Position table enhancements */
         .stDataFrame {
             border: 1px solid var(--border-color);
             border-radius: var(--border-radius);
             overflow: hidden;
         }
-        
+
         /* Animation utilities */
         .ap-fade {
             animation: fadeIn 0.6s ease-out;
         }
-        
+
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -507,7 +507,7 @@ def _inject_css() -> None:
                 transform: translateY(0);
             }
         }
-        
+
         /* Button enhancements */
         .stButton > button {
             border-radius: var(--border-radius-sm);
@@ -515,22 +515,22 @@ def _inject_css() -> None:
             font-weight: 500;
             transition: all 0.2s ease;
         }
-        
+
         .stButton > button:hover {
             transform: translateY(-1px);
             box-shadow: var(--shadow-sm);
         }
-        
+
         /* Responsive improvements */
         @media (max-width: 768px) {
             .ap-title {
                 font-size: 1.5rem;
             }
-            
+
             .ap-metric .value {
                 font-size: 1.5rem;
             }
-            
+
             .ap-stat-grid {
                 grid-template-columns: 1fr;
             }
@@ -2061,7 +2061,7 @@ def main() -> None:
             st.markdown(
                 """
             **通知ルール**: Slack優先 → Discordフォールバック → 通知なし
-            
+
             設定が完了したら環境変数またはWebhook URLを設定してください：
             - `SLACK_BOT_TOKEN`: Slack Bot Token （推奨）
             - `DISCORD_WEBHOOK_URL`: Discord Webhook URL （フォールバック）

@@ -10,13 +10,9 @@ import time
 import numpy as np
 import pandas as pd
 
-from common.ui_components import (
-    clean_date_column,
-    summarize_results,
-)
-
 # 一部の関数は動的インポートで取得
 import common.ui_components as ui_comp
+from common.ui_components import clean_date_column, summarize_results
 
 # ============================================================================
 # Test Fixtures and Helper Functions

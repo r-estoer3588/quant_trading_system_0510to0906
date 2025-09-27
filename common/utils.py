@@ -158,7 +158,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 continue
             if isinstance(col_series, pd.DataFrame):
-                col_series = col_series.iloc[:, 0]
+                col_series = col_series.iloc[:, 0]  # type: ignore[index]
             series_candidates.append((idx, col, pd.Series(col_series)))
 
         if not series_candidates:
@@ -216,7 +216,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 continue
             if isinstance(series, pd.DataFrame):
-                series = series.iloc[:, 0]
+                series = series.iloc[:, 0]  # type: ignore[index]
             series = pd.Series(series)
             name = col
 
@@ -431,7 +431,7 @@ class BatchSizeMonitor:
         self._history: list[float] = []
         self.logger = logging.getLogger(__name__)
 
-    def update(self, duration: float) -> int:
+    def update(self, duration: float = 0.0) -> int:
         """Record batch duration and adjust the size if needed."""
         self._history.append(duration)
         if len(self._history) < self.patience:

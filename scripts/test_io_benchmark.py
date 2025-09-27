@@ -6,8 +6,8 @@
 """
 
 import logging
-import sys
 from pathlib import Path
+import sys
 
 # プロジェクトルートを認識
 sys.path.append(str(Path(__file__).resolve().parent.parent))

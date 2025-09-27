@@ -34,7 +34,7 @@ pip install -r requirements.txt
 
 ### 基本実行
 
-- UI: `streamlit run app_integrated.py`
+- UI: `streamlit run apps/app_integrated.py`
 - Alpaca ダッシュボード: `streamlit run app_alpaca_dashboard.py`
 - 当日パイプライン: `python scripts/run_all_systems_today.py --parallel --save-csv`
 
@@ -84,7 +84,7 @@ COMPACT_TODAY_LOGS=1 ENABLE_PROGRESS_EVENTS=1 ROLLING_ISSUES_VERBOSE_HEAD=3 \
 2. ターミナル 2: UI 起動
 
    ```bash
-   streamlit run app_integrated.py
+   streamlit run apps/app_integrated.py
    ```
 
 3. UI の「当日シグナル」タブで「進捗ログを表示」をチェック
@@ -103,8 +103,59 @@ COMPACT_TODAY_LOGS=1 ENABLE_PROGRESS_EVENTS=1 ROLLING_ISSUES_VERBOSE_HEAD=3 \
 
 ## テスト
 
+### 単体テスト
+
 ```bash
 pytest -q
+```
+
+### パイプライン高速テスト
+
+当日シグナル パイプライン (`run_all_systems_today.py`) の高速テスト用オプションが利用可能です。
+
+#### テスト高速化オプション
+
+- `--test-mode {mini|quick|sample}`: 銘柄数制限
+  - `mini`: 10 銘柄（超高速、2 秒で完了）
+  - `quick`: 50 銘柄
+  - `sample`: 100 銘柄
+- `--skip-external`: 外部 API 呼び出しをスキップ（NASDAQ Trader、pandas_market_calendars 等）
+- `--benchmark`: パフォーマンス計測とレポート生成
+
+#### 4 つのテストシナリオ
+
+```bash
+# 1. 基本パイプラインテスト（超高速：2秒）
+python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
+
+# 2. 並列処理テスト
+python scripts/run_all_systems_today.py --test-mode mini --skip-external --parallel --benchmark
+
+# 3. CSV保存機能テスト
+python scripts/run_all_systems_today.py --test-mode mini --skip-external --save-csv --benchmark
+
+# 4. 全機能統合テスト
+python scripts/run_all_systems_today.py --test-mode quick --skip-external --parallel --save-csv --benchmark
+```
+
+#### テスト効果
+
+- **実行時間**: 分単位 → **2 秒** (mini モード)
+- **外部依存**: API 待機時間を完全排除
+- **カバレッジ**: 8 フェーズ処理、並列実行、CSV 出力を網羅
+- **データ要件**: 最小限（SPY 1 銘柄でも動作）
+
+#### 実行例
+
+```bash
+# 最速テスト（開発・CI用）
+python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
+
+# 中規模テスト（統合検証用）
+python scripts/run_all_systems_today.py --test-mode sample --benchmark
+
+# 本番同等テスト（データ完備時）
+python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
 ```
 
 ## 設定
@@ -119,7 +170,7 @@ pytest -q
 
 ## ディレクトリ構成
 
-- `app_integrated.py` – 統合 UI
+- `apps/app_integrated.py` – 統合 UI
 - `strategies/` – 戦略ラッパ
 - `core/` – 各システム純ロジック
 - `common/` – 共通ユーティリティ
@@ -159,7 +210,7 @@ pytest -q
 補足:
 
 - 旧来の `data_cache/` 直下ファイルは参照しません（移行済みを前提）。
-- SPY フル履歴の復旧は `recover_spy_cache.py` が `data_cache/full_backup/` のみへ保存します。
+- SPY フル履歴の復旧は `scripts/recover_spy_cache.py` が `data_cache/full_backup/` のみへ保存します。
 
 ## 貢献ガイド
 

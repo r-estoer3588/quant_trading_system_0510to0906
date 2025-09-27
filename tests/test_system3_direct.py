@@ -5,11 +5,12 @@ System3 direct test - avoiding cache_manager import issues
 System3（473行, 0%→30-40%目標) の効率的カバレッジ向上（直接実行版）
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-import sys
 from pathlib import Path
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # プロジェクトルートを追加
 project_root = Path(__file__).parent.parent

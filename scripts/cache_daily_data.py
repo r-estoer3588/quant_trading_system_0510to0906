@@ -4,16 +4,16 @@ import argparse
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
-import queue
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
+import queue
 import shutil
 import sys
-import time
 import threading
+import time
 from typing import TYPE_CHECKING, Literal
 
 from dotenv import load_dotenv
@@ -68,26 +68,20 @@ def _migrate_root_csv_to_full() -> None:
 # 親ディレクトリ（リポジトリ ルート）を import パスに追加して、
 # 直下モジュール `indicators_common.py` を解決可能にする
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from indicators_common import add_indicators  # noqa: E402
-
-from common.cache_manager import (
+from common.cache_format import round_dataframe, safe_filename  # noqa: E402
+from common.cache_manager import (  # noqa: E402
     CacheManager,
     compute_base_indicators,
     save_base_cache,
-)  # noqa: E402
-
-from common.cache_format import round_dataframe, safe_filename  # noqa: E402
-
-
+)
 from common.symbol_universe import build_symbol_universe  # noqa: E402
 from common.symbols_manifest import save_symbol_manifest  # noqa: E402
+from common.indicators_common import add_indicators  # noqa: E402
 
 CacheUpdateInterrupted: type[BaseException] | None
 try:  # Local import guard for optional bulk updater
-    from scripts.update_from_bulk_last_day import (
-        run_bulk_update,
-        CacheUpdateInterrupted as _CacheUpdateInterrupted,
-    )
+    from scripts.update_from_bulk_last_day import CacheUpdateInterrupted as _CacheUpdateInterrupted
+    from scripts.update_from_bulk_last_day import run_bulk_update
 except Exception:  # pragma: no cover - unavailable in constrained envs
     run_bulk_update = None
     CacheUpdateInterrupted = None
@@ -706,7 +700,7 @@ def _process_cache_job(job: CacheJob) -> CacheResult:
             full_df = add_indicators(df.copy())
         except Exception:
             full_df = add_indicators(df)
-        df_reset = full_df.reset_index().rename(columns=str.lower)
+        df_reset = full_df.reset_index()
         df_reset = round_dataframe(df_reset, CACHE_ROUND_DECIMALS)
         df_reset.to_csv(job.filepath, index=False)
     except Exception as exc:  # pragma: no cover - logging only

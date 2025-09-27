@@ -6,14 +6,14 @@ import pandas as pd
 import pytest
 
 from common.today_filters import (
+    _calc_dollar_volume_from_series,
+    _last_scalar,
     filter_system1,
     filter_system2,
     filter_system3,
     filter_system4,
     filter_system5,
     filter_system6,
-    _last_scalar,
-    _calc_dollar_volume_from_series,
 )
 
 

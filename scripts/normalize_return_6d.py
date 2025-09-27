@@ -26,13 +26,13 @@ Safe to re-run (idempotent).
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 import concurrent.futures as cf
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Iterable
 
-from config.settings import get_settings
 from common.cache_manager import CacheManager
+from config.settings import get_settings
 
 
 @dataclass

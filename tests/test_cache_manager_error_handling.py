@@ -12,12 +12,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from common.cache_manager import (
-    CacheManager,
-    _read_legacy_cache,
-    load_base_cache,
-    save_base_cache,
-)
+from common.cache_manager import CacheManager, _read_legacy_cache, load_base_cache, save_base_cache
+
+# Skip problematic import for now
+# from common.cache_manager_old import _write_dataframe_to_csv
 
 
 class DummyRolling(SimpleNamespace):

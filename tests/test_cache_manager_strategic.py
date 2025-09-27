@@ -5,18 +5,19 @@ Building on 58% baseline to reach 80% by focusing on uncovered methods
 
 from __future__ import annotations
 
-import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch
 from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
 
 from common.cache_manager import (
     CacheManager,
     get_indicator_column_flexible,
-    save_base_cache,
     load_base_cache,
+    save_base_cache,
 )
 from common.testing import set_test_determinism
 from config.settings import get_settings

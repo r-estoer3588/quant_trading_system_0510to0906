@@ -7,9 +7,9 @@ cache_daily_data.py、build_rolling_with_indicators.py、update_from_bulk_last_d
 
 import json
 import logging
+from pathlib import Path
 import subprocess
 import time
-from pathlib import Path
 from typing import Any
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

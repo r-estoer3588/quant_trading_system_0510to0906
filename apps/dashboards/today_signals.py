@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import logging
-import os
-import platform
-import sys
-import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import logging
+import os
 from pathlib import Path
+import sys
 from threading import Lock
+import time
 from typing import TYPE_CHECKING, Any
 
 # プロジェクトルート（apps/dashboards/ から2階層上）をパスに追加
@@ -19,28 +18,25 @@ import pandas as pd
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-import scripts.run_all_systems_today as _run_today_mod
 from common import broker_alpaca as ba
-from common import universe as univ
 from common.alpaca_order import submit_orders_df
 from common.cache_format import round_dataframe
 from common.data_loader import load_price
 from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
 from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates, save_entry_dates
-from common.profit_protection import evaluate_positions
 from common.stage_metrics import (
     DEFAULT_SYSTEM_ORDER,
     GLOBAL_STAGE_METRICS,
     StageMetricsStore,
     StageSnapshot,
 )
-from common.symbol_universe import build_symbol_universe_from_settings
 from common.system_groups import format_group_counts, format_group_counts_and_values
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
+import scripts.run_all_systems_today as _run_today_mod
 
 if TYPE_CHECKING:  # pragma: no cover - static typing only
     try:
@@ -2895,7 +2891,6 @@ def _log_and_notify(
     level: int = logging.INFO,
 ):
     """Log to both logger and optional callbacks."""
-    import pandas as pd
 
     _get_today_logger().log(level, message)
     if notifier:

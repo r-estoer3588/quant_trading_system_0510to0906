@@ -1,5 +1,6 @@
 # キャッシュ関連
 data_cache/
+data_cache_recent/
 bt_cache/
 results_csv/
 __pycache__/
@@ -7,17 +8,23 @@ common/__pycache__/
 logs/*
 logs/images/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # 新しい整理されたディレクトリ内の出力ファイル
 docs/internal/output/
 tools/debug/*.log
 tools/benchmark/*.log
+htmlcov/
+codacy_report/
 
 # temp files
 *.tmp
+*.temp
 .env
 *.env
 .coverage
+.tmp_*
 
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md

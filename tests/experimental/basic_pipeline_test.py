@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Simple alternative pipeline test."""
 
-import sys
 from pathlib import Path
+import sys
 
 # プロジェクトルート（tests/experimental/ から2階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
+from pathlib import Path
+
+from config.settings import get_settings
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy
 from strategies.system3_strategy import System3Strategy
@@ -14,8 +17,6 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-from config.settings import get_settings
-from pathlib import Path
 
 
 def test_basic_pipeline():

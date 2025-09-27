@@ -9,7 +9,6 @@ import pandas as pd
 import requests
 
 import common  # noqa: F401
-
 from common.cache_manager import CacheManager
 from config.settings import get_settings
 

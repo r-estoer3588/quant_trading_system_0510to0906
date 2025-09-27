@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import pandas as pd
-import pytest
 from unittest.mock import Mock
 
-from common.strategy_runner import (
-    StrategyRunner,
-    run_strategies_parallel,
-    run_strategies_serial,
-)
+import pandas as pd
+import pytest
+
+from common.strategy_runner import StrategyRunner, run_strategies_parallel, run_strategies_serial
 
 
 class TestStrategyRunner:

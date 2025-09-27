@@ -22,7 +22,7 @@ try {
     # Step 2: build_rolling_with_indicators.py
     Write-Host "`n🔁 Step 2: Rolling cache rebuild" -ForegroundColor Cyan
     $startTime2 = Get-Date
-    
+
     if ($Parallel -and $Workers -gt 0) {
         python scripts/build_rolling_with_indicators.py --workers $Workers
         Write-Host "   🔧 並列処理: $Workers ワーカー" -ForegroundColor Yellow
@@ -35,7 +35,7 @@ try {
         python scripts/build_rolling_with_indicators.py --workers 1
         Write-Host "   🔧 シリアル実行" -ForegroundColor Yellow
     }
-    
+
     if ($LASTEXITCODE -ne 0) {
         throw "build_rolling_with_indicators.py が失敗しました"
     }

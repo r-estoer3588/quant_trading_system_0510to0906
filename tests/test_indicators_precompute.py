@@ -5,17 +5,14 @@ NotImplementedError を回避してモジュールの機能をテストします
 カバレッジ80%以上を目指した詳細なテストを提供します。
 """
 
-import tempfile
+from pathlib import Path
 import shutil
 import sys
-from pathlib import Path
-from unittest.mock import patch, MagicMock, Mock, call
+import tempfile
 import unittest
-from concurrent.futures import ThreadPoolExecutor
-import time
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 
 # NotImplementedErrorを回避するために、実際のコードを抽出して実行
@@ -23,7 +20,7 @@ def load_indicators_precompute_without_error():
     """indicators_precompute.pyからNotImplementedErrorを回避してコードをロード"""
 
     # ファイルからコードを読み込み、raise文をスキップ
-    with open("common/indicators_precompute.py", "r", encoding="utf-8") as f:
+    with open("common/indicators_precompute.py", encoding="utf-8") as f:
         content = f.read()
 
     # raise NotImplementedError(...) 部分を削除
@@ -81,7 +78,6 @@ except Exception as e:
 
 # モジュールインポート時のNotImplementedErrorを回避するためのパッチ
 # これによりpatchデコレータでのモジュール参照時にエラーが発生しなくなる
-import sys
 
 if "common.indicators_precompute" not in sys.modules:
     # ダミーモジュールを作成
@@ -89,10 +85,10 @@ if "common.indicators_precompute" not in sys.modules:
 
     dummy_module = types.ModuleType("common.indicators_precompute")
     # 動的に属性を設定
-    setattr(dummy_module, "precompute_shared_indicators", precompute_shared_indicators)
-    setattr(dummy_module, "_ensure_price_columns_upper", _ensure_price_columns_upper)
-    setattr(dummy_module, "PRECOMPUTED_INDICATORS", PRECOMPUTED_INDICATORS)
-    setattr(dummy_module, "get_settings", lambda *args, **kwargs: None)
+    dummy_module.precompute_shared_indicators = precompute_shared_indicators
+    dummy_module._ensure_price_columns_upper = _ensure_price_columns_upper
+    dummy_module.PRECOMPUTED_INDICATORS = PRECOMPUTED_INDICATORS
+    dummy_module.get_settings = lambda *args, **kwargs: None
     sys.modules["common.indicators_precompute"] = dummy_module
 
 
@@ -1129,7 +1125,7 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
                 # 標準化エラーでもクラッシュしないことを確認
                 self.assertIn("STD_ERROR", result)
 
-            except Exception as e:
+            except Exception:
                 # 標準化エラーは適切にハンドリングされるべき
                 # 実装によっては例外が伝播する可能性もある
                 pass

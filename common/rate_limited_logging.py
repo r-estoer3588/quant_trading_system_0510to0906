@@ -5,8 +5,8 @@ Rate-limited logging utilities for verbose log optimization.
 from __future__ import annotations
 
 import logging
-import time
 from threading import Lock
+import time
 from typing import Any
 
 

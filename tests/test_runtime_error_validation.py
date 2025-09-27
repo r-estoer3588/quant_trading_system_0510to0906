@@ -4,8 +4,8 @@
 指標不足時にRuntimeErrorで即座に停止することを確認する
 """
 
-import sys
 from pathlib import Path
+import sys
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).resolve().parents[1]
@@ -13,7 +13,8 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import pandas as pd
-from common.indicators_validation import validate_precomputed_indicators, IndicatorValidationError
+
+from common.indicators_validation import IndicatorValidationError, validate_precomputed_indicators
 
 
 def test_runtime_error_with_missing_indicators():

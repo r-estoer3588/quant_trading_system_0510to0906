@@ -24,11 +24,11 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
-from common.cache_manager import (
+from common.cache_manager import (  # noqa: E402
     BASE_SUBDIR,
     _get_default_cache_manager,
     save_base_cache,
-)  # noqa: E402
+)
 from config.settings import get_settings  # noqa: E402
 
 try:

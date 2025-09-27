@@ -4,14 +4,15 @@ System7のSPY特化機能を直接テストし、高いカバレッジを達成�
 mockによって外部I/Oを回避し、決定論的な動作を保証する。
 """
 
-import pandas as pd
-import numpy as np
 from unittest.mock import patch
 
+import numpy as np
+import pandas as pd
+
 from core.system7 import (
-    prepare_data_vectorized_system7,
     generate_candidates_system7,
     get_total_days_system7,
+    prepare_data_vectorized_system7,
 )
 
 

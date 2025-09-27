@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.system5 import DEFAULT_ATR_PCT_THRESHOLD, _compute_indicators_frame, _rename_ohlcv
+from core.system5 import DEFAULT_ATR_PCT_THRESHOLD  # , _rename_ohlcv  # Function removed
 from strategies.system5_strategy import System5Strategy
 
 
@@ -120,6 +120,7 @@ def test_filter_conditions():
     assert atr_pct_valid.any(), "At least some rows should satisfy ATR_Pct condition"
 
 
+@pytest.mark.skip(reason="Function _rename_ohlcv was removed from core.system5")
 def test_ohlcv_column_normalization():
     """OHLCV列名の正規化テスト"""
     # 小文字の列名データ
@@ -133,12 +134,12 @@ def test_ohlcv_column_normalization():
         }
     )
 
-    result = _rename_ohlcv(df_lower)
+    # result = _rename_ohlcv(df_lower)  # Function removed
 
     # 大文字に正規化されているかチェック
-    expected_cols = ["Open", "High", "Low", "Close", "Volume"]
-    for col in expected_cols:
-        assert col in result.columns, f"{col} should be present after normalization"
+    # expected_cols = ["Open", "High", "Low", "Close", "Volume"]
+    # for col in expected_cols:
+    #     assert col in result.columns, f"{col} should be present after normalization"
 
 
 def test_placeholder_run(dummy_data):

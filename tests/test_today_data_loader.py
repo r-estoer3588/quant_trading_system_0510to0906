@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import pandas as pd
-import pytest
 from unittest.mock import Mock
 
+import pandas as pd
+import pytest
+
 from common.today_data_loader import (
-    load_basic_data,
-    load_indicator_data,
     _extract_last_cache_date,
     _normalize_ohlcv,
+    load_basic_data,
+    load_indicator_data,
 )
 
 

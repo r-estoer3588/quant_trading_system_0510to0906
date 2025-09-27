@@ -13,9 +13,7 @@ import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
-from common.system_constants import (
-    SYSTEM4_REQUIRED_INDICATORS,
-)
+from common.system_constants import SYSTEM4_REQUIRED_INDICATORS
 from common.utils import get_cached_data
 
 

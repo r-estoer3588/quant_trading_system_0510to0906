@@ -4,14 +4,14 @@
 """
 
 import os
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 # プロジェクトルート（tests/experimental/ から2階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
-from common.progress_events import reset_progress_log, emit_progress
+from common.progress_events import emit_progress, reset_progress_log
 from common.rate_limited_logging import create_rate_limited_logger
 from config.settings import get_settings
 
@@ -53,7 +53,7 @@ def test_integration():
 
     print("\n3. 進捗ファイルの確認")
     settings = get_settings()
-    progress_file = Path(settings.logs_dir) / "progress_today.jsonl"
+    progress_file = Path(settings.LOGS_DIR) / "progress_today.jsonl"
 
     if progress_file.exists():
         with open(progress_file, encoding="utf-8") as f:

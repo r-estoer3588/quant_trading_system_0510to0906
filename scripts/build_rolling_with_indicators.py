@@ -13,21 +13,21 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterable
+import concurrent.futures
 from dataclasses import dataclass, field
+from datetime import datetime
+import json
 import logging
 import os
 from pathlib import Path
 import sys
-from typing import Any
-import concurrent.futures
 import time
-import json
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from indicators_common import add_indicators  # noqa: E402
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 
 from common.cache_manager import CacheManager  # noqa: E402
@@ -35,6 +35,7 @@ from common.symbol_universe import build_symbol_universe_from_settings  # noqa: 
 from common.symbols_manifest import MANIFEST_FILENAME, load_symbol_manifest  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
+from common.indicators_common import add_indicators  # noqa: E402
 
 # json already imported at top
 
@@ -155,9 +156,20 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     work = work.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
     calc = work.copy()
-    calc["Date"] = pd.to_datetime(calc["date"], errors="coerce").dt.normalize()
 
-    # Upper-case OHLCV columns for indicator calculation
+    # Ensure we have Date column for indicator calculations, avoiding duplication
+    if "Date" not in calc.columns:
+        if "date" in calc.columns:
+            calc["Date"] = pd.to_datetime(calc["date"], errors="coerce").dt.normalize()
+            # Remove lowercase date to avoid duplication
+            calc = calc.drop(columns=["date"])
+        else:
+            # This shouldn't happen as we normalized date earlier
+            calc["Date"] = pd.to_datetime(calc.index, errors="coerce").normalize()
+
+    # Only convert columns if PascalCase versions don't already exist
+    # This handles both new data (from cache_daily_data.py with PascalCase)
+    # and legacy data (with lowercase columns)
     col_pairs = (
         ("open", "Open"),
         ("high", "High"),
@@ -168,11 +180,16 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     for src, dst in col_pairs:
         if src in calc.columns and dst not in calc.columns:
             calc[dst] = calc[src]
+            # Remove the source column immediately to avoid duplication
+            calc = calc.drop(columns=[src])
 
+    # Handle AdjClose conversion
     if "AdjClose" not in calc.columns:
         for cand in ("adjusted_close", "adj_close", "adjclose"):
             if cand in calc.columns:
                 calc["AdjClose"] = calc[cand]
+                # Remove the source column immediately to avoid duplication
+                calc = calc.drop(columns=[cand])
                 break
 
     required = {"Open", "High", "Low", "Close"}
@@ -197,8 +214,8 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
     enriched = add_indicators(calc_for_ind)
 
-    # Clean duplicate columns (Open/open, High/high, etc.) - keep PascalCase versions
-    enriched = _clean_duplicate_columns(enriched)
+    # Clean duplicate columns (can be skipped for performance if data is already clean)
+    enriched = _clean_duplicate_columns(enriched, skip_cleanup=False)
 
     # normalize date column
     date_col = enriched.get("date", enriched.get("Date"))
@@ -214,9 +231,13 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     return enriched.loc[:, cols]
 
 
-def _clean_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _clean_duplicate_columns(df: pd.DataFrame, skip_cleanup: bool = False) -> pd.DataFrame:
     """Remove duplicate columns comprehensively, keeping PascalCase/uppercase versions."""
     if df is None or df.empty:
+        return df
+
+    # Skip cleanup if requested (for performance when data is already clean)
+    if skip_cleanup:
         return df
 
     columns = df.columns.tolist()
@@ -231,7 +252,7 @@ def _clean_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
         col_mapping[key].append(col)
 
     # For each group of similar columns, keep the best one
-    for key, similar_cols in col_mapping.items():
+    for _key, similar_cols in col_mapping.items():
         if len(similar_cols) <= 1:
             continue
 
@@ -256,9 +277,11 @@ def _clean_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
         for _, col in priority_scores[1:]:
             duplicates_to_remove.append(col)
 
-    # Remove duplicate columns
+    # Remove duplicate columns (should not occur with fixed data processing)
     if duplicates_to_remove:
-        print(f"🧹 重複列クリーンアップ: {len(duplicates_to_remove)}列削除")
+        # Only show error message if duplicates still occur (indicates a problem)
+        removed_cols = ", ".join(duplicates_to_remove)
+        print(f"⚠️ 予期しない重複列を検出・削除: {len(duplicates_to_remove)}列 ({removed_cols})")
         df = df.drop(columns=duplicates_to_remove)
 
     return df
@@ -454,6 +477,10 @@ def extract_rolling_from_full(
     positive integer value.
     """
 
+    # Record start time
+    start_time = time.time()
+    start_dt = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
+
     if target_days is None:
         try:
             target_days = int(
@@ -471,6 +498,7 @@ def extract_rolling_from_full(
         _log_message("対象シンボルが見つかりませんでした。", log)
         return stats
 
+    _log_message(f"🕐 開始時刻: {start_dt}", log)
     _log_message(
         f"🔁 rolling 再構築を開始: {len(symbol_list)} 銘柄 | 期間={target_days}営業日", log
     )
@@ -698,6 +726,19 @@ def extract_rolling_from_full(
                             # small/no change, keep current
                             prev_throughput = throughput
 
+    # Calculate completion time and duration
+    end_time = time.time()
+    end_dt = datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
+    duration_seconds = end_time - start_time
+
+    # Format duration as H:MM:SS
+    hours = int(duration_seconds // 3600)
+    minutes = int((duration_seconds % 3600) // 60)
+    seconds = int(duration_seconds % 60)
+    duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+
+    _log_message(f"🕐 終了時刻: {end_dt}", log)
+    _log_message(f"⏰ 所要時間: {duration_str}", log)
     _log_message(
         "✅ rolling 再構築完了: "
         + f"対象={stats.total_symbols} | 更新={stats.updated_symbols} | "

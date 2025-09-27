@@ -8,10 +8,10 @@ from __future__ import annotations
 import os
 import time
 from unittest.mock import Mock, patch
-import pytest
 
 import numpy as np
 import pandas as pd
+import pytest
 import streamlit as st
 
 from common import ui_components as ui_comp

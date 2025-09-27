@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 # プロジェクトルートをPYTHONPATHに追加
 ROOT_DIR = Path(__file__).resolve().parents[1]

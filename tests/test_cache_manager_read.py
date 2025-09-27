@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from common.cache_manager import CacheManager
-from indicators_common import add_indicators
+from common.indicators_common import add_indicators
 
 
 class DummyRolling(SimpleNamespace):

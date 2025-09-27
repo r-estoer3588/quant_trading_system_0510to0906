@@ -5,13 +5,14 @@ strategies フォルダー最適化攻撃
 system1_strategy.py から system7_strategy.py までの効率的カバレッジ向上
 """
 
-import pytest
-import pandas as pd
 from unittest.mock import Mock, patch
 
+import pandas as pd
+import pytest
+
+from strategies.base_strategy import StrategyBase
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy
-from strategies.base_strategy import StrategyBase
 
 
 class TestSystem1StrategyBasics:
@@ -406,8 +407,8 @@ class TestSystem3StrategyBasics:
 
     def test_inheritance_structure_system3(self, system3_strategy):
         """継承構造正確性検証"""
-        from strategies.base_strategy import StrategyBase
         from common.alpaca_order import AlpacaOrderMixin
+        from strategies.base_strategy import StrategyBase
 
         assert isinstance(system3_strategy, StrategyBase)
         assert isinstance(system3_strategy, AlpacaOrderMixin)
@@ -463,8 +464,8 @@ class TestSystem4StrategyBasics:
 
     def test_inheritance_structure_system4(self, system4_strategy):
         """継承構造正確性検証"""
-        from strategies.base_strategy import StrategyBase
         from common.alpaca_order import AlpacaOrderMixin
+        from strategies.base_strategy import StrategyBase
 
         assert isinstance(system4_strategy, StrategyBase)
         assert isinstance(system4_strategy, AlpacaOrderMixin)
@@ -520,8 +521,8 @@ class TestSystem5StrategyBasics:
 
     def test_inheritance_structure_system5(self, system5_strategy):
         """継承構造正確性検証"""
-        from strategies.base_strategy import StrategyBase
         from common.alpaca_order import AlpacaOrderMixin
+        from strategies.base_strategy import StrategyBase
 
         assert isinstance(system5_strategy, StrategyBase)
         assert isinstance(system5_strategy, AlpacaOrderMixin)
@@ -577,8 +578,8 @@ class TestSystem6StrategyBasics:
 
     def test_inheritance_structure_system6(self, system6_strategy):
         """継承構造正確性検証"""
-        from strategies.base_strategy import StrategyBase
         from common.alpaca_order import AlpacaOrderMixin
+        from strategies.base_strategy import StrategyBase
 
         assert isinstance(system6_strategy, StrategyBase)
         assert isinstance(system6_strategy, AlpacaOrderMixin)
@@ -634,8 +635,8 @@ class TestSystem7StrategyBasics:
 
     def test_inheritance_structure_system7(self, system7_strategy):
         """継承構造正確性検証"""
-        from strategies.base_strategy import StrategyBase
         from common.alpaca_order import AlpacaOrderMixin
+        from strategies.base_strategy import StrategyBase
 
         assert isinstance(system7_strategy, StrategyBase)
         assert isinstance(system7_strategy, AlpacaOrderMixin)

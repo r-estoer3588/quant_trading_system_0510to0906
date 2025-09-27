@@ -1,7 +1,7 @@
 """System5直接関数テスト - import問題回避版 (Long mean-reversion with high ADX)"""
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 class TestSystem5DirectFunctions:

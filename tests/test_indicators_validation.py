@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
-import numpy as np
 
 from common.indicators_validation import (
-    validate_precomputed_indicators,
-    quick_indicator_check,
-    IndicatorValidationError,
-    SYSTEM_REQUIRED_INDICATORS,
     COMMON_REQUIRED_INDICATORS,
+    SYSTEM_REQUIRED_INDICATORS,
+    IndicatorValidationError,
+    quick_indicator_check,
+    validate_precomputed_indicators,
 )
 
 

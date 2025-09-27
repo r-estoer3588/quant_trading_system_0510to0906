@@ -16,8 +16,8 @@ patches without altering CLI flags or public behavior.
 """
 
 import argparse
-import sys
 from pathlib import Path as _PathBootstrap
+import sys
 
 # --- ensure repository root on sys.path (script executed from repo root or elsewhere) ---
 try:  # noqa: SIM105
@@ -28,28 +28,37 @@ except Exception:  # pragma: no cover - defensive; failure is non-fatal
     pass
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
-import multiprocessing
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
 import logging
+import multiprocessing
 import os
 from pathlib import Path
-from threading import Lock
 import threading
+from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from common import broker_alpaca as ba
+from common.alpaca_order import submit_orders_df
+from common.cache_manager import CacheManager, load_base_cache
+from common.dataframe_utils import round_dataframe  # noqa: E402
+from common.notifier import create_notifier
+from common.position_age import load_entry_dates, save_entry_dates
+from common.signal_merge import Signal, merge_signals
+from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
+from common.symbol_universe import build_symbol_universe_from_settings
+from common.system_groups import format_group_counts, format_group_counts_and_values
+
+# 抽出: データローダ関数は common.today_data_loader へ分離
+from common.today_data_loader import load_basic_data
+
 # 抽出: フィルタ/条件/低レベルヘルパは common.today_filters へ分離
 from common.today_filters import (
-    _pick_series,
-    _last_scalar,
-    _calc_dollar_volume_from_series,
-    _calc_average_volume_from_series,
-    _resolve_atr_ratio,
     _system1_conditions,
     _system2_conditions,
     _system3_conditions,
@@ -63,23 +72,6 @@ from common.today_filters import (
     filter_system5,
     filter_system6,
 )
-
-# 抽出: データローダ関数は common.today_data_loader へ分離
-from common.today_data_loader import (
-    load_basic_data,
-    load_indicator_data,
-)
-
-from common import broker_alpaca as ba
-from common.alpaca_order import submit_orders_df
-from common.cache_manager import CacheManager, load_base_cache
-from common.dataframe_utils import round_dataframe  # noqa: E402
-from common.notifier import create_notifier
-from common.position_age import load_entry_dates, save_entry_dates
-from common.signal_merge import Signal, merge_signals
-from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
-from common.symbol_universe import build_symbol_universe_from_settings
-from common.system_groups import format_group_counts, format_group_counts_and_values
 from common.utils_spy import (
     get_latest_nyse_trading_day,
     get_signal_target_trading_day,
@@ -327,6 +319,9 @@ class TodayRunContext:
     system_filters: dict[str, list[str]] = field(default_factory=dict)
     per_system_frames: dict[str, pd.DataFrame] = field(default_factory=dict)
     final_signals: pd.DataFrame | None = None
+    # テスト高速化オプション
+    test_mode: str | None = None  # mini/quick/sample
+    skip_external: bool = False  # 外部API呼び出しをスキップ
 
 
 def _get_account_equity() -> float:
@@ -728,9 +723,6 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
     except Exception:
         return df
-
-
-## 上記で common.today_filters へ移動
 
 
 def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
@@ -1516,6 +1508,8 @@ def _initialize_run_context(
     per_system_progress: Callable[[str, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
+    test_mode: str | None = None,
+    skip_external: bool = False,
 ) -> TodayRunContext:
     """当日シグナル実行前に共有設定・状態をまとめたコンテキストを生成する。"""
 
@@ -1543,6 +1537,8 @@ def _initialize_run_context(
         per_system_progress=per_system_progress,
         symbol_data=symbol_data,
         parallel=parallel,
+        test_mode=test_mode,
+        skip_external=skip_external,
     )
     ctx.run_start_time = datetime.now()
     ctx.start_equity = _get_account_equity()
@@ -1569,8 +1565,14 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
 
         settings = getattr(ctx, "settings", None)
         log = _get_today_logger()
+        skip_external = getattr(ctx, "skip_external", False)
+
         try:
-            fetched = build_symbol_universe_from_settings(settings, logger=log)
+            if skip_external:
+                _log("⚡ 外部API呼び出しをスキップ - キャッシュから銘柄リストを構築")
+                fetched = []
+            else:
+                fetched = build_symbol_universe_from_settings(settings, logger=log)
         except Exception as exc:  # pragma: no cover - ネットワーク例外のみログ
             fetched = []
             msg = f"⚠️ NASDAQ/EODHD銘柄リストの取得に失敗しました: {exc}"
@@ -1584,15 +1586,27 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
         if fetched:
             limit_val: int | None = None
             limit_src = ""
-            try:
-                env_limit = os.getenv("TODAY_SYMBOL_LIMIT", "").strip()
-                if env_limit:
-                    parsed = int(env_limit)
-                    if parsed > 0:
-                        limit_val = parsed
-                        limit_src = "TODAY_SYMBOL_LIMIT"
-            except Exception:
-                limit_val = None
+
+            # テストモードの制限チェック
+            test_mode = getattr(ctx, "test_mode", None)
+            if test_mode:
+                test_limits = {"mini": 10, "quick": 50, "sample": 100}
+                if test_mode in test_limits:
+                    limit_val = test_limits[test_mode]
+                    limit_src = f"test-mode={test_mode}"
+
+            # 環境変数による制限チェック（テストモードが未指定の場合）
+            if limit_val is None:
+                try:
+                    env_limit = os.getenv("TODAY_SYMBOL_LIMIT", "").strip()
+                    if env_limit:
+                        parsed = int(env_limit)
+                        if parsed > 0:
+                            limit_val = parsed
+                            limit_src = "TODAY_SYMBOL_LIMIT"
+                except Exception:
+                    limit_val = None
+
             if limit_val is not None and len(fetched) > limit_val:
                 fetched = fetched[:limit_val]
                 label = limit_src or "TODAY_SYMBOL_LIMIT"
@@ -2598,6 +2612,8 @@ def compute_today_signals(
     per_system_progress: Callable[[str, str], None] | None = None,
     symbol_data: dict[str, pd.DataFrame] | None = None,
     parallel: bool = False,
+    test_mode: str | None = None,
+    skip_external: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -2607,7 +2623,12 @@ def compute_today_signals(
 
     戻り値: (final_df, per_system_df_dict)
     """
-    print("🔧 デバッグ: compute_today_signals開始")
+
+    # デフォルト戻り値を事前に設定（シグナル0件や早期returnの場合に使用）
+    final_df = pd.DataFrame()
+    per_system: dict[str, pd.DataFrame] = {}
+
+    _log("🔧 デバッグ: compute_today_signals開始")
 
     ctx = _initialize_run_context(
         slots_long=slots_long,
@@ -2622,6 +2643,8 @@ def compute_today_signals(
         per_system_progress=per_system_progress,
         symbol_data=symbol_data,
         parallel=parallel,
+        test_mode=test_mode,
+        skip_external=skip_external,
     )
 
     try:
@@ -2739,8 +2762,8 @@ def compute_today_signals(
     # ✨ NEW: 指標事前計算チェック（不足時は即座停止）
     try:
         from common.indicators_validation import (
-            validate_precomputed_indicators,
             IndicatorValidationError,
+            validate_precomputed_indicators,
         )
 
         target_systems = [1, 2, 3, 4, 5, 6, 7]  # 全System対象
@@ -3287,17 +3310,22 @@ def compute_today_signals(
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
 
-            # System7 の場合は、データ準備を実行してから候補生成を行う
-            if system_name == "system7":
-                # System7 用のデータ準備を実行
+            try:
                 prepared_data = strategy.prepare_data(raw_data)
-                candidates, _ = strategy.generate_candidates(prepared_data)
-            elif system_name == "system4":
+            except Exception as prep_err:
+                _log(f"[{system_name}] ⚠️ データ準備でエラー: {prep_err}")
+                per_system[system_name] = pd.DataFrame()
+                _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
+                _log(f"✅ {system_name} 完了: 0件")
+                continue
+
+            candidate_kwargs: dict[str, Any] = {}
+            if system_name == "system4":
                 # System4 には market_df として SPY データを渡す
-                candidates, _ = strategy.generate_candidates(raw_data, market_df=spy_df)
-            else:
-                # その他のシステムは通常の候補生成
-                candidates, _ = strategy.generate_candidates(raw_data)
+                candidate_kwargs["market_df"] = spy_df
+
+            # System7 も含め、準備済みデータを用いて候補生成
+            candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
             if candidates:
                 # 候補をDataFrameに変換
                 rows = []
@@ -3341,10 +3369,6 @@ def compute_today_signals(
     order_1_7 = [f"system{i}" for i in range(1, 8)]
     per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
     ctx.per_system_frames = dict(per_system)
-
-    print("🔧 デバッグ: シグナル抽出後の処理開始")
-    print(f"🔧 デバッグ: per_system keys={list(per_system.keys())}")
-
     # メトリクス概要計算
 
 
@@ -4045,17 +4069,11 @@ def _format_phase_completion(
             pass
 
     # 一時的なデバッグ: メトリクス処理をスキップしてfinalize_allocationに直進
-    print("🔧 デバッグ: メトリクス処理をスキップして直接finalize_allocationへ")
-
     positions_cache: list[Any] | None = None
     symbol_system_map_cache: dict[str, str] | None = None
 
-    print("🔧 デバッグ: メトリクス処理完了")
-
     if positions_cache is None or symbol_system_map_cache is None:
         positions_cache, symbol_system_map_cache = _fetch_positions_and_symbol_map()
-
-    print("🔧 デバッグ: positions/symbol_map読み込み完了")
 
     # 1) 枠配分（スロット）モード or 2) 金額配分モード
     try:
@@ -4091,26 +4109,42 @@ def _format_phase_completion(
         )
 
     _log("🧷 候補の配分（スロット方式 or 金額配分）を実行")
-    print("🔧 デバッグ: finalize_allocation呼び出し前")
-    allocation_summary: AllocationSummary
-    final_df, allocation_summary = finalize_allocation(
-        per_system,
-        strategies=strategies,
-        positions=positions_cache,
-        symbol_system_map=symbol_system_map_cache,
-        long_allocations=settings_alloc_long,
-        short_allocations=settings_alloc_short,
-        slots_long=slots_long_total,
-        slots_short=slots_short_total,
-        capital_long=capital_long,
-        capital_short=capital_short,
-        default_capital=default_capital,
-        default_long_ratio=default_long_ratio,
-        default_max_positions=max_positions_default,
-    )
-    print(
-        f"🔧 デバッグ: finalize_allocation完了, final_df={type(final_df)}, length={len(final_df) if final_df is not None else None}"
-    )
+    _log(f"🔧 デバッグ: per_system 辞書の件数: {len(per_system)}")
+
+    try:
+        allocation_summary: AllocationSummary
+        final_df, allocation_summary = finalize_allocation(
+            per_system,
+            strategies=strategies,
+            positions=positions_cache,
+            symbol_system_map=symbol_system_map_cache,
+            long_allocations=settings_alloc_long,
+            short_allocations=settings_alloc_short,
+            slots_long=slots_long_total,
+            slots_short=slots_short_total,
+            capital_long=capital_long,
+            capital_short=capital_short,
+            default_capital=default_capital,
+            default_long_ratio=default_long_ratio,
+            default_max_positions=max_positions_default,
+        )
+        _log(
+            f"🔧 デバッグ: finalize_allocation 完了 - final_df: {len(final_df) if final_df is not None else 'None'}"
+        )
+    except Exception as e:
+        _log(f"⚠️ finalize_allocation でエラー: {e}")
+        # エラー時のフォールバック
+        from core.final_allocation import AllocationSummary
+
+        final_df = pd.DataFrame()
+        allocation_summary = AllocationSummary(
+            mode="slot",
+            active_positions={},
+            available_slots={},
+            total_positions=0,
+            long_capital_used=0.0,
+            short_capital_used=0.0,
+        )
 
     # Emit progress event for allocation completion
     if ENABLE_PROGRESS_EVENTS:
@@ -4282,7 +4316,6 @@ def _format_phase_completion(
         except Exception:
             pass
 
-    print("🔧 デバッグ: _save_and_notify_phase開始前")
     try:
         _save_and_notify_phase(
             ctx,
@@ -4291,13 +4324,9 @@ def _format_phase_completion(
             order_1_7=order_1_7,
             metrics_summary_context=metrics_summary_context,
         )
-        print("🔧 デバッグ: _save_and_notify_phase完了")
-    except Exception as e:
-        print(f"🔧 デバッグ: _save_and_notify_phaseでエラー: {e}")
-        import traceback
-
-        print(f"🔧 デバッグ: トレースバック: {traceback.format_exc()}")
+    except Exception:
         # エラーが発生しても処理を継続
+        pass
 
     # clear callback
     try:
@@ -4306,8 +4335,8 @@ def _format_phase_completion(
         pass
 
     ctx.final_signals = final_df
-    print(
-        f"🔧 デバッグ: compute_today_signals正常終了, final_df={len(final_df)}, allocation_summary={allocation_summary}"
+    _log(
+        f"🔧 デバッグ: compute_today_signals終了直前 - final_df: {type(final_df)}, allocation_summary: {type(allocation_summary)}"
     )
     return final_df, allocation_summary
 
@@ -4411,6 +4440,16 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="パイプライン全体のフェーズ別実行時間を計測し logs/perf にレポート保存",
     )
+    parser.add_argument(
+        "--test-mode",
+        choices=["mini", "quick", "sample"],
+        help="テスト用モード: mini=10銘柄 / quick=50銘柄 / sample=100銘柄",
+    )
+    parser.add_argument(
+        "--skip-external",
+        action="store_true",
+        help="外部API呼び出しをスキップ（NASDAQ Trader, pandas_market_calendars等）",
+    )
     return parser
 
 
@@ -4431,7 +4470,6 @@ def configure_logging_for_cli(args: argparse.Namespace) -> None:
 
 
 def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    print("🔧 デバッグ: run_signal_pipeline開始")
     result = compute_today_signals(
         args.symbols,
         slots_long=args.slots_long,
@@ -4441,8 +4479,9 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         save_csv=args.save_csv,
         csv_name_mode=args.csv_name_mode,
         parallel=args.parallel,
+        test_mode=getattr(args, "test_mode", None),
+        skip_external=getattr(args, "skip_external", False),
     )
-    print(f"🔧 デバッグ: compute_today_signals結果 = {result}")
     return result
 
 

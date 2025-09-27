@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from common.cache_manager import CacheManager, compute_base_indicators
 from common.cache_format import round_dataframe
+from common.cache_manager import CacheManager, compute_base_indicators
 
 
 def _create_sample_df(n_rows=100):

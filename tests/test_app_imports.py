@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Test app imports after reorganization"""
 
-import sys
 from pathlib import Path
+import sys
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
@@ -12,7 +12,7 @@ print("Testing app imports...")
 try:
     # メインアプリのimportテスト
     print("1. Testing main app import...")
-    from apps import main
+    import apps.main  # noqa: F401
 
     print("✅ apps.main - OK")
 
@@ -23,11 +23,11 @@ try:
 
     # ダッシュボードアプリのimportテスト
     print("3. Testing dashboard apps import...")
-    from apps.dashboards import alpaca
+    import apps.dashboards.alpaca  # noqa: F401
 
     print("✅ apps.dashboards.alpaca - OK")
 
-    from apps.dashboards import today_signals
+    import apps.dashboards.today_signals  # noqa: F401
 
     print("✅ apps.dashboards.today_signals - OK")
 

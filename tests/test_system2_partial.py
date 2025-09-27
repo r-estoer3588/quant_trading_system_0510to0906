@@ -5,12 +5,13 @@ core/system2.py の部分的テストスイート
 独立ユーティリティ関数の戦略的カバレッジ
 """
 
-import pandas as pd
 from unittest.mock import patch
 
+import pandas as pd
+
 from core.system2 import (
-    get_total_days_system2,
     generate_candidates_system2,
+    get_total_days_system2,
     prepare_data_vectorized_system2,
 )
 

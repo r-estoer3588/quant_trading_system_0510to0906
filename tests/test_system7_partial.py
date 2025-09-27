@@ -5,12 +5,13 @@ Focus on utility functions that are testable in isolation
 
 from __future__ import annotations
 
-import pandas as pd
-import pytest
 from unittest.mock import patch
 
-from core.system7 import get_total_days_system7, generate_candidates_system7
+import pandas as pd
+import pytest
+
 from common.testing import set_test_determinism
+from core.system7 import generate_candidates_system7, get_total_days_system7
 
 
 class TestGetTotalDaysSystem7:

@@ -11,10 +11,11 @@ System1の成功パターンを適用：
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
-import numpy as np
 
 from common.testing import set_test_determinism
 
@@ -22,8 +23,8 @@ from common.testing import set_test_determinism
 with patch("common.cache_manager.CacheManager"):
     from core.system2 import (
         _compute_indicators,
-        prepare_data_vectorized_system2,
         get_total_days_system2,
+        prepare_data_vectorized_system2,
     )
 
 

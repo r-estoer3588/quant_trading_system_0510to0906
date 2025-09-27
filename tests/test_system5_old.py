@@ -1,10 +1,10 @@
+import numpy as np
 import pandas as pd
 import pytest
-import numpy as np
 
+from core.system5 import DEFAULT_ATR_PCT_THRESHOLD
 from strategies.constants import FALLBACK_EXIT_DAYS_DEFAULT
 from strategies.system5_strategy import System5Strategy
-from core.system5 import _compute_indicators_frame, _rename_ohlcv, DEFAULT_ATR_PCT_THRESHOLD
 
 
 @pytest.fixture

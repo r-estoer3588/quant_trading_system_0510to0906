@@ -22,7 +22,7 @@ def test_cache_manager_detects_feather_for_base():
             settings = get_settings()
             ROOT = Path(__file__).parent
             sys.path.insert(0, str(ROOT))
-            cm = CacheManager(settings)
+            _cm = CacheManager(settings)  # Underscore to indicate intentionally unused
 
             # Create base directory
             base_dir = Path(temp_dir) / "base"
