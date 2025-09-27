@@ -267,9 +267,7 @@ class ExtendedCacheHealthChecker:
 
         return price_anomalies, volume_anomalies, indicator_anomalies
 
-    def _analyze_single_file(
-        self, file_path: Path, profile: str
-    ) -> ExtendedHealthMetrics | None:
+    def _analyze_single_file(self, file_path: Path, profile: str) -> ExtendedHealthMetrics | None:
         """単一ファイル分析"""
         try:
             # ファイル読み込み
