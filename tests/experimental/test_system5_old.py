@@ -6,8 +6,7 @@ from strategies.constants import FALLBACK_EXIT_DAYS_DEFAULT
 from strategies.system5_strategy import System5Strategy
 # このファイルは古いバージョンのテストで、現在使用されていません。
 # 現在のcore.system5には_compute_indicators_frame関数が存在しません。
-"""
-from core.system5 import _compute_indicators_frame, _rename_ohlcv, DEFAULT_ATR_PCT_THRESHOLD
+# from core.system5 import _compute_indicators_frame, _rename_ohlcv, DEFAULT_ATR_PCT_THRESHOLD
 
 
 @pytest.fixture
