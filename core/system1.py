@@ -29,6 +29,7 @@ from common.utils_spy import resolve_signal_entry_date
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 
+
 def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     x = df.copy(deep=False)
     rename_map = {}
@@ -48,6 +49,7 @@ def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
             pass
     return x
 
+
 def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
     if "Date" in df.columns:
         idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
@@ -66,6 +68,7 @@ def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
         pass
     return x
 
+
 def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         raise ValueError("empty_frame")
@@ -82,6 +85,7 @@ def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
                 pass
     x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
     return x
+
 
 def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     # System1 now relies exclusively on precomputed indicators (fast path).
@@ -101,7 +105,6 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
         x["filter"] = False
         x["setup"] = False
     return x
-
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:

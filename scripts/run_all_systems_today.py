@@ -64,6 +64,12 @@ from common.today_filters import (
     filter_system6,
 )
 
+# 抽出: データローダ関数は common.today_data_loader へ分離
+from common.today_data_loader import (
+    load_basic_data,
+    load_indicator_data,
+)
+
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
@@ -81,7 +87,7 @@ from common.utils_spy import (
 )
 from config.settings import get_settings
 from core.final_allocation import AllocationSummary, finalize_allocation, load_symbol_system_map
-from core.system5 import DEFAULT_ATR_PCT_THRESHOLD, format_atr_pct_threshold_label
+from core.system5 import DEFAULT_ATR_PCT_THRESHOLD
 
 # strategies
 from strategies.system1_strategy import System1Strategy
@@ -1659,13 +1665,15 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
-    basic_data = _load_basic_data(
+    basic_data = load_basic_data(
         symbols,
         cache_manager,
         settings,
         symbol_data,
         today=ctx.today,
         base_cache=ctx.base_cache,
+        log_callback=lambda msg: None,
+        ui_log_callback=lambda msg: None,
     )
     ctx.basic_data = basic_data
 
@@ -2166,7 +2174,7 @@ def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
 def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
     """System5 ???????????????????"""
     try:
-        threshold_label = format_atr_pct_threshold_label()
+        threshold_label = f"ATR_Pct>{DEFAULT_ATR_PCT_THRESHOLD*100:.1f}%"
         s5_total = len(symbols)
         s5_av = 0
         s5_dv = 0
@@ -2853,7 +2861,7 @@ def compute_today_signals(
         pass
     # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
     try:
-        threshold_label = format_atr_pct_threshold_label()
+        threshold_label = f"ATR_Pct>{DEFAULT_ATR_PCT_THRESHOLD*100:.1f}%"
         stats5 = filter_stats.get("system5", {})
         s5_total = stats5.get("total", len(symbols or []))
         s5_av = stats5.get("avgvol_pass", 0)

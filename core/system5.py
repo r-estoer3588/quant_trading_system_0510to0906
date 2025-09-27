@@ -1,7 +1,12 @@
 """System5 core logic (Long mean-reversion with high ADX).
 
 High ADX mean-reversion strategy:
-- Indicators: ADX7, ATR20, ATR_Pct (precomputed only) 
+- Indicators:                    # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
+                    is_valid = (
+                        (x["Close"] >= 5.0) & 
+                        (x["adx7"] > 35.0) &
+                        (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+                    ) ATR20, ATR_Pct (precomputed only) 
 - Setup conditions: Close>=5, ADX7>35, ATR_Pct>2.5%
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
@@ -18,6 +23,9 @@ from common.system_constants import (
     MIN_ROWS_SYSTEM5,
     get_system_config,
 )
+
+# ATR percentage threshold for System5 filtering
+DEFAULT_ATR_PCT_THRESHOLD = 0.025
 from common.utils import get_cached_data
 from common.utils_spy import resolve_signal_entry_date
 
@@ -48,7 +56,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         x["filter"] = (
             (x["Close"] >= 5.0) & 
             (x["adx7"] > 35.0) &
-            (x["atr_pct"] > 0.025)
+            (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
         )
         
         # Setup: Same as filter for System5 (simple high ADX trend selection)

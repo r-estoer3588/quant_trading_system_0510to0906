@@ -50,7 +50,7 @@
       "label": "Start Streamlit UI",
       "type": "shell",
       "command": "streamlit",
-      "args": ["run", "app_integrated.py"],
+      "args": ["run", "apps/main.py"],
       "group": "build",
       "presentation": {
         "echo": true,
