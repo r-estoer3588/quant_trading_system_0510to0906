@@ -34,6 +34,32 @@ DEFAULT_SHORT_ALLOCATIONS: dict[str, float] = {
 }
 
 
+def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | None:
+    """Attempt to convert ``value`` to a positive float.
+
+    Returns ``None`` if conversion fails, value is ``None``/empty string, the
+    numeric result is negative (and zero when ``allow_zero`` is False), or
+    the value is infinite or NaN.
+
+    This helper centralises Optional[float] sanitation so that mypy does not
+    see patterns like ``float(x)`` where ``x`` is ``float | None``.
+    """
+    if value in (None, ""):
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f < 0:
+        return None
+    if not allow_zero and f == 0:
+        return None
+    # Reject infinite or NaN values
+    if not (0 <= f < float("inf")):
+        return None
+    return f
+
+
 @dataclass(slots=True)
 class AllocationSummary:
     """Summary of the final allocation step."""
@@ -85,7 +111,7 @@ def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
 def _get_position_attr(obj: object, name: str) -> Any:
     if hasattr(obj, name):
         return getattr(obj, name)
-    if isinstance(obj, Mapping):  # type: ignore[arg-type]
+    if isinstance(obj, Mapping):
         return obj.get(name)
     return None
 
@@ -366,7 +392,14 @@ def _allocate_by_capital(
             candidates[name] = []
         else:
             records = df.to_dict("records")
-            candidates[name] = [dict(rec) for rec in records]
+            # 正規化: dict[Hashable, Any] -> dict[str, Any]
+            norm_records: list[dict[str, Any]] = []
+            for rec in records:
+                try:
+                    norm_records.append({str(k): v for k, v in rec.items()})
+                except Exception:
+                    norm_records.append({str(k): rec.get(k) for k in rec})
+            candidates[name] = norm_records
         index_map[name] = 0
 
     counts = {name: 0 for name in ordered_names}
@@ -409,16 +442,8 @@ def _allocate_by_capital(
                 if not sym or sym in chosen_symbols:
                     continue
 
-                entry_raw = row.get("entry_price")
-                stop_raw = row.get("stop_price")
-                try:
-                    entry = float(entry_raw) if entry_raw not in (None, "") else None
-                except (TypeError, ValueError):
-                    entry = None
-                try:
-                    stop = float(stop_raw) if stop_raw not in (None, "") else None
-                except (TypeError, ValueError):
-                    stop = None
+                entry = _safe_positive_float(row.get("entry_price"), allow_zero=False)
+                stop = _safe_positive_float(row.get("stop_price"), allow_zero=False)
                 if entry is None or stop is None or entry <= 0:
                     continue
 
@@ -617,40 +642,37 @@ def finalize_allocation(
             slot_candidates=dict(slot_result.candidate_counts),
         )
     else:
-        # Capital mode replicates ``run_all_systems_today`` defaults.
-        try:
-            ratio = float(default_long_ratio)
-        except (TypeError, ValueError):
-            ratio = 0.5
-        try:
-            default_capital = float(default_capital)
-        except (TypeError, ValueError):
-            default_capital = 100000.0
+        # Capital mode replicates ``run_all_systems_today`` defaults, with
+        # stricter Optional handling for mypy friendliness.
+        ratio_conv = _safe_positive_float(default_long_ratio, allow_zero=True)
+        ratio = ratio_conv if ratio_conv is not None else 0.5
+        cap_conv = _safe_positive_float(default_capital, allow_zero=True)
+        default_cap_float = cap_conv if cap_conv is not None else 100000.0
 
-        if capital_long is None or float(capital_long) <= 0:
-            long_cap = None
-        else:
-            long_cap = float(capital_long)
-        if capital_short is None or float(capital_short) <= 0:
-            short_cap = None
-        else:
-            short_cap = float(capital_short)
+        long_cap_opt = _safe_positive_float(capital_long)
+        short_cap_opt = _safe_positive_float(capital_short)
 
-        if long_cap is None and short_cap is None:
-            total = default_capital
-            long_cap = total * ratio
-            short_cap = total * (1.0 - ratio)
-        elif long_cap is None and short_cap is not None:
-            total = short_cap
-            long_cap = total * ratio
-            short_cap = total * (1.0 - ratio)
-        elif short_cap is None and long_cap is not None:
-            total = long_cap
-            long_cap = total * ratio
-            short_cap = total * (1.0 - ratio)
+        # Derive missing sides if one or both unspecified / non-positive.
+        if long_cap_opt is None and short_cap_opt is None:
+            total: float = default_cap_float
+            long_cap_val: float = total * ratio
+            short_cap_val: float = total * (1.0 - ratio)
+        elif long_cap_opt is None and short_cap_opt is not None:
+            total = short_cap_opt  # short_cap_opt is float (not None) in this branch
+            long_cap_val = total * ratio
+            short_cap_val = total * (1.0 - ratio)
+        elif short_cap_opt is None and long_cap_opt is not None:
+            total = long_cap_opt  # long_cap_opt is float (not None) here
+            long_cap_val = total * ratio
+            short_cap_val = total * (1.0 - ratio)
         else:
-            long_cap = float(capital_long)  # type: ignore[assignment]
-            short_cap = float(capital_short)  # type: ignore[assignment]
+            # both provided (and positive) -> enforce non-None with assert for mypy
+            assert long_cap_opt is not None and short_cap_opt is not None
+            long_cap_val = long_cap_opt
+            short_cap_val = short_cap_opt
+
+        long_cap = long_cap_val
+        short_cap = short_cap_val
 
         strategies_norm: dict[str, object] = {
             str(name).strip().lower(): obj for name, obj in (strategies or {}).items()
@@ -659,7 +681,7 @@ def finalize_allocation(
         long_result = _allocate_by_capital(
             per_system_norm,
             strategies=strategies_norm,
-            total_budget=float(long_cap),
+            total_budget=long_cap,
             weights=long_alloc,
             side="long",
             active_positions=active_positions,
@@ -667,7 +689,7 @@ def finalize_allocation(
         short_result = _allocate_by_capital(
             per_system_norm,
             strategies=strategies_norm,
-            total_budget=float(short_cap),
+            total_budget=short_cap,
             weights=short_alloc,
             side="short",
             active_positions=active_positions,
@@ -694,8 +716,8 @@ def finalize_allocation(
             final_counts={},
             budgets=budgets_combined,
             budget_remaining=remaining_combined,
-            capital_long=float(long_cap),
-            capital_short=float(short_cap),
+            capital_long=long_cap,
+            capital_short=short_cap,
         )
 
     if not final_df.empty:
@@ -706,7 +728,7 @@ def finalize_allocation(
     if "system" in final_df.columns:
         try:
             counts_series = final_df["system"].astype(str).str.strip().str.lower().value_counts()
-            summary.final_counts = {k: int(v) for k, v in counts_series.items()}
+            summary.final_counts = {str(k): int(v) for k, v in counts_series.items()}
         except Exception:
             summary.final_counts = {}
     else:

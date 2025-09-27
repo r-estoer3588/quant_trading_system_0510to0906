@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -9,14 +10,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-try:
-    # optional import for validation
-    from .schemas import validate_config_dict  # type: ignore
+validate_config_dict: Callable[[Mapping[str, object]], Any] | None
+try:  # optional import for validation
+    from .schemas import validate_config_dict  # noqa: F401
 except Exception:  # pragma: no cover
-    validate_config_dict = None  # type: ignore
+    validate_config_dict = None
 
 try:
-    import yaml  # type: ignore
+    import yaml  # type: ignore[import-untyped]  # stubs 任意: types-PyYAML 導入で解除可
 except Exception:  # pragma: no cover
     yaml = None  # PyYAML が未導入でも動くように（後述のガードで対応）
 
@@ -44,7 +45,7 @@ class DataConfig:
     api_key_env: str = "EODHD_API_KEY"
     cache_dir: Path = Path("data_cache")
     cache_recent_dir: Path = Path("data_cache_recent")
-    max_workers: int = 8
+    max_workers: int = 20
     batch_size: int = 100
     request_timeout: int = 10
     download_retries: int = 3
@@ -68,6 +69,15 @@ class OutputConfig:
 
 
 @dataclass(frozen=True)
+class CsvConfig:
+    """CSV locale settings."""
+
+    decimal_point: str = "."
+    thousands_sep: str | None = None
+    field_sep: str = ","
+
+
+@dataclass(frozen=True)
 class CacheRollingConfig:
     base_lookback_days: int = 300
     buffer_days: int = 30
@@ -78,10 +88,20 @@ class CacheRollingConfig:
     max_symbols: int | None = None
     # 小数丸め桁数: None で無効、整数で有効
     round_decimals: int | None = 4
-    # CSV ロケール設定: 小数点文字, 千位区切り, フィールド区切り
-    csv_decimal_point: str = "."
-    csv_thousands_sep: str | None = None
-    csv_field_sep: str = ","
+    # 並列ワーカー数: None で無効（スクリプト側の既定を使用）
+    workers: int | None = 4
+    # 適応制御パラメータ
+    adaptive_window_count: int = 8
+    adaptive_increase_threshold: float = 1.02
+    adaptive_decrease_threshold: float = 0.98
+    adaptive_step: int = 1
+    adaptive_min_workers: int = 1
+    # None の場合はスクリプト側の上限（CPU×2 など）を使用
+    adaptive_max_workers: int | None = None
+    # 進捗ステータスを書き出す間隔（秒）
+    adaptive_report_seconds: int = 10
+    # CSV ロケール設定
+    csv: CsvConfig = field(default_factory=CsvConfig)
 
 
 @dataclass(frozen=True)
@@ -89,13 +109,13 @@ class CacheConfig:
     full_dir: Path = Path("data_cache/full_backup")
     rolling_dir: Path = Path("data_cache/rolling")
     file_format: str = "auto"
-    rolling: CacheRollingConfig = CacheRollingConfig()
+    rolling: CacheRollingConfig = field(default_factory=CacheRollingConfig)
     # キャッシュ書き出し時の丸め桁数: None で無効
     round_decimals: int | None = 4
     # CSV locale defaults (applies when writing CSV files)
-    csv_decimal_point: str = "."
-    csv_thousands_sep: str | None = None
-    csv_field_sep: str = ","
+    csv: CsvConfig = field(default_factory=CsvConfig)
+    # rolling cache無効化: TrueでrollingをbaseからのTail処理に変更
+    disable_rolling_cache: bool = False
 
 
 @dataclass(frozen=True)
@@ -190,8 +210,11 @@ class Settings:
 
 
 def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
     try:
-        return int(os.getenv(name, default))
+        return int(raw.strip())
     except Exception:
         return default
 
@@ -203,6 +226,25 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _coerce_int(val: Any, default: int) -> int:
+    """Best-effort int coercion with safe fallbacks for mypy clarity."""
+    if isinstance(val, bool):  # bool is int subclass, but keep semantic clarity
+        return int(val)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        try:
+            return int(val)
+        except Exception:
+            return default
+    if isinstance(val, str):
+        try:
+            return int(val.strip())
+        except Exception:
+            return default
+    return default
+
+
 def _positive_int_or_none(value: object | None) -> int | None:
     if value is None:
         return None
@@ -210,9 +252,19 @@ def _positive_int_or_none(value: object | None) -> int | None:
         value = value.strip()
         if not value:
             return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool):  # bool -> int 変換しない（正の整数条件外）
+        return None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float):
+        iv = int(value)
+        parsed = iv
+    elif isinstance(value, str):  # str は上で strip 済み
+        try:
+            parsed = int(value)
+        except Exception:
+            return None
+    else:
         return None
     return parsed if parsed > 0 else None
 
@@ -241,19 +293,24 @@ def _load_yaml_config(project_root: Path) -> dict[str, Any]:
             "PyYAML が見つかりません。requirements.txt に PyYAML を追加しインストールしてください。"
         )
     default_path = project_root / "config" / "config.yaml"
-    return _load_config_generic("APP_CONFIG", default_path, lambda f: yaml.safe_load(f))
+    return _load_config_generic(
+        "APP_CONFIG",
+        default_path,
+        lambda f: yaml.safe_load(f) if yaml is not None else {},
+    )
 
 
 def _load_yaml_config_validated(project_root: Path) -> dict[str, Any]:
     """YAMLを読み込み、可能ならPydanticで検証・正規化して返す。"""
-    data = _load_yaml_config(project_root)
+    data: dict[str, Any] = _load_yaml_config(project_root)
     if not data:
         return data
     if validate_config_dict is None:
         return data
     try:
-        model = validate_config_dict(data)  # type: ignore
-        return model.model_dump()  # type: ignore[attr-defined]
+        model = validate_config_dict(data)
+        dumped = model.model_dump()
+        return dict(dumped)
     except Exception:
         return data
 
@@ -266,7 +323,7 @@ def _load_json_config(project_root: Path) -> dict[str, Any]:
 
 def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
     """JSON > YAML の優先順位で読み込み、可能ならPydanticで検証して返す。"""
-    data = _load_json_config(project_root)
+    data: dict[str, Any] = _load_json_config(project_root)
     if not data:
         data = _load_yaml_config(project_root)
     if not data:
@@ -274,13 +331,153 @@ def _load_config_json_or_yaml_validated(project_root: Path) -> dict[str, Any]:
     if validate_config_dict is None:
         return data
     try:
-        model = validate_config_dict(data)  # type: ignore
-        return model.model_dump()  # type: ignore[attr-defined]
+        model = validate_config_dict(data)
+        dumped = model.model_dump()
+        return dict(dumped)
     except Exception:
         return data
 
 
-def _build_scheduler(cfg: dict[str, Any]) -> SchedulerConfig:
+# -----------------------------
+# 設定構築ヘルパー
+# -----------------------------
+
+
+def _build_risk_config(cfg: dict[str, Any]) -> RiskConfig:
+    raw_max_pos = os.getenv("MAX_POSITIONS", cfg.get("max_positions", 10))
+    max_pos_val = _coerce_int(raw_max_pos, 10)
+    return RiskConfig(
+        risk_pct=float(os.getenv("RISK_PCT", cfg.get("risk_pct", 0.02))),
+        max_positions=max_pos_val,
+        max_pct=float(os.getenv("MAX_PCT", cfg.get("max_pct", 0.10))),
+    )
+
+
+def _build_data_config(cfg: dict[str, Any], root: Path) -> DataConfig:
+    return DataConfig(
+        vendor=str(cfg.get("vendor", "EODHD")),
+        eodhd_base=str(
+            os.getenv("API_EODHD_BASE", cfg.get("eodhd_base", "https://eodhistoricaldata.com"))
+        ),
+        api_key_env=str(cfg.get("api_key_env", "EODHD_API_KEY")),
+        cache_dir=_as_path(root, os.getenv("DATA_CACHE_DIR", cfg.get("cache_dir", "data_cache"))),
+        cache_recent_dir=_as_path(
+            root,
+            os.getenv("DATA_CACHE_RECENT_DIR", cfg.get("cache_recent_dir", "data_cache_recent")),
+        ),
+        max_workers=_env_int("THREADS_DEFAULT", _coerce_int(cfg.get("max_workers", 8), 8)),
+        batch_size=_env_int("BATCH_SIZE", _coerce_int(cfg.get("batch_size", 100), 100)),
+        request_timeout=_env_int(
+            "REQUEST_TIMEOUT", _coerce_int(cfg.get("request_timeout", 10), 10)
+        ),
+        download_retries=_env_int(
+            "DOWNLOAD_RETRIES", _coerce_int(cfg.get("download_retries", 3), 3)
+        ),
+        api_throttle_seconds=_env_float(
+            "API_THROTTLE_SECONDS", float(cfg.get("api_throttle_seconds", 1.5))
+        ),
+    )
+
+
+def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
+    rolling_cfg = cfg.get("rolling", {}) or {}
+
+    # Determine final values before instantiation
+    max_symbols_final = _positive_int_or_none(rolling_cfg.get("max_symbols"))
+    env_override_raw = os.getenv("ROLLING_MAX_SYMBOLS")
+    if env_override_raw is not None:
+        override_val = _positive_int_or_none(env_override_raw)
+        if not (override_val is None and env_override_raw.strip() not in {"", "0"}):
+            max_symbols_final = override_val
+
+    stale_days = _coerce_int(rolling_cfg.get("max_stale_days", 2), 2)
+    staleness_days = _coerce_int(rolling_cfg.get("max_staleness_days", stale_days), stale_days)
+
+    cache_round = _positive_int_or_none(
+        os.getenv("CACHE_ROUND_DECIMALS", cfg.get("round_decimals"))
+    )
+    rolling_round = _positive_int_or_none(
+        os.getenv("ROLLING_CACHE_ROUND_DECIMALS", rolling_cfg.get("round_decimals"))
+    )
+
+    return CacheConfig(
+        full_dir=_as_path(root, cfg.get("full_dir", "data_cache/full_backup")),
+        rolling_dir=_as_path(root, cfg.get("rolling_dir", "data_cache/rolling")),
+        file_format=str(cfg.get("file_format", "auto")),
+        round_decimals=cache_round,
+        csv=CsvConfig(
+            decimal_point=str(cfg.get("csv_decimal_point", ".")),
+            thousands_sep=(
+                str(cfg.get("csv_thousands_sep"))
+                if cfg.get("csv_thousands_sep") is not None
+                else None
+            ),
+            field_sep=str(cfg.get("csv_field_sep", ",")),
+        ),
+        rolling=CacheRollingConfig(
+            base_lookback_days=_coerce_int(rolling_cfg.get("base_lookback_days", 300), 300),
+            buffer_days=_coerce_int(rolling_cfg.get("buffer_days", 30), 30),
+            workers=_positive_int_or_none(rolling_cfg.get("workers")),
+            max_staleness_days=staleness_days,
+            prune_chunk_days=_coerce_int(rolling_cfg.get("prune_chunk_days", 30), 30),
+            meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
+            max_stale_days=stale_days,
+            max_symbols=max_symbols_final,
+            round_decimals=rolling_round,
+            adaptive_window_count=_coerce_int(rolling_cfg.get("adaptive_window_count", 8), 8),
+            adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
+            adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
+            adaptive_step=_coerce_int(rolling_cfg.get("adaptive_step", 1), 1),
+            adaptive_min_workers=_coerce_int(rolling_cfg.get("adaptive_min_workers", 1), 1),
+            adaptive_max_workers=_positive_int_or_none(rolling_cfg.get("adaptive_max_workers")),
+            adaptive_report_seconds=_coerce_int(rolling_cfg.get("adaptive_report_seconds", 10), 10),
+            csv=CsvConfig(
+                decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
+                thousands_sep=(
+                    str(rolling_cfg.get("csv_thousands_sep"))
+                    if rolling_cfg.get("csv_thousands_sep") is not None
+                    else None
+                ),
+                field_sep=str(rolling_cfg.get("csv_field_sep", ",")),
+            ),
+        ),
+    )
+
+
+def _build_backtest_config(cfg: dict[str, Any]) -> BacktestConfig:
+    max_symbols_val = _coerce_int(cfg.get("max_symbols", 500), 500)
+    top_n_val = _coerce_int(cfg.get("top_n_rank", 50), 50)
+    init_cap_val = _coerce_int(
+        os.getenv("DEFAULT_CAPITAL", cfg.get("initial_capital", 100000)), 100000
+    )
+    return BacktestConfig(
+        start_date=str(cfg.get("start_date", "2018-01-01")),
+        end_date=str(cfg.get("end_date", "2024-12-31")),
+        max_symbols=max_symbols_val,
+        top_n_rank=top_n_val,
+        initial_capital=init_cap_val,
+    )
+
+
+def _build_outputs_config(cfg: dict[str, Any], root: Path) -> OutputConfig:
+    return OutputConfig(
+        results_csv_dir=_as_path(
+            root, os.getenv("RESULTS_DIR", cfg.get("results_csv_dir", "results_csv"))
+        ),
+        logs_dir=_as_path(root, os.getenv("LOGS_DIR", cfg.get("logs_dir", "logs"))),
+        signals_dir=_as_path(root, cfg.get("signals_dir", "data_cache/signals")),
+    )
+
+
+def _build_logging_config(cfg: dict[str, Any]) -> LoggingConfig:
+    return LoggingConfig(
+        level=str(os.getenv("LOG_LEVEL", cfg.get("level", "INFO"))).upper(),
+        rotation=str(cfg.get("rotation", "daily")),
+        filename=str(os.getenv("LOG_FILENAME", cfg.get("filename", "app.log"))),
+    )
+
+
+def _build_scheduler_config(cfg: dict[str, Any]) -> SchedulerConfig:
     tz = cfg.get("timezone", "America/New_York")
     jobs_raw = cfg.get("jobs", []) or []
     jobs: list[SchedulerJob] = []
@@ -292,223 +489,32 @@ def _build_scheduler(cfg: dict[str, Any]) -> SchedulerConfig:
     return SchedulerConfig(timezone=tz, jobs=tuple(jobs))
 
 
-# -----------------------------
-# 公開 API
-# -----------------------------
-
-
-def get_settings(create_dirs: bool = False) -> Settings:
-    """設定を生成して返す。必要に応じて出力系ディレクトリを作成。"""
-    root = PROJECT_ROOT
-
-    # YAML 読み込み
+def _build_ui_config(cfg: dict[str, Any]) -> UIConfig:
     try:
-        cfg = _load_config_json_or_yaml_validated(root)  # type: ignore[name-defined]
-    except Exception:
-        cfg = _load_yaml_config_validated(root)
-
-    # YAML: セクション取得（なければ空）
-    risk_cfg = cfg.get("risk", {}) or {}
-    data_cfg = cfg.get("data", {}) or {}
-    cache_cfg = cfg.get("cache")
-    if not cache_cfg and isinstance(data_cfg, dict):
-        cache_cfg = data_cfg.get("cache")
-    cache_cfg = cache_cfg or {}
-    rolling_cfg = cache_cfg.get("rolling", {}) or {}
-    backtest_cfg = cfg.get("backtest", {}) or {}
-    outputs_cfg = cfg.get("outputs", {}) or {}
-    logging_cfg = cfg.get("logging", {}) or {}
-    scheduler_cfg = cfg.get("scheduler", {}) or {}
-    ui_cfg = cfg.get("ui", {}) or {}
-    strategies_cfg = cfg.get("strategies", {}) or {}
-
-    # YAML -> dataclass 変換 + .env 上書き
-    risk = RiskConfig(
-        risk_pct=float(os.getenv("RISK_PCT", risk_cfg.get("risk_pct", 0.02))),
-        max_positions=int(os.getenv("MAX_POSITIONS", risk_cfg.get("max_positions", 10))),
-        max_pct=float(os.getenv("MAX_PCT", risk_cfg.get("max_pct", 0.10))),
-    )
-
-    data = DataConfig(
-        vendor=str(data_cfg.get("vendor", "EODHD")),
-        eodhd_base=str(
-            os.getenv(
-                "API_EODHD_BASE",
-                data_cfg.get("eodhd_base", "https://eodhistoricaldata.com"),
-            )
-        ),
-        api_key_env=str(data_cfg.get("api_key_env", "EODHD_API_KEY")),
-        cache_dir=_as_path(
-            root, os.getenv("DATA_CACHE_DIR", data_cfg.get("cache_dir", "data_cache"))
-        ),
-        cache_recent_dir=_as_path(
-            root,
-            os.getenv(
-                "DATA_CACHE_RECENT_DIR",
-                data_cfg.get("cache_recent_dir", "data_cache_recent"),
-            ),
-        ),
-        max_workers=_env_int("THREADS_DEFAULT", int(data_cfg.get("max_workers", 8))),
-        batch_size=_env_int("BATCH_SIZE", int(data_cfg.get("batch_size", 100))),
-        request_timeout=_env_int(
-            "REQUEST_TIMEOUT",
-            int(data_cfg.get("request_timeout", 10)),
-        ),
-        download_retries=_env_int(
-            "DOWNLOAD_RETRIES",
-            int(data_cfg.get("download_retries", 3)),
-        ),
-        api_throttle_seconds=_env_float(
-            "API_THROTTLE_SECONDS",
-            float(data_cfg.get("api_throttle_seconds", 1.5)),
-        ),
-    )
-
-    max_symbols_cfg = _positive_int_or_none(rolling_cfg.get("max_symbols"))
-    env_override_raw = os.getenv("ROLLING_MAX_SYMBOLS")
-    if env_override_raw is not None:
-        override_val = _positive_int_or_none(env_override_raw)
-        if override_val is None and env_override_raw.strip() not in {"", "0"}:
-            pass
-        else:
-            max_symbols_cfg = override_val
-
-    stale_days_cfg = int(rolling_cfg.get("max_stale_days", 2))
-    staleness_days_cfg = int(rolling_cfg.get("max_staleness_days", stale_days_cfg))
-
-    cache = CacheConfig(
-        full_dir=_as_path(root, cache_cfg.get("full_dir", "data_cache/full_backup")),
-        rolling_dir=_as_path(root, cache_cfg.get("rolling_dir", "data_cache/rolling")),
-        file_format=str(cache_cfg.get("file_format", "auto")),
-        rolling=CacheRollingConfig(
-            base_lookback_days=int(rolling_cfg.get("base_lookback_days", 300)),
-            buffer_days=int(rolling_cfg.get("buffer_days", 30)),
-            max_staleness_days=staleness_days_cfg,
-            prune_chunk_days=int(rolling_cfg.get("prune_chunk_days", 30)),
-            meta_file=str(rolling_cfg.get("meta_file", "_meta.json")),
-            max_stale_days=stale_days_cfg,
-            max_symbols=max_symbols_cfg,
-            round_decimals=_positive_int_or_none(rolling_cfg.get("round_decimals")),
-            csv_decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
-            csv_thousands_sep=(
-                None
-                if rolling_cfg.get("csv_thousands_sep") is None
-                else str(rolling_cfg.get("csv_thousands_sep"))
-            ),
-            csv_field_sep=str(rolling_cfg.get("csv_field_sep", ",")),
-        ),
-        round_decimals=_positive_int_or_none(cache_cfg.get("round_decimals")),
-        csv_decimal_point=str(cache_cfg.get("csv_decimal_point", ".")),
-        csv_thousands_sep=(
-            None
-            if cache_cfg.get("csv_thousands_sep") is None
-            else str(cache_cfg.get("csv_thousands_sep"))
-        ),
-        csv_field_sep=str(cache_cfg.get("csv_field_sep", ",")),
-    )
-
-    # 環境変数による丸め桁数の上書き (優先度: env > YAML)
-    env_cache_round = os.getenv("CACHE_ROUND_DECIMALS")
-    if env_cache_round is not None:
-        cache = CacheConfig(
-            full_dir=cache.full_dir,
-            rolling_dir=cache.rolling_dir,
-            file_format=cache.file_format,
-            rolling=CacheRollingConfig(
-                base_lookback_days=cache.rolling.base_lookback_days,
-                buffer_days=cache.rolling.buffer_days,
-                max_staleness_days=cache.rolling.max_staleness_days,
-                prune_chunk_days=cache.rolling.prune_chunk_days,
-                meta_file=cache.rolling.meta_file,
-                max_stale_days=cache.rolling.max_stale_days,
-                max_symbols=cache.rolling.max_symbols,
-                round_decimals=_positive_int_or_none(env_cache_round),
-            ),
-            round_decimals=_positive_int_or_none(env_cache_round),
-        )
-    env_roll_round = os.getenv("ROLLING_CACHE_ROUND_DECIMALS")
-    if env_roll_round is not None:
-        cache = CacheConfig(
-            full_dir=cache.full_dir,
-            rolling_dir=cache.rolling_dir,
-            file_format=cache.file_format,
-            rolling=CacheRollingConfig(
-                base_lookback_days=cache.rolling.base_lookback_days,
-                buffer_days=cache.rolling.buffer_days,
-                max_staleness_days=cache.rolling.max_staleness_days,
-                prune_chunk_days=cache.rolling.prune_chunk_days,
-                meta_file=cache.rolling.meta_file,
-                max_stale_days=cache.rolling.max_stale_days,
-                max_symbols=cache.rolling.max_symbols,
-                round_decimals=_positive_int_or_none(env_roll_round),
-            ),
-            round_decimals=cache.round_decimals,
-        )
-
-    backtest = BacktestConfig(
-        start_date=str(backtest_cfg.get("start_date", "2018-01-01")),
-        end_date=str(backtest_cfg.get("end_date", "2024-12-31")),
-        max_symbols=int(backtest_cfg.get("max_symbols", 500)),
-        top_n_rank=int(backtest_cfg.get("top_n_rank", 50)),
-        initial_capital=int(
-            os.getenv("DEFAULT_CAPITAL", backtest_cfg.get("initial_capital", 100000))
-        ),
-    )
-
-    outputs = OutputConfig(
-        results_csv_dir=_as_path(
-            root,
-            os.getenv("RESULTS_DIR", outputs_cfg.get("results_csv_dir", "results_csv")),
-        ),
-        logs_dir=_as_path(
-            root,
-            os.getenv("LOGS_DIR", outputs_cfg.get("logs_dir", "logs")),
-        ),
-        signals_dir=_as_path(
-            root,
-            outputs_cfg.get("signals_dir", "data_cache/signals"),
-        ),
-    )
-
-    logging = LoggingConfig(
-        level=str(os.getenv("LOG_LEVEL", logging_cfg.get("level", "INFO"))).upper(),
-        rotation=str(logging_cfg.get("rotation", "daily")),
-        filename=str(os.getenv("LOG_FILENAME", logging_cfg.get("filename", "app.log"))),
-    )
-
-    scheduler = _build_scheduler(scheduler_cfg)
-
-    # 長短比率の読み込み（0〜1にクランプ）
-    try:
-        _dlr_raw = os.getenv(
-            "DEFAULT_LONG_RATIO",
-            str(ui_cfg.get("default_long_ratio", 0.5)),
-        )
+        _dlr_raw = os.getenv("DEFAULT_LONG_RATIO", str(cfg.get("default_long_ratio", 0.5)))
         _dlr = float(_dlr_raw)
     except Exception:
         _dlr = 0.5
-    _dlr = 0.0 if _dlr < 0.0 else 1.0 if _dlr > 1.0 else _dlr
+    _dlr = max(0.0, min(1.0, _dlr))
 
-    # システム別配分の読み込み（辞書が不正ならデフォルト）
     def _as_alloc_map(obj: Any, default_map: dict[str, float]) -> dict[str, float]:
-        try:
-            if not isinstance(obj, dict):
-                return default_map
-            out: dict[str, float] = {}
-            for k, v in obj.items():
-                try:
-                    out[str(k)] = float(v)
-                except Exception:
-                    continue
-            return out or default_map
-        except Exception:
+        if not isinstance(obj, dict):
             return default_map
+        out: dict[str, float] = {}
+        for k, v in obj.items():
+            try:
+                out[str(k)] = float(v)
+            except Exception:
+                continue
+        return out or default_map
 
-    ui = UIConfig(
-        default_capital=int(os.getenv("DEFAULT_CAPITAL", ui_cfg.get("default_capital", 100000))),
+    return UIConfig(
+        default_capital=_coerce_int(
+            os.getenv("DEFAULT_CAPITAL", cfg.get("default_capital", 100000)), 100000
+        ),
         default_long_ratio=_dlr,
         long_allocations=_as_alloc_map(
-            ui_cfg.get("long_allocations", {}),
+            cfg.get("long_allocations"),
             {
                 "system1": 0.25,
                 "system3": 0.25,
@@ -517,42 +523,61 @@ def get_settings(create_dirs: bool = False) -> Settings:
             },
         ),
         short_allocations=_as_alloc_map(
-            ui_cfg.get("short_allocations", {}),
+            cfg.get("short_allocations"),
             {
                 "system2": 0.40,
                 "system6": 0.40,
                 "system7": 0.20,
             },
         ),
-        auto_tickers=tuple(ui_cfg.get("auto_tickers", ()) or ()),
-        debug_mode=bool(
-            os.getenv("DEBUG_MODE", str(ui_cfg.get("debug_mode", False))).lower()
-            in ("1", "true", "yes")
-        ),
-        show_download_buttons=bool(
-            os.getenv(
-                "SHOW_DOWNLOAD_BUTTONS",
-                str(ui_cfg.get("show_download_buttons", True)),
-            ).lower()
-            in ("1", "true", "yes")
-        ),
+        auto_tickers=tuple(cfg.get("auto_tickers", [])),
+        debug_mode=str(os.getenv("DEBUG_MODE", str(cfg.get("debug_mode", False)))).lower()
+        in ("1", "true", "yes"),
+        show_download_buttons=str(
+            os.getenv("SHOW_DOWNLOAD_BUTTONS", str(cfg.get("show_download_buttons", True)))
+        ).lower()
+        in ("1", "true", "yes"),
     )
 
-    # 既存互換フィールド（Settings 直下）
-    data_cache = data.cache_dir
-    data_cache_recent = data.cache_recent_dir
-    results_dir = outputs.results_csv_dir
-    logs_dir = outputs.logs_dir
+
+# -----------------------------
+# 公開 API
+# -----------------------------
+
+
+@lru_cache(maxsize=1)
+def get_settings(create_dirs: bool = False) -> Settings:
+    """設定を生成して返す。必要に応じて出力系ディレクトリを作成。"""
+    root = PROJECT_ROOT
+
+    try:
+        cfg = _load_config_json_or_yaml_validated(root)
+    except Exception:
+        cfg = _load_yaml_config_validated(root)
+
+    # 各セクションの設定を構築
+    risk = _build_risk_config(cfg.get("risk", {}))
+    data = _build_data_config(cfg.get("data", {}), root)
+    cache_cfg_raw = cfg.get("cache") or (
+        cfg.get("data", {}).get("cache") if isinstance(cfg.get("data"), dict) else {}
+    )
+    cache = _build_cache_config(cache_cfg_raw or {}, root)
+    backtest = _build_backtest_config(cfg.get("backtest", {}))
+    outputs = _build_outputs_config(cfg.get("outputs", {}), root)
+    logging = _build_logging_config(cfg.get("logging", {}))
+    scheduler = _build_scheduler_config(cfg.get("scheduler", {}))
+    ui = _build_ui_config(cfg.get("ui", {}))
+    strategies = cfg.get("strategies", {})
 
     # EODHD API キー（env 優先）
     api_key = os.getenv(data.api_key_env)
 
     settings = Settings(
         PROJECT_ROOT=root,
-        DATA_CACHE_DIR=data_cache,
-        DATA_CACHE_RECENT_DIR=data_cache_recent,
-        RESULTS_DIR=results_dir,
-        LOGS_DIR=logs_dir,
+        DATA_CACHE_DIR=data.cache_dir,
+        DATA_CACHE_RECENT_DIR=data.cache_recent_dir,
+        RESULTS_DIR=outputs.results_csv_dir,
+        LOGS_DIR=outputs.logs_dir,
         API_EODHD_BASE=data.eodhd_base,
         EODHD_API_KEY=api_key,
         REQUEST_TIMEOUT=data.request_timeout,
@@ -568,7 +593,7 @@ def get_settings(create_dirs: bool = False) -> Settings:
         logging=logging,
         scheduler=scheduler,
         ui=ui,
-        strategies=strategies_cfg,
+        strategies=strategies,
     )
 
     if create_dirs:

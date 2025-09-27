@@ -173,6 +173,10 @@ class StageMetricsStore:
             if entry_int is not None:
                 snapshot.entry_count = entry_int
 
+            # 常に最新のスナップショットを内部に保持し、
+            # emit_event が True の場合はイベントキューへ追加する。
+            # 重複抑制は呼び出し側（runner）で行うことで、
+            # このストアは単純に状態を保持する責務に留める。
             event = StageEvent(
                 system_key,
                 snapshot.progress,

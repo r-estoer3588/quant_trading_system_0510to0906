@@ -7,7 +7,6 @@ run_backtest は strategy 側にカスタム実装が残る。
 import os
 
 import pandas as pd
-from ta.volatility import AverageTrueRange
 
 from common.utils_spy import resolve_signal_entry_date
 
@@ -37,6 +36,13 @@ def prepare_data_vectorized_system7(
             df = df_raw.copy()
             df.index = pd.Index(pd.to_datetime(df.index).normalize())
 
+        # Early exit: check required precomputed indicators exist (lowercase)
+        if "atr50" not in df.columns:
+            raise RuntimeError(
+                "IMMEDIATE_STOP: System7 missing indicator atr50 for SPY. "
+                "Daily signal execution must be stopped."
+            )
+
         cache_path = os.path.join(cache_dir, "SPY.feather")
         use_cache = bool(reuse_indicators and len(df) >= 300)
         cached: pd.DataFrame | None = None
@@ -49,12 +55,23 @@ def prepare_data_vectorized_system7(
                 cached = None
 
         def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
+            """プリコンピューテッド指標版：ATR50計算除去、早期終了追加"""
             x = src.copy()
-            x["ATR50"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=50
-            ).average_true_range()
+
+            # Check if precomputed ATR50 exists
+            if "atr50" not in x.columns:
+                raise RuntimeError(
+                    "IMMEDIATE_STOP: System7 missing indicator atr50. "
+                    "Daily signal execution must be stopped."
+                )
+
+            # Use precomputed ATR50 (lowercase) and create uppercase version for consistency
+            x["ATR50"] = x["atr50"]
+
+            # Calculate non-precomputable indicators
             x["min_50"] = x["Low"].rolling(50).min().round(4)
             x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
+
             # max_70 は既存値を尊重（全行埋まっていれば再計算しない）
             if "max_70" not in x.columns:
                 x["max_70"] = x["Close"].rolling(70).max()
@@ -125,17 +142,30 @@ def prepare_data_vectorized_system7(
 def generate_candidates_system7(
     prepared_dict: dict[str, pd.DataFrame],
     *,
+    top_n: int | None = None,
     progress_callback=None,
     log_callback=None,
+    batch_size: int | None = None,
+    **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     if "SPY" not in prepared_dict:
         return {}, None
     df = prepared_dict["SPY"]
+    limit_n: int | None
+    if top_n is None:
+        limit_n = None
+    else:
+        try:
+            limit_n = max(0, int(top_n))
+        except (TypeError, ValueError):
+            limit_n = None
     setup_days = df[df["setup"] == 1]
     for date, row in setup_days.iterrows():
         entry_date = resolve_signal_entry_date(date)
         if pd.isna(entry_date):
+            continue
+        if limit_n == 0:
             continue
         # last_price（直近終値）を取得
         last_price = None
@@ -147,7 +177,10 @@ def generate_candidates_system7(
             "ATR50": row["ATR50"],
             "entry_price": last_price,
         }
-        candidates_by_date.setdefault(entry_date, []).append(rec)
+        bucket = candidates_by_date.setdefault(entry_date, [])
+        if limit_n is not None and len(bucket) >= limit_n:
+            continue
+        bucket.append(rec)
     if log_callback:
         try:
             # 直近のセットアップ（50日安値ブレイク）に基づく、

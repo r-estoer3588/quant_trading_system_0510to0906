@@ -5,6 +5,143 @@
       "label": "Codex Edit Current File",
       "type": "shell",
       "command": "codex edit ${file}"
+    },
+    {
+      "label": "Quick Test Run",
+      "type": "shell",
+      "command": "pytest",
+      "args": ["-q", "--tb=short"],
+      "group": "test",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": "$python"
+    },
+    {
+      "label": "Run All Systems Today",
+      "type": "shell",
+      "command": "python",
+      "args": ["scripts/run_all_systems_today.py", "--parallel", "--save-csv"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Cache Daily Data",
+      "type": "shell",
+      "command": "python",
+      "args": ["scripts/cache_daily_data.py"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Start Streamlit UI",
+      "type": "shell",
+      "command": "streamlit",
+      "args": ["run", "apps/main.py"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "isBackground": true
+    },
+    {
+      "label": "Lint & Format",
+      "type": "shell",
+      "command": "ruff",
+      "args": ["check", "--fix", "."],
+      "group": "build",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Black Format"],
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Black Format",
+      "type": "shell",
+      "command": "black",
+      "args": ["."],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Full Quality Check",
+      "type": "shell",
+      "command": "pre-commit",
+      "args": ["run", "--all-files"],
+      "group": "test",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Update Cache All (Serial)",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "./scripts/update_cache_all.ps1"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": "$python"
+    },
+    {
+      "label": "Update Cache All (Parallel)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "./scripts/update_cache_all.ps1",
+        "-Parallel",
+        "-Workers",
+        "4"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": "$python"
+    },
+    {
+      "label": "Build Rolling Only",
+      "type": "shell",
+      "command": "python",
+      "args": ["scripts/build_rolling_with_indicators.py", "--workers", "4"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

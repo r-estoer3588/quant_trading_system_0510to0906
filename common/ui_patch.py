@@ -17,10 +17,10 @@ try:
     import common.ui_components as _ui
     from config.settings import get_settings
 except Exception:  # pragma: no cover
-    _core_log_with_progress = None  # type: ignore
-    _summarize_perf = None  # type: ignore
-    _ui = None  # type: ignore
-    pd = None  # type: ignore
+    _core_log_with_progress = None
+    _summarize_perf = None
+    _ui = None
+    pd = None
 
 
 def _patched_log_with_progress(
@@ -91,8 +91,8 @@ def _patched_summarize_results(results_df, capital):
 
 if _ui is not None:
     # 関数を置き換え
-    _ui.log_with_progress = _patched_log_with_progress  # type: ignore[attr-defined]
-    _ui.summarize_results = _patched_summarize_results  # type: ignore[attr-defined]
+    _ui.log_with_progress = _patched_log_with_progress
+    _ui.summarize_results = _patched_summarize_results
 
 # ダウンロードボタンの一括無効化（自動保存がある場合に隠す）
 try:
@@ -102,7 +102,7 @@ try:
 
         # 元の download_button を退避
         if not hasattr(st, "_orig_download_button") and hasattr(st, "download_button"):
-            st._orig_download_button = st.download_button  # type: ignore[attr-defined]
+            st._orig_download_button = st.download_button
 
         def _patched_download_button(*args, **kwargs):  # noqa: D401
             """一部 CSV ダウンロードを非表示にし、その他は設定に従う。"""
@@ -120,27 +120,27 @@ try:
             if not getattr(_ui_cfg, "show_download_buttons", True):
                 return False
             try:
-                return st._orig_download_button(*args, **kwargs)  # type: ignore[attr-defined]
+                return st._orig_download_button(*args, **kwargs)
             except Exception:
                 return False
 
-        st.download_button = _patched_download_button  # type: ignore[attr-defined]
+    st.download_button = _patched_download_button
 except Exception:
     # 失敗時は従来動作のまま
     pass
 
 # show_results を上部統一レイアウトに差し替え
 try:  # noqa: WPS501
-    import pandas as _pd  # type: ignore
-    import streamlit as _st  # type: ignore
+    import pandas as _pd
+    import streamlit as _st
 
-    from common.i18n import tr as _tr  # type: ignore
-    import common.ui_components as _ui_mod  # type: ignore
+    from common.i18n import tr as _tr
+    import common.ui_components as _ui_mod
 
     try:
-        import matplotlib.pyplot as _plt  # type: ignore
+        import matplotlib.pyplot as _plt
     except Exception:  # pragma: no cover
-        _plt = None  # type: ignore
+        _plt = None
 
     def _show_results_patched(
         results_df, capital, system_name: str = "SystemX", *, key_context: str = "main"
@@ -195,7 +195,7 @@ try:  # noqa: WPS501
         # 年次サマリー（%表記）
         try:
             equity = float(capital) + df2["cumulative_pnl"].astype(float)
-            equity.index = _pd.to_datetime(df2["exit_date"])  # type: ignore[arg-type]
+            equity.index = _pd.to_datetime(df2["exit_date"])
             daily = equity.resample("D").last().ffill()
             ys = daily.resample("YE").first()
             ye = daily.resample("YE").last()
@@ -232,7 +232,7 @@ try:  # noqa: WPS501
         except Exception:
             pass
 
-    _ui_mod.show_results = _show_results_patched  # type: ignore[attr-defined]
+    _ui_mod.show_results = _show_results_patched
 except Exception:
     # 差し替え不能時は従来表示
     pass

@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 from common.utils import get_cached_data, safe_filename
 from config.settings import get_settings
 
@@ -166,7 +166,7 @@ def _load_symbol_cached(
     戻り値は (symbol, DataFrame|None)
     """
     try:
-        df = load_base_cache(symbol, rebuild_if_missing=True)
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
         if df is not None and not df.empty:
             return symbol, df
     except Exception:
@@ -1091,3 +1091,254 @@ def save_prepared_data_cache(data_dict: dict[str, pd.DataFrame], system_name: st
         progress_bar.empty()
     except Exception:
         pass
+
+
+def display_cache_health_dashboard() -> None:
+    """
+    rolling cacheの健全性を表示するダッシュボードコンポーネント。
+    """
+    st.subheader("🩺 Cache Health Dashboard")
+
+    from common.cache_manager import CacheManager
+    from config.settings import get_settings
+
+    try:
+        settings = get_settings(create_dirs=True)
+        cache_manager = CacheManager(settings)
+
+        # 健全性サマリー取得
+        health_summary = cache_manager.get_rolling_health_summary()
+
+        # メタファイル状況
+        st.write("### 📋 メタファイル状況")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            meta_status = "✅ 存在" if health_summary["meta_exists"] else "❌ 不在"
+            st.metric("メタファイル", meta_status)
+
+        with col2:
+            st.metric("Rolling Files", f"{health_summary['rolling_files_count']}個")
+
+        # SPY アンカー状況
+        st.write("### ⚓ SPY アンカー状況")
+        anchor_status = health_summary["anchor_symbol_status"]
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            anchor_exists = "✅ 存在" if anchor_status["exists"] else "❌ 不在"
+            st.metric("SPY存在", anchor_exists)
+
+        with col2:
+            st.metric("データ行数", f"{anchor_status['rows']:,}")
+
+        with col3:
+            target_status = "✅ 十分" if anchor_status["meets_target"] else "⚠️ 不足"
+            st.metric("目標達成", target_status)
+
+        # 目標データ長
+        st.write("### 🎯 目標設定")
+        st.metric("目標データ長", f"{health_summary['target_length']}日")
+
+        # メタファイル内容詳細
+        if health_summary["meta_exists"] and health_summary["meta_content"]:
+            st.write("### 📄 メタファイル詳細")
+            st.json(health_summary["meta_content"])
+
+        # アクションボタン
+        st.write("### ⚡ アクション")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🔄 Rolling Cache 分析実行"):
+                with st.spinner("分析中..."):
+                    analysis_result = cache_manager.analyze_rolling_gaps()
+                    _display_cache_analysis_results(analysis_result)
+
+        with col2:
+            if st.button("🧹 Rolling Cache Prune実行"):
+                with st.spinner("Prune実行中..."):
+                    prune_result = cache_manager.prune_rolling_if_needed()
+                    st.success(f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理")
+
+    except Exception as e:
+        st.error(f"Cache health dashboard エラー: {str(e)}")
+        logging.error(f"Cache health dashboard error: {e}")
+
+
+def _display_cache_analysis_results(analysis_result: dict) -> None:
+    """Cache分析結果を表示する内部ヘルパー関数。"""
+    st.write("### 📊 Rolling Cache 分析結果")
+
+    # サマリーメトリクス
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("総シンボル数", analysis_result["total_symbols"])
+
+    with col2:
+        st.metric("整備済み", analysis_result["available_in_rolling"])
+
+    with col3:
+        st.metric("未整備", analysis_result["missing_from_rolling"])
+
+    with col4:
+        coverage = analysis_result["coverage_percentage"]
+        st.metric("カバレッジ", f"{coverage:.1f}%")
+
+    # カバレッジ状況の視覚化
+    if coverage >= 90:
+        st.success("🎉 Rolling cache整備状況は良好です")
+    elif coverage >= 70:
+        st.warning("⚠️ Rolling cache整備率の改善を推奨します")
+    else:
+        st.error("🚨 Rolling cache整備が不十分です")
+
+    # 未整備シンボルの表示
+    missing_symbols = analysis_result.get("missing_symbols", [])
+    if missing_symbols:
+        st.write("### ❌ 未整備シンボル")
+
+        if len(missing_symbols) <= 20:
+            # 20個以下なら全て表示
+            st.write(", ".join(missing_symbols))
+        else:
+            # 多い場合は展開可能にする
+            with st.expander(f"未整備シンボル一覧 ({len(missing_symbols)}個)"):
+                # 10個ずつ区切って表示
+                for i in range(0, len(missing_symbols), 10):
+                    chunk = missing_symbols[i : i + 10]
+                    st.write(", ".join(chunk))
+
+
+def display_system_cache_coverage() -> None:
+    """
+    システム別のcache coverage状況を表示するコンポーネント。
+    """
+    st.subheader("🎯 System別 Cache Coverage")
+
+    from common.cache_manager import CacheManager
+    from common.system_groups import analyze_system_symbols_coverage
+    from config.settings import get_settings
+    from scripts.tickers_loader import get_all_tickers
+
+    try:
+        settings = get_settings(create_dirs=True)
+        cache_manager = CacheManager(settings)
+
+        # 全ティッカーから各システム用のシンボルマップを構築
+        # 実装では各システムに固有のフィルタリングロジックが必要だが、
+        # ここでは簡略化して全シンボルを使用
+        all_tickers = get_all_tickers()
+        system_symbols_map = {}
+        for system_num in range(1, 8):
+            # 実際の実装では、各システム固有のフィルタリング条件を適用
+            system_symbols_map[f"system{system_num}"] = all_tickers[:500]  # 簡略化
+
+        # 全体のcache分析
+        overall_analysis = cache_manager.analyze_rolling_gaps()
+
+        # システム別カバレッジ分析
+        coverage_analysis = analyze_system_symbols_coverage(system_symbols_map, overall_analysis)
+
+        # グループ別サマリー表示
+        st.write("### 📈 グループ別サマリー")
+        group_data = coverage_analysis["by_group"]
+
+        for group_name in ["long", "short"]:
+            if group_name in group_data:
+                group_stats = group_data[group_name]
+                col1, col2, col3, col4 = st.columns(4)
+
+                group_display = "Long Systems" if group_name == "long" else "Short Systems"
+                st.write(f"**{group_display}**")
+
+                with col1:
+                    st.metric("総シンボル", group_stats["total_symbols"])
+
+                with col2:
+                    st.metric("整備済み", group_stats["available"])
+
+                with col3:
+                    st.metric("未整備", group_stats["missing"])
+
+                with col4:
+                    coverage = group_stats["coverage_percentage"]
+                    status = group_stats["status"]
+                    st.metric("状況", f"{status} {coverage:.1f}%")
+
+        # システム別詳細
+        st.write("### 🔍 システム別詳細")
+        system_data = coverage_analysis["by_system"]
+
+        # データフレーム形式で表示
+        df_data = []
+        for system_name in [f"system{i}" for i in range(1, 8)]:
+            if system_name in system_data:
+                stats = system_data[system_name]
+                df_data.append(
+                    {
+                        "システム": system_name.upper(),
+                        "総シンボル": stats["total_symbols"],
+                        "整備済み": stats["available"],
+                        "未整備": stats["missing"],
+                        "カバレッジ": f"{stats['coverage_percentage']:.1f}%",
+                        "状況": stats["status"],
+                    }
+                )
+
+        if df_data:
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True)
+
+        # 詳細分析用の展開セクション
+        with st.expander("📋 詳細分析結果"):
+            st.json(coverage_analysis)
+
+    except Exception as e:
+        st.error(f"System cache coverage エラー: {str(e)}")
+        logging.error(f"System cache coverage error: {e}")
+
+
+def display_cache_recommendations(analysis_result: dict) -> None:
+    """
+    Cache分析結果に基づく推奨アクションを表示する。
+    """
+    from common.system_groups import format_cache_coverage_report
+
+    # 分析結果をフォーマット
+    report = format_cache_coverage_report(
+        analysis_result["total_symbols"],
+        analysis_result["available_in_rolling"],
+        analysis_result["missing_from_rolling"],
+        analysis_result["coverage_percentage"],
+        analysis_result.get("missing_symbols", []),
+    )
+
+    # ステータス表示
+    st.write(f"### {report['status']} 総合評価")
+    st.write(f"**優先度**: {report['priority']}")
+
+    # サマリー情報
+    summary = report["summary"]
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("総数", summary["total"])
+    with col2:
+        st.metric("整備済み", summary["available"])
+    with col3:
+        st.metric("未整備", summary["missing"])
+    with col4:
+        st.metric("カバレッジ", summary["coverage"])
+
+    # 推奨アクション
+    st.write("### 💡 推奨アクション")
+    for recommendation in report["recommendations"]:
+        st.write(f"- {recommendation}")
+
+    # 未整備シンボルプレビュー
+    if report["missing_symbols_preview"]:
+        st.write("### 🔍 未整備シンボル（プレビュー）")
+        for symbol in report["missing_symbols_preview"]:
+            st.write(f"- {symbol}")

@@ -13,17 +13,21 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterable
+import concurrent.futures
 from dataclasses import dataclass, field
+from datetime import datetime
+import json
 import logging
+import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from indicators_common import add_indicators  # noqa: E402
 import pandas as pd  # noqa: E402  ディレクトリ解決後にインポート
 
 from common.cache_manager import CacheManager  # noqa: E402
@@ -31,6 +35,9 @@ from common.symbol_universe import build_symbol_universe_from_settings  # noqa: 
 from common.symbols_manifest import MANIFEST_FILENAME, load_symbol_manifest  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 from config.settings import get_settings  # noqa: E402
+from common.indicators_common import add_indicators  # noqa: E402
+
+# json already imported at top
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,11 +65,16 @@ class ExtractionStats:
 
 
 def _log_message(message: str, log: Callable[[str], None] | None) -> None:
+    # If an external logging callable is provided (e.g. console printer),
+    # use it and avoid emitting the same message via the module logger to
+    # prevent duplicate lines in logs. If no external logger is provided,
+    # fall back to the module logger.
     if log:
         try:
             log(message)
         except Exception:  # pragma: no cover - ログが失敗しても続行
             pass
+        return
     LOGGER.info(message)
 
 
@@ -144,9 +156,20 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     work = work.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
     calc = work.copy()
-    calc["Date"] = pd.to_datetime(calc["date"], errors="coerce").dt.normalize()
 
-    # Upper-case OHLCV columns for indicator calculation
+    # Ensure we have Date column for indicator calculations, avoiding duplication
+    if "Date" not in calc.columns:
+        if "date" in calc.columns:
+            calc["Date"] = pd.to_datetime(calc["date"], errors="coerce").dt.normalize()
+            # Remove lowercase date to avoid duplication
+            calc = calc.drop(columns=["date"])
+        else:
+            # This shouldn't happen as we normalized date earlier
+            calc["Date"] = pd.to_datetime(calc.index, errors="coerce").normalize()
+
+    # Only convert columns if PascalCase versions don't already exist
+    # This handles both new data (from cache_daily_data.py with PascalCase)
+    # and legacy data (with lowercase columns)
     col_pairs = (
         ("open", "Open"),
         ("high", "High"),
@@ -157,11 +180,16 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     for src, dst in col_pairs:
         if src in calc.columns and dst not in calc.columns:
             calc[dst] = calc[src]
+            # Remove the source column immediately to avoid duplication
+            calc = calc.drop(columns=[src])
 
+    # Handle AdjClose conversion
     if "AdjClose" not in calc.columns:
         for cand in ("adjusted_close", "adj_close", "adjclose"):
             if cand in calc.columns:
                 calc["AdjClose"] = calc[cand]
+                # Remove the source column immediately to avoid duplication
+                calc = calc.drop(columns=[cand])
                 break
 
     required = {"Open", "High", "Low", "Close"}
@@ -186,7 +214,13 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
     enriched = add_indicators(calc_for_ind)
 
-    enriched["date"] = pd.to_datetime(enriched.get("date", enriched.get("Date")), errors="coerce")
+    # Clean duplicate columns (can be skipped for performance if data is already clean)
+    enriched = _clean_duplicate_columns(enriched, skip_cleanup=False)
+
+    # normalize date column
+    date_col = enriched.get("date", enriched.get("Date"))
+    if date_col is not None:
+        enriched["date"] = pd.to_datetime(date_col, errors="coerce")
     enriched = enriched.drop(columns=["Date"], errors="ignore")
     enriched = enriched.dropna(subset=["date"]).sort_values("date")
     if target_days > 0:
@@ -195,6 +229,132 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
     cols = ["date"] + [c for c in enriched.columns if c != "date"]
     return enriched.loc[:, cols]
+
+
+def _clean_duplicate_columns(df: pd.DataFrame, skip_cleanup: bool = False) -> pd.DataFrame:
+    """Remove duplicate columns comprehensively, keeping PascalCase/uppercase versions."""
+    if df is None or df.empty:
+        return df
+
+    # Skip cleanup if requested (for performance when data is already clean)
+    if skip_cleanup:
+        return df
+
+    columns = df.columns.tolist()
+    duplicates_to_remove = []
+
+    # Build case-insensitive mapping to find duplicates
+    col_mapping = {}
+    for col in columns:
+        key = col.lower()
+        if key not in col_mapping:
+            col_mapping[key] = []
+        col_mapping[key].append(col)
+
+    # For each group of similar columns, keep the best one
+    for _key, similar_cols in col_mapping.items():
+        if len(similar_cols) <= 1:
+            continue
+
+        # Priority order: PascalCase > ALL_CAPS > lowercase
+        priority_scores = []
+        for col in similar_cols:
+            if col.isupper():  # ATR10, SMA25, etc.
+                score = 3
+            elif col[0].isupper():  # Open, Close, DollarVolume20, etc.
+                score = 2
+            elif "_" in col:  # adjusted_close, return_3d, etc.
+                score = 1
+            else:  # lowercase: atr10, sma25, etc.
+                score = 0
+            priority_scores.append((score, col))
+
+        # Sort by priority (highest first) and keep the best one
+        priority_scores.sort(reverse=True)
+        best_col = priority_scores[0][1]
+
+        # Mark others for removal
+        for _, col in priority_scores[1:]:
+            duplicates_to_remove.append(col)
+
+    # Remove duplicate columns (should not occur with fixed data processing)
+    if duplicates_to_remove:
+        # Only show error message if duplicates still occur (indicates a problem)
+        removed_cols = ", ".join(duplicates_to_remove)
+        print(f"⚠️ 予期しない重複列を検出・削除: {len(duplicates_to_remove)}列 ({removed_cols})")
+        df = df.drop(columns=duplicates_to_remove)
+
+    return df
+
+
+def _process_symbol_worker(args: tuple) -> tuple[str, bool, str | None]:
+    """Worker function run in a separate process.
+
+    Returns (symbol, success_flag, message). message is None on success,
+    or 'no_data' / error message on failure.
+    """
+    symbol, target_days, round_decimals, nan_warnings = args
+    try:
+        settings = get_settings(create_dirs=True)
+        cm = CacheManager(settings)
+        try:
+            full_df = cm.read(symbol, "full")
+        except Exception as exc:
+            return (symbol, False, f"read_error:{exc}")
+        if full_df is None or getattr(full_df, "empty", True):
+            return (symbol, False, "no_data")
+        enriched = _prepare_rolling_frame(full_df, target_days)
+        if enriched is None or getattr(enriched, "empty", True):
+            return (symbol, False, "no_data")
+        if round_decimals is not None:
+            try:
+                enriched = _round_numeric_columns(enriched, round_decimals)
+            except Exception:
+                pass
+        try:
+            # Write both CSV and Feather formats
+            _write_dual_format(cm, enriched, symbol)
+        except Exception as exc:
+            return (symbol, False, f"write_error:{exc}")
+        return (symbol, True, None)
+    except Exception as exc:
+        return (symbol, False, f"{type(exc).__name__}:{exc}")
+
+
+def _write_dual_format(cm: CacheManager, df: pd.DataFrame, symbol: str) -> None:
+    """Write both CSV and Feather formats for better performance."""
+    import shutil
+
+    # Get rolling directory
+    rolling_dir = cm.rolling_dir
+    rolling_dir.mkdir(parents=True, exist_ok=True)
+
+    # Apply rounding if configured
+    round_dec = getattr(getattr(cm, "rolling_cfg", None), "round_decimals", None)
+    from common.dataframe_utils import round_dataframe
+
+    df_to_write = round_dataframe(df, round_dec)
+
+    # Write CSV (for compatibility)
+    csv_path = rolling_dir / f"{symbol}.csv"
+    csv_tmp = rolling_dir / f"{symbol}.csv.tmp"
+    try:
+        # Use standard pandas CSV writing with explicit format settings
+        df_to_write.to_csv(csv_tmp, index=True, float_format="%.6f")
+        shutil.move(csv_tmp, csv_path)
+    finally:
+        if csv_tmp.exists():
+            csv_tmp.unlink(missing_ok=True)
+
+    # Write Feather (for performance)
+    feather_path = rolling_dir / f"{symbol}.feather"
+    feather_tmp = rolling_dir / f"{symbol}.feather.tmp"
+    try:
+        df_to_write.reset_index(drop=True).to_feather(feather_tmp)
+        shutil.move(feather_tmp, feather_path)
+    finally:
+        if feather_tmp.exists():
+            feather_tmp.unlink(missing_ok=True)
 
 
 def _resolve_symbol_universe(
@@ -305,6 +465,9 @@ def extract_rolling_from_full(
     target_days: int | None = None,
     max_symbols: int | None = None,
     log: Callable[[str], None] | None = None,
+    nan_warnings: bool = False,
+    workers: int | None = None,
+    adaptive: bool = True,
 ) -> ExtractionStats:
     """Extract rolling window slices from full backup cache and persist them.
 
@@ -313,6 +476,10 @@ def extract_rolling_from_full(
     ``cache_manager.rolling_cfg.max_symbols`` if it is configured with a
     positive integer value.
     """
+
+    # Record start time
+    start_time = time.time()
+    start_dt = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
 
     if target_days is None:
         try:
@@ -331,58 +498,247 @@ def extract_rolling_from_full(
         _log_message("対象シンボルが見つかりませんでした。", log)
         return stats
 
+    _log_message(f"🕐 開始時刻: {start_dt}", log)
     _log_message(
         f"🔁 rolling 再構築を開始: {len(symbol_list)} 銘柄 | 期間={target_days}営業日", log
     )
 
     try:
-        round_decimals = getattr(cache_manager.settings.cache.rolling, "round_decimals", None)
+        # tests may provide a SimpleNamespace without nested attributes; fall back safely
+        round_decimals = getattr(
+            getattr(cache_manager, "rolling_cfg", None), "round_decimals", None
+        )
         if round_decimals is None:
-            round_decimals = getattr(cache_manager.settings.cache, "round_decimals", None)
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            round_decimals = getattr(cache_obj, "round_decimals", None)
     except Exception:
         round_decimals = None
 
-    for idx, symbol in enumerate(symbol_list, start=1):
-        stats.processed_symbols += 1
+    # Determine initial worker count preference
+    cfg_workers = getattr(getattr(cache_manager, "rolling_cfg", None), "workers", None)
+    # If explicit workers passed to function, it takes precedence
+    if workers is None:
+        workers = cfg_workers
+
+    # Serial fallback if workers not specified
+    if workers is None:
+        # keep original sequential behavior
+        for idx, symbol in enumerate(symbol_list, start=1):
+            stats.processed_symbols += 1
+            try:
+                full_df = cache_manager.read(symbol, "full")
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: full 読み込みに失敗 ({message})", log)
+                continue
+
+            if full_df is None or getattr(full_df, "empty", True):
+                stats.skipped_no_data += 1
+                _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
+                continue
+
+            try:
+                enriched = _prepare_rolling_frame(full_df, target_days)
+            except Exception as exc:  # pragma: no cover - logging only
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: インジ計算に失敗 ({message})", log)
+                continue
+
+            if enriched is None or getattr(enriched, "empty", True):
+                stats.skipped_no_data += 1
+                _log_message(f"⏭️ {symbol}: 有効なローリングデータ無し", log)
+                continue
+
+            try:
+                enriched = _round_numeric_columns(enriched, round_decimals)
+                cache_manager.write_atomic(enriched, symbol, "rolling")
+            except Exception as exc:  # pragma: no cover - logging only
+                message = f"{type(exc).__name__}: {exc}"
+                stats.errors[symbol] = message
+                _log_message(f"⚠️ {symbol}: rolling 書き込みに失敗 ({message})", log)
+                continue
+
+            stats.updated_symbols += 1
+            if idx % 100 == 0 or idx == len(symbol_list):
+                _log_message(f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log)
+    else:
+        # Parallel execution with adaptive concurrency control
         try:
-            full_df = cache_manager.read(symbol, "full")
-        except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: full 読み込みに失敗 ({message})", log)
-            continue
+            workers = int(workers)
+        except Exception:
+            workers = 0
 
-        if full_df is None or getattr(full_df, "empty", True):
-            stats.skipped_no_data += 1
-            _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
-            continue
+        # establish sensible bounds
+        cpu = os.cpu_count() or 1
+        max_possible = max(1, min(32, int(cpu * 2), len(symbol_list)))
+        if workers and workers > 0:
+            initial_workers = int(workers)
+        else:
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            rolling_obj = getattr(cache_obj, "rolling", None)
+            try:
+                initial_workers = int(getattr(rolling_obj, "workers", 4) or 4)
+            except Exception:
+                initial_workers = 4
+        current_workers = max(1, min(initial_workers, max_possible))
 
+        _log_message(
+            (
+                f"ℹ️ 並列処理: 初期ワーカー={current_workers} "
+                f"最大ワーカー={max_possible} 適応型={'有効' if adaptive else '無効'}"
+            ),
+            log,
+        )
+
+        args_list = [(symbol, target_days, round_decimals, nan_warnings) for symbol in symbol_list]
+
+        # prepare progress output file
         try:
-            enriched = _prepare_rolling_frame(full_df, target_days)
-        except Exception as exc:  # pragma: no cover - logging only
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: インジ計算に失敗 ({message})", log)
-            continue
+            settings_obj = getattr(cache_manager, "settings", None)
+            cache_obj = getattr(settings_obj, "cache", None)
+            rolling_obj = getattr(cache_obj, "rolling", None)
+            report_seconds = int(getattr(rolling_obj, "adaptive_report_seconds", 10) or 10)
+        except Exception:
+            report_seconds = 10
 
-        if enriched is None or getattr(enriched, "empty", True):
-            stats.skipped_no_data += 1
-            _log_message(f"⏭️ {symbol}: 有効なローリングデータ無し", log)
-            continue
-
+        logs_dir_candidate = (
+            getattr(cache_manager.settings.outputs, "logs_dir", None)
+            or getattr(cache_manager.settings, "LOGS_DIR", None)
+            or "logs"
+        )
+        logs_dir_path = Path(str(logs_dir_candidate))
         try:
-            enriched = _round_numeric_columns(enriched, round_decimals)
-            cache_manager.write_atomic(enriched, symbol, "rolling")
-        except Exception as exc:  # pragma: no cover - logging only
-            message = f"{type(exc).__name__}: {exc}"
-            stats.errors[symbol] = message
-            _log_message(f"⚠️ {symbol}: rolling 書き込みに失敗 ({message})", log)
-            continue
+            logs_dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        progress_path = logs_dir_path / "rolling_progress.json"
 
-        stats.updated_symbols += 1
-        if idx % 100 == 0 or idx == len(symbol_list):
-            _log_message(f"✅ 進捗: {idx}/{len(symbol_list)} 銘柄処理完了", log)
+        # create executor with upper bound; we will control active submissions
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_possible) as exe:
+            next_idx = 0
+            active: dict[concurrent.futures.Future, tuple[str, float]] = {}
 
+            # adaptive measurement
+            window_durations: list[float] = []
+            window_count = 8
+            prev_throughput = None
+
+            while stats.processed_symbols < len(symbol_list):
+                # submit tasks until reaching current_workers
+                while len(active) < current_workers and next_idx < len(args_list):
+                    args = args_list[next_idx]
+                    fut = exe.submit(_process_symbol_worker, args)
+                    active[fut] = (args[0], time.time())
+                    next_idx += 1
+
+                if not active:
+                    break
+
+                done, _ = concurrent.futures.wait(
+                    active.keys(), return_when=concurrent.futures.FIRST_COMPLETED
+                )
+                for fut in done:
+                    symbol, start_ts = active.pop(fut)
+                    stats.processed_symbols += 1
+                    end_ts = time.time()
+                    duration = max(0.0001, end_ts - start_ts)
+                    window_durations.append(duration)
+                    # keep window size bounded
+                    if len(window_durations) > window_count:
+                        window_durations.pop(0)
+
+                    try:
+                        sym, ok, message = fut.result()
+                    except Exception as exc:
+                        stats.errors[symbol] = str(exc)
+                        _log_message(f"⚠️ {symbol}: worker 例外 ({exc})", log)
+                        continue
+
+                    if not ok:
+                        if message == "no_data":
+                            stats.skipped_no_data += 1
+                            _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
+                        else:
+                            stats.errors[symbol] = message or "error"
+                            _log_message(f"⚠️ {symbol}: 処理失敗 ({message})", log)
+                    else:
+                        stats.updated_symbols += 1
+
+                # write progress JSON periodically
+                try:
+                    now_ts = int(time.time())
+                    if (
+                        not progress_path.exists()
+                        or now_ts - int(progress_path.stat().st_mtime) >= report_seconds
+                    ):
+                        prog = {
+                            "total": stats.total_symbols,
+                            "processed": stats.processed_symbols,
+                            "updated": stats.updated_symbols,
+                            "skipped": stats.skipped_no_data,
+                            "errors": len(stats.errors),
+                            "current_workers": current_workers,
+                            "recent_window_seconds": [round(d, 3) for d in window_durations],
+                            "timestamp": now_ts,
+                        }
+                        try:
+                            with open(progress_path, "w", encoding="utf-8") as pf:
+                                json.dump(prog, pf, ensure_ascii=False)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # report progress periodically
+                if stats.processed_symbols % 100 == 0 or stats.processed_symbols == len(
+                    symbol_list
+                ):
+                    _log_message(
+                        f"✅ 進捗: {stats.processed_symbols}/{len(symbol_list)} 銘柄処理完了",
+                        log,
+                    )
+
+                # adaptive adjustment: evaluate throughput over window
+                if adaptive and len(window_durations) >= max(4, window_count // 2):
+                    window_time = sum(window_durations)
+                    if window_time <= 0:
+                        continue
+                    throughput = len(window_durations) / window_time
+                    # try small adjustments: increase or decrease by 1
+                    if prev_throughput is None:
+                        prev_throughput = throughput
+                    else:
+                        # if throughput improved notably, try increasing workers
+                        if throughput > prev_throughput * 1.02 and current_workers < max_possible:
+                            current_workers += 1
+                            _log_message(f"ℹ️ ワーカー数を増やします -> {current_workers}", log)
+                            prev_throughput = throughput
+                        # if throughput degraded notably, decrease workers
+                        elif throughput < prev_throughput * 0.98 and current_workers > 1:
+                            current_workers = max(1, current_workers - 1)
+                            _log_message(f"ℹ️ ワーカー数を減らします -> {current_workers}", log)
+                            prev_throughput = throughput
+                        else:
+                            # small/no change, keep current
+                            prev_throughput = throughput
+
+    # Calculate completion time and duration
+    end_time = time.time()
+    end_dt = datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
+    duration_seconds = end_time - start_time
+
+    # Format duration as H:MM:SS
+    hours = int(duration_seconds // 3600)
+    minutes = int((duration_seconds % 3600) // 60)
+    seconds = int(duration_seconds % 60)
+    duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+
+    _log_message(f"🕐 終了時刻: {end_dt}", log)
+    _log_message(f"⏰ 所要時間: {duration_str}", log)
     _log_message(
         "✅ rolling 再構築完了: "
         + f"対象={stats.total_symbols} | 更新={stats.updated_symbols} | "
@@ -411,6 +767,21 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="処理上限銘柄数（0 以下で無制限。既定: 設定値 rolling.max_symbols）",
     )
+    parser.add_argument(
+        "--nan-warnings",
+        action="store_true",
+        help="指標 NaN 警告を有効化（既定: 無効、ログ抑止）",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        help="並列ワーカー数の上限（未指定で設定値またはデフォルトを使用）",
+    )
+    parser.add_argument(
+        "--no-adaptive",
+        action="store_true",
+        help="適応的ワーカー調整を無効化（既定: 有効）",
+    )
     return parser
 
 
@@ -423,7 +794,7 @@ def main(argv: list[str] | None = None) -> int:
     cache_manager = CacheManager(settings)
 
     def _console_log(msg: str) -> None:
-        print(msg, flush=True)
+        LOGGER.info(msg)
 
     stats = extract_rolling_from_full(
         cache_manager,
@@ -431,6 +802,9 @@ def main(argv: list[str] | None = None) -> int:
         target_days=args.target_days,
         max_symbols=args.max_symbols,
         log=_console_log,
+        nan_warnings=bool(getattr(args, "nan_warnings", False)),
+        workers=getattr(args, "workers", None),
+        adaptive=(not bool(getattr(args, "no_adaptive", False))),
     )
 
     if stats.errors:

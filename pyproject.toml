@@ -6,26 +6,46 @@ target-version = ["py310"]
 profile = "black"
 line_length = 100
 src_paths = [
+  "apps",
   "common",
   "core",
   "strategies",
   "config",
   "scripts",
   "tools",
+  "tests",
+  "utils",
+  "schedulers",
 ]
 force_sort_within_sections = true
 
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = ["data_cache", "results_csv", "logs"]
+extend-exclude = [
+  "data_cache", 
+  "data_cache_recent",
+  "results_csv", 
+  "results_csv_test",
+  "logs",
+  "htmlcov",
+  "tools/archive",
+  "codacy_report"
+]
 lint.select = ["E", "F", "B", "UP", "N"]
 lint.ignore = [
   # pytestの未使用引数や命名など、既存テスト互換のために一部緩める
   "N802",
   "N803",
   "N806",
+  # 一時的に既存コードとの互換性のため無効にする問題
+  "E501",  # Line too long - gradual fix
+  "F821",  # Undefined name - 複雑なスコープの問題
+  "E402",  # Module level import not at top - 既存のパターン
+  "F841",  # Unused variable - テスト用変数
+  "E731",  # Lambda assignment - テストコード内
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests", "tests/experimental", "."]
 addopts = "--cov=./ --cov-report=term-missing"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import time
 
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
@@ -8,7 +9,7 @@ from typing import Any as Notifier  # forward alias for type hints
 
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 from common.equity_curve import save_equity_curve
 from common.i18n import tr
 from common.performance_summary import summarize as summarize_perf
@@ -54,12 +55,8 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
             try:
                 client = _ba.get_client(paper=paper)
                 acct = client.get_account()
-                st.session_state["pos_tab_acct_type"] = getattr(
-                    acct, "account_type", None
-                )
-                st.session_state["pos_tab_multiplier"] = getattr(
-                    acct, "multiplier", None
-                )
+                st.session_state["pos_tab_acct_type"] = getattr(acct, "account_type", None)
+                st.session_state["pos_tab_multiplier"] = getattr(acct, "multiplier", None)
                 st.session_state["pos_tab_shorting_enabled"] = getattr(
                     acct, "shorting_enabled", None
                 )
@@ -74,9 +71,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                 except Exception:
                     st.session_state["pos_tab_buying_power"] = None
                 try:
-                    st.session_state["pos_tab_cash"] = float(
-                        getattr(acct, "cash", None) or 0.0
-                    )
+                    st.session_state["pos_tab_cash"] = float(getattr(acct, "cash", None) or 0.0)
                 except Exception:
                     st.session_state["pos_tab_cash"] = None
                 st.success("口座情報を更新しました")
@@ -96,9 +91,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
         )
         acct_type = st.session_state.get("pos_tab_acct_type")
         status = st.session_state.get("pos_tab_status")
-        st.caption(
-            f"種別(推定): {derived_type} / status: {status if status is not None else '-'}"
-        )
+        st.caption(f"種別(推定): {derived_type} / status: {status if status is not None else '-'}")
         if acct_type is not None or mult_f is not None:
             st.caption(
                 f"詳細: account_type={acct_type}, "
@@ -152,9 +145,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                     for s in sel
                     if int(qty_map.get(s, 0)) > 0
                 ]
-                res = _submit_exits(
-                    _pd.DataFrame(rows), paper=paper, tif="CLS", notify=True
-                )
+                res = _submit_exits(_pd.DataFrame(rows), paper=paper, tif="CLS", notify=True)
                 if res is not None and not res.empty:
                     st.dataframe(res, use_container_width=True)
             # Plan tomorrow open/close
@@ -424,6 +415,57 @@ def _show_sys_result(df, capital):
 def render_integrated_tab(settings, notifier: Notifier) -> None:
     """統合バックテストタブの描画"""
     st.subheader(tr("Integrated Backtest (Systems 1-7)"))
+
+    # リアルタイム進捗表示セクション
+    with st.expander("🔄 Real-time Progress Monitor", expanded=False):
+        progress_container = st.empty()
+        auto_refresh = st.checkbox("Auto-refresh (every 1 sec)", value=False)
+
+        if auto_refresh:
+            # Use session state to track progress polling
+            if "progress_poll_count" not in st.session_state:
+                st.session_state.progress_poll_count = 0
+
+            # Import render_digest_log from app_integrated
+            try:
+                import app_integrated
+
+                logs_dir = Path(settings.LOGS_DIR)
+                progress_log = logs_dir / "progress_today.jsonl"
+                app_integrated.render_digest_log(progress_log, progress_container)
+
+                # Auto-refresh mechanism
+                st.session_state.progress_poll_count += 1
+                if st.session_state.progress_poll_count % 100 == 0:  # Reduce frequency
+                    import time as time_module
+
+                    time_module.sleep(0.1)
+                    st.rerun()
+                else:
+                    # Use a timer-based approach for smooth updates
+                    import time as time_module
+
+                    time_module.sleep(1)
+                    st.rerun()
+
+            except ImportError:
+                progress_container.warning(
+                    "Progress monitoring not available (app_integrated not found)"
+                )
+            except Exception as e:
+                progress_container.error(f"Progress monitoring error: {e}")
+        else:
+            # Manual refresh button
+            if st.button("🔄 Refresh Progress"):
+                try:
+                    import app_integrated
+
+                    logs_dir = Path(settings.LOGS_DIR)
+                    progress_log = logs_dir / "progress_today.jsonl"
+                    app_integrated.render_digest_log(progress_log, progress_container)
+                except Exception as e:
+                    progress_container.error(f"Failed to refresh progress: {e}")
+
     from common.holding_tracker import display_holding_heatmap, generate_holding_matrix
     from common.integrated_backtest import (
         DEFAULT_ALLOCATIONS,
@@ -456,9 +498,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             key="integrated_gross",
         )
     with colB:
-        st.caption(
-            tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%")
-        )
+        st.caption(tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%"))
         try:
             # 表示用に現在の設定配分も添える
             def _norm_map(d: dict[str, float], default_map: dict[str, float]):
@@ -466,9 +506,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
                     s = sum(f.values())
                     return (
-                        {k: v / s for k, v in (f or default_map).items()}
-                        if s > 0
-                        else default_map
+                        {k: v / s for k, v in (f or default_map).items()} if s > 0 else default_map
                     )
                 except Exception:
                     return default_map
@@ -547,8 +585,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         import pandas as _pd
 
         sig_counts = {
-            s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
-            for s in states
+            s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in states
         }
         st.write(tr("signals per system:"))
         st.dataframe(_pd.DataFrame([sig_counts]))
@@ -611,9 +648,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
         alloc_map_long = _norm_map(
             la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
         )
-        alloc_map_short = _norm_map(
-            sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20}
-        )
+        alloc_map_short = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
         alloc_map = {**alloc_map_long, **alloc_map_short}
 
         trades_df, _sig = run_integrated_backtest(
@@ -671,8 +706,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 import numpy as np
 
                 equity = _pd.Series(
-                    np.array(df2["cumulative_pnl"].values, dtype=float)
-                    + float(capital_i),
+                    np.array(df2["cumulative_pnl"].values, dtype=float) + float(capital_i),
                     index=_pd.to_datetime(df2["exit_date"]),
                 )
                 daily_eq = equity.resample("D").last().ffill()
@@ -687,9 +721,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 )
                 st.subheader(tr("yearly summary"))
                 # 百分率として1桁で表示（例: 468.9% / -63.6%）、pnlは小数第2位
-                st.dataframe(
-                    yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
-                )
+                st.dataframe(yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
                 # 月次サマリー
                 month_start = daily_eq.resample("ME").first()
                 month_end = daily_eq.resample("ME").last()
@@ -701,11 +733,7 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     }
                 )
                 st.subheader(tr("monthly summary"))
-                st.dataframe(
-                    monthly_df.style.format(
-                        {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
-                    )
-                )
+                st.dataframe(monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
             except Exception:
                 pass
 
@@ -824,9 +852,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 bp = None
                 try:
                     bp = float(
-                        getattr(acct, "buying_power", None)
-                        or getattr(acct, "cash", None)
-                        or 0.0
+                        getattr(acct, "buying_power", None) or getattr(acct, "cash", None) or 0.0
                     )
                 except Exception:
                     bp = None
@@ -870,6 +896,29 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
     )
     use_all = st.checkbox(tr("use all symbols"), key="batch_all")
     use_parallel = st.checkbox(tr("use parallel processing"), key="batch_parallel")
+
+    if mode != "Backtest":
+        # SPY ゲート状態を表示
+        st.markdown("---")
+        st.subheader("SPY Market Gate Status")
+        try:
+            spy_df = get_spy_with_indicators(get_spy_data_cached())
+            if spy_df is not None and not spy_df.empty:
+                last = spy_df.iloc[-1]
+                close = last.get("Close", 0)
+                sma100 = last.get("SMA100", 0)
+                gate_ok = close > sma100
+                status = (
+                    "✅ OPEN (SPY > SMA100)"
+                    if gate_ok
+                    else "❌ CLOSED (SPY <= SMA100) - System1/4_TRDlist is 0"
+                )
+                st.metric("SPY Gate", status, f"Close: {close:.2f}, SMA100: {sma100:.2f}")
+            else:
+                st.warning("SPY data not available")
+        except Exception as e:
+            st.error(f"Failed to check SPY gate: {e}")
+
     run_btn = st.button(
         tr("run batch") if mode == "Backtest" else tr("run today signals"),
         key="run_batch" if mode == "Backtest" else "run_today",
@@ -1009,9 +1058,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     ["entry_date", "symbol", "position_value"]
                 ].copy()
                 cap_df["entry_date"] = pd.to_datetime(cap_df["entry_date"])
-                cap_df["capital_after"] = (
-                    total_capital - cap_df["position_value"].cumsum()
-                )
+                cap_df["capital_after"] = total_capital - cap_df["position_value"].cumsum()
                 st.markdown(tr("Capital progression"))
                 st.dataframe(cap_df, use_container_width=True)
 
@@ -1078,18 +1125,12 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             # 可能なら保存DFからピーク比のDD%を再計算
             try:
                 _cap = float(saved_capital or 0)
-                dd_pct_saved = (
-                    saved_df["drawdown"] / (_cap + saved_df["cum_max"])
-                ).min() * 100
+                dd_pct_saved = (saved_df["drawdown"] / (_cap + saved_df["cum_max"])).min() * 100
             except Exception:
                 dd_pct_saved = 0.0
             cols[0].metric(tr("trades"), saved_summary.get("trades"))
-            cols[1].metric(
-                tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}"
-            )
-            cols[2].metric(
-                tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}"
-            )
+            cols[1].metric(tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}")
+            cols[2].metric(tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}")
             cols[3].metric("PF", f"{saved_summary.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{saved_summary.get('sharpe', 0):.2f}")
             cols[5].metric(
@@ -1129,9 +1170,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 )
             except Exception:
                 pass
-        if st.button(
-            tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"
-        ):
+        if st.button(tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"):
             out_dir = os.path.join("results_csv", "batch")
             os.makedirs(out_dir, exist_ok=True)
             trades_path = os.path.join(
@@ -1221,7 +1260,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 mod = __import__(
                     f"strategies.system{i}_strategy",
                     fromlist=[f"System{i}Strategy"],
-                )  # type: ignore
+                )
                 cls = getattr(mod, f"System{i}Strategy")
                 strat = cls()
 
@@ -1256,10 +1295,8 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             st.success(f"{sys_name}: 完了（取引 {len(res)} 件）")
                     except Exception:
                         pass
-                    with sys_ui.container.expander(
-                        f"{sys_name} result", expanded=False
-                    ):
-                        _show_sys_result(res, capital)  # type: ignore  # noqa: F821
+                    with sys_ui.container.expander(f"{sys_name} result", expanded=False):
+                        _show_sys_result(res, capital)  # noqa: F821
                 else:
                     with sys_ui.container:
                         st.info(f"{sys_name}: 取引なし")
@@ -1302,9 +1339,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             cols[3].metric("PF", f"{d.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{d.get('sharpe', 0):.2f}")
             try:
-                dd_pct_overall = (
-                    all_df2["drawdown"] / (capital + all_df2["cum_max"])
-                ).min() * 100
+                dd_pct_overall = (all_df2["drawdown"] / (capital + all_df2["cum_max"])).min() * 100
             except Exception:
                 dd_pct_overall = 0.0
             cols[5].metric(
@@ -1343,14 +1378,10 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     )
                 except Exception:
                     pass
-            if st.button(
-                tr("save batch CSV to disk"), key="save_batch_to_disk_current"
-            ):
+            if st.button(tr("save batch CSV to disk"), key="save_batch_to_disk_current"):
                 out_dir = os.path.join("results_csv", "batch")
                 os.makedirs(out_dir, exist_ok=True)
-                trades_path = os.path.join(
-                    out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv"
-                )
+                trades_path = os.path.join(out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv")
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1368,9 +1399,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     except Exception:
                         pass
                 sum_df = pd.DataFrame([d])
-                sum_path = os.path.join(
-                    out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv"
-                )
+                sum_path = os.path.join(out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv")
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1417,7 +1446,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 for df_sys in overall:
                     try:
                         df_tmp = df_sys.copy()
-                        df_tmp["exit_date"] = pd.to_datetime(df_tmp["exit_date"])  # type: ignore[arg-type]
+                        df_tmp["exit_date"] = pd.to_datetime(df_tmp["exit_date"])
                         df_tmp = df_tmp.sort_values("exit_date")
                         equity = float(capital) + df_tmp["pnl"].cumsum()
                         daily = equity.rename(df_tmp["system"].iloc[0]).copy()
@@ -1456,3 +1485,50 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             st.info(tr("no logs to show"))
         if not any_logs2:
             st.info(tr("no logs to show"))
+
+
+def render_cache_health_tab(settings) -> None:
+    """
+    Cache健全性とrolling cache分析を行うタブを描画する。
+    """
+    st.title("🩺 Cache Health Dashboard")
+    st.write("rolling cacheの健全性と整備状況を監視・分析します。")
+
+    # タブ内でサブタブを作成
+    subtab1, subtab2, subtab3 = st.tabs(
+        ["🔍 基本ヘルスチェック", "🎯 システム別カバレッジ", "💡 推奨アクション"]
+    )
+
+    with subtab1:
+        st.write("### Cache基本状況")
+        from common.ui_components import display_cache_health_dashboard
+
+        display_cache_health_dashboard()
+
+    with subtab2:
+        st.write("### システム別カバレッジ分析")
+        from common.ui_components import display_system_cache_coverage
+
+        display_system_cache_coverage()
+
+    with subtab3:
+        st.write("### 推奨アクションと改善提案")
+
+        # 分析実行ボタン
+        if st.button("🔍 詳細分析実行", key="cache_analysis_for_recommendations"):
+            from common.cache_manager import CacheManager
+            from common.ui_components import display_cache_recommendations
+            from config.settings import get_settings
+
+            try:
+                settings = get_settings(create_dirs=True)
+                cache_manager = CacheManager(settings)
+                analysis_result = cache_manager.analyze_rolling_gaps()
+
+                # 推奨アクションを表示
+                display_cache_recommendations(analysis_result)
+
+            except Exception as e:
+                st.error(f"分析エラー: {str(e)}")
+        else:
+            st.info("上のボタンをクリックして詳細分析を実行してください。")

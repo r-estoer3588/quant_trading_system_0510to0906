@@ -9,7 +9,7 @@ CRITICAL_PATHS = [
     Path("common/ui_components.py"),
     Path("common/ui_bridge.py"),
     Path("common/ui_tabs.py"),
-    Path("app_integrated.py"),
+    Path("apps/app_integrated.py"),
 ]
 
 

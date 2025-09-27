@@ -1,303 +1,87 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import os
 from pathlib import Path
-import shutil
-from typing import ClassVar
 
-from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 
-from common.utils import describe_dtype, safe_filename
-from config.settings import get_settings
+from common.cache_format import safe_filename
+from common.cache_io import CacheFileManager
+from common.cache_validation import perform_cache_health_check
+from common.cache_warnings import report_rolling_issue
+from common.indicators_common import add_indicators
+from config.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
 
 
-def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
-    """Return a DataFrame rounded to the requested number of decimals.
-
-    pandas.DataFrame.round は数値列のみを対象とし、日付や文字列列には影響しない。
-    ただし ``decimals`` が不正値の場合や丸め処理が例外を送出した場合は、
-    元の DataFrame をそのまま返す。
-    """
-
-    if df is None:
-        return df
-
-    # If global decimals not provided, leave as-is
-    try:
-        if decimals is None:
-            return df
-    except Exception:
-        return df
-
-    try:
-        decimals_int = int(decimals)
-    except Exception:
-        return df
-
-    # Define category-specific rounding by column name (lowercase)
-    price_atr_cols = {
-        "open",
-        "close",
-        "high",
-        "low",
-        "atr10",
-        "atr14",
-        "atr20",
-        "atr40",
-        "atr50",
-        "adjusted_close",
-        "adjclose",
-        "adj_close",
-    }
-    volume_cols = {"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"}
-    oscillator_cols = {"rsi3", "rsi4", "rsi14", "adx7"}
-    pct_cols = {
-        "roc200",
-        "return_3d",
-        "6d_return",
-        "return6d",
-        "atr_ratio",
-        "atr_pct",
-        "hv50",
-        "return_pct",
-    }
-
-    # Work on a copy to avoid mutating caller's df
-    out = df.copy()
-    # Normalize column names mapping to actual columns
-    cols = list(out.columns)
-    lc_map: dict[str, str] = {c.lower(): c for c in cols}
-
-    def _safe_round(series: pd.Series, ndigits: int) -> pd.Series:
-        try:
-            # Coerce to numeric where possible, preserve NaNs
-            s = pd.to_numeric(series, errors="coerce")
-            return s.round(ndigits)
-        except Exception:
-            return series
-
-    # Apply per-column rounding where applicable
-    for lname, orig in lc_map.items():
-        if lname in price_atr_cols:
-            out[orig] = _safe_round(out[orig], 2)
-        elif lname in volume_cols:
-            # Round volume-like columns to 0 decimals and cast to nullable Int64
-            try:
-                s = pd.to_numeric(out[orig], errors="coerce").round(0)
-                # convert NaN -> pd.NA for nullable integer casting
-                s = s.where(s.notna(), pd.NA)
-                out[orig] = s.astype("Int64")
-            except Exception:
-                # fallback to safe round result if casting fails
-                out[orig] = _safe_round(out[orig], 0)
-        elif lname in oscillator_cols:
-            out[orig] = _safe_round(out[orig], 2)
-        elif lname in pct_cols:
-            out[orig] = _safe_round(out[orig], 4)
-        else:
-            # If numeric and no special category, apply global decimals
-            try:
-                if pd.api.types.is_numeric_dtype(out[orig]):
-                    out[orig] = _safe_round(out[orig], decimals_int)
-            except Exception:
-                # leave as-is on any error
-                pass
-
-    return out
-
-
-def make_csv_formatters(
-    frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None
-) -> dict:
-    """Create a pandas.to_csv formatters dict honoring decimal point and thousands sep.
-
-    Returns: dict mapping column name -> callable
-    """
-    cols = list(frame.columns)
-    lc = {c.lower(): c for c in cols}
-    fmt: dict = {}
-
-    def _add_thousands_sep(int_str: str, sep: str) -> str:
-        neg = int_str.startswith("-")
-        if neg:
-            int_str = int_str[1:]
-        parts = []
-        while int_str:
-            parts.append(int_str[-3:])
-            int_str = int_str[:-3]
-        out = sep.join(reversed(parts))
-        return ("-" + out) if neg else out
-
-    def _num_formatter(nd: int):
-        def _f(x):
-            if pd.isna(x):
-                return ""
-            try:
-                s = f"{float(x):.{nd}f}"
-            except Exception:
-                return str(x)
-            if thous_sep:
-                int_part, _, frac = s.partition(".")
-                int_part_with_sep = _add_thousands_sep(int_part, thous_sep)
-                s = int_part_with_sep + ("." + frac if frac else "")
-            if dec_point != ".":
-                s = s.replace(".", dec_point)
-            return s
-
-        return _f
-
-    def _int_formatter():
-        def _f(x):
-            if pd.isna(x):
-                return ""
-            try:
-                s = f"{int(round(float(x))):d}"
-            except Exception:
-                return str(x)
-            if thous_sep:
-                s = _add_thousands_sep(s, thous_sep)
-            return s
-
-        return _f
-
-    # price/atr: 2 decimals
-    for name in (
-        "open",
-        "close",
-        "high",
-        "low",
-        "atr10",
-        "atr14",
-        "atr20",
-        "atr40",
-        "atr50",
-    ):
-        if name in lc:
-            fmt[lc[name]] = _num_formatter(2)
-    # oscillators: 2 decimals
-    for name in ("rsi3", "rsi4", "rsi14", "adx7"):
-        if name in lc:
-            fmt[lc[name]] = _num_formatter(2)
-    # pct/ratio: 4 decimals
-    for name in (
-        "roc200",
-        "return_3d",
-        "6d_return",
-        "return6d",
-        "atr_ratio",
-        "atr_pct",
-        "hv50",
-    ):
-        if name in lc:
-            fmt[lc[name]] = _num_formatter(4)
-    # volumes: integer display
-    for name in ("volume", "dollarvolume20", "dollarvolume50", "avgvolume50"):
-        if name in lc:
-            fmt[lc[name]] = _int_formatter()
-    return fmt
-
-
-# 健全性チェックで参照する主要指標列（読み込み後は小文字化される）
-MAIN_INDICATOR_COLUMNS = (
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "sma25",
-    "sma50",
-    "sma100",
-    "sma150",
-    "sma200",
-    "ema20",
-    "ema50",
-    "atr10",
-    "atr14",
-    "atr20",
-    "atr40",
-    "atr50",
-    "adx7",
-    "rsi3",
-    "rsi4",
-    "rsi14",
-    "roc200",
-    "hv50",
-    "dollarvolume20",
-    "dollarvolume50",
-    "avgvolume50",
-    "return_3d",
-    "6d_return",
-    "return6d",
-    "return_pct",
-    "drop3d",
-    "atr_ratio",
-    "atr_pct",
-)
-
-
 class CacheManager:
     """
     二層キャッシュ管理（full / rolling）。
-    - 既存のフォーマット(csv/parquet)は自動検出・踏襲
-    - system5/6スタイルのコメント・進捗ログ粒度を踏襲
+    リファクタリング済み：入出力・検証・警告は専用モジュールに委譲。
     """
 
-    _GLOBAL_WARNED: ClassVar[set[tuple[str, str, str]]] = set()
-
-    def __init__(self, settings):
+    def __init__(self, settings: Settings):
         self.settings = settings
         self.full_dir = Path(settings.cache.full_dir)
         self.rolling_dir = Path(settings.cache.rolling_dir)
         self.rolling_cfg = settings.cache.rolling
-        self.file_format = getattr(settings.cache, "file_format", "auto")
         self.rolling_meta_path = self.rolling_dir / self.rolling_cfg.meta_file
+
+        # ディレクトリ作成
         self.full_dir.mkdir(parents=True, exist_ok=True)
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
-        self._ui_prefix = "[CacheManager]"
-        self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(
-        self, ticker: str, profile: str, category: str, message: str
-    ) -> None:
-        key = (ticker, profile, category)
-        if key in self._warned:
-            return
-        self._warned.add(key)
-        logger.warning(message)
+        # 入出力管理
+        self.file_manager = CacheFileManager(settings)
+
+    def _read_base_and_tail(
+        self, ticker: str, tail_rows: int = 330
+    ) -> pd.DataFrame | None:
+        """baseキャッシュを読み込み、rolling相当の行数でtail処理を行う"""
+        try:
+            # baseディレクトリから読み込み
+            base_dir = self.full_dir.parent / "base"
+            path = self.file_manager.detect_path(base_dir, ticker)
+
+            if not path.exists():
+                return None
+
+            df = self.file_manager.read_with_fallback(path, ticker, "base")
+            if df is None or df.empty:
+                return None
+
+            # tail処理でrolling相当のサイズに
+            return df.tail(tail_rows)
+
+        except Exception as e:
+            logger.warning(f"Failed to read base and tail for {ticker}: {e}")
+            return None
 
     def _recompute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Recalculate derived indicator columns when base OHLC data is updated."""
+        if df is None or df.empty or "date" not in df.columns:
+            return df
 
-        if df is None or df.empty:
-            return df
-        try:
-            work = df.copy()
-        except Exception:
-            work = pd.DataFrame(df)
-        work.columns = [str(c).lower() for c in work.columns]
-        if "date" not in work.columns:
-            return df
         required = {"open", "high", "low", "close"}
-        if not required.issubset(set(work.columns)):
+        if not required.issubset(set(df.columns)):
             return df
-        base = work.copy()
+
+        base = df.copy()
         base["date"] = pd.to_datetime(base["date"], errors="coerce")
         base = base.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
         if base.empty:
             return df
+
         for col in ("open", "high", "low", "close", "volume"):
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
-        base["Date"] = base["date"].dt.normalize()
+
         case_map = {
             "open": "Open",
             "high": "High",
@@ -305,486 +89,420 @@ class CacheManager:
             "close": "Close",
             "volume": "Volume",
         }
-        for src, dst in case_map.items():
-            if src in base.columns:
-                base[dst] = base[src]
-        try:
-            enriched = add_indicators(base)
-        except Exception:
-            return df
-        enriched = enriched.drop(columns=["Date"], errors="ignore")
-        enriched.columns = [str(c).lower() for c in enriched.columns]
-        enriched["date"] = pd.to_datetime(
-            enriched.get("date", base["date"]), errors="coerce"
+        base_renamed = base.rename(
+            columns={k: v for k, v in case_map.items() if k in base.columns}
         )
-        combined = work.copy()
-        for col, series in enriched.items():
-            combined[col] = series
-        combined = combined.loc[:, ~pd.Index(combined.columns).duplicated(keep="first")]
-        original_cols = [str(c).lower() for c in df.columns]
-        new_cols = [col for col in combined.columns if col not in original_cols]
-        ordered_cols = original_cols + new_cols
-        try:
-            combined = combined.reindex(columns=ordered_cols)
-        except Exception:
-            combined = combined.reindex(columns=sorted(set(combined.columns)))
-        return combined
+        base_renamed["Date"] = base_renamed["date"]
 
-    # ---------- path/format detection ----------
-    def _detect_path(self, base_dir: Path, ticker: str) -> Path:
-        csv_path = base_dir / f"{ticker}.csv"
-        pq_path = base_dir / f"{ticker}.parquet"
-        feather_path = base_dir / f"{ticker}.feather"
-        for path in (csv_path, pq_path, feather_path):
-            if path.exists():
-                return path
-        fmt = (self.file_format or "auto").lower()
-        if fmt == "parquet":
-            return pq_path
-        if fmt == "feather":
-            return feather_path
-        return csv_path
+        try:
+            enriched = add_indicators(base_renamed)
+            enriched = enriched.drop(columns=["Date"], errors="ignore")
+            # 指標列を標準化（大文字統一）、その他は小文字化
+            enriched = standardize_indicator_columns(enriched)
+            # 基本列（date, open, high等）のみ小文字に変換
+            basic_cols = {"open", "high", "low", "close", "volume", "date"}
+            enriched.columns = [
+                c.lower() if c.lower() in basic_cols else c for c in enriched.columns
+            ]
+            enriched["date"] = pd.to_datetime(
+                enriched.get("date", base["date"]), errors="coerce"
+            )
 
-    # ---------- IO ----------
-    def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
-        base = self.full_dir if profile == "full" else self.rolling_dir
-        path = self._detect_path(base, ticker)
-        if not path.exists():
-            return None
-        try:
-            if path.suffix == ".feather":
-                try:
-                    df = pd.read_feather(path)
-                except Exception as e:
-                    self._warn_once(
-                        ticker,
-                        profile,
-                        "read_feather_fail",
-                        (
-                            f"{self._ui_prefix} feather読込失敗: {path.name} ({e}) "
-                            "→ csvへフォールバック試行"
-                        ),
-                    )
-                    csv_path = path.with_suffix(".csv")
-                    if csv_path.exists():
-                        try:
-                            df = pd.read_csv(csv_path, parse_dates=["date"])
-                        except ValueError as e2:
-                            if (
-                                "Missing column provided to 'parse_dates': 'date'"
-                                in str(e2)
-                            ):
-                                df = pd.read_csv(csv_path)
-                                if "Date" in df.columns:
-                                    df = df.rename(columns={"Date": "date"})
-                                    df["date"] = pd.to_datetime(df["date"])
-                                else:
-                                    raise
-                            else:
-                                raise
-                        except Exception as e2:
-                            self._warn_once(
-                                ticker,
-                                profile,
-                                "read_csv_fail",
-                                f"{self._ui_prefix} csv読込も失敗: {csv_path.name} ({e2})",
-                            )
-                            return None
-                    else:
-                        return None
-            elif path.suffix == ".parquet":
-                df = pd.read_parquet(path)
-            else:
-                try:
-                    df = pd.read_csv(path, parse_dates=["date"])
-                except ValueError as e:
-                    if "Missing column provided to 'parse_dates': 'date'" in str(e):
-                        df = pd.read_csv(path)
-                        if "Date" in df.columns:
-                            df = df.rename(columns={"Date": "date"})
-                            df["date"] = pd.to_datetime(df["date"])
-                        else:
-                            raise
-                    else:
-                        raise
-        except Exception as e:  # pragma: no cover - log and continue
-            category = f"read_error:{path.name}:{type(e).__name__}:{str(e)}"
-            self._warn_once(
-                ticker,
-                profile,
-                category,
-                f"{self._ui_prefix} 読み込み失敗: {path.name} ({e})",
-            )
-            return None
-        # 正規化: 列名を小文字化
-        df.columns = [c.lower() for c in df.columns]
-        # 列名の重複を除去（例: CSVに 'date' と 'Date' が混在していた場合）
-        try:
-            cols = pd.Index(df.columns)
-            if len(cols) != len(cols.unique()):
-                df = df.loc[:, ~cols.duplicated(keep="first")]
-        except Exception:
-            pass
-        if "date" in df.columns:
-            try:
-                # 型が混在（str/datetime）しても確実に datetime 化
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            except Exception:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df = (
-                df.dropna(subset=["date"])  # 不正日付を除外
-                .sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)
-            )
-        # --- 健全性チェック: NaN・型不一致・異常値 ---
-        try:
-            nan_rate = 0.0
-            if df.size > 0:
-                try:
-                    base_days = int(self.rolling_cfg.base_lookback_days)
-                except Exception:
-                    base_days = 300
-                try:
-                    buffer_days = int(self.rolling_cfg.buffer_days)
-                except Exception:
-                    buffer_days = 30
-                window = max(1, base_days + buffer_days)
-                if profile == "rolling":
-                    recent_df = df.tail(window)
-                else:
-                    recent_df = df.tail(max(window, 252))
-                target_cols = [
-                    col for col in MAIN_INDICATOR_COLUMNS if col in recent_df.columns
-                ]
-                if not target_cols:
-                    target_cols = list(recent_df.columns)
-                col_rates: list[float] = []
-                for col in target_cols:
-                    series_like = recent_df[col]
-                    if not isinstance(series_like, pd.Series):
-                        series_like = pd.Series(series_like)
-                    if series_like.dropna().empty:
-                        col_rates.append(1.0)
-                        continue
-                    first_valid = series_like.first_valid_index()
-                    if first_valid is None:
-                        col_rates.append(1.0)
-                        continue
-                    try:
-                        trimmed = series_like.loc[first_valid:]
-                    except Exception:
-                        try:
-                            loc = series_like.index.get_loc(first_valid)
-                        except Exception:
-                            loc = 0
-                        trimmed = series_like.iloc[loc:]
-                    if trimmed.empty:
-                        col_rates.append(1.0)
-                        continue
-                    col_rates.append(float(trimmed.isna().mean()))
-                if col_rates:
-                    if any(rate >= 1.0 for rate in col_rates):
-                        nan_rate = 1.0
-                    else:
-                        nan_rate = float(np.mean(col_rates))
-            if nan_rate > 0.20:
-                category = f"nan_rate:{round(float(nan_rate), 4)}"
-                self._warn_once(
-                    ticker,
-                    profile,
-                    category,
-                    f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 主要指標NaN率高 "
-                    f"({nan_rate:.2%})",
-                )
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col in df.columns:
-                    series_like = df[col]
-                    if not pd.api.types.is_numeric_dtype(series_like):
-                        dtype_repr = describe_dtype(series_like)
-                        category = f"dtype:{col}:{dtype_repr}"
-                        self._warn_once(
-                            ticker,
-                            profile,
-                            category,
-                            f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}型不一致 "
-                            f"({dtype_repr})",
-                        )
-            for col in ["close", "high", "low"]:
-                if col in df.columns:
-                    vals = pd.to_numeric(df[col], errors="coerce")
-                    if (vals <= 0).all():
-                        category = f"non_positive:{col}"
-                        self._warn_once(
-                            ticker,
-                            profile,
-                            category,
-                            (
-                                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: {col}全て非正値"
-                            ),
-                        )
+            # Overwrite indicator columns with freshly computed values while
+            # preserving original OHLCV and date columns. This ensures appended
+            # rows receive correct indicator values and existing indicators are
+            # consistent with the latest OHLC history.
+            combined = df.copy()
+            ohlcv = {"open", "high", "low", "close", "volume"}
+            for col, series in enriched.items():
+                if col == "date":
+                    # ensure date column exists and normalized
+                    combined["date"] = series
+                    continue
+                if col in ohlcv:
+                    # keep original OHLCV from df
+                    continue
+                # replace or create indicator columns from enriched
+                combined[col] = series
+
+            # drop any duplicated columns just in case
+            return combined.loc[:, ~combined.columns.duplicated(keep="first")]
         except Exception as e:
-            category = f"healthcheck_error:{type(e).__name__}:{str(e)}"
-            self._warn_once(
-                ticker,
-                profile,
-                category,
-                f"{self._ui_prefix} ⚠️ {ticker} {profile} cache: 健全性チェック失敗 ({e})",
-            )
-        return df
+            logger.error(f"Failed to recompute indicators: {e}")
+            return df
+
+    def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
+        """指定プロファイルからデータを読み込む。"""
+        if profile == "rolling":
+            # rolling優先、フォールバック処理
+            path = self.file_manager.detect_path(self.rolling_dir, ticker)
+            df = self.file_manager.read_with_fallback(path, ticker, profile)
+
+            if df is None or df.empty:
+                # baseからrolling相当を生成
+                report_rolling_issue("missing_rolling", ticker, "fallback to base+tail")
+                df = self._read_base_and_tail(ticker)
+
+                if df is not None and not df.empty:
+                    # rolling形式で保存
+                    try:
+                        self.file_manager.write_atomic(df, path, ticker, profile)
+                        logger.debug(f"Generated rolling cache for {ticker}")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to save generated rolling for {ticker}: {e}"
+                        )
+
+                return df
+
+            # データサイズチェック
+            if len(df) < self.rolling_cfg.base_lookback_days:
+                report_rolling_issue(
+                    "insufficient_data",
+                    ticker,
+                    f"rows={len(df)}, expected>={self.rolling_cfg.base_lookback_days}",
+                )
+
+            return df
+
+        elif profile == "full":
+            path = self.file_manager.detect_path(self.full_dir, ticker)
+            return self.file_manager.read_with_fallback(path, ticker, profile)
+
+        else:
+            raise ValueError(f"Unsupported profile: {profile}")
 
     def write_atomic(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
-        base = self.full_dir if profile == "full" else self.rolling_dir
-        base.mkdir(parents=True, exist_ok=True)
-        path = self._detect_path(base, ticker)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        # 丸め桁数の判定: profile が 'rolling' の場合は rolling 設定を優先し、なければ全体設定を使う
-        try:
-            round_dec = None
-            cfg_round = getattr(self.settings.cache, "round_decimals", None)
-            if profile == "rolling":
-                roll_round = getattr(
-                    self.settings.cache.rolling, "round_decimals", None
-                )
-                round_dec = roll_round if roll_round is not None else cfg_round
-            else:
-                round_dec = cfg_round
-        except Exception:
-            round_dec = None
-        df_to_write = round_dataframe(df, round_dec)
-        # Prepare CSV formatters to ensure integer display for volume-like columns
-        def _make_csv_formatters(
-            frame: pd.DataFrame, dec_point: str, thous_sep: str | None
-        ) -> dict:
-            cols = list(frame.columns)
-            lc = {c.lower(): c for c in cols}
-            fmt: dict = {}
+        """指定プロファイルにデータをアトミック書き込み。"""
+        if profile == "rolling":
+            dir_path = self.rolling_dir
+        elif profile == "full":
+            dir_path = self.full_dir
+        else:
+            raise ValueError(f"Unsupported profile: {profile}")
 
-            def _num_formatter(nd: int):
-                def _f(x):
-                    if pd.isna(x):
-                        return ""
-                    try:
-                        s = f"{float(x):.{nd}f}"
-                    except Exception:
-                        return str(x)
-                    # Apply thousands separator if requested
-                    if thous_sep:
-                        int_part, _, frac = s.partition(".")
-                        int_part_with_sep = _add_thousands_sep(int_part, thous_sep)
-                        s = int_part_with_sep + ("." + frac if frac else "")
-                    # Replace decimal point if different
-                    if dec_point != ".":
-                        s = s.replace(".", dec_point)
-                    return s
+        path = self.file_manager.detect_path(dir_path, ticker)
 
-                return _f
+        # 健全性チェック
+        perform_cache_health_check(df, ticker, profile)
 
-            def _int_formatter():
-                def _f(x):
-                    if pd.isna(x):
-                        return ""
-                    try:
-                        s = f"{int(round(float(x))):d}"
-                    except Exception:
-                        return str(x)
-                    if thous_sep:
-                        s = _add_thousands_sep(s, thous_sep)
-                    return s
+        # メモリ最適化
+        optimized_df = self.file_manager.optimize_dataframe_memory(df)
 
-                return _f
+        # 書き込み
+        self.file_manager.write_atomic(optimized_df, path, ticker, profile)
 
-            def _add_thousands_sep(int_str: str, sep: str) -> str:
-                # Insert thousands separator into integer string (no sign handling needed here)
-                neg = int_str.startswith("-")
-                if neg:
-                    int_str = int_str[1:]
-                parts = []
-                while int_str:
-                    parts.append(int_str[-3:])
-                    int_str = int_str[:-3]
-                out = sep.join(reversed(parts))
-                return ("-" + out) if neg else out
-
-            # price/atr: 2 decimals
-            for name in (
-                "open",
-                "close",
-                "high",
-                "low",
-                "atr10",
-                "atr14",
-                "atr20",
-                "atr40",
-                "atr50",
-            ):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(2)
-            # oscillators: 2 decimals
-            for name in ("rsi3", "rsi4", "rsi14", "adx7"):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(2)
-            # pct/ratio: 4 decimals
-            for name in (
-                "roc200",
-                "return_3d",
-                "6d_return",
-                "return6d",
-                "atr_ratio",
-                "atr_pct",
-                "hv50",
-            ):
-                if name in lc:
-                    fmt[lc[name]] = _num_formatter(4)
-            # volumes: integer display
-            for name in ("volume", "dollarvolume20", "dollarvolume50", "avgvolume50"):
-                if name in lc:
-                    fmt[lc[name]] = _int_formatter()
-            return fmt
-        try:
-            if path.suffix == ".parquet":
-                df_to_write.to_parquet(tmp, index=False)
-            elif path.suffix == ".feather":
-                df_to_write.reset_index(drop=True).to_feather(tmp)
-            else:
-                try:
-                    settings = get_settings(create_dirs=False)
-                    dec_point = getattr(settings.cache, "csv_decimal_point", ".")
-                    thous = getattr(settings.cache, "csv_thousands_sep", None)
-                    sep = getattr(settings.cache, "csv_field_sep", ",")
-                    fmt = _make_csv_formatters(df_to_write, dec_point, thous)
-                    # pandas to_csv accepts formatters and also supports 'decimal' and 'sep' args
-                    df_to_write.to_csv(
-                        tmp,
-                        index=False,
-                        float_format=None,
-                        formatters=fmt,
-                        decimal=dec_point,
-                        sep=sep,
-                    )
-                except Exception:
-                    df_to_write.to_csv(tmp, index=False)
-            shutil.move(tmp, path)
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
-
-    # ---------- upsert ----------
     def upsert_both(self, ticker: str, new_rows: pd.DataFrame) -> None:
-        """EODHD更新を①full②rollingに同時反映"""
-        for profile in ("full", "rolling"):
-            self._upsert_one(ticker, new_rows, profile)
+        """full と rolling 両方に upsert（更新・挿入）処理を実行する。"""
+        self._upsert_one(ticker, new_rows, "full")
+        self._upsert_one(ticker, new_rows, "rolling")
 
     def _upsert_one(self, ticker: str, new_rows: pd.DataFrame, profile: str) -> None:
-        # 入力行の日付を厳密に正規化（str/Timestamp 混在対策）
-        if new_rows is not None and not new_rows.empty:
-            try:
-                if "date" in new_rows.columns:
-                    new_rows = new_rows.copy()
-                    new_rows["date"] = pd.to_datetime(new_rows["date"], errors="coerce")
-                    new_rows = new_rows.dropna(subset=["date"]).reset_index(drop=True)
-            except Exception:
-                pass
-        cur = self.read(ticker, profile)
-        if cur is None or cur.empty:
-            merged = new_rows.copy()
+        """単一プロファイルに対する upsert 処理。"""
+        if new_rows is None or new_rows.empty:
+            return
+
+        # 既存データ読み込み
+        existing = self.read(ticker, profile)
+
+        if existing is None or existing.empty:
+            # 新規作成
+            to_save = new_rows.copy()
         else:
-            merged = pd.concat([cur, new_rows], ignore_index=True)
-            merged = (
-                merged.sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)  # noqa: E501
-            )
+            # マージ処理
+            combined = pd.concat([existing, new_rows], ignore_index=True)
+            if "date" in combined.columns:
+                combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
+                combined = combined.dropna(subset=["date"])
+                combined = combined.drop_duplicates(subset=["date"], keep="last")
+                combined = combined.sort_values("date").reset_index(drop=True)
+            to_save = combined
 
+        # rolling制限適用
         if profile == "rolling":
-            merged = self._enforce_rolling_window(merged)
+            to_save = self._enforce_rolling_window(to_save)
 
-        merged = self._recompute_indicators(merged)
-        self.write_atomic(merged, ticker, profile)
+        # 指標再計算
+        to_save = self._recompute_indicators(to_save)
 
-    # ---------- rolling window & prune ----------
-    @property
-    def _rolling_target_len(self) -> int:
-        return int(self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days)
+        # 保存
+        self.write_atomic(to_save, ticker, profile)
 
     @property
-    def _prune_chunk(self) -> int:
-        return int(self.rolling_cfg.prune_chunk_days)
+    def _ui_prefix(self) -> str:
+        return "[CacheManager]"
 
     def _enforce_rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
-        if "date" not in df.columns or df.empty:
+        """rolling ウィンドウサイズ制限を適用する。"""
+        if df is None or df.empty:
             return df
-        target = self._rolling_target_len
-        if len(df) <= target:
-            return df
-        return df.iloc[-target:].reset_index(drop=True)
+        max_rows = self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days
+        return df.tail(max_rows)
 
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
-        last_meta = {"anchor_rows_at_prune": 0}
-        if self.rolling_meta_path.exists():
-            try:
-                last_meta = json.loads(
-                    self.rolling_meta_path.read_text(encoding="utf-8")
-                )  # noqa: E501
-            except Exception:
-                pass
+        """Rolling cache の容量管理とプルーニングを実行。"""
+        try:
+            # アンカー銘柄の最新日付を取得
+            anchor_df = self.read(anchor_ticker, "rolling")
+            if anchor_df is None or anchor_df.empty or "date" not in anchor_df.columns:
+                return {
+                    "status": "error",
+                    "message": f"アンカー銘柄 {anchor_ticker} のデータが取得できません",
+                }
 
-        anchor_df = self.read(anchor_ticker, "rolling")
-        if anchor_df is None or anchor_df.empty:
-            logger.info(f"{self._ui_prefix} rolling未整備のためpruneスキップ")
-            return {"pruned_files": 0, "dropped_rows_total": 0}
+            anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
+            anchor_latest = anchor_df["date"].max()
+            if pd.isna(anchor_latest):
+                return {
+                    "status": "error",
+                    "message": f"アンカー銘柄 {anchor_ticker} の日付が不正です",
+                }
 
-        cur_rows = len(anchor_df)
-        prev_rows = int(last_meta.get("anchor_rows_at_prune", 0))
-        progressed = max(0, cur_rows - prev_rows)
-
-        if progressed < self._prune_chunk:
-            logger.info(
-                f"{self._ui_prefix} 進捗{progressed}営業日 (<{self._prune_chunk}) のためprune不要"
+            # Rolling ディレクトリのファイル一覧
+            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
+                self.rolling_dir.glob("*.feather")
             )
-            return {"pruned_files": 0, "dropped_rows_total": 0}
+            if not rolling_files:
+                return {
+                    "status": "success",
+                    "message": "プルーニング対象ファイルなし",
+                    "pruned": 0,
+                }
 
-        logger.info(
-            f"{self._ui_prefix} ⏳ prune開始: anchor={anchor_ticker}, 進捗={progressed}営業日"
-        )
+            pruned_count = 0
+            staleness_threshold = self.rolling_cfg.max_staleness_days
 
-        pruned_files = 0
-        dropped_total = 0
-        for path in self.rolling_dir.glob("*.*"):
-            if path.name.startswith("_"):
-                continue
-            ticker = path.stem
-            df = self.read(ticker, "rolling")
-            if df is None or df.empty:
-                continue
+            for file_path in rolling_files:
+                ticker_name = file_path.stem
+                try:
+                    df = self.file_manager.read_with_fallback(
+                        file_path, ticker_name, "rolling"
+                    )
+                    if df is None or df.empty or "date" not in df.columns:
+                        continue
 
-            keep_min = self._rolling_target_len
-            can_drop = max(0, len(df) - keep_min)
-            drop_n = min(self._prune_chunk, can_drop)
-            if drop_n <= 0:
-                continue
+                    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                    file_latest = df["date"].max()
 
-            new_df = df.iloc[drop_n:].reset_index(drop=True)
-            self.write_atomic(new_df, ticker, "rolling")
+                    if pd.isna(file_latest):
+                        continue
 
-            pruned_files += 1
-            dropped_total += drop_n
+                    days_stale = (anchor_latest - file_latest).days
+                    if days_stale > staleness_threshold:
+                        file_path.unlink()
+                        pruned_count += 1
+                        logger.info(
+                            f"Pruned stale rolling cache: {ticker_name} ({days_stale} days stale)"
+                        )
 
-        self.rolling_meta_path.write_text(
-            json.dumps(
-                {"anchor_rows_at_prune": cur_rows},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        logger.info(
-            f"{self._ui_prefix} ✅ prune完了: files={pruned_files}, dropped_rows={dropped_total}"
-        )
-        return {"pruned_files": pruned_files, "dropped_rows_total": dropped_total}
+                except Exception as e:
+                    logger.warning(f"プルーニング処理中エラー {ticker_name}: {e}")
+                    continue
+
+            return {
+                "status": "success",
+                "message": f"プルーニング完了: {pruned_count} ファイル削除",
+                "pruned": pruned_count,
+                "anchor_date": anchor_latest.strftime("%Y-%m-%d"),
+            }
+
+        except Exception as e:
+            return {"status": "error", "message": f"プルーニング処理中にエラー: {e}"}
+
+    def analyze_rolling_gaps(self, system_symbols: list[str] | None = None) -> dict:
+        """Rolling cache のギャップ分析を実行。"""
+        try:
+            if system_symbols is None:
+                # デフォルトシンボル取得
+                try:
+                    from common.symbols_manifest import load_symbol_manifest
+
+                    manifest = load_symbol_manifest(self.full_dir)
+                    system_symbols = manifest
+                except Exception:
+                    system_symbols = []
+
+            if not system_symbols:
+                return {
+                    "status": "error",
+                    "message": "分析対象シンボルが見つかりません",
+                }
+
+            missing_files = []
+            insufficient_data = []
+            stale_data = []
+            healthy_count = 0
+
+            # SPY を基準日付として使用
+            spy_df = self.read("SPY", "rolling")
+            if spy_df is not None and not spy_df.empty and "date" in spy_df.columns:
+                spy_df["date"] = pd.to_datetime(spy_df["date"], errors="coerce")
+                reference_date = spy_df["date"].max()
+            else:
+                reference_date = pd.Timestamp.now().normalize()
+
+            min_required_rows = self.rolling_cfg.base_lookback_days
+            max_stale_days = self.rolling_cfg.max_staleness_days
+
+            for symbol in system_symbols:
+                try:
+                    df = self.read(symbol, "rolling")
+                    if df is None or df.empty:
+                        missing_files.append(symbol)
+                        continue
+
+                    if "date" not in df.columns:
+                        insufficient_data.append(f"{symbol}(no_date_col)")
+                        continue
+
+                    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                    valid_dates = df["date"].dropna()
+
+                    if len(valid_dates) == 0:
+                        insufficient_data.append(f"{symbol}(no_valid_dates)")
+                        continue
+
+                    if len(df) < min_required_rows:
+                        insufficient_data.append(f"{symbol}(rows={len(df)})")
+                        continue
+
+                    latest_date = valid_dates.max()
+                    if pd.notna(latest_date) and pd.notna(reference_date):
+                        days_behind = (reference_date - latest_date).days
+                        if days_behind > max_stale_days:
+                            stale_data.append(f"{symbol}({days_behind}d)")
+                            continue
+
+                    healthy_count += 1
+
+                except Exception as e:
+                    logger.warning(f"ギャップ分析エラー {symbol}: {e}")
+                    missing_files.append(f"{symbol}(error)")
+
+            return {
+                "status": "success",
+                "total_symbols": len(system_symbols),
+                "healthy": healthy_count,
+                "missing_files": len(missing_files),
+                "insufficient_data": len(insufficient_data),
+                "stale_data": len(stale_data),
+                "missing_list": missing_files[:10],  # 最初の10件のみ
+                "insufficient_list": insufficient_data[:10],
+                "stale_list": stale_data[:10],
+                "reference_date": (
+                    reference_date.strftime("%Y-%m-%d")
+                    if pd.notna(reference_date)
+                    else "N/A"
+                ),
+            }
+
+        except Exception as e:
+            return {"status": "error", "message": f"ギャップ分析中にエラー: {e}"}
+
+    def get_rolling_health_summary(self) -> dict:
+        """Rolling cache の健康状態サマリーを取得。"""
+        try:
+            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
+                self.rolling_dir.glob("*.feather")
+            )
+
+            if not rolling_files:
+                return {
+                    "status": "success",
+                    "total_files": 0,
+                    "message": "Rolling cache ファイルが存在しません",
+                }
+
+            total_files = len(rolling_files)
+            readable_files = 0
+            total_rows = 0
+            date_range_info = {}
+
+            for file_path in rolling_files[:20]:  # サンプリング
+                try:
+                    ticker = file_path.stem
+                    df = self.file_manager.read_with_fallback(
+                        file_path, ticker, "rolling"
+                    )
+                    if df is not None and not df.empty:
+                        readable_files += 1
+                        total_rows += len(df)
+
+                        if "date" in df.columns:
+                            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                            valid_dates = df["date"].dropna()
+                            if len(valid_dates) > 0:
+                                date_range_info[ticker] = {
+                                    "start": valid_dates.min().strftime("%Y-%m-%d"),
+                                    "end": valid_dates.max().strftime("%Y-%m-%d"),
+                                    "rows": len(df),
+                                }
+                except Exception:
+                    continue
+
+            return {
+                "status": "success",
+                "total_files": total_files,
+                "readable_files": readable_files,
+                "sample_total_rows": total_rows,
+                "avg_rows_per_file": (
+                    total_rows / readable_files if readable_files > 0 else 0
+                ),
+                "sample_date_ranges": date_range_info,
+            }
+
+        except Exception as e:
+            return {"status": "error", "message": f"健康状態チェック中にエラー: {e}"}
+
+    def read_batch_parallel(
+        self,
+        symbols: list[str],
+        profile: str = "rolling",
+        max_workers: int | None = None,
+        fallback_profile: str | None = "full",
+        progress_callback=None,
+    ) -> dict[str, pd.DataFrame]:
+        """複数銘柄のデータを並列で読み込む。"""
+        if not symbols:
+            return {}
+
+        if max_workers is None:
+            max_workers = min(8, len(symbols))
+
+        results = {}
+        completed = 0
+
+        def read_single(symbol: str) -> tuple[str, pd.DataFrame | None]:
+            df = self.read(symbol, profile)
+            if df is None and fallback_profile:
+                df = self.read(symbol, fallback_profile)
+            return symbol, df
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_symbol = {
+                executor.submit(read_single, sym): sym for sym in symbols
+            }
+
+            for future in as_completed(future_to_symbol):
+                symbol, df = future.result()
+                if df is not None:
+                    results[symbol] = df
+
+                completed += 1
+                if progress_callback and completed % 50 == 0:
+                    progress_callback(completed, len(symbols))
+
+        return results
+
+    def optimize_dataframe_memory(self, df: pd.DataFrame) -> pd.DataFrame:
+        """DataFrameのメモリ使用量を最適化する（委譲）。"""
+        return self.file_manager.optimize_dataframe_memory(df)
+
+    def remove_unnecessary_columns(
+        self, df: pd.DataFrame, keep_columns: list[str] | None = None
+    ) -> pd.DataFrame:
+        """不要な列を除去する（委譲）。"""
+        return self.file_manager.remove_unnecessary_columns(df, keep_columns)
 
 
 def _base_dir() -> Path:
@@ -795,152 +513,197 @@ def _base_dir() -> Path:
 
 
 def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """OHLCVのDataFrameに共通ベース指標を付加して返す。
-    必要列: Open, High, Low, Close, Volume
-    出力列:
-      SMA25/100/150/200, EMA20/50, ATR10/14/40/50, RSI3/14, ROC200, HV50
-    """
+    """OHLCVのDataFrameに共通ベース指標を付加して返す。"""
     if df is None or df.empty:
         return df
+
     x = df.copy()
 
-    # 'Date' / 'date' が両方存在するなど、日付列重複を事前に整理
-    try:
-        date_like = [c for c in x.columns if str(c).lower() == "date"]
-        if len(date_like) >= 2:
-            keep = "Date" if "Date" in date_like else date_like[0]
-            drop_cols = [c for c in date_like if c != keep]
-            x = x.drop(columns=drop_cols, errors="ignore")
-    except Exception:
-        pass
+    # Normalize column names
+    rename_map = {c: c.lower() for c in x.columns}
+    x = x.rename(columns=rename_map)
 
-    # 列名の正規化（大小・同義語を統一）
-    lower_map = {c.lower(): c for c in x.columns}
-    rename_map: dict[str, str] = {}
-    if "date" in lower_map and "Date" not in x.columns:
-        rename_map[lower_map["date"]] = "Date"
-    # Close は adjusted を優先
-    for key in ("adjusted_close", "adj_close", "adjclose", "close"):
-        if key in lower_map:
-            rename_map.setdefault(lower_map[key], "Close")
-            break
-    # その他の標準OHLCV
-    mapping = {
-        "Open": ("open",),
-        "High": ("high",),
-        "Low": ("low",),
-        "Volume": ("volume", "vol"),
-    }
-    for canon, candidates in mapping.items():
-        for key in candidates:
-            if key in lower_map:
-                rename_map.setdefault(lower_map[key], canon)
-                break
-    if rename_map:
-        x = x.rename(columns=rename_map)
-    # 日付インデックス化（可能なら）
+    # Ensure 'Date' column and set as index
+    if "date" in x.columns:
+        x = x.rename(columns={"date": "Date"})
     if "Date" in x.columns:
         x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
         x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
 
-    # 必須列チェック
-    required = ["High", "Low", "Close"]
-    missing = [c for c in required if c not in x.columns]
-    if missing:
+    # Standardize OHLCV column names
+    ohlcv_map = {
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "adjusted_close": "Close",
+        "adj_close": "Close",
+        "adjclose": "Close",
+        "close": "Close",
+        "volume": "Volume",
+        "vol": "Volume",
+    }
+    final_rename = {c: ohlcv_map[c] for c in x.columns if c in ohlcv_map}
+    x = x.rename(columns=final_rename)
+
+    required = {"High", "Low", "Close"}
+    if not required.issubset(x.columns):
+        missing_cols = required - set(x.columns)
         logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing}"
+            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
         )
-        return x
+        return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
     high = pd.to_numeric(x["High"], errors="coerce")
     low = pd.to_numeric(x["Low"], errors="coerce")
-    vol = x.get("Volume")
-    if vol is not None:
-        vol = pd.to_numeric(vol, errors="coerce")
+    vol = None
+    if "Volume" in x.columns:
+        vol = pd.to_numeric(x["Volume"], errors="coerce")
 
-    # SMA/EMA
-    x["SMA25"] = close.rolling(25).mean()
-    x["SMA50"] = close.rolling(50).mean()
-    x["SMA100"] = close.rolling(100).mean()
-    x["SMA150"] = close.rolling(150).mean()
-    x["SMA200"] = close.rolling(200).mean()
-    x["EMA20"] = close.ewm(span=20, adjust=False).mean()
-    x["EMA50"] = close.ewm(span=50, adjust=False).mean()
+    # SMA/EMA - 大文字統一
+    for n in [25, 50, 100, 150, 200]:
+        x[f"SMA{n}"] = close.rolling(n).mean()
+    for n in [20, 50]:
+        x[f"EMA{n}"] = close.ewm(span=n, adjust=False).mean()
 
-    # True Range / ATR
+    # ATR - 大文字統一
     tr = pd.concat(
-        [
-            (high - low),
-            (high - close.shift()).abs(),
-            (low - close.shift()).abs(),
-        ],
-        axis=1,
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
     ).max(axis=1)
-    x["ATR10"] = tr.rolling(10).mean()
-    x["ATR14"] = tr.rolling(14).mean()
-    x["ATR40"] = tr.rolling(40).mean()
-    x["ATR50"] = tr.rolling(50).mean()
+    for n in [10, 14, 20, 40, 50]:
+        x[f"ATR{n}"] = tr.rolling(n).mean()
 
-    # RSI 3/14 (Wilder)
-    def _rsi(series: pd.Series, window: int) -> pd.Series:
-        delta = series.diff()
-        gain = delta.clip(lower=0).ewm(alpha=1 / window, adjust=False).mean()
-        loss = -delta.clip(upper=0).ewm(alpha=1 / window, adjust=False).mean()
+    # RSI (Wilder) - 大文字統一
+    def _rsi(s: pd.Series, n: int) -> pd.Series:
+        delta = s.diff()
+        gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+        loss = -delta.clip(upper=0).ewm(alpha=1 / n, adjust=False).mean()
         rs = gain / loss.replace(0, np.nan)
         return 100 - (100 / (1 + rs))
 
-    x["RSI3"] = _rsi(close, 3)
-    x["RSI14"] = _rsi(close, 14)
+    for n in [3, 4, 14]:
+        x[f"RSI{n}"] = _rsi(close, n)
 
-    # ROC200 (%)
+    # ROC & HV - 大文字統一
     x["ROC200"] = close.pct_change(200) * 100.0
+    log_ret = (close / close.shift(1)).apply(np.log)
+    std_dev = log_ret.rolling(50).std()
+    x["HV50"] = std_dev * np.sqrt(252) * 100.0
 
-    # HV50 (% 年率)
-    # np.log は型チェッカー上で ndarray を返すと解釈されるため、Series.apply を使って Series を維持
-    ret = (close / close.shift(1)).apply(np.log)
-    x["HV50"] = ret.rolling(50).std() * np.sqrt(252) * 100
-
-    # 補助: 流動性系
+    # DollarVolume - 大文字統一
     if vol is not None:
         x["DollarVolume20"] = (close * vol).rolling(20).mean()
         x["DollarVolume50"] = (close * vol).rolling(50).mean()
 
-    return x
+    return x.reset_index()
+
+
+def get_indicator_column_flexible(df: pd.DataFrame, indicator: str) -> pd.Series | None:
+    """大文字小文字を区別せずに指標列を取得する。"""
+    if df is None or df.empty:
+        return None
+
+    # 完全一致を最初に試行
+    if indicator in df.columns:
+        return df[indicator]
+
+    # 小文字変換で検索
+    lower_indicator = indicator.lower()
+    for col in df.columns:
+        if col.lower() == lower_indicator:
+            return df[col]
+
+    return None
+
+
+def standardize_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """指標列名を標準形式に統一する。"""
+    if df is None or df.empty:
+        return df
+
+    result = df.copy()
+
+    # 標準化マップ（小文字 -> 標準形式）
+    standard_map = {
+        "sma25": "SMA25",
+        "sma50": "SMA50",
+        "sma100": "SMA100",
+        "sma150": "SMA150",
+        "sma200": "SMA200",
+        "ema20": "EMA20",
+        "ema50": "EMA50",
+        "atr10": "ATR10",
+        "atr14": "ATR14",
+        "atr20": "ATR20",
+        "atr40": "ATR40",
+        "atr50": "ATR50",
+        "rsi3": "RSI3",
+        "rsi4": "RSI4",
+        "rsi14": "RSI14",
+        "adx7": "ADX7",
+        "roc200": "ROC200",
+        "hv50": "HV50",
+        "dollarvolume20": "DollarVolume20",
+        "dollarvolume50": "DollarVolume50",
+        "avgvolume50": "AvgVolume50",
+    }
+
+    rename_dict = {}
+    for col in result.columns:
+        col_lower = col.lower()
+        if col_lower in standard_map:
+            rename_dict[col] = standard_map[col_lower]
+
+    if rename_dict:
+        result = result.rename(columns=rename_dict)
+
+    return result
 
 
 def base_cache_path(symbol: str) -> Path:
     return _base_dir() / f"{safe_filename(symbol)}.csv"
 
 
-def save_base_cache(symbol: str, df: pd.DataFrame) -> Path:
-    path = base_cache_path(symbol)
-    df_reset = df.reset_index() if df.index.name is not None else df
-    path.parent.mkdir(parents=True, exist_ok=True)
+def save_base_cache(
+    symbol: str, df: pd.DataFrame, settings: Settings | None = None
+) -> Path:
+    """Base キャッシュを feather 形式で保存し、パスを返す。"""
+    if settings is None:
+        settings = get_settings(create_dirs=True)
+
+    # ベースキャッシュディレクトリとfeatherパス
+    base_dir = Path(settings.DATA_CACHE_DIR) / "base"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = base_dir / f"{safe_filename(symbol)}.feather"
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+
+    # データ前処理
+    df_reset = (
+        df.reset_index() if hasattr(df, "index") and df.index.name is not None else df
+    )
+    df_reset = df_reset.rename(columns={c: str(c).lower() for c in df_reset.columns})
+
+    # 設定に基づく丸め処理
     try:
-        settings = get_settings(create_dirs=False)
-        round_dec = getattr(settings.cache, "round_decimals", None)
+        round_dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
     except Exception:
         round_dec = None
-    df_to_write = round_dataframe(df_reset, round_dec)
+
+    if round_dec is not None:
+        from common.cache_format import round_dataframe
+
+        df_reset = round_dataframe(df_reset, round_dec)
+
     try:
-        settings = get_settings(create_dirs=False)
-        dec_point = getattr(settings.cache, "csv_decimal_point", ".")
-        thous = getattr(settings.cache, "csv_thousands_sep", None)
-        sep = getattr(settings.cache, "csv_field_sep", ",")
-        fmt = None
-        try:
-            fmt = _DEFAULT_CACHE_MANAGER._make_csv_formatters(  # type: ignore[attr-defined]
-                df_to_write, dec_point, thous
-            )
-        except Exception:
-            fmt = None
-        if fmt:
-            df_to_write.to_csv(path, index=False, formatters=fmt, decimal=dec_point, sep=sep)
-        else:
-            df_to_write.to_csv(path, index=False, decimal=dec_point, sep=sep)
-    except Exception:
-        df_to_write.to_csv(path, index=False)
+        # feather形式でアトミック書き込み
+        df_reset.to_feather(tmp_path)
+        tmp_path.replace(path)
+    except Exception as e:
+        # 一時ファイル削除
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise RuntimeError(f"feather 書き込みに失敗しました: {path}") from e
+
     return path
 
 
@@ -948,25 +711,22 @@ _DEFAULT_CACHE_MANAGER: CacheManager | None = None
 
 
 def _get_default_cache_manager() -> CacheManager:
-    """モジュール共通で使い回す CacheManager を返す。"""
-
     global _DEFAULT_CACHE_MANAGER
     if _DEFAULT_CACHE_MANAGER is None:
-        settings = get_settings(create_dirs=False)
+        settings = get_settings(create_dirs=True)
         _DEFAULT_CACHE_MANAGER = CacheManager(settings)
     return _DEFAULT_CACHE_MANAGER
 
 
 def _read_legacy_cache(symbol: str) -> pd.DataFrame | None:
-    """`data_cache/`直下の旧形式CSVを直接読み込む（互換目的）。"""
-
-    legacy_path = Path("data_cache") / f"{safe_filename(symbol)}.csv"
-    if not legacy_path.exists():
-        return None
+    """Legacy cache から読み込む（互換性のため）。"""
     try:
-        return pd.read_csv(legacy_path)
+        legacy_path = Path("data_cache") / f"{safe_filename(symbol)}.csv"
+        if legacy_path.exists():
+            return pd.read_csv(legacy_path)
     except Exception:
-        return None
+        pass
+    return None
 
 
 def load_base_cache(
@@ -976,132 +736,23 @@ def load_base_cache(
     cache_manager: CacheManager | None = None,
     min_last_date: pd.Timestamp | None = None,
     allowed_recent_dates: Iterable[object] | None = None,
-) -> pd.DataFrame | None:  # noqa: E501
-    """Load base cache with optional freshness validation.
+    prefer_precomputed_indicators: bool = True,
+) -> pd.DataFrame | None:
+    """Base キャッシュを読み込む（下位互換性のため保持）。"""
+    if cache_manager is None:
+        cache_manager = _get_default_cache_manager()
 
-    When ``allowed_recent_dates`` or ``min_last_date`` is provided, the on-disk cache
-    is considered stale if it does not contain a recent trading day. Stale caches are
-    rebuilt from the latest full/rolling dataset when ``rebuild_if_missing`` is True.
-    """
-
-    def _detect_last_date(frame: pd.DataFrame | None) -> pd.Timestamp | None:
-        if frame is None or getattr(frame, "empty", True):
-            return None
-        try:
-            if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
-                return pd.Timestamp(frame.index[-1]).normalize()
-        except Exception:
-            pass
-        for col in ("Date", "date"):
-            if col in frame.columns:
-                try:
-                    series = pd.to_datetime(frame[col], errors="coerce").dropna()
-                    if not series.empty:
-                        return pd.Timestamp(series.iloc[-1]).normalize()
-                except Exception:
-                    continue
-        return None
-
-    allowed_set: set[pd.Timestamp] = set()
-    if allowed_recent_dates:
-        for candidate in allowed_recent_dates:
-            try:
-                ts = pd.Timestamp(candidate)
-            except Exception:
-                continue
-            if pd.isna(ts):
-                continue
-            allowed_set.add(ts.normalize())
-
-    if min_last_date is not None:
-        try:
-            min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
-        except Exception:
-            min_norm = None
-    else:
-        min_norm = None
-
-    path = base_cache_path(symbol)
-    df: pd.DataFrame | None = None
-    if path.exists():
-        try:
-            df = pd.read_csv(path, parse_dates=["Date"])
-        except ValueError as exc:
-            if "Missing column provided to 'parse_dates': 'Date'" in str(exc):
-                try:
-                    df = pd.read_csv(path)
-                except Exception:
-                    df = None
-                else:
-                    if df is not None:
-                        if "Date" in df.columns:
-                            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-                        elif "date" in df.columns:
-                            df["Date"] = pd.to_datetime(df["date"], errors="coerce")
-                            df = df.drop(columns=["date"], errors="ignore")
-                        else:
-                            df = None
-            else:
-                df = None
-        except Exception:
-            df = None
-        if df is not None:
-            try:
-                df = df.dropna(subset=["Date"])
-                df = df.sort_values("Date").set_index("Date")
-            except Exception:
-                df = None
-
-    if df is not None:
-        last_date = _detect_last_date(df)
-        stale = False
-        if allowed_set and (last_date is None or last_date not in allowed_set):
-            stale = True
-        if not stale and min_norm is not None:
-            if last_date is None or last_date < min_norm:
-                stale = True
-        if stale:
-            if rebuild_if_missing:
-                try:
-                    logger.info(
-                        "%s base cache stale -> rebuild: %s (last=%s)",
-                        __name__,
-                        symbol,
-                        last_date.date() if last_date is not None else "None",
-                    )
-                except Exception:
-                    pass
-                df = None
-            else:
-                return df
-        else:
-            return df
-
-    if not rebuild_if_missing:
-        return df
-
-    cm = cache_manager or _get_default_cache_manager()
-    raw = None
     try:
-        raw = cm.read(symbol, "full")
-        if raw is None or getattr(raw, "empty", False):
-            raw = cm.read(symbol, "rolling")
-    except Exception:
-        raw = None
+        # まず base から読み込み
+        base_dir = cache_manager.full_dir.parent / "base"
+        if base_dir.exists():
+            df = cache_manager.read(symbol, "full")  # full として読み込み
+            if df is not None and not df.empty:
+                return df
 
-    if raw is not None and not raw.empty:
-        if "Date" not in raw.columns:
-            if "date" in raw.columns:
-                raw = raw.rename(columns={"date": "Date"})
-            else:
-                raw = raw.copy()
-                raw["Date"] = pd.NaT
+        # フォールバック: legacy
+        return _read_legacy_cache(symbol)
 
-    if (raw is None or raw.empty) and rebuild_if_missing:
-        raw = _read_legacy_cache(symbol)
-
-    if raw is None or raw.empty:
+    except Exception as e:
+        logger.warning(f"load_base_cache failed for {symbol}: {e}")
         return None
-    out = compute_base_indicators(raw)
-    save_base_cache(symbol, out)
-    return out

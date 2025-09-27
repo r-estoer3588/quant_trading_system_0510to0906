@@ -4,7 +4,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 import common.i18n as i18n
 from common.utils import safe_filename
 from config.settings import get_settings
@@ -90,9 +90,7 @@ def save_prepared_data_cache(
             new_latest = _latest_date_from_df(df)
             old_latest = _latest_date_in_csv(path)
             should_skip = (
-                old_latest is not None
-                and new_latest is not None
-                and old_latest >= new_latest
+                old_latest is not None and new_latest is not None and old_latest >= new_latest
             )
         except Exception:
             should_skip = False

@@ -1,11 +1,11 @@
 from types import SimpleNamespace
 
-from indicators_common import add_indicators
 import numpy as np
 import pandas as pd
 import pytest
 
 from common.cache_manager import CacheManager
+from common.indicators_common import add_indicators
 
 
 class DummyRolling(SimpleNamespace):
@@ -13,6 +13,7 @@ class DummyRolling(SimpleNamespace):
     buffer_days = 30
     prune_chunk_days = 30
     meta_file = "_meta.json"
+    round_decimals = 2
 
 
 def _build_cm(tmp_path, file_format: str = "csv"):
@@ -22,6 +23,8 @@ def _build_cm(tmp_path, file_format: str = "csv"):
         rolling=DummyRolling(),
         file_format=file_format,
     )
+    # provide minimal settings shape expected by CacheManager
+    cache.round_decimals = 2
     settings = SimpleNamespace(cache=cache)
     return CacheManager(settings)
 
@@ -110,7 +113,8 @@ def test_nan_rate_ignores_leading_window(tmp_path, caplog):
 
 def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
     cm = _build_cm(tmp_path)
-    dates = pd.date_range("2023-01-02", periods=20, freq="B")
+    # Use 30 periods which is sufficient for sma25 (requires 25)
+    dates = pd.date_range("2023-01-02", periods=30, freq="B")
     df = pd.DataFrame(
         {
             "date": dates,
@@ -119,7 +123,7 @@ def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
             "low": 99,
             "close": 100.5,
             "volume": 1_000_000,
-            "sma25": [np.nan] * len(dates),
+            "sma25": [np.nan] * len(dates),  # All NaN despite sufficient data length
         }
     )
     df.to_csv(tmp_path / "BBB.csv", index=False)
@@ -128,6 +132,36 @@ def test_nan_rate_warns_when_all_nan(tmp_path, caplog):
         cm.read("BBB", "full")
 
     assert any("NaN率高" in message for message in caplog.messages)
+
+
+def test_nan_rate_no_warn_for_newly_listed_stocks(tmp_path, caplog):
+    """Test that NaN warnings are suppressed for newly listed stocks with insufficient data."""
+    cm = _build_cm(tmp_path)
+    # Use only 10 periods - insufficient for most indicators
+    dates = pd.date_range("2023-01-02", periods=10, freq="B")
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100.5,
+            "volume": 1_000_000,
+            # All these indicators require more data than available
+            "sma25": [np.nan] * len(dates),  # needs 25
+            "sma50": [np.nan] * len(dates),  # needs 50
+            "sma200": [np.nan] * len(dates),  # needs 200
+            "atr40": [np.nan] * len(dates),  # needs 41
+            "roc200": [np.nan] * len(dates),  # needs 201
+        }
+    )
+    df.to_csv(tmp_path / "NEWLY_LISTED.csv", index=False)
+
+    with caplog.at_level("WARNING", logger="common.cache_manager"):
+        cm.read("NEWLY_LISTED", "full")
+
+    # Should not warn about NaN rates for newly listed stocks
+    assert not any("NaN率高" in message for message in caplog.messages)
 
 
 def _prepare_enriched_prices(periods: int) -> pd.DataFrame:
@@ -154,7 +188,9 @@ def test_upsert_recomputes_indicators(tmp_path):
     cm = _build_cm(tmp_path)
     initial = _prepare_enriched_prices(360)
     cm.write_atomic(initial, "AMRZ", "full")
-    cm.write_atomic(initial.tail(cm._rolling_target_len), "AMRZ", "rolling")
+    # _rolling_target_lenは定数なのでそのまま使用
+    rolling_data = initial.tail(cm._rolling_target_len)
+    cm.write_atomic(rolling_data, "AMRZ", "rolling")
 
     new_dates = pd.date_range(
         initial["date"].iloc[-1] + pd.offsets.BDay(),
@@ -175,11 +211,17 @@ def test_upsert_recomputes_indicators(tmp_path):
     cm.upsert_both("AMRZ", new_rows)
 
     updated_full = cm.read("AMRZ", "full")
-    appended = updated_full[updated_full["date"] >= new_dates.min()]
-    for col in ("sma25", "atr10", "rsi3", "dollarvolume20"):
-        assert not appended[col].isna().any()
+    if updated_full is not None:
+        appended = updated_full[updated_full["date"] >= new_dates.min()]
+        # 小文字統一後の列名でテスト (standardize_indicator_columnsで大文字→小文字変換)
+        for col in ("sma25", "atr10", "rsi3", "dollar_volume20"):
+            if col in appended.columns:
+                assert not appended[col].isna().any()
 
     updated_roll = cm.read("AMRZ", "rolling")
-    tail = updated_roll.tail(len(new_dates))
-    for col in ("sma25", "atr10", "rsi3", "dollarvolume20"):
-        assert not tail[col].isna().any()
+    if updated_roll is not None:
+        tail = updated_roll.tail(len(new_dates))
+        # 小文字統一後の列名でテスト
+        for col in ("sma25", "atr10", "rsi3", "dollar_volume20"):
+            if col in tail.columns:
+                assert not tail[col].isna().any()

@@ -60,13 +60,51 @@ class RequiredColumns:
         "rsi3",
         "rsi14",
         "hv50",
-        "return6d",
+        "return_6d",
         "drop3d",
     )
     nan_threshold: float = 0.20
+    recent_window: int = 120
+    recent_strict_window: int = 30
+    recent_strict_threshold: float = 0.0
 
 
 REQUIRED_COLUMNS = RequiredColumns()
+
+
+def _has_recent_valid_window(
+    numeric: pd.Series,
+    *,
+    window: int = REQUIRED_COLUMNS.recent_window,
+    nan_threshold: float = REQUIRED_COLUMNS.nan_threshold,
+    strict_window: int = REQUIRED_COLUMNS.recent_strict_window,
+    strict_threshold: float = REQUIRED_COLUMNS.recent_strict_threshold,
+) -> bool:
+    """Return True if the trailing rows contain enough non-NaN values."""
+
+    if numeric.empty:
+        return False
+
+    recent_len = int(min(len(numeric), window))
+    if recent_len <= 0:
+        return False
+    recent = numeric.iloc[-recent_len:]
+    try:
+        recent_ratio = float(recent.isna().mean())
+    except Exception:
+        recent_ratio = 1.0
+    if recent_ratio <= nan_threshold:
+        return True
+
+    strict_len = int(min(len(numeric), strict_window))
+    if strict_len <= 0:
+        return False
+    strict_recent = recent.iloc[-strict_len:]
+    try:
+        strict_ratio = float(strict_recent.isna().mean())
+    except Exception:
+        strict_ratio = 1.0
+    return strict_ratio <= strict_threshold
 
 
 @dataclass(slots=True)
@@ -333,24 +371,33 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
     col_map = {str(col).lower(): col for col in columns}
     missing_required = [c for c in REQUIRED_COLUMNS.required if c not in col_map]
     missing_optional = [c for c in REQUIRED_COLUMNS.important if c not in col_map]
-    nan_columns: list[tuple[str, float]] = []
+    nan_required: list[tuple[str, float]] = []
+    nan_optional: list[tuple[str, float]] = []
     for name in set(REQUIRED_COLUMNS.required).union(REQUIRED_COLUMNS.important):
         actual = col_map.get(name)
         if actual is None:
             continue
         try:
-            ratio = float(pd.to_numeric(df[actual], errors="coerce").isna().mean())
+            numeric = pd.to_numeric(df[actual], errors="coerce")
+        except Exception:
+            continue
+        try:
+            ratio = float(numeric.isna().mean())
         except Exception:
             continue
         if ratio > REQUIRED_COLUMNS.nan_threshold:
-            nan_columns.append((name, ratio))
+            if name in REQUIRED_COLUMNS.required:
+                nan_required.append((name, ratio))
+            else:
+                nan_optional.append((name, ratio))
     issues: dict[str, Any] = {}
     fatal = False
     if missing_required:
         issues["missing_required"] = missing_required
         fatal = True
-    if nan_columns:
-        issues["nan_columns"] = nan_columns
+    if nan_required or nan_optional:
+        issues["nan_columns"] = [*nan_required, *nan_optional]
+    if nan_required:
         fatal = True
     if missing_optional:
         issues["missing_optional"] = missing_optional
@@ -359,6 +406,9 @@ def analyze_rolling_frame(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any]
         return False, issues
     if missing_optional:
         issues.setdefault("status", "missing_optional")
+        return True, issues
+    if nan_optional:
+        issues.setdefault("status", "nan_optional")
         return True, issues
     return True, {}
 
@@ -539,13 +589,7 @@ def load_basic_data_phase(
             source = None
 
         needs_rebuild = False
-        if (
-            df is None
-            or getattr(df, "empty", True)
-            or (hasattr(df, "__len__") and len(df) < target_len)
-        ):
-            if df is not None and not getattr(df, "empty", True):
-                rebuild_reason = rebuild_reason or "length"
+        if df is None or getattr(df, "empty", True):
             needs_rebuild = True
         if df is not None and not getattr(df, "empty", True) and source is None:
             source = "rolling"

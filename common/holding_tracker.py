@@ -6,7 +6,7 @@ import seaborn as sns
 import streamlit as st
 
 try:
-    from common.cache_manager import round_dataframe
+    from common.cache_format import round_dataframe
 except Exception:
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:

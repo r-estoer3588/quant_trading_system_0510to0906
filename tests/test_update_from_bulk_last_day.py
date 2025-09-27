@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -175,6 +176,87 @@ def test_append_to_cache_reports_progress(tmp_path):
     assert calls[-1] == (2, 2, 2)
 
 
+def test_append_to_cache_ignores_rows_without_prices(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    payload = pd.DataFrame(
+        {
+            "code": ["AAA", "AAA"],
+            "date": ["2024-01-04", "2024-01-05"],
+            "open": [np.nan, np.nan],
+            "high": [np.nan, np.nan],
+            "low": [np.nan, np.nan],
+            "close": [np.nan, np.nan],
+            "adjusted_close": [np.nan, np.nan],
+            "volume": [np.nan, np.nan],
+        }
+    )
+
+    total, updated = append_to_cache(payload, cm)
+
+    assert total == 0
+    assert updated == 0
+    assert not (tmp_path / "full" / "AAA.csv").exists()
+
+
+def test_append_to_cache_skips_symbol_with_nan_prices(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    payload = pd.DataFrame(
+        {
+            "code": ["BAD", "GOOD"],
+            "date": ["2024-01-04", "2024-01-04"],
+            "open": [np.nan, 10.0],
+            "high": [np.nan, 11.0],
+            "low": [np.nan, 9.0],
+            "close": [np.nan, 10.5],
+            "adjusted_close": [np.nan, 10.4],
+            "volume": [np.nan, 1000],
+        }
+    )
+
+    total, updated = append_to_cache(payload, cm)
+
+    assert total == 1
+    assert updated == 1
+    assert not (tmp_path / "full" / "BAD.csv").exists()
+    assert (tmp_path / "full" / "GOOD.csv").exists()
+
+
+def test_append_to_cache_progress_step_auto_large(tmp_path):
+    cm = _build_cache_manager(tmp_path)
+    symbols = [f"SYM{i:04d}" for i in range(150)]
+    payload = pd.DataFrame(
+        {
+            "code": symbols,
+            "date": ["2024-01-04"] * len(symbols),
+            "open": np.linspace(10.0, 10.0 + len(symbols) - 1, len(symbols)),
+            "high": np.linspace(10.5, 10.5 + len(symbols) - 1, len(symbols)),
+            "low": np.linspace(9.5, 9.5 + len(symbols) - 1, len(symbols)),
+            "close": np.linspace(10.2, 10.2 + len(symbols) - 1, len(symbols)),
+            "adjusted_close": np.linspace(10.1, 10.1 + len(symbols) - 1, len(symbols)),
+            "volume": np.linspace(1000, 1000 + len(symbols) - 1, len(symbols)).astype(int),
+        }
+    )
+
+    calls: list[tuple[int, int, int]] = []
+
+    def _progress(processed: int, total: int, updated: int) -> None:
+        calls.append((processed, total, updated))
+
+    total, updated = append_to_cache(
+        payload,
+        cm,
+        progress_callback=_progress,
+    )
+
+    assert total == len(symbols)
+    assert updated == len(symbols)
+    processed = [p for p, _, _ in calls if p > 0]
+    assert processed
+    diffs = [b - a for a, b in zip(processed, processed[1:], strict=False)]
+    if diffs:
+        assert max(diffs) <= 20
+
+
 def test_append_to_cache_keyboard_interrupt(tmp_path, monkeypatch):
     cm = _build_cache_manager(tmp_path)
     bulk = pd.DataFrame(
@@ -239,6 +321,7 @@ def test_run_bulk_update_uses_provided_payload(tmp_path):
     assert stats.filtered_rows == 2
     assert stats.processed_symbols == 2
     assert stats.updated_symbols == 2
+    assert stats.progress_step_used == 1
     aaa_full = cm.read("AAA", "full")
     assert _format_dates(aaa_full)[-1] == "2024-01-04"
     bbb_base_path = tmp_path / "base" / "BBB.csv"

@@ -1,0 +1,14 @@
+# Ruff設定ファイル
+
+# 行の長さ
+line-length = 120
+
+# 無視するルール
+extend-ignore = [
+    "E402",  # module level import not at top of file
+    "C901",  # function is too complex
+]
+
+# ファイル別の無視ルール
+[extend-per-file-ignores]
+"**/apps/*.py" = ["E402", "F401", "F403"]

@@ -24,11 +24,15 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd  # noqa: E402
 
-from common.cache_manager import BASE_SUBDIR, _get_default_cache_manager, save_base_cache  # noqa: E402
+from common.cache_manager import (  # noqa: E402
+    BASE_SUBDIR,
+    _get_default_cache_manager,
+    save_base_cache,
+)
 from config.settings import get_settings  # noqa: E402
 
 try:
-    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+    from common.cache_format import round_dataframe  # type: ignore # noqa: E402
 except ImportError:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:

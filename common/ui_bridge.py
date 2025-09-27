@@ -50,7 +50,7 @@ def _load_symbol_cached(
     symbol: str, *, base_path: str, base_mtime: float, raw_path: str, raw_mtime: float
 ):
     # base キャッシュ優先、無ければ raw を読む
-    df = load_base_cache(symbol, rebuild_if_missing=True)
+    df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
     if df is not None and not df.empty:
         return symbol, df
     import os
@@ -174,7 +174,7 @@ def prepare_backtest_data_ui(
         "System3": "SMA150, ATR10, Drop3D, AvgVolume50, ATR_Ratio, setup",
         "System4": "SMA200, ATR40, HV50, RSI4, DollarVolume50, setup",
         "System5": ("SMA100, ATR10, ADX7, RSI3, AvgVolume50, DollarVolume50, ATR_Pct, setup"),
-        "System6": "ATR10, DollarVolume50, Return6D, UpTwoDays, setup",
+        "System6": "ATR10, DollarVolume50, return_6d, UpTwoDays, setup",
         "System7": "ATR50, min_50, max_70, setup",
     }
     try:
@@ -256,10 +256,13 @@ def run_backtest_with_logging_ui(
         s = str(msg)
         if s.startswith("💰"):
             debug_logs.append(s)
-            if hasattr(bt, "trade_log_area"):
-                bt.trade_log_area.text(s)
+            trade_log_area = getattr(bt, "trade_log_area", None)
+            if trade_log_area:
+                trade_log_area.text(s)
         else:
-            bt.log_area.text(s)
+            log_area = getattr(bt, "log_area", None)
+            if log_area:
+                log_area.text(s)
 
     results_df = strategy.run_backtest(
         prepared_dict,

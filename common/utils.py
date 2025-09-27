@@ -1,6 +1,7 @@
 # common/utils.py
 from collections.abc import Callable, Hashable
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -157,7 +158,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 continue
             if isinstance(col_series, pd.DataFrame):
-                col_series = col_series.iloc[:, 0]
+                col_series = col_series.iloc[:, 0]  # type: ignore[index]
             series_candidates.append((idx, col, pd.Series(col_series)))
 
         if not series_candidates:
@@ -215,7 +216,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 continue
             if isinstance(series, pd.DataFrame):
-                series = series.iloc[:, 0]
+                series = series.iloc[:, 0]  # type: ignore[index]
             series = pd.Series(series)
             name = col
 
@@ -332,7 +333,7 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | N
     try:
         from common.cache_manager import load_base_cache  # 遅延import
 
-        df = load_base_cache(symbol, rebuild_if_missing=True)
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
     except Exception:
         df = None
 
@@ -375,6 +376,15 @@ def clamp01(value: float) -> float:
         return max(0.0, min(1.0, float(value)))
     except Exception:
         return 0.0
+
+
+def is_today_run() -> bool:
+    """Check if running in today mode based on TODAY_RUN environment variable.
+
+    Returns True if TODAY_RUN is set to "1", "true", or "yes" (case insensitive).
+    Used to suppress verbose logging in today runs while keeping it for backtests.
+    """
+    return str(os.environ.get("TODAY_RUN", "")).strip().lower() in {"1", "true", "yes"}
 
 
 def resolve_batch_size(total_symbols: int, configured: int) -> int:
@@ -421,7 +431,7 @@ class BatchSizeMonitor:
         self._history: list[float] = []
         self.logger = logging.getLogger(__name__)
 
-    def update(self, duration: float) -> int:
+    def update(self, duration: float = 0.0) -> int:
         """Record batch duration and adjust the size if needed."""
         self._history.append(duration)
         if len(self._history) < self.patience:

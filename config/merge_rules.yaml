@@ -23,4 +23,3 @@ regime:  # スコア補助（順序安定化）
     vix_gt: 22
   severity:
     weights: { roc200: 0.5, vix: 0.3, adx: 0.2 }
-

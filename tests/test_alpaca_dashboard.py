@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app_alpaca_dashboard import _group_by_system, _positions_to_df
+from apps.dashboards.app_alpaca_dashboard import _group_by_system, _positions_to_df
 import pandas as pd
 
 

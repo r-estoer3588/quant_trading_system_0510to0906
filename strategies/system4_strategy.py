@@ -1,6 +1,7 @@
 # strategies/system4_strategy.py
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
@@ -26,49 +27,29 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     def prepare_data(
         self,
         raw_data_or_symbols,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        use_process_pool: bool = False,
+        reuse_indicators: bool | None = None,
         **kwargs,
     ):
-        if isinstance(raw_data_or_symbols, dict):
-            symbols = list(raw_data_or_symbols.keys())
-            raw_dict = None if use_process_pool else raw_data_or_symbols
-        else:
-            symbols = list(raw_data_or_symbols)
-            raw_dict = None
-
-        if batch_size is None and not use_process_pool and raw_dict is not None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(raw_dict), batch_size)
-        return prepare_data_vectorized_system4(
-            raw_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            batch_size=batch_size,
-            symbols=symbols,
-            use_process_pool=use_process_pool,
-            skip_callback=skip_callback,
+        """System4のデータ準備（共通テンプレート使用）"""
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system4,
+            reuse_indicators=reuse_indicators,
+            **kwargs,
         )
 
     # 候補抽出（SPYフィルタ適用。market_df 後方互換あり）
     def generate_candidates(
         self,
-        prepared_dict,
+        data_dict,
         market_df=None,
         progress_callback=None,
         log_callback=None,
         batch_size: int | None = None,
-        *,
-        top_n: int | None = None,
+        **kwargs,
     ):
+        prepared_dict = data_dict
+        top_n = kwargs.pop("top_n", None)
         # market_df 未指定時は prepared_dict から SPY を使用（後方互換）
         if market_df is None:
             market_df = prepared_dict.get("SPY")
@@ -96,7 +77,6 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system4(
             prepared_dict,
-            market_df,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,
@@ -104,12 +84,12 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         )
 
     # バックテスト実行（コアシミュレーター）
-    def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,
@@ -120,9 +100,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
     # システムフック群
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
             return None
+        if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
+            return None
+        if not isinstance(entry_loc, int | np.integer):
+            return None
+        entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         entry_price = float(df.iloc[entry_idx]["Open"])

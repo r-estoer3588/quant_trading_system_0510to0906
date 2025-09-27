@@ -18,6 +18,17 @@ GROUP_DISPLAY_NAMES: dict[str, str] = {
     "short": "Short (System2,4,6,7)",
 }
 
+# システムラベルの正規化対応表
+SYSTEM_LABELS: dict[str, str] = {
+    "system1": "System1",
+    "system2": "System2",
+    "system3": "System3",
+    "system4": "System4",
+    "system5": "System5",
+    "system6": "System6",
+    "system7": "System7",
+}
+
 
 def _normalize_system_name(name: str) -> str:
     if not isinstance(name, str):
@@ -113,3 +124,147 @@ def format_group_counts_and_values(
         else:
             lines.append(f"{_format_label(key)}: {count}件 / ${total_value:,.0f}")
     return lines
+
+
+def format_cache_coverage_report(
+    total_symbols: int,
+    available_count: int,
+    missing_count: int,
+    coverage_percentage: float,
+    missing_symbols: list[str],
+) -> dict[str, Any]:
+    """
+    rolling cache分析結果を見やすい形式でフォーマットする。
+
+    Args:
+        total_symbols: 分析対象シンボル総数
+        available_count: rolling cache整備済みシンボル数
+        missing_count: rolling cache未整備シンボル数
+        coverage_percentage: カバレッジ率
+        missing_symbols: 未整備シンボルのリスト
+
+    Returns:
+        フォーマット済み分析結果辞書
+    """
+    # カバレッジ状況の判定
+    if coverage_percentage >= 90:
+        status = "✅ 良好"
+        priority = "低"
+    elif coverage_percentage >= 70:
+        status = "⚠️ 要改善"
+        priority = "中"
+    else:
+        status = "🚨 緊急"
+        priority = "高"
+
+    # 未整備シンボルのサマリー作成（最大10件表示）
+    missing_summary = []
+    if missing_symbols:
+        shown_symbols = missing_symbols[:10]
+        missing_summary = shown_symbols
+        if len(missing_symbols) > 10:
+            missing_summary.append(f"... 他{len(missing_symbols) - 10}シンボル")
+
+    return {
+        "status": status,
+        "priority": priority,
+        "summary": {
+            "total": total_symbols,
+            "available": available_count,
+            "missing": missing_count,
+            "coverage": f"{coverage_percentage:.1f}%",
+        },
+        "missing_symbols_preview": missing_summary,
+        "recommendations": _generate_cache_recommendations(coverage_percentage, missing_count),
+    }
+
+
+def _generate_cache_recommendations(coverage: float, missing_count: int) -> list[str]:
+    """カバレッジ率に基づいて推奨アクションを生成する。"""
+    recommendations = []
+
+    if coverage < 50:
+        recommendations.append("🔥 緊急: 基盤となるrolling cacheの構築が必要です")
+        recommendations.append(
+            "📋 アクション: scripts/run_all_systems_today.py実行でrolling cache自動生成"
+        )
+
+    elif coverage < 70:
+        recommendations.append("⚡ 重要: rolling cache整備率を向上させる必要があります")
+        recommendations.append("🔧 確認: cache_daily_data.pyによる日次データ更新の実行状況")
+
+    elif coverage < 90:
+        recommendations.append("📈 改善: 残り未整備シンボルの対応を推奨します")
+
+    else:
+        recommendations.append("🎉 excellent: rolling cache整備状況は良好です")
+
+    if missing_count > 0:
+        recommendations.append(f"📊 詳細: 未整備{missing_count}シンボルの個別確認を推奨")
+
+    return recommendations
+
+
+def analyze_system_symbols_coverage(
+    system_symbols_map: dict[str, list[str]], cache_analysis_results: dict
+) -> dict[str, Any]:
+    """
+    システム別のrolling cache整備状況を分析する。
+
+    Args:
+        system_symbols_map: システム名をキーとするシンボルリストのマップ
+        cache_analysis_results: CacheManager.analyze_rolling_gaps()の結果
+
+    Returns:
+        システム別カバレッジ分析結果
+    """
+    missing_symbols = set(cache_analysis_results.get("missing_symbols", []))
+    system_coverage = {}
+
+    for system_name, symbols in system_symbols_map.items():
+        if not symbols:
+            continue
+
+        system_missing = [s for s in symbols if s in missing_symbols]
+        total = len(symbols)
+        missing_count = len(system_missing)
+        available = total - missing_count
+        coverage = (available / total * 100) if total > 0 else 0
+
+        system_coverage[system_name] = {
+            "total_symbols": total,
+            "available": available,
+            "missing": missing_count,
+            "coverage_percentage": coverage,
+            "missing_symbols": system_missing,
+            "status": "✅" if coverage >= 90 else "⚠️" if coverage >= 70 else "🚨",
+        }
+
+    # グループ別サマリー
+    group_summary = {}
+    for group_name, system_list in SYSTEM_SIDE_GROUPS.items():
+        group_total = 0
+        group_available = 0
+        group_missing = []
+
+        for system in system_list:
+            if system in system_coverage:
+                stats = system_coverage[system]
+                group_total += stats["total_symbols"]
+                group_available += stats["available"]
+                group_missing.extend(stats["missing_symbols"])
+
+        group_coverage = (group_available / group_total * 100) if group_total > 0 else 0
+        group_summary[group_name] = {
+            "total_symbols": group_total,
+            "available": group_available,
+            "missing": len(group_missing),
+            "coverage_percentage": group_coverage,
+            "status": ("✅" if group_coverage >= 90 else "⚠️" if group_coverage >= 70 else "🚨"),
+        }
+
+    return {
+        "by_system": system_coverage,
+        "by_group": group_summary,
+        "overall": cache_analysis_results,
+    }

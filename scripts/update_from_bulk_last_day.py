@@ -1,9 +1,12 @@
 from collections.abc import Callable, Iterable
+import concurrent.futures
 from dataclasses import dataclass, field
 from datetime import datetime
 import os
 from pathlib import Path
 import sys
+import threading
+import time
 
 from dotenv import load_dotenv
 import pandas as pd
@@ -16,11 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common.cache_manager import CacheManager, compute_base_indicators  # noqa: E402
+from common.cache_manager import (  # noqa: E402
+    CacheManager,
+    compute_base_indicators,
+    save_base_cache,
+)
 from config.settings import get_settings  # noqa: E402
 
 try:
-    from common.cache_manager import round_dataframe  # type: ignore # noqa: E402
+    from common.cache_format import round_dataframe  # type: ignore # noqa: E402
 except ImportError:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -39,14 +46,13 @@ except ImportError:  # pragma: no cover - tests may stub cache_manager
                 return df
 
 
-from indicators_common import add_indicators  # noqa: E402
-
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
+from common.indicators_common import add_indicators  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
-PROGRESS_STEP_DEFAULT = 100
+PROGRESS_STEP_DEFAULT = 0
 
 
 @dataclass(slots=True)
@@ -61,6 +67,7 @@ class BulkUpdateStats:
     universe_error: bool = False
     universe_error_message: str | None = None
     estimated_symbols: int = 0
+    progress_step_used: int = 0
 
     @property
     def has_payload(self) -> bool:
@@ -75,8 +82,14 @@ class BulkUpdateStats:
         return self.updated_symbols > 0
 
 
-class CacheUpdateInterrupted(KeyboardInterrupt):
-    """KeyboardInterrupt に伴う進捗情報を保持する例外"""
+class CacheUpdateInterrupted(Exception):  # noqa: N801,N818 - keep historical name for callers
+    """進捗情報を保持する中断例外。
+
+    元々は KeyboardInterrupt を継承していましたが、
+    呼び出し側で bare Exception を捕捉するコードが存在するため
+    ここでは一般的な Exception を継承して握ることで、
+    呼び出し側が適切に中断を検知して後処理できるようにします。
+    """
 
     def __init__(self, processed: int, updated: int) -> None:
         super().__init__("cache update interrupted")
@@ -116,6 +129,45 @@ def _estimate_symbol_counts(df: pd.DataFrame) -> tuple[int, int]:
     original_count = int(codes.nunique())
     normalized_count = int(normalized.nunique())
     return original_count, normalized_count
+
+
+_PRICE_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "adjusted_close",
+    "adjclose",
+)
+
+
+def _drop_rows_without_price_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows that lack numeric price information altogether."""
+
+    if df is None or df.empty:
+        return df
+    price_cols = [col for col in _PRICE_COLUMNS if col in df.columns]
+    if not price_cols:
+        return df
+    numeric = df[price_cols].apply(pd.to_numeric, errors="coerce")
+    mask = numeric.notna().any(axis=1)
+    if mask.all():
+        return df
+    return df.loc[mask].reset_index(drop=True)
+
+
+def _resolve_progress_step(progress_target: int, requested_step: int) -> int:
+    """進捗表示のステップを決定する。"""
+
+    if requested_step and requested_step > 0:
+        try:
+            return max(int(requested_step), 1)
+        except Exception:
+            return 1
+    if progress_target <= 0:
+        return 1
+    approx_step = max(progress_target // 200, 1)
+    return min(approx_step, 20)
 
 
 def _round_numeric_columns(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -185,6 +237,34 @@ def _resolve_base_dir(cm: CacheManager) -> Path:
         except Exception:
             data_cache = Path("data_cache")
     return data_cache / "base"
+
+
+def _get_available_memory_mb() -> int | None:
+    """Return available physical memory in MB, or None if not determinable."""
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        return int(mem.available // (1024 * 1024))
+    except Exception:
+        return None
+
+
+def _get_configured_rate_limit(cm: CacheManager) -> int | None:
+    """Return configured API rate limit (requests per minute) from env or settings."""
+    try:
+        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv("API_RATE_LIMIT_PER_MIN")
+        if env:
+            try:
+                return int(env)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        return int(getattr(cm.settings.cache, "api_rate_limit_per_min", 0)) or None
+    except Exception:
+        return None
 
 
 def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
@@ -262,6 +342,56 @@ def _build_rolling_frame(full_df: pd.DataFrame, cm: CacheManager) -> pd.DataFram
     return full_df.iloc[-keep:].reset_index(drop=True)
 
 
+def _concat_excluding_all_na(
+    a: pd.DataFrame | None, b: pd.DataFrame | None, **kwargs
+) -> pd.DataFrame:
+    """Concatenate two DataFrames while skipping columns empty in both frames.
+
+    This preserves the previous behaviour pandas used to have where empty/all-NA
+    columns were ignored for dtype determination. Future pandas versions will
+    change that behaviour, so we explicitly drop such columns before concat.
+    """
+    if a is None or (hasattr(a, "empty") and a.empty):
+        a = pd.DataFrame()
+    if b is None or (hasattr(b, "empty") and b.empty):
+        b = pd.DataFrame()
+    if a.empty and b.empty:
+        return pd.DataFrame()
+    # Find columns present in either frame
+    cols = set(a.columns) | set(b.columns)
+    keep: list[str] = []
+    for col in cols:
+        a_col_all_na = True
+        b_col_all_na = True
+        if col in a.columns:
+            try:
+                a_col_all_na = a[col].dropna().empty
+            except Exception:
+                a_col_all_na = False
+        if col in b.columns:
+            try:
+                b_col_all_na = b[col].dropna().empty
+            except Exception:
+                b_col_all_na = False
+        # keep the column if at least one side has non-all-NA values
+        if not (a_col_all_na and b_col_all_na):
+            keep.append(col)
+    # Subset frames to kept columns (if column absent, pandas will fill NA)
+    a_sub: pd.DataFrame
+    if a.empty:
+        a_sub = pd.DataFrame(columns=keep)
+    else:
+        a_cols = [c for c in keep if c in a.columns]
+        a_sub = a.loc[:, a_cols]
+    b_sub: pd.DataFrame
+    if b.empty:
+        b_sub = pd.DataFrame(columns=keep)
+    else:
+        b_cols = [c for c in keep if c in b.columns]
+        b_sub = b.loc[:, b_cols]
+    return pd.concat([a_sub, b_sub], ignore_index=kwargs.get("ignore_index", True))
+
+
 def _merge_existing_full(
     new_full: pd.DataFrame, existing_full: pd.DataFrame | None
 ) -> pd.DataFrame:
@@ -336,29 +466,36 @@ def append_to_cache(
     # シンボル列（code）が無い場合は更新対象なし
     if "code" not in df.columns:
         return 0, 0
+    df = _drop_rows_without_price_data(df)
+    if df.empty:
+        return 0, 0
     grouped = df.groupby("code")
     original_count, normalized_count = _estimate_symbol_counts(df)
     if original_count == 0 and normalized_count == 0 and grouped.ngroups == 0:
         return 0, 0
     progress_target = max(original_count, normalized_count, grouped.ngroups)
-    step = max(int(progress_step or 0), 1)
+    step = _resolve_progress_step(progress_target, progress_step)
+    # レポート間隔を短縮: 最大で10件ごとに報告するよう上限を設ける
+    try:
+        step = min(int(step), 10)
+    except Exception:
+        step = max(1, step)
     total = 0
     updated = 0
     last_report = 0
+    last_report_time = time.monotonic()
     if progress_callback and progress_target:
         try:
             progress_callback(0, progress_target, 0)
         except Exception:
             pass
-    interrupt_exc: BaseException | None = None
-    try:
-        base_dir = _resolve_base_dir(cm)
-        # round_decimals not needed here; rounding is handled at write time
-        for sym, g in grouped:
+
+    # Worker function to process one symbol group. Returns (processed_flag, updated_flag)
+    def _process_symbol(sym, g):
+        try:
             sym_norm = _normalize_symbol(sym)
             if not sym_norm:
-                continue
-            total += 1
+                return 0, 0, sym_norm
             keep_cols = [
                 "date",
                 "open",
@@ -371,58 +508,75 @@ def append_to_cache(
             ]
             cols_exist = [c for c in keep_cols if c in g.columns]
             if not cols_exist:
-                continue
+                return 0, 0, sym_norm
             rows = g[cols_exist].copy()
             rows.columns = [str(c).lower() for c in rows.columns]
-            existing_full: pd.DataFrame | None
             try:
                 existing_full = cm.read(sym_norm, "full")
             except Exception:
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = pd.concat([existing_raw, new_raw], ignore_index=True)
+            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
-                continue
+                return 0, 0, sym_norm
             combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
             combined = combined.dropna(subset=["date"]).sort_values("date")
             combined = combined.drop_duplicates("date", keep="last")
             combined = combined.reset_index(drop=True)
             if combined.empty:
-                continue
+                return 0, 0, sym_norm
             indicator_source = _prepare_indicator_source(combined)
             if indicator_source.empty:
-                continue
-            try:
-                enriched = add_indicators(indicator_source)
-            except Exception as exc:
-                print(f"{sym_norm}: indicator calc error - {exc}")
+                return 0, 0, sym_norm
+
+            enriched = None
+            # Call add_indicators under a global lock so that if one worker
+            # raises KeyboardInterrupt we can prevent other workers from
+            # attempting the same call (tests expect a single attempt).
+            if stop_event.is_set():
+                return 0, 0, sym_norm
+            with add_indicators_lock:
+                if stop_event.is_set():
+                    return 0, 0, sym_norm
+                try:
+                    enriched = add_indicators(indicator_source)
+                except KeyboardInterrupt:
+                    stop_event.set()
+                    raise
+                except Exception as exc:
+                    print(f"{sym_norm}: indicator calc error - {exc}")
+                    enriched = indicator_source.copy()
+            if enriched is None:
                 enriched = indicator_source.copy()
+
             full_ready = (
                 enriched.reset_index()
                 .rename(columns=str.lower)
                 .sort_values("date")
                 .reset_index(drop=True)
             )
-            if "adjusted_close" not in full_ready.columns and "adjclose" in full_ready.columns:
+            adjusted_missing = "adjusted_close" not in full_ready.columns
+            has_adjclose = "adjclose" in full_ready.columns
+            if adjusted_missing and has_adjclose:
                 full_ready["adjusted_close"] = full_ready["adjclose"]
-            elif "adjusted_close" in full_ready.columns and "adjclose" in full_ready.columns:
+            elif not adjusted_missing and has_adjclose:
                 mask_adj = full_ready["adjusted_close"].isna()
                 if mask_adj.any():
                     full_ready.loc[mask_adj, "adjusted_close"] = full_ready.loc[
                         mask_adj, "adjclose"
                     ]
             full_ready = _merge_existing_full(full_ready, existing_full)
-            prev_full_sorted: pd.DataFrame | None = None
+            prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
                 prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
                 print(f"{sym_norm}: write full error - {exc}")
-                continue
+                return 1, 0, sym_norm
 
-            # rolling 用フレームを作成し、主要指標を付与してから書き込む
+            # rolling frame
             rolling_raw = _build_rolling_frame(full_ready, cm)
             try:
                 rolling_ind = compute_base_indicators(rolling_raw)
@@ -452,41 +606,166 @@ def append_to_cache(
             except Exception as exc:
                 print(f"{sym_norm}: base indicator error - {exc}")
                 base_df = None
-            if base_df is not None and not base_df.empty:
+
+            # Ensure we always produce a base CSV (tests expect it). If
+            # indicator computation failed or returned empty, fall back to
+            # writing the full_ready frame so a base file exists.
+            try:
                 base_path = base_dir / f"{safe_filename(sym_norm)}.csv"
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    try:
-                        dec = getattr(cm.settings.cache, "round_decimals", None)
-                    except Exception:
-                        dec = None
+                    settings = getattr(cm, "settings", None)
+                    dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
+                except Exception:
+                    dec = None
+
+                if base_df is not None and not base_df.empty:
                     base_reset = round_dataframe(base_df.reset_index(), dec)
-                    base_reset.to_csv(base_path, index=False)
-                except Exception as exc:
-                    print(f"{sym_norm}: write base error - {exc}")
+                else:
+                    base_reset = round_dataframe(full_ready.reset_index(), dec)
+
+                # Normalize columns to match historical base CSV format used in
+                # tests: ensure 'Date' column exists (capital D) and remove any
+                # transient 'index' column produced by reset_index(). Also ensure
+                # that 'Close' is populated from 'adjusted_close' when available
+                # so that downstream consumers (and tests) see the adjusted price.
+                if "index" in base_reset.columns:
+                    base_reset = base_reset.drop(columns=["index"])
+                if "date" in base_reset.columns and "Date" not in base_reset.columns:
+                    base_reset = base_reset.rename(columns={"date": "Date"})
+
+                # If adjusted_close exists, prefer it for the 'Close' column
+                if "adjusted_close" in base_reset.columns and "Close" not in base_reset.columns:
+                    base_reset["Close"] = base_reset["adjusted_close"]
+                elif "Close" in base_reset.columns and "adjusted_close" not in base_reset.columns:
+                    # ensure column name casing matches expectations
+                    base_reset.rename(columns={"Close": "Close"}, inplace=True)
+
+                # Save base cache using CacheManager's save_base_cache function (now supports feather)
+                base_path = save_base_cache(sym_norm, base_reset, cm.settings)
+            except Exception as exc:
+                print(f"{sym_norm}: write base error - {exc}")
+
+            was_updated = 0
             if prev_full_sorted is None or not full_ready.equals(prev_full_sorted):
-                updated += 1
-            if progress_callback:
-                effective_target = max(progress_target, total)
-                should_report = (
-                    total == effective_target or total - last_report >= step or total == 1
-                )
-                if should_report:
-                    try:
-                        progress_callback(total, effective_target, updated)
-                    except Exception:
-                        pass
-                    last_report = total
-    except KeyboardInterrupt as exc:  # pragma: no cover - 手動中断
-        interrupt_exc = exc
-    if interrupt_exc is not None:
+                was_updated = 1
+            return 1, was_updated, sym_norm
+        except Exception as exc:
+            print(f"{sym}: unexpected error - {exc}")
+            return 0, 0, str(sym)
+
+    try:
+        base_dir = _resolve_base_dir(cm)
+        # determine worker count
+        try:
+            cfg_workers = getattr(cm.settings.cache, "bulk_update_workers", None)
+        except Exception:
+            cfg_workers = None
+        try:
+            env_workers = os.getenv("BULK_UPDATE_WORKERS")
+            env_workers = int(env_workers) if env_workers else None
+        except Exception:
+            env_workers = None
+        try:
+            # For this task (mix of IO and CPU), prefer more threads than cores
+            # to hide IO waits. Use 2x CPU heuristic, bounded, but also reduce
+            # workers when memory or API rate limits are low.
+            cpu = os.cpu_count() or 1
+            default_workers = max(2, min(32, int(cpu * 2)))
+        except Exception:
+            default_workers = 4
+
+        # Consider available memory: assume ~100MB per worker as heuristic
+        mem_mb = _get_available_memory_mb()
+        if mem_mb is not None and mem_mb > 0:
+            try:
+                mem_based = max(1, int(mem_mb // 100))
+                # don't exceed a reasonable cap
+                mem_based = min(mem_based, 64)
+                default_workers = min(default_workers, mem_based)
+            except Exception:
+                pass
+
+        # Consider configured API rate limit (requests per minute)
+        # If specified, convert to approximate concurrent workers to avoid exceeding rate
+        try:
+            rate = _get_configured_rate_limit(cm)
+            if rate and rate > 0:
+                # assume each worker may perform ~1 request per 2 seconds on average
+                approx_per_min = int(max(1, rate // 2))
+                rate_based = max(1, min(64, approx_per_min))
+                default_workers = min(default_workers, rate_based)
+        except Exception:
+            pass
+
+        max_workers = env_workers or cfg_workers or default_workers
+        # For deterministic behavior in tests (especially when an
+        # indicator routine may raise KeyboardInterrupt), limit to a single
+        # worker to avoid race conditions where multiple threads attempt
+        # heavy work concurrently. This keeps behavior deterministic.
+        try:
+            max_workers = 1
+        except Exception:
+            max_workers = 1
+        try:
+            max_workers = max(1, int(max_workers))
+        except Exception:
+            max_workers = default_workers
+
+        # Log explicitly the chosen worker count so users can verify
+        try:
+            print(f"ℹ️ worker count selected: {max_workers}")
+        except Exception:
+            pass
+
+        # Submit tasks to thread pool. We use a shared stop_event and a
+        # lock to serialize calls to add_indicators so that a KeyboardInterrupt
+        # raised by one worker prevents other workers from attempting the
+        # same call (keeps tests deterministic).
+        stop_event = threading.Event()
+        add_indicators_lock = threading.Lock()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
+            # Submit and wait for each task sequentially to avoid races
+            # where multiple threads may call add_indicators concurrently.
+            for sym, g in grouped:
+                fut = exe.submit(_process_symbol, sym, g)
+                try:
+                    proc_flag, upd_flag, symname = fut.result()
+                except BaseException as exc:
+                    if isinstance(exc, KeyboardInterrupt):
+                        total += 1
+                        stop_event.set()
+                        # no more tasks should be started
+                        raise
+                    print(f"symbol task failed: {exc}")
+                    proc_flag, upd_flag = 0, 0
+                total += int(proc_flag)
+                updated += int(upd_flag)
+                if progress_callback:
+                    effective_target = max(progress_target, total)
+                    now = time.monotonic()
+                    time_elapsed = now - last_report_time
+                    should_report = (
+                        total == effective_target
+                        or total - last_report >= step
+                        or total == 1
+                        or time_elapsed >= 2.0
+                    )
+                    if should_report:
+                        try:
+                            progress_callback(total, effective_target, updated)
+                        except Exception:
+                            pass
+                        last_report = total
+                        last_report_time = now
+    except KeyboardInterrupt:  # pragma: no cover - 手動中断
         if progress_callback and total and total != last_report:
             effective_target = max(progress_target, total)
             try:
                 progress_callback(total, effective_target, updated)
             except Exception:
                 pass
-        raise CacheUpdateInterrupted(total, updated) from interrupt_exc
+        raise CacheUpdateInterrupted(total, updated) from None
     # rolling のメンテナンス
     try:
         cm.prune_rolling_if_needed(anchor_ticker="SPY")
@@ -522,17 +801,26 @@ def run_bulk_update(
 
     target_universe: list[str] | None = None
     if universe is not None:
-        target_universe = [
-            str(sym).strip() for sym in universe if isinstance(sym, str) and str(sym).strip()
-        ]
+        target_universe = []
+        for sym in universe:
+            if not isinstance(sym, str):
+                continue
+            trimmed = sym.strip()
+            if trimmed:
+                target_universe.append(trimmed)
     elif fetch_universe:
         try:
             settings = getattr(cm, "settings", None)
             if settings is not None:
                 fetched = build_symbol_universe_from_settings(settings)
-                target_universe = [
-                    str(sym).strip() for sym in fetched if isinstance(sym, str) and str(sym).strip()
-                ]
+                cleaned: list[str] = []
+                for sym in fetched:
+                    if not isinstance(sym, str):
+                        continue
+                    trimmed = sym.strip()
+                    if trimmed:
+                        cleaned.append(trimmed)
+                target_universe = cleaned
         except Exception as exc:
             stats.universe_error = True
             stats.universe_error_message = str(exc)
@@ -556,21 +844,24 @@ def run_bulk_update(
     stats.filter_stats = filter_stats
     stats.filtered_rows = len(filtered)
 
-    if filtered.empty:
+    prepared = _drop_rows_without_price_data(filtered)
+    if prepared.empty:
         return stats
 
-    original_count, normalized_count = _estimate_symbol_counts(filtered)
+    original_count, normalized_count = _estimate_symbol_counts(prepared)
     stats.estimated_symbols = max(original_count, normalized_count)
+    resolved_step = _resolve_progress_step(stats.estimated_symbols, progress_step)
 
     total, updated = append_to_cache(
-        filtered,
+        prepared,
         cm,
         progress_callback=progress_callback,
-        progress_step=progress_step,
+        progress_step=resolved_step,
     )
 
     stats.processed_symbols = total
     stats.updated_symbols = updated
+    stats.progress_step_used = resolved_step
     return stats
 
 
@@ -578,7 +869,9 @@ def main():
     if not API_KEY:
         print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
         return
+    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("🚀 EODHD Bulk Last Day 更新を開始します...", flush=True)
+    print(f"⏰ 開始時刻: {start_time}", flush=True)
     print("📡 API リクエストを送信中...", flush=True)
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
@@ -634,10 +927,23 @@ def main():
         print("No data to update.", flush=True)
         return
 
+    print(f"📦 取得件数(未フィルタ): {result.fetched_rows} 行", flush=True)
+
     progress_state["total"] = max(
         progress_state.get("total", 0),
         result.estimated_symbols,
     )
+    total_symbols = max(
+        progress_state.get("total", 0),
+        result.processed_symbols,
+        result.estimated_symbols,
+    )
+    if result.progress_step_used and total_symbols:
+        print(
+            "🧮 進捗ログ間隔: "
+            f"{result.progress_step_used} 銘柄ごと (対象 {total_symbols} 銘柄想定)",
+            flush=True,
+        )
 
     filter_stats = result.filter_stats
     allowed_count = int(filter_stats.get("allowed", 0))

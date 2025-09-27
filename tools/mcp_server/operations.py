@@ -279,7 +279,11 @@ def run_backtest(
     missing_symbols: list[str] = []
     for sym in selected:
         try:
-            df = load_base_cache(sym, rebuild_if_missing=rebuild_cache)
+            df = load_base_cache(
+                sym,
+                rebuild_if_missing=rebuild_cache,
+                prefer_precomputed_indicators=False,
+            )
         except Exception:
             df = None
         if df is None or df.empty:

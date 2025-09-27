@@ -6,7 +6,7 @@ import time
 import pandas as pd
 import streamlit as st
 
-from common.cache_manager import round_dataframe
+from common.cache_format import round_dataframe
 
 FAILED_LIST = "eodhd_failed_symbols.csv"
 

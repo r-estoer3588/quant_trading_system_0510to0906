@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
 from common.backtest_utils import simulate_trades_with_risk
-from common.utils import resolve_batch_size
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
@@ -19,88 +19,46 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
     def __init__(self):
+        """System6初期化（特殊分岐を廃止し他システムに統一）"""
         super().__init__()
 
     def prepare_data(
         self,
         raw_data_or_symbols,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        use_process_pool: bool = False,
+        reuse_indicators: bool | None = None,
         **kwargs,
     ):
-        if isinstance(raw_data_or_symbols, dict):
-            symbols = list(raw_data_or_symbols.keys())
-            raw_dict = None if use_process_pool else raw_data_or_symbols
-        else:
-            symbols = list(raw_data_or_symbols)
-            raw_dict = None
-
-        if batch_size is None and not use_process_pool and raw_dict is not None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(raw_dict), batch_size)
-        return prepare_data_vectorized_system6(
-            raw_dict,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
-            batch_size=batch_size,
-            symbols=symbols,
-            use_process_pool=use_process_pool,
+        """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
+        return self._prepare_data_template(
+            raw_data_or_symbols,
+            prepare_data_vectorized_system6,
+            reuse_indicators=reuse_indicators,
+            **kwargs,
         )
 
     def generate_candidates(
         self,
-        prepared_dict,
-        progress_callback=None,
-        log_callback=None,
-        skip_callback=None,
-        batch_size: int | None = None,
-        *,
-        top_n: int | None = None,
-    ):
-        if top_n is None:
-            try:
-                from config.settings import get_settings
+        data_dict,
+        market_df=None,
+        **kwargs,
+    ) -> tuple[dict, pd.DataFrame | None]:
+        """候補生成（共通メソッド使用、特殊分岐廃止）"""
+        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        batch_size = self._get_batch_size_setting(len(data_dict))
 
-                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                top_n = max(0, int(top_n))
-            except Exception:
-                top_n = 10
-        if batch_size is None:
-            try:
-                from config.settings import get_settings
-
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         return generate_candidates_system6(
-            prepared_dict,
+            data_dict,
             top_n=top_n,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            skip_callback=skip_callback,
             batch_size=batch_size,
+            **kwargs,
         )
 
-    def run_backtest(
-        self, prepared_dict, candidates_by_date, capital, on_progress=None, on_log=None
-    ):
+    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
         trades_df, _ = simulate_trades_with_risk(
             candidates_by_date,
-            prepared_dict,
+            data_dict,
             capital,
             self,
             on_progress=on_progress,
@@ -112,9 +70,14 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     # シミュレーター用フック（System6: Short）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
         try:
-            entry_idx = df.index.get_loc(candidate["entry_date"])
+            entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
             return None
+        if isinstance(entry_loc, slice) or isinstance(entry_loc, np.ndarray):
+            return None
+        if not isinstance(entry_loc, int | np.integer):
+            return None
+        entry_idx = int(entry_loc)
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
