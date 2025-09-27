@@ -7,6 +7,12 @@ common/__pycache__/
 logs/*
 logs/images/
 .pytest_cache/
+
+# 新しい整理されたディレクトリ内の出力ファイル
+docs/internal/output/
+tools/debug/*.log
+tools/benchmark/*.log
+
 # temp files
 *.tmp
 .env

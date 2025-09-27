@@ -21,6 +21,88 @@ from common.system_constants import (
 from common.utils import get_cached_data
 from common.utils_spy import resolve_signal_entry_date
 
+# --- Backward compatibility helpers for legacy direct tests ---
+# Some tests (tests/test_system1_direct.py) expect internal helper functions
+# that existed in the previous refactored version (see system1_backup.py).
+# We reintroduce lightweight versions here without altering the new fast-path
+# design. These are intentionally minimal and rely only on current imports.
+
+REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
+
+def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    x = df.copy(deep=False)
+    rename_map = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in x.columns and up not in x.columns:
+            rename_map[low] = up
+    if rename_map:
+        try:
+            x = x.rename(columns=rename_map)
+        except Exception:
+            pass
+    return x
+
+def _normalize_index(df: pd.DataFrame) -> pd.DataFrame:
+    if "Date" in df.columns:
+        idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+    elif "date" in df.columns:
+        idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    else:
+        idx = pd.to_datetime(df.index, errors="coerce").normalize()
+    x = df.copy(deep=False)
+    x.index = pd.Index(idx, name="Date")
+    x = x[~x.index.isna()]
+    try:
+        x = x.sort_index()
+        if getattr(x.index, "has_duplicates", False):
+            x = x[~x.index.duplicated(keep="last")]
+    except Exception:
+        pass
+    return x
+
+def _prepare_source_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        raise ValueError("empty_frame")
+    x = _rename_ohlcv(df)
+    missing = [c for c in REQUIRED_COLUMNS if c not in x.columns]
+    if missing:
+        raise ValueError(f"missing_cols:{','.join(missing)}")
+    x = _normalize_index(x)
+    for col in REQUIRED_COLUMNS:
+        if col in x.columns:
+            try:
+                x[col] = pd.to_numeric(x[col], errors="coerce")
+            except Exception:
+                pass
+    x = x.dropna(subset=[c for c in ("High", "Low", "Close") if c in x.columns])
+    return x
+
+def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
+    # System1 now relies exclusively on precomputed indicators (fast path).
+    x = df.copy(deep=False)
+    required_indicators = ["sma25", "sma50", "roc200", "atr20", "dollarvolume20"]
+    missing_indicators = [c for c in required_indicators if c not in x.columns]
+    if missing_indicators:
+        raise ValueError(f"missing precomputed indicators: {missing_indicators}")
+    # Derive filter/setup (legacy style) for tests expecting them here.
+    try:
+        if "filter" not in x.columns:
+            x["filter"] = (x["Low"] >= 5) & (x["dollarvolume20"] > 50_000_000)
+        if "setup" not in x.columns:
+            x["setup"] = x["filter"] & (x["sma25"] > x["sma50"])
+    except Exception:
+        # Fallback safe defaults
+        x["filter"] = False
+        x["setup"] = False
+    return x
+
+
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     """Check precomputed indicators and apply System1-specific filters.

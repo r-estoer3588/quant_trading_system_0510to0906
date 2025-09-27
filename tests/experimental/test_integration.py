@@ -8,8 +8,8 @@ import sys
 import time
 from pathlib import Path
 
-# プロジェクトルートをパスに追加
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# プロジェクトルート（tests/experimental/ から2階層上）をパスに追加
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from common.progress_events import reset_progress_log, emit_progress
 from common.rate_limited_logging import create_rate_limited_logger
