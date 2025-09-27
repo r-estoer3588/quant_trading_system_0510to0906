@@ -46,11 +46,11 @@ from config.settings import get_settings
 # 条件付きインポート - alpaca.trading.requests は実行時のみ必要
 if TYPE_CHECKING:  # pragma: no cover - static typing only
     try:
-        import alpaca.trading.requests as _alpaca_trading_requests
+        import alpaca.trading.requests as AlpacaTradingRequests
     except ImportError:  # pragma: no cover - runtime fallback
-        _alpaca_trading_requests = Any
+        AlpacaTradingRequests = Any
 else:
-    _alpaca_trading_requests = None
+    AlpacaTradingRequests = None
 
 
 def _import_alpaca_requests():
@@ -68,7 +68,7 @@ def _import_alpaca_requests():
 
 # 実行時にインポートを試みる
 if not TYPE_CHECKING:
-    _alpaca_trading_requests = _import_alpaca_requests()
+    AlpacaTradingRequests = _import_alpaca_requests()
 
 
 def _running_in_streamlit() -> bool:
@@ -103,13 +103,11 @@ if not _IS_STREAMLIT_RUNTIME:
 
 try:
     # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）
-    from streamlit.runtime.scriptrunner import get_script_run_ctx as _st_get_ctx
-
     def _has_st_ctx() -> bool:
         if not _IS_STREAMLIT_RUNTIME:
             return False
         try:
-            return _st_get_ctx() is not None
+            return get_script_run_ctx() is not None
         except Exception:
             return False
 
@@ -124,7 +122,7 @@ try:
     # モジュール属性を安全に処理
     original_checkbox = getattr(st, "checkbox", None)
 
-    if original_checkbox is not None:
+    if original_checkbox is not None and callable(original_checkbox):
 
         def _unique_checkbox(label, *args, **kwargs):
             if "key" not in kwargs:
@@ -136,7 +134,13 @@ try:
                     cnt = 1
                 st.session_state[count_key] = cnt
                 kwargs["key"] = f"{base}_{cnt}"
-            return original_checkbox(label, *args, **kwargs)
+            # 念のため呼び出し前に再度チェック
+            if callable(original_checkbox):
+                return original_checkbox(label, *args, **kwargs)
+            else:
+                # フォールバック: 元の関数を直接呼び出し
+                import streamlit
+                return streamlit.checkbox(label, *args, **kwargs)
 
         # 元のチェックボックスを保存して新しい関数を設定
         setattr(st, "_orig_checkbox", original_checkbox)
@@ -533,10 +537,8 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
     # Optionally log a debug summary about skipped lookback-short columns
     if _ROLLING_DEBUG_LOG_SKIPPED and skipped_lookback_count:
         try:
-            import logging
-
             logger = logging.getLogger("today_signals")
-            logger.info(f"lookback未満でスキップされた列は{skipped_lookback_count}件でした")
+            logger.info("lookback未満でスキップされた列は%d件でした", skipped_lookback_count)
         except Exception:
             pass
 
@@ -1086,15 +1088,15 @@ class StageTracker:
         if not self.show_ui:
             return
         key = str(name).lower()
-        bar = self.bars.get(key)
-        if bar is None:
+        progress_bar = self.bars.get(key)
+        if progress_bar is None:
             return
         value = 50 if phase == "start" else 100 if phase == "done" else None
         if value is None:
             return
         self.states[key] = value
         try:
-            bar.progress(value)
+            progress_bar.progress(value)
             self.stage_txt[key].text("run 50%" if value == 50 else "done 100%")
         except Exception:
             pass
@@ -1167,8 +1169,6 @@ class StageTracker:
         # 短時間内に同一内容の更新が来ると UI がフラッタリングするため、
         # 同一システム・同一値・同一カウントの更新は 0.5 秒以内は無視する。
         try:
-            import time as _time
-
             last = self._last_event.get(key)
             cur_sig = (
                 value,
@@ -1176,7 +1176,7 @@ class StageTracker:
                 int(setup_cnt) if setup_cnt is not None else -1,
                 int(cand_cnt) if cand_cnt is not None else -1,
                 int(final_cnt) if final_cnt is not None else -1,
-                _time.time(),
+                time.time(),
             )
             if last is not None:
                 same = last[0:5] == cur_sig[0:5]
@@ -1360,15 +1360,15 @@ class StageTracker:
     def _update_bar(self, key: str, value: int) -> None:
         if not self.show_ui:
             return
-        bar = self.bars.get(key)
-        if bar is None:
+        progress_bar = self.bars.get(key)
+        if progress_bar is None:
             return
         vv = max(0, min(100, int(value)))
         prev = int(self.states.get(key, 0))
         vv = max(prev, vv)
         self.states[key] = vv
         try:
-            bar.progress(vv)
+            progress_bar.progress(vv)
             self.stage_txt[key].text(f"run {vv}%" if vv < 100 else "done 100%")
         except Exception:
             pass
@@ -1481,9 +1481,7 @@ class UILogger:
             return self.progress_ui.show_data_load
         # 短時間内の同一ログを抑止（0.3秒以内の重複は無視）
         try:
-            import time as _time
-
-            now = _time.time()
+            now = time.time()
             last = self._last_log.get(msg)
             if last is not None and (now - last) < 0.3:
                 return False
@@ -1741,9 +1739,8 @@ def _log_run_completion(
             f" | Long/Short別: {', '.join(per_counts_lines)}" if per_counts_lines else ""
         )  # noqa: E501
         _get_today_logger().info(
-            f"✅ 本日のシグナル: シグナル検出処理終了 "
-            f"(経過 {m}分{s}秒, 最終候補 {final_n} 件)"
-            f"{detail}"
+            "✅ 本日のシグナル: シグナル検出処理終了 (経過 %d分%d秒, 最終候補 %d 件)%s",
+            m, s, final_n, detail
         )
     except Exception:
         pass
@@ -1847,8 +1844,6 @@ def _configure_today_logger_ui() -> None:
 
 
 def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
-    import pandas as pd
-
     # 実行開始時のヘッダーメッセージを表示
     today = get_signal_target_trading_day().normalize()
     try:
@@ -1891,8 +1886,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
         # SPYデータでキャッシュの新しさを確認
         spy_df = cm.read("SPY", "rolling")
         if spy_df is not None and not spy_df.empty:
-            import pandas as pd
-
             # last_cache_dateを計算するための簡単な実装
             if "date" in spy_df.columns:
                 last_date = pd.to_datetime(spy_df["date"]).max()
@@ -1968,7 +1961,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 missing_details=missing_details,
             )
         else:
-            final_df, per_system = compute_today_signals(
+            result = compute_today_signals(
                 run_config.symbols,
                 capital_long=run_config.capital_long,
                 capital_short=run_config.capital_short,
@@ -1981,6 +1974,15 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 symbol_data=symbol_data_map,
                 parallel=run_config.run_parallel,
             )
+            # 安全にアンパック
+            if result is not None and isinstance(result, (tuple, list)) and len(result) == 2:
+                final_df, per_system = result
+            else:
+                # フォールバック: 空のDataFrameとdict
+                final_df = pd.DataFrame()
+                per_system = {}
+                logger.log("⚠️ compute_today_signals から予期しない結果が返されました")
+                
     if debug_result is not None:
         return debug_result
     assert final_df is not None  # 安全策: debugモードでは既にreturn済み
@@ -2039,7 +2041,7 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
             )
             if result is None:
                 continue
-            (system, pos_side, qty, exit_when, row_data, exit_today) = result
+            (system, _pos_side, _qty, exit_when, row_data, exit_today) = result
             when_value = str(exit_when or "")
             when_lower = when_value.lower()
             when_entry = when_lower or when_value
@@ -2586,8 +2588,6 @@ def _render_skip_file_group(files: list[tuple[str, Path]], key_prefix: str) -> N
             except Exception:
                 data_bytes = None
             if data_bytes:
-                import time
-
                 st.download_button(
                     label=f"{name} CSV",
                     data=data_bytes,
@@ -2908,12 +2908,12 @@ def _log_and_notify(
         try:
             notifier(message)
         except Exception as e:
-            _get_today_logger().warning(f"Notifier failed: {e}")
+            _get_today_logger().warning("Notifier failed: %s", e)
     if log_callback:
         try:
             log_callback(message)
         except Exception as e:
-            _get_today_logger().warning(f"Log callback failed: {e}")
+            _get_today_logger().warning("Log callback failed: %s", e)
 
 
 # =============================================================================

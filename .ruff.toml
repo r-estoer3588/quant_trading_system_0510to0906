@@ -1,28 +1,14 @@
 # Ruff設定ファイル
 
-# Streamlit特有のインポート位置に関する警告を無効化
-[lint]
-# ユーザー定義のflake8ルールを無視
+# 行の長さ
+line-length = 120
+
+# 無視するルール
 extend-ignore = [
     "E402",  # module level import not at top of file
     "C901",  # function is too complex
 ]
 
-# 行の長さ
-line-length = 120
-
-[lint.extend-per-file-ignores]
-# Streamlitアプリケーションでは特殊なインポート順序が必要
+# ファイル別の無視ルール
+[extend-per-file-ignores]
 "**/apps/*.py" = ["E402", "F401", "F403"]
-
-# pylintコメント互換を有効化
-[lint.pylint]
-enable = true
-
-# アンダースコア始まりの変数のケーススタイルを無視
-[lint.flake8-quotes]
-inline-quotes = "double"
-
-# Streamlitの特殊性を考慮したブロードエクセプションの許可
-[lint.flake8-annotations]
-allow-star-arg-any = true

@@ -96,6 +96,10 @@ _LOG_CALLBACK = None
 # Progress event settings
 ENABLE_PROGRESS_EVENTS = os.getenv("ENABLE_PROGRESS_EVENTS", "false").lower() == "true"
 
+# Global log file variables (initialized by setup_logging)
+_LOG_FILE_PATH: Path | None = None
+_LOG_FILE_MODE: str | None = None
+
 
 def emit_progress_event(event_type: str, data: dict) -> None:
     """Emit a progress event with given type and data."""
@@ -3547,13 +3551,13 @@ def _format_phase_completion(
                             prev_stage_val, f_int, s_int, c_int, fin_int
                         )
                         if completion_msg:
-                            _local_log(completion_msg)
+                            _log(completion_msg)
                         phase_completed.add(prev_stage_val)
                     msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
                     if msg:
-                        _local_log(msg)
+                        _log(msg)
                     if progress_val in phase_names and progress_val not in phase_started:
-                        _local_log(f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始")
+                        _log(f"⚙️ {name}: {phase_names[progress_val]}のプロセスプールを開始")
                         phase_started.add(progress_val)
             except Exception:
                 pass
@@ -3582,7 +3586,7 @@ def _format_phase_completion(
     else:
         use_process_pool = False
         if env_pp:
-            _local_log(
+            _log(
                 "⚠️ "
                 + f"{name}: USE_PROCESS_POOL の値 '{env_pp_raw}' を解釈できません。"
                 + "プロセスプールを無効化します。"
@@ -3652,7 +3656,7 @@ def _format_phase_completion(
     _t0 = __import__("time").time()
     # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
     _stage_cb = _stage
-    _log_cb = None if use_process_pool else _local_log
+    _log_cb = None if use_process_pool else _log
     # プロセスプール利用時は Manager().Queue を生成して子プロセスから
     # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
     if use_process_pool:
@@ -3666,12 +3670,12 @@ def _format_phase_completion(
             globals().pop("_PROGRESS_QUEUE", None)
     if use_process_pool:
         workers_label = str(max_workers) if max_workers is not None else "auto"
-        _local_log(
+        _log(
             f"⚙️ {name}: USE_PROCESS_POOL=1 でプロセスプール実行を開始"
             + f" (workers={workers_label})"
             + " | 並列化: インジケーター計算/前処理"
         )
-        _local_log(
+        _log(
             f"🧭 {name}: フィルター・セットアップ・候補抽出は"
             "メインプロセスで進行状況を記録します"
         )
@@ -3694,9 +3698,9 @@ def _format_phase_completion(
             pool_outcome = "success"
         _elapsed = int(max(0, __import__("time").time() - _t0))
         _m, _s = divmod(_elapsed, 60)
-        _local_log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
+        _log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
     except Exception as e:  # noqa: BLE001
-        _local_log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
+        _log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
         # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
         try:
             msg = str(e).lower()
@@ -3715,7 +3719,7 @@ def _format_phase_completion(
             ]
         )
         if needs_fallback:
-            _local_log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
+            _log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
             try:
                 _t0b = __import__("time").time()
                 df = stg.get_today_signals(
@@ -3723,7 +3727,7 @@ def _format_phase_completion(
                     market_df=spy_df,
                     today=today,
                     progress_callback=None,
-                    log_callback=_local_log,
+                    log_callback=_log,
                     stage_progress=None,
                     use_process_pool=False,
                     max_workers=None,
@@ -3731,11 +3735,11 @@ def _format_phase_completion(
                 )
                 _elapsed_b = int(max(0, __import__("time").time() - _t0b))
                 _m2, _s2 = divmod(_elapsed_b, 60)
-                _local_log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                _log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
                 if use_process_pool:
                     pool_outcome = "fallback"
             except Exception as e2:  # noqa: BLE001
-                _local_log(f"❌ {name}: フォールバックも失敗: {e2}")
+                _log(f"❌ {name}: フォールバックも失敗: {e2}")
                 if use_process_pool:
                     pool_outcome = "error"
                 df = pd.DataFrame()
@@ -3744,11 +3748,11 @@ def _format_phase_completion(
     finally:
         if use_process_pool:
             if pool_outcome == "success":
-                _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
+                _log(f"🏁 {name}: プロセスプール実行が完了しました")
             elif pool_outcome == "fallback":
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+                _log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
             else:
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
+                _log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
     if not df.empty:
         if "score_key" in df.columns and len(df):
             first_key = df["score_key"].iloc[0]
@@ -3761,7 +3765,7 @@ def _format_phase_completion(
         msg = f"📊 {name}: {len(df)} 件"
     else:
         msg = f"❌ {name}: 0 件 🚫"
-    _local_log(msg)
+    _log(msg)
     return name, df, msg, logs
 
     # 抽出開始前にセットアップ通過のまとめを出力
@@ -4482,7 +4486,21 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         test_mode=getattr(args, "test_mode", None),
         skip_external=getattr(args, "skip_external", False),
     )
-    return result
+    # 戻り値がNoneの場合のフォールバック
+    if result is None:
+        import pandas as pd
+        return pd.DataFrame(), {}
+    
+    # AllocationSummaryを辞書に変換する必要がある場合
+    final_df, allocation_summary = result
+    if hasattr(allocation_summary, '__dict__'):
+        # AllocationSummaryオブジェクトから適切な辞書形式に変換
+        per_system_dict = {}
+    else:
+        # 既に辞書形式の場合
+        per_system_dict = allocation_summary if isinstance(allocation_summary, dict) else {}
+    
+    return final_df, per_system_dict
 
 
 def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
