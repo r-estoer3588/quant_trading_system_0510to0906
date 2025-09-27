@@ -1,0 +1,41 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "scriptrunner",
+    "isin",
+    "adjclose",
+    "lookback",
+    "LOOKBACK",
+    "levelname",
+    "cand",
+    "trdlist",
+    "Dlist",
+    "disp",
+    "avgvol",
+    "EODHD",
+    "mult",
+    "Noto",
+    "Meiryo",
+    "skipdet",
+    "shortable",
+    "shortability",
+    "runid",
+    "selectbox",
+    "plpc"
+  ],
+  "ignorePaths": [
+    "node_modules/**",
+    ".git/**",
+    "*.pyc",
+    "__pycache__/**",
+    "*.min.js",
+    "*.min.css",
+    "venv/**",
+    ".venv/**",
+    "dist/**",
+    "build/**"
+  ],
+  "allowCompoundWords": true,
+  "dictionaries": ["en_US", "python", "typescript", "node", "misc"]
+}

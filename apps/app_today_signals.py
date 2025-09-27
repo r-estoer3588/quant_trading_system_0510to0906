@@ -25,7 +25,12 @@ from common.cache_format import round_dataframe
 from common.data_loader import load_price
 from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
-from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates, save_entry_dates
+from common.position_age import (
+    fetch_entry_dates_from_alpaca,
+    load_entry_dates,
+    save_entry_dates,
+)
+from common.profit_protection import evaluate_positions
 from common.stage_metrics import (
     DEFAULT_SYSTEM_ORDER,
     GLOBAL_STAGE_METRICS,
@@ -36,14 +41,16 @@ from common.system_groups import format_group_counts, format_group_counts_and_va
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
-from common.profit_protection import evaluate_positions
 from config.settings import get_settings
 
+# 条件付きインポート - alpaca.trading.requests は実行時のみ必要
 if TYPE_CHECKING:  # pragma: no cover - static typing only
     try:
         import alpaca.trading.requests as _alpaca_trading_requests
-    except Exception:  # pragma: no cover - runtime fallback
+    except ImportError:  # pragma: no cover - runtime fallback
         _alpaca_trading_requests = Any
+else:
+    _alpaca_trading_requests = None
 
 
 def _import_alpaca_requests():
@@ -59,7 +66,9 @@ def _import_alpaca_requests():
         return None
 
 
-_alpaca_trading_requests = _import_alpaca_requests()
+# 実行時にインポートを試みる
+if not TYPE_CHECKING:
+    _alpaca_trading_requests = _import_alpaca_requests()
 
 
 def _running_in_streamlit() -> bool:
@@ -94,7 +103,7 @@ if not _IS_STREAMLIT_RUNTIME:
 
 try:
     # Streamlit の実行コンテキスト有無を判定（スレッド外からの UI 呼び出しを防ぐ）
-    from streamlit.runtime.scriptrunner import get_script_run_ctx as _st_get_ctx  # type: ignore
+    from streamlit.runtime.scriptrunner import get_script_run_ctx as _st_get_ctx
 
     def _has_st_ctx() -> bool:
         if not _IS_STREAMLIT_RUNTIME:
@@ -106,14 +115,16 @@ try:
 
 except Exception:
 
-    def _has_st_ctx() -> bool:  # type: ignore
+    def _has_st_ctx() -> bool:
         return _IS_STREAMLIT_RUNTIME
 
 
 # Streamlit checkbox の重複ID対策（key未指定時に自動で一意キーを付与）
 try:
-    if not hasattr(st, "_orig_checkbox"):
-        st._orig_checkbox = st.checkbox  # type: ignore[attr-defined]
+    # モジュール属性を安全に処理
+    original_checkbox = getattr(st, "checkbox", None)
+
+    if original_checkbox is not None:
 
         def _unique_checkbox(label, *args, **kwargs):
             if "key" not in kwargs:
@@ -125,13 +136,11 @@ try:
                     cnt = 1
                 st.session_state[count_key] = cnt
                 kwargs["key"] = f"{base}_{cnt}"
-            return st._orig_checkbox(  # type: ignore[attr-defined]
-                label,
-                *args,
-                **kwargs,
-            )
+            return original_checkbox(label, *args, **kwargs)
 
-        st.checkbox = _unique_checkbox  # type: ignore[attr-defined]
+        # 元のチェックボックスを保存して新しい関数を設定
+        setattr(st, "_orig_checkbox", original_checkbox)
+        setattr(st, "checkbox", _unique_checkbox)
 except Exception:
     # 失敗しても従来動作のまま進める
     pass
@@ -1541,10 +1550,11 @@ class RunCallbacks:
 
     def register_with_module(self) -> None:
         try:
-            _run_today_mod._PER_SYSTEM_STAGE = self.per_system_stage  # type: ignore[attr-defined]  # noqa: E501
-            _run_today_mod._PER_SYSTEM_EXIT = self.per_system_exit  # type: ignore[attr-defined]  # noqa: E501
-            # Universe target setter for display alignment
-            _run_today_mod._SET_STAGE_UNIVERSE_TARGET = self.tracker.set_universe_target  # type: ignore[attr-defined]
+            # 安全な属性アクセス方法を使用
+            mod = _run_today_mod
+            setattr(mod, "_PER_SYSTEM_STAGE", self.per_system_stage)
+            setattr(mod, "_PER_SYSTEM_EXIT", self.per_system_exit)
+            setattr(mod, "_SET_STAGE_UNIVERSE_TARGET", self.tracker.set_universe_target)
         except Exception:
             pass
 
@@ -1828,7 +1838,7 @@ def _configure_today_logger_ui() -> None:
         mode_env = ""
     sel_mode = "single" if mode_env == "single" else "dated"
     try:
-        _run_today_mod._configure_today_logger(mode=sel_mode)  # type: ignore[attr-defined]  # noqa: E501
+        _run_today_mod._configure_today_logger(mode=sel_mode)
         sel_path = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
         if sel_path:
             st.caption(f"ログ保存先: {sel_path}")
@@ -2165,9 +2175,11 @@ def _evaluate_position_for_exit(
         if entry_price is None or stop_price is None:
             return None
         _apply_strategy_state(system, strategy, df, entry_idx, prev_close)
+        # exit_priceを使用するように修正
         exit_price, exit_date = strategy.compute_exit(
             df, int(entry_idx), float(entry_price), float(stop_price)
         )
+        # exit_priceをプロパティに追加
         today_norm = pd.to_datetime(df.index[-1]).normalize()
         if latest_trading_day is not None:
             today_norm = latest_trading_day
@@ -2177,6 +2189,7 @@ def _evaluate_position_for_exit(
             "qty": qty,
             "position_side": pos_side,
             "system": system,
+            "exit_price": exit_price,  # 追加
         }
         return system, pos_side, qty, when, row_base, is_today_exit
     except Exception:
@@ -2252,12 +2265,12 @@ def _apply_strategy_state(
     if system == "system5":
         try:
             atr = float(df.iloc[int(max(0, entry_idx - 1))]["ATR10"])
-            strategy._last_entry_atr = atr  # type: ignore[attr-defined]
+            strategy._last_entry_atr = atr
         except Exception:
             pass
     if system in {"system3", "system5", "system6"}:
         try:
-            strategy._last_prev_close = prev_close  # type: ignore[attr-defined]
+            strategy._last_prev_close = prev_close
         except Exception:
             pass
 
@@ -2274,7 +2287,7 @@ def render_exit_candidates_section(
         st.warning(f"手仕舞い候補の推定に失敗しました: {result.error}")
         return result
     _display_exit_orders_table(result, trade_options, stage_tracker, logger, notify)
-    _display_planned_exits_section(result, trade_options)
+    _display_planned_exits_section(result)  # trade_options引数を削除
     return result
 
 
@@ -2306,9 +2319,7 @@ def _display_exit_orders_table(
             st.dataframe(res, use_container_width=True)
 
 
-def _display_planned_exits_section(
-    result: ExitAnalysisResult, trade_options: TradeOptions
-) -> None:  # noqa: E501
+def _display_planned_exits_section(result: ExitAnalysisResult) -> None:  # trade_options引数を削除
     if result.planned.empty:
         return
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
@@ -2738,9 +2749,7 @@ def _render_system_details(
 ) -> None:
     with st.expander("システム別詳細"):
         settings_local = get_settings(create_dirs=True)
-        results_dir = Path(
-            getattr(settings_local.outputs, "results_csv_dir", "results_csv")
-        )  # noqa: E501
+        results_dir = Path(getattr(settings_local.outputs, "results_csv_dir", "results_csv"))
         shortable_excluded_map = {}
         for i in (2, 6):
             name = f"system{i}"
@@ -2749,25 +2758,23 @@ def _render_system_details(
                 try:
                     df_exc = pd.read_csv(fp)
                     if df_exc is not None and not df_exc.empty:
-                        shortable_excluded_map[name] = set(
-                            df_exc["symbol"].astype(str).str.upper()
-                        )  # noqa: E501
+                        shortable_excluded_map[name] = set(df_exc["symbol"].astype(str).str.upper())
                 except Exception:
                     pass
         system_order = [f"system{i}" for i in range(1, 8)]
         for name in system_order:
             st.markdown(f"#### {name}")
             display_metrics = stage_tracker.get_display_metrics(name)
-            metrics_line = "  ".join(
-                [
-                    f"Tgt {StageTracker._format_value(display_metrics.get('target'))}",  # noqa: E501
-                    f"FILpass {StageTracker._format_value(display_metrics.get('filter'))}",
-                    f"STUpass {StageTracker._format_value(display_metrics.get('setup'))}",
-                    f"TRDlist {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
-                    f"Entry {StageTracker._format_value(display_metrics.get('entry'))}",
-                    f"Exit {StageTracker._format_value(display_metrics.get('exit'))}",
-                ]
-            )
+            # Line length fix - split formatted string
+            metrics_parts = [
+                f"Tgt {StageTracker._format_value(display_metrics.get('target'))}",
+                f"FILpass {StageTracker._format_value(display_metrics.get('filter'))}",
+                f"STUpass {StageTracker._format_value(display_metrics.get('setup'))}",
+                f"TRDlist {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
+                f"Entry {StageTracker._format_value(display_metrics.get('entry'))}",
+                f"Exit {StageTracker._format_value(display_metrics.get('exit'))}",
+            ]
+            metrics_line = "  ".join(metrics_parts)
             st.caption(metrics_line)
             df = per_system.get(name)
             if df is None or df.empty:
@@ -2909,6 +2916,11 @@ def _log_and_notify(
             _get_today_logger().warning(f"Log callback failed: {e}")
 
 
+# =============================================================================
+# メイン UI 実行部分
+# =============================================================================
+
+with st.sidebar:
     st.header("ユニバース")
     universe: list[str] = []
     try:
@@ -2999,9 +3011,9 @@ def _log_and_notify(
     import platform
 
     is_windows = platform.system().lower().startswith("win")
-    run_parallel_default = True
+    RUN_PARALLEL_DEFAULT = True
     run_parallel = st.checkbox(
-        "並列実行（システム横断）", value=run_parallel_default, key="run_parallel"
+        "並列実行（システム横断）", value=RUN_PARALLEL_DEFAULT, key="run_parallel"
     )
 
     st.header("デバッグ")
@@ -3086,14 +3098,44 @@ st.session_state["ui_vis"] = {
 }
 
 st.subheader("保有ポジションと利益保護判定")
-if st.button("🔍 Alpacaから保有ポジション取得"):
-    try:
-        client = ba.get_client(paper=paper_mode)
-        positions = client.get_all_positions()
-        st.session_state["positions_df"] = evaluate_positions(positions)
-        st.success("ポジションを取得しました")
-    except Exception as e:
-        st.error(f"ポジション取得エラー: {e}")
+
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🔍 Alpacaから保有ポジション取得"):
+        try:
+            client = ba.get_client(paper=paper_mode)
+            positions = client.get_all_positions()
+            st.session_state["positions_df"] = evaluate_positions(positions)
+            st.success("ポジションを取得しました")
+        except Exception as e:
+            st.error(f"ポジション取得エラー: {e}")
+
+with col2:
+    if st.button("📋 未約定注文を表示"):
+        try:
+            client = ba.get_client(paper=paper_mode)
+            orders = client.get_orders(status="open")
+            if orders:
+                orders_data = []
+                for order in orders:
+                    orders_data.append(
+                        {
+                            "注文ID": order.id,
+                            "銘柄": order.symbol,
+                            "サイド": order.side,
+                            "数量": order.qty,
+                            "注文価格": getattr(order, "limit_price", "Market"),
+                            "注文タイプ": order.order_type,
+                            "状況": order.status,
+                            "作成日時": order.created_at,
+                        }
+                    )
+                orders_df = pd.DataFrame(orders_data)
+                st.dataframe(orders_df, use_container_width=True)
+            else:
+                st.info("未約定注文はありません")
+        except Exception as e:
+            st.error(f"注文取得エラー: {e}")
 
 if "positions_df" in st.session_state:
     positions_df = st.session_state["positions_df"]
@@ -3114,14 +3156,14 @@ if "positions_df" in st.session_state:
             "side": "サイド",
             "qty": "数量",
             "entry_date": "取得日",
-            "days_held": "保有日数",
+            "holding_days": "保有日数",
             "avg_entry_price": "平均取得単価",
             "current_price": "現在値",
             "unrealized_pl": "含み損益",
-            "unrealized_pl_pct": "含み損益率(%)",
-            "protection_decision": "判定",
-            "next_action_hint": "次のアクション目安",
-            "exit_rule_summary": "利確/損切りルール概要",
+            "unrealized_plpc_percent": "含み損益率(%)",
+            "judgement": "判定",
+            "next_action": "次のアクション目安",
+            "rule_summary": "利確/損切りルール概要",
         }
         df_disp = df_disp.rename(columns=rename_map)
         display_cols = [
@@ -3141,6 +3183,90 @@ if "positions_df" in st.session_state:
         ]
         df_disp = df_disp[[col for col in display_cols if col in df_disp.columns]]
         st.dataframe(df_disp, use_container_width=True)
+
+        # 手動手仕舞い機能
+        st.subheader("🎯 手動手仕舞い")
+        st.caption("選択した銘柄を手動で手仕舞い注文します")
+
+        # 手仕舞い対象の選択
+        if not positions_df.empty:
+            symbols_list = positions_df["symbol"].tolist()
+            selected_symbols: list[str] = st.multiselect(
+                "手仕舞いする銘柄を選択:", options=symbols_list, key="manual_exit_symbols"
+            )
+
+            if selected_symbols:
+                exit_type = st.selectbox(
+                    "手仕舞いタイプ:",
+                    ["MOC (大引け)", "OPG (寄り付き)", "Market (成行)"],
+                    key="exit_type",
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🚀 選択銘柄の手仕舞い注文を送信", type="primary"):
+                        try:
+                            # 選択された銘柄のポジション情報を取得
+                            selected_positions = positions_df[
+                                positions_df["symbol"].isin(selected_symbols)
+                            ].copy()
+
+                            # 手仕舞い注文の実行
+                            exit_orders = []
+                            for _, row in selected_positions.iterrows():
+                                exit_orders.append(
+                                    {
+                                        "symbol": row["symbol"],
+                                        "side": (
+                                            "sell" if str(row["side"]).lower() == "long" else "buy"
+                                        ),
+                                        "qty": abs(float(row["qty"])),
+                                        "order_type": (
+                                            "market" if "Market" in exit_type else "limit"
+                                        ),
+                                        "time_in_force": (
+                                            "cls"
+                                            if "MOC" in exit_type
+                                            else ("opg" if "OPG" in exit_type else "day")
+                                        ),
+                                    }
+                                )
+
+                            if exit_orders:
+                                exit_df = pd.DataFrame(exit_orders)
+                                results = submit_orders_df(
+                                    exit_df,
+                                    paper=paper_mode,
+                                    tif="DAY",
+                                    retries=int(retries),
+                                    delay=float(delay),
+                                )
+
+                                if results is not None and not results.empty:
+                                    st.success(
+                                        f"{len(selected_symbols)}銘柄の手仕舞い注文を送信しました"
+                                    )
+                                    st.dataframe(results, use_container_width=True)
+                                else:
+                                    st.warning("注文送信結果が取得できませんでした")
+
+                        except Exception as e:
+                            st.error(f"手仕舞い注文エラー: {e}")
+
+                with col2:
+                    if st.button("📊 手仕舞い影響を事前確認"):
+                        if selected_symbols:
+                            selected_positions = positions_df[
+                                positions_df["symbol"].isin(selected_symbols)
+                            ].copy()
+                            total_pl = selected_positions["unrealized_pl"].astype(float).sum()
+                            st.info(f"選択銘柄の合計含み損益: ${total_pl:,.2f}")
+                            st.dataframe(
+                                selected_positions[
+                                    ["symbol", "side", "qty", "unrealized_pl", "judgement"]
+                                ],
+                                use_container_width=True,
+                            )
 
 if st.button("▶ 本日のシグナル実行", type="primary"):
     artifacts = execute_today_signals(run_config)
