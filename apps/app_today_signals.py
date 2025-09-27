@@ -140,6 +140,7 @@ try:
             else:
                 # フォールバック: 元の関数を直接呼び出し
                 import streamlit
+
                 return streamlit.checkbox(label, *args, **kwargs)
 
         # 元のチェックボックスを保存して新しい関数を設定
@@ -1740,7 +1741,10 @@ def _log_run_completion(
         )  # noqa: E501
         _get_today_logger().info(
             "✅ 本日のシグナル: シグナル検出処理終了 (経過 %d分%d秒, 最終候補 %d 件)%s",
-            m, s, final_n, detail
+            m,
+            s,
+            final_n,
+            detail,
         )
     except Exception:
         pass
@@ -1982,7 +1986,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 final_df = pd.DataFrame()
                 per_system = {}
                 logger.log("⚠️ compute_today_signals から予期しない結果が返されました")
-                
+
     if debug_result is not None:
         return debug_result
     assert final_df is not None  # 安全策: debugモードでは既にreturn済み
