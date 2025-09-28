@@ -885,7 +885,7 @@ def _collect_open_exit_levels(client: Any) -> dict[str, dict[str, list[Any]]]:
     if client is None:
         return {}
     try:
-        orders_obj = client.get_orders(status="open")
+        orders_obj = ba.get_open_orders(client)
     except Exception:
         return {}
 
@@ -2018,7 +2018,7 @@ def main() -> None:
         st.markdown("---")
         st.markdown("#### 未約定注文の確認とキャンセル")
         try:
-            open_orders = list(client.get_orders(status="open"))
+            open_orders = list(ba.get_open_orders(client))
         except Exception:
             open_orders = []
         if not open_orders:

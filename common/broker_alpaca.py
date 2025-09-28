@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
 import os
 import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from dotenv import load_dotenv
@@ -12,10 +12,11 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.client import TradingClient  # type: ignore
 
     try:
-        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
+        from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce  # type: ignore
     except ImportError:
-        from alpaca.trading.models.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
+        from alpaca.trading.models.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce  # type: ignore
     from alpaca.trading.requests import (  # type: ignore
+        GetOrdersRequest,
         LimitOrderRequest,
         MarketOrderRequest,
         StopLossRequest,
@@ -25,9 +26,10 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.stream import TradingStream  # type: ignore
 except Exception:  # pragma: no cover
     TradingClient = None  # type: ignore
-    OrderSide = OrderClass = TimeInForce = None  # type: ignore
+    OrderSide = OrderClass = TimeInForce = QueryOrderStatus = None  # type: ignore
     MarketOrderRequest = None  # type: ignore
     LimitOrderRequest = None  # type: ignore
+    GetOrdersRequest = None  # type: ignore
     TakeProfitRequest = None  # type: ignore
     StopLossRequest = None  # type: ignore
     TrailingStopOrderRequest = None  # type: ignore
@@ -164,9 +166,7 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            msg = (
-                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
-            )
+            msg = f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
             log_callback(msg)
         except Exception:
             pass
@@ -254,13 +254,26 @@ def get_orders_status_map(client, order_ids: Iterable[str]) -> dict[str, Any]:
 
 def log_orders_positions(client) -> tuple[Any, Any]:
     """現在の注文とポジションを同時に取得する."""
+    if GetOrdersRequest is None or QueryOrderStatus is None:
+        raise RuntimeError("alpaca-py がインストールされていません。")
+
     # 並列取得で待ち時間を短縮
     with ThreadPoolExecutor(max_workers=2) as executor:
-        orders_future = executor.submit(client.get_orders, status="all")
+        orders_future = executor.submit(
+            client.get_orders, GetOrdersRequest(status=QueryOrderStatus.ALL)
+        )
         positions_future = executor.submit(client.get_all_positions)
         orders = orders_future.result()
         positions = positions_future.result()
     return orders, positions
+
+
+def get_open_orders(client) -> Any:
+    """未約定注文を取得する."""
+    if GetOrdersRequest is None or QueryOrderStatus is None:
+        raise RuntimeError("alpaca-py がインストールされていません。")
+
+    return client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
 
 
 def cancel_all_orders(client) -> None:

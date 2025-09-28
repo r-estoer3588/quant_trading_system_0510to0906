@@ -2574,7 +2574,17 @@ def run_all_systems_today(
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """scripts.run_all_systems_today.compute_today_signals のラッパー。"""
-    from scripts.run_all_systems_today import compute_today_signals as _compute
+    try:
+        from scripts.run_all_systems_today import compute_today_signals as _compute
+    except ImportError:
+        # Streamlitなどからの実行時にパスが正しく設定されていない場合の回避策
+        import sys
+        from pathlib import Path
+
+        project_root = Path(__file__).parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        from scripts.run_all_systems_today import compute_today_signals as _compute
 
     # log_callback が未指定なら CLI へ出すデフォルトを使う
     if log_callback is None:

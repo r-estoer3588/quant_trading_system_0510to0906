@@ -3023,7 +3023,7 @@ with st.sidebar:
         try:
             paper_mode = st.session_state.get("paper_mode", True)
             client = ba.get_client(paper=paper_mode)
-            orders = client.get_orders(status="open")
+            orders = ba.get_open_orders(client)
             if orders:
                 orders_data = []
                 for order in orders:
