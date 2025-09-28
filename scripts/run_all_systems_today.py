@@ -120,6 +120,128 @@ _LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
 _rate_limited_logger = None
 
 
+# --- stage progress bridging helpers -----------------------------------------------------
+
+_PER_SYSTEM_STAGE = None
+_PER_SYSTEM_EXIT = None
+_SET_STAGE_UNIVERSE_TARGET = None
+
+_STAGE_EVENT_PUMP_THREAD: threading.Thread | None = None
+_STAGE_EVENT_PUMP_STOP: threading.Event | None = None
+_STAGE_EVENT_PUMP_INTERVAL = 0.25
+
+
+class StageReporter:
+    """Callable wrapper that forwards stage progress with an associated system name."""
+
+    __slots__ = ("system", "_queue")
+
+    def __init__(self, system: str, queue: Any | None = None) -> None:
+        self.system = str(system or "").strip().lower() or "unknown"
+        self._queue = queue
+
+    def __call__(
+        self,
+        progress: int,
+        filter_count: int | None = None,
+        setup_count: int | None = None,
+        candidate_count: int | None = None,
+        final_count: int | None = None,
+    ) -> None:
+        if self._queue is not None:
+            try:
+                self._queue.put(
+                    (
+                        self.system,
+                        progress,
+                        filter_count,
+                        setup_count,
+                        candidate_count,
+                        final_count,
+                    ),
+                    block=False,
+                )
+            except Exception:
+                pass
+            return
+        _stage(
+            self.system,
+            progress,
+            filter_count,
+            setup_count,
+            candidate_count,
+            final_count,
+        )
+
+
+def register_stage_callback(callback: Callable[..., None] | None) -> None:
+    """Register per-system stage callback and ensure the event pump is running."""
+
+    globals()["_PER_SYSTEM_STAGE"] = callback
+    if callable(callback):
+        _ensure_stage_event_pump()
+    else:
+        _stop_stage_event_pump()
+
+
+def register_stage_exit_callback(callback: Callable[[str, int], None] | None) -> None:
+    """Register per-system exit callback (UI integration helper)."""
+
+    globals()["_PER_SYSTEM_EXIT"] = callback
+
+
+def register_universe_target_callback(callback: Callable[[int | None], None] | None) -> None:
+    """Register callback to update the shared universe target in the UI."""
+
+    globals()["_SET_STAGE_UNIVERSE_TARGET"] = callback
+
+
+def _ensure_stage_event_pump(interval: float | None = None) -> None:
+    """Start a background thread that periodically drains stage events for the UI."""
+
+    cb = globals().get("_PER_SYSTEM_STAGE")
+    if not cb or not callable(cb):
+        return
+
+    thread = globals().get("_STAGE_EVENT_PUMP_THREAD")
+    if isinstance(thread, threading.Thread) and thread.is_alive():
+        return
+
+    stop_event = threading.Event()
+    globals()["_STAGE_EVENT_PUMP_STOP"] = stop_event
+
+    interval_sec = float(interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL)
+
+    def _pump() -> None:
+        while not stop_event.is_set():
+            try:
+                _drain_stage_event_queue()
+            except Exception:
+                pass
+            stop_event.wait(interval_sec)
+
+    pump_thread = threading.Thread(target=_pump, name="stage-event-pump", daemon=True)
+    globals()["_STAGE_EVENT_PUMP_THREAD"] = pump_thread
+    pump_thread.start()
+
+
+def _stop_stage_event_pump(timeout: float = 1.0) -> None:
+    """Stop the background event pump thread if it is running."""
+
+    stop_event = globals().get("_STAGE_EVENT_PUMP_STOP")
+    thread = globals().get("_STAGE_EVENT_PUMP_THREAD")
+
+    if isinstance(stop_event, threading.Event):
+        stop_event.set()
+
+    if isinstance(thread, threading.Thread) and thread.is_alive():
+        if threading.current_thread() is not thread:
+            thread.join(timeout)
+
+    globals().pop("_STAGE_EVENT_PUMP_STOP", None)
+    globals().pop("_STAGE_EVENT_PUMP_THREAD", None)
+
+
 def _get_rate_limited_logger():
     """レート制限ロガーを取得。"""
     global _rate_limited_logger
@@ -497,38 +619,59 @@ def _drain_stage_event_queue() -> None:
     except Exception:
         cb2 = None
 
-    events: list[StageEvent] = GLOBAL_STAGE_METRICS.drain_events()
-
-    # もしプロセスマネージャー経由の進捗キューが存在すればそこからも取り出す
-    try:
-        _mgr = globals().get("_PROGRESS_MANAGER")
-    except Exception:
-        _mgr = None
-    if _mgr is not None:
+    def _normalize_stage_value(value: object | None) -> int | None:
+        if value is None:
+            return None
         try:
-            q = globals().get("_PROGRESS_QUEUE")
-            if q is not None:
-                while True:
-                    try:
-                        item = q.get_nowait()
-                    except Exception:
-                        break
-                    try:
-                        # item expected: (system, progress, filter, setup, cand, entry)
-                        if isinstance(item, list | tuple) and len(item) >= 2:
-                            GLOBAL_STAGE_METRICS.record_stage(
-                                item[0],
-                                int(item[1]),
-                                item[2] if len(item) > 2 else None,
-                                item[3] if len(item) > 3 else None,
-                                item[4] if len(item) > 4 else None,
-                                item[5] if len(item) > 5 else None,
-                                emit_event=True,
-                            )
-                    except Exception:
-                        continue
+            return int(value)
         except Exception:
-            pass
+            try:
+                return int(float(value))
+            except Exception:
+                return None
+
+    events: list[StageEvent] = []
+
+    queue_obj = globals().get("_PROGRESS_QUEUE")
+    if queue_obj is not None:
+        while True:
+            try:
+                item = queue_obj.get_nowait()
+            except Exception:
+                break
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            system = str(item[0] or "").strip().lower() or "unknown"
+            try:
+                progress = int(item[1])
+            except Exception:
+                progress = 0
+            filter_count = _normalize_stage_value(item[2] if len(item) > 2 else None)
+            setup_count = _normalize_stage_value(item[3] if len(item) > 3 else None)
+            candidate_count = _normalize_stage_value(item[4] if len(item) > 4 else None)
+            final_count = _normalize_stage_value(item[5] if len(item) > 5 else None)
+            try:
+                GLOBAL_STAGE_METRICS.record_stage(
+                    system,
+                    progress,
+                    filter_count,
+                    setup_count,
+                    candidate_count,
+                    final_count,
+                    emit_event=False,
+                )
+            except Exception:
+                continue
+            events.append(
+                StageEvent(
+                    system, progress, filter_count, setup_count, candidate_count, final_count
+                )
+            )
+
+    try:
+        events.extend(GLOBAL_STAGE_METRICS.drain_events())
+    except Exception:
+        pass
 
     if not events:
         return
@@ -1013,6 +1156,14 @@ def _load_basic_data(
             if df is not None and not getattr(df, "empty", True) and source is None:
                 source = "rolling"
             if df is not None and not getattr(df, "empty", True):
+                # データ長さチェックを追加
+                if len(df) < target_len:
+                    if len(df) < 100:  # 明らかに新規上場
+                        _log(f"📊 新規上場銘柄 {sym}: len={len(df)}/{target_len} (正常)", ui=False)
+                        # 短いデータでも処理を継続（rebuildしない）
+                    else:
+                        rebuild_reason = "length"
+                        needs_rebuild = True
                 last_seen_date = _extract_last_cache_date(df)
                 if last_seen_date is None:
                     rebuild_reason = rebuild_reason or "missing_date"
@@ -1053,7 +1204,15 @@ def _load_basic_data(
                     detail_parts.append(f"ギャップ={gap_label}")
                 elif rebuild_reason == "length" and df is not None:
                     try:
-                        detail_parts.append(f"len={len(df)}/{target_len}")
+                        rows = len(df)
+                        # 上場間もない銘柄（明らかに短いデータ）は警告レベルを下げる
+                        if rows < 100:  # 明らかに新規上場
+                            _log(f"📊 新規上場銘柄 {sym}: len={rows}/{target_len} (正常)", ui=False)
+                            # 短いデータでも処理を継続
+                            needs_rebuild = False
+                            detail_parts = []  # 詳細部分をクリア
+                        else:
+                            detail_parts.append(f"len={rows}/{target_len}")
                     except Exception:
                         pass
                 elif rebuild_reason == "missing_date":
@@ -1655,6 +1814,20 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     except Exception:
         universe_total = len(symbols)
 
+    try:
+        target_cb = globals().get("_SET_STAGE_UNIVERSE_TARGET")
+    except Exception:
+        target_cb = None
+    if target_cb and callable(target_cb):
+        try:
+            target_cb(universe_total)
+        except Exception:
+            pass
+    try:
+        GLOBAL_STAGE_METRICS.set_universe_target(universe_total)
+    except Exception:
+        pass
+
     _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数：{universe_total}")
     # ヘッダー部分に追加で銘柄数を表示
     _log(f"# 📊 銘柄数：{universe_total}", ui=False, no_timestamp=True)
@@ -1713,12 +1886,15 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
             preview = ", ".join(missing_syms[:10])
             if len(missing_syms) > 10:
                 preview += " …"
-            _log(
-                "⚠️ rolling未整備: "
-                + f"{cov_missing}銘柄 → 手動でキャッシュを更新してください"
-                + (f" | 例: {preview}" if preview else ""),
-                ui=False,
+            # 新規上場の可能性を含めた詳細メッセージ
+            new_listings = [s for s in missing_syms if len(s) <= 4 and s.isalpha()]
+            base_msg = (
+                f"⚠️ rolling未整備: {cov_missing}銘柄 → 手動でキャッシュを更新してください"
+                + (f" | 例: {preview}" if preview else "")
             )
+            if new_listings:
+                base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
+            _log(base_msg, ui=False)
     except Exception:
         pass
 
@@ -1803,41 +1979,34 @@ def _save_and_notify_phase(
     run_id = ctx.run_id
 
     try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
+        final_counts: dict[str, int] = {}
+        if (
+            final_df is not None
+            and not getattr(final_df, "empty", True)
+            and "system" in final_df.columns
+        ):
+            final_counts = final_df.groupby("system").size().to_dict()
     except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
+        final_counts = {}
+    for name in order_1_7:
+        cand_cnt: int | None
         try:
-            final_counts: dict[str, int] = {}
-            if (
-                final_df is not None
-                and not getattr(final_df, "empty", True)
-                and "system" in final_df.columns
-            ):
-                final_counts = final_df.groupby("system").size().to_dict()
+            snapshot = _get_stage_snapshot(name)
+            cand_cnt = (
+                None
+                if snapshot is None or snapshot.candidate_count is None
+                else int(snapshot.candidate_count)
+            )
         except Exception:
-            final_counts = {}
-        for name in order_1_7:
-            cand_cnt: int | None
-            try:
-                snapshot = _get_stage_snapshot(name)
-                cand_cnt = (
-                    None
-                    if snapshot is None or snapshot.candidate_count is None
-                    else int(snapshot.candidate_count)
-                )
-            except Exception:
-                cand_cnt = None
-            if cand_cnt is None:
-                df_sys = per_system.get(name)
-                cand_cnt = int(
-                    0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys)
-                )
-            final_cnt = int(final_counts.get(name, 0))
-            try:
-                cb2(name, 100, None, None, cand_cnt, final_cnt)
-            except Exception:
-                pass
+            cand_cnt = None
+        if cand_cnt is None:
+            df_sys = per_system.get(name)
+            cand_cnt = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
+        final_cnt = int(final_counts.get(name, 0))
+        try:
+            _stage(name, 100, None, None, cand_cnt, final_cnt)
+        except Exception:
+            pass
 
     if metrics_summary_context:
         try:
@@ -2042,28 +2211,20 @@ def _apply_system_filters_and_update_ctx(
         "system6": system6_syms,
     }
     ctx.system_filters = filters
-    try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
-    except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
+    for system_name, syms in filters.items():
         try:
-            cb2("system1", 25, len(system1_syms), None, None, None)
-            cb2("system2", 25, len(system2_syms), None, None, None)
-            cb2("system3", 25, len(system3_syms), None, None, None)
-            cb2("system4", 25, len(system4_syms), None, None, None)
-            cb2("system5", 25, len(system5_syms), None, None, None)
-            cb2("system6", 25, len(system6_syms), None, None, None)
-            cb2(
-                "system7",
-                25,
-                1 if "SPY" in (basic_data or {}) else 0,
-                None,
-                None,
-                None,
-            )
+            total_len = len(syms)
+        except Exception:
+            total_len = 0
+        try:
+            _stage(system_name, 25, total_len, None, None, None)
         except Exception:
             pass
+    try:
+        spy_total = 1 if "SPY" in (basic_data or {}) else 0
+        _stage("system7", 25, spy_total, None, None, None)
+    except Exception:
+        pass
     return filters
 
 
@@ -2362,14 +2523,16 @@ def _prepare_system2_data(
             + f"TwoDayUp: {s2_combo}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            _stage(
+                "system2",
+                50,
+                filter_count=int(s2_filter),
+                setup_count=int(s2_combo),
+                target_total=None,
+                duration=None,
+            )
         except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            try:
-                cb2("system2", 50, int(s2_filter), int(s2_combo), None, None)
-            except Exception:
-                pass
+            pass
     except Exception:
         pass
     return raw_data, s2_filter, s2_rsi, s2_combo
@@ -2413,14 +2576,16 @@ def _prepare_system3_data(
             + f"3????>=12.5%: {s3_combo}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            _stage(
+                "system3",
+                50,
+                filter_count=int(s3_filter),
+                setup_count=int(s3_combo),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            try:
-                cb2("system3", 50, int(s3_filter), int(s3_combo), None, None)
-            except Exception:
-                pass
+            pass
     except Exception:
         pass
     return raw_data, s3_filter, s3_close, s3_combo
@@ -2452,14 +2617,16 @@ def _prepare_system4_data(
                 pass
         _log(f"?? system4????????: ??????={s4_filter}, Close>SMA200: {s4_close}")
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            _stage(
+                "system4",
+                50,
+                filter_count=int(s4_filter),
+                setup_count=int(s4_close),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            try:
-                cb2("system4", 50, int(s4_filter), int(s4_close), None, None)
-            except Exception:
-                pass
+            pass
     except Exception:
         pass
     return raw_data, s4_filter, s4_close
@@ -2513,14 +2680,16 @@ def _prepare_system5_data(
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_combo}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            _stage(
+                "system5",
+                50,
+                filter_count=int(s5_filter),
+                setup_count=int(s5_combo),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            try:
-                cb2("system5", 50, int(s5_filter), int(s5_combo), None, None)
-            except Exception:
-                pass
+            pass
     except Exception:
         pass
     return raw_data, s5_filter, s5_close, s5_adx, s5_combo
@@ -2565,14 +2734,16 @@ def _prepare_system6_data(
             + f"UpTwoDays: {s6_combo}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
+            _stage(
+                "system6",
+                50,
+                filter_count=int(s6_filter),
+                setup_count=int(s6_combo),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
-            cb2 = None
-        if cb2 and callable(cb2):
-            try:
-                cb2("system6", 50, int(s6_filter), int(s6_combo), None, None)
-            except Exception:
-                pass
+            pass
     except Exception:
         pass
     return raw_data, s6_filter, s6_ret, s6_combo
@@ -2802,27 +2973,19 @@ def compute_today_signals(
     }
     # 各システムのフィルター通過件数をUIへ通知
     try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
+        stage_targets = (
+            ("system1", system1_syms),
+            ("system2", system2_syms),
+            ("system3", system3_syms),
+            ("system4", system4_syms),
+            ("system5", system5_syms),
+            ("system6", system6_syms),
+        )
+        for system_name, items in stage_targets:
+            _stage(system_name, 25, filter_count=len(items or []))
+        _stage("system7", 25, filter_count=1 if "SPY" in (basic_data or {}) else 0)
     except Exception:
-        cb2 = None
-    if cb2 and callable(cb2):
-        try:
-            cb2("system1", 25, len(system1_syms), None, None, None)
-            cb2("system2", 25, len(system2_syms), None, None, None)
-            cb2("system3", 25, len(system3_syms), None, None, None)
-            cb2("system4", 25, len(system4_syms), None, None, None)
-            cb2("system5", 25, len(system5_syms), None, None, None)
-            cb2("system6", 25, len(system6_syms), None, None, None)
-            cb2(
-                "system7",
-                25,
-                1 if "SPY" in (basic_data or {}) else 0,
-                None,
-                None,
-                None,
-            )
-        except Exception:
-            pass
+        pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
     try:
         stats2 = filter_stats.get("system2", {})
@@ -2986,16 +3149,20 @@ def compute_today_signals(
             )
         # UI の STUpass へ反映（50%時点）
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                # SPY ゲート（Close>SMA100）が偽なら STUpass は 0 扱い
-                s1_setup_eff = int(s1_setup)
-                try:
-                    if isinstance(_spy_ok, int) and _spy_ok == 0:
-                        s1_setup_eff = 0
-                except Exception:
-                    pass
-                cb2("system1", 50, int(s1_filter), int(s1_setup_eff), None, None)
+            s1_setup_eff = int(s1_setup)
+            try:
+                if isinstance(_spy_ok, int) and _spy_ok == 0:
+                    s1_setup_eff = 0
+            except Exception:
+                pass
+            _stage(
+                "system1",
+                50,
+                filter_count=int(s1_filter),
+                setup_count=int(s1_setup_eff),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
         # 参考: System1 の SPY gate 状態を UI に補足表示
@@ -3055,9 +3222,14 @@ def compute_today_signals(
             + f"TwoDayUp: {s2_setup}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                cb2("system2", 50, int(s2_filter), int(s2_setup), None, None)
+            _stage(
+                "system2",
+                50,
+                filter_count=int(s2_filter),
+                setup_count=int(s2_setup),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
     except Exception:
@@ -3099,9 +3271,14 @@ def compute_today_signals(
             + f"3日下落率>=12.5%: {s3_setup}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                cb2("system3", 50, int(s3_filter), int(s3_setup), None, None)
+            _stage(
+                "system3",
+                50,
+                filter_count=int(s3_filter),
+                setup_count=int(s3_setup),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
     except Exception:
@@ -3128,9 +3305,14 @@ def compute_today_signals(
                 pass
         _log(f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                cb2("system4", 50, int(s4_filter), int(s4_close), None, None)
+            _stage(
+                "system4",
+                50,
+                filter_count=int(s4_filter),
+                setup_count=int(s4_close),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
     except Exception:
@@ -3182,9 +3364,14 @@ def compute_today_signals(
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_setup}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                cb2("system5", 50, int(s5_filter), int(s5_setup), None, None)
+            _stage(
+                "system5",
+                50,
+                filter_count=int(s5_filter),
+                setup_count=int(s5_setup),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
     except Exception:
@@ -3226,9 +3413,14 @@ def compute_today_signals(
             + f"UpTwoDays: {s6_setup}"
         )
         try:
-            cb2 = globals().get("_PER_SYSTEM_STAGE")
-            if cb2 and callable(cb2):
-                cb2("system6", 50, int(s6_filter), int(s6_setup), None, None)
+            _stage(
+                "system6",
+                50,
+                filter_count=int(s6_filter),
+                setup_count=int(s6_setup),
+                candidate_count=None,
+                final_count=None,
+            )
         except Exception:
             pass
     except Exception:
@@ -3550,107 +3742,29 @@ def _format_phase_completion(
 
 
 def _stage(
-    v: int,
-    f: int | None = None,
-    s: int | None = None,
-    c: int | None = None,
-    fin: int | None = None,
+    system: str,
+    progress: int,
+    filter_count: int | None = None,
+    setup_count: int | None = None,
+    candidate_count: int | None = None,
+    final_count: int | None = None,
 ) -> None:
-    # These variables need to be initialized within function scope
-    stage_state: dict[int, tuple[int, int, int, int]] = {}
-    phase_completed: set[int] = set()
-    prev_phase_map: dict[int, int] = {25: 0, 50: 25, 75: 50, 100: 75}
-    phase_started: set[int] = set()
-    phase_names = {0: "フィルタリング", 25: "セットアップ", 50: "候補抽出", 75: "最終選定"}
-    use_process_pool = False  # Default value
+    """Record stage progress for ``system`` and flush pending UI events."""
 
-    progress_val = max(0, min(100, int(v)))
-    f_int = _safe_stage_int(f)
-    s_int = _safe_stage_int(s)
-    c_int = _safe_stage_int(c)
-    fin_int = _safe_stage_int(fin)
+    system_key = str(system or "").strip().lower() or "unknown"
     try:
-        cb2 = globals().get("_PER_SYSTEM_STAGE")
+        GLOBAL_STAGE_METRICS.record_stage(
+            system_key,
+            progress,
+            filter_count,
+            setup_count,
+            candidate_count,
+            final_count,
+            emit_event=True,
+        )
     except Exception:
-        cb2 = None
-    # Only call the per-system UI callback directly from the
-    # main thread. When running in background threads (e.g.
-    # via ThreadPoolExecutor) we must avoid invoking Streamlit
-    # APIs from non-main threads — instead record the stage
-    # into GLOBAL_STAGE_METRICS and let the main thread drain
-    # and forward events.
-    try:
-        is_main = threading.current_thread() is threading.main_thread()
-    except Exception:
-        is_main = False
-    if cb2 and callable(cb2) and is_main:
-        try:
-            cb2(
-                "", progress_val, f_int, s_int, c_int, fin_int
-            )  # name needs to be defined or passed
-        except Exception:
-            pass
-    # TRDlist件数スナップショットを更新（後段のメインスレッド通知で使用）
-    if use_process_pool:
-        try:
-            # 正規化したタプルで前回値と比較し、変化があれば必ずイベントを
-            # 登録する。None と 0 や空文字列のような微妙な差を吸収する
-            # ため、整数化した値で比較する。
-            key = (
-                _safe_stage_int(f_int),
-                _safe_stage_int(s_int),
-                _safe_stage_int(c_int),
-                _safe_stage_int(fin_int),
-            )
-            prev = stage_state.get(progress_val)
-            if prev != key:
-                stage_state[progress_val] = key
-                try:
-                    # 常に emit_event=True でイベントを積む（UI 側で重複
-                    # 表示抑制する責務を負わせることも可能だが、ここは
-                    # イベントの喪失を避けるため明示的に通知する）
-                    GLOBAL_STAGE_METRICS.record_stage(
-                        "",  # name needs to be defined or passed
-                        progress_val,
-                        f_int,
-                        s_int,
-                        c_int,
-                        fin_int,
-                        emit_event=True,
-                    )
-                except Exception:
-                    pass
-                prev_stage_val = prev_phase_map.get(progress_val)
-                if prev_stage_val is not None and prev_stage_val not in phase_completed:
-                    completion_msg = _format_phase_completion(
-                        prev_stage_val, f_int, s_int, c_int, fin_int
-                    )
-                    if completion_msg:
-                        _log = print  # Fallback log function
-                        _log(completion_msg)
-                    phase_completed.add(prev_stage_val)
-                msg = _format_stage_message(progress_val, f_int, s_int, c_int, fin_int)
-                if msg:
-                    _log = print  # Fallback log function
-                    _log(msg)
-                if progress_val in phase_names and progress_val not in phase_started:
-                    _log = print  # Fallback log function
-                    _log(f"⚙️ : {phase_names[progress_val]}のプロセスプールを開始")
-                    phase_started.add(progress_val)
-        except Exception:
-            pass
-    else:
-        try:
-            GLOBAL_STAGE_METRICS.record_stage(
-                "",  # name needs to be defined or passed
-                progress_val,
-                f_int,
-                s_int,
-                c_int,
-                fin_int,
-            )
-        except Exception:
-            pass
+        return
+    _drain_stage_event_queue()
 
 
 # プロセスプール利用可否（環境変数で上書き可）
@@ -3766,6 +3880,8 @@ def _run_strategy_with_proper_scope(
     # Initialize variables
     logs: list[str] = []  # Initialize logs list with type annotation
     pool_outcome = "none"
+    progress_q: Any | None = None
+    mgr: Any | None = None
 
     # Configure process pool settings
     use_process_pool, max_workers = _configure_process_pool_and_workers(name=name, _log=_log)
@@ -3775,7 +3891,6 @@ def _run_strategy_with_proper_scope(
 
     _t0 = __import__("time").time()
     # プロセスプール利用時も stage_progress を渡し、要所の進捗ログを共有する
-    _stage_cb = _stage
     _log_cb = None if use_process_pool else _log
     # プロセスプール利用時は Manager().Queue を生成して子プロセスから
     # 進捗を送れるようにする。globals に置いて子が参照できるようにする。
@@ -3786,8 +3901,15 @@ def _run_strategy_with_proper_scope(
             globals()["_PROGRESS_MANAGER"] = mgr
             globals()["_PROGRESS_QUEUE"] = progress_q
         except Exception:
+            progress_q = None
             globals().pop("_PROGRESS_MANAGER", None)
             globals().pop("_PROGRESS_QUEUE", None)
+    else:
+        globals().pop("_PROGRESS_MANAGER", None)
+        globals().pop("_PROGRESS_QUEUE", None)
+
+    stage_reporter = StageReporter(name, progress_q)
+    _stage_cb = stage_reporter
     if use_process_pool:
         workers_label = str(max_workers) if max_workers is not None else "auto"
         _log(
@@ -3819,6 +3941,7 @@ def _run_strategy_with_proper_scope(
         _elapsed = int(max(0, __import__("time").time() - _t0))
         _m, _s = divmod(_elapsed, 60)
         _log(f"⏱️ {name}: 経過 {_m}分{_s}秒")
+        _drain_stage_event_queue()
     except Exception as e:  # noqa: BLE001
         _log(f"⚠️ {name}: シグナル抽出に失敗しました: {e}")
         # プロセスプール異常時はフォールバック（非プール）で一度だけ再試行
@@ -3826,7 +3949,7 @@ def _run_strategy_with_proper_scope(
             msg = str(e).lower()
         except Exception:
             msg = ""
-        if use_process_pool and pool_outcome is None:
+        if use_process_pool and pool_outcome == "none":
             pool_outcome = "error"
         needs_fallback = any(
             k in msg
@@ -3848,7 +3971,7 @@ def _run_strategy_with_proper_scope(
                     today=today,
                     progress_callback=None,
                     log_callback=_log,
-                    stage_progress=None,
+                    stage_progress=StageReporter(name, None),
                     use_process_pool=False,
                     max_workers=None,
                     lookback_days=lookback_days,
@@ -3856,6 +3979,7 @@ def _run_strategy_with_proper_scope(
                 _elapsed_b = int(max(0, __import__("time").time() - _t0b))
                 _m2, _s2 = divmod(_elapsed_b, 60)
                 _log(f"⏱️ {name} (fallback): 経過 {_m2}分{_s2}秒")
+                _drain_stage_event_queue()
                 if use_process_pool:
                     pool_outcome = "fallback"
             except Exception as e2:  # noqa: BLE001
@@ -3866,6 +3990,7 @@ def _run_strategy_with_proper_scope(
         else:
             df = pd.DataFrame()
     finally:
+        _drain_stage_event_queue()
         if use_process_pool:
             if pool_outcome == "success":
                 _log(f"🏁 {name}: プロセスプール実行が完了しました")
@@ -3873,6 +3998,13 @@ def _run_strategy_with_proper_scope(
                 _log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
             else:
                 _log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
+            globals().pop("_PROGRESS_QUEUE", None)
+            globals().pop("_PROGRESS_MANAGER", None)
+            if mgr is not None:
+                try:
+                    mgr.shutdown()
+                except Exception:
+                    pass
     if not df.empty:
         if "score_key" in df.columns and len(df):
             first_key = df["score_key"].iloc[0]

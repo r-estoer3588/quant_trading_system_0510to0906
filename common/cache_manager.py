@@ -183,13 +183,20 @@ class CacheManager:
 
                 return df
 
-            # データサイズチェック
+            # データサイズチェック（ただし上場間もない銘柄は正常なケースとして扱う）
             if len(df) < self.rolling_cfg.base_lookback_days:
-                report_rolling_issue(
-                    "insufficient_data",
-                    ticker,
-                    f"rows={len(df)}, expected>={self.rolling_cfg.base_lookback_days}",
-                )
+                # 上場間もない銘柄（データ期間が短い）は警告レベルを下げる
+                if len(df) < 100:  # 明らかに上場間もない場合
+                    logger.debug(
+                        f"新規上場銘柄 {ticker}: rows={len(df)}, "
+                        f"expected>={self.rolling_cfg.base_lookback_days} (正常)"
+                    )
+                else:
+                    report_rolling_issue(
+                        "insufficient_data",
+                        ticker,
+                        f"rows={len(df)}, expected>={self.rolling_cfg.base_lookback_days}",
+                    )
 
             return df
 

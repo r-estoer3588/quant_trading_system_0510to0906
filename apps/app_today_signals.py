@@ -843,10 +843,15 @@ def _collect_symbol_data(
             sample = ", ".join(manual_symbols[:5])
             if len(manual_symbols) > 5:
                 sample += f" ほか{len(manual_symbols) - 5}件"
+            # より詳細な状況説明を追加
+            new_listings = [
+                s for s in manual_symbols if len(s) <= 4 and s.isalpha()
+            ]  # 新規上場の可能性
             try:
-                log_fn(
-                    "⚠️ rolling未整備: " + sample + " → 手動で rolling キャッシュを更新してください"
-                )
+                base_msg = f"⚠️ rolling未整備: {len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
+                if new_listings:
+                    base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
+                log_fn(base_msg)
             except Exception:
                 pass
         if malformed:
@@ -1150,8 +1155,17 @@ class StageTracker:
         counts = self._ensure_counts(key)
         if snapshot.target is not None:
             try:
-                counts["target"] = int(snapshot.target)
-                self.universe_total = int(snapshot.target)
+                target_val = int(snapshot.target)
+                counts["target"] = target_val
+                self.universe_total = target_val
+            except Exception:
+                pass
+        elif snapshot.filter_pass is not None and counts.get("target") is None:
+            try:
+                fallback_target = int(snapshot.filter_pass)
+                counts["target"] = fallback_target
+                if self.universe_total is None:
+                    self.universe_total = fallback_target
             except Exception:
                 pass
         if snapshot.filter_pass is not None:
@@ -1232,13 +1246,21 @@ class StageTracker:
         counts = self._ensure_counts(key)
         if filter_cnt is not None:
             try:
-                if value == 0:
-                    counts["target"] = int(filter_cnt)
-                    self.universe_total = int(filter_cnt)
-                else:
-                    counts["filter"] = int(filter_cnt)
+                filter_val = int(filter_cnt)
             except Exception:
-                counts["filter"] = counts.get("filter")
+                filter_val = None
+            if filter_val is not None:
+                if value == 0:
+                    counts["target"] = filter_val
+                    self.universe_total = filter_val
+                else:
+                    counts["filter"] = filter_val
+                    if counts.get("target") is None:
+                        counts["target"] = (
+                            self.universe_total if self.universe_total is not None else filter_val
+                        )
+                        if self.universe_total is None:
+                            self.universe_total = filter_val
         if setup_cnt is not None:
             counts["setup"] = int(setup_cnt)
         if cand_cnt is not None:
@@ -1258,11 +1280,14 @@ class StageTracker:
         try:
             if tgt is None:
                 self.universe_target = None
+                self.universe_total = None
             else:
                 self.universe_target = int(tgt)
+                self.universe_total = int(tgt)
             GLOBAL_STAGE_METRICS.set_universe_target(self.universe_target)
         except Exception:
             self.universe_target = None
+            self.universe_total = None
             try:
                 GLOBAL_STAGE_METRICS.set_universe_target(None)
             except Exception:
@@ -2014,9 +2039,13 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                     final_df = maybe_df
                     per_system = maybe_system
                 else:
-                    logger.log("⚠️ compute_today_signals が予期しない型を返しました")
+                    actual_types = (
+                        f"df={type(maybe_df).__name__}, system={type(maybe_system).__name__}"
+                    )
+                    logger.log(f"⚠️ compute_today_signals の戻り値型が不正: {actual_types}")
             else:
-                logger.log("⚠️ compute_today_signals から予期しない結果が返されました")
+                result_info = f"type={type(result).__name__}, len={len(result) if hasattr(result, '__len__') else 'N/A'}"
+                logger.log(f"⚠️ compute_today_signals の戻り値構造が不正: {result_info}")
 
     if debug_result is not None:
         return debug_result

@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from threading import Lock
+from typing import Any
 
 """Stage metrics tracking shared between the CLI runner and Streamlit UI.
 
@@ -23,11 +24,12 @@ def _normalize_count(value: object | None) -> int | None:
 
     if value is None:
         return None
+    value_any: Any = value
     try:
-        return int(value)
+        return int(value_any)
     except Exception:
         try:
-            return int(float(value))
+            return int(float(value_any))
         except Exception:
             return None
 
@@ -166,6 +168,8 @@ class StageMetricsStore:
                         self._universe_target = filter_int
                 else:
                     snapshot.filter_pass = filter_int
+                    if snapshot.target is None:
+                        snapshot.target = filter_int
             if setup_int is not None:
                 snapshot.setup_pass = setup_int
             if candidate_int is not None:
@@ -272,16 +276,17 @@ class StageMetricsStore:
 
         if value is None:
             return None
+        value_any: Any = value
         try:
-            count = int(value)
+            count = int(value_any)
         except Exception:
             try:
-                count = int(float(value))
+                count = int(float(value_any))
             except Exception:
                 return None
         if count < 0:
             return 0
-        return min(count, 9999)
+        return int(min(count, 9999))
 
     @staticmethod
     def _normalize_system_name(system: object) -> str:
