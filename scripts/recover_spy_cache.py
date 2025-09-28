@@ -120,9 +120,9 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         try:
             cache_manager.upsert_both(symbol, df)
             print("✅ SPY データを CacheManager 経由で保存しました")
-            print("   - full_backup: 全指標付きデータ")
+            print("   - full_backup: 全27指標付きデータ")
             print("   - base: ベース指標付きデータ")
-            print("   - rolling: 直近300+30日のデータ")
+            print("   - rolling: 直近300+30日の全27指標データ")
         except Exception as e:
             import traceback
 

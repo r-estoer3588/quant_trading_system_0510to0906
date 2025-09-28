@@ -101,11 +101,31 @@ class CacheManager:
         )
         base_renamed["Date"] = base_renamed["date"]
 
+        # 既存の指標列を削除して強制的に再計算を実行
+        basic_cols = {
+            "date",
+            "Date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume",
+            "raw_close",
+        }
+        indicator_cols = [col for col in base_renamed.columns if col not in basic_cols]
+        if indicator_cols:
+            base_renamed = base_renamed.drop(columns=indicator_cols)
+
         try:
             enriched = add_indicators(base_renamed)
             enriched = enriched.drop(columns=["Date"], errors="ignore")
-            # 指標列を標準化（大文字統一）、その他は小文字化
-            enriched = standardize_indicator_columns(enriched)
+            # 指標列の標準化は行わない（小文字を維持）
+            # enriched = standardize_indicator_columns(enriched)
             # 基本列（date, open, high等）のみ小文字に変換
             basic_cols = {"open", "high", "low", "close", "volume", "date"}
             enriched.columns = [
@@ -119,18 +139,19 @@ class CacheManager:
             # preserving original OHLCV and date columns. This ensures appended
             # rows receive correct indicator values and existing indicators are
             # consistent with the latest OHLC history.
-            combined = df.copy()
-            ohlcv = {"open", "high", "low", "close", "volume"}
+
+            # Start with OHLCV columns only from the original df
+            ohlcv = {"date", "open", "high", "low", "close", "volume", "raw_close"}
+            ohlcv_cols = [col for col in ohlcv if col in df.columns]
+            combined = df[ohlcv_cols].copy().reset_index(drop=True)
+
+            # Add all indicator columns from enriched
             for col, series in enriched.items():
-                if col == "date":
-                    # ensure date column exists and normalized
-                    combined["date"] = series
-                    continue
                 if col in ohlcv:
-                    # keep original OHLCV from df
+                    # Skip OHLCV columns - already copied
                     continue
-                # replace or create indicator columns from enriched
-                combined[col] = series
+                # Add or replace indicator columns from enriched (位置ベースで代入)
+                combined[col] = series.values
 
             # drop any duplicated columns just in case
             return combined.loc[:, ~combined.columns.duplicated(keep="first")]
@@ -223,8 +244,14 @@ class CacheManager:
                 )
                 existing = existing.loc[:, ~existing.columns.duplicated()]
 
-            # マージ処理
-            combined = pd.concat([existing, new_rows], ignore_index=True)
+            # new_rows からも指標列を削除して OHLCV データのみを保持
+            basic_cols = {"date", "open", "high", "low", "close", "volume", "raw_close"}
+            new_rows_clean = new_rows[
+                [col for col in basic_cols if col in new_rows.columns]
+            ].copy()
+
+            # マージ処理 (基本データのみ)
+            combined = pd.concat([existing, new_rows_clean], ignore_index=True)
             if "date" in combined.columns:
                 combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
                 combined = combined.dropna(subset=["date"])
