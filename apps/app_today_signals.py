@@ -3019,9 +3019,43 @@ with st.sidebar:
 
     # Alpaca未約定注文表示
     st.header("Alpaca注文状況")
+
+    # デバッグ情報の表示
+    with st.expander("🔧 デバッグ情報"):
+        st.write("broker_alpaca モジュール属性:")
+        ba_attrs = [attr for attr in dir(ba) if not attr.startswith("_")]
+        for attr in sorted(ba_attrs):
+            if attr == "get_open_orders":
+                st.write(f"✅ {attr}: {type(getattr(ba, attr))}")
+            elif callable(getattr(ba, attr)):
+                st.write(f"📝 {attr}: {type(getattr(ba, attr))}")
+            else:
+                st.write(f"📦 {attr}: {type(getattr(ba, attr))}")
+
+        st.write(f"get_open_orders 存在確認: {hasattr(ba, 'get_open_orders')}")
+        if hasattr(ba, "get_open_orders"):
+            st.write(f"get_open_orders 型: {type(ba.get_open_orders)}")
+            st.write(f"get_open_orders docstring: {ba.get_open_orders.__doc__}")
+
     if st.button("📋 未約定注文を表示"):
         try:
             paper_mode = st.session_state.get("paper_mode", True)
+
+            # デバッグ: モジュール状態の確認
+            st.info(f"broker_alpaca モジュール: {ba}")
+            st.info(f"get_open_orders 存在: {hasattr(ba, 'get_open_orders')}")
+
+            if not hasattr(ba, "get_open_orders"):
+                st.error("get_open_orders 関数が見つかりません")
+                available_funcs = [
+                    attr
+                    for attr in dir(ba)
+                    if callable(getattr(ba, attr)) and not attr.startswith("_")
+                ]
+                st.write("利用可能な関数:")
+                st.write(available_funcs)
+                st.stop()
+
             client = ba.get_client(paper=paper_mode)
             orders = ba.get_open_orders(client)
             if orders:
@@ -3045,6 +3079,10 @@ with st.sidebar:
                 st.info("未約定注文はありません")
         except Exception as e:
             st.error(f"注文取得エラー: {e}")
+            st.error(f"エラー詳細: {type(e).__name__}")
+            import traceback
+
+            st.code(traceback.format_exc())
 
     st.header("資産")
     # デフォルト値を設定

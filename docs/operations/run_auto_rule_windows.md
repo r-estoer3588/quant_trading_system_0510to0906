@@ -6,7 +6,7 @@
 
 - リポジトリは `C:\Repos\quant_trading_system` に配置されている想定。
 - Python 環境がインストール済みで、必要パッケージ（`requirements.txt`）がインストールされていること。
-- 環境変数（`ALPACA_API_KEY` / `ALPACA_SECRET_KEY`、通知関連 `SLACK_BOT_TOKEN` / `DISCORD_WEBHOOK_URL` など）はタスク実行時に利用可能である必要があります。
+- 環境変数（`APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`、通知関連 `SLACK_BOT_TOKEN` / `DISCORD_WEBHOOK_URL` など）はタスク実行時に利用可能である必要があります。
 
 おすすめ構成
 
@@ -39,8 +39,8 @@ Task Scheduler 登録例
 例: ユーザー環境でのみ使う場合（PowerShell 引数内で直接設定）
 
 ```powershell
-$env:ALPACA_API_KEY = 'YOUR_KEY'
-$env:ALPACA_SECRET_KEY = 'YOUR_SECRET'
+$env:APCA_API_KEY_ID = 'YOUR_KEY'
+$env:APCA_API_SECRET_KEY = 'YOUR_SECRET'
 powershell -ExecutionPolicy Bypass -File "C:\Repos\quant_trading_system\scripts\run_auto_rule.ps1"
 ```
 

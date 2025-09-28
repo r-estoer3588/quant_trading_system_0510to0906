@@ -27,12 +27,12 @@ pip install -r requirements.txt
 ```
 
 2. `.env` を用意し `EODHD_API_KEY` に加え、Alpaca 連携を行う場合は
-   `ALPACA_API_KEY` と `ALPACA_SECRET_KEY` を設定します。
+   `APCA_API_KEY_ID` と `APCA_API_SECRET_KEY` を設定します。
 
 ### 主要な環境変数
 
 - `EODHD_API_KEY`: EOD Historical Data API キー（必須）
-- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`: Alpaca ブローカー連携用
+- `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`: Alpaca ブローカー連携用
 - `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL`: Slack 通知設定
 - `DISCORD_WEBHOOK_URL`: Discord 通知設定
 

@@ -9,13 +9,23 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
-    from alpaca.trading.client import TradingClient  # type: ignore
+    from alpaca.trading.client import TradingClient
 
     try:
-        from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce  # type: ignore
+        from alpaca.trading.enums import (
+            OrderClass,
+            OrderSide,
+            QueryOrderStatus,
+            TimeInForce,
+        )
     except ImportError:
-        from alpaca.trading.models.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce  # type: ignore
-    from alpaca.trading.requests import (  # type: ignore
+        from alpaca.trading.models.enums import (
+            OrderClass,
+            OrderSide,
+            QueryOrderStatus,
+            TimeInForce,
+        )
+    from alpaca.trading.requests import (
         GetOrdersRequest,
         LimitOrderRequest,
         MarketOrderRequest,
@@ -23,17 +33,17 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
         TakeProfitRequest,
         TrailingStopOrderRequest,
     )
-    from alpaca.trading.stream import TradingStream  # type: ignore
+    from alpaca.trading.stream import TradingStream
 except Exception:  # pragma: no cover
-    TradingClient = None  # type: ignore
-    OrderSide = OrderClass = TimeInForce = QueryOrderStatus = None  # type: ignore
-    MarketOrderRequest = None  # type: ignore
-    LimitOrderRequest = None  # type: ignore
-    GetOrdersRequest = None  # type: ignore
-    TakeProfitRequest = None  # type: ignore
-    StopLossRequest = None  # type: ignore
-    TrailingStopOrderRequest = None  # type: ignore
-    TradingStream = None  # type: ignore
+    TradingClient = None
+    OrderSide = OrderClass = TimeInForce = QueryOrderStatus = None
+    MarketOrderRequest = None
+    LimitOrderRequest = None
+    GetOrdersRequest = None
+    TakeProfitRequest = None
+    StopLossRequest = None
+    TrailingStopOrderRequest = None
+    TradingStream = None
 
 
 def _require_sdk() -> None:
@@ -57,7 +67,7 @@ def get_client(
     """TradingClient を生成して返す。
 
     - paper: None の場合は `ALPACA_PAPER` を '1/true/yes/on' として解釈（デフォルト True）
-    - api_key/secret_key: 未指定なら .env から `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`
+    - api_key/secret_key: 未指定なら .env から `APCA_API_KEY_ID`/`APCA_API_SECRET_KEY`
     """
     _require_sdk()
     _load_env_once()
@@ -70,18 +80,18 @@ def get_client(
             "y",
             "on",
         )
-    api_key = api_key or os.getenv("ALPACA_API_KEY")
-    secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
+    api_key = api_key or os.getenv("APCA_API_KEY_ID")
+    secret_key = secret_key or os.getenv("APCA_API_SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError(
-            "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。",
+            "APCA_API_KEY_ID/APCA_API_SECRET_KEY が .env に設定されていません。",
         )
 
-    return TradingClient(
+    return TradingClient(  # type: ignore[misc]
         api_key,
         secret_key,
         paper=bool(paper),
-    )  # type: ignore[arg-type]
+    )
 
 
 def submit_order(
@@ -107,14 +117,14 @@ def submit_order(
 
     if OrderSide is None:
         raise RuntimeError("Alpaca SDK is not installed or OrderSide is unavailable.")
-    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL  # type: ignore[attr-defined]
+    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
     if TimeInForce is None:
         raise RuntimeError("Alpaca SDK is not installed or TimeInForce is unavailable.")
     tif = (
         getattr(TimeInForce, time_in_force.upper())
         if hasattr(TimeInForce, time_in_force.upper())
         else TimeInForce.GTC
-    )  # type: ignore[attr-defined]
+    )
 
     if order_type == "market":
         req = MarketOrderRequest(  # type: ignore[call-arg]

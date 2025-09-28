@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 # .env を読み込む
 load_dotenv()
 
-API_KEY = os.getenv("ALPACA_API_KEY")
-API_SECRET = os.getenv("ALPACA_SECRET_KEY")
+API_KEY = os.getenv("APCA_API_KEY_ID")
+API_SECRET = os.getenv("APCA_API_SECRET_KEY")
 BASE_URL = os.getenv("ALPACA_API_BASE_URL")
 USE_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 
