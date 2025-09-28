@@ -1,19 +1,19 @@
-from __future__ import annotations
-
 """Daily multi-system signal pipeline (repaired minimal bootstrap section).
 
 NOTE: This file experienced prior encoding corruption. Incremental repairs are
 being applied. The current patch introduces:
  1. Explicit project root insertion into sys.path so that running the script
-    via `python scripts/run_all_systems_today.py` correctly resolves top-level
-    modules like `common`.
- 2. Use of `get_settings(create_dirs=False)` inside `_initialize_run_context`
-    to avoid potential hangs during strategy initialization (directory
-    creation is performed lazily elsewhere if needed).
+     via ``python scripts/run_all_systems_today.py`` correctly resolves top-level
+     modules like ``common``.
+ 2. Use of ``get_settings(create_dirs=False)`` inside ``_initialize_run_context``
+     to avoid potential hangs during strategy initialization (directory
+     creation is performed lazily elsewhere if needed).
 
 Further clean-up (mojibake in log strings/docstrings) will follow in later
 patches without altering CLI flags or public behavior.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -106,7 +106,8 @@ def emit_progress_event(event_type: str, data: dict) -> None:
 
     try:
         logger = logging.getLogger(__name__)
-        logger.debug(f"Progress event [{event_type}]: {data}")
+        # Use lazy logging formatting to avoid building the string when DEBUG disabled
+        logger.debug("Progress event [%s]: %s", event_type, data)
     except Exception:
         pass
 
@@ -339,7 +340,7 @@ def _get_account_equity() -> float:
         return 0.0
 
 
-def _configure_today_logger(*, mode: str = "single", run_id: str | None = None) -> None:
+def _configure_today_logger(*, mode: str = "single", _run_id: str | None = None) -> None:
     """today_signals 用のロガーファイルを構成する。
 
     mode:
@@ -414,9 +415,7 @@ def _get_today_logger() -> logging.Logger:
         # 環境変数でも日付別ログ指定を許可（UI 実行など main() を経ない場合）
         if globals().get("_LOG_FILE_PATH") is None:
             try:
-                import os as _os
-
-                _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+                _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
                 if _mode_env == "dated":
                     try:
                         _jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
@@ -584,10 +583,8 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
 
     # キーワードによる除外判定（全体）
     try:
-        import os as _os
-
         # SHOW_INDICATOR_LOGS が真でない限り、インジケーター系の進捗ログを抑制
-        _show_ind_logs = (_os.environ.get("SHOW_INDICATOR_LOGS") or "").strip().lower()
+        _show_ind_logs = (os.environ.get("SHOW_INDICATOR_LOGS") or "").strip().lower()
         _hide_indicator_logs = _show_ind_logs not in {"1", "true", "yes", "on"}
         _indicator_skip = (
             "インジケーター計算",
@@ -610,9 +607,7 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
         print(out, flush=True)
     except UnicodeEncodeError:
         try:
-            import sys as _sys
-
-            encoding = getattr(_sys.stdout, "encoding", "") or "utf-8"
+            encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
             safe = out.encode(encoding, errors="replace").decode(encoding, errors="replace")
             print(safe, flush=True)
         except Exception:
@@ -826,7 +821,7 @@ def _load_basic_data(
     *,
     today: pd.Timestamp | None = None,
     freshness_tolerance: int | None = None,
-    base_cache: dict[str, pd.DataFrame] | None = None,
+    _base_cache: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, pd.DataFrame]:
     from time import perf_counter
 
@@ -1108,7 +1103,7 @@ def _load_basic_data(
         try:
             _log(f"🚀 並列バッチ読み込み開始: {total_syms}シンボル, workers={max_workers}")
 
-            def progress_callback_internal(loaded, total):
+            def progress_callback_internal(loaded, _total):
                 nonlocal processed
                 processed = loaded
                 _report_progress(processed)
@@ -1728,9 +1723,7 @@ def _ensure_cli_logger_configured() -> None:
     """CLI ???????????????????"""
     try:
         if globals().get("_LOG_FILE_PATH") is None:
-            import os as _os
-
-            _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
             _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
     except Exception:
         pass
@@ -1739,14 +1732,11 @@ def _ensure_cli_logger_configured() -> None:
 def _silence_streamlit_cli_warnings() -> None:
     """CLI ???? Streamlit ? bare mode ????????"""
     try:
-        import logging as _lg
-        import os as _os
-
-        if _os.environ.get("STREAMLIT_SERVER_ENABLED"):
+        if os.environ.get("STREAMLIT_SERVER_ENABLED"):
             return
 
-        class _SilenceBareModeWarnings(_lg.Filter):
-            def filter(self, record: _lg.LogRecord) -> bool:
+        class _SilenceBareModeWarnings(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
                 msg = str(record.getMessage())
                 if "missing ScriptRunContext" in msg:
                     return False
@@ -1761,10 +1751,10 @@ def _silence_streamlit_cli_warnings() -> None:
             "streamlit.runtime.state.session_state_proxy",
         ]
         for _name in _names:
-            _logger = _lg.getLogger(_name)
+            _logger = logging.getLogger(_name)
             _logger.addFilter(_SilenceBareModeWarnings())
             try:
-                _logger.setLevel(_lg.ERROR)
+                _logger.setLevel(logging.ERROR)
             except Exception:
                 pass
     except Exception:
@@ -2657,9 +2647,7 @@ def compute_today_signals(
     # CLI 経由で未設定の場合（UI 等）、既定で日付別ログに切替
     try:
         if globals().get("_LOG_FILE_PATH") is None:
-            import os as _os
-
-            _mode_env = (_os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
             _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
     except Exception:
         pass
@@ -2686,13 +2674,10 @@ def compute_today_signals(
 
     # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
     try:
-        import logging as _lg
-        import os as _os
+        if not os.environ.get("STREAMLIT_SERVER_ENABLED"):
 
-        if not _os.environ.get("STREAMLIT_SERVER_ENABLED"):
-
-            class _SilenceBareModeWarnings(_lg.Filter):
-                def filter(self, record: _lg.LogRecord) -> bool:
+            class _SilenceBareModeWarnings(logging.Filter):
+                def filter(self, record: logging.LogRecord) -> bool:
                     msg = str(record.getMessage())
                     if "missing ScriptRunContext" in msg:
                         return False
@@ -2707,10 +2692,10 @@ def compute_today_signals(
                 "streamlit.runtime.state.session_state_proxy",
             ]
             for _name in _names:
-                _logger = _lg.getLogger(_name)
+                _logger = logging.getLogger(_name)
                 _logger.addFilter(_SilenceBareModeWarnings())
                 try:
-                    _logger.setLevel(_lg.ERROR)
+                    _logger.setLevel(logging.ERROR)
                 except Exception:
                     pass
     except Exception:
@@ -3383,7 +3368,7 @@ def compute_today_signals(
             symbol_system_map = None
 
         # アクティブポジション情報（将来: broker / キャッシュから取得可能なら拡張）
-        active_positions = None  # TODO: 必要になれば ctx 経由で受け取る
+        active_positions = None  # NOTE: Could be retrieved via ctx if needed
 
         final_df, allocation_summary = finalize_allocation(
             per_system,
@@ -3397,12 +3382,17 @@ def compute_today_signals(
         )
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
-        import pandas as _pd
-
-        final_df = _pd.DataFrame()
+        final_df = pd.DataFrame()
         from core.final_allocation import AllocationSummary as _AS  # local import to avoid cycle
 
-        allocation_summary = _AS(mode="error")
+        allocation_summary = _AS(
+            mode="error",
+            long_allocations={},
+            short_allocations={},
+            active_positions={},
+            available_slots={},
+            final_counts={},
+        )
 
     # 並べ替え / 連番付与（finalize_allocation 内部で付与されるが念のため最終安定ソート）
     try:
@@ -3657,14 +3647,10 @@ def _stage(
             pass
 
 
-# Global variable imports at the top level
-import os as _os
-
-
 # プロセスプール利用可否（環境変数で上書き可）
 def _configure_process_pool_and_workers(name: str = "", _log=print) -> tuple[bool, int | None]:
     """Configure process pool usage and worker count based on environment variables."""
-    env_pp_raw = _os.environ.get("USE_PROCESS_POOL", "")
+    env_pp_raw = os.environ.get("USE_PROCESS_POOL", "")
     env_pp = env_pp_raw.strip().lower()
     if env_pp in {"1", "true", "yes", "on"}:
         use_process_pool = True
@@ -3680,7 +3666,7 @@ def _configure_process_pool_and_workers(name: str = "", _log=print) -> tuple[boo
             )
     # ワーカー数は環境変数があれば優先、無ければ設定(THREADS_DEFAULT)に連動
     try:
-        _env_workers = _os.environ.get("PROCESS_POOL_WORKERS", "").strip()
+        _env_workers = os.environ.get("PROCESS_POOL_WORKERS", "").strip()
         if _env_workers:
             max_workers = int(_env_workers) or None
         else:
@@ -3694,8 +3680,17 @@ def _configure_process_pool_and_workers(name: str = "", _log=print) -> tuple[boo
     return use_process_pool, max_workers
 
 
-def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
-    """Configure lookback days based on strategy requirements."""
+def _configure_lookback_days(
+    name: str = "",
+    stg: object | None = None,
+    base: object | None = None,
+) -> int:
+    """Configure lookback days based on strategy requirements.
+
+    The strategy object may optionally expose a ``get_total_days(base_df)`` method.
+    We treat this attribute as ``Callable[[Any], Any] | None`` and validate at runtime
+    before invoking, which prevents the E1102 (not-callable) warning once type hinted.
+    """
     # ルックバックは『必要指標の最大窓＋α』を動的推定
     try:
         settings2 = get_settings(create_dirs=True)
@@ -3708,7 +3703,7 @@ def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
     # YAMLのstrategiesセクション等からヒントを取得（なければヒューリスティック）
     # ルックバックのマージン/最小日数は環境変数で上書き可能
     try:
-        margin = float(_os.environ.get("LOOKBACK_MARGIN", "0.15"))
+        margin = float(os.environ.get("LOOKBACK_MARGIN", "0.15"))
     except Exception:
         margin = 0.15
     need_map: dict[str, int] = {
@@ -3723,24 +3718,28 @@ def _configure_lookback_days(name: str = "", stg=None, base=None) -> int:
         "system7": int(80 * (1 + margin)),
     }
     # 戦略側が get_total_days を実装していれば優先
-    custom_need = None
+    custom_need: int | None = None
+    # Use collections.abc.Callable already imported at top for type hints.
+    fn: Callable[[object], object] | None
     try:
-        fn = getattr(stg, "get_total_days", None)
-        if callable(fn):
-            _val = fn(base)
-            if isinstance(_val, int | float):
+        raw = getattr(stg, "get_total_days", None)
+        fn = raw if callable(raw) else None
+    except Exception:  # pragma: no cover - defensive
+        fn = None
+    if fn is not None:
+        try:
+            _val = fn(base)  # type: ignore[arg-type]
+            if isinstance(_val, (int, float)):
                 custom_need = int(_val)
             elif isinstance(_val, str):
                 try:
                     custom_need = int(float(_val))
                 except Exception:
                     custom_need = None
-            else:
-                custom_need = None
-    except Exception:
-        custom_need = None
+        except Exception:  # pragma: no cover - strategy specific failures ignored
+            custom_need = None
     try:
-        min_floor = int(_os.environ.get("LOOKBACK_MIN_DAYS", "80"))
+        min_floor = int(os.environ.get("LOOKBACK_MIN_DAYS", "80"))
     except Exception:
         min_floor = 80
     min_required = custom_need or need_map.get(name, lb_default)
@@ -3756,19 +3755,6 @@ def _run_strategy_with_proper_scope(
     spy_df,
     today,
     _log,
-    settings=None,
-    symbols=None,
-    strategies=None,
-    parallel: bool = False,
-    progress_callback=None,
-    per_system_progress=None,
-    basic_data=None,
-    s1_setup=0,
-    s2_setup=0,
-    s3_setup=0,
-    s5_setup=0,
-    s6_setup=0,
-    s1_setup_eff=None,
 ):
     """Run strategy with properly scoped variables."""
     # Initialize variables
@@ -3896,19 +3882,10 @@ def _run_strategy_with_proper_scope(
     _log(msg)
     logs = []  # Initialize logs list for return statement
 
-    # Initialize setup variables if not already defined
-    s1_setup = locals().get("s1_setup", 0)
-    s1_setup_eff = locals().get("s1_setup_eff", None)
-    s2_setup = locals().get("s2_setup", 0)
-    s3_setup = locals().get("s3_setup", 0)
-    s5_setup = locals().get("s5_setup", 0)
-    s6_setup = locals().get("s6_setup", 0)
-    basic_data = locals().get("basic_data", {})
-
     return name, df, msg, logs
 
 
-def _run_strategy(name: str, stg) -> tuple[str, pd.DataFrame, str, list[str]]:
+def _run_strategy(name: str, _stg) -> tuple[str, pd.DataFrame, str, list[str]]:
     """Wrapper function for _run_strategy_with_proper_scope with appropriate defaults"""
     try:
         # This is a simplified wrapper - the actual implementation would depend on the complete context
@@ -4113,8 +4090,6 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
     )
     # 戻り値がNoneの場合のフォールバック
     if result is None:
-        import pandas as pd
-
         return pd.DataFrame(), {}
 
     # AllocationSummaryを辞書に変換する必要がある場合

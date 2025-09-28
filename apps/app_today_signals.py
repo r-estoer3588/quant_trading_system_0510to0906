@@ -47,11 +47,8 @@ try:
     scripts_dir = project_root / "scripts"
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
-
-    import run_all_systems_today as _run_today_mod
-except ImportError:
-    # フォールバック: 直接モジュールをインポート
-    import scripts.run_all_systems_today as _run_today_mod
+except Exception:
+    pass
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
@@ -898,7 +895,10 @@ def _get_today_logger() -> logging.Logger:
 
     # orchestrator 側の設定を最優先
     log_path: Path | None = None
+    # 動的インポートでエラーを回避
     try:
+        import scripts.run_all_systems_today as _run_today_mod
+
         sel = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
         if isinstance(sel, Path):
             log_path = sel
@@ -1460,6 +1460,8 @@ class UILogger:
     def log(self, msg: str, no_timestamp: bool = False) -> None:
         forwarded_from_cli = False
         try:
+            import scripts.run_all_systems_today as _run_today_mod
+
             forwarding_flag = getattr(_run_today_mod, "_LOG_FORWARDING", None)
             if forwarding_flag is not None:
                 forwarded_from_cli = bool(forwarding_flag.get())
@@ -1575,6 +1577,8 @@ class RunCallbacks:
 
     def register_with_module(self) -> None:
         try:
+            import scripts.run_all_systems_today as _run_today_mod
+
             # 安全な属性アクセス方法を使用
             mod = _run_today_mod
             setattr(mod, "_PER_SYSTEM_STAGE", self.per_system_stage)
@@ -1865,6 +1869,8 @@ def _configure_today_logger_ui() -> None:
         mode_env = ""
     sel_mode = "single" if mode_env == "single" else "dated"
     try:
+        import scripts.run_all_systems_today as _run_today_mod
+
         _run_today_mod._configure_today_logger(mode=sel_mode)
         sel_path = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
         if sel_path:
@@ -2043,7 +2049,7 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
     try:
         client_tmp = ba.get_client(paper=paper_mode)
         try:
-            positions = list(client_tmp.get_all_positions())  # type: ignore[attr-defined]
+            positions = list(client_tmp.get_all_positions())
         except Exception:
             positions = []
 
@@ -3051,8 +3057,6 @@ with st.sidebar:
     if st.button("💰 Alpacaから現在の資産を取得"):
         try:
             # 接続前の事前チェック
-            import os
-
             api_key = os.environ.get("APCA_API_KEY_ID")
             api_secret = os.environ.get("APCA_API_SECRET_KEY")
 
@@ -3090,26 +3094,26 @@ with st.sidebar:
                     st.warning("買付余力が取得できませんでした")
 
         except Exception as exc:
-            error_msg = str(exc)
-            if "getaddrinfo failed" in error_msg or "Failed to resolve" in error_msg:
+            ERROR_MSG = str(exc)
+            if "getaddrinfo failed" in ERROR_MSG or "Failed to resolve" in ERROR_MSG:
                 st.error("🌐 ネットワーク接続エラー")
                 st.error("- インターネット接続を確認してください")
                 st.error("- DNSサーバー設定を確認してください")
                 st.error("- ファイアウォール/プロキシ設定を確認してください")
                 with st.expander("詳細エラー情報"):
-                    st.code(error_msg)
-            elif "HTTPSConnectionPool" in error_msg:
+                    st.code(ERROR_MSG)
+            elif "HTTPSConnectionPool" in ERROR_MSG:
                 st.error("🔒 HTTPS接続エラー")
                 st.error("- SSL証明書の問題の可能性があります")
                 st.error("- プロキシ設定を確認してください")
                 with st.expander("詳細エラー情報"):
-                    st.code(error_msg)
-            elif "401" in error_msg or "403" in error_msg:
+                    st.code(ERROR_MSG)
+            elif "401" in ERROR_MSG or "403" in ERROR_MSG:
                 st.error("🔑 API認証エラー")
                 st.error("- API キーとシークレットを確認してください")
                 st.error("- APIキーの権限を確認してください")
             else:
-                st.error(f"❌ Alpaca資産取得エラー: {error_msg}")
+                st.error(f"❌ Alpaca資産取得エラー: {ERROR_MSG}")
                 st.info("💡 オフライン環境では手動で資金を設定してください")
 
     col1, col2 = st.columns(2)

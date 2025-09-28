@@ -17,7 +17,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NotRequired, TypeAlias, TypedDict
+from typing import Any, TypeAlias, TypedDict
 
 import pandas as pd
 
@@ -28,14 +28,14 @@ Symbol: TypeAlias = str
 StrategyMapping: TypeAlias = Mapping[str, object]
 
 
-class AllocationConfig(TypedDict):
+class AllocationConfig(TypedDict, total=False):
     """Type definition for allocation configuration."""
 
-    long_allocations: NotRequired[dict[SystemName, float]]
-    short_allocations: NotRequired[dict[SystemName, float]]
-    max_positions: NotRequired[int]
-    risk_pct: NotRequired[float]
-    max_pct: NotRequired[float]
+    long_allocations: dict[SystemName, float]
+    short_allocations: dict[SystemName, float]
+    max_positions: int
+    risk_pct: float
+    max_pct: float
 
 
 # Configure logger
@@ -126,18 +126,18 @@ def _safe_positive_float(value: Any, *, allow_zero: bool = False) -> float | Non
     try:
         f = float(value)
     except (TypeError, ValueError) as e:
-        logger.debug(f"Failed to convert {value!r} to float: {e}")
+        logger.debug("Failed to convert %r to float: %s", value, e)
         return None
 
     # Validation checks
     if f < 0:
-        logger.debug(f"Negative value rejected: {f}")
+        logger.debug("Negative value rejected: %s", f)
         return None
     if not allow_zero and f == 0:
         logger.debug("Zero value rejected (allow_zero=False)")
         return None
     if not (0 <= f < float("inf")):
-        logger.debug(f"Invalid numeric value: {f}")
+        logger.debug("Invalid numeric value: %s", f)
         return None
 
     return f
@@ -178,7 +178,7 @@ class AllocationSummary:
     def __post_init__(self) -> None:
         """Validate allocation summary after initialization."""
         if self.mode not in ("slot", "capital"):
-            logger.warning(f"Unknown allocation mode: {self.mode}")
+            logger.warning("Unknown allocation mode: %s", self.mode)
 
         # Validate that slot mode has slot-specific data
         if self.mode == "slot" and self.slot_allocation is None:
@@ -210,23 +210,23 @@ def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
 
     path = Path(path)
     if not path.exists():
-        logger.debug(f"Symbol system map file not found: {path}")
+        logger.debug("Symbol system map file not found: %s", path)
         return {}
 
     try:
         content = path.read_text(encoding="utf-8")
     except OSError as e:
-        logger.warning(f"Failed to read symbol system map: {e}")
+        logger.warning("Failed to read symbol system map: %s", e)
         return {}
 
     try:
         raw = json.loads(content)
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in symbol system map: {e}")
+        logger.error("Invalid JSON in symbol system map: %s", e)
         return {}
 
     if not isinstance(raw, dict):
-        logger.error(f"Symbol system map must be a dictionary, got {type(raw)}")
+        logger.error("Symbol system map must be a dictionary, got %s", type(raw))
         return {}
 
     result: dict[str, str] = {}
@@ -234,11 +234,11 @@ def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
         key_str = str(key).strip()
         val_str = str(value).strip()
         if not key_str or not val_str:
-            logger.debug(f"Skipping empty key/value pair: {key!r} -> {value!r}")
+            logger.debug("Skipping empty key/value pair: %r -> %r", key, value)
             continue
         result[key_str.lower()] = val_str.lower()
 
-    logger.debug(f"Loaded {len(result)} symbol-system mappings")
+    logger.debug("Loaded %d symbol-system mappings", len(result))
     return result
 
 
@@ -258,7 +258,7 @@ def _get_position_attr(obj: object, name: str) -> Any:
         if isinstance(obj, Mapping):
             return obj.get(name)
     except Exception as e:
-        logger.debug(f"Error accessing attribute {name}: {e}")
+        logger.debug("Error accessing attribute %s: %s", name, e)
     return None
 
 
@@ -294,11 +294,11 @@ def count_active_positions_by_system(
             key_str = str(key).strip()
             val_str = str(value).strip()
             if not key_str or not val_str:
-                logger.debug(f"Skipping empty key/value in symbol_system_map: {key!r} -> {value!r}")
+                logger.debug("Skipping empty key/value in symbol_system_map: %r -> %r", key, value)
                 continue
             norm_map[key_str.upper()] = val_str.lower()
         except Exception as e:
-            logger.warning(f"Error processing symbol_system_map entry {key!r} -> {value!r}: {e}")
+            logger.warning("Error processing symbol_system_map entry %r -> %r: %s", key, value, e)
             continue
 
     counts: dict[str, int] = {}
@@ -307,12 +307,12 @@ def count_active_positions_by_system(
             # Extract symbol
             symbol_raw = _get_position_attr(pos, "symbol")
             if symbol_raw is None:
-                logger.debug(f"Position {i} missing symbol")
+                logger.debug("Position %d missing symbol", i)
                 continue
 
             sym = str(symbol_raw).strip().upper()
             if not sym:
-                logger.debug(f"Position {i} has empty symbol")
+                logger.debug("Position %d has empty symbol", i)
                 continue
 
             # Extract and validate quantity
@@ -320,11 +320,11 @@ def count_active_positions_by_system(
             try:
                 qty_val = abs(float(qty_raw)) if qty_raw is not None else 0.0
             except (TypeError, ValueError) as e:
-                logger.debug(f"Position {i} invalid quantity {qty_raw!r}: {e}")
+                logger.debug("Position %d invalid quantity %r: %s", i, qty_raw, e)
                 qty_val = 0.0
 
             if qty_val <= 0:
-                logger.debug(f"Position {i} has zero/negative quantity: {qty_val}")
+                logger.debug("Position %d has zero/negative quantity: %s", i, qty_val)
                 continue
 
             # Extract side for special SPY handling
@@ -338,16 +338,16 @@ def count_active_positions_by_system(
                 if sym == "SPY" and side == "short":
                     system = "system7"
                 else:
-                    logger.debug(f"No system mapping found for symbol: {sym}")
+                    logger.debug("No system mapping found for symbol: %s", sym)
                     continue
 
             counts[system] = counts.get(system, 0) + 1
 
         except Exception as e:
-            logger.warning(f"Error processing position {i}: {e}")
+            logger.warning("Error processing position %d: %s", i, e)
             continue
 
-    logger.debug(f"Counted active positions: {dict(counts)}")
+    logger.debug("Counted active positions: %s", dict(counts))
     return counts
 
 
@@ -378,9 +378,9 @@ def _normalize_allocations(
                 if numeric > 0:  # Only positive weights allowed
                     filtered[str(key).strip().lower()] = numeric
                 else:
-                    logger.debug(f"Skipping non-positive weight: {key}={value}")
+                    logger.debug("Skipping non-positive weight: %s=%s", key, value)
             except (TypeError, ValueError) as e:
-                logger.debug(f"Skipping invalid weight {key}={value!r}: {e}")
+                logger.debug("Skipping invalid weight %s=%r: %s", key, value, e)
                 continue
 
     # Fall back to defaults if no valid weights provided
@@ -389,7 +389,7 @@ def _normalize_allocations(
         try:
             filtered = {k: float(v) for k, v in defaults.items() if float(v) > 0}
         except (TypeError, ValueError) as e:
-            logger.error(f"Invalid default weights: {e}")
+            logger.error("Invalid default weights: %s", e)
             filtered = {}
 
     # Calculate total for normalization
@@ -405,7 +405,7 @@ def _normalize_allocations(
 
     # Normalize to sum to 1.0
     normalized = {k: v / total for k, v in filtered.items()}
-    logger.debug(f"Normalized allocations: {normalized}")
+    logger.debug("Normalized allocations: %s", normalized)
     return normalized
 
 

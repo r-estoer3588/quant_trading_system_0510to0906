@@ -1,0 +1,21 @@
+{
+    "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+    "version": "0.2",
+    "language": "en",
+    "words": [
+        "ohlcv",
+        "OHLCV",
+        "APCA",
+        "normalises",
+        "behaviour",
+        "mojibake",
+        "spyp"
+    ],
+    "ignorePaths": [
+        "data_cache/**",
+        "data_cache_recent/**",
+        "logs/**",
+        "results_csv/**",
+        "results_csv_test/**"
+    ]
+}
