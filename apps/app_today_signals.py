@@ -1,15 +1,33 @@
 from __future__ import annotations
 
+import importlib
+import json
 import logging
 import os
+import re
 import sys
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, Any
+
+try:
+    from zoneinfo import ZoneInfo
+
+    def get_zoneinfo(name: str) -> tzinfo:
+        return ZoneInfo(name)
+
+except ImportError:
+    # Python < 3.9 or Windows without zoneinfo, use UTC as fallback
+    def get_zoneinfo(name: str) -> tzinfo:
+        _ = name
+        return timezone.utc
+
 
 import pandas as pd
 import streamlit as st
@@ -18,10 +36,27 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 # ページ設定を最初に実行
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 
-import scripts.run_all_systems_today as _run_today_mod
+# sys.pathを正しく設定してからimport
+try:
+    # プロジェクトルートがsys.pathにない場合の事前処理
+    project_root = Path(__file__).parent.parent.resolve()
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    # scriptsディレクトリも追加
+    scripts_dir = project_root / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    import run_all_systems_today as _run_today_mod
+except ImportError:
+    # フォールバック: 直接モジュールをインポート
+    import scripts.run_all_systems_today as _run_today_mod
+
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_format import round_dataframe
+from common.cache_manager import CacheManager
 from common.data_loader import load_price
 from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
@@ -42,15 +77,15 @@ from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
+from strategies.system1_strategy import System1Strategy
+from strategies.system2_strategy import System2Strategy
+from strategies.system3_strategy import System3Strategy
+from strategies.system4_strategy import System4Strategy
+from strategies.system5_strategy import System5Strategy
+from strategies.system6_strategy import System6Strategy
 
 # 条件付きインポート - alpaca.trading.requests は実行時のみ必要
-if TYPE_CHECKING:  # pragma: no cover - static typing only
-    try:
-        import alpaca.trading.requests as AlpacaTradingRequests
-    except ImportError:  # pragma: no cover - runtime fallback
-        AlpacaTradingRequests = Any
-else:
-    AlpacaTradingRequests = None
+AlpacaTradingRequests: Any | None = None
 
 
 def _import_alpaca_requests():
@@ -59,8 +94,6 @@ def _import_alpaca_requests():
     Returns the module or None if not importable.
     """
     try:
-        import importlib
-
         return importlib.import_module("alpaca.trading.requests")
     except ImportError:
         return None
@@ -139,9 +172,7 @@ try:
                 return original_checkbox(label, *args, **kwargs)
             else:
                 # フォールバック: 元の関数を直接呼び出し
-                import streamlit
-
-                return streamlit.checkbox(label, *args, **kwargs)
+                return st.checkbox(label, *args, **kwargs)
 
         # 元のチェックボックスを保存して新しい関数を設定
         setattr(st, "_orig_checkbox", original_checkbox)
@@ -884,14 +915,9 @@ def _get_today_logger() -> logging.Logger:
             log_path = log_dir / "today_signals.log"
         else:
             try:
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-
-                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+                jst_now = datetime.now(get_zoneinfo("Asia/Tokyo"))
             except Exception:
-                from datetime import datetime
-
-                jst_now = datetime.now()
+                jst_now = datetime.now(get_zoneinfo("UTC"))
             stamp = jst_now.strftime("%Y%m%d_%H%M")
             log_path = log_dir / f"today_signals_{stamp}.log"
 
@@ -1851,8 +1877,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     # 実行開始時のヘッダーメッセージを表示
     today = get_signal_target_trading_day().normalize()
     try:
-        import uuid
-
         run_id = str(uuid.uuid4())[:8]
     except Exception:
         run_id = "--------"
@@ -1883,8 +1907,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # データの新しさをチェックして必要な場合のみ警告を表示
     try:
-        from common.cache_manager import CacheManager
-
         settings = get_settings()
         cm = CacheManager(settings)
         # SPYデータでキャッシュの新しさを確認
@@ -1931,7 +1953,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     rows_needed = max_days + buffer_days
     symbols_for_data = list(dict.fromkeys([*run_config.symbols, "SPY"]))
     progress_ui.set_label("対象読み込み")
-    final_df: pd.DataFrame | None = None
+    final_df: pd.DataFrame = pd.DataFrame()
     per_system: dict[str, pd.DataFrame] = {}
     debug_result: RunArtifacts | None = None
     with st.spinner("実行中... (経過時間表示あり)"):
@@ -1978,18 +2000,20 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 symbol_data=symbol_data_map,
                 parallel=run_config.run_parallel,
             )
-            # 安全にアンパック
-            if result is not None and isinstance(result, (tuple, list)) and len(result) == 2:
-                final_df, per_system = result
+            # 安全に結果を解釈
+            if isinstance(result, (tuple, list)) and len(result) == 2:
+                result_pair: Sequence[Any] = tuple(result)
+                maybe_df, maybe_system = result_pair
+                if isinstance(maybe_df, pd.DataFrame) and isinstance(maybe_system, dict):
+                    final_df = maybe_df
+                    per_system = maybe_system
+                else:
+                    logger.log("⚠️ compute_today_signals が予期しない型を返しました")
             else:
-                # フォールバック: 空のDataFrameとdict
-                final_df = pd.DataFrame()
-                per_system = {}
                 logger.log("⚠️ compute_today_signals から予期しない結果が返されました")
 
     if debug_result is not None:
         return debug_result
-    assert final_df is not None  # 安全策: debugモードでは既にreturn済み
     total_elapsed = max(0.0, time.time() - start_time)
     stage_tracker.finalize_counts(final_df, per_system)
     _store_run_results(final_df, per_system)
@@ -2004,37 +2028,63 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
 
 def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
+    """現在保有中ポジションの手仕舞い予定を推定する。
+
+    役割:
+      1. 保有ポジション取得
+      2. エントリー日補完（ローカル→不足分 Alpaca 取得→保存）
+      3. システム判定 & Strategy インスタンス生成
+      4. ストラテジー exit ロジックを用い本日/将来 exit を分類
+    """
+
     exits_today_rows: list[dict[str, Any]] = []
     planned_rows: list[dict[str, Any]] = []
     exit_counts: dict[str, int] = {f"system{i}": 0 for i in range(1, 8)}
     try:
         client_tmp = ba.get_client(paper=paper_mode)
-        positions = list(client_tmp.get_all_positions())
+        try:
+            positions = list(client_tmp.get_all_positions())  # type: ignore[attr-defined]
+        except Exception:
+            positions = []
+
+        # 1) エントリー日マップ読み込み
         raw_entry_map = load_entry_dates()
         entry_map: dict[str, str] = {}
-        for key, value in raw_entry_map.items():
+        for k, v in raw_entry_map.items():
             try:
-                entry_map[str(key).upper()] = str(value)
+                entry_map[str(k).upper()] = str(v)
             except Exception:
                 continue
-        missing: list[str] = []
-        for pos in positions:
-            sym = str(getattr(pos, "symbol", "")).upper()
-            if sym and sym not in entry_map:
-                missing.append(sym)
+
+        # 2) 不足エントリー日の補完
+        missing = [
+            str(getattr(p, "symbol", "")).upper()
+            for p in positions
+            if str(getattr(p, "symbol", "")).upper()
+            and str(getattr(p, "symbol", "")).upper() not in entry_map
+        ]
         if missing:
-            fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            try:
+                fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            except Exception:
+                fetched = None
             if fetched:
                 for sym, ts in fetched.items():
                     if sym not in entry_map:
-                        entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                        try:
+                            entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
                 try:
                     save_entry_dates(entry_map)
                 except Exception:
                     pass
+
         symbol_system_map = _load_symbol_system_map(Path("data/symbol_system_map.json"))
         latest_trading_day = _latest_trading_day()
-        strategy_classes = _strategy_class_map()
+        strategy_classes = STRATEGY_CLASS_MAP
+
+        # 3) 各ポジション解析
         for pos in positions:
             result = _evaluate_position_for_exit(
                 pos,
@@ -2045,18 +2095,19 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
             )
             if result is None:
                 continue
-            (system, _pos_side, _qty, exit_when, row_data, exit_today) = result
-            when_value = str(exit_when or "")
-            when_lower = when_value.lower()
-            when_entry = when_lower or when_value
+            system, _pos_side, _qty, exit_when, row_base, exit_today = result
+            when_val = str(exit_when or "").strip()
+            when_lower = when_val.lower()
+            when_display = when_lower or when_val
             if exit_today:
                 exit_counts[system] = exit_counts.get(system, 0) + 1
                 if when_lower == "tomorrow_open":
-                    planned_rows.append(row_data | {"when": when_entry})
+                    planned_rows.append(row_base | {"when": when_display})
                 else:
-                    exits_today_rows.append(row_data | {"when": when_entry})
+                    exits_today_rows.append(row_base | {"when": when_display})
             else:
-                planned_rows.append(row_data | {"when": when_entry})
+                planned_rows.append(row_base | {"when": when_display})
+
         exits_today_df = pd.DataFrame(exits_today_rows)
         planned_df = pd.DataFrame(planned_rows)
         return ExitAnalysisResult(
@@ -2073,10 +2124,8 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
 
 def _load_symbol_system_map(path: Path) -> dict[str, str]:
     try:
-        import json as _json
-
         if path.exists():
-            data = _json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return {str(k).upper(): str(v).lower() for k, v in data.items()}
     except Exception:
@@ -2112,22 +2161,17 @@ def _latest_trading_day() -> pd.Timestamp | None:
     return calendar_day or price_day
 
 
-def _strategy_class_map() -> dict[str, Callable[[], Any]]:
-    from strategies.system1_strategy import System1Strategy
-    from strategies.system2_strategy import System2Strategy
-    from strategies.system3_strategy import System3Strategy
-    from strategies.system4_strategy import System4Strategy
-    from strategies.system5_strategy import System5Strategy
-    from strategies.system6_strategy import System6Strategy
+STRATEGY_CLASS_MAP: dict[str, Callable[[], Any]] = {
+    "system1": System1Strategy,
+    "system2": System2Strategy,
+    "system3": System3Strategy,
+    "system4": System4Strategy,
+    "system5": System5Strategy,
+    "system6": System6Strategy,
+}
 
-    return {
-        "system1": System1Strategy,
-        "system2": System2Strategy,
-        "system3": System3Strategy,
-        "system4": System4Strategy,
-        "system5": System5Strategy,
-        "system6": System6Strategy,
-    }
+
+## 互換用関数は削除（直接 STRATEGY_CLASS_MAP を参照する実装へ移行済み）
 
 
 def _evaluate_position_for_exit(
@@ -2354,14 +2398,12 @@ def _display_planned_exits_section(result: ExitAnalysisResult) -> None:  # trade
 def _auto_save_planned_exits(
     planned_rows: list[dict[str, Any]], show_success: bool
 ) -> None:  # noqa: E501
-    import json as _json
-
     plan_path = Path("data/planned_exits.jsonl")
     try:
         plan_path.parent.mkdir(parents=True, exist_ok=True)
         with plan_path.open("w", encoding="utf-8") as f:
             for row in planned_rows:
-                f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
         if show_success:
             st.success(f"保存しました: {plan_path}")
         else:
@@ -2629,14 +2671,13 @@ def _auto_save_final_results(
         settings2 = get_settings(create_dirs=True)
         sig_dir = Path(settings2.outputs.signals_dir)
         sig_dir.mkdir(parents=True, exist_ok=True)
-        from datetime import datetime as _dt
-
-        ts = _dt.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        ts = now.strftime("%Y-%m-%d")
         if run_config.csv_name_mode == "datetime":
-            ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+            ts = now.strftime("%Y-%m-%d_%H%M")
         elif run_config.csv_name_mode == "runid":
             rid = st.session_state.get("last_run_id") or "RUN"
-            ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
+            ts = f"{now.strftime('%Y-%m-%d')}_{rid}"
         fp = sig_dir / f"today_signals_{ts}.csv"
         try:
             settings2 = get_settings(create_dirs=True)
@@ -2786,17 +2827,15 @@ def _render_system_details(
                 reason_text: str | None = None
                 try:
                     if per_system_logs and name in per_system_logs:
-                        import re as _re
-
                         logs = per_system_logs.get(name) or []
                         for ln in reversed(logs):
                             if not ln:
                                 continue
-                            m = _re.search(r"候補0件理由[:：]\s*(.+)$", ln)
+                            m = re.search(r"候補0件理由[:：]\s*(.+)$", ln)
                             if m:
                                 reason_text = m.group(1).strip()
                                 break
-                            m2 = _re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
+                            m2 = re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
                             if m2:
                                 reason_text = m2.group(1).strip()
                                 break
@@ -2882,11 +2921,10 @@ def _render_previous_run_logs(log_lines: list[str]) -> None:
     prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
     if not prev_msgs:
         return
-    import re as _re
 
     def _parse_prev_line(ln: str) -> tuple[str, int, str, str]:
         ts = ln.split("] ", 1)[0].strip("[")
-        m = _re.search(r"\(前回結果\) (system\d+):\s*(\d+)", ln)
+        m = re.search(r"\(前回結果\) (system\d+):\s*(\d+)", ln)
         sys = m.group(1) if m else "system999"
         cnt = int(m.group(2)) if m else 0
         return sys, cnt, ts, ln
@@ -2973,12 +3011,106 @@ with st.sidebar:
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))
 
+    # Alpaca未約定注文表示
+    st.header("Alpaca注文状況")
+    if st.button("📋 未約定注文を表示"):
+        try:
+            paper_mode = st.session_state.get("paper_mode", True)
+            client = ba.get_client(paper=paper_mode)
+            orders = client.get_orders(status="open")
+            if orders:
+                orders_data = []
+                for order in orders:
+                    orders_data.append(
+                        {
+                            "注文ID": order.id,
+                            "銘柄": order.symbol,
+                            "サイド": order.side,
+                            "数量": order.qty,
+                            "注文価格": getattr(order, "limit_price", "Market"),
+                            "注文タイプ": order.order_type,
+                            "状況": order.status,
+                            "作成日時": order.created_at,
+                        }
+                    )
+                orders_df = pd.DataFrame(orders_data)
+                st.dataframe(orders_df, use_container_width=True)
+            else:
+                st.info("未約定注文はありません")
+        except Exception as e:
+            st.error(f"注文取得エラー: {e}")
+
     st.header("資産")
     # デフォルト値を設定
     if "today_cap_long" not in st.session_state:
         st.session_state["today_cap_long"] = 10000.0
     if "today_cap_short" not in st.session_state:
         st.session_state["today_cap_short"] = 10000.0
+
+    # Alpaca資産取得ボタンを追加
+    if st.button("💰 Alpacaから現在の資産を取得"):
+        try:
+            # 接続前の事前チェック
+            import os
+
+            api_key = os.environ.get("APCA_API_KEY_ID")
+            api_secret = os.environ.get("APCA_API_SECRET_KEY")
+
+            if not api_key or not api_secret:
+                st.error("❌ Alpaca API認証情報が設定されていません")
+                st.info("環境変数 APCA_API_KEY_ID と APCA_API_SECRET_KEY を設定してください")
+            else:
+                # ネットワーク接続テスト
+                with st.spinner("Alpacaサーバーに接続中..."):
+                    client = ba.get_client(paper=st.session_state.get("paper_mode", True))
+                    acct = client.get_account()
+
+                equity = getattr(acct, "equity", None)
+                cash = getattr(acct, "cash", None)
+                buying_power = getattr(acct, "buying_power", None)
+
+                if equity is not None:
+                    equity_val = float(equity)
+                    st.success(f"✅ 総資産: ${equity_val:,.2f}")
+                if cash is not None:
+                    cash_val = float(cash)
+                    st.info(f"💵 現金残高: ${cash_val:,.2f}")
+                if buying_power is not None:
+                    bp_val = float(buying_power)
+                    st.info(f"🚀 買付余力: ${bp_val:,.2f}")
+
+                    # 買付余力を半分ずつロング・ショートに配分
+                    half_bp = round(bp_val / 2.0, 2)
+                    st.session_state["today_cap_long"] = half_bp
+                    st.session_state["today_cap_short"] = half_bp
+                    st.success(
+                        f"資金配分を更新しました: ロング${half_bp:,.2f} / ショート${half_bp:,.2f}"
+                    )
+                else:
+                    st.warning("買付余力が取得できませんでした")
+
+        except Exception as exc:
+            error_msg = str(exc)
+            if "getaddrinfo failed" in error_msg or "Failed to resolve" in error_msg:
+                st.error("🌐 ネットワーク接続エラー")
+                st.error("- インターネット接続を確認してください")
+                st.error("- DNSサーバー設定を確認してください")
+                st.error("- ファイアウォール/プロキシ設定を確認してください")
+                with st.expander("詳細エラー情報"):
+                    st.code(error_msg)
+            elif "HTTPSConnectionPool" in error_msg:
+                st.error("🔒 HTTPS接続エラー")
+                st.error("- SSL証明書の問題の可能性があります")
+                st.error("- プロキシ設定を確認してください")
+                with st.expander("詳細エラー情報"):
+                    st.code(error_msg)
+            elif "401" in error_msg or "403" in error_msg:
+                st.error("🔑 API認証エラー")
+                st.error("- API キーとシークレットを確認してください")
+                st.error("- APIキーの権限を確認してください")
+            else:
+                st.error(f"❌ Alpaca資産取得エラー: {error_msg}")
+                st.info("💡 オフライン環境では手動で資金を設定してください")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -3103,43 +3235,14 @@ st.session_state["ui_vis"] = {
 
 st.subheader("保有ポジションと利益保護判定")
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("🔍 Alpacaから保有ポジション取得"):
-        try:
-            client = ba.get_client(paper=paper_mode)
-            positions = client.get_all_positions()
-            st.session_state["positions_df"] = evaluate_positions(positions)
-            st.success("ポジションを取得しました")
-        except Exception as e:
-            st.error(f"ポジション取得エラー: {e}")
-
-with col2:
-    if st.button("📋 未約定注文を表示"):
-        try:
-            client = ba.get_client(paper=paper_mode)
-            orders = client.get_orders(status="open")
-            if orders:
-                orders_data = []
-                for order in orders:
-                    orders_data.append(
-                        {
-                            "注文ID": order.id,
-                            "銘柄": order.symbol,
-                            "サイド": order.side,
-                            "数量": order.qty,
-                            "注文価格": getattr(order, "limit_price", "Market"),
-                            "注文タイプ": order.order_type,
-                            "状況": order.status,
-                            "作成日時": order.created_at,
-                        }
-                    )
-                orders_df = pd.DataFrame(orders_data)
-                st.dataframe(orders_df, use_container_width=True)
-            else:
-                st.info("未約定注文はありません")
-        except Exception as e:
-            st.error(f"注文取得エラー: {e}")
+if st.button("🔍 Alpacaから保有ポジション取得"):
+    try:
+        client = ba.get_client(paper=paper_mode)
+        positions = client.get_all_positions()
+        st.session_state["positions_df"] = evaluate_positions(positions)
+        st.success("ポジションを取得しました")
+    except Exception as e:
+        st.error(f"ポジション取得エラー: {e}")
 
 if "positions_df" in st.session_state:
     positions_df = st.session_state["positions_df"]

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -29,6 +30,9 @@ try:
 except Exception:
     # If Streamlit already configured (e.g., during tests), ignore
     pass
+
+# プロジェクトルート（apps/dashboards から2階層上）をパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 try:  # pragma: no cover - optional dependency
     import plotly.graph_objects as go  # type: ignore[import-not-found]
