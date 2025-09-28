@@ -3,12 +3,15 @@
 # ruff: noqa: I001
 import argparse
 import sys
+from pathlib import Path
+
+# プロジェクトルートをパスに追加
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
 import pandas as pd
 import requests
-
-import common  # noqa: F401
 
 from common.cache_manager import CacheManager
 from config.settings import get_settings
@@ -88,6 +91,29 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
 
         # 日付でソート
         df = df.sort_values("date").reset_index(drop=True)
+
+        # キャッシュに保存する前に、既存データの問題を診断
+        print("既存キャッシュデータの診断を実行中...")
+        try:
+            full_existing = cache_manager.read("SPY", "full")
+            if full_existing is not None and not full_existing.empty:
+                print(f"Full existing data: {len(full_existing)} rows")
+                print(
+                    f"Full existing null dates: {full_existing['date'].isnull().sum() if 'date' in full_existing.columns else 'No date column'}"
+                )
+                print(
+                    f"Full existing duplicate dates: {full_existing['date'].duplicated().sum() if 'date' in full_existing.columns else 'No date column'}"
+                )
+                print(f"Full existing index unique: {full_existing.index.is_unique}")
+                print(f"Full existing index type: {type(full_existing.index)}")
+                print(f"Full existing columns: {full_existing.columns.tolist()}")
+            else:
+                print("No existing full data found")
+        except Exception as e:
+            print(f"Error reading full existing data: {e}")
+            import traceback
+
+            traceback.print_exc()
 
         # CacheManagerのupsert_bothを使用して保存
         # これにより full_backup, base, rolling すべてに適切な指標付きで保存される
