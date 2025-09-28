@@ -1028,7 +1028,10 @@ def _load_basic_data(
                         gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
                         # 日付が古いがデータが存在する場合は、警告のみで処理を継続
                         # フィルター段階で各システムが必要な条件をチェックする
-                        _log(f"⚠️ データ鮮度注意: {sym} (最終日={last_seen_date.date()}, ギャップ={gap_days if gap_days else '不明'}営業日)", ui=False)
+                        _log(
+                            f"⚠️ データ鮮度注意: {sym} (最終日={last_seen_date.date()}, ギャップ={gap_days if gap_days else '不明'}営業日)",
+                            ui=False,
+                        )
                         # needs_rebuild = True  # この行をコメントアウトして除外を回避
             if needs_rebuild:
                 reason_map = {
