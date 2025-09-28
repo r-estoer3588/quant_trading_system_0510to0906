@@ -71,7 +71,13 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         elif "close" in df.columns:
             rename_map["close"] = "close"
 
-        df = df.rename(columns=rename_map)
+        # 重複を避けるために、先に元のclose列を処理
+        if "adjusted_close" in df.columns and "close" in df.columns:
+            df["raw_close"] = df["close"]  # 元のclose列を保持
+            df = df.drop(columns=["close"])  # 元のclose列を削除
+            df = df.rename(columns={"adjusted_close": "close"})  # adjusted_closeをcloseに
+        else:
+            df = df.rename(columns=rename_map)
 
         # 必須列の確認
         required_cols = {"date", "open", "high", "low", "close", "volume"}
@@ -92,7 +98,11 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
             print("   - base: ベース指標付きデータ")
             print("   - rolling: 直近300+30日のデータ")
         except Exception as e:
+            import traceback
+
             print(f"❌ CacheManager による保存に失敗: {e}", file=sys.stderr)
+            print("詳細なエラー情報:", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
 
     except Exception as e:
         msg = f"❌ 例外が発生しました: {e}"
