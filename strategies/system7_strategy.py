@@ -29,6 +29,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     SYSTEM_NAME = "system7"
 
+    def get_trading_side(self) -> str:
+        """System7 はショート戦略"""
+        return "short"
+
     def prepare_data(
         self,
         raw_data_or_symbols,

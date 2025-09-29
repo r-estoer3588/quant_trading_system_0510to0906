@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import logging
 import subprocess
 import sys
 import time
@@ -24,48 +23,27 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-# PEP 8 準拠: モジュールレベルのインポートを後回し
-try:
-    from common.logging_utils import setup_logging
-    from config.settings import get_settings
-except ImportError:
-    setup_logging = None
-    get_settings = None
-
-logger = logging.getLogger(__name__)
-
 
 def format_duration(seconds: float) -> str:
     """秒数を見やすい形式で表示（分または秒）。"""
-    if seconds >= 60:
-        minutes = seconds / 60
-        return f"{minutes:.1f}分"
-    else:
-        return f"{seconds:.1f}秒"
+    return f"{seconds/60:.1f}分" if seconds >= 60 else f"{seconds:.1f}秒"
 
 
 def run_subprocess(cmd: list[str], description: str) -> float:
     """サブプロセスを実行して所要時間を返す。"""
-    logger.info("🚀 %s 開始", description)
     print(f"🚀 {description} 開始")
 
     start_time = time.time()
     try:
-        subprocess.run(
-            cmd, check=True, cwd=ROOT_DIR, capture_output=False  # 出力をリアルタイムで表示
-        )
+        subprocess.run(cmd, check=True, cwd=ROOT_DIR, capture_output=False)
         duration = time.time() - start_time
-        duration_str = format_duration(duration)
-        logger.info("✅ %s 完了 (所要時間: %s)", description, duration_str)
-        print(f"✅ {description} 完了 (所要時間: {duration_str})")
+        print(f"✅ {description} 完了 (所要時間: {format_duration(duration)})")
         return duration
     except subprocess.CalledProcessError as e:
         duration = time.time() - start_time
-        duration_str = format_duration(duration)
-        logger.error(
-            "❌ %s 失敗 (Exit Code: %d, 所要時間: %s)", description, e.returncode, duration_str
+        print(
+            f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {format_duration(duration)})"
         )
-        print(f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {duration_str})")
         raise
 
 
@@ -93,15 +71,6 @@ def main():
 
     args = parser.parse_args()
 
-    # ロギング設定
-    try:
-        if get_settings and setup_logging:
-            settings = get_settings()
-            setup_logging(settings)
-    except Exception:
-        # フォールバック
-        logging.basicConfig(level=logging.INFO)
-
     print("🚀 Daily Cache Update Pipeline 開始")
     print(f"📂 作業ディレクトリ: {ROOT_DIR}")
 
@@ -126,7 +95,8 @@ def main():
 
         rolling_cmd = [sys.executable, "scripts/build_rolling_with_indicators.py"]
 
-        if args.parallel and args.workers > 0:
+        # 並列処理設定をシンプルに
+        if args.workers > 0:
             rolling_cmd.extend(["--workers", str(args.workers)])
             print(f"   🔧 並列処理: {args.workers} ワーカー")
         elif args.parallel:
@@ -139,14 +109,12 @@ def main():
         total_duration += duration2
 
         # 完了サマリー
-        print("\n🎉 Daily Cache Update Pipeline 完了!")
-        total_duration_str = format_duration(total_duration)
-        print(f"   📊 総所要時間: {total_duration_str}")
+        print(
+            f"\n🎉 Daily Cache Update Pipeline 完了! (総所要時間: {format_duration(total_duration)})"
+        )
         if not args.skip_cache_daily:
-            duration1_str = format_duration(duration1)
-            print(f"   📋 cache_daily_data: {duration1_str}")
-        duration2_str = format_duration(duration2)
-        print(f"   📋 build_rolling: {duration2_str}")
+            print(f"   📋 cache_daily_data: {format_duration(duration1)}")
+        print(f"   📋 build_rolling: {format_duration(duration2)}")
         print("\n💡 次に実行できること:")
         print("   • python scripts/run_all_systems_today.py --parallel --save-csv")
         print("   • streamlit run app_integrated.py")
@@ -156,7 +124,6 @@ def main():
     except subprocess.CalledProcessError:
         return 1
     except Exception as e:
-        logger.exception("予期しないエラーが発生しました")
         print(f"❌ エラーが発生しました: {e}")
         return 1
 

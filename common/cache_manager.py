@@ -19,6 +19,33 @@ logger = logging.getLogger(__name__)
 
 BASE_SUBDIR = "base"
 
+# 基本列の定義を統一
+BASIC_OHLCV_COLS = {"date", "open", "high", "low", "close", "volume", "raw_close"}
+BASIC_COLS_WITH_CASE = {
+    "date",
+    "Date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "raw_close",
+}
+
+# 列名の大文字小文字変換マップ
+CASE_MAP = {
+    "open": "Open",
+    "high": "High",
+    "low": "Low",
+    "close": "Close",
+    "volume": "Volume",
+}
+
 
 class CacheManager:
     """
@@ -89,35 +116,15 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
-        case_map = {
-            "open": "Open",
-            "high": "High",
-            "low": "Low",
-            "close": "Close",
-            "volume": "Volume",
-        }
         base_renamed = base.rename(
-            columns={k: v for k, v in case_map.items() if k in base.columns}
+            columns={k: v for k, v in CASE_MAP.items() if k in base.columns}
         )
         base_renamed["Date"] = base_renamed["date"]
 
         # 既存の指標列を削除して強制的に再計算を実行
-        basic_cols = {
-            "date",
-            "Date",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume",
-            "raw_close",
-        }
-        indicator_cols = [col for col in base_renamed.columns if col not in basic_cols]
+        indicator_cols = [
+            col for col in base_renamed.columns if col not in BASIC_COLS_WITH_CASE
+        ]
         if indicator_cols:
             base_renamed = base_renamed.drop(columns=indicator_cols)
 
@@ -127,9 +134,9 @@ class CacheManager:
             # 指標列の標準化は行わない（小文字を維持）
             # enriched = standardize_indicator_columns(enriched)
             # 基本列（date, open, high等）のみ小文字に変換
-            basic_cols = {"open", "high", "low", "close", "volume", "date"}
             enriched.columns = [
-                c.lower() if c.lower() in basic_cols else c for c in enriched.columns
+                c.lower() if c.lower() in BASIC_OHLCV_COLS else c
+                for c in enriched.columns
             ]
             enriched["date"] = pd.to_datetime(
                 enriched.get("date", base["date"]), errors="coerce"
@@ -141,13 +148,12 @@ class CacheManager:
             # consistent with the latest OHLC history.
 
             # Start with OHLCV columns only from the original df
-            ohlcv = {"date", "open", "high", "low", "close", "volume", "raw_close"}
-            ohlcv_cols = [col for col in ohlcv if col in df.columns]
+            ohlcv_cols = [col for col in BASIC_OHLCV_COLS if col in df.columns]
             combined = df[ohlcv_cols].copy().reset_index(drop=True)
 
             # Add all indicator columns from enriched
             for col, series in enriched.items():
-                if col in ohlcv:
+                if col in BASIC_OHLCV_COLS:
                     # Skip OHLCV columns - already copied
                     continue
                 # Add or replace indicator columns from enriched (位置ベースで代入)
@@ -252,9 +258,8 @@ class CacheManager:
                 existing = existing.loc[:, ~existing.columns.duplicated()]
 
             # new_rows からも指標列を削除して OHLCV データのみを保持
-            basic_cols = {"date", "open", "high", "low", "close", "volume", "raw_close"}
             new_rows_clean = new_rows[
-                [col for col in basic_cols if col in new_rows.columns]
+                [col for col in BASIC_OHLCV_COLS if col in new_rows.columns]
             ].copy()
 
             # マージ処理 (基本データのみ)
@@ -287,24 +292,57 @@ class CacheManager:
         max_rows = self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days
         return df.tail(max_rows)
 
+    def _validate_symbol_data(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        reference_date: pd.Timestamp,
+        min_rows: int,
+        max_stale_days: int,
+    ) -> str | None:
+        """シンボルデータの検証を行い、問題がある場合は分類を返す"""
+        if df is None or df.empty:
+            return "missing"
+
+        if "date" not in df.columns:
+            return f"insufficient:{symbol}(no_date_col)"
+
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        valid_dates = df["date"].dropna()
+
+        if len(valid_dates) == 0:
+            return f"insufficient:{symbol}(no_valid_dates)"
+
+        if len(df) < min_rows:
+            return f"insufficient:{symbol}(rows={len(df)})"
+
+        latest_date = valid_dates.max()
+        if pd.notna(latest_date) and pd.notna(reference_date):
+            days_behind = (reference_date - latest_date).days
+            if days_behind > max_stale_days:
+                return f"stale:{symbol}({days_behind}d)"
+
+        return None  # 正常
+
+    def _get_reference_date(self, anchor_ticker: str = "SPY") -> pd.Timestamp:
+        """基準日付を取得する（SPYの最新日付またはNow）"""
+        anchor_df = self.read(anchor_ticker, "rolling")
+        if (
+            anchor_df is not None
+            and not anchor_df.empty
+            and "date" in anchor_df.columns
+        ):
+            anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
+            reference_date = anchor_df["date"].max()
+            if pd.notna(reference_date):
+                return reference_date
+        return pd.Timestamp.now().normalize()
+
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
         """Rolling cache の容量管理とプルーニングを実行。"""
         try:
             # アンカー銘柄の最新日付を取得
-            anchor_df = self.read(anchor_ticker, "rolling")
-            if anchor_df is None or anchor_df.empty or "date" not in anchor_df.columns:
-                return {
-                    "status": "error",
-                    "message": f"アンカー銘柄 {anchor_ticker} のデータが取得できません",
-                }
-
-            anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
-            anchor_latest = anchor_df["date"].max()
-            if pd.isna(anchor_latest):
-                return {
-                    "status": "error",
-                    "message": f"アンカー銘柄 {anchor_ticker} の日付が不正です",
-                }
+            anchor_latest = self._get_reference_date(anchor_ticker)
 
             # Rolling ディレクトリのファイル一覧
             rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
@@ -382,12 +420,7 @@ class CacheManager:
             healthy_count = 0
 
             # SPY を基準日付として使用
-            spy_df = self.read("SPY", "rolling")
-            if spy_df is not None and not spy_df.empty and "date" in spy_df.columns:
-                spy_df["date"] = pd.to_datetime(spy_df["date"], errors="coerce")
-                reference_date = spy_df["date"].max()
-            else:
-                reference_date = pd.Timestamp.now().normalize()
+            reference_date = self._get_reference_date("SPY")
 
             min_required_rows = self.rolling_cfg.base_lookback_days
             max_stale_days = self.rolling_cfg.max_staleness_days
@@ -395,33 +428,18 @@ class CacheManager:
             for symbol in system_symbols:
                 try:
                     df = self.read(symbol, "rolling")
-                    if df is None or df.empty:
+                    validation_result = self._validate_symbol_data(
+                        symbol, df, reference_date, min_required_rows, max_stale_days
+                    )
+
+                    if validation_result is None:
+                        healthy_count += 1
+                    elif validation_result == "missing":
                         missing_files.append(symbol)
-                        continue
-
-                    if "date" not in df.columns:
-                        insufficient_data.append(f"{symbol}(no_date_col)")
-                        continue
-
-                    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                    valid_dates = df["date"].dropna()
-
-                    if len(valid_dates) == 0:
-                        insufficient_data.append(f"{symbol}(no_valid_dates)")
-                        continue
-
-                    if len(df) < min_required_rows:
-                        insufficient_data.append(f"{symbol}(rows={len(df)})")
-                        continue
-
-                    latest_date = valid_dates.max()
-                    if pd.notna(latest_date) and pd.notna(reference_date):
-                        days_behind = (reference_date - latest_date).days
-                        if days_behind > max_stale_days:
-                            stale_data.append(f"{symbol}({days_behind}d)")
-                            continue
-
-                    healthy_count += 1
+                    elif validation_result.startswith("insufficient:"):
+                        insufficient_data.append(validation_result.split(":", 1)[1])
+                    elif validation_result.startswith("stale:"):
+                        stale_data.append(validation_result.split(":", 1)[1])
 
                 except Exception as e:
                     logger.warning(f"ギャップ分析エラー {symbol}: {e}")

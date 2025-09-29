@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system3 import (
     generate_candidates_system3,
     get_total_days_system3,
@@ -51,21 +50,6 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size=batch_size,
             **kwargs,
         )
-
-    # バックテスト実行（共通シミュレーター）
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="long",
-        )
-        return trades_df
 
     # 共通シミュレーター用フック（System3）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):

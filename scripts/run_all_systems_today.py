@@ -50,6 +50,7 @@ from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
 from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
+from common.structured_logging import MetricsCollector
 from common.symbol_universe import build_symbol_universe_from_settings
 
 # 抽出: データローダ関数は common.today_data_loader へ分離
@@ -98,6 +99,9 @@ ENABLE_PROGRESS_EVENTS = os.getenv("ENABLE_PROGRESS_EVENTS", "false").lower() ==
 _LOG_FILE_PATH: Path | None = None
 _LOG_FILE_MODE: str | None = None
 
+# Global metrics collector for performance tracking
+_GLOBAL_METRICS = MetricsCollector()
+
 
 def emit_progress_event(event_type: str, data: dict) -> None:
     """Emit a progress event with given type and data."""
@@ -128,7 +132,13 @@ _SET_STAGE_UNIVERSE_TARGET = None
 
 _STAGE_EVENT_PUMP_THREAD: threading.Thread | None = None
 _STAGE_EVENT_PUMP_STOP: threading.Event | None = None
-_STAGE_EVENT_PUMP_INTERVAL = 0.25
+_STAGE_EVENT_PUMP_INTERVAL = 0.25  # デフォルト250ms
+
+# 最適化用フラグ（アクティブ処理時は頻繁に、アイドル時は負荷軽減）
+_STAGE_EVENT_PUMP_ADAPTIVE = True
+_STAGE_EVENT_PUMP_MIN_INTERVAL = 0.1  # 最小100ms（高負荷時）
+_STAGE_EVENT_PUMP_MAX_INTERVAL = 1.0  # 最大1秒（アイドル時）
+_STAGE_EVENT_PUMP_IDLE_THRESHOLD = 5  # 5回連続でイベントなしでアイドル判定
 
 
 class StageReporter:
@@ -197,7 +207,12 @@ def register_universe_target_callback(callback: Callable[[int | None], None] | N
 
 
 def _ensure_stage_event_pump(interval: float | None = None) -> None:
-    """Start a background thread that periodically drains stage events for the UI."""
+    """Start a background thread that periodically drains stage events for the UI.
+
+    アダプティブ間隔調整機能:
+    - イベントが頻繁な時は高頻度（100ms）
+    - アイドル時は低頻度（1秒）でCPU負荷軽減
+    """
 
     cb = globals().get("_PER_SYSTEM_STAGE")
     if not cb or not callable(cb):
@@ -210,15 +225,56 @@ def _ensure_stage_event_pump(interval: float | None = None) -> None:
     stop_event = threading.Event()
     globals()["_STAGE_EVENT_PUMP_STOP"] = stop_event
 
-    interval_sec = float(interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL)
+    base_interval = float(interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL)
 
     def _pump() -> None:
+        current_interval = base_interval
+        idle_count = 0
+
         while not stop_event.is_set():
+            events_processed = False
             try:
+                # イベント数をチェックしてアダプティブ調整
+                queue_obj = globals().get("_PROGRESS_QUEUE")
+                queue_size = 0
+                if queue_obj is not None:
+                    try:
+                        # キューサイズの概算（実際には非破壊的にチェック不可）
+                        queue_size = queue_obj.qsize() if hasattr(queue_obj, "qsize") else 0
+                    except Exception:
+                        queue_size = 0
+
                 _drain_stage_event_queue()
+
+                # GLOBAL_STAGE_METRICS からもイベント数をチェック
+                try:
+                    metrics_events = len(GLOBAL_STAGE_METRICS.drain_events())
+                    if metrics_events > 0 or queue_size > 0:
+                        events_processed = True
+                except Exception:
+                    pass
+
+                # アダプティブ間隔調整
+                if _STAGE_EVENT_PUMP_ADAPTIVE:
+                    if events_processed:
+                        # イベントがあった場合、間隔を短縮
+                        current_interval = max(
+                            _STAGE_EVENT_PUMP_MIN_INTERVAL, current_interval * 0.8
+                        )
+                        idle_count = 0
+                    else:
+                        # イベントがなかった場合、アイドルカウント増加
+                        idle_count += 1
+                        if idle_count >= _STAGE_EVENT_PUMP_IDLE_THRESHOLD:
+                            # アイドル状態では間隔を延長してCPU負荷軽減
+                            current_interval = min(
+                                _STAGE_EVENT_PUMP_MAX_INTERVAL, current_interval * 1.2
+                            )
+
             except Exception:
                 pass
-            stop_event.wait(interval_sec)
+
+            stop_event.wait(current_interval)
 
     pump_thread = threading.Thread(target=_pump, name="stage-event-pump", daemon=True)
     globals()["_STAGE_EVENT_PUMP_THREAD"] = pump_thread
@@ -702,8 +758,24 @@ def _get_stage_snapshot(system: str) -> StageSnapshot | None:
         return None
 
 
-def _log(msg: str, ui: bool = True, no_timestamp: bool = False, phase_id: str | None = None):
-    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
+def _log(
+    msg: str,
+    ui: bool = True,
+    no_timestamp: bool = False,
+    phase_id: str | None = None,
+    level: str = "INFO",
+    error_code: str | None = None,
+):
+    """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。
+
+    Args:
+        msg: ログメッセージ
+        ui: UI表示フラグ
+        no_timestamp: タイムスタンプ無効化フラグ
+        phase_id: フェーズID
+        level: ログレベル (INFO, WARNING, ERROR, DEBUG)
+        error_code: エラーコード (エラー時に指定)
+    """
     import time as _t
 
     # 初回呼び出しで開始時刻を設定
@@ -714,7 +786,7 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False, phase_id: str | 
     except Exception:
         _LOG_START_TS = None
 
-    # プレフィックスを作成（現在時刻 + 分秒経過）
+    # プレフィックスを作成（現在時刻 + 分秒経過 + エラーコード）
     try:
         if no_timestamp:
             prefix = ""
@@ -723,6 +795,12 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False, phase_id: str | 
             elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
             m, s = divmod(int(elapsed), 60)
             prefix = f"[{now} | {m}分{s}秒] "
+
+        # エラーレベルとコードを含むプレフィックス
+        if level != "INFO":
+            prefix += f"[{level}] "
+        if error_code:
+            prefix += f"[{error_code}] "
     except Exception:
         prefix = ""
 
@@ -768,11 +846,35 @@ def _log(msg: str, ui: bool = True, no_timestamp: bool = False, phase_id: str | 
     if ui_allowed:
         _emit_ui_log(str(msg))
 
-    # 常にファイルへもINFOで出力（UI/CLI の別なく完全なログを保存）
+    # 常にファイルへも適切なレベルで出力（UI/CLI の別なく完全なログを保存）
     try:
-        _get_today_logger().info(str(msg))
+        logger = _get_today_logger()
+        log_msg = str(msg)
+        if error_code:
+            log_msg = f"[{error_code}] {log_msg}"
+
+        if level == "ERROR":
+            logger.error(log_msg)
+        elif level == "WARNING":
+            logger.warning(log_msg)
+        elif level == "DEBUG":
+            logger.debug(log_msg)
+        else:
+            logger.info(log_msg)
     except Exception:
         pass
+
+
+def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None = None):
+    """エラーログの簡便関数。"""
+    _log(msg, ui=ui, phase_id=phase_id, level="ERROR", error_code=error_code)
+
+
+def _log_warning(
+    msg: str, error_code: str | None = None, ui: bool = True, phase_id: str | None = None
+):
+    """警告ログの簡便関数。"""
+    _log(msg, ui=ui, phase_id=phase_id, level="WARNING", error_code=error_code)
 
 
 def _asc_by_score_key(score_key: str | None) -> bool:
@@ -2242,6 +2344,7 @@ def _apply_system_filters_and_update_ctx(
             _stage(system_name, 25, total_len, None, None, None)
         except Exception:
             pass
+    # System7 は SPY 専用
     try:
         spy_total = 1 if "SPY" in (basic_data or {}) else 0
         _stage("system7", 25, spy_total, None, None, None)
@@ -3005,6 +3108,7 @@ def compute_today_signals(
         )
         for system_name, items in stage_targets:
             _stage(system_name, 25, filter_count=len(items or []))
+        # System7 は SPY 専用
         _stage("system7", 25, filter_count=1 if "SPY" in (basic_data or {}) else 0)
     except Exception:
         pass
@@ -3520,7 +3624,7 @@ def compute_today_signals(
             try:
                 prepared_data = strategy.prepare_data(raw_data)
             except Exception as prep_err:
-                _log(f"[{system_name}] ⚠️ データ準備でエラー: {prep_err}")
+                _log_error(f"[{system_name}] データ準備でエラー: {prep_err}", "DATA001")
                 per_system[system_name] = pd.DataFrame()
                 _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
                 _log(f"✅ {system_name} 完了: 0件")

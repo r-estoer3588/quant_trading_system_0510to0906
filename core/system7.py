@@ -68,18 +68,30 @@ def prepare_data_vectorized_system7(
             # Use precomputed ATR50 (lowercase) and create uppercase version for consistency
             x["ATR50"] = x["atr50"]
 
-            # Calculate non-precomputable indicators
-            x["min_50"] = x["Low"].rolling(50).min().round(4)
-            x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
-
-            # max_70 は既存値を尊重（全行埋まっていれば再計算しない）
-            if "max_70" not in x.columns:
-                x["max_70"] = x["Close"].rolling(70).max()
+            # Use precomputed indicators for min_50 and max_70
+            if "Min_50" in x.columns:
+                x["min_50"] = x["Min_50"]
+            elif "min_50" in x.columns:
+                # Already exists, no action needed
+                pass
             else:
-                # 既存カラムが部分的に NaN の場合は、NaN のみを埋める
-                need = ~x["max_70"].notna()
-                if need.any():
-                    x.loc[need, "max_70"] = x["Close"].rolling(70).max()[need]
+                raise RuntimeError(
+                    "IMMEDIATE_STOP: System7 missing indicator min_50. "
+                    "Daily signal execution must be stopped."
+                )
+
+            if "Max_70" in x.columns:
+                x["max_70"] = x["Max_70"]
+            elif "max_70" in x.columns:
+                # Already exists, no action needed
+                pass
+            else:
+                raise RuntimeError(
+                    "IMMEDIATE_STOP: System7 missing indicator max_70. "
+                    "Daily signal execution must be stopped."
+                )
+
+            x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
             return x
 
         if use_cache and cached is not None and not cached.empty:

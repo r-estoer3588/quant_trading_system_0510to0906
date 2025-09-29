@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import functools
 import logging
 import threading
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 
@@ -18,6 +18,57 @@ class DataValidationError(TradingError):
 
 class TaskTimeoutError(TradingError):
     pass
+
+
+# エラーコード体系
+class ErrorCode:
+    """構造化エラーコード体系。"""
+
+    # データ関連エラー
+    DATA_LOAD_FAILED = "DATA001"
+    DATA_VALIDATION_FAILED = "DATA002"
+    DATA_MISSING_COLUMNS = "DATA003"
+    DATA_INSUFFICIENT_ROWS = "DATA004"
+    DATA_CACHE_ERROR = "DATA005"
+
+    # システム関連エラー
+    SYSTEM_CONFIG_ERROR = "SYS001"
+    SYSTEM_MEMORY_ERROR = "SYS002"
+    SYSTEM_TIMEOUT_ERROR = "SYS003"
+    SYSTEM_API_ERROR = "SYS004"
+
+    # 計算関連エラー
+    CALC_INDICATOR_ERROR = "CALC001"
+    CALC_SIGNAL_ERROR = "CALC002"
+    CALC_ALLOCATION_ERROR = "CALC003"
+
+    # UI関連エラー
+    UI_PROGRESS_ERROR = "UI001"
+    UI_DISPLAY_ERROR = "UI002"
+
+
+class CodedError(TradingError):
+    """エラーコード付きの例外。"""
+
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None):
+        self.code = code
+        self.message = message
+        self.details = details or {}
+        super().__init__(f"[{code}] {message}")
+
+
+def log_with_code(
+    logger: logging.Logger,
+    level: int,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """エラーコード付きでログを出力。"""
+    formatted_msg = f"[{code}] {message}"
+    if details:
+        formatted_msg += f" | Details: {details}"
+    logger.log(level, formatted_msg)
 
 
 def handle_exceptions(

@@ -33,12 +33,22 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"missing columns: {', '.join(missing)}")
     x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
+    x = x.sort_index()
     if len(x) < 50:
         raise ValueError("insufficient rows")
-
+def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
+    missing = [col for col in SYSTEM6_BASE_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"missing columns: {', '.join(missing)}")
+    x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
+    x = x.sort_index()
+    if len(x) < 50:
+        raise ValueError("insufficient rows")
+    
     # フォールバック使用回数を記録するためのMetricsCollector
+    from common.structured_logging import MetricsCollector
     metrics = MetricsCollector()
-
+    
     try:
         # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
 
@@ -87,13 +97,15 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             )
 
         # フィルターとセットアップ条件（軽量な論理演算）
-        x["filter"] = (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
+        x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
 
     except Exception as exc:
         raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc
-
-    # データクリーニングと最終的なソート・重複除去（一箇所に統合）
+    
+    x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
+    if x.empty:
+        raise ValueError("insufficient rows")
     x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
     if x.empty:
         raise ValueError("insufficient rows")
@@ -271,13 +283,11 @@ def generate_candidates_system6(
             # バッチ性能記録
             batch_duration = time.time() - batch_start
             if batch_duration > 0:
-                symbols_per_second = len(buffer) / batch_duration
+                rows_per_second = len(buffer) / batch_duration
                 metrics.record_metric(
                     "system6_candidates_batch_duration", batch_duration, "seconds"
                 )
-                metrics.record_metric(
-                    "system6_candidates_symbols_per_second", symbols_per_second, "rate"
-                )
+                metrics.record_metric("system6_candidates_rows_per_second", rows_per_second, "rate")
 
             batch_start = time.time()
             buffer.clear()

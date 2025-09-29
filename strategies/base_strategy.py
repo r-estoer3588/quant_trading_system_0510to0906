@@ -98,12 +98,15 @@ class StrategyBase(ABC):
             (日別候補辞書, 市場データ) のタプル
         """
 
-    @abstractmethod
+    def get_trading_side(self) -> str:
+        """戦略の取引方向を返す（サブクラスでオーバーライド）"""
+        return "long"  # デフォルトはロング
+
     def run_backtest(
         self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
     ) -> pd.DataFrame:
         """
-        仕掛け候補に基づくバックテストを実施。
+        仕掛け候補に基づくバックテストを実施（共通実装）。
 
         Args:
             data_dict: インジケーター付きデータ辞書
@@ -114,6 +117,27 @@ class StrategyBase(ABC):
         Returns:
             トレード結果DataFrame
         """
+        from common.backtest_utils import simulate_trades_with_risk
+
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
+        side = self.get_trading_side()
+
+        # side が "long" の場合は引数から除外（デフォルト動作）
+        extra_kwargs = {}
+        if side != "long":
+            extra_kwargs["side"] = side
+
+        trades_df, _ = simulate_trades_with_risk(
+            candidates_by_date,
+            data_dict,
+            capital,
+            self,
+            on_progress=on_progress,
+            on_log=on_log,
+            **extra_kwargs,
+        )
+        return trades_df
 
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算

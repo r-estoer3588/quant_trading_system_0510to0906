@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
@@ -17,6 +16,10 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
+
+    def get_trading_side(self) -> str:
+        """System6 はショート戦略"""
+        return "short"
 
     def prepare_data(
         self,
@@ -57,20 +60,6 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size=batch_size,
             **kwargs,
         )
-
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="short",
-        )
-        return trades_df
 
     # シミュレーター用フック（System6: Short）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):

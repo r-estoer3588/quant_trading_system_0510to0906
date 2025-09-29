@@ -78,7 +78,7 @@ ADX_PERIOD_DEFAULT = 7
 DOLLAR_VOLUME_PERIOD_DEFAULT = 20
 
 # === システム別必須指標リスト ===
-SYSTEM1_REQUIRED_INDICATORS = ["roc200", "sma200", "dollarvolume20", "filter", "setup"]
+SYSTEM1_REQUIRED_INDICATORS = ["roc200", "sma200", "dollarvolume20"]
 
 SYSTEM2_REQUIRED_INDICATORS = [
     "rsi3",
@@ -86,18 +86,14 @@ SYSTEM2_REQUIRED_INDICATORS = [
     "atr10",
     "dollarvolume20",
     "atr_ratio",
-    "TwoDayUp",
-    "filter",
-    "setup",
+    "twodayup",
 ]
 
 SYSTEM3_REQUIRED_INDICATORS = [
     "atr10",
     "dollarvolume20",
     "atr_ratio",
-    "Drop3D",
-    "filter",
-    "setup",
+    "drop3d",
 ]
 
 SYSTEM4_REQUIRED_INDICATORS = [
@@ -106,8 +102,6 @@ SYSTEM4_REQUIRED_INDICATORS = [
     "atr40",  # Required for ATR ratio calculation
     "hv50",
     "dollarvolume20",
-    "filter",
-    "setup",
 ]
 
 SYSTEM5_REQUIRED_INDICATORS = [
@@ -115,21 +109,19 @@ SYSTEM5_REQUIRED_INDICATORS = [
     "atr10",
     "dollarvolume20",
     "atr_pct",
-    "filter",
-    "setup",
 ]
 
 SYSTEM6_REQUIRED_INDICATORS = [
     "atr10",
     "dollarvolume50",
     "return_6d",
-    "UpTwoDays",
-    "filter",
-    "setup",
+    "uptwodays",
 ]
 
 SYSTEM7_REQUIRED_INDICATORS = [
-    # SPY専用の指標リスト（具体的な要件に応じて定義）
+    "atr50",  # ATR50 (lowercase, as used in system7)
+    "min_50",  # Min_50 - 50日の最低価格
+    "max_70",  # Max_70 - 70日の最高価格
 ]
 
 # === システム別設定マッピング ===

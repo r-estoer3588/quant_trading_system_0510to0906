@@ -11,7 +11,6 @@ from __future__ import annotations
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system1 import (
     generate_candidates_system1,
     get_total_days_system1,
@@ -48,21 +47,6 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
-
-    def run_backtest(
-        self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
-    ) -> pd.DataFrame:
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-        )
-        return trades_df
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         """

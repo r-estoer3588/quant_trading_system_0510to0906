@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -10,9 +10,9 @@ import streamlit as st
 # プロジェクトルート（apps/ から1階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import setup_logging
-import common.ui_patch  # noqa: F401
 from common.ui_tabs import (
     render_batch_tab,
     render_cache_health_tab,
@@ -165,7 +165,15 @@ def main() -> None:
             st.write("LOG LEVEL:", settings.logging.level)
 
     tabs = st.tabs(
-        [tr("Integrated"), tr("Batch"), tr("Metrics"), tr("Positions"), "🩺 Cache Health"]
+        [
+            tr("Integrated"),
+            tr("Batch"),
+            tr("Metrics"),
+            tr("Positions"),
+            "🩺 Cache Health",
+            "📊 Real-time",
+            "🤖 AI分析",
+        ]
         + [f"System{i}" for i in range(1, 8)]
     )
 
@@ -183,7 +191,31 @@ def main() -> None:
     with tabs[4]:
         render_cache_health_tab(settings)
 
-    system_tabs = tabs[5:]
+    with tabs[5]:
+        # リアルタイムメトリクス表示
+        try:
+            from common.realtime_dashboard import render_realtime_metrics_page
+
+            render_realtime_metrics_page()
+        except ImportError:
+            st.error("📊 リアルタイムメトリクス表示には plotly が必要です")
+            st.code("pip install plotly", language="bash")
+        except Exception as e:
+            st.error(f"リアルタイムメトリクス表示エラー: {e}")
+
+    with tabs[6]:
+        # AI支援分析表示
+        try:
+            from common.ai_dashboard import render_ai_analysis_page
+
+            render_ai_analysis_page()
+        except ImportError:
+            st.error("🤖 AI分析表示には scikit-learn と plotly が必要です")
+            st.code("pip install scikit-learn plotly", language="bash")
+        except Exception as e:
+            st.error(f"AI分析表示エラー: {e}")
+
+    system_tabs = tabs[7:]
     for sys_idx, tab in enumerate(system_tabs, start=1):
         sys_name = f"System{sys_idx}"
         with tab:

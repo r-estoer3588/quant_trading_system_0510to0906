@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system2 import (
     generate_candidates_system2,
     get_total_days_system2,
@@ -23,6 +22,10 @@ from .constants import (
 
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system2"
+
+    def get_trading_side(self) -> str:
+        """System2 はショート戦略"""
+        return "short"
 
     # -------------------------------
     # データ準備（共通コアへ委譲）
@@ -48,23 +51,6 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         return generate_candidates_system2(data_dict, top_n=top_n)
-
-    # -------------------------------
-    # バックテスト実行（共通シミュレーター）
-    # -------------------------------
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="short",
-        )
-        return trades_df
 
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
