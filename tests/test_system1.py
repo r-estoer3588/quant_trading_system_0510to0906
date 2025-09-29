@@ -14,6 +14,12 @@ def dummy_data():
             "Low": [99 + i * 0.1 for i in range(250)],
             "Close": [100 + i * 0.1 for i in range(250)],
             "Volume": [1_000_000] * 250,
+            "roc200": [0.12] * 250,
+            "sma200": [95 + i * 0.05 for i in range(250)],
+            "dollarvolume20": [60_000_000] * 250,
+            "sma25": [100 + i * 0.1 for i in range(250)],
+            "sma50": [99.5 + i * 0.1 for i in range(250)],
+            "atr20": [2.5] * 250,
         },
         index=dates,
     )
@@ -22,7 +28,7 @@ def dummy_data():
 
 def test_prepare_data(dummy_data):
     strategy = System1Strategy()
-    processed = strategy.prepare_data(dummy_data)
+    processed = strategy.prepare_data(dummy_data, reuse_indicators=True)
     assert isinstance(processed, dict)
     assert "DUMMY" in processed
     assert "sma25" in processed["DUMMY"].columns

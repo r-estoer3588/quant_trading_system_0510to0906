@@ -359,7 +359,7 @@ class TestSystem3Integration:
                     "atr10": [2.5, 2.6, 2.7, 2.8, 2.9],
                     "dollarvolume20": [30_000_000, 35_000_000, 40_000_000, 45_000_000, 50_000_000],
                     "atr_ratio": [0.06, 0.07, 0.08, 0.09, 0.10],
-                    "Drop3D": [0.15, 0.20, 0.13, 0.18, 0.16],
+                    "drop3d": [0.15, 0.20, 0.13, 0.18, 0.16],
                     "filter": [True, True, True, True, True],  # Added required column
                     "setup": [True, True, False, True, True],  # Added required column
                 },
@@ -375,7 +375,7 @@ class TestSystem3Integration:
                     "atr10": [3.5, 3.6, 3.7, 3.8, 3.9],
                     "dollarvolume20": [60_000_000, 65_000_000, 70_000_000, 75_000_000, 80_000_000],
                     "atr_ratio": [0.08, 0.09, 0.10, 0.11, 0.12],
-                    "Drop3D": [0.17, 0.14, 0.19, 0.16, 0.15],
+                    "drop3d": [0.17, 0.14, 0.19, 0.16, 0.15],
                     "filter": [True, True, True, True, True],  # Added required column
                     "setup": [True, False, True, True, False],  # Added required column
                 },
@@ -417,7 +417,7 @@ class TestSystem3Integration:
                         30_000_000,
                     ],  # Edge case for >25M filter
                     "atr_ratio": [0.049, 0.050, 0.051],  # Edge case for >=0.05 filter
-                    "Drop3D": [0.124, 0.125, 0.126],  # Edge case for >=0.125 setup
+                    "drop3d": [0.124, 0.125, 0.126],  # Edge case for >=0.125 setup
                     "filter": [True, True, True],  # Added required column
                     "setup": [True, True, True],  # Added required column
                 },

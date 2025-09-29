@@ -997,7 +997,7 @@ class ProgressUI:
         self.phase_title_area = st.empty()
         self.progress_area = st.empty()
         self.progress_bar = st.progress(0) if self.show_overall else None
-        self.progress_text = st.empty() if self.show_overall else None
+        # progress_textは削除（タイトルで表示するため）
         self.phase_state: dict[str, Any] = {"percent": 0, "label": "対象読み込み"}
         self._render_title()
 
@@ -1021,13 +1021,7 @@ class ProgressUI:
             self.progress_bar.progress(percent)
         except Exception:
             pass
-        if self.progress_text is not None:
-            try:
-                self.progress_text.text(
-                    f"進捗 {percent}%: {self.phase_state.get('label', '対象読み込み')}"
-                )
-            except Exception:
-                pass
+        # プログレスバー下のテキストは削除（タイトルで表示するため）
         self._render_title()
 
     def update_label_for_stage(self, stage_value: int) -> None:

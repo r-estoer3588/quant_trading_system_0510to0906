@@ -249,7 +249,20 @@ class TestSystem2DirectFunctions:
     def test_prepare_data_vectorized_system2_with_progress_callback(self):
         """prepare_data_vectorized_system2 のプログレスコールバック処理"""
         test_data = pd.DataFrame(
-            {"Close": [100, 101, 102, 103, 104]}, index=pd.date_range("2023-01-01", periods=5)
+            {
+                "Open": [100, 101, 102, 103, 104],
+                "High": [101, 102, 103, 104, 105],
+                "Low": [99, 100, 101, 102, 103],
+                "Close": [100, 101, 102, 103, 104],
+                "Volume": [30_000_000] * 5,
+                "rsi3": [95, 94, 96, 93, 92],
+                "adx7": [50, 52, 54, 53, 55],
+                "atr10": [1.2, 1.1, 1.3, 1.2, 1.1],
+                "dollarvolume20": [35_000_000] * 5,
+                "atr_ratio": [0.04, 0.035, 0.045, 0.04, 0.038],
+                "twodayup": [True, False, True, False, True],
+            },
+            index=pd.date_range("2023-01-01", periods=5),
         )
 
         raw_data_dict = {"AAPL": test_data}
