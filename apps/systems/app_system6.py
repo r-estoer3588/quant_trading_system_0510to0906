@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
+import sys
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
+# プロジェクトルート（apps/systems/ から2階層上）をパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import common.ui_patch  # noqa: F401
 from common.cache_utils import save_prepared_data_cache
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
@@ -19,7 +24,6 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-import common.ui_patch  # noqa: F401
 from strategies.system6_strategy import System6Strategy
 
 # 翻訳辞書ロード + 言語選択
