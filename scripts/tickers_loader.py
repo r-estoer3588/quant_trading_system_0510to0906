@@ -1,7 +1,7 @@
 # tickers_loader.py
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -55,6 +55,36 @@ def get_all_tickers():
 
     print(f"ブラックリスト除外: {len(symbols_list) - len(symbols_filtered)}件")
     return symbols_filtered
+
+
+@st.cache_data(ttl=86400)
+def get_common_stocks_only():
+    """
+    通常株のみを取得する関数。
+    EODHD APIを使用してCommon Stockのみをフィルタリング。
+    APIキーが未設定の場合は全銘柄を返す。
+    """
+    try:
+        from common.symbol_universe import build_symbol_universe_from_settings
+        from config.settings import get_settings
+
+        settings = get_settings()
+
+        # EODHD API設定の確認
+        api_key = settings.EODHD_API_KEY
+        if not api_key:
+            print("EODHD APIキーが未設定のため、全銘柄を返します")
+            return get_all_tickers()
+
+        # 通常株のみを取得
+        common_stocks = build_symbol_universe_from_settings(settings)
+        print(f"Common Stock フィルタ結果: {len(common_stocks)}銘柄")
+        return common_stocks
+
+    except Exception as e:
+        print(f"Common Stock フィルタリング失敗: {e}")
+        print("フォールバックとして全銘柄を返します")
+        return get_all_tickers()
 
 
 def update_ticker_list(output_path: str | Path | None = None) -> Path:

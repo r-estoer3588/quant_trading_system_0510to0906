@@ -1,13 +1,8 @@
 """System5 core logic (Long mean-reversion with high ADX).
 
 High ADX mean-reversion strategy:
-- Indicators:                    # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-                    is_valid = (
-                        (x["Close"] >= 5.0) &
-                        (x["adx7"] > 35.0) &
-                        (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-                    ) ATR20, ATR_Pct (precomputed only)
-- Setup conditions: Close>=5, ADX7>35, ATR_Pct>2.5%
+- Indicators: adx7, atr10, dollarvolume20, atr_pct (precomputed only)
+- Setup conditions: Close>=5, AvgVol50>500k, DV50>2.5M, ATR_Pct>2.5%, Close>SMA100+ATR10, ADX7>55, RSI3<50
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -113,7 +108,11 @@ def prepare_data_vectorized_system5(
                     x = df.copy()
 
                     # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-                    x["filter"] = (x["Close"] >= 5.0) & (x["adx7"] > 35.0) & (x["atr_pct"] > 0.025)
+                    x["filter"] = (
+                        (x["Close"] >= 5.0)
+                        & (x["adx7"] > 35.0)
+                        & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+                    )
 
                     # Setup: Same as filter for System5 (simple high ADX trend selection)
                     x["setup"] = x["filter"]

@@ -101,7 +101,7 @@ SYSTEM4_REQUIRED_INDICATORS = [
     "sma200",
     "atr40",  # Required for ATR ratio calculation
     "hv50",
-    "dollarvolume20",
+    "dollarvolume50",
 ]
 
 SYSTEM5_REQUIRED_INDICATORS = [

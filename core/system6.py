@@ -182,6 +182,8 @@ def generate_candidates_system6(
     batch_start = time.time()
     processed, skipped = 0, 0
     skipped_missing_cols = 0
+    filter_passed = 0  # フィルター条件通過数
+    setup_passed = 0  # セットアップ条件通過数
     buffer: list[str] = []
 
     for sym, df in prepared_dict.items():
@@ -210,6 +212,13 @@ def generate_candidates_system6(
         last_price = None
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
+
+        # 統計計算：フィルター通過数とセットアップ通過数をカウント
+        if "filter" in df.columns:
+            filter_passed += df["filter"].sum()
+        if "setup" in df.columns:
+            setup_passed += df["setup"].sum()
+
         try:
             if "setup" not in df.columns or not df["setup"].any():
                 skipped += 1
@@ -247,11 +256,20 @@ def generate_candidates_system6(
             remain = (elapsed / processed) * (total - processed) if processed else 0
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
+
+            # System6の詳細統計を計算
+            total_candidates = sum(len(cands) for cands in candidates_by_date.values())
+
             msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
+                "📊 System6 進捗: {done}/{total} | "
+                "フィルター通過: {filter_passed}件 | セットアップ通過: {setup_passed}件 | "
+                "候補: {candidates}件\n"
+                "⏱️ 経過: {em}m{es}s | 残り: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
+                filter_passed=filter_passed,
+                setup_passed=setup_passed,
+                candidates=total_candidates,
                 em=em,
                 es=es,
                 rm=rm,
@@ -262,7 +280,7 @@ def generate_candidates_system6(
                 more = len(buffer) - len(buffer[:10])
                 if more > 0:
                     sample = f"{sample}, ...(+{more} more)"
-                msg += "\n" + tr("symbols: {names}", names=sample)
+                msg += "\n" + tr("🔍 処理中銘柄: {names}", names=sample)
             try:
                 log_callback(msg)
             except Exception:

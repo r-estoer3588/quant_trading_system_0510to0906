@@ -91,7 +91,7 @@ def prepare_data_vectorized_system7(
                     "Daily signal execution must be stopped."
                 )
 
-            x["setup"] = (x["Low"] <= x["min_50"]).astype(int)
+            x["setup"] = x["Low"] <= x["min_50"]
             return x
 
         if use_cache and cached is not None and not cached.empty:
@@ -172,7 +172,7 @@ def generate_candidates_system7(
             limit_n = max(0, int(top_n))
         except (TypeError, ValueError):
             limit_n = None
-    setup_days = df[df["setup"] == 1]
+    setup_days = df[df["setup"]]
     for date, row in setup_days.iterrows():
         entry_date = resolve_signal_entry_date(date)
         if pd.isna(entry_date):

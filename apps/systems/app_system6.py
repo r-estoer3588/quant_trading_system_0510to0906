@@ -38,6 +38,48 @@ strategy: System6Strategy = System6Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
+def run_system6_historical_analysis(data_dict: dict) -> pd.DataFrame | None:
+    """System6セットアップ条件の過去発生状況を分析する"""
+    try:
+        analysis_data = []
+        for symbol, df in list(data_dict.items())[:20]:  # 最初の20銘柄のみ分析
+            if df is None or df.empty or len(df) < 50:
+                continue
+
+            # System6の条件をチェック
+            filter_ok = (df["Close"] >= 5.0) & (
+                df.get("dollarvolume50", df.get("DollarVolume50", 0)) > 10_000_000
+            )
+            setup_ok = (
+                filter_ok
+                & (df.get("return_6d", df.get("Return_6D", 0)) > 0.20)
+                & df.get("UpTwoDays", df.get("uptwodays", False))
+            )
+
+            filter_days = filter_ok.sum() if hasattr(filter_ok, "sum") else 0
+            setup_days = setup_ok.sum() if hasattr(setup_ok, "sum") else 0
+            total_days = len(df)
+
+            if filter_days > 0:
+                setup_rate = (setup_days / filter_days) * 100
+                analysis_data.append(
+                    {
+                        "Symbol": symbol,
+                        "Total Days": total_days,
+                        "Filter Pass": filter_days,
+                        "Setup Pass": setup_days,
+                        "Setup Rate (%)": round(setup_rate, 2),
+                    }
+                )
+
+        if analysis_data:
+            analysis_df = pd.DataFrame(analysis_data)
+            return analysis_df.head(10)
+        return None
+    except Exception:
+        return None
+
+
 def display_return6d_ranking(
     candidates_by_date,
     years: int = 5,
@@ -103,12 +145,48 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             display_name=DISPLAY_NAME,
         )
     )
+
+    # System6の銘柄数についての説明
+    st.info(
+        tr(
+            "💡 **System6 銘柄選択のガイド**\n\n"
+            "• **全銘柄（約11,800）**: ETF、優先株、REITも含む全銘柄\n"
+            "• **普通株のみ（約6,200）**: 一般的な普通株式のみ（推奨）\n"
+            "• **制限数**: System6の厳しい条件では、1,000-3,000銘柄で十分な候補を得られます\n\n"
+            "初回実行時は普通株のみ + 1,000銘柄をお勧めします。"
+        )
+    )
+
+    # System6の条件詳細を追加
+    with st.expander("🎯 System6の条件詳細", expanded=False):
+        st.markdown(
+            tr(
+                "**System6はショート戦略で、極端な相場状況専用です**\n\n"
+                "**フィルター条件（基本要件）:**\n"
+                "• 価格 ≥ $5.00\n"
+                "• 50日平均ドルボリューム ≥ 1,000万ドル\n\n"
+                "**セットアップ条件（非常に厳しい）:**\n"
+                "• **6日間リターン ≥ 20%**（最も厳しい条件）\n"
+                "• **連続2日上昇**（UpTwoDays = True）\n\n"
+                "**統計例:**\n"
+                "通常の相場では、フィルター通過銘柄の1%未満がセットアップ条件を満たします。\n"
+                "急激な相場変動時にのみトレード機会が発生する設計です。"
+            )
+        )
+
     ui_base: UIManager = (
         ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
-    fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
-    ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
-    cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
+    # フェーズは作成するが、主に詳細表示用に使用
+    _ = ui_base.phase("fetch", title=tr("データ取得"))
+    _ = ui_base.phase("indicators", title=tr("インジケーター・フィルター準備"))
+    _ = ui_base.phase("candidates", title=tr("System6条件チェック・候補抽出"))
+
+    # フェーズ別の詳細表示エリアを作成
+    fetch_detail = st.empty()
+    ind_detail = st.empty()
+    cand_detail = st.empty()
+
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     run_start = time.time()
@@ -123,15 +201,35 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         run_backtest_app(
             strategy,
             system_name=SYSTEM_NAME,
-            limit_symbols=100,
+            limit_symbols=1000,  # System6用にデフォルトを1000に調整
             ui_manager=ui_base,
         ),
     )
     elapsed = time.time() - run_start
     results_df, _, data_dict, capital, candidates_by_date = _rb
-    fetch_phase.log_area.write(tr("データ取得完了"))
-    ind_phase.log_area.write(tr("インジケーター計算完了"))
-    cand_phase.log_area.write(tr("候補選定完了"))
+
+    # 詳細な完了メッセージを表示
+    if data_dict:
+        fetch_detail.success(f"✅ データ取得完了: {len(data_dict)}銘柄のデータを読み込み")
+        ind_detail.info(
+            "⚡ プリコンピューテッド指標を使用: ATR10, DollarVolume50, Return_6D, UpTwoDays"
+        )
+
+        # 候補選定の詳細統計を表示
+        if candidates_by_date and isinstance(candidates_by_date, dict):
+            total_candidates = sum(len(cands) for cands in candidates_by_date.values())
+            trading_days = len(candidates_by_date)
+            cand_detail.success(
+                f"✅ 候補抽出完了: {total_candidates}件の候補を{trading_days}日間で発見"
+            )
+        else:
+            cand_detail.warning(
+                f"⚠️ 候補なし: {len(data_dict)}銘柄中、System6の厳しい条件を満たす銘柄は見つかりませんでした"
+            )
+    else:
+        fetch_detail.error("❌ データ取得に失敗")
+        ind_detail.error("❌ インジケーター準備をスキップ")
+        cand_detail.error("❌ 候補選定をスキップ")
     if results_df is not None and candidates_by_date is not None:
         display_return6d_ranking(candidates_by_date)
         summary_df = show_signal_trade_summary(
@@ -235,6 +333,43 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             else:
                 st.warning(tr("通知の送信に失敗しました"))
     else:
+        # System6特有の説明メッセージ（候補なしの場合）
+        cand_detail.warning("⚠️ トレード候補が見つかりませんでした")
+
+        # 詳細な分析情報を表示
+        analysis_container = st.container()
+        with analysis_container:
+            st.info(
+                tr(
+                    "🔍 **候補なしの理由分析**\n\n"
+                    "System6は極端な相場状況でのみ機能する戦略です。\n"
+                    "以下の厳しい条件をすべて満たす必要があります:\n\n"
+                    "1. **価格フィルター**: 株価 ≥ $5.00\n"
+                    "2. **流動性フィルター**: 50日平均ドルボリューム ≥ 1,000万ドル\n"
+                    "3. **モメンタムフィルター**: 6日間リターン ≥ 20% 🔥\n"
+                    "4. **連続上昇フィルター**: 連続2日上昇\n\n"
+                    "**通常の相場**: フィルター通過銘柄の1%未満がセットアップ条件達成\n"
+                    "**急変相場**: 10-20%の銘柄がセットアップ条件達成の可能性"
+                )
+            )
+
+            # データの詳細情報を表示
+            if data_dict:
+                st.success(f"✅ {len(data_dict)}銘柄のデータ準備は完了しています")
+
+                # System6の過去の発生状況ボタンを追加
+                if st.button(
+                    "📊 System6セットアップ条件の過去発生状況を確認", key="system6_historical_check"
+                ):
+                    with st.spinner("過去データを分析中..."):
+                        # セットアップ発生頻度の簡易分析を実行
+                        analysis_results = run_system6_historical_analysis(data_dict)
+                        if analysis_results is not None and not analysis_results.empty:
+                            st.write("**過去のセットアップ発生状況:**")
+                            st.dataframe(analysis_results)
+            else:
+                st.error("❌ データの取得に失敗しました")
+
         # フォールバック表示（セッション保存から復元）
         prev_res = st.session_state.get(f"{SYSTEM_NAME}_results_df")
         prev_cands = st.session_state.get(f"{SYSTEM_NAME}_candidates_by_date")

@@ -1,8 +1,9 @@
 """System4 core logic (Long trend low-vol pullback).
 
 Trend low-volatility pullback strategy:
-- Indicators: SMA200, ATR40, RSI4 (precomputed only)
-- Setup conditions: Close>=5, Close>SMA200, RSI4<30, ATR_Ratio<0.05
+- Indicators: rsi4, sma200, atr40, hv50, dollarvolume50 (precomputed only)
+- Filter conditions: DollarVolume50>100M, HV50 10-40% (volatility contraction)
+- Setup conditions: Filter + Close>SMA200 (trend confirmation)
 - Candidate generation: RSI4 ascending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -39,14 +40,11 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         # Apply System4-specific filters and setup
         x = df.copy()
 
-        # Calculate ATR ratio
-        x["atr_ratio"] = x["atr40"] / x["Close"]
+        # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
+        x["filter"] = (x["dollarvolume50"] > 100_000_000) & x["hv50"].between(10, 40)
 
-        # Filter: Close>=5, Close>SMA200, ATR_Ratio<0.05 (low volatility)
-        x["filter"] = (x["Close"] >= 5.0) & (x["Close"] > x["sma200"]) & (x["atr_ratio"] < 0.05)
-
-        # Setup: Filter + RSI4<30 (oversold pullback)
-        x["setup"] = x["filter"] & (x["rsi4"] < 30.0)
+        # Setup: Filter + Close>SMA200 (trend confirmation)
+        x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
 
         return symbol, x
 
@@ -99,16 +97,11 @@ def prepare_data_vectorized_system4(
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
 
-                    # Calculate ATR ratio
-                    x["atr_ratio"] = x["atr40"] / x["Close"]
+                    # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
+                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x["hv50"].between(10, 40)
 
-                    # Filter: Close>=5, Close>SMA200, ATR_Ratio<0.05 (low volatility)
-                    x["filter"] = (
-                        (x["Close"] >= 5.0) & (x["Close"] > x["sma200"]) & (x["atr_ratio"] < 0.05)
-                    )
-
-                    # Setup: Filter + RSI4<30 (oversold pullback)
-                    x["setup"] = x["filter"] & (x["rsi4"] < 30.0)
+                    # Setup: Filter + Close>SMA200 (trend confirmation)
+                    x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
 
                     prepared_dict[symbol] = x
 
