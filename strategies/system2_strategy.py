@@ -85,9 +85,14 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         # 上窓（前日終値比+4%）未満なら見送り（ショート前提）
         if entry_price < prior_close * (1 + min_gap):
             return None
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
@@ -134,7 +139,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             gain = delta.clip(lower=0).rolling(3).mean()
             loss = -delta.clip(upper=0).rolling(3).mean()
             rs = gain / loss.replace(0, pd.NA)
-            x["RSI3"] = 100 - (100 / (1 + rs))
+            x["rsi3"] = 100 - (100 / (1 + rs))
             out[sym] = x
         return out
 

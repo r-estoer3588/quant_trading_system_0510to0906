@@ -1,9 +1,9 @@
 """System3 core logic (Long mean-reversion).
 
 3-day drop mean-reversion strategy:
-- Indicators: ATR10, DollarVolume20, ATR_Ratio, Drop3D (precomputed only)
-- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>=0.05, Drop3D>=0.125
-- Candidate generation: Drop3D descending ranking by date, extract top_n
+- Indicators: atr10, dollarvolume20, atr_ratio, drop3d (precomputed only)
+- Setup conditions: Close>5, DollarVolume20>25M, atr_ratio>=0.05, drop3d>=0.125
+- Candidate generation: drop3d descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
 
@@ -44,8 +44,8 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= 0.05)
         )
 
-        # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-        x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
+        # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
+        x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
 
         return symbol, x
 
@@ -105,8 +105,8 @@ def prepare_data_vectorized_system3(
                         & (x["atr_ratio"] >= 0.05)
                     )
 
-                    # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-                    x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
+                    # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
+                    x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
 
                     prepared_dict[symbol] = x
 
@@ -161,7 +161,7 @@ def generate_candidates_system3(
     batch_size: int | None = None,
     **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
-    """System3 candidate generation (Drop3D descending ranking).
+    """System3 candidate generation (drop3d descending ranking).
 
     Args:
         prepared_dict: Prepared data dictionary
@@ -199,7 +199,7 @@ def generate_candidates_system3(
     if log_callback:
         log_callback(f"System3: Generating candidates for {len(all_dates)} dates")
 
-    # Execute Drop3D ranking by date
+    # Execute drop3d ranking by date
     for i, date in enumerate(all_dates):
         date_candidates = []
 
@@ -214,8 +214,8 @@ def generate_candidates_system3(
                 if not row.get("setup", False):
                     continue
 
-                # Get Drop3D value
-                drop3d_val = row.get("Drop3D", 0)
+                # Get drop3d value
+                drop3d_val = row.get("drop3d", 0)
                 if pd.isna(drop3d_val) or drop3d_val < 0.125:
                     continue
 
@@ -232,7 +232,7 @@ def generate_candidates_system3(
             except Exception:
                 continue
 
-        # Sort by Drop3D descending and extract top_n
+        # Sort by drop3d descending and extract top_n
         if date_candidates:
             date_candidates.sort(key=lambda x: x["drop3d"], reverse=True)
             top_candidates = date_candidates[:top_n]

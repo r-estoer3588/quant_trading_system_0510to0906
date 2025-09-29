@@ -25,7 +25,7 @@ def test_prepare_data(dummy_data):
     processed = strategy.prepare_data(dummy_data)
     assert isinstance(processed, dict)
     assert "DUMMY" in processed
-    assert "SMA25" in processed["DUMMY"].columns
+    assert "sma25" in processed["DUMMY"].columns
 
 
 def test_placeholder_run(dummy_data):
@@ -39,7 +39,7 @@ def test_placeholder_run(dummy_data):
             "Low": [99, 108, 100],
             "Close": [100, 111, 111],
             "Volume": [1_000_000] * 3,
-            "ATR20": [1, 1, 1],
+            "atr20": [1, 1, 1],
         },
         index=dates,
     )
@@ -54,7 +54,7 @@ def test_placeholder_run(dummy_data):
 def test_compute_entry_basic(dummy_data):
     strategy = System1Strategy()
     df = dummy_data["DUMMY"].copy()
-    df["ATR20"] = 2.0
+    df["atr20"] = 2.0
     entry_date = df.index[1]
     candidate = {"symbol": "DUMMY", "entry_date": entry_date}
     res = strategy.compute_entry(df, candidate, 10_000)

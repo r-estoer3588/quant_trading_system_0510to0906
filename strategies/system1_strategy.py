@@ -63,7 +63,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         result = self._compute_entry_common(
             df,
             candidate,
-            atr_column="ATR20",
+            atr_column="atr20",
             stop_multiplier=self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1),
         )
         if result is None:

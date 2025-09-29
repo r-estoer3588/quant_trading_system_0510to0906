@@ -91,9 +91,14 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
         ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
         entry_price = round(prev_close * ratio, 2)
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(
             getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
@@ -115,7 +120,15 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         atr = getattr(self, "_last_entry_atr", None)
         if atr is None:
             try:
-                atr = float(df.iloc[entry_idx - 1]["ATR10"])
+                atr = None
+                for col in ("atr10", "ATR10"):
+                    try:
+                        atr = float(df.iloc[entry_idx - 1][col])
+                        break
+                    except Exception:
+                        continue
+                if atr is None:
+                    return None
             except Exception:
                 atr = 0.0
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
@@ -164,7 +177,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         out = {}
         for sym, df in raw_data_dict.items():
             x = df.copy()
-            x["SMA100"] = x["Close"].rolling(100).mean()
+            x["sma100"] = x["Close"].rolling(100).mean()
             out[sym] = x
         return out
 

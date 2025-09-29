@@ -1123,13 +1123,37 @@ class StageTracker:
         progress_bar = self.bars.get(key)
         if progress_bar is None:
             return
-        value = 50 if phase == "start" else 100 if phase == "done" else None
-        if value is None:
-            return
+
+        # フェーズに応じた適切な値を設定
+        if phase == "start":
+            # 開始時は0%から開始（リセット）
+            value = 0
+            self.states[key] = 0  # 状態もリセット
+        elif phase == "done":
+            value = 100
+        else:
+            # その他のフェーズでは実際の進捗値を取得
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(key)
+                if snapshot is not None:
+                    value = snapshot.progress
+                else:
+                    value = self.states.get(key, 0)
+            except Exception:
+                value = self.states.get(key, 0)
+
+        value = max(0, min(100, int(value)))
+
+        # 通常時は進捗後退を防ぐが、開始時（phase="start"）はリセットを許可
+        if phase != "start":
+            prev = int(self.states.get(key, 0))
+            value = max(prev, value)
+
         self.states[key] = value
+
         try:
             progress_bar.progress(value)
-            self.stage_txt[key].text("run 50%" if value == 50 else "done 100%")
+            self.stage_txt[key].text(f"run {value}%" if value < 100 else "done 100%")
         except Exception:
             pass
 

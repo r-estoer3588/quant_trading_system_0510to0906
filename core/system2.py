@@ -1,8 +1,8 @@
 """System2 core logic (Short RSI spike).
 
 RSI3-based short spike strategy:
-- Indicators: RSI3, ADX7, ATR10, DollarVolume20, ATR_Ratio, TwoDayUp (precomputed only)
-- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>0.03, RSI3>90, TwoDayUp
+- Indicators: rsi3, adx7, atr10, dollarvolume20, atr_ratio, twodayup (precomputed only)
+- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>0.03, RSI3>90, twodayup
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -44,8 +44,8 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
         )
 
-        # Setup: Filter + RSI3>90 + TwoDayUp
-        x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["TwoDayUp"]
+        # Setup: Filter + RSI3>90 + twodayup
+        x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
 
         return symbol, x
 
@@ -105,8 +105,8 @@ def prepare_data_vectorized_system2(
                         & (x["atr_ratio"] > 0.03)
                     )
 
-                    # Setup: Filter + RSI3>90 + TwoDayUp
-                    x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["TwoDayUp"]
+                    # Setup: Filter + RSI3>90 + twodayup
+                    x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
 
                     prepared_dict[symbol] = x
 

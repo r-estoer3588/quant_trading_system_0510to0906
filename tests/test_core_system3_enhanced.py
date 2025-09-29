@@ -2,21 +2,22 @@
 
 System3 Strategy:
 - Long strategy: Mean-reversion on 3-day drop patterns
-- Key Indicators: ATR10, DollarVolume20, ATR_Ratio, Drop3D (precomputed)
-- Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
-- Setup: Filter + Drop3D>=0.125 (12.5% drop threshold)
-- Ranking: Drop3D descending order
+- Key Indicators: atr10, dollarvolume20, atr_ratio, drop3d (precomputed)
+- Filter: Close>=5, DollarVolume20>25M, atr_ratio>=0.05
+- Setup: Filter + drop3d>=0.125 (12.5% drop threshold)
+- Ranking: drop3d descending order
 """
+
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from core.system3 import (
     _compute_indicators,
-    prepare_data_vectorized_system3,
     generate_candidates_system3,
     get_total_days_system3,
+    prepare_data_vectorized_system3,
 )
 
 
@@ -36,7 +37,7 @@ class TestSystem3ComputeIndicators:
                 "atr10": [2.5, 2.6, 2.7],
                 "dollarvolume20": [30_000_000, 35_000_000, 40_000_000],
                 "atr_ratio": [0.06, 0.07, 0.08],
-                "Drop3D": [0.15, 0.20, 0.12],  # 15%, 20%, 12% drops
+                "drop3d": [0.15, 0.20, 0.12],  # 15%, 20%, 12% drops
                 "filter": [True, True, True],  # Added required column
                 "setup": [True, True, False],  # Added required column
             },
@@ -63,8 +64,8 @@ class TestSystem3ComputeIndicators:
             )
             pd.testing.assert_series_equal(result["filter"], expected_filter, check_names=False)
 
-            # Check setup conditions (filter + Drop3D >= 0.125)
-            expected_setup = expected_filter & (sample_data_with_indicators["Drop3D"] >= 0.125)
+            # Check setup conditions (filter + drop3d >= 0.125)
+            expected_setup = expected_filter & (sample_data_with_indicators["drop3d"] >= 0.125)
             pd.testing.assert_series_equal(result["setup"], expected_setup, check_names=False)
 
     def test_compute_indicators_none_data(self):
@@ -93,7 +94,7 @@ class TestSystem3ComputeIndicators:
             {
                 "Close": [100, 101, 102],
                 "atr10": [2.5, 2.6, 2.7],
-                # Missing: dollarvolume20, atr_ratio, Drop3D
+                # Missing: dollarvolume20, atr_ratio, drop3d
             },
             index=pd.date_range("2023-01-01", periods=3),
         )
@@ -128,12 +129,12 @@ class TestSystem3ComputeIndicators:
             assert not result["filter"].iloc[2]  # atr_ratio < 0.05
 
     def test_compute_indicators_setup_conditions(self, sample_data_with_indicators):
-        """Test setup condition logic with Drop3D threshold."""
-        # Test Drop3D threshold conditions
+        """Test setup condition logic with drop3d threshold."""
+        # Test drop3d threshold conditions
         threshold_data = sample_data_with_indicators.copy()
-        threshold_data.loc[threshold_data.index[0], "Drop3D"] = 0.124  # Below 12.5% threshold
-        threshold_data.loc[threshold_data.index[1], "Drop3D"] = 0.125  # Exactly at threshold
-        threshold_data.loc[threshold_data.index[2], "Drop3D"] = 0.130  # Above threshold
+        threshold_data.loc[threshold_data.index[0], "drop3d"] = 0.124  # Below 12.5% threshold
+        threshold_data.loc[threshold_data.index[1], "drop3d"] = 0.125  # Exactly at threshold
+        threshold_data.loc[threshold_data.index[2], "drop3d"] = 0.130  # Above threshold
 
         with patch("core.system3.get_cached_data") as mock_get_data:
             mock_get_data.return_value = threshold_data
@@ -143,7 +144,7 @@ class TestSystem3ComputeIndicators:
             assert symbol == "TEST"
             assert result is not None
 
-            # Setup should depend on Drop3D >= 0.125
+            # Setup should depend on drop3d >= 0.125
             assert not result["setup"].iloc[0]  # Below threshold
             assert result["setup"].iloc[1]  # At threshold
             assert result["setup"].iloc[2]  # Above threshold
@@ -162,7 +163,7 @@ class TestSystem3PrepareDataVectorized:
                     "atr10": [2.5, 2.6, 2.7],
                     "dollarvolume20": [30_000_000, 35_000_000, 40_000_000],
                     "atr_ratio": [0.06, 0.07, 0.08],
-                    "Drop3D": [0.15, 0.20, 0.13],
+                    "drop3d": [0.15, 0.20, 0.13],
                     "filter": [True, True, True],  # Added required column
                     "setup": [True, True, False],  # Added required column
                 },

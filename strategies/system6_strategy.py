@@ -77,9 +77,14 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
         ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 1.05))
         entry_price = round(prev_close * ratio, 2)
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
@@ -141,7 +146,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 ],
                 axis=1,
             ).max(axis=1)
-            x["ATR10"] = tr.rolling(10).mean()
+            x["atr10"] = tr.rolling(10).mean()
             out[sym] = x
         return out
 

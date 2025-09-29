@@ -312,7 +312,7 @@ class StrategyBase(ABC):
         except Exception:
             return min(100, max(10, data_size // 10))
 
-    def _compute_entry_common(self, df, candidate, atr_column="ATR20", stop_multiplier=None):
+    def _compute_entry_common(self, df, candidate, atr_column="atr20", stop_multiplier=None):
         """
         共通エントリー計算（ATRベースのストップロス）
         戻り値: (entry_price, stop_price, entry_idx) または None
@@ -330,15 +330,26 @@ class StrategyBase(ABC):
 
         entry_price = float(df.iloc[entry_idx]["Open"])
 
-        try:
-            atr = float(df.iloc[entry_idx - 1][atr_column])
-        except Exception:
+        atr_value = None
+        column_candidates = [atr_column]
+        if isinstance(atr_column, str):
+            column_candidates.append(atr_column.upper())
+            column_candidates.append(atr_column.lower())
+
+        for col in dict.fromkeys(column_candidates):
+            try:
+                atr_value = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+
+        if atr_value is None:
             return None
 
         if stop_multiplier is None:
             stop_multiplier = float(self.config.get("stop_atr_multiple", 3.0))
 
-        stop_price = entry_price - stop_multiplier * atr
+        stop_price = entry_price - stop_multiplier * atr_value
         if entry_price - stop_price <= 0:
             return None
 

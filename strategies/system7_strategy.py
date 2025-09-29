@@ -105,7 +105,16 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 entry_price = float(df.iloc[entry_idx]["Open"])
                 atr_val = None
                 try:
-                    atr_val = c.get("ATR50") if isinstance(c, dict) else c["ATR50"]
+                    atr_val = None
+                    if isinstance(c, dict):
+                        for key in ("atr50", "ATR50"):
+                            if key in c:
+                                atr_val = c[key]
+                                break
+                    else:
+                        atr_val = c.get("atr50") if hasattr(c, "get") else None
+                        if atr_val is None:
+                            atr_val = c["ATR50"]
                 except Exception:
                     atr_val = None
                 if atr_val is None or pd.isna(atr_val):
@@ -269,7 +278,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             entry_idx = -1
 
         atr_columns = self._detect_atr_columns(df)
-        atr_column = atr_columns[0] if atr_columns else "ATR50"
+        atr_column = atr_columns[0] if atr_columns else "atr50"
         atr_window = self._infer_atr_window(atr_column, 50)
 
         if 0 <= entry_idx < len(df):
@@ -304,10 +313,12 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                             entry_price = entry_candidate
                             break
             if atr_val is None:
-                atr_candidate = self._safe_positive(candidate.get("ATR50"))
-                if atr_candidate is not None:
-                    atr_val = atr_candidate
-                    atr_window = self._infer_atr_window("ATR50", atr_window)
+                for key in ("atr50", "ATR50"):
+                    atr_candidate = self._safe_positive(candidate.get(key))
+                    if atr_candidate is not None:
+                        atr_val = atr_candidate
+                        atr_window = self._infer_atr_window(key, atr_window)
+                        break
             if atr_val is None:
                 for key, value in candidate.items():
                     if not isinstance(key, str):
@@ -353,7 +364,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 ],
                 axis=1,
             ).max(axis=1)
-            x["ATR50"] = tr.rolling(50).mean()
+            x["atr50"] = tr.rolling(50).mean()
             out[sym] = x
         return out
 

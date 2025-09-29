@@ -93,9 +93,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         entry_price = float(df.iloc[entry_idx]["Open"])
-        try:
-            atr40 = float(df.iloc[entry_idx - 1]["ATR40"])
-        except Exception:
+        atr40 = None
+        for col in ("atr40", "ATR40"):
+            try:
+                atr40 = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr40 is None:
             return None
         stop_mult = float(
             getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4)
@@ -128,7 +133,7 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         for sym, df in raw_data_dict.items():
             # テスト用の軽量処理では浅いコピーで十分
             x = df.copy(deep=False)
-            x["SMA200"] = x["Close"].rolling(200).mean()
+            x["sma200"] = x["Close"].rolling(200).mean()
             out[sym] = x
         return out
 

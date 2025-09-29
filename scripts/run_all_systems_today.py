@@ -2922,6 +2922,12 @@ def compute_today_signals(
     # final_df = pd.DataFrame()  # Unused variable removed
     per_system: dict[str, pd.DataFrame] = {}
 
+    # 実行開始時にタイムスタンプをリセット（Streamlit UI から何度も実行される場合に対応）
+    import time as _t
+
+    global _LOG_START_TS
+    _LOG_START_TS = _t.time()
+
     _log("🔧 デバッグ: compute_today_signals開始")
 
     ctx = _initialize_run_context(
@@ -3074,6 +3080,22 @@ def compute_today_signals(
         # チェック処理自体のエラーは継続（後方互換性）
 
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
+
+    # フィルター開始前に各システムの進捗を0%にリセット
+    try:
+        for system_name in [
+            "system1",
+            "system2",
+            "system3",
+            "system4",
+            "system5",
+            "system6",
+            "system7",
+        ]:
+            _stage(system_name, 0, filter_count=0)
+    except Exception:
+        pass
+
     filter_stats: dict[str, dict[str, int]] = {
         "system1": {},
         "system2": {},
@@ -3096,7 +3118,8 @@ def compute_today_signals(
         "system5": system5_syms,
         "system6": system6_syms,
     }
-    # 各システムのフィルター通過件数をUIへ通知
+
+    # フィルター処理完了後に各システムの進捗を25%に更新
     try:
         stage_targets = (
             ("system1", system1_syms),
@@ -3112,6 +3135,15 @@ def compute_today_signals(
         _stage("system7", 25, filter_count=1 if "SPY" in (basic_data or {}) else 0)
     except Exception:
         pass
+    # System1 フィルター内訳（価格・売買代金）
+    try:
+        stats1 = filter_stats.get("system1", {})
+        s1_total = stats1.get("total", len(symbols or []))
+        s1_price = stats1.get("price_pass", 0)
+        s1_dv = stats1.get("dv_pass", 0)
+        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
+    except Exception:
+        pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
     try:
         stats2 = filter_stats.get("system2", {})
@@ -3122,20 +3154,6 @@ def compute_today_signals(
         _log(
             "🧪 system2内訳: "
             + f"元={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
-        )
-    except Exception:
-        pass
-    # System1 フィルター内訳（価格・売買代金）
-    try:
-        stats1 = filter_stats.get("system1", {})
-        s1_total = stats1.get("total", len(symbols or []))
-        s1_price = stats1.get("price_pass", 0)
-        s1_dv = stats1.get("dv_pass", 0)
-        rate_logger = _get_rate_limited_logger()
-        rate_logger.debug_rate_limited(
-            f"🧪 system1内訳: 元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}",
-            interval=10.0,
-            message_key="system1内訳",
         )
     except Exception:
         pass
@@ -3158,12 +3176,7 @@ def compute_today_signals(
         s4_total = stats4.get("total", len(symbols or []))
         s4_dv = stats4.get("dv_pass", 0)
         s4_hv = stats4.get("hv_pass", 0)
-        rate_limited_logger = _get_rate_limited_logger()
-        rate_limited_logger.debug_rate_limited(
-            f"🧪 system4内訳: 元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}",
-            message_key="system4_detail",
-            interval=10,
-        )
+        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
     except Exception:
         pass
     # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
@@ -3174,12 +3187,10 @@ def compute_today_signals(
         s5_av = stats5.get("avgvol_pass", 0)
         s5_dv = stats5.get("dv_pass", 0)
         s5_atr = stats5.get("atr_pass", 0)
-        rate_limited_logger = _get_rate_limited_logger()
-        rate_limited_logger.debug_rate_limited(
-            f"🧪 system5内訳: 元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
-            f"{threshold_label}: {s5_atr}",
-            message_key="system5_detail",
-            interval=10,
+        _log(
+            "🧪 system5内訳: "
+            + f"元={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}, "
+            + f"{threshold_label}: {s5_atr}"
         )
     except Exception:
         pass
@@ -3189,12 +3200,7 @@ def compute_today_signals(
         s6_total = stats6.get("total", len(symbols or []))
         s6_low = stats6.get("low_pass", 0)
         s6_dv = stats6.get("dv_pass", 0)
-        rate_limited_logger = _get_rate_limited_logger()
-        rate_limited_logger.debug_rate_limited(
-            f"🧪 system6内訳: 元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}",
-            message_key="system6_detail",
-            interval=10,
-        )
+        _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
     except Exception:
         pass
     # System7 は SPY 固定（参考情報のみ）
@@ -3587,6 +3593,14 @@ def compute_today_signals(
 
     for system_name in system_names:
         _log(f"▶ {system_name} 開始")
+
+        # システム開始をUIに通知
+        try:
+            if per_system_progress and callable(per_system_progress):
+                per_system_progress(system_name, "start")
+        except Exception:
+            pass
+
         try:
             if system_name == "system1":
                 raw_data = raw_data_system1
@@ -3668,6 +3682,13 @@ def compute_today_signals(
             _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
 
         _log(f"✅ {system_name} 完了: {len(per_system[system_name])}件")
+
+        # システム完了をUIに通知
+        try:
+            if per_system_progress and callable(per_system_progress):
+                per_system_progress(system_name, "done")
+        except Exception:
+            pass
 
     # 進捗通知
     if progress_callback:

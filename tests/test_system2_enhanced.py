@@ -5,18 +5,19 @@ Focus on main functions with mock-based testing for System2 RSI spike strategy
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
 try:
     from core.system2 import (
-        prepare_data_vectorized_system2,
         generate_candidates_system2,
         get_total_days_system2,
+        prepare_data_vectorized_system2,
     )
 
     # Also try to import internal function for completeness
@@ -48,7 +49,7 @@ class TestSystem2MainFunctions:
                 "adx7": [60, 55, 65],
                 "dollarvolume20": [30_000_000, 35_000_000, 40_000_000],
                 "atr_ratio": [0.04, 0.05, 0.06],
-                "TwoDayUp": [True, False, True],  # Correct capitalization
+                "twodayup": [True, False, True],
             },
             index=pd.date_range("2023-01-01", periods=3),
         )
