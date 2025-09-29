@@ -18,9 +18,10 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
-    def __init__(self):
+    def __init__(self, fixed_mode: bool = False):
         """System6初期化（特殊分岐を廃止し他システムに統一）"""
         super().__init__()
+        self.fixed_mode = fixed_mode
 
     def prepare_data(
         self,
@@ -29,6 +30,16 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
+        # fixed_modeが指定されている場合は、それを使用
+        if "fixed_mode" in kwargs:
+            fixed_mode = kwargs.pop("fixed_mode")
+        else:
+            fixed_mode = self.fixed_mode
+        
+        # fixed_modeの場合はreuse_indicatorsを強制的にTrueに設定
+        if fixed_mode and reuse_indicators is None:
+            reuse_indicators = True
+            
         return self._prepare_data_template(
             raw_data_or_symbols,
             prepare_data_vectorized_system6,
@@ -46,11 +57,14 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         batch_size = self._get_batch_size_setting(len(data_dict))
 
+        # fixed_modeパラメータを削除（core関数では使用しない）
+        kwargs_clean = {k: v for k, v in kwargs.items() if k != "fixed_mode"}
+
         return generate_candidates_system6(
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
-            **kwargs,
+            **kwargs_clean,
         )
 
     def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):

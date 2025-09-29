@@ -3267,7 +3267,7 @@ def compute_today_signals(
         System4Strategy(),
         System5Strategy(),
         # fixed_mode=True で事前計算済インジケータのみ利用（高速経路）
-        System6Strategy(),
+        System6Strategy(fixed_mode=True),
         System7Strategy(),
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
