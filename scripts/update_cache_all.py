@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import argparse
 import logging
-from pathlib import Path
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 # プロジェクトルートをPYTHONPATHに追加
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -35,6 +35,15 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def format_duration(seconds: float) -> str:
+    """秒数を見やすい形式で表示（分または秒）。"""
+    if seconds >= 60:
+        minutes = seconds / 60
+        return f"{minutes:.1f}分"
+    else:
+        return f"{seconds:.1f}秒"
+
+
 def run_subprocess(cmd: list[str], description: str) -> float:
     """サブプロセスを実行して所要時間を返す。"""
     logger.info("🚀 %s 開始", description)
@@ -46,15 +55,17 @@ def run_subprocess(cmd: list[str], description: str) -> float:
             cmd, check=True, cwd=ROOT_DIR, capture_output=False  # 出力をリアルタイムで表示
         )
         duration = time.time() - start_time
-        logger.info("✅ %s 完了 (所要時間: %.1f秒)", description, duration)
-        print(f"✅ {description} 完了 (所要時間: {duration:.1f}秒)")
+        duration_str = format_duration(duration)
+        logger.info("✅ %s 完了 (所要時間: %s)", description, duration_str)
+        print(f"✅ {description} 完了 (所要時間: {duration_str})")
         return duration
     except subprocess.CalledProcessError as e:
         duration = time.time() - start_time
+        duration_str = format_duration(duration)
         logger.error(
-            "❌ %s 失敗 (Exit Code: %d, 所要時間: %.1f秒)", description, e.returncode, duration
+            "❌ %s 失敗 (Exit Code: %d, 所要時間: %s)", description, e.returncode, duration_str
         )
-        print(f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {duration:.1f}秒)")
+        print(f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {duration_str})")
         raise
 
 
@@ -129,10 +140,13 @@ def main():
 
         # 完了サマリー
         print("\n🎉 Daily Cache Update Pipeline 完了!")
-        print(f"   📊 総所要時間: {total_duration:.1f}秒")
+        total_duration_str = format_duration(total_duration)
+        print(f"   📊 総所要時間: {total_duration_str}")
         if not args.skip_cache_daily:
-            print(f"   📋 cache_daily_data: {duration1:.1f}秒")
-        print(f"   📋 build_rolling: {duration2:.1f}秒")
+            duration1_str = format_duration(duration1)
+            print(f"   📋 cache_daily_data: {duration1_str}")
+        duration2_str = format_duration(duration2)
+        print(f"   📋 build_rolling: {duration2_str}")
         print("\n💡 次に実行できること:")
         print("   • python scripts/run_all_systems_today.py --parallel --save-csv")
         print("   • streamlit run app_integrated.py")

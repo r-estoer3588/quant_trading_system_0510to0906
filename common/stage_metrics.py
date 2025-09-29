@@ -44,12 +44,15 @@ class StageEvent:
     setup_count: int | None = None
     candidate_count: int | None = None
     entry_count: int | None = None
+    # サブステージ情報の追加
+    substage_name: str | None = None
+    substage_progress: int | None = None
+    substage_total: int | None = None
 
     def as_tuple(
         self,
     ) -> tuple[str, int, int | None, int | None, int | None, int | None]:
-        """Return a tuple representation matching the legacy queue payload."""
-
+        """Return a tuple representation for compatibility with legacy queue payload."""
         return (
             self.system,
             self.progress,
@@ -141,6 +144,10 @@ class StageMetricsStore:
         entry_count: object | None = None,
         *,
         emit_event: bool = True,
+        # サブステージ情報の追加
+        substage_name: str | None = None,
+        substage_progress: int | None = None,
+        substage_total: int | None = None,
     ) -> StageSnapshot:
         """Update a system snapshot and optionally queue a stage event."""
 
@@ -188,6 +195,9 @@ class StageMetricsStore:
                 setup_int,
                 candidate_int,
                 entry_int,
+                substage_name,
+                substage_progress,
+                substage_total,
             )
             if emit_event:
                 self._events.append(event)

@@ -1,13 +1,14 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
+from common.structured_logging import MetricsCollector
 from common.utils import BatchSizeMonitor, get_cached_data, is_today_run, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
@@ -159,6 +160,12 @@ def prepare_data_vectorized_system6(
     os.makedirs(cache_dir, exist_ok=True)
     result_dict: dict[str, pd.DataFrame] = {}
     raw_data_dict = raw_data_dict or {}
+
+    # MetricsCollector初期化
+    metrics = MetricsCollector()
+    cache_hits = 0
+    cache_misses = 0
+
     if use_process_pool:
         if symbols is None:
             symbols = list(raw_data_dict.keys())
@@ -167,9 +174,11 @@ def prepare_data_vectorized_system6(
             try:
                 from config.settings import get_settings
 
-                batch_size = get_settings(create_dirs=False).data.batch_size
+                # System6専用のバッチサイズ最適化: デフォルトより小さく
+                base_batch_size = get_settings(create_dirs=False).data.batch_size
+                batch_size = min(base_batch_size, 50)  # 最大50に制限
             except Exception:
-                batch_size = 100
+                batch_size = 50  # デフォルトを50に削減
             batch_size = resolve_batch_size(total, batch_size)
 
         pool_buffer: list[str] = []
@@ -234,9 +243,11 @@ def prepare_data_vectorized_system6(
         try:
             from config.settings import get_settings
 
-            batch_size = get_settings(create_dirs=False).data.batch_size
+            # System6専用のバッチサイズ最適化: 逐次処理でも小さく
+            base_batch_size = get_settings(create_dirs=False).data.batch_size
+            batch_size = min(base_batch_size, 50)  # 最大50に制限
         except Exception:
-            batch_size = 100
+            batch_size = 50  # デフォルトを50に削減
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     batch_monitor = BatchSizeMonitor(batch_size)
@@ -276,6 +287,15 @@ def prepare_data_vectorized_system6(
         cached: pd.DataFrame | None = None
         if reuse_indicators and os.path.exists(cache_path):
             cached = _load_system6_cache(cache_path)
+            if cached is not None and not cached.empty:
+                cache_hits += 1
+                metrics.increment_counter("system6_cache_hits")
+            else:
+                cache_misses += 1
+                metrics.increment_counter("system6_cache_misses")
+        else:
+            cache_misses += 1
+            metrics.increment_counter("system6_cache_misses")
 
         try:
             # Fast-path: todayモードでは最小限の列のみ補完して省力化
@@ -399,6 +419,15 @@ def prepare_data_vectorized_system6(
             batch_duration = time.time() - batch_start
             batch_size = batch_monitor.update(batch_duration)
             batch_start = time.time()
+
+            # MetricsCollectorでバッチ性能を記録
+            rows_processed = len(buffer)
+            if batch_duration > 0:
+                rows_per_second = rows_processed / batch_duration
+                metrics.record_metric("system6_batch_duration", batch_duration, "seconds")
+                metrics.record_metric("system6_rows_per_second", rows_per_second, "rate")
+                metrics.record_metric("system6_batch_size", batch_size, "count")
+
             try:
                 log_callback(msg)
                 log_callback(
@@ -434,6 +463,22 @@ def prepare_data_vectorized_system6(
         except Exception:
             pass
 
+    # 最終メトリクス記録
+    total_cache_operations = cache_hits + cache_misses
+    if total_cache_operations > 0:
+        cache_hit_rate = cache_hits / total_cache_operations
+        metrics.record_metric("system6_cache_hit_rate", cache_hit_rate, "percentage")
+        metrics.record_metric("system6_total_symbols", total, "count")
+        metrics.record_metric("system6_processed_symbols", processed, "count")
+        if log_callback:
+            try:
+                log_callback(
+                    f"📊 System6 キャッシュヒット率: {cache_hit_rate:.1%} "
+                    f"({cache_hits}/{total_cache_operations})"
+                )
+            except Exception:
+                pass
+
     return result_dict
 
 
@@ -448,6 +493,10 @@ def generate_candidates_system6(
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
+
+    # MetricsCollector初期化
+    metrics = MetricsCollector()
+
     if batch_size is None:
         try:
             from config.settings import get_settings
@@ -457,6 +506,7 @@ def generate_candidates_system6(
             batch_size = 100
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
+    batch_start = time.time()
     processed, skipped = 0, 0
     skipped_missing_cols = 0
     buffer: list[str] = []
@@ -544,6 +594,17 @@ def generate_candidates_system6(
                 log_callback(msg)
             except Exception:
                 pass
+
+            # バッチ性能記録
+            batch_duration = time.time() - batch_start
+            if batch_duration > 0:
+                rows_per_second = len(buffer) / batch_duration
+                metrics.record_metric(
+                    "system6_candidates_batch_duration", batch_duration, "seconds"
+                )
+                metrics.record_metric("system6_candidates_rows_per_second", rows_per_second, "rate")
+
+            batch_start = time.time()
             buffer.clear()
 
     limit_n = int(top_n)
@@ -573,6 +634,23 @@ def generate_candidates_system6(
                 log_callback(line)
         except Exception:
             pass
+
+    # 最終メトリクス記録
+    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    unique_dates = len(candidates_by_date)
+    metrics.record_metric("system6_total_candidates", total_candidates, "count")
+    metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
+    metrics.record_metric("system6_processed_symbols_candidates", processed, "count")
+
+    if log_callback:
+        try:
+            log_callback(
+                f"📊 System6 候補生成完了: {total_candidates}件の候補 "
+                f"({unique_dates}日分, {processed}シンボル処理)"
+            )
+        except Exception:
+            pass
+
     return candidates_by_date, None
 
 

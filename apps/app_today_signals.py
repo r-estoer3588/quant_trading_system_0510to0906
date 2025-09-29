@@ -1153,6 +1153,8 @@ class StageTracker:
     def _apply_snapshot(self, name: str, snapshot: StageSnapshot) -> None:
         key = str(name).lower()
         counts = self._ensure_counts(key)
+
+        # ターゲット数の設定（優先度順で設定）
         if snapshot.target is not None:
             try:
                 target_val = int(snapshot.target)
@@ -1168,9 +1170,16 @@ class StageTracker:
                     self.universe_total = fallback_target
             except Exception:
                 pass
+
+        # 進捗データの設定
         if snapshot.filter_pass is not None:
             try:
                 counts["filter"] = int(snapshot.filter_pass)
+                # フィルター通過数が設定されている場合、ターゲットがなければフィルター数をターゲットとして使用
+                if counts.get("target") is None:
+                    counts["target"] = int(snapshot.filter_pass)
+                    if self.universe_total is None:
+                        self.universe_total = int(snapshot.filter_pass)
             except Exception:
                 pass
         if snapshot.setup_pass is not None:
@@ -3154,9 +3163,8 @@ with st.sidebar:
                     half_bp = round(bp_val / 2.0, 2)
                     st.session_state["today_cap_long"] = half_bp
                     st.session_state["today_cap_short"] = half_bp
-                    st.success(
-                        f"資金配分を更新しました: ロング${half_bp:,.2f} / ショート${half_bp:,.2f}"
-                    )
+                    st.success("資金配分を更新しました:")
+                    st.success(f"ロング `${half_bp:,.2f}` / ショート `${half_bp:,.2f}`")
                 else:
                     st.warning("買付余力が取得できませんでした")
 

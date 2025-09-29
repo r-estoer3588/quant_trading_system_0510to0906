@@ -1,4 +1,4 @@
-"""Daily multi-system signal pipeline (repaired minimal bootstrap section).
+﻿"""Daily multi-system signal pipeline (repaired minimal bootstrap section).
 
 NOTE: This file experienced prior encoding corruption. Incremental repairs are
 being applied. The current patch introduces:
@@ -146,7 +146,7 @@ class StageReporter:
         filter_count: int | None = None,
         setup_count: int | None = None,
         candidate_count: int | None = None,
-        final_count: int | None = None,
+        entry_count: int | None = None,
     ) -> None:
         if self._queue is not None:
             try:
@@ -157,7 +157,7 @@ class StageReporter:
                         filter_count,
                         setup_count,
                         candidate_count,
-                        final_count,
+                        entry_count,
                     ),
                     block=False,
                 )
@@ -170,7 +170,7 @@ class StageReporter:
             filter_count,
             setup_count,
             candidate_count,
-            final_count,
+            entry_count,
         )
 
 
@@ -601,9 +601,11 @@ def _emit_ui_log(message: str) -> None:
     try:
         cb = globals().get("_LOG_CALLBACK")
         if cb and callable(cb):
+            # 型安全ガード: messageが文字列でない場合は変換
+            safe_message = str(message) if message is not None else ""
             token = _LOG_FORWARDING.set(True)
             try:
-                cb(str(message))
+                cb(safe_message)
             finally:
                 _LOG_FORWARDING.reset(token)
     except Exception:
@@ -649,7 +651,7 @@ def _drain_stage_event_queue() -> None:
             filter_count = _normalize_stage_value(item[2] if len(item) > 2 else None)
             setup_count = _normalize_stage_value(item[3] if len(item) > 3 else None)
             candidate_count = _normalize_stage_value(item[4] if len(item) > 4 else None)
-            final_count = _normalize_stage_value(item[5] if len(item) > 5 else None)
+            entry_count = _normalize_stage_value(item[5] if len(item) > 5 else None)
             try:
                 GLOBAL_STAGE_METRICS.record_stage(
                     system,
@@ -657,14 +659,14 @@ def _drain_stage_event_queue() -> None:
                     filter_count,
                     setup_count,
                     candidate_count,
-                    final_count,
+                    entry_count,
                     emit_event=False,
                 )
             except Exception:
                 continue
             events.append(
                 StageEvent(
-                    system, progress, filter_count, setup_count, candidate_count, final_count
+                    system, progress, filter_count, setup_count, candidate_count, entry_count
                 )
             )
 
@@ -700,7 +702,7 @@ def _get_stage_snapshot(system: str) -> StageSnapshot | None:
         return None
 
 
-def _log(msg: str, ui: bool = True, no_timestamp: bool = False):
+def _log(msg: str, ui: bool = True, no_timestamp: bool = False, phase_id: str | None = None):
     """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。"""
     import time as _t
 
@@ -1753,7 +1755,27 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
             test_mode = getattr(ctx, "test_mode", None)
             if test_mode:
                 test_limits = {"mini": 10, "quick": 50, "sample": 100}
-                if test_mode in test_limits:
+                if test_mode == "test_symbols":
+                    # 架空銘柄モード：test_symbolsディレクトリから銘柄一覧を取得
+                    try:
+                        from config.settings import get_settings
+
+                        settings = get_settings()
+                        test_symbols_dir = settings.DATA_CACHE_DIR / "test_symbols"
+                        if test_symbols_dir.exists():
+                            feather_files = list(test_symbols_dir.glob("*.feather"))
+                            test_symbol_names = [f.stem for f in feather_files]
+                            fetched = test_symbol_names
+                            limit_src = f"test-mode=test_symbols ({len(test_symbol_names)}銘柄)"
+                            _log(f"🧪 架空銘柄モード: {len(test_symbol_names)}銘柄を使用")
+                        else:
+                            _log(f"❌ 架空銘柄ディレクトリが見つかりません: {test_symbols_dir}")
+                            _log("先に 'python tools/generate_test_symbols.py' を実行してください")
+                            fetched = []
+                    except Exception as e:
+                        _log(f"❌ 架空銘柄読み込みエラー: {e}")
+                        fetched = []
+                elif test_mode in test_limits:
                     limit_val = test_limits[test_mode]
                     limit_src = f"test-mode={test_mode}"
 
@@ -2582,7 +2604,7 @@ def _prepare_system3_data(
                 filter_count=int(s3_filter),
                 setup_count=int(s3_combo),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -2623,7 +2645,7 @@ def _prepare_system4_data(
                 filter_count=int(s4_filter),
                 setup_count=int(s4_close),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -2686,7 +2708,7 @@ def _prepare_system5_data(
                 filter_count=int(s5_filter),
                 setup_count=int(s5_combo),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -2740,7 +2762,7 @@ def _prepare_system6_data(
                 filter_count=int(s6_filter),
                 setup_count=int(s6_combo),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3161,7 +3183,7 @@ def compute_today_signals(
                 filter_count=int(s1_filter),
                 setup_count=int(s1_setup_eff),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3228,7 +3250,7 @@ def compute_today_signals(
                 filter_count=int(s2_filter),
                 setup_count=int(s2_setup),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3277,7 +3299,7 @@ def compute_today_signals(
                 filter_count=int(s3_filter),
                 setup_count=int(s3_setup),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3311,7 +3333,7 @@ def compute_today_signals(
                 filter_count=int(s4_filter),
                 setup_count=int(s4_close),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3370,7 +3392,7 @@ def compute_today_signals(
                 filter_count=int(s5_filter),
                 setup_count=int(s5_setup),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3419,7 +3441,7 @@ def compute_today_signals(
                 filter_count=int(s6_filter),
                 setup_count=int(s6_setup),
                 candidate_count=None,
-                final_count=None,
+                entry_count=None,
             )
         except Exception:
             pass
@@ -3647,7 +3669,7 @@ def _format_stage_message(
     filter_count: int | None = None,
     setup_count: int | None = None,
     candidate_count: int | None = None,
-    final_count: int | None = None,
+    entry_count: int | None = None,
 ) -> str | None:
     """進捗段階に応じたメッセージをフォーマット"""
     if progress < 0 or progress > 100:
@@ -3656,7 +3678,7 @@ def _format_stage_message(
     filter_int = _safe_stage_int(filter_count)
     setup_int = _safe_stage_int(setup_count)
     candidate_int = _safe_stage_int(candidate_count)
-    final_int = _safe_stage_int(final_count)
+    entry_int = _safe_stage_int(entry_count)
 
     # システム名はグローバルから取得（この関数の外で定義されている想定）
     name = "System"  # デフォルト値
@@ -3680,11 +3702,11 @@ def _format_stage_message(
             return f"🧮 {name}: 候補抽出中 (当日候補 {candidate_int} 銘柄)"
         return f"🧮 {name}: 候補抽出を実行中"
     if progress == 100:
-        if final_int is not None:
+        if entry_int is not None:
             parts: list[str] = []
             if candidate_int is not None:
                 parts.append(f"候補 {candidate_int} 銘柄")
-            parts.append(f"エントリー {final_int} 銘柄")
+            parts.append(f"エントリー {entry_int} 銘柄")
             joined = " / ".join(parts)
             return f"✅ {name}: エントリーステージ完了 ({joined})"
         return f"✅ {name}: エントリーステージ完了"
@@ -3747,7 +3769,11 @@ def _stage(
     filter_count: int | None = None,
     setup_count: int | None = None,
     candidate_count: int | None = None,
-    final_count: int | None = None,
+    entry_count: int | None = None,
+    # サブステージ情報の追加
+    substage_name: str | None = None,
+    substage_progress: int | None = None,
+    substage_total: int | None = None,
 ) -> None:
     """Record stage progress for ``system`` and flush pending UI events."""
 
@@ -3759,10 +3785,17 @@ def _stage(
             filter_count,
             setup_count,
             candidate_count,
-            final_count,
+            entry_count,
             emit_event=True,
+            substage_name=substage_name,
+            substage_progress=substage_progress,
+            substage_total=substage_total,
         )
-    except Exception:
+    except Exception as e:
+        # ログを残してデバッグ時の手がかりにする
+        import logging
+
+        logging.getLogger(__name__).debug(f"_stage failed for {system}: {e}")
         return
     _drain_stage_event_queue()
 
@@ -4186,8 +4219,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--test-mode",
-        choices=["mini", "quick", "sample"],
-        help="テスト用モード: mini=10銘柄 / quick=50銘柄 / sample=100銘柄",
+        choices=["mini", "quick", "sample", "test_symbols"],
+        help="テスト用モード: mini=10銘柄 / quick=50銘柄 / sample=100銘柄 / test_symbols=架空銘柄",
     )
     parser.add_argument(
         "--skip-external",

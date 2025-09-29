@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import logging
 import os
-from pathlib import Path
 import queue
 import shutil
 import sys
 import threading
 import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from dotenv import load_dotenv
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 
 if TYPE_CHECKING:
@@ -74,9 +74,9 @@ from common.cache_manager import (  # noqa: E402
     compute_base_indicators,
     save_base_cache,
 )
+from common.indicators_common import add_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe  # noqa: E402
 from common.symbols_manifest import save_symbol_manifest  # noqa: E402
-from common.indicators_common import add_indicators  # noqa: E402
 
 CacheUpdateInterrupted: type[BaseException] | None
 try:  # Local import guard for optional bulk updater
@@ -880,6 +880,7 @@ def cache_data(
     # ハートビート監視スレッド: 一定秒ごとに進捗を出力します。
     stop_event = threading.Event()
     monitor_thread: threading.Thread | None = None
+    start_time = time.time()  # 処理開始時刻を記録
     try:
         hb = int(heartbeat_seconds) if heartbeat_seconds is not None else 0
     except Exception:
@@ -891,14 +892,15 @@ def cache_data(
             processed = completed_count
             pending = pending_writers
             pct = (processed / total * 100) if total else 0.0
-            # ローカル時刻でミリ秒精度のタイムスタンプを付与し、
-            # ログレベル風ラベルを角括弧で表示します。
-            # 例: 2025-09-23T12:34:56.789+09:00 [HEARTBEAT] ⏱ 進捗: 12/100 (12.0%)
-            now = datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds")
+            elapsed = time.time() - start_time
+            elapsed_str = f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
+            # 日付付きのシンプルなタイムスタンプ + 経過時間を表示
+            # 例: 2025-09-29 20:30:54 [HEARTBEAT] ⏱ 進捗: 831/6219 銘柄完了 (13.4%) - pending_writers=8 - 経過: 02:15
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             label = "[HEARTBEAT]"
             print(
                 f"{now} {label} ⏱ 進捗: {processed}/{total} 銘柄完了 "
-                f"({pct:.1f}%) - pending_writers={pending}",
+                f"({pct:.1f}%) - pending_writers={pending} - 経過: {elapsed_str}",
                 flush=True,
             )
 

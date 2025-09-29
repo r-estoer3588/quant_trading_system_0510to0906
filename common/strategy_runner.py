@@ -12,10 +12,10 @@ run_all_systems_today.py から戦略実行の責務を分離:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import threading
 import time
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any
 
 import pandas as pd
@@ -129,12 +129,21 @@ def run_strategies_parallel(
             )
             futures[fut] = name
 
-        # 完了待ち・逐次処理
+        # 完了待ち・逐次処理（継続的なドレイン統合）
         pending: set[Future] = set(futures.keys())
         completed_count = 0
 
         while pending:
             done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+
+            # 0.2秒タイムアウト中またはタスク完了時にドレイン実行
+            # リアルタイムUI同期の向上
+            try:
+                from scripts.run_all_systems_today import _drain_stage_event_queue
+
+                _drain_stage_event_queue()
+            except (ImportError, AttributeError):
+                pass
 
             for future in done:
                 system_name = futures[future]
@@ -154,7 +163,11 @@ def run_strategies_parallel(
                             log_callback(f"[{system_name}] {log_line}")
 
                 except Exception as e:
-                    results[system_name] = (pd.DataFrame(), f"❌ {system_name}: エラー", [])
+                    results[system_name] = (
+                        pd.DataFrame(),
+                        f"❌ {system_name}: エラー",
+                        [],
+                    )
                     if log_callback:
                         log_callback(f"❌ {system_name} 失敗: {e}")
 
@@ -192,6 +205,14 @@ def run_strategies_serial(
             results[name] = (pd.DataFrame(), f"❌ {name}: エラー", [])
             if log_callback:
                 log_callback(f"❌ {name} 失敗: {e}")
+
+        # 各戦略完了後にドレイン実行（直列実行でもリアルタイム同期）
+        try:
+            from scripts.run_all_systems_today import _drain_stage_event_queue
+
+            _drain_stage_event_queue()
+        except (ImportError, AttributeError):
+            pass
 
     return results
 
@@ -250,7 +271,9 @@ def _run_single_strategy(
 
     # System4 SPY依存チェック
     if name == "system4" and spy_df is None:
-        _local_log("⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。")
+        _local_log(
+            "⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
+        )
         return pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
 
     _local_log(f"🔎 {name}: シグナル抽出を開始")
@@ -276,7 +299,9 @@ def _run_single_strategy(
     lookback_days = _get_lookback_days(name, stg, base)
 
     if use_process_pool:
-        _local_log(f"⚙️ {name}: プロセスプール実行を開始 (workers={max_workers or 'auto'})")
+        _local_log(
+            f"⚙️ {name}: プロセスプール実行を開始 (workers={max_workers or 'auto'})"
+        )
 
     # 戦略実行
     df = pd.DataFrame()
@@ -340,7 +365,9 @@ def _run_single_strategy(
             if pool_outcome == "success":
                 _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
             elif pool_outcome == "fallback":
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+                _local_log(
+                    f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）"
+                )
             else:
                 _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
 
@@ -395,7 +422,8 @@ def _get_lookback_days(name: str, stg: Any, base: dict[str, pd.DataFrame]) -> in
     try:
         settings = get_settings(create_dirs=True)
         lb_default = int(
-            settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+            settings.cache.rolling.base_lookback_days
+            + settings.cache.rolling.buffer_days
         )
     except Exception:
         lb_default = 300

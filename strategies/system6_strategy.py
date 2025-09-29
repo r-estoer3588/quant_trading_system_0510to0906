@@ -25,6 +25,15 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
+        # パフォーマンス最適化: プロセスプール使用制御
+        import os
+
+        use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+
+        # System6専用のパフォーマンス設定
+        kwargs.setdefault("use_process_pool", use_process_pool)
+        kwargs.setdefault("max_workers", 2)  # プロセスプール使用時も控えめに
+
         return self._prepare_data_template(
             raw_data_or_symbols,
             prepare_data_vectorized_system6,
