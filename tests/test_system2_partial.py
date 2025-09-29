@@ -425,10 +425,10 @@ class TestPrepareDataVectorizedSystem2:
                 "Low": [99.0, 100.0, 101.0],
                 "Close": [100.5, 101.5, 102.5],
                 "Volume": [1000000, 1100000, 1200000],
-                "rsi3": [85.0, 90.0, 95.0],
-                "adx7": [25.0, 30.0, 35.0],
-                "atr10": [2.0, 2.1, 2.2],
-                "dollarvolume20": [30000000, 35000000, 40000000],
+                "RSI3": [85.0, 90.0, 95.0],
+                "ADX7": [25.0, 30.0, 35.0],
+                "ATR10": [2.0, 2.1, 2.2],
+                "DollarVolume20": [30000000, 35000000, 40000000],
             },
             index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
         )
@@ -441,7 +441,7 @@ class TestPrepareDataVectorizedSystem2:
         result_df = result["AAPL"]
 
         # 必要な列が追加されている
-        expected_columns = ["atr_ratio", "twodayup", "setup"]
+        expected_columns = ["ATR_Ratio", "TwoDayUp", "setup"]
         for col in expected_columns:
             assert col in result_df.columns
 
@@ -476,7 +476,7 @@ class TestPrepareDataVectorizedSystem2:
         df = pd.DataFrame(
             {
                 "Close": [100.0],
-                "rsi3": [85.0],
+                "RSI3": [85.0],
                 "ADX7": [25.0],
             },
             index=pd.to_datetime(["2023-01-01"]),
@@ -498,7 +498,7 @@ class TestPrepareDataVectorizedSystem2:
         df = pd.DataFrame(
             {
                 "Close": [100.0],
-                "rsi3": [85.0],
+                "RSI3": [85.0],
             },
             index=pd.to_datetime(["2023-01-01"]),
         )
@@ -526,7 +526,7 @@ class TestPrepareDataVectorizedSystem2:
         df = pd.DataFrame(
             {
                 "Close": [100.0, 101.0],
-                "rsi3": [85.0, 90.0],
+                "RSI3": [85.0, 90.0],
             },
             index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
         )
@@ -547,7 +547,7 @@ class TestPrepareDataVectorizedSystem2:
         df = pd.DataFrame(
             {
                 "Close": [100.0],
-                "rsi3": [85.0],
+                "RSI3": [85.0],
             },
             index=pd.to_datetime(["2023-01-01"]),
         )

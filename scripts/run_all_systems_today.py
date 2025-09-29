@@ -3092,7 +3092,7 @@ def compute_today_signals(
             "system6",
             "system7",
         ]:
-            _stage(system_name, 0, filter_count=0)
+            _stage(system_name, 0, filter_count=len(symbols))
     except Exception:
         pass
 

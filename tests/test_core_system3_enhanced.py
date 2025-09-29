@@ -207,7 +207,7 @@ class TestSystem3GenerateCandidates:
                 {
                     "Close": [105, 106, 107, 108, 109],
                     "setup": [True, True, False, True, True],
-                    "Drop3D": [0.15, 0.20, 0.10, 0.18, 0.14],  # Different drop values
+                    "drop3d": [0.15, 0.20, 0.10, 0.18, 0.14],  # Different drop values
                     "atr_ratio": [0.06, 0.07, 0.05, 0.08, 0.06],
                 },
                 index=pd.date_range("2023-01-01", periods=5),
@@ -216,7 +216,7 @@ class TestSystem3GenerateCandidates:
                 {
                     "Close": [200, 201, 202, 203, 204],
                     "setup": [True, False, True, True, False],
-                    "Drop3D": [0.16, 0.12, 0.19, 0.17, 0.13],
+                    "drop3d": [0.16, 0.12, 0.19, 0.17, 0.13],
                     "atr_ratio": [0.07, 0.06, 0.08, 0.07, 0.05],
                 },
                 index=pd.date_range("2023-01-01", periods=5),

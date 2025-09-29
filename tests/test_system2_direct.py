@@ -47,6 +47,12 @@ class TestSystem2DirectFunctions:
                 "Low": np.linspace(95, 105, 25),
                 "Close": np.linspace(100, 110, 25),
                 "Volume": np.full(25, 30000000),  # DollarVolume requirement
+                "rsi3": np.full(25, 95.0),
+                "adx7": np.linspace(30, 60, 25),
+                "atr10": np.full(25, 1.2),
+                "dollarvolume20": np.full(25, 35_000_000),
+                "atr_ratio": np.full(25, 0.05),
+                "twodayup": np.random.choice([True, False], 25),
             },
             index=dates,
         )
@@ -64,12 +70,12 @@ class TestSystem2DirectFunctions:
         # System2特有の指標存在確認
         base_cols = {"Open", "High", "Low", "Close", "Volume"}
         indicator_cols = {
-            "RSI3",
-            "ADX7",
-            "ATR10",
-            "DollarVolume20",
-            "ATR_Ratio",
-            "TwoDayUp",
+            "rsi3",
+            "adx7",
+            "atr10",
+            "dollarvolume20",
+            "atr_ratio",
+            "twodayup",
             "filter",
             "setup",
         }
@@ -216,6 +222,12 @@ class TestSystem2DirectFunctions:
                 "Low": [99, 100, 101, 102, 103],
                 "Close": [104, 105, 106, 107, 108],
                 "Volume": [30000000, 30000000, 30000000, 30000000, 30000000],
+                "rsi3": [95, 96, 97, 98, 99],
+                "adx7": [55, 54, 53, 52, 51],
+                "atr10": [1.5, 1.4, 1.6, 1.5, 1.3],
+                "dollarvolume20": [40_000_000] * 5,
+                "atr_ratio": [0.04, 0.05, 0.045, 0.047, 0.05],
+                "twodayup": [True, True, False, True, False],
             },
             index=pd.date_range("2023-01-01", periods=5),
         )
