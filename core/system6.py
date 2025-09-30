@@ -29,10 +29,25 @@ SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "return_6d"]
 
 
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
-    missing = [col for col in SYSTEM6_BASE_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"missing columns: {', '.join(missing)}")
-    x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
+    # 柔軟な列名マッピング（大文字・小文字両対応）
+    col_mapping = {}
+    required_base_cols = ["Open", "High", "Low", "Close", "Volume"]
+
+    for required_col in required_base_cols:
+        if required_col in df.columns:
+            col_mapping[required_col] = required_col
+        elif required_col.lower() in df.columns:
+            col_mapping[required_col] = required_col.lower()
+        else:
+            raise ValueError(f"missing column: {required_col} (or {required_col.lower()})")
+
+    # 必要な列のみを抽出してコピー
+    base_cols = [col_mapping[col] for col in required_base_cols]
+    x = df.loc[:, base_cols].copy()
+
+    # 列名を標準化（大文字に統一）
+    x.columns = required_base_cols
+
     if len(x) < 50:
         raise ValueError("insufficient rows")
 
@@ -177,6 +192,8 @@ def generate_candidates_system6(
             batch_size = get_settings(create_dirs=False).data.batch_size
         except Exception:
             batch_size = 100
+        # System6では進捗をより頻繁に更新するため、バッチサイズを小さくする
+        batch_size = min(batch_size, 50)  # 最大50に制限
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     batch_start = time.time()
@@ -186,27 +203,29 @@ def generate_candidates_system6(
     setup_passed = 0  # セットアップ条件通過数
     buffer: list[str] = []
 
+    # 処理開始のログを追加
+    if log_callback:
+        log_callback(
+            f"📊 System6 候補抽出開始: {total}銘柄を処理中... (バッチサイズ: {batch_size})"
+        )
+
     for sym, df in prepared_dict.items():
         # featherキャッシュの健全性チェック
         if df is None or df.empty:
             if log_callback:
-                log_callback(f"[警告] {sym} のデータが空です（featherキャッシュ欠損）")
+                log_callback(f"⚠️ {sym}: データが空です（キャッシュ欠損）")
             skipped += 1
             continue
         missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
         if missing_cols:
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}"
-                )
+                log_callback(f"⚠️ {sym}: 必須列が不足 - {', '.join(missing_cols)}")
             skipped += 1
             skipped_missing_cols += 1
             continue
         if df[SYSTEM6_NUMERIC_COLUMNS].isnull().any().any():
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）"
-                )
+                log_callback(f"⚠️ {sym}: データにNaNが含まれています（キャッシュ不完全）")
 
         # last_price（直近終値）を取得
         last_price = None

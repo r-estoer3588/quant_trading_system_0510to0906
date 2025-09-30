@@ -494,7 +494,11 @@ def run_backtest_with_logging(
     # ログをセッションへ保持（リランしても表示できるように）
     st.session_state[f"{system_name}_debug_logs"] = list(debug_logs)
 
-    if st.session_state.get("show_debug_logs", True) and debug_logs:
+    # システム固有のデバッグフラグをチェック
+    debug_key = f"{system_name}_show_debug_logs"
+    show_debug = st.session_state.get(debug_key, True)
+
+    if show_debug and debug_logs:
         # ログはバックテスト・フェーズのコンテナ内に配置（システムごとにまとまるように）
         parent = bt_phase.container if bt_phase else st.container()
         # ユーザー要望: 取引ログはエクスパンダーで折りたたみ表示
@@ -591,7 +595,7 @@ def run_backtest_app(
     # 通常株のみフィルタリングオプション
     use_common_stocks_only = st.checkbox(
         tr("普通株のみ（約6,200銘柄、ETF・優先株除外）"),
-        value=False,
+        value=True,
         key=f"{system_name}_common_only",
     )
 
