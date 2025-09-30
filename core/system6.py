@@ -42,13 +42,53 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     # 必要な列のみを抽出してコピー
     base_cols = [col_mapping[col] for col in required_base_cols]
-    x = df.loc[:, base_cols].copy()
+
+    # 日付インデックスを決定（列優先・なければ既存インデックス）
+    date_series: pd.Series | None = None
+    for date_col in ("Date", "date"):
+        if date_col in df.columns:
+            with pd.option_context("mode.use_inf_as_na", True):
+                date_series = pd.to_datetime(df[date_col], errors="coerce")
+            break
+
+    if date_series is None:
+        raw_index = df.index
+        if isinstance(raw_index, pd.DatetimeIndex):
+            date_series = pd.to_datetime(raw_index, errors="coerce")
+        else:
+            with pd.option_context("mode.use_inf_as_na", True):
+                date_series = pd.to_datetime(raw_index, errors="coerce")
+
+    if date_series is None:
+        raise ValueError("missing date index")
+
+    if isinstance(date_series, (pd.Index, pd.Series)):
+        values = date_series.to_numpy()
+    else:
+        values = pd.to_datetime(date_series, errors="coerce").to_numpy()
+    date_series = pd.Series(values, index=df.index)
+
+    if getattr(date_series.dt, "tz", None) is not None:
+        date_series = date_series.dt.tz_localize(None)
+
+    valid_mask = date_series.notna()
+    if not valid_mask.any():
+        raise ValueError("invalid date index")
+
+    if not valid_mask.all():
+        date_series = date_series[valid_mask]
+        x = df.loc[valid_mask, base_cols].copy()
+    else:
+        x = df.loc[:, base_cols].copy()
 
     # 列名を標準化（大文字に統一）
     x.columns = required_base_cols
 
     if len(x) < 50:
         raise ValueError("insufficient rows")
+
+    # 正規化した日付をインデックスに設定
+    x.index = pd.Index(date_series, name="Date")
 
     # フォールバック使用回数を記録するためのMetricsCollector
     metrics = MetricsCollector()
@@ -112,8 +152,6 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     if x.empty:
         raise ValueError("insufficient rows")
     x = x.loc[~x.index.duplicated()].sort_index()
-    x.index = pd.to_datetime(x.index).tz_localize(None)
-    x.index.name = "Date"
     return x
 
 
