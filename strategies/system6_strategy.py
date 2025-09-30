@@ -88,7 +88,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
-        if stop_price - entry_price <= 0:
+        # ショート戦略: ストップロスはエントリー価格より上に設定される
+        if stop_price <= entry_price:
             return None
         return entry_price, stop_price
 
