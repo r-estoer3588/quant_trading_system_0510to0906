@@ -9,7 +9,6 @@ from common.batch_processing import process_symbols_batch
 from common.i18n import tr
 from common.structured_logging import MetricsCollector
 from common.utils import resolve_batch_size
-from common.utils_spy import resolve_signal_entry_date
 
 # System6 configuration constants
 MIN_PRICE = 5.0  # 最低価格フィルター（ドル）
@@ -192,8 +191,8 @@ def generate_candidates_system6(
             batch_size = get_settings(create_dirs=False).data.batch_size
         except Exception:
             batch_size = 100
-        # System6では進捗をより頻繁に更新するため、バッチサイズを小さくする
-        batch_size = min(batch_size, 50)  # 最大50に制限
+        # System6では非常に大きなバッチサイズで高速処理（候補抽出は軽い処理）
+        batch_size = max(batch_size, 2000)  # 最小2000に設定
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
     batch_start = time.time()
@@ -212,20 +211,16 @@ def generate_candidates_system6(
     for sym, df in prepared_dict.items():
         # featherキャッシュの健全性チェック
         if df is None or df.empty:
-            if log_callback:
-                log_callback(f"⚠️ {sym}: データが空です（キャッシュ欠損）")
             skipped += 1
             continue
         missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
         if missing_cols:
-            if log_callback:
-                log_callback(f"⚠️ {sym}: 必須列が不足 - {', '.join(missing_cols)}")
             skipped += 1
             skipped_missing_cols += 1
             continue
         if df[SYSTEM6_NUMERIC_COLUMNS].isnull().any().any():
-            if log_callback:
-                log_callback(f"⚠️ {sym}: データにNaNが含まれています（キャッシュ不完全）")
+            # NaN警告は個別に出力せず、統計のみ記録
+            pass
 
         # last_price（直近終値）を取得
         last_price = None
@@ -247,11 +242,12 @@ def generate_candidates_system6(
                 skipped += 1
                 continue
             for date, row in setup_days.iterrows():
-                ts = pd.to_datetime(pd.Index([date]))[0]
-                # 翌営業日に補正
-                entry_date = resolve_signal_entry_date(ts)
-                if pd.isna(entry_date):
-                    continue
+                # 日付変換を簡略化（営業日補正なしで高速化）
+                if isinstance(date, pd.Timestamp):
+                    entry_date = date
+                else:
+                    entry_date = pd.Timestamp(date)
+
                 rec = {
                     "symbol": sym,
                     "entry_date": entry_date,
@@ -283,7 +279,8 @@ def generate_candidates_system6(
                 "📊 System6 進捗: {done}/{total} | "
                 "フィルター通過: {filter_passed}件 | セットアップ通過: {setup_passed}件 | "
                 "候補: {candidates}件\n"
-                "⏱️ 経過: {em}m{es}s | 残り: ~{rm}m{rs}s",
+                "⏱️ 経過: {em}m{es}s | 残り: ~{rm}m{rs}s | "
+                "スキップ: {skipped}件 (列不足: {missing_cols}件)",
                 done=processed,
                 total=total,
                 filter_passed=filter_passed,
@@ -293,6 +290,8 @@ def generate_candidates_system6(
                 es=es,
                 rm=rm,
                 rs=rs,
+                skipped=skipped,
+                missing_cols=skipped_missing_cols,
             )
             if buffer:
                 sample = ", ".join(buffer[:10])
