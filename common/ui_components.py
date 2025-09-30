@@ -622,12 +622,7 @@ def run_backtest_app(
         all_tickers = get_all_tickers()
 
     max_allowed = len(all_tickers)
-    
-    # System6用のデフォルト値を特別に設定
-    if system_name == "System6":
-        default_value = min(500, max_allowed)   # System6は500がデフォルト（保守的）
-    else:
-        default_value = min(10, max_allowed)    # 他のシステムは10がデフォルト
+    default_value = min(10, max_allowed)
 
     if system_name != "System7":
         # テスト用でも使いやすいように最小値を1に、刻み幅を1に変更
