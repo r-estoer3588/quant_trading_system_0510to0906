@@ -105,17 +105,21 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 break
             row = df.iloc[idx]
 
+            # ショート戦略: 損切り（価格上昇で損失）
             if float(row["High"]) >= stop_price:
                 return float(stop_price), df.index[idx]
 
-            gain = (entry_price - float(row["Close"])) / entry_price
+            # ショート戦略: 利食い（価格下落で利益）
+            current_price = float(row["Close"])
+            gain = (entry_price - current_price) / entry_price
             if gain >= profit_take_pct:
+                # 翌日の大引けで決済（仕様通り）
                 exit_idx = idx + 1
                 if exit_idx < len(df):
                     exit_price = float(df.iloc[exit_idx]["Close"])
                     exit_date = df.index[exit_idx]
                 else:
-                    exit_price = float(row["Close"])
+                    exit_price = current_price
                     exit_date = df.index[idx]
                 return exit_price, exit_date
 

@@ -865,25 +865,36 @@ def show_results(
         pass
 
     st.subheader(i18n.tr("yearly summary"))
-    yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-    yearly["損益"] = yearly["pnl"].round(2)
-    yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
-    yearly = yearly.rename(columns={"exit_date": "年"})
-    st.dataframe(
-        yearly[["年", "損益", "リターン(%)"]].style.format(
-            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+    if len(df2) > 0:
+        yearly = (
+            df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
         )
-    )
+        yearly["損益"] = yearly["pnl"].round(2)
+        yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
+        yearly = yearly.rename(columns={"exit_date": "年"})
+        st.dataframe(
+            yearly[["年", "損益", "リターン(%)"]].style.format(
+                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+            )
+        )
+    else:
+        st.info("トレードデータがありません")
+
     st.subheader(i18n.tr("monthly summary"))
-    monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-    monthly["損益"] = monthly["pnl"].round(2)
-    monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
-    monthly = monthly.rename(columns={"exit_date": "月"})
-    st.dataframe(
-        monthly[["月", "損益", "リターン(%)"]].style.format(
-            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+    if len(df2) > 0:
+        monthly = (
+            df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
         )
-    )
+        monthly["損益"] = monthly["pnl"].round(2)
+        monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
+        monthly = monthly.rename(columns={"exit_date": "月"})
+        st.dataframe(
+            monthly[["月", "損益", "リターン(%)"]].style.format(
+                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+            )
+        )
+    else:
+        st.info("トレードデータがありません")
 
     st.subheader(i18n.tr("holdings heatmap (by day)"))
     progress_heatmap = st.progress(0)

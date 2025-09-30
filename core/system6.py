@@ -227,11 +227,11 @@ def generate_candidates_system6(
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
 
-        # 統計計算：フィルター通過数とセットアップ通過数をカウント
+        # 統計計算：フィルター通過数とセットアップ通過数をカウント（累積日数）
         if "filter" in df.columns:
-            filter_passed += df["filter"].sum()
+            filter_passed += df["filter"].sum()  # 全期間でフィルター条件を満たした日数
         if "setup" in df.columns:
-            setup_passed += df["setup"].sum()
+            setup_passed += df["setup"].sum()  # 全期間でセットアップ条件を満たした日数
 
         try:
             if "setup" not in df.columns or not df["setup"].any():
@@ -277,10 +277,10 @@ def generate_candidates_system6(
 
             msg = tr(
                 "📊 System6 進捗: {done}/{total} | "
-                "フィルター通過: {filter_passed}件 | セットアップ通過: {setup_passed}件 | "
+                "フィルター通過: {filter_passed}日 | セットアップ通過: {setup_passed}日 | "
                 "候補: {candidates}件\n"
                 "⏱️ 経過: {em}m{es}s | 残り: ~{rm}m{rs}s | "
-                "スキップ: {skipped}件 (列不足: {missing_cols}件)",
+                "スキップ: {skipped}銘柄 (列不足: {missing_cols}銘柄)",
                 done=processed,
                 total=total,
                 filter_passed=filter_passed,
