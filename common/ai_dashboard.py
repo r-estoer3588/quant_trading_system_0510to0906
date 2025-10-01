@@ -66,7 +66,7 @@ def render_ai_summary_cards(summary: Dict[str, Any]) -> None:
     """AIシステムサマリーカードの表示"""
     model_status = summary.get("model_status", {})
     data_collection = summary.get("data_collection", {})
-    analysis_capabilities = summary.get("capabilities", {})
+    analysis_capabilities = summary.get("capabilities", {})  # noqa: F841 (将来拡張用・未使用保持)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -163,8 +163,8 @@ def render_model_status_tab(summary: Dict[str, Any]) -> None:
         st.markdown("### 🤖 モデル情報")
 
         # モデル訓練状況
-        is_trained = model_status.get("is_trained", False)
-        training_count = model_status.get("training_data_count", 0)
+        is_trained = model_status.get("is_trained", False)  # noqa: F841
+        training_count = model_status.get("training_data_count", 0)  # noqa: F841
         last_training = model_status.get("last_training")
 
         status_data = {

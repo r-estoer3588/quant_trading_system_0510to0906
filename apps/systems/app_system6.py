@@ -12,7 +12,6 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import common.ui_patch  # noqa: F401
-from common.cache_utils import save_prepared_data_cache
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
@@ -244,8 +243,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
                 SYSTEM_NAME,
                 capital,
             )
-        if data_dict is not None:
-            save_prepared_data_cache(data_dict, SYSTEM_NAME)
+        # Prepared data cache save removed (deprecated feature)
         summary, df2 = summarize_perf(results_df, capital)
         try:
             _max_dd = float(df2["drawdown"].min())

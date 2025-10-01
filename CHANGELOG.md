@@ -28,3 +28,11 @@
   - `--skip-external`: 外部 API 呼び出しをスキップして高速化
   - 実行時間を分単位から 2 秒に短縮（mini モード）
   - 4 つのテストシナリオ対応（基本/並列/CSV/統合テスト）
+- **公開 API 境界保護**: `tests/test_public_api_exports.py` 追加（存在/漏洩/新規 callable 監視 + Docstring 情報）
+- **Warnings ポリシー策定**: `docs/technical/warnings_policy.md` 追加し分類・段階的削減方針を明文化
+- **CI 強化**: warnings 収集 + JSONL アーティファクト化、mypy エラー件数サマリ出力、`collect_warnings.py` 統合
+- **実 Alpaca テスト安定化**: `test_real_alpaca.py` を `RUN_REAL_ALPACA_TEST=1` 条件付き skip 化
+- **mypy ロードマップ**: `docs/technical/mypy_roadmap.md` で段階導入計画を提示（P0〜P5）
+- **Warnings 集計スクリプト**: `tools/collect_warnings.py` 追加
+- **UI コンポーネント防御的改善**: 欠損列ガード / matplotlib Agg / heatmap 高速モード / download key 一意化
+- **不要機能撤去**: 旧 save_prepared_data_cache ロジック削除＆依存テスト整理
