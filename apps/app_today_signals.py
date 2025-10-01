@@ -661,7 +661,37 @@ def _log_manual_rebuild_notice(
     detail: dict[str, Any],
     log_fn: Callable[[str], None] | None = None,
 ) -> str:
+    """rolling未整備メッセージを出力。
+
+    COMPACT_TODAY_LOGS=1 の場合:
+        - 旧仕様: 銘柄ごとに "⛔ rolling未整備: SYMBOL (...) （自動スキップ済み）" を逐次出力し大量に冗長化
+        - 新仕様: `common.cache_warnings.RollingIssueAggregator` へカテゴリ manual_rebuild として集約
+            * 先頭 N 件 (ROLLING_ISSUES_VERBOSE_HEAD, 既定=5) のみ WARNING
+            * 以降は DEBUG にダウングレード（ログ量削減）
+            * 集約サマリーは他カテゴリと同じ仕組みで INFO 出力
+    COMPACT_TODAY_LOGS!=1 の場合は従来通り全文を log_fn へ出力する。
+    """
     message = _build_manual_rebuild_message(symbol, detail)
+
+    compact_mode = os.getenv("COMPACT_TODAY_LOGS") == "1"
+    if compact_mode:
+        # 既存 aggregator を利用してカテゴリ: manual_rebuild として登録
+        try:
+            from common.cache_warnings import report_rolling_issue  # ローカル import (遅延)
+
+            # 代表的な理由を status から抽出してメッセージ縮小
+            status = str(detail.get("status") or "manual_rebuild")
+            report_rolling_issue("manual_rebuild", symbol, status)
+        except Exception:
+            # フォールバック: 直接ログ
+            if log_fn:
+                try:
+                    log_fn(message)
+                except Exception:
+                    pass
+        return message
+
+    # 非コンパクトモード: 従来通り全文を出力
     if log_fn is None:
         return message
     try:

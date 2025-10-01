@@ -324,10 +324,29 @@ def prepare_backtest_data(
             pass
 
     call_input = data_dict if not use_process_pool else symbols
+
+    # 進捗カウンター（文字列メッセージをカウントに変換）
+    progress_counter = {"count": 0}
+    total_symbols = len(symbols)
+
+    def _update_progress(msg_or_tuple):
+        """進捗更新：文字列メッセージまたは(done, total)タプルの両方に対応"""
+        try:
+            if isinstance(msg_or_tuple, tuple) and len(msg_or_tuple) == 2:
+                # (done, total) 形式
+                done, total = msg_or_tuple
+                if total > 0:
+                    ind_progress.progress(done / total)
+            else:
+                # 文字列メッセージ形式（レガシー）
+                progress_counter["count"] += 1
+                if total_symbols > 0:
+                    ind_progress.progress(progress_counter["count"] / total_symbols)
+        except Exception:
+            pass
+
     call_kwargs = dict(
-        progress_callback=lambda done, total: ind_progress.progress(
-            0 if total == 0 else done / total
-        ),
+        progress_callback=_update_progress,
         log_callback=lambda msg: ind_log.text(str(msg)),
         skip_callback=lambda msg: ind_log.text(str(msg)),
         fast_mode=fast_mode,
@@ -539,14 +558,19 @@ def run_backtest_app(
             st.session_state[debug_key] = True
         st.checkbox(tr("show debug logs"), key=debug_key)
 
+        # 自動ユニバース利用フラグ (普通株ユニバース) 復元
+        auto_key = f"{system_name}_auto"
+        if auto_key not in st.session_state:
+            st.session_state[auto_key] = True
         use_auto = st.checkbox(
-            tr("auto symbols (common stocks)"), value=True, key=f"{system_name}_auto"
+            tr("auto symbols (common stocks)"),
+            value=st.session_state[auto_key],
+            key=auto_key,
         )
-
         # 普通株 全銘柄を一括利用するオプション（制限数入力を無視する）
         all_common_key = f"{system_name}_use_all_common"
         st.checkbox(
-            tr("use full common stocks universe"), value=False, key=all_common_key
+            tr("use full common stocks universe"), value=True, key=all_common_key
         )
         # Fast Preview / 挙動確認モード (MVP)
         fast_key = f"{system_name}_fast_mode"
@@ -798,6 +822,17 @@ def run_backtest_app(
         # バックテスト実行領域を動的生成（実行前は表示されない）
         result_area = st.container()
         with result_area:
+            # --- timing start (stdout) ---
+            from datetime import datetime as _dt
+
+            _t_start = _dt.now()
+            try:
+                print(
+                    f"[{system_name}] BACKTEST START {_t_start:%Y-%m-%d %H:%M:%S}",
+                    flush=True,
+                )
+            except Exception:
+                pass
             prepared_dict, candidates_by_date, merged_df = prepare_backtest_data(
                 strategy,
                 symbols,
@@ -856,8 +891,17 @@ def run_backtest_app(
             if system_name == "System1":
                 return results_df, merged_df, prepared_dict, capital, candidates_by_date
             else:
+                # --- timing end (stdout) ---
+                try:
+                    _t_end = _dt.now()
+                    _elapsed = (_t_end - _t_start).total_seconds()
+                    print(
+                        f"[{system_name}] BACKTEST END {_t_end:%Y-%m-%d %H:%M:%S} elapsed={_elapsed:.2f}s",
+                        flush=True,
+                    )
+                except Exception:
+                    pass
                 return results_df, None, prepared_dict, capital, candidates_by_date
-
     return None, None, None, None, None
 
 
