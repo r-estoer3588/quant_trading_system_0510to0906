@@ -15,6 +15,9 @@ from common.utils import resolve_batch_size
 MIN_PRICE = 5.0  # 最低価格フィルター（ドル）
 MIN_DOLLAR_VOLUME_50 = 10_000_000  # 最低ドルボリューム50日平均（ドル）
 
+# Shared metrics collector to avoid file handle leaks
+_metrics = MetricsCollector()
+
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 SYSTEM6_FEATURE_COLUMNS = [
     "atr10",
@@ -93,9 +96,6 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     # 正規化した日付をインデックスに設定
     x.index = pd.Index(date_series, name="Date")
 
-    # フォールバック使用回数を記録するためのMetricsCollector
-    metrics = MetricsCollector()
-
     try:
         # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
 
@@ -106,7 +106,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["atr10"] = df["atr10"]
         else:
             # フォールバック（通常は実行されない）
-            metrics.record_metric("system6_fallback_atr10", 1, "count")
+            _metrics.record_metric("system6_fallback_atr10", 1, "count")
             x["atr10"] = AverageTrueRange(
                 x["High"], x["Low"], x["Close"], window=10
             ).average_true_range()
@@ -118,7 +118,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["dollarvolume50"] = df["dollarvolume50"]
         else:
             # フォールバック（通常は実行されない）
-            metrics.record_metric("system6_fallback_dollarvolume50", 1, "count")
+            _metrics.record_metric("system6_fallback_dollarvolume50", 1, "count")
             x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
 
         # Return_6D
@@ -128,7 +128,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["return_6d"] = df["return_6d"]
         else:
             # フォールバック（通常は実行されない）
-            metrics.record_metric("system6_fallback_return_6d", 1, "count")
+            _metrics.record_metric("system6_fallback_return_6d", 1, "count")
             x["return_6d"] = x["Close"].pct_change(6)
 
         # UpTwoDays
@@ -138,7 +138,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["UpTwoDays"] = df["uptwodays"]
         else:
             # フォールバック（通常は実行されない）
-            metrics.record_metric("system6_fallback_uptwodays", 1, "count")
+            _metrics.record_metric("system6_fallback_uptwodays", 1, "count")
             x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
                 x["Close"].shift(1) > x["Close"].shift(2)
             )
@@ -221,9 +221,6 @@ def generate_candidates_system6(
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
-
-    # MetricsCollector初期化
-    metrics = MetricsCollector()
 
     if batch_size is None:
         try:
@@ -349,10 +346,10 @@ def generate_candidates_system6(
             batch_duration = time.time() - batch_start
             if batch_duration > 0:
                 symbols_per_second = len(buffer) / batch_duration
-                metrics.record_metric(
+                _metrics.record_metric(
                     "system6_candidates_batch_duration", batch_duration, "seconds"
                 )
-                metrics.record_metric(
+                _metrics.record_metric(
                     "system6_candidates_symbols_per_second", symbols_per_second, "rate"
                 )
 
@@ -390,9 +387,9 @@ def generate_candidates_system6(
     # 最終メトリクス記録
     total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
     unique_dates = len(candidates_by_date)
-    metrics.record_metric("system6_total_candidates", total_candidates, "count")
-    metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
-    metrics.record_metric("system6_processed_symbols_candidates", processed, "count")
+    _metrics.record_metric("system6_total_candidates", total_candidates, "count")
+    _metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
+    _metrics.record_metric("system6_processed_symbols_candidates", processed, "count")
 
     if log_callback:
         try:

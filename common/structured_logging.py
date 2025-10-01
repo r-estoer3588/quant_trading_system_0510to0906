@@ -631,6 +631,9 @@ class PerformanceDegradationDetector:
 class MetricsCollector:
     """Thread-safe metrics collection."""
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/metrics")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -640,12 +643,18 @@ class MetricsCollector:
         self._counters: Dict[str, int] = defaultdict(int)
         self._lock = threading.Lock()
 
-        # Setup metrics logger
-        self.logger = logging.getLogger("metrics")
-        handler = logging.FileHandler(self.log_dir / "metrics.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared metrics logger to avoid file handle leaks
+        with MetricsCollector._logger_lock:
+            if MetricsCollector._shared_logger is None:
+                MetricsCollector._shared_logger = logging.getLogger("metrics")
+                # Only add handler if none exists
+                if not MetricsCollector._shared_logger.handlers:
+                    handler = logging.FileHandler(self.log_dir / "metrics.jsonl")
+                    handler.setFormatter(StructuredFormatter())
+                    MetricsCollector._shared_logger.addHandler(handler)
+                    MetricsCollector._shared_logger.setLevel(logging.INFO)
+
+            self.logger = MetricsCollector._shared_logger
 
     def record_metric(
         self, name: str, value: float, unit: str = "count", **tags
