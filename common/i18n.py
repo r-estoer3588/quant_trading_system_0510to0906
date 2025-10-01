@@ -91,6 +91,7 @@ _JA_MAP: dict[str, str] = {
     "fast preview mode enabled (approximate results)": "MVPモード: 近似結果 (一部指標省略)",
     "mode: fast": "モード: 簡易",
     "mode: normal": "モード: 通常",
+    "re-run in normal mode": "通常モードで再実行",
     "symbols (comma separated)": "銘柄一覧（カンマ区切り）",
     "please input symbols": "銘柄を入力してください",
     "run": "バックテスト実行",
@@ -108,10 +109,14 @@ _JA_MAP: dict[str, str] = {
     "indicators: done": "インジケーター計算 完了",
     "candidates: extracting...": "トレード候補：抽出中...",
     "candidates: done": "候補抽出 完了",
-    ("📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
+    (
+        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
         "📊 インジケーター計算 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
-    ("📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
+    (
+        "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
         "📊 候補抽出 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
     "symbols: {names}": "銘柄: {names}",

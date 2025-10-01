@@ -28,10 +28,6 @@ from strategies.system6_strategy import System6Strategy
 # 翻訳辞書ロード + 言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
 
-# システム名定義（サイドバーで使用するため先に定義）
-SYSTEM_NAME = "System6"
-DISPLAY_NAME = "システム6"
-
 # --- サイドバー構成: 言語切替 / ガイド / 条件詳細 ---
 with st.sidebar:
     if not st.session_state.get("_integrated_ui", False):
@@ -47,21 +43,6 @@ with st.sidebar:
             "**推奨設定**: 銘柄制限を100-500程度に調整"
         )
     )
-
-    # 全銘柄選択ボタン（チェックボックスと連動）
-    all_common_key = f"{SYSTEM_NAME}_use_all_common"
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.caption(tr("quick selection"))
-    with col2:
-        if st.button("🌐 " + tr("all stocks"), key=f"{SYSTEM_NAME}_select_all_btn"):
-            st.session_state[all_common_key] = True
-            st.rerun()
-
-    # 現在の選択状態を表示
-    if st.session_state.get(all_common_key, False):
-        st.success(tr("✅ using all common stocks (~6,200 symbols)"))
-
     st.divider()
     # 条件詳細（expander をサイドバーへ移動）
     with st.expander("🎯 System6の条件詳細", expanded=False):
@@ -79,6 +60,9 @@ with st.sidebar:
                 "急激な相場変動時にのみトレード機会が発生する設計です。"
             )
         )
+
+SYSTEM_NAME = "System6"
+DISPLAY_NAME = "システム6"
 
 strategy: System6Strategy = System6Strategy()
 notifiers: list[Notifier] = get_notifiers_from_env()
