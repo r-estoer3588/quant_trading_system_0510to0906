@@ -599,7 +599,7 @@ def run_backtest_app(
         key=f"{system_name}_common_only",
     )
 
-    _init_cap = int(st.session_state.get(key_capital_saved, 1000))
+    _init_cap = int(st.session_state.get(key_capital_saved, 100000))
     capital = st.number_input(
         tr("capital (USD)"),
         min_value=1000,
@@ -638,7 +638,7 @@ def run_backtest_app(
             step=1,
             key=f"{system_name}_limit",
         )
-        if st.checkbox(tr("use all symbols"), key=f"{system_name}_all"):
+        if st.checkbox(tr("use all symbols"), value=True, key=f"{system_name}_all"):
             limit_symbols = max_allowed
 
     symbols_input = None
