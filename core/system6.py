@@ -2,7 +2,6 @@
 
 import time
 
-import numpy as np
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
@@ -32,130 +31,118 @@ SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "return_6d"]
 
 
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
-    # 柔軟な列名マッピング（大文字・小文字両対応）
-    col_mapping = {}
-    required_base_cols = ["Open", "High", "Low", "Close", "Volume"]
+    """System6 個別銘柄用の前処理 + 指標利用.
 
-    for required_col in required_base_cols:
-        if required_col in df.columns:
-            col_mapping[required_col] = required_col
-        elif required_col.lower() in df.columns:
-            col_mapping[required_col] = required_col.lower()
-        else:
-            raise ValueError(f"missing column: {required_col} (or {required_col.lower()})")
+    ポイント:
+    1. まずインデックス（日付）を正規化してから列操作
+    2. OHLCV を大文字統一
+    3. 事前計算済み指標はラベルアラインでそのまま利用（.values 不使用）
+    4. 欠損時のみフォールバック計算
+    """
+    if df is None or df.empty:
+        raise ValueError("empty_frame")
 
-    # 必要な列のみを抽出してコピー
-    base_cols = [col_mapping[col] for col in required_base_cols]
-
-    # 日付インデックスを決定（列優先・なければ既存インデックス）
-    date_series: pd.Series | None = None
-    for date_col in ("Date", "date"):
-        if date_col in df.columns:
-            # 無限値をNaNに変換してから日付変換
-            date_col_data = df[date_col].replace([np.inf, -np.inf], np.nan)
-            date_series = pd.to_datetime(date_col_data, errors="coerce")
-            break
-
-    if date_series is None:
-        raw_index = df.index
-        if isinstance(raw_index, pd.DatetimeIndex):
-            date_series = pd.to_datetime(raw_index, errors="coerce")
-        else:
-            # 無限値をNaNに変換してから日付変換
-            index_data = pd.Series(raw_index).replace([np.inf, -np.inf], np.nan)
-            date_series = pd.to_datetime(index_data, errors="coerce")
-
-    if date_series is None:
-        raise ValueError("missing date index")
-
-    if isinstance(date_series, (pd.Index, pd.Series)):
-        values = date_series.to_numpy()
+    # --- 日付インデックス正規化 ---
+    if "Date" in df.columns:
+        idx = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+    elif "date" in df.columns:
+        idx = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
     else:
-        values = pd.to_datetime(date_series, errors="coerce").to_numpy()
-    date_series = pd.Series(values, index=df.index)
-
-    if getattr(date_series.dt, "tz", None) is not None:
-        date_series = date_series.dt.tz_localize(None)
-
-    valid_mask = date_series.notna()
-    if not valid_mask.any():
+        idx = pd.to_datetime(df.index, errors="coerce").normalize()
+    x = df.copy(deep=False)
+    x.index = pd.Index(idx, name="Date")
+    # 無効日付除去
+    x = x[~x.index.isna()]
+    if x.empty:
         raise ValueError("invalid date index")
+    # 重複除去（最新優先）
+    if getattr(x.index, "has_duplicates", False):
+        x = x[~x.index.duplicated(keep="last")]
+    # ソート
+    try:
+        x = x.sort_index()
+    except Exception:
+        pass
 
-    if not valid_mask.all():
-        date_series = date_series[valid_mask]
-        x = df.loc[valid_mask, base_cols].copy()
-    else:
-        x = df.loc[:, base_cols].copy()
+    # --- OHLCV リネーム（小文字→大文字） ---
+    rename_map: dict[str, str] = {}
+    for low, up in (
+        ("open", "Open"),
+        ("high", "High"),
+        ("low", "Low"),
+        ("close", "Close"),
+        ("volume", "Volume"),
+    ):
+        if low in x.columns and up not in x.columns:
+            rename_map[low] = up
+    if rename_map:
+        try:
+            x = x.rename(columns=rename_map)
+        except Exception:
+            pass
 
-    # 列名を標準化（大文字に統一）
-    x.columns = required_base_cols
+    # 必須列確認
+    missing = [c for c in SYSTEM6_BASE_COLUMNS if c not in x.columns]
+    if missing:
+        raise ValueError(f"missing columns: {missing}")
 
+    # 行数チェック（最低 50 行）
     if len(x) < 50:
         raise ValueError("insufficient rows")
 
-    # 正規化した日付をインデックスに設定
-    x.index = pd.Index(date_series, name="Date")
-
+    # --- 指標列追加（ラベルアライン） ---
     try:
-        # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
-        # インデックス対応の問題を回避するため、.valuesを使用してインデックスを無視
-
         # ATR10
-        if "ATR10" in df.columns:
-            x["atr10"] = df["ATR10"].values
-        elif "atr10" in df.columns:
-            x["atr10"] = df["atr10"].values
+        if "ATR10" in x.columns:
+            x["atr10"] = x["ATR10"]
+        elif "atr10" in x.columns:
+            # 既に小文字形がある場合はそのまま利用
+            pass
         else:
-            # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_atr10", 1, "count")
             x["atr10"] = AverageTrueRange(
                 x["High"], x["Low"], x["Close"], window=10
             ).average_true_range()
 
         # DollarVolume50
-        if "DollarVolume50" in df.columns:
-            x["dollarvolume50"] = df["DollarVolume50"].values
-        elif "dollarvolume50" in df.columns:
-            x["dollarvolume50"] = df["dollarvolume50"].values
+        if "DollarVolume50" in x.columns:
+            x["dollarvolume50"] = x["DollarVolume50"]
+        elif "dollarvolume50" in x.columns:
+            pass
         else:
-            # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_dollarvolume50", 1, "count")
             x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
 
         # Return_6D
-        if "Return_6D" in df.columns:
-            x["return_6d"] = df["Return_6D"].values
-        elif "return_6d" in df.columns:
-            x["return_6d"] = df["return_6d"].values
+        if "Return_6D" in x.columns:
+            x["return_6d"] = x["Return_6D"]
+        elif "return_6d" in x.columns:
+            pass
         else:
-            # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_return_6d", 1, "count")
             x["return_6d"] = x["Close"].pct_change(6)
 
         # UpTwoDays
-        if "UpTwoDays" in df.columns:
-            x["UpTwoDays"] = df["UpTwoDays"].values
-        elif "uptwodays" in df.columns:
-            x["UpTwoDays"] = df["uptwodays"].values
+        if "UpTwoDays" in x.columns:
+            x["UpTwoDays"] = x["UpTwoDays"]
+        elif "uptwodays" in x.columns:
+            x["UpTwoDays"] = x["uptwodays"]
         else:
-            # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_uptwodays", 1, "count")
             x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
                 x["Close"].shift(1) > x["Close"].shift(2)
             )
 
-        # フィルターとセットアップ条件（軽量な論理演算）
+        # フィルターとセットアップ
         x["filter"] = (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
-
     except Exception as exc:
         raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc
 
-    # データクリーニングと最終的なソート・重複除去（一箇所に統合）
+    # 数値指標の欠損除去
     x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
     if x.empty:
         raise ValueError("insufficient rows")
-    x = x.loc[~x.index.duplicated()].sort_index()
     return x
 
 
@@ -285,7 +272,16 @@ def generate_candidates_system6(
                 if isinstance(date, pd.Timestamp):
                     entry_date = date
                 else:
-                    entry_date = pd.Timestamp(date)
+                    # 安全な型のみ受け付ける（文字列 / 日付 / 数値インデックス想定）
+                    if isinstance(date, (str, int, float)) or hasattr(date, "__str__"):
+                        try:
+                            entry_date = pd.to_datetime(str(date), errors="coerce")
+                            if pd.isna(entry_date):
+                                continue
+                        except Exception:
+                            continue
+                    else:
+                        continue
 
                 rec = {
                     "symbol": sym,
