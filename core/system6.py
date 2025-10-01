@@ -2,6 +2,7 @@
 
 import time
 
+import numpy as np
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
@@ -47,8 +48,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     date_series: pd.Series | None = None
     for date_col in ("Date", "date"):
         if date_col in df.columns:
-            with pd.option_context("mode.use_inf_as_na", True):
-                date_series = pd.to_datetime(df[date_col], errors="coerce")
+            # 無限値をNaNに変換してから日付変換
+            date_col_data = df[date_col].replace([np.inf, -np.inf], np.nan)
+            date_series = pd.to_datetime(date_col_data, errors="coerce")
             break
 
     if date_series is None:
@@ -56,8 +58,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(raw_index, pd.DatetimeIndex):
             date_series = pd.to_datetime(raw_index, errors="coerce")
         else:
-            with pd.option_context("mode.use_inf_as_na", True):
-                date_series = pd.to_datetime(raw_index, errors="coerce")
+            # 無限値をNaNに変換してから日付変換
+            index_data = pd.Series(raw_index).replace([np.inf, -np.inf], np.nan)
+            date_series = pd.to_datetime(index_data, errors="coerce")
 
     if date_series is None:
         raise ValueError("missing date index")
