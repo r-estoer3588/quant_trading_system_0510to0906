@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+
 from common.indicator_access import get_indicator, to_float
 
 try:
@@ -876,7 +877,9 @@ def _compute_setup_pass(
 
             # SPY gate: Close > SMA100
             try:
-                spy_df = get_spy_with_indicators(market_df if market_df is not None else None)
+                spy_df = get_spy_with_indicators(
+                    market_df if market_df is not None else None
+                )
             except Exception:
                 spy_df = None
             try:
@@ -905,6 +908,7 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system2":
+
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
                     vv = to_float(get_indicator(row, "rsi3"))
@@ -915,13 +919,14 @@ def _compute_setup_pass(
             def _two_up_ok(row: pd.Series) -> bool:
                 # 複数エイリアスの OR 判定（指標そのものがブール/数値 いずれでも True 判定）
                 return bool(
-                    get_indicator(row, "twodayup")
-                    or get_indicator(row, "uptwodays")
+                    get_indicator(row, "twodayup") or get_indicator(row, "uptwodays")
                 )
 
             filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
             rsi_pass = _count_if(filtered_rows, _rsi_ok)
-            two_up_pass = _count_if(filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r))
+            two_up_pass = _count_if(
+                filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r)
+            )
             setup_pass = two_up_pass
             if log_callback:
                 try:
@@ -963,11 +968,17 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system4":
+
             def _above_sma(row: pd.Series) -> bool:
                 try:
                     c = to_float(row.get("Close"))
                     s = to_float(get_indicator(row, "sma200"))
-                    return bool(row.get("filter")) and (not np.isnan(c)) and (not np.isnan(s)) and c > s
+                    return (
+                        bool(row.get("filter"))
+                        and (not np.isnan(c))
+                        and (not np.isnan(s))
+                        and c > s
+                    )
                 except Exception:
                     return False
 
@@ -1047,7 +1058,11 @@ def _compute_setup_pass(
                     c = to_float(row.get("Close"))
                     s = to_float(get_indicator(row, "sma100"))
                     a = to_float(get_indicator(row, "atr10"))
-                    return bool(row.get("filter")) and (not np.isnan(c) and not np.isnan(s) and not np.isnan(a)) and (c > s + a)
+                    return (
+                        bool(row.get("filter"))
+                        and (not np.isnan(c) and not np.isnan(s) and not np.isnan(a))
+                        and (c > s + a)
+                    )
                 except Exception:
                     return False
 
@@ -1092,8 +1107,7 @@ def _compute_setup_pass(
 
             def _up_two(row: pd.Series) -> bool:
                 return bool(
-                    get_indicator(row, "uptwodays")
-                    or get_indicator(row, "twodayup")
+                    get_indicator(row, "uptwodays") or get_indicator(row, "twodayup")
                 )
 
             ret_pass = _count_if(filtered_rows, _ret_ok)
