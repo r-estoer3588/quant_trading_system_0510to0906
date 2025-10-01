@@ -1321,8 +1321,10 @@ class RichSlackNotifier(SimpleSlackNotifier):
             client = WebClient(token=token)
             client.files_upload_v2(channel=ch, title=title[:80], file=image_path)
             self.logger.info("slack_api: image uploaded path=%s", image_path)
+            os.environ["LAST_IMAGE_UPLOAD_OK"] = "1"
         except Exception as e:  # pragma: no cover
             self.logger.warning("slack_api: image upload failed %s", e)
+            os.environ["LAST_IMAGE_UPLOAD_OK"] = "0"
 
     def _post_blocks(
         self, title: str, lines: list[str], channel: str | None = None
@@ -1373,6 +1375,7 @@ class RichSlackNotifier(SimpleSlackNotifier):
         rank_lines: list[list[str]] = []
         if ranking:
             formatted: list[str] = []
+            medals = {1: "🥇", 2: "🥈", 3: "🥉"}
             for i, r in enumerate(ranking[:10], 1):
                 try:
                     if isinstance(r, dict):
@@ -1382,11 +1385,14 @@ class RichSlackNotifier(SimpleSlackNotifier):
                             extra.append(f"ROC:{float(r['roc']):.2f}")
                         if "volume" in r:
                             extra.append(f"Vol:{int(float(r['volume'])):,}")
-                        formatted.append(f"{i}. {sym} {' '.join(extra)}")
+                        medal = medals.get(i, "•")
+                        formatted.append(f"{medal} {i}. {sym} {' '.join(extra)}")
                     else:
-                        formatted.append(f"{i}. {r}")
+                        medal = medals.get(i, "•")
+                        formatted.append(f"{medal} {i}. {r}")
                 except Exception:
-                    formatted.append(f"{i}. {r}")
+                    medal = medals.get(i, "•")
+                    formatted.append(f"{medal} {i}. {r}")
             # 2 カラム整形（幅計算は現在未使用のため省略）
             left = formatted[::2]
             right = formatted[1::2]
@@ -1411,34 +1417,74 @@ class RichSlackNotifier(SimpleSlackNotifier):
         self._post_blocks(title, lines, channel=channel)
         if image_path:
             self._upload_image(image_path, title=title, channel=channel)
+            if os.getenv("LAST_IMAGE_UPLOAD_OK") == "0":
+                # 失敗通知を追加
+                self._post_blocks(
+                    title + " (image upload failed)",
+                    ["画像アップロードに失敗しました"],
+                    channel=channel,
+                )
 
     def send_backtest_ex(self, *args, **kwargs) -> None:  # type: ignore[override]
         self.send_backtest(*args, **kwargs)
 
-    def send_signals(self, system_name: str, signals: list[str], *, channel: str | None = None, image_path: str | None = None) -> None:  # type: ignore[override]
+    def send_signals(self, system_name: str, signals: list[str] | list[dict[str, Any]], *, channel: str | None = None, image_path: str | None = None) -> None:  # type: ignore[override]
         run_id = os.getenv("BACKTEST_RUN_ID") or "-"
         title = f"📢 {system_name} Signals • {run_id}"
         lines: list[str] = []
         lines.append(f"count={len(signals)} {now_jst_str()}")
         if signals:
             sample = signals[:60]
-            # 等幅 3 カラム表 (シンボル長を最大8で切り詰め)
-            col = 3
-            rows = []
-            for i in range(0, len(sample), col):
-                seg = sample[i : i + col]
-                row = []
-                for s in seg:
-                    cell = s[:8]
-                    row.append(f"{cell:<8}")
-                while len(row) < col:
-                    row.append("")
-                rows.append("  ".join(row))
-            table = "```\n" + "\n".join(rows) + "\n```"
-            lines.append("*Symbols*\n" + table)
+            # dict を含む場合は volume / score を取得
+            has_meta = any(isinstance(x, dict) for x in sample)
+            if has_meta:
+                # 正規化: dict -> {'symbol':..., 'volume':..., 'score':...}
+                norm = []
+                for x in sample:
+                    if isinstance(x, dict):
+                        sym = x.get("symbol") or x.get("sym") or x.get("ticker") or "?"
+                        vol = x.get("volume") or x.get("vol")
+                        score = x.get("score") or x.get("roc") or x.get("rank_score")
+                        norm.append((sym, vol, score))
+                    else:
+                        norm.append((str(x), None, None))
+                # テーブル文字列化
+                header = ["SYMBOL", "VOLUME", "SCORE"]
+                rows_txt = []
+                rows_txt.append("  ".join(f"{h:<10}" for h in header))
+                for sym, vol, score in norm:
+                    vtxt = f"{int(vol):,}" if isinstance(vol, (int, float)) else "-"
+                    stxt = (
+                        f"{float(score):.2f}"
+                        if isinstance(score, (int, float, float))
+                        else "-"
+                    )
+                    rows_txt.append(f"{sym[:10]:<10}  {vtxt:<10}  {stxt:<10}")
+                table = "```\n" + "\n".join(rows_txt) + "\n```"
+                lines.append("*Signals*\n" + table)
+            else:
+                # シンボルのみ 3 カラム
+                col = 3
+                rows = []
+                for i in range(0, len(sample), col):
+                    seg = sample[i : i + col]
+                    row = []
+                    for s in seg:
+                        row.append(f"{s[:10]:<10}")
+                    while len(row) < col:
+                        row.append("")
+                    rows.append("  ".join(row))
+                table = "```\n" + "\n".join(rows) + "\n```"
+                lines.append("*Symbols*\n" + table)
         self._post_blocks(title, lines, channel=channel)
         if image_path:
             self._upload_image(image_path, title=title, channel=channel)
+            if os.getenv("LAST_IMAGE_UPLOAD_OK") == "0":
+                self._post_blocks(
+                    title + " (image upload failed)",
+                    ["画像アップロードに失敗しました"],
+                    channel=channel,
+                )
 
     def send_summary(self, system_name: str, period_type: str, period_label: str, summary: dict[str, Any], image_url: str | None = None, image_path: str | None = None) -> None:  # type: ignore[override]
         run_id = os.getenv("BACKTEST_RUN_ID") or "-"
@@ -1448,6 +1494,12 @@ class RichSlackNotifier(SimpleSlackNotifier):
         self._post_blocks(title, lines)
         if image_path:
             self._upload_image(image_path, title=title, channel=None)
+            if os.getenv("LAST_IMAGE_UPLOAD_OK") == "0":
+                self._post_blocks(
+                    title + " (image upload failed)",
+                    ["画像アップロードに失敗しました"],
+                    channel=None,
+                )
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]], image_path: str | None = None) -> None:  # type: ignore[override]
         run_id = os.getenv("BACKTEST_RUN_ID") or "-"
@@ -1466,3 +1518,9 @@ class RichSlackNotifier(SimpleSlackNotifier):
         self._post_blocks(title, lines)
         if image_path:
             self._upload_image(image_path, title=title, channel=None)
+            if os.getenv("LAST_IMAGE_UPLOAD_OK") == "0":
+                self._post_blocks(
+                    title + " (image upload failed)",
+                    ["画像アップロードに失敗しました"],
+                    channel=None,
+                )

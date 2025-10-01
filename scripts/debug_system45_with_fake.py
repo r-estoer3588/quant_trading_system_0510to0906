@@ -17,14 +17,16 @@ Environment flags respected:
   DEBUG_SYSTEM_FILTERS=1  (will cause today_filters debug prints if filters invoked elsewhere; here we print explicitly)
 """
 from __future__ import annotations
+
 import pandas as pd
-from config.settings import get_settings
+
 from common.today_filters import (
     _system4_conditions,
     _system5_conditions,
     filter_system4,
     filter_system5,
 )
+from config.settings import get_settings
 
 
 def load_fake_frames():
@@ -90,17 +92,23 @@ def main():
     print("=== System4 candidate symbols:", target_syms_s4)
     for sym in target_syms_s4:
         dv_ok, hv_ok = _system4_conditions(enriched[sym])
-        print(f"[S4 cond] {sym}: dv_ok={dv_ok} hv_ok={hv_ok}  (DollarVolume50={enriched[sym]['DollarVolume50'].iloc[-1]:.2f} HV50={enriched[sym]['HV50'].iloc[-1]:.2f})")
+        print(
+            f"[S4 cond] {sym}: dv_ok={dv_ok} hv_ok={hv_ok}  (DollarVolume50={enriched[sym]['DollarVolume50'].iloc[-1]:.2f} HV50={enriched[sym]['HV50'].iloc[-1]:.2f})"
+        )
 
     print("\n=== System5 candidate symbols:", target_syms_s5)
     for sym in target_syms_s5:
         av_ok, dv_ok, atr_ok = _system5_conditions(enriched[sym])
         atr_series = None
-        if 'ATR_Pct' in enriched[sym].columns:
-            atr_series = enriched[sym]['ATR_Pct']
-        elif 'ATR_Ratio' in enriched[sym].columns:
-            atr_series = enriched[sym]['ATR_Ratio']
-        atr_last = float(atr_series.iloc[-1]) if atr_series is not None and len(atr_series) else float('nan')
+        if "ATR_Pct" in enriched[sym].columns:
+            atr_series = enriched[sym]["ATR_Pct"]
+        elif "ATR_Ratio" in enriched[sym].columns:
+            atr_series = enriched[sym]["ATR_Ratio"]
+        atr_last = (
+            float(atr_series.iloc[-1])
+            if atr_series is not None and len(atr_series)
+            else float("nan")
+        )
         print(
             f"[S5 cond] {sym}: av_ok={av_ok} dv_ok={dv_ok} atr_ok={atr_ok} (AvgVolume50={enriched[sym]['AvgVolume50'].iloc[-1]:.0f} DV50={enriched[sym]['DollarVolume50'].iloc[-1]:.2f} ATR_Pct={atr_last:.3f})"
         )

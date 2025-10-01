@@ -862,6 +862,11 @@ def run_backtest_app(
                     f"{C['cyan']}=============================={C['reset']}",
                 ]
                 print("\n".join(start_lines), flush=True)
+                try:
+                    # UI 側にも Run ID を表示する小パネル
+                    st.info(f"Run ID: {run_id}")
+                except Exception:
+                    pass
                 if use_json:
                     try:
                         settings_local = get_settings(create_dirs=True)
@@ -878,6 +883,8 @@ def run_backtest_app(
                         "symbols": len(symbols),
                         "mode": mode_txt,
                         "run_id": run_id,
+                        "status": "running",
+                        "exception": None,
                     }
                     with (log_dir / f"{system_name.lower()}_events.jsonl").open(
                         "a", encoding="utf-8"
@@ -1021,6 +1028,8 @@ def run_backtest_app(
                             "trades": trades_cnt,
                             "mode": mode_txt,
                             "run_id": run_id,
+                            "status": "success",
+                            "exception": None,
                         }
                         with (log_dir / f"{system_name.lower()}_events.jsonl").open(
                             "a", encoding="utf-8"
