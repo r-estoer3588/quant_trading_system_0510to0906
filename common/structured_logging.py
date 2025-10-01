@@ -288,6 +288,9 @@ class SystemAnomalyDetector:
     しきい値超過時にアラート出力とログ記録を行う。
     """
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/anomaly")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -306,12 +309,19 @@ class SystemAnomalyDetector:
         self.alerts: List[AnomalyAlert] = []
         self._alert_lock = threading.Lock()
 
-        # ログ設定
-        self.logger = logging.getLogger("anomaly_detector")
-        handler = logging.FileHandler(self.log_dir / "anomalies.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared logger to avoid file handle leaks
+        with SystemAnomalyDetector._logger_lock:
+            if SystemAnomalyDetector._shared_logger is None:
+                SystemAnomalyDetector._shared_logger = logging.getLogger(
+                    "anomaly_detector"
+                )
+                if not SystemAnomalyDetector._shared_logger.handlers:
+                    handler = logging.FileHandler(self.log_dir / "anomalies.jsonl")
+                    handler.setFormatter(StructuredFormatter())
+                    SystemAnomalyDetector._shared_logger.addHandler(handler)
+                    SystemAnomalyDetector._shared_logger.setLevel(logging.INFO)
+
+            self.logger = SystemAnomalyDetector._shared_logger
 
     def check_system_health(self, system_name: str = "unknown") -> List[AnomalyAlert]:
         """システム健康状態をチェックし、異常があればアラートを生成。"""
@@ -472,6 +482,9 @@ class PerformanceDegradationDetector:
     通常より大幅に遅い処理を自動検出してアラート出力。
     """
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/performance")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -490,12 +503,21 @@ class PerformanceDegradationDetector:
         self.degradation_alerts: List[AnomalyAlert] = []
         self._alerts_lock = threading.Lock()
 
-        # ログ設定
-        self.logger = logging.getLogger("performance_detector")
-        handler = logging.FileHandler(self.log_dir / "performance_degradation.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared logger to avoid file handle leaks
+        with PerformanceDegradationDetector._logger_lock:
+            if PerformanceDegradationDetector._shared_logger is None:
+                PerformanceDegradationDetector._shared_logger = logging.getLogger(
+                    "performance_detector"
+                )
+                if not PerformanceDegradationDetector._shared_logger.handlers:
+                    handler = logging.FileHandler(
+                        self.log_dir / "performance_degradation.jsonl"
+                    )
+                    handler.setFormatter(StructuredFormatter())
+                    PerformanceDegradationDetector._shared_logger.addHandler(handler)
+                    PerformanceDegradationDetector._shared_logger.setLevel(logging.INFO)
+
+            self.logger = PerformanceDegradationDetector._shared_logger
 
     def record_execution(
         self, operation: str, duration: float, system_name: str = "unknown"
@@ -887,50 +909,52 @@ class TradingSystemLogger:
             self.ring_buffer.clear()
 
     def _setup_loggers(self) -> None:
-        """Setup structured loggers."""
+        """Setup structured loggers with shared handlers to avoid file handle leaks."""
         # Main application logger
         self.app_logger = logging.getLogger("quant_trading")
         self.app_logger.setLevel(logging.INFO)
 
-        # Custom handler that feeds ring buffer
-        class RingBufferHandler(logging.Handler):
-            def __init__(self, trading_logger):
-                super().__init__()
-                self.trading_logger = trading_logger
+        # Only add handlers if none exist to prevent duplicates
+        if not self.app_logger.handlers:
+            # Custom handler that feeds ring buffer
+            class RingBufferHandler(logging.Handler):
+                def __init__(self, trading_logger):
+                    super().__init__()
+                    self.trading_logger = trading_logger
 
-            def emit(self, record):
-                try:
-                    log_data = {
-                        "timestamp": datetime.now().isoformat(),
-                        "level": record.levelname,
-                        "logger": record.name,
-                        "message": record.getMessage(),
-                        "module": getattr(record, "module", ""),
-                        "function": getattr(record, "funcName", ""),
-                        "line": getattr(record, "lineno", 0),
-                    }
-
-                    # Add trace context if available
+                def emit(self, record):
                     try:
-                        from .trace_context import get_trace_info_for_logging
+                        log_data = {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": record.levelname,
+                            "logger": record.name,
+                            "message": record.getMessage(),
+                            "module": getattr(record, "module", ""),
+                            "function": getattr(record, "funcName", ""),
+                            "line": getattr(record, "lineno", 0),
+                        }
 
-                        trace_info = get_trace_info_for_logging()
-                        log_data.update(trace_info)
-                    except ImportError:
-                        pass
+                        # Add trace context if available
+                        try:
+                            from .trace_context import get_trace_info_for_logging
 
-                    self.trading_logger._add_to_ring_buffer(log_data)
-                except Exception:
-                    pass  # Don't let logging errors break the system
+                            trace_info = get_trace_info_for_logging()
+                            log_data.update(trace_info)
+                        except ImportError:
+                            pass
 
-        # JSON file handler
-        json_handler = logging.FileHandler(self.log_dir / "application.jsonl")
-        json_handler.setFormatter(StructuredFormatter())
-        self.app_logger.addHandler(json_handler)
+                        self.trading_logger._add_to_ring_buffer(log_data)
+                    except Exception:
+                        pass  # Don't let logging errors break the system
 
-        # Ring buffer handler
-        ring_handler = RingBufferHandler(self)
-        self.app_logger.addHandler(ring_handler)
+            # JSON file handler
+            json_handler = logging.FileHandler(self.log_dir / "application.jsonl")
+            json_handler.setFormatter(StructuredFormatter())
+            self.app_logger.addHandler(json_handler)
+
+            # Ring buffer handler
+            ring_handler = RingBufferHandler(self)
+            self.app_logger.addHandler(ring_handler)
 
     def _get_trace_id(
         self, trace_context: Optional[Dict[str, Any]] = None
@@ -1226,6 +1250,9 @@ class BottleneckAnalyzer:
     どの処理段階が最も時間を要しているかを視覚的に分析可能。
     """
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/bottleneck")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -1238,12 +1265,21 @@ class BottleneckAnalyzer:
         self.bottleneck_reports: List[Dict[str, Any]] = []
         self._analysis_lock = threading.Lock()
 
-        # ログ設定
-        self.logger = logging.getLogger("bottleneck_analyzer")
-        handler = logging.FileHandler(self.log_dir / "bottleneck_analysis.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared logger to avoid file handle leaks
+        with BottleneckAnalyzer._logger_lock:
+            if BottleneckAnalyzer._shared_logger is None:
+                BottleneckAnalyzer._shared_logger = logging.getLogger(
+                    "bottleneck_analyzer"
+                )
+                if not BottleneckAnalyzer._shared_logger.handlers:
+                    handler = logging.FileHandler(
+                        self.log_dir / "bottleneck_analysis.jsonl"
+                    )
+                    handler.setFormatter(StructuredFormatter())
+                    BottleneckAnalyzer._shared_logger.addHandler(handler)
+                    BottleneckAnalyzer._shared_logger.setLevel(logging.INFO)
+
+            self.logger = BottleneckAnalyzer._shared_logger
 
     def record_phase_timing(
         self, phase: str, duration: float, system_name: str = "unknown", **metadata
@@ -1517,6 +1553,9 @@ class PredictiveProgressTracker:
     動的に更新される正確な進捗情報を提供。
     """
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/progress")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -1529,12 +1568,21 @@ class PredictiveProgressTracker:
         self.current_executions: Dict[str, Dict[str, Any]] = {}
         self._progress_lock = threading.Lock()
 
-        # ログ設定
-        self.logger = logging.getLogger("progress_tracker")
-        handler = logging.FileHandler(self.log_dir / "progress_predictions.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared logger to avoid file handle leaks
+        with PredictiveProgressTracker._logger_lock:
+            if PredictiveProgressTracker._shared_logger is None:
+                PredictiveProgressTracker._shared_logger = logging.getLogger(
+                    "progress_tracker"
+                )
+                if not PredictiveProgressTracker._shared_logger.handlers:
+                    handler = logging.FileHandler(
+                        self.log_dir / "progress_predictions.jsonl"
+                    )
+                    handler.setFormatter(StructuredFormatter())
+                    PredictiveProgressTracker._shared_logger.addHandler(handler)
+                    PredictiveProgressTracker._shared_logger.setLevel(logging.INFO)
+
+            self.logger = PredictiveProgressTracker._shared_logger
 
     def start_tracking(
         self, operation: str, total_items: int, system_name: str = "unknown"
@@ -1832,6 +1880,9 @@ class RealTimeMetricsCollector:
     データ収集機能。グラフ形式での可視化をサポート。
     """
 
+    _shared_logger = None
+    _logger_lock = threading.Lock()
+
     def __init__(self, log_dir: Optional[Path] = None):
         self.log_dir = log_dir or Path("logs/realtime_metrics")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -1874,12 +1925,21 @@ class RealTimeMetricsCollector:
         self.collection_thread: Optional[threading.Thread] = None
         self.collection_interval = 2.0  # 2秒間隔
 
-        # ログ設定
-        self.logger = logging.getLogger("realtime_metrics")
-        handler = logging.FileHandler(self.log_dir / "realtime_metrics.jsonl")
-        handler.setFormatter(StructuredFormatter())
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        # Setup shared logger to avoid file handle leaks
+        with RealTimeMetricsCollector._logger_lock:
+            if RealTimeMetricsCollector._shared_logger is None:
+                RealTimeMetricsCollector._shared_logger = logging.getLogger(
+                    "realtime_metrics"
+                )
+                if not RealTimeMetricsCollector._shared_logger.handlers:
+                    handler = logging.FileHandler(
+                        self.log_dir / "realtime_metrics.jsonl"
+                    )
+                    handler.setFormatter(StructuredFormatter())
+                    RealTimeMetricsCollector._shared_logger.addHandler(handler)
+                    RealTimeMetricsCollector._shared_logger.setLevel(logging.INFO)
+
+            self.logger = RealTimeMetricsCollector._shared_logger
 
     def start_collection(self) -> None:
         """リアルタイム収集を開始。"""
