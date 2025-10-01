@@ -10,6 +10,7 @@ ROC200-based momentum strategy:
 from __future__ import annotations
 
 import os
+
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
@@ -168,6 +169,7 @@ def prepare_data_vectorized_system1(
     Returns:
         Processed data dictionary
     """
+
     def _substep(msg: str) -> None:
         if not log_callback:
             return

@@ -674,8 +674,9 @@ def _emit_ui_log(message: str) -> None:
     payload: str
     if structured:
         try:
-            import time as _t
             import json as _json
+            import time as _t
+
             now = _t.time()
             iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
             payload = _json.dumps({"ts": int(now * 1000), "iso": iso, "msg": str(message)})
