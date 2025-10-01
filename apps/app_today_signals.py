@@ -1527,6 +1527,25 @@ class StageTracker:
             return
         vv = max(0, min(100, int(value)))
         prev = int(self.states.get(key, 0))
+        # 進捗が 0/25/50/75 のままでも、下流ステージのカウントが埋まっている場合は補完
+        if vv < 100:
+            try:
+                snap = GLOBAL_STAGE_METRICS.get_snapshot(key)
+            except Exception:
+                snap = None
+            if snap is not None:
+                # entry_count が存在 → 75% 以上完了とみなし 100 に丸め
+                if snap.entry_count is not None:
+                    vv = 100
+                # candidate_count のみ → 75%
+                elif snap.candidate_count is not None and vv < 75:
+                    vv = 75
+                # setup_pass があり filter_pass も → 50%
+                elif snap.setup_pass is not None and snap.filter_pass is not None and vv < 50:
+                    vv = 50
+                # filter_pass のみ存在 → 25%
+                elif snap.filter_pass is not None and vv < 25:
+                    vv = 25
         vv = max(prev, vv)
         self.states[key] = vv
         try:

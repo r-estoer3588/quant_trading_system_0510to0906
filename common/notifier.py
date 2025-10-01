@@ -793,6 +793,49 @@ class SimpleSlackNotifier(Notifier):
             os.getenv("SLACK_CHANNEL", "").strip()
             or os.getenv("SLACK_CHANNEL_ID", "").strip()
         )
+        # 追加フォールバック: 一般チャンネル指定が無い場合、ログ/シグナル/エクイティ用が一つでもあればその最初をデフォルトに採用
+        # これによりユーザが SLACK_CHANNEL_* 系のみ .env に設定しているケースでも debug / send() が沈黙しない。
+        if not self._slack_default_ch:
+            for _alt_env in [
+                "SLACK_CHANNEL_LOGS",
+                "SLACK_CHANNEL_SIGNALS",
+                "SLACK_CHANNEL_EQUITY",
+            ]:
+                _v = os.getenv(_alt_env, "").strip()
+                if _v:
+                    self._slack_default_ch = _v
+                    break
+        # 役割別チャンネル (存在しないものは空文字)
+        self._ch_logs = os.getenv("SLACK_CHANNEL_LOGS", "").strip()
+        self._ch_signals = os.getenv("SLACK_CHANNEL_SIGNALS", "").strip()
+        self._ch_equity = os.getenv("SLACK_CHANNEL_EQUITY", "").strip()
+
+    def _resolve_channel(
+        self, kind: str | None, explicit: str | None = None
+    ) -> str | None:
+        """役割 (kind) と明示指定 explicit から最終チャンネルを決定。
+
+        kind:
+            logs     -> SLACK_CHANNEL_LOGS
+            signals  -> SLACK_CHANNEL_SIGNALS
+            equity   -> SLACK_CHANNEL_EQUITY
+            generic/None -> self._slack_default_ch
+        explicit があればそれを最優先。
+        """
+        if explicit:
+            return explicit
+        if kind == "logs" and self._ch_logs:
+            return self._ch_logs
+        if kind == "signals" and self._ch_signals:
+            return self._ch_signals
+        if kind == "equity" and self._ch_equity:
+            return self._ch_equity
+        return (
+            self._slack_default_ch
+            or self._ch_logs
+            or self._ch_signals
+            or self._ch_equity
+        )
 
     # 旧 FallbackNotifier 互換 private メソッド名を保持
     def _slack_send_text(
@@ -802,12 +845,26 @@ class SimpleSlackNotifier(Notifier):
         channel: str | None = None,
         blocks: list[dict[str, Any]] | None = None,
     ) -> bool:  # noqa: D401
+        debug_mode = os.getenv("SLACK_DEBUG_VERBOSE") == "1"
+        run_id = os.getenv("BACKTEST_RUN_ID", "")
+        # 失敗理由を最後にまとめて表示するためのバッファ
+        debug_reasons: list[str] = []
+
         if _notifications_disabled():
-            self.logger.info("通知送信は無効化されています（テスト/CI/環境変数）")
+            msg = "slack_api: 通知送信は無効化されています（テスト/CI/環境変数）"
+            self.logger.info(msg)
+            if debug_mode:
+                print(f"[SLACK_DEBUG][run_id={run_id}] {msg}")
             return True
         ch = channel or self._slack_default_ch
         if not ch:
+            reason = "channel_not_set"
             self.logger.warning("slack_api: チャンネル未設定のため送信スキップ")
+            if debug_mode:
+                debug_reasons.append(reason)
+                print(
+                    f"[SLACK_DEBUG][run_id={run_id}] failed reason={reason} token_set={bool(self._slack_token)} text_len={len(text)}"
+                )
             return False
         token = self._slack_token
         if token and WebClient is not None:
@@ -815,6 +872,10 @@ class SimpleSlackNotifier(Notifier):
                 client = WebClient(token=token)
                 client.chat_postMessage(channel=ch, text=text, blocks=blocks)
                 self.logger.info("slack_api: sent to %s", ch)
+                if debug_mode:
+                    print(
+                        f"[SLACK_DEBUG][run_id={run_id}] success channel={ch} text_len={len(text)} blocks={bool(blocks)}"
+                    )
                 return True
             except SlackApiError as e:
                 resp = getattr(e, "response", None)
@@ -823,14 +884,30 @@ class SimpleSlackNotifier(Notifier):
                 except Exception:
                     msg = str(e)
                 self.logger.warning("slack_api: error %s", truncate(msg, 200))
+                if debug_mode:
+                    debug_reasons.append(f"slack_api_error:{msg}")
             except Exception as e:  # pragma: no cover
                 self.logger.warning("slack_api: exception %s", e)
+                if debug_mode:
+                    debug_reasons.append(f"exception:{type(e).__name__}:{e}")
+        else:
+            if debug_mode:
+                debug_reasons.append(
+                    f"client_unavailable token_set={bool(token)} webclient={'yes' if WebClient is not None else 'no'}"
+                )
+        if debug_mode:
+            # ここまで到達 = 失敗
+            print(
+                f"[SLACK_DEBUG][run_id={run_id}] failed channel={ch} reasons={';'.join(debug_reasons) or 'unknown'}"
+            )
         return False
 
     # 代表的シグナル類をシンプル送信（失敗しても例外化せずログのみ）
     def send(self, title: str, message: str, *_, **__) -> None:  # type: ignore[override]
+        # 汎用メッセージは logs チャンネルへ
         text = f"{title}\n{message}" if message else title
-        self._slack_send_text(text)
+        ch = self._resolve_channel("logs", None)
+        self._slack_send_text(text, channel=ch)
 
     def send_signals(self, system_name: str, signals: list[str], *, channel: str | None = None) -> None:  # type: ignore[override]
         preview = (
@@ -839,19 +916,22 @@ class SimpleSlackNotifier(Notifier):
             else "(none)"
         )
         text = f"📢 {system_name} Signals {now_jst_str()}\ncount={len(signals)}\n{preview}"  # noqa: E501
-        self._slack_send_text(text, channel=channel)
+        ch = self._resolve_channel("signals", channel)
+        self._slack_send_text(text, channel=ch)
 
     def send_backtest(self, system_name: str, period: str, stats: dict[str, Any], ranking: list[str], *, channel: str | None = None) -> None:  # type: ignore[override]
         summary = ", ".join(f"{k}={v}" for k, v in list(stats.items())[:5])
         text = f"📊 {system_name} Backtest {period} {now_jst_str()}\n{summary}"
-        self._slack_send_text(text, channel=channel)
+        ch = self._resolve_channel("logs", channel)
+        self._slack_send_text(text, channel=ch)
 
     def send_backtest_ex(self, *args, **kwargs) -> None:  # type: ignore[override]
         self.send_backtest(*args, **kwargs)
 
     def send_trade_report(self, system_name: str, trades: list[dict[str, Any]]) -> None:  # type: ignore[override]
         text = f"🧾 {system_name} Trades {now_jst_str()} count={len(trades)}"
-        self._slack_send_text(text)
+        ch = self._resolve_channel("logs", None)
+        self._slack_send_text(text, channel=ch)
 
     def send_summary(
         self,
@@ -863,7 +943,8 @@ class SimpleSlackNotifier(Notifier):
     ) -> None:  # type: ignore[override]
         kv = ", ".join(f"{k}={v}" for k, v in list(summary.items())[:10])
         text = f"📊 {system_name} {period_type} {period_label} {now_jst_str()}\n{kv}"
-        self._slack_send_text(text)
+        ch = self._resolve_channel("logs", None)
+        self._slack_send_text(text, channel=ch)
 
 
 class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
@@ -891,7 +972,7 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
         blocks: list[dict[str, Any]] | None = None,
     ) -> bool:
         if _notifications_disabled():
-            self._logger.info("通知送信は無効化されています（テスト/CI/環境変数）")
+            self.logger.info("通知送信は無効化されています（テスト/CI/環境変数）")
             return True
         ch = channel or self._slack_default_ch
         if not ch:
@@ -901,7 +982,7 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
             try:  # pragma: no cover
                 client = WebClient(token=token)
                 client.chat_postMessage(channel=ch, text=text, blocks=blocks)
-                self._logger.info("fallback: sent via Slack API to %s", ch)
+                self.logger.info("fallback: sent via Slack API to %s", ch)
                 return True
             except SlackApiError as e:
                 resp = getattr(e, "response", None)
@@ -909,11 +990,9 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
                     msg = resp.get("error") if resp else str(e)
                 except Exception:
                     msg = str(e)
-                self._logger.warning(
-                    "fallback: Slack API error: %s", truncate(msg, 200)
-                )
+                self.logger.warning("fallback: Slack API error: %s", truncate(msg, 200))
             except Exception as e:
-                self._logger.warning("fallback: Slack API exception: %s", e)
+                self.logger.warning("fallback: Slack API exception: %s", e)
         return False
 
     def _slack_upload_file(
@@ -933,7 +1012,7 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
                 title=title,
                 file=image_path,
             )
-            self._logger.info("fallback: file uploaded via Slack API to %s", ch)
+            self.logger.info("fallback: file uploaded via Slack API to %s", ch)
             return True
         except SlackApiError as e:
             resp = getattr(e, "response", None)
@@ -941,12 +1020,12 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
                 msg = resp.get("error") if resp else str(e)
             except Exception:
                 msg = str(e)
-            self._logger.warning(
+            self.logger.warning(
                 "fallback: Slack file upload error: %s", truncate(msg, 200)
             )
             return False
         except Exception as e:
-            self._logger.warning("fallback: Slack file upload exception: %s", e)
+            self.logger.warning("fallback: Slack file upload exception: %s", e)
             return False
 
     def _discord_call(self, fn_name: str, *args, **kwargs) -> bool:
@@ -954,10 +1033,10 @@ class FallbackNotifier(SimpleSlackNotifier):  # type: ignore
             return False
         try:
             getattr(self._discord, fn_name)(*args, **kwargs)
-            self._logger.info("fallback: sent via Discord (%s)", fn_name)
+            self.logger.info("fallback: sent via Discord (%s)", fn_name)
             return True
         except Exception as e:  # pragma: no cover
-            self._logger.warning("fallback: Discord send failed (%s) %s", fn_name, e)
+            self.logger.warning("fallback: Discord send failed (%s) %s", fn_name, e)
             return False
 
     def send(

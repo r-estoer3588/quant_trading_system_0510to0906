@@ -46,6 +46,7 @@ from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
+from common.indicator_access import get_indicator, to_float
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -1635,10 +1636,29 @@ def _load_indicator_data(
                         reason_desc = f"len={len(df)}/{target_len}"
                     except Exception:
                         reason_desc = "行数不足"
-                _log(
-                    f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
-                    ui=False,
-                )
+                # 詳細な rolling 未整備ログは COMPACT_TODAY_LOGS=1 で抑制し、
+                # 終盤の集約サマリ (⚠️ rolling未整備: ...) のみ残す。
+                # ノイズ削減により大量新規/不足銘柄出現時のログ可読性を向上。
+                try:
+                    compact = os.environ.get("COMPACT_TODAY_LOGS", "").strip().lower()
+                    suppress_verbose = compact in {"1", "true", "yes", "on"}
+                except Exception:
+                    suppress_verbose = False
+                if not suppress_verbose:
+                    _log(
+                        f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
+                        ui=False,
+                    )
+                else:
+                    # 抑制時は DEBUG レベルで最小限残す (開発デバッグ用)
+                    try:
+                        import logging
+
+                        logging.getLogger(__name__).debug(
+                            "suppress rolling_missing verbose: %s (%s)", sym, reason_desc
+                        )
+                    except Exception:
+                        pass
                 continue
             if df is not None and not df.empty:
                 try:
@@ -1945,51 +1965,52 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
         log = _get_today_logger()
         skip_external = getattr(ctx, "skip_external", False)
 
-        try:
-            if skip_external:
-                _log("⚡ 外部API呼び出しをスキップ - キャッシュから銘柄リストを構築")
+        # 先に test_symbols モードを優先判定（skip_external に依存せず読み込める）
+        fetched = []
+        test_mode = getattr(ctx, "test_mode", None)
+        if test_mode == "test_symbols":
+            try:
+                from config.settings import get_settings
+
+                settings_local = get_settings()
+                test_symbols_dir = settings_local.DATA_CACHE_DIR / "test_symbols"
+                if test_symbols_dir.exists():
+                    feather_files = list(test_symbols_dir.glob("*.feather"))
+                    fetched = [f.stem for f in feather_files]
+                    _log(
+                        f"🧪 架空銘柄モード: {len(fetched)}銘柄を使用 (skip_external={skip_external})"
+                    )
+                else:
+                    _log(f"❌ 架空銘柄ディレクトリが見つかりません: {test_symbols_dir}")
+                    _log("先に 'python tools/generate_test_symbols.py' を実行してください")
+            except Exception as exc:
+                _log(f"❌ 架空銘柄読み込みエラー: {exc}")
                 fetched = []
-            else:
-                fetched = build_symbol_universe_from_settings(settings, logger=log)
-        except Exception as exc:  # pragma: no cover - ネットワーク例外のみログ
-            fetched = []
-            msg = f"⚠️ NASDAQ/EODHD銘柄リストの取得に失敗しました: {exc}"
-            _log(msg)
-            if log_callback:
-                try:
-                    log_callback(msg)
-                except Exception:
-                    pass
+        if not fetched:  # 通常経路
+            try:
+                if skip_external:
+                    _log("⚡ 外部API呼び出しをスキップ - キャッシュから銘柄リストを構築")
+                    fetched = []
+                else:
+                    fetched = build_symbol_universe_from_settings(settings, logger=log)
+            except Exception as exc:  # pragma: no cover - ネットワーク例外のみログ
+                fetched = []
+                msg = f"⚠️ NASDAQ/EODHD銘柄リストの取得に失敗しました: {exc}"
+                _log(msg)
+                if log_callback:
+                    try:
+                        log_callback(msg)
+                    except Exception:
+                        pass
 
         if fetched:
             limit_val: int | None = None
             limit_src = ""
 
             # テストモードの制限チェック
-            test_mode = getattr(ctx, "test_mode", None)
             if test_mode:
                 test_limits = {"mini": 10, "quick": 50, "sample": 100}
-                if test_mode == "test_symbols":
-                    # 架空銘柄モード：test_symbolsディレクトリから銘柄一覧を取得
-                    try:
-                        from config.settings import get_settings
-
-                        settings = get_settings()
-                        test_symbols_dir = settings.DATA_CACHE_DIR / "test_symbols"
-                        if test_symbols_dir.exists():
-                            feather_files = list(test_symbols_dir.glob("*.feather"))
-                            test_symbol_names = [f.stem for f in feather_files]
-                            fetched = test_symbol_names
-                            limit_src = f"test-mode=test_symbols ({len(test_symbol_names)}銘柄)"
-                            _log(f"🧪 架空銘柄モード: {len(test_symbol_names)}銘柄を使用")
-                        else:
-                            _log(f"❌ 架空銘柄ディレクトリが見つかりません: {test_symbols_dir}")
-                            _log("先に 'python tools/generate_test_symbols.py' を実行してください")
-                            fetched = []
-                    except Exception as e:
-                        _log(f"❌ 架空銘柄読み込みエラー: {e}")
-                        fetched = []
-                elif test_mode in test_limits:
+                if test_mode in test_limits and test_mode != "test_symbols":
                     limit_val = test_limits[test_mode]
                     limit_src = f"test-mode={test_mode}"
 
@@ -3374,13 +3395,12 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                sma_pass = float(last.get("SMA25", float("nan"))) > float(
-                    last.get("SMA50", float("nan"))
-                )
+                a = to_float(get_indicator(last, "sma25"))
+                b = to_float(get_indicator(last, "sma50"))
+                if (not pd.isna(a)) and (not pd.isna(b)) and a > b:
+                    s1_setup_calc += 1
             except Exception:
-                sma_pass = False
-            if sma_pass:
-                s1_setup_calc += 1
+                pass
         s1_setup = int(s1_setup_calc)
         # 出力順: フィルタ通過 → SPY>SMA100 → SMA25>SMA50
         if _spy_ok is None:
@@ -3450,14 +3470,16 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                rsi_pass = float(last.get("RSI3", 0)) > 90
+                rv = to_float(get_indicator(last, "rsi3"))
+                rsi_pass = (not pd.isna(rv)) and rv > 90
             except Exception:
                 rsi_pass = False
             if not rsi_pass:
                 continue
             s2_rsi += 1
             try:
-                if bool(last.get("TwoDayUp", False)):
+                up = get_indicator(last, "twodayup") or get_indicator(last, "uptwodays")
+                if bool(up):
                     s2_combo += 1
             except Exception:
                 pass
@@ -3498,14 +3520,17 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                close_pass = float(last.get("Close", 0)) > float(last.get("SMA150", float("inf")))
+                cval = to_float(last.get("Close"))
+                sval = to_float(get_indicator(last, "sma150"))
+                close_pass = (not pd.isna(cval)) and (not pd.isna(sval)) and cval > sval
             except Exception:
                 close_pass = False
             if not close_pass:
                 continue
             s3_close += 1
             try:
-                drop_pass = float(last.get("Drop3D", 0)) >= 0.125
+                dv = to_float(get_indicator(last, "drop3d"))
+                drop_pass = (not pd.isna(dv)) and dv >= 0.125
             except Exception:
                 drop_pass = False
             if drop_pass:
@@ -3545,7 +3570,9 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA200", float("inf"))):
+                sval = to_float(get_indicator(last, "sma200"))
+                cval = to_float(last.get("Close"))
+                if (not pd.isna(sval)) and (not pd.isna(cval)) and cval > sval:
                     s4_close += 1
             except Exception:
                 pass
@@ -3582,8 +3609,11 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                price_pass = float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
-                    last.get("ATR10", 0)
+                cval = to_float(last.get("Close"))
+                sval = to_float(get_indicator(last, "sma100"))
+                aval = to_float(get_indicator(last, "atr10"))
+                price_pass = (not pd.isna(cval) and not pd.isna(sval) and not pd.isna(aval)) and (
+                    cval > sval + aval
                 )
             except Exception:
                 price_pass = False
@@ -3591,14 +3621,16 @@ def compute_today_signals(
                 continue
             s5_close += 1
             try:
-                adx_pass = float(last.get("ADX7", 0)) > 55
+                adx_val = to_float(get_indicator(last, "adx7"))
+                adx_pass = (not pd.isna(adx_val)) and adx_val > 55
             except Exception:
                 adx_pass = False
             if not adx_pass:
                 continue
             s5_adx += 1
             try:
-                rsi_pass = float(last.get("RSI3", 100)) < 50
+                rsi_val = to_float(get_indicator(last, "rsi3"))
+                rsi_pass = (not pd.isna(rsi_val)) and rsi_val < 50
             except Exception:
                 rsi_pass = False
             if rsi_pass:
@@ -3640,15 +3672,16 @@ def compute_today_signals(
             except Exception:
                 continue
             try:
-                # return_6d: 旧称 Return6D (命名統一済)
-                ret_pass = float(last.get("return_6d", 0)) > 0.20
+                r6v = to_float(get_indicator(last, "return_6d"))
+                ret_pass = (not pd.isna(r6v)) and r6v > 0.20
             except Exception:
                 ret_pass = False
             if not ret_pass:
                 continue
             s6_ret += 1
             try:
-                if bool(last.get("UpTwoDays", False)):
+                up = get_indicator(last, "uptwodays") or get_indicator(last, "twodayup")
+                if bool(up):
                     s6_combo += 1
             except Exception:
                 pass

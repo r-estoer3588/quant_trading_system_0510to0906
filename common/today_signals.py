@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+from common.indicator_access import get_indicator, to_float
 
 try:
     from common.dataframe_utils import round_dataframe  # type: ignore
@@ -308,7 +309,11 @@ def _slice_data_for_lookback(
     raw_data_dict: dict[str, pd.DataFrame],
     lookback_days: int | None,
 ) -> dict[str, pd.DataFrame]:
-    if lookback_days is None or lookback_days <= 0 or not isinstance(raw_data_dict, dict):
+    if (
+        lookback_days is None
+        or lookback_days <= 0
+        or not isinstance(raw_data_dict, dict)
+    ):
         return raw_data_dict
     sliced: dict[str, pd.DataFrame] = {}
     for sym, df in raw_data_dict.items():
@@ -460,7 +465,9 @@ def _filter_by_data_freshness(
         return prepared, [], []
 
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
     except Exception:
         prev_trading_day = pd.Timestamp(today).normalize() - pd.Timedelta(days=1)
 
@@ -625,18 +632,26 @@ def _compute_filter_pass(
     log_callback: Callable[[str], None] | None,
 ) -> int:
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_filter_on_date(x: pd.DataFrame) -> bool:
             try:
                 if getattr(x, "empty", True) or "filter" not in x.columns:
                     return False
                 if "Date" in x.columns:
-                    dt_vals = pd.to_datetime(x["Date"], errors="coerce").dt.normalize().to_numpy()
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
                     mask = dt_vals == prev_trading_day
                     rows = x.loc[mask]
                 else:
-                    idx_vals = pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
                 if len(rows) == 0:
@@ -655,7 +670,9 @@ def _compute_filter_pass(
             filter_pass = 0
         try:
             if str(system_name).lower() == "system7":
-                filter_pass = 1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                filter_pass = (
+                    1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                )
         except Exception:
             pass
     except Exception:
@@ -681,7 +698,9 @@ def _generate_candidates_for_system(
     gen_fn = strategy.generate_candidates  # type: ignore[attr-defined]
     params = inspect.signature(gen_fn).parameters
     needs_market_df = "market_df" in params
-    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+    accepts_kwargs = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
     can_override_top_n = "top_n" in params or accepts_kwargs
     market_df_local = market_df
     market_df_arg = market_df
@@ -691,7 +710,9 @@ def _generate_candidates_for_system(
         needs_fallback = market_df_arg is None or getattr(market_df_arg, "empty", False)
         if needs_fallback and isinstance(prepared, dict):
             maybe_spy = prepared.get("SPY")
-            if isinstance(maybe_spy, pd.DataFrame) and not getattr(maybe_spy, "empty", True):
+            if isinstance(maybe_spy, pd.DataFrame) and not getattr(
+                maybe_spy, "empty", True
+            ):
                 market_df_arg = maybe_spy
                 needs_fallback = False
         if needs_fallback:
@@ -704,13 +725,17 @@ def _generate_candidates_for_system(
                 market_df_local = cached_spy
                 if log_callback:
                     try:
-                        log_callback("🛟 System4: SPYデータをキャッシュから補完しました")
+                        log_callback(
+                            "🛟 System4: SPYデータをキャッシュから補完しました"
+                        )
                     except Exception:
                         pass
         if market_df_arg is None or getattr(market_df_arg, "empty", False):
             if log_callback:
                 try:
-                    log_callback("⚠️ System4: SPYデータが見つからないため候補抽出をスキップします")
+                    log_callback(
+                        "⚠️ System4: SPYデータが見つからないため候補抽出をスキップします"
+                    )
                 except Exception:
                     pass
             return CandidateExtraction(
@@ -779,16 +804,24 @@ def _compute_setup_pass(
     log_callback: Callable[[str], None] | None,
 ) -> int:
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_row(x: pd.DataFrame) -> pd.Series | None:
             try:
                 if "Date" in x.columns:
-                    dt_vals = pd.to_datetime(x["Date"], errors="coerce").dt.normalize().to_numpy()
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
                     mask = dt_vals == prev_trading_day
                     rows = x.loc[mask]
                 else:
-                    idx_vals = pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
                 if len(rows) == 0:
@@ -831,27 +864,28 @@ def _compute_setup_pass(
         if name == "system1":
             filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
 
-            def _sma_ok(row: pd.Series) -> bool:
+            def _sma_ok(row: pd.Series) -> bool:  # SMA25 > SMA50
                 try:
-                    return float(row.get("SMA25", 0)) > float(row.get("SMA50", 0))
+                    a = to_float(get_indicator(row, "sma25"))
+                    b = to_float(get_indicator(row, "sma50"))
+                    return (not np.isnan(a)) and (not np.isnan(b)) and a > b
                 except Exception:
                     return False
 
             sma_pass = _count_if(filtered_rows, _sma_ok)
-            spy_source = market_df if market_df is not None else None
+
+            # SPY gate: Close > SMA100
             try:
-                spy_df = get_spy_with_indicators(spy_source)
+                spy_df = get_spy_with_indicators(market_df if market_df is not None else None)
             except Exception:
                 spy_df = None
-
-            spy_gate: int | None
             try:
                 if spy_df is None or getattr(spy_df, "empty", True):
-                    spy_gate = None
+                    spy_gate: int | None = None
                 else:
                     last_row = spy_df.iloc[-1]
-                    close_val = float(last_row.get("Close", float("nan")))
-                    sma_val = float(last_row.get("SMA100", float("nan")))
+                    close_val = to_float(last_row.get("Close"))
+                    sma_val = to_float(get_indicator(last_row, "sma100"))
                     if np.isnan(close_val) or np.isnan(sma_val):
                         spy_gate = None
                     else:
@@ -860,27 +894,30 @@ def _compute_setup_pass(
                 spy_gate = None
 
             setup_pass = sma_pass if spy_gate != 0 else 0
-
             if log_callback:
-                spy_label = "-" if spy_gate is None else str(int(spy_gate))
                 try:
+                    spy_label = "-" if spy_gate is None else str(int(spy_gate))
                     log_callback(
                         "🧩 system1セットアップ集計: "
-                        + f"フィルタ通過={filter_pass}, SPY>SMA100: {spy_label}, "
-                        + f"SMA25>SMA50: {sma_pass}"
+                        f"フィルタ通過={filter_pass}, SPY>SMA100: {spy_label}, "
+                        f"SMA25>SMA50: {sma_pass}"
                     )
                 except Exception:
                     pass
         elif name == "system2":
-
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("RSI3", 0)) > 90
+                    vv = to_float(get_indicator(row, "rsi3"))
+                    return (not np.isnan(vv)) and vv > 90
                 except Exception:
                     return False
 
             def _two_up_ok(row: pd.Series) -> bool:
-                return bool(row.get("TwoDayUp"))
+                # 複数エイリアスの OR 判定（指標そのものがブール/数値 いずれでも True 判定）
+                return bool(
+                    get_indicator(row, "twodayup")
+                    or get_indicator(row, "uptwodays")
+                )
 
             filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
             rsi_pass = _count_if(filtered_rows, _rsi_ok)
@@ -890,8 +927,8 @@ def _compute_setup_pass(
                 try:
                     log_callback(
                         "🧩 system2セットアップ集計: "
-                        + f"フィルタ通過={filter_pass}, RSI3>90: {rsi_pass}, "
-                        + f"TwoDayUp: {two_up_pass}"
+                        f"フィルタ通過={filter_pass}, RSI3>90: {rsi_pass}, "
+                        f"TwoDayUp: {two_up_pass}"
                     )
                 except Exception:
                     pass
@@ -900,13 +937,16 @@ def _compute_setup_pass(
 
             def _close_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("Close", 0)) > float(row.get("SMA150", 0))
+                    c = to_float(row.get("Close"))
+                    s = to_float(get_indicator(row, "sma150"))
+                    return (not np.isnan(c)) and (not np.isnan(s)) and c > s
                 except Exception:
                     return False
 
             def _drop_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("Drop3D", 0)) >= 0.125
+                    d = to_float(get_indicator(row, "drop3d"))
+                    return (not np.isnan(d)) and d >= 0.125
                 except Exception:
                     return False
 
@@ -917,25 +957,26 @@ def _compute_setup_pass(
                 try:
                     log_callback(
                         "🧩 system3セットアップ集計: "
-                        + f"フィルタ通過={filter_pass}, Close>SMA150: {close_pass}, "
-                        + f"3日下落率≧12.5%: {drop_pass}"
+                        f"フィルタ通過={filter_pass}, Close>SMA150: {close_pass}, "
+                        f"3日下落率≧12.5%: {drop_pass}"
                     )
                 except Exception:
                     pass
         elif name == "system4":
-
             def _above_sma(row: pd.Series) -> bool:
                 try:
-                    return bool(row.get("filter")) and (
-                        float(row.get("Close", 0)) > float(row.get("SMA200", 0))
-                    )
+                    c = to_float(row.get("Close"))
+                    s = to_float(get_indicator(row, "sma200"))
+                    return bool(row.get("filter")) and (not np.isnan(c)) and (not np.isnan(s)) and c > s
                 except Exception:
                     return False
 
             above_sma = _count_if(rows_list, _above_sma)
             spy_gate: int | None = None
             try:
-                if isinstance(market_df, pd.DataFrame) and not getattr(market_df, "empty", False):
+                if isinstance(market_df, pd.DataFrame) and not getattr(
+                    market_df, "empty", False
+                ):
                     spy_source = market_df
                 elif isinstance(prepared, dict):
                     spy_source = prepared.get("SPY")
@@ -1003,28 +1044,32 @@ def _compute_setup_pass(
 
             def _price_ok(row: pd.Series) -> bool:
                 try:
-                    return bool(row.get("filter")) and (
-                        float(row.get("Close", 0))
-                        > float(row.get("SMA100", 0)) + float(row.get("ATR10", 0))
-                    )
+                    c = to_float(row.get("Close"))
+                    s = to_float(get_indicator(row, "sma100"))
+                    a = to_float(get_indicator(row, "atr10"))
+                    return bool(row.get("filter")) and (not np.isnan(c) and not np.isnan(s) and not np.isnan(a)) and (c > s + a)
                 except Exception:
                     return False
 
             def _adx_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("ADX7", 0)) > 55
+                    vv = to_float(get_indicator(row, "adx7"))
+                    return (not np.isnan(vv)) and vv > 55
                 except Exception:
                     return False
 
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("RSI3", 100)) < 50
+                    vv = to_float(get_indicator(row, "rsi3"))
+                    return (not np.isnan(vv)) and vv < 50
                 except Exception:
                     return False
 
             price_pass = _count_if(rows_list, _price_ok)
             adx_pass = _count_if(rows_list, lambda r: _price_ok(r) and _adx_ok(r))
-            rsi_pass = _count_if(rows_list, lambda r: _price_ok(r) and _adx_ok(r) and _rsi_ok(r))
+            rsi_pass = _count_if(
+                rows_list, lambda r: _price_ok(r) and _adx_ok(r) and _rsi_ok(r)
+            )
             setup_pass = rsi_pass
             if log_callback:
                 try:
@@ -1040,12 +1085,16 @@ def _compute_setup_pass(
 
             def _ret_ok(row: pd.Series) -> bool:
                 try:
-                    return float(row.get("return_6d", 0)) > 0.20
+                    vv = to_float(get_indicator(row, "return_6d"))
+                    return (not np.isnan(vv)) and vv > 0.20
                 except Exception:
                     return False
 
             def _up_two(row: pd.Series) -> bool:
-                return bool(row.get("UpTwoDays"))
+                return bool(
+                    get_indicator(row, "uptwodays")
+                    or get_indicator(row, "twodayup")
+                )
 
             ret_pass = _count_if(filtered_rows, _ret_ok)
             up_pass = _count_if(filtered_rows, lambda r: _ret_ok(r) and _up_two(r))
@@ -1182,7 +1231,9 @@ def _select_candidate_date(
     target_date: pd.Timestamp | None = None
     fallback_reason: str | None = None
 
-    def _collect_recent_days(anchor: pd.Timestamp | None, count: int) -> list[pd.Timestamp]:
+    def _collect_recent_days(
+        anchor: pd.Timestamp | None, count: int
+    ) -> list[pd.Timestamp]:
         if anchor is None or count <= 0:
             return []
         out: list[pd.Timestamp] = []
@@ -1268,7 +1319,9 @@ def _select_candidate_date(
     try:
         if target_date is not None and target_date in key_map:
             orig_key = key_map[target_date]
-            total_candidates_today = len((candidates_by_date or {}).get(orig_key, []) or [])
+            total_candidates_today = len(
+                (candidates_by_date or {}).get(orig_key, []) or []
+            )
         else:
             total_candidates_today = 0
     except Exception:
@@ -1291,7 +1344,9 @@ def _select_candidate_date(
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 候補生成済み（セットアップ通過）：{setup_pass} 銘柄")
-            log_callback(f"🧮 TRDlist相当（直近営業日時点の候補数）：{total_candidates_today} 銘柄")
+            log_callback(
+                f"🧮 TRDlist相当（直近営業日時点の候補数）：{total_candidates_today} 銘柄"
+            )
         except Exception:
             pass
 
@@ -1476,7 +1531,9 @@ def _build_today_signals_dataframe(
         skey, sval, _asc = _score_from_candidate(system_name, c)
 
         try:
-            if (system_name == "system1") and (skey is None or str(skey).upper() != "ROC200"):
+            if (system_name == "system1") and (
+                skey is None or str(skey).upper() != "ROC200"
+            ):
                 skey = "ROC200"
         except Exception:
             pass
@@ -1541,7 +1598,9 @@ def _build_today_signals_dataframe(
                     pass
 
             try:
-                needs_rank_eval = rank_val is None or total_for_rank == 0 or sval is None
+                needs_rank_eval = (
+                    rank_val is None or total_for_rank == 0 or sval is None
+                )
                 if signal_date_ts is not None and needs_rank_eval:
                     if isinstance(prepared, dict):
                         cache_key = (str(skey), signal_date_ts, bool(_asc))
@@ -1568,8 +1627,13 @@ def _build_today_signals_dataframe(
                                 except Exception:
                                     continue
                             if vals:
-                                vals_sorted = sorted(vals, key=lambda x: x[1], reverse=not _asc)
-                                ranks = {name: idx + 1 for idx, (name, _) in enumerate(vals_sorted)}
+                                vals_sorted = sorted(
+                                    vals, key=lambda x: x[1], reverse=not _asc
+                                )
+                                ranks = {
+                                    name: idx + 1
+                                    for idx, (name, _) in enumerate(vals_sorted)
+                                }
                             else:
                                 vals_sorted = []
                                 ranks = {}
@@ -1617,7 +1681,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ボラティリティが高く条件一致のため"]
         elif system_name == "system4":
             if rank_val is not None:
-                formatted = _format_rank_reason("RSI4", rank_val, total_for_rank, nuance="低水準")
+                formatted = _format_rank_reason(
+                    "RSI4", rank_val, total_for_rank, nuance="低水準"
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1632,7 +1698,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ADXが強く、反発期待のため"]
         elif system_name == "system6":
             if rank_val is not None:
-                formatted = _format_rank_reason("過去6日騰落率", rank_val, total_for_rank)
+                formatted = _format_rank_reason(
+                    "過去6日騰落率", rank_val, total_for_rank
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1652,7 +1720,9 @@ def _build_today_signals_dataframe(
                     reason_parts = [f"rank={rank_val}/{total_label}"]
             elif skey is not None:
                 try:
-                    if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
+                    if sval is not None and not (
+                        isinstance(sval, float) and pd.isna(sval)
+                    ):
                         reason_parts.append("スコア条件を満たしたため")
                 except Exception:
                     reason_parts.append("スコア条件を満たしたため")
@@ -1697,7 +1767,9 @@ def _build_today_signals_dataframe(
         top_reason = None
         if entry_skip_stats.counts:
             try:
-                top_reason = max(entry_skip_stats.counts.items(), key=lambda item: item[1])[0]
+                top_reason = max(
+                    entry_skip_stats.counts.items(), key=lambda item: item[1]
+                )[0]
             except Exception:
                 top_reason = next(iter(entry_skip_stats.counts.keys()), None)
         frame = _empty_today_signals_frame(
@@ -1779,8 +1851,12 @@ def _make_spy_gate(spy_df: pd.DataFrame | None, column: str = "SMA200") -> bool 
     except Exception:
         return None
     try:
-        close_val = pd.to_numeric(pd.Series([last_row.get("Close")]), errors="coerce").iloc[0]
-        sma_val = pd.to_numeric(pd.Series([last_row.get(column)]), errors="coerce").iloc[0]
+        close_val = pd.to_numeric(
+            pd.Series([last_row.get("Close")]), errors="coerce"
+        ).iloc[0]
+        sma_val = pd.to_numeric(
+            pd.Series([last_row.get(column)]), errors="coerce"
+        ).iloc[0]
     except Exception:
         return None
     if pd.isna(close_val) or pd.isna(sma_val):
@@ -2000,7 +2076,8 @@ def _compute_entry_stop(
             if res and isinstance(res, tuple) and len(res) == 2:
                 entry, stop = float(res[0]), float(res[1])
                 if entry > 0 and (
-                    (side == "short" and stop > entry) or (side == "long" and entry > stop)
+                    (side == "short" and stop > entry)
+                    or (side == "long" and entry > stop)
                 ):
                     return round(entry, 4), round(stop, 4)
         except Exception as exc:
@@ -2465,7 +2542,9 @@ def get_today_signals_for_strategy(
                     log_callback(f"🛈 選定結果: 候補0件理由: {selection.zero_reason}")
                 except Exception:
                     pass
-        elif hasattr(candidates, "zero_reason") and getattr(candidates, "zero_reason", None):
+        elif hasattr(candidates, "zero_reason") and getattr(
+            candidates, "zero_reason", None
+        ):
             if log_callback:
                 try:
                     log_callback(f"🛈 抽出結果: 候補0件理由: {candidates.zero_reason}")
