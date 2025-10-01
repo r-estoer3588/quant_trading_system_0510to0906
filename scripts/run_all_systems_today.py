@@ -1289,45 +1289,7 @@ def _load_basic_data(
                         )
                         # needs_rebuild = True  # この行をコメントアウトして除外を回避
             if needs_rebuild:
-                reason_map = {
-                    "stale": "鮮度不足",
-                    "missing_date": "日付欠損",
-                    "length": "行数不足",
-                }
-                reason_key = rebuild_reason or (
-                    "missing" if df is None or getattr(df, "empty", True) else "unknown"
-                )
-                reason_label = reason_map.get(reason_key, "未整備")
-                detail_parts: list[str] = []
-                if rebuild_reason == "stale":
-                    gap_label = f"約{gap_days}営業日" if gap_days is not None else "不明"
-                    last_label = (
-                        str(last_seen_date.date()) if last_seen_date is not None else "不明"
-                    )
-                    detail_parts.append(f"最終日={last_label}")
-                    detail_parts.append(f"ギャップ={gap_label}")
-                elif rebuild_reason == "length" and df is not None:
-                    try:
-                        rows = len(df)
-                        # 上場間もない銘柄（明らかに短いデータ）は警告レベルを下げる
-                        if rows < 100:  # 明らかに新規上場
-                            _log(f"📊 新規上場銘柄 {sym}: len={rows}/{target_len} (正常)", ui=False)
-                            # 短いデータでも処理を継続
-                            needs_rebuild = False
-                            detail_parts = []  # 詳細部分をクリア
-                        else:
-                            detail_parts.append(f"len={rows}/{target_len}")
-                    except Exception:
-                        pass
-                elif rebuild_reason == "missing_date":
-                    detail_parts.append("date列欠損")
-                if df is None or getattr(df, "empty", True):
-                    detail_parts.append("rolling未生成")
-                skip_msg = f"⛔ rolling未整備: {sym} ({reason_label})"
-                if detail_parts:
-                    skip_msg += " | " + ", ".join(detail_parts)
-                skip_msg += " → 手動で rolling キャッシュを更新してください"
-                _log(skip_msg, ui=False)
+                # 個別ログを抑制（サマリー表示に統合）
                 _record_stat("manual_rebuild_required")
                 _record_stat("failed")
                 return sym, None
@@ -2007,18 +1969,20 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         )
         if cov_missing > 0:
             missing_syms = [s for s in symbols if s not in basic_data]
-            preview = ", ".join(missing_syms[:10])
-            if len(missing_syms) > 10:
-                preview += " …"
-            # 新規上場の可能性を含めた詳細メッセージ
-            new_listings = [s for s in missing_syms if len(s) <= 4 and s.isalpha()]
-            base_msg = (
-                f"⚠️ rolling未整備: {cov_missing}銘柄 → 手動でキャッシュを更新してください"
-                + (f" | 例: {preview}" if preview else "")
+            # 10%ごとにバッチ表示
+            batch_size = max(1, int(cov_total * 0.1))
+            for i in range(0, len(missing_syms), batch_size):
+                batch = missing_syms[i : i + batch_size]
+                symbols_str = ", ".join(batch)
+                _log(
+                    f"⚠️ rolling未整備 ({i+1}〜{min(i+batch_size, len(missing_syms))}/{len(missing_syms)}): {symbols_str}",
+                    ui=False,
+                )
+            # 最後に集計メッセージ
+            _log(
+                f"💡 rolling未整備の計{cov_missing}銘柄は自動的にスキップされました（base/full_backupからの再試行は不要）",
+                ui=False,
             )
-            if new_listings:
-                base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
-            _log(base_msg, ui=False)
     except Exception:
         pass
 

@@ -31,7 +31,7 @@ except Exception:
     _APP_SETTINGS = None
 import common.i18n as i18n
 from common.cache_manager import base_cache_path, load_base_cache
-from common.holding_tracker import display_holding_heatmap, generate_holding_matrix
+from common.holding_tracker import generate_holding_matrix
 from core.system1 import generate_roc200_ranking_system1
 from scripts.tickers_loader import get_all_tickers
 
@@ -742,6 +742,40 @@ def run_backtest_app(
 
 
 # ------------------------------
+# Heatmap silent export helper
+# ------------------------------
+def _export_holding_heatmap_silent(matrix, system_name: str) -> None:
+    """Export holding matrix to CSV (and optionally PNG in future) without rendering.
+
+    The UI no longer renders the heatmap directly to avoid vertical clutter and
+    performance overhead. We still persist a CSV so users can download or use it
+    for offline analysis. PNG export can be added later if required.
+    """
+    from pathlib import Path
+    try:
+        from .logging_utils import get_logger  # type: ignore
+    except Exception:  # pragma: no cover - fallback when logger util unavailable
+        get_logger = None  # type: ignore
+
+    try:
+        settings = get_settings(create_dirs=True)
+        base_dir = Path(getattr(settings.cache, "base_dir", "data_cache"))  # type: ignore[arg-type]
+        out_dir = base_dir / "exports" / "holding_heatmaps"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"holding_status_{system_name}.csv"
+        matrix.to_csv(out_path)
+        if get_logger:
+            try:
+                logger = get_logger()
+                logger.info("heatmap csv exported", extra={"system": system_name, "path": str(out_path)})
+            except Exception:
+                pass
+    except Exception:
+        # 非致命: 失敗しても UI で warning 済み
+        pass
+
+
+# ------------------------------
 # Rendering helpers
 # ------------------------------
 def summarize_results(results_df: pd.DataFrame, capital: float):
@@ -921,57 +955,17 @@ def show_results(
     else:
         st.info("トレードデータがありません")
 
-    st.subheader(i18n.tr("holdings heatmap (by day)"))
-    progress_heatmap = st.progress(0)
-    heatmap_log = st.empty()
-    start_time = time.time()
-    unique_dates = sorted(df2["entry_date"].dt.normalize().unique())
-    total_dates = len(unique_dates)
-    # heatmap生成ループ: オプションで高速モード
-    HEATMAP_FAST_ENV = os.getenv("HEATMAP_FAST_MODE", "0") == "1"
-    for i, _date in enumerate(unique_dates, 1):
-        _ = df2[(df2["entry_date"] <= _date) & (df2["exit_date"] >= _date)]
-        log_with_progress(
-            i,
-            total_dates,
-            start_time,
-            prefix="heatmap",
-            batch=10,
-            log_area=heatmap_log,
-            progress_bar=progress_heatmap,
-            unit="days",
-        )
-        if not HEATMAP_FAST_ENV:
-            time.sleep(0.005)
-    heatmap_log.text(i18n.tr("drawing heatmap..."))
-    holding_matrix = generate_holding_matrix(df2)
-    display_holding_heatmap(
-        holding_matrix, title=f"{system_name} - {i18n.tr('holdings heatmap (by day)')}"
-    )
-    heatmap_log.success(tr("heatmap generated"))
-    # unique-key download button to avoid DuplicateElementId across tabs/systems
+    # (仕様変更) ヒートマップは UI へ描画せず、後続のサイレントエクスポートのみ実行
+    # 利用者へは軽量な完了情報のみ提供。
     try:
-        settings = get_settings(create_dirs=True)
-        round_dec = getattr(settings.cache, "round_decimals", None)
-    except Exception:
-        round_dec = None
-    try:
-        hm_out = round_dataframe(holding_matrix, round_dec)
-    except Exception:
-        hm_out = holding_matrix
-    csv_bytes = hm_out.to_csv().encode("utf-8")
-    if getattr(getattr(_APP_SETTINGS, "ui", None), "show_download_buttons", True):
-        st.download_button(
-            label=(i18n.tr("download holdings csv")),
-            data=csv_bytes,
-            file_name=f"holding_status_{system_name}.csv",
-            mime="text/csv",
-            key=f"{system_name}_{key_context}_download_holding_csv",
-        )
-    try:
-        progress_heatmap.empty()
-    except Exception:
-        pass
+        export_start = time.time()
+        holding_matrix = generate_holding_matrix(df2)
+        _export_holding_heatmap_silent(holding_matrix, system_name)
+        st.caption(i18n.tr("heatmap generated"))
+        st.session_state[f"{system_name}_heatmap_export_secs"] = round(time.time() - export_start, 3)
+    except Exception as _e:
+        # 失敗しても致命的でないため warning のみに留める
+        st.warning(f"heatmap export skipped: {_e}")
 
 
 def show_signal_trade_summary(

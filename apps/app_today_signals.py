@@ -652,7 +652,7 @@ def _build_manual_rebuild_message(symbol: str, detail: dict[str, Any]) -> str:
     message = f"⛔ rolling未整備: {symbol} ({reason_label})"
     if parts:
         message += " | " + ", ".join(parts)
-    message += " → 手動で rolling キャッシュを更新してください"
+    message += " （自動スキップ済み）"
     return message
 
 
@@ -773,7 +773,7 @@ def _collect_symbol_data(
             detail["action"] = "manual_rebuild_required"
             manual_note = _merge_note(
                 _issues_to_note(issues),
-                "手動で rolling キャッシュを更新してください",
+                "自動スキップ",
             )
             detail["note"] = manual_note
             manual_msg = _build_manual_rebuild_message(sym, detail)

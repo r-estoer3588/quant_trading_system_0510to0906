@@ -140,7 +140,8 @@ def test_manual_intervention_required_when_rolling_missing(tmp_path) -> None:
     assert detail.action == "manual_rebuild_required"
     assert detail.resolved is False
     assert "manual_rebuild_required" in detail.note
-    assert any("手動で rolling キャッシュを更新" in msg for msg in logs)
+    # ログは個別出力からサマリー出力に変更されたため、アサーションを更新
+    assert any("rolling未整備" in msg for msg in logs)
 
 
 def test_missing_when_base_not_available(tmp_path) -> None:
