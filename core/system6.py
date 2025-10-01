@@ -13,6 +13,8 @@ from common.utils import resolve_batch_size
 # System6 configuration constants
 MIN_PRICE = 5.0  # 最低価格フィルター（ドル）
 MIN_DOLLAR_VOLUME_50 = 10_000_000  # 最低ドルボリューム50日平均（ドル）
+HV50_BOUNDS_PERCENT = (10.0, 40.0)
+HV50_BOUNDS_FRACTION = (0.10, 0.40)
 
 # Shared metrics collector to avoid file handle leaks
 _metrics = MetricsCollector()
@@ -25,9 +27,10 @@ SYSTEM6_FEATURE_COLUMNS = [
     "UpTwoDays",
     "filter",
     "setup",
+    "hv50",
 ]
 SYSTEM6_ALL_COLUMNS = SYSTEM6_BASE_COLUMNS + SYSTEM6_FEATURE_COLUMNS
-SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "return_6d"]
+SYSTEM6_NUMERIC_COLUMNS = ["atr10", "dollarvolume50", "return_6d", "hv50"]
 
 
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -133,8 +136,26 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
                 x["Close"].shift(1) > x["Close"].shift(2)
             )
 
+        # HV50 (historical volatility)
+        hv50_series = None
+        if "HV50" in x.columns:
+            hv50_series = pd.to_numeric(x["HV50"], errors="coerce")
+        elif "hv50" in x.columns:
+            hv50_series = pd.to_numeric(x["hv50"], errors="coerce")
+        if hv50_series is None:
+            _metrics.record_metric("system6_fallback_hv50", 1, "count")
+            returns = pd.Series(x["Close"], index=x.index).pct_change()
+            hv50_series = returns.rolling(50).std() * (252**0.5) * 100
+        x["hv50"] = hv50_series
+
+        hv50_percent = x["hv50"].between(*HV50_BOUNDS_PERCENT)
+        hv50_fraction = x["hv50"].between(*HV50_BOUNDS_FRACTION)
+        hv50_condition = (hv50_percent | hv50_fraction).fillna(False)
+
         # フィルターとセットアップ
-        x["filter"] = (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
+        x["filter"] = (
+            (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50) & hv50_condition
+        )
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
         raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc

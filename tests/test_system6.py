@@ -165,6 +165,7 @@ def test_compute_indicators_from_frame_aligns_range_index():
             "dollarvolume50": 50_000_000,
             "return_6d": 0.25,
             "uptwodays": True,
+            "hv50": 25.0,
         }
     )
 
@@ -172,7 +173,7 @@ def test_compute_indicators_from_frame_aligns_range_index():
 
     assert len(prepared) == periods
     assert prepared.index.is_monotonic_increasing
-    assert {"atr10", "dollarvolume50", "return_6d", "UpTwoDays"}.issubset(prepared.columns)
+    assert {"atr10", "dollarvolume50", "return_6d", "UpTwoDays", "hv50"}.issubset(prepared.columns)
     # 既存の指標がそのまま活用され、filter/setupも生成される
     assert prepared["filter"].all()
     assert prepared["setup"].all()

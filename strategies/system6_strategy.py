@@ -152,6 +152,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 axis=1,
             ).max(axis=1)
             x["atr10"] = tr.rolling(10).mean()
+            returns = close.pct_change()
+            x["hv50"] = returns.rolling(50).std() * (252**0.5) * 100
             out[sym] = x
         return out
 
