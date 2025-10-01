@@ -36,6 +36,8 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = x.sort_index()
     if len(x) < 50:
         raise ValueError("insufficient rows")
+
+
 def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     missing = [col for col in SYSTEM6_BASE_COLUMNS if col not in df.columns]
     if missing:
@@ -44,11 +46,12 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = x.sort_index()
     if len(x) < 50:
         raise ValueError("insufficient rows")
-    
+
     # フォールバック使用回数を記録するためのMetricsCollector
     from common.structured_logging import MetricsCollector
+
     metrics = MetricsCollector()
-    
+
     try:
         # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
 
@@ -102,7 +105,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     except Exception as exc:
         raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc
-    
+
     x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
     if x.empty:
         raise ValueError("insufficient rows")

@@ -66,9 +66,7 @@ def render_ai_summary_cards(summary: Dict[str, Any]) -> None:
     """AIシステムサマリーカードの表示"""
     model_status = summary.get("model_status", {})
     data_collection = summary.get("data_collection", {})
-    analysis_capabilities = summary.get(
-        "capabilities", {}
-    )  # noqa: F841 (将来拡張用・未使用保持)
+    analysis_capabilities = summary.get("capabilities", {})  # noqa: F841 (将来拡張用・未使用保持)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -174,19 +172,13 @@ def render_model_status_tab(summary: Dict[str, Any]) -> None:
                 "✅ 利用可能" if capabilities.get("anomaly_detection") else "❌ 未訓練"
             ),
             "パフォーマンス予測": (
-                "✅ 利用可能"
-                if capabilities.get("performance_prediction")
-                else "❌ 未訓練"
+                "✅ 利用可能" if capabilities.get("performance_prediction") else "❌ 未訓練"
             ),
             "最適化提案": (
-                "✅ 利用可能"
-                if capabilities.get("optimization_suggestions")
-                else "❌ 未対応"
+                "✅ 利用可能" if capabilities.get("optimization_suggestions") else "❌ 未対応"
             ),
             "scikit-learn": (
-                "✅ インストール済み"
-                if model_status.get("has_sklearn")
-                else "❌ 未インストール"
+                "✅ インストール済み" if model_status.get("has_sklearn") else "❌ 未インストール"
             ),
         }
 
@@ -265,9 +257,7 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
 
     with col2:
         anomaly_score = current_analysis.get("anomaly_score", 0)
-        score_color = (
-            "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
-        )
+        score_color = "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
         st.metric(
             label=f"{score_color} 異常スコア",
             value=f"{anomaly_score:.3f}",
@@ -277,9 +267,7 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
     with col3:
         predicted_time = current_analysis.get("predicted_performance")
         if predicted_time:
-            st.metric(
-                label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None
-            )
+            st.metric(label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None)
         else:
             st.metric(label="⏱️ 予測実行時間", value="N/A", delta="データ不足")
 
@@ -361,11 +349,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
                     r["total_time"] for r in list(ai_analyzer.performance_history)[-10:]
                 ]
                 avg_time = np.mean(recent_times) if recent_times else predicted_time
-                diff_percent = (
-                    ((predicted_time - avg_time) / avg_time * 100)
-                    if avg_time > 0
-                    else 0
-                )
+                diff_percent = ((predicted_time - avg_time) / avg_time * 100) if avg_time > 0 else 0
 
                 st.metric(
                     label="📈 過去平均との差",
@@ -382,9 +366,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
 
             actual_times = [r["total_time"] for r in recent_data]
             # 模擬的な予測値（実際の実装では保存された予測値を使用）
-            predicted_times = [
-                t * (0.9 + 0.2 * np.random.random()) for t in actual_times
-            ]
+            predicted_times = [t * (0.9 + 0.2 * np.random.random()) for t in actual_times]
 
             fig = go.Figure()
 
@@ -435,9 +417,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
         importance_scores = importance_scores / importance_scores.sum() * 100
 
         fig = go.Figure(
-            data=[
-                go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")
-            ]
+            data=[go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")]
         )
 
         fig.update_layout(

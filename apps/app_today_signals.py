@@ -1519,16 +1519,103 @@ class UILogger:
                 forwarded_from_cli = bool(forwarding_flag.get())
         except Exception:
             forwarded_from_cli = False
-        try:
-            elapsed = max(0, time.time() - self.start_time)
-            m, s = divmod(int(elapsed), 60)
-        except Exception:
-            m, s = 0, 0
-        now_txt = time.strftime("%Y-%m-%d %H:%M:%S")
-        if no_timestamp:
-            line = str(msg)
+        structured_mode = False
+        parsed_msg: str | None = None
+        iso_ts: str | None = None
+        rel_prefix: str | None = None
+        if not no_timestamp:
+            # STRUCTURED_UI_LOGS=1 のとき、エンジン側から渡される JSON 形式を優先的に解釈
+            if os.environ.get("STRUCTURED_UI_LOGS") == "1":
+                try:
+                    import json as _json
+
+                    if isinstance(msg, str) and msg.startswith("{") and '"msg"' in msg:
+                        obj = _json.loads(msg)
+                        # 最低限 'msg' があること
+                        raw_inner = obj.get("msg")
+                        if isinstance(raw_inner, str):
+                            structured_mode = True
+                            parsed_msg = raw_inner
+                            # ISO 時刻
+                            iso_candidate = obj.get("iso")
+                            if isinstance(iso_candidate, str):
+                                iso_ts = iso_candidate
+                            # 相対時間（エポックを start_time との差分で計算）
+                            ts_val = obj.get("ts")
+                            if isinstance(ts_val, (int, float)):
+                                try:
+                                    rel_elapsed = max(0, (ts_val / 1000.0) - self.start_time)
+                                    mm, ss = divmod(int(rel_elapsed), 60)
+                                    rel_prefix = f"{mm}分{ss}秒"
+                                except Exception:
+                                    pass
+                except Exception:
+                    structured_mode = False
+
+        def _format_rel_compact(elapsed: float) -> str:
+            try:
+                if elapsed < 0:
+                    elapsed = 0.0
+                if elapsed < 1:
+                    return f"+{int(elapsed * 1000)}ms"
+                if elapsed < 60:
+                    return f"+{elapsed:.1f}s"
+                if elapsed < 3600:
+                    m, s = divmod(int(elapsed), 60)
+                    return f"+{m}:{s:02d}"
+                if elapsed < 86400:
+                    h, rem = divmod(int(elapsed), 3600)
+                    m, s = divmod(rem, 60)
+                    return f"+{h}h{m:02d}m"  # 秒は省略
+                d, rem = divmod(int(elapsed), 86400)
+                h, _ = divmod(rem, 3600)
+                return f"+{d}d{h}h"
+            except Exception:
+                return "+0.0s"
+
+        compact_mode = os.environ.get("COMPACT_REL_TIME") == "1"
+
+        if structured_mode and parsed_msg is not None:
+            # ISO or 現在時刻 fallback
+            if iso_ts is None:
+                iso_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            if rel_prefix is None:
+                try:
+                    _elapsed = max(0, time.time() - self.start_time)
+                    if compact_mode:
+                        rel_prefix = _format_rel_compact(_elapsed)
+                    else:
+                        mm, ss = divmod(int(_elapsed), 60)
+                        rel_prefix = f"{mm}分{ss}秒"
+                except Exception:
+                    rel_prefix = "0分0秒"
+            line = f"[{iso_ts} | {rel_prefix}] {parsed_msg}"
         else:
-            line = f"[{now_txt} | {m}分{s}秒] {msg}"
+            try:
+                elapsed = max(0, time.time() - self.start_time)
+                if compact_mode:
+                    rel_prefix = _format_rel_compact(elapsed)
+                else:
+                    m, s = divmod(int(elapsed), 60)
+            except Exception:
+                rel_prefix = "0分0秒" if not compact_mode else "+0.0s"
+            now_txt = time.strftime("%Y-%m-%d %H:%M:%S")
+            if no_timestamp:
+                line = str(msg)
+            else:
+                if compact_mode:
+                    if not rel_prefix:
+                        rel_prefix = "+0.0s"
+                    line = f"[{now_txt} | {rel_prefix}] {msg}"
+                else:
+                    try:
+                        # m,s が計算済みでないケースは再計算
+                        if "m" not in locals() or "s" not in locals():
+                            _m, _s = divmod(int(max(0, time.time() - self.start_time)), 60)
+                            m, s = _m, _s
+                        line = f"[{now_txt} | {m}分{s}秒] {msg}"
+                    except Exception:
+                        line = f"[{now_txt} | 0分0秒] {msg}"
         self.log_lines.append(line)
         if _has_st_ctx() and self.progress_ui.show_overall:
             if self._should_display(str(msg)):
@@ -1572,19 +1659,49 @@ class UILogger:
         return not any(keyword in msg for keyword in skip_keywords)
 
     def _echo_cli(self, line: str) -> None:
+        # Windows コンソールでの文字化け緩和（任意フラグ）
         try:
-            print(line, flush=True)
-            return
-        except UnicodeEncodeError:
+            if os.name == "nt" and os.environ.get("FORCE_UTF8_CONSOLE") == "1":
+                try:
+                    if hasattr(sys.stdout, "reconfigure"):
+                        # 既に utf-8 の場合は触らない
+                        if (getattr(sys.stdout, "encoding", "") or "").lower() not in (
+                            "utf-8",
+                            "utf8",
+                        ):
+                            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            # 初回ヒント表示（化けを検知できそうなら）
+            if not getattr(self, "_encoding_hint_done", False) and os.name == "nt":
+                setattr(self, "_encoding_hint_done", True)
+                if os.environ.get("SUPPRESS_ENCODING_HINT") != "1":
+                    enc = (getattr(sys.stdout, "encoding", "") or "").lower()
+                    # 簡易判定: cp932 / ansi 系で絵文字が含まれそうな行
+                    if enc and "utf" not in enc and any(ch for ch in line if ord(ch) > 0x2600):
+                        try:
+                            print(
+                                "[INFO] 文字化けする場合は 'chcp 65001' 実行後に再試行してください (SUPPRESS_ENCODING_HINT=1 で非表示)",
+                                flush=True,
+                            )
+                        except Exception:
+                            pass
             try:
-                encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
-                safe = line.encode(encoding, errors="replace").decode(encoding, errors="replace")
-                print(safe, flush=True)
+                print(line, flush=True)
                 return
-            except Exception:
-                pass
+            except UnicodeEncodeError:
+                try:
+                    encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
+                    safe = line.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                    print(safe, flush=True)
+                    return
+                except Exception:
+                    pass
         except Exception:
             pass
+        # 最終フォールバック: ASCII 置換
         try:
             fallback = line.encode("ascii", errors="replace").decode("ascii", errors="replace")
             print(fallback, flush=True)

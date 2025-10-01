@@ -176,7 +176,9 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            msg = f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            msg = (
+                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            )
             log_callback(msg)
         except Exception:
             pass

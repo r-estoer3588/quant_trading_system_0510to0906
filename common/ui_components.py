@@ -144,9 +144,7 @@ def _load_symbol_cached(
     戻り値は (symbol, DataFrame|None)
     """
     try:
-        df = load_base_cache(
-            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
         if df is not None and not df.empty:
             return symbol, df
     except Exception:
@@ -156,9 +154,7 @@ def _load_symbol_cached(
     return symbol, None
 
 
-def load_symbol(
-    symbol: str, cache_dir: str = "data_cache"
-) -> tuple[str, pd.DataFrame | None]:
+def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.DataFrame | None]:
     base_path = str(base_cache_path(symbol))
     raw_path = os.path.join(cache_dir, f"{safe_filename(symbol)}.csv")
     return _load_symbol_cached(
@@ -276,15 +272,14 @@ def prepare_backtest_data(
     ui_manager=None,
     use_process_pool: bool = False,
     enable_debug_logs: bool = True,
+    fast_mode: bool = False,
     **kwargs,
 ):
     # 1) fetch
     if use_process_pool:
         data_dict = None
     else:
-        data_dict = fetch_data(
-            symbols, ui_manager=ui_manager, enable_debug_logs=enable_debug_logs
-        )
+        data_dict = fetch_data(symbols, ui_manager=ui_manager, enable_debug_logs=enable_debug_logs)
         if not data_dict:
             st.error(tr("no valid data"))
             return None, None, None
@@ -309,6 +304,19 @@ def prepare_backtest_data(
         ind_progress = ind_progress_placeholder.progress(0)
         ind_log = ind_log_placeholder
 
+    if fast_mode and data_dict:
+        # 履歴を末尾120行に短縮（存在する日付数に応じて）
+        try:
+            trimmed = {}
+            for _sym, _df in data_dict.items():
+                if hasattr(_df, "tail"):
+                    trimmed[_sym] = _df.tail(120)
+                else:
+                    trimmed[_sym] = _df
+            data_dict = trimmed
+        except Exception:
+            pass
+
     call_input = data_dict if not use_process_pool else symbols
     call_kwargs = dict(
         progress_callback=lambda done, total: ind_progress.progress(
@@ -316,6 +324,7 @@ def prepare_backtest_data(
         ),
         log_callback=lambda msg: ind_log.text(str(msg)),
         skip_callback=lambda msg: ind_log.text(str(msg)),
+        fast_mode=fast_mode,
         **kwargs,
     )
     if use_process_pool:
@@ -325,9 +334,9 @@ def prepare_backtest_data(
     try:
         prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     except TypeError:
-        # 古い戦略実装との後方互換: skip_callback/use_process_pool 未対応の戦略に再試行
-        call_kwargs.pop("skip_callback", None)
-        call_kwargs.pop("use_process_pool", None)
+        # 後方互換: 未対応パラメータを削除して再試行
+        for _k in ["skip_callback", "use_process_pool", "fast_mode"]:
+            call_kwargs.pop(_k, None)
         prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     try:
         ind_progress.empty()
@@ -453,9 +462,7 @@ def run_backtest_with_logging(
             start,
             prefix="bt",
             log_func=(
-                (lambda msg: (log_area.text(msg), None)[1])
-                if hasattr(log_area, "text")
-                else None
+                (lambda msg: (log_area.text(msg), None)[1]) if hasattr(log_area, "text") else None
             ),
             progress_func=(
                 (lambda val: (progress.progress(val), None)[1])
@@ -512,6 +519,8 @@ def run_backtest_app(
     **kwargs,
 ):
     st.title(system_title or f"{system_name} backtest")
+    # モード表示用のプレースホルダー（タイトル直下）
+    mode_caption_placeholder = st.empty()
 
     # --- サイドバーに設定UIを統合 ---
     with st.sidebar:
@@ -526,6 +535,25 @@ def run_backtest_app(
             tr("auto symbols (common stocks)"), value=True, key=f"{system_name}_auto"
         )
 
+        # 普通株 全銘柄を一括利用するオプション（制限数入力を無視する）
+        all_common_key = f"{system_name}_use_all_common"
+        st.checkbox(tr("use full common stocks universe"), value=False, key=all_common_key)
+        # Fast Preview / 挙動確認モード (MVP)
+        fast_key = f"{system_name}_fast_mode"
+        if fast_key not in st.session_state:
+            st.session_state[fast_key] = False
+        from common.i18n import get_language as _get_lang  # 遅延 import
+
+        st.checkbox(
+            ("Fast Preview Mode" if _get_lang() == "en" else tr("fast preview mode (mvp)")),
+            key=fast_key,
+            help=(
+                "Skip heavy indicators & shorten lookback (~120d) for quicker approximate preview"
+                if _get_lang() == "en"
+                else "重い指標を省略し履歴を約120日に短縮して高速に近似結果を表示"
+            ),
+        )
+
         _init_cap = int(st.session_state.get(f"{system_name}_capital_saved", 100000))
         capital = st.number_input(
             tr("capital (USD)"),
@@ -536,19 +564,88 @@ def run_backtest_app(
         )
 
         # 常に通常株（普通株のみ、~6200銘柄）を使用（11800全銘柄オプション廃止）
-        try:
-            from scripts.tickers_loader import get_common_stocks_only
+        # 簡易キャッシュ（プロセス内）: 毎回ロードを避ける
+        global _COMMON_STOCKS_CACHE  # type: ignore
+        if "_COMMON_STOCKS_CACHE" not in globals():  # 初回定義
+            _COMMON_STOCKS_CACHE = None  # type: ignore
 
-            all_tickers = get_common_stocks_only()
-        except ImportError:
-            all_tickers = get_all_tickers()
-        except Exception:
-            all_tickers = get_all_tickers()
+        if _COMMON_STOCKS_CACHE is None:
+            try:
+                from scripts.tickers_loader import get_common_stocks_only
+
+                _COMMON_STOCKS_CACHE = list(get_common_stocks_only())  # type: ignore
+            except ImportError:
+                _COMMON_STOCKS_CACHE = list(get_all_tickers())  # type: ignore
+            except Exception:
+                _COMMON_STOCKS_CACHE = list(get_all_tickers())  # type: ignore
+
+        all_tickers = _COMMON_STOCKS_CACHE  # type: ignore
 
         max_allowed = len(all_tickers)
         default_value = min(10, max_allowed)
+        # 全銘柄選択時の銘柄総数表示 & パフォーマンス警告 + 過去ログから推定時間
+        if st.session_state.get(all_common_key, False):
+            st.caption(tr("using all common stocks: {n} symbols", n=max_allowed))
+            if max_allowed > 3000:
+                st.warning(
+                    tr(
+                        "large universe may slow processing (>{th} symbols)",
+                        th=3000,
+                    )
+                )
+            # 過去の実行時間ログ(JSONL)から推定（単純に同Universeサイズ近傍を対象）
+            try:
+                import json
+                import math
+                import statistics
+                from pathlib import Path
 
-        if system_name != "System7":
+                settings = get_settings(create_dirs=True)
+                perf_dir = Path(settings.LOGS_DIR) / "perf_estimates"
+                perf_dir.mkdir(parents=True, exist_ok=True)
+                history_path = perf_dir / f"{system_name}_universe_times.jsonl"
+
+                # 既存ログ読み込み
+                sizes: list[int] = []
+                durations: list[float] = []
+                if history_path.exists():
+                    with history_path.open("r", encoding="utf-8") as fh:
+                        for line in fh:
+                            try:
+                                rec = json.loads(line)
+                                sizes.append(int(rec.get("size", 0)))
+                                durations.append(float(rec.get("seconds", 0.0)))
+                            except Exception:
+                                continue
+                # 近傍 (±5%) のサイズサンプルを抽出
+                est_seconds: float | None = None
+                p25 = p75 = None
+                if sizes:
+                    target_min = max_allowed * 0.95
+                    target_max = max_allowed * 1.05
+                    filt = [
+                        d
+                        for s, d in zip(sizes, durations)
+                        if target_min <= s <= target_max and d > 0
+                    ]
+                    if len(filt) >= 3:
+                        filt.sort()
+                        p25 = filt[max(0, math.floor(len(filt) * 0.25) - 1)]
+                        p75 = filt[min(len(filt) - 1, math.floor(len(filt) * 0.75))]
+                        est_seconds = statistics.median(filt)
+                if est_seconds is not None and p25 is not None and p75 is not None:
+                    st.caption(
+                        tr(
+                            "estimated processing time: median {m:.1f}s (p25={p25:.1f}s / p75={p75:.1f}s)",
+                            m=est_seconds,
+                            p25=p25,
+                            p75=p75,
+                        )
+                    )
+            except Exception:
+                pass
+
+        if system_name != "System7" and not st.session_state.get(all_common_key, False):
             limit_symbols = st.number_input(
                 tr("symbol limit"),
                 min_value=1,
@@ -592,9 +689,7 @@ def run_backtest_app(
             try:
                 import os as _os
 
-                if not (
-                    _os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")
-                ):
+                if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")):
                     st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
             except Exception:
                 pass
@@ -609,15 +704,12 @@ def run_backtest_app(
     key_debug = f"{system_name}_debug_logs"
 
     has_prev = any(
-        k in st.session_state
-        for k in [key_results, key_cands, f"{system_name}_capital_saved"]
+        k in st.session_state for k in [key_results, key_cands, f"{system_name}_capital_saved"]
     )
     if has_prev:
         with st.expander("前回の結果（リランでも保持）", expanded=False):
             prev_res = st.session_state.get(key_results)
-            prev_cap = st.session_state.get(
-                key_capital_saved, st.session_state.get(key_capital, 0)
-            )
+            prev_cap = st.session_state.get(key_capital_saved, st.session_state.get(key_capital, 0))
             if prev_res is not None and getattr(prev_res, "empty", False) is False:
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
@@ -651,7 +743,10 @@ def run_backtest_app(
     if system_name == "System7":
         symbols = ["SPY"]
     elif use_auto:
-        symbols = all_tickers[:limit_symbols]
+        if st.session_state.get(f"{system_name}_use_all_common", False):
+            symbols = all_tickers  # 全普通株
+        else:
+            symbols = all_tickers[:limit_symbols]
     else:
         if not symbols_input:
             st.error(tr("please input symbols"))
@@ -659,6 +754,25 @@ def run_backtest_app(
         symbols = [s.strip().upper() for s in symbols_input.split(",")]
 
     run_clicked = st.button(tr("run"), key=f"{system_name}_run")
+    fast_mode_flag = bool(st.session_state.get(f"{system_name}_fast_mode", False))
+    # タイトル下に現在モードを表示（即時更新）
+    try:
+        from common.i18n import get_language as _get_lang2
+
+        if fast_mode_flag:
+            if _get_lang2() == "en":
+                mode_caption_placeholder.caption("Mode: Fast Preview (approximate)")
+            else:
+                mode_caption_placeholder.caption(
+                    tr("fast preview mode enabled (approximate results)")
+                )
+        else:
+            if _get_lang2() == "en":
+                mode_caption_placeholder.caption("Mode: Normal")
+            else:
+                mode_caption_placeholder.caption(tr("mode: normal"))
+    except Exception:
+        pass
 
     # 実行ボタンクリック後に動的にプレースホルダーを生成
     if run_clicked:
@@ -672,6 +786,7 @@ def run_backtest_app(
                 spy_df=spy_df,
                 ui_manager=ui_manager,
                 enable_debug_logs=st.session_state.get(debug_key, True),
+                fast_mode=fast_mode_flag,
                 **kwargs,
             )
             if candidates_by_date is None:
@@ -685,6 +800,13 @@ def run_backtest_app(
                 system_name,
                 ui_manager=ui_manager,
             )
+            # fast_mode 列付与（後工程で利用者が識別できるように）
+            try:
+                if results_df is not None and not results_df.empty:
+                    results_df = results_df.copy()
+                    results_df["mode"] = "fast" if fast_mode_flag else "normal"
+            except Exception:
+                pass
             show_results(results_df, capital, system_name, key_context="curr")
 
             # セッションへ保存（リラン対策）
@@ -802,11 +924,7 @@ def show_results(
 ):
     # 追加防御: results_dfが期待列を欠く場合は早期returnでUI崩壊防止
     minimal_cols = {"entry_date", "exit_date"}
-    if (
-        results_df is None
-        or results_df.empty
-        or not minimal_cols.issubset(set(results_df.columns))
-    ):
+    if results_df is None or results_df.empty or not minimal_cols.issubset(set(results_df.columns)):
         st.info(i18n.tr("no trades"))
         return
 
@@ -891,9 +1009,7 @@ def show_results(
 
     st.subheader(i18n.tr("yearly summary"))
     if len(df2) > 0:
-        yearly = (
-            df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-        )
+        yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
         yearly["損益"] = yearly["pnl"].round(2)
         yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
         yearly = yearly.rename(columns={"exit_date": "年"})
@@ -907,9 +1023,7 @@ def show_results(
 
     st.subheader(i18n.tr("monthly summary"))
     if len(df2) > 0:
-        monthly = (
-            df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-        )
+        monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
         monthly["損益"] = monthly["pnl"].round(2)
         monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
         monthly = monthly.rename(columns={"exit_date": "月"})
@@ -947,20 +1061,14 @@ def show_signal_trade_summary(
             sym: int(df.get("setup", pd.Series(dtype=int)).sum())
             for sym, df in (source_df or {}).items()
         }
-        signal_counts = pd.DataFrame(
-            signal_counts.items(), columns=["symbol", "Signal_Count"]
-        )
+        signal_counts = pd.DataFrame(signal_counts.items(), columns=["symbol", "Signal_Count"])
 
     if trades_df is not None and not trades_df.empty:
-        trade_counts = (
-            trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
-        )
+        trade_counts = trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
     else:
         trade_counts = pd.DataFrame(columns=["symbol", "Trade_Count"])
 
-    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(
-        0
-    )
+    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(0)
     summary_df["Signal_Count"] = summary_df["Signal_Count"].astype(int)
     summary_df["Trade_Count"] = summary_df["Trade_Count"].astype(int)
 
@@ -1003,14 +1111,10 @@ def display_roc200_ranking(
         st.info(tr("ランキングデータがありません"))
         return
     df = ranking_df.copy()
-    df["Date"] = (
-        pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
-    )
+    df["Date"] = pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
     df = df.reset_index(drop=True)
     if "ROC200_Rank" not in df.columns and "ROC200" in df.columns:
-        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(
-            ascending=False, method="first"
-        )
+        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(ascending=False, method="first")
     if years:
         start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
         df = df[df["Date"] >= start_date]
@@ -1041,9 +1145,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     os.makedirs(trade_dir, exist_ok=True)
 
     if signal_counts_df is not None and not signal_counts_df.empty:
-        signal_path = os.path.join(
-            sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv"
-        )
+        signal_path = os.path.join(sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv")
         try:
             settings = get_settings(create_dirs=True)
             round_dec = getattr(settings.cache, "round_decimals", None)
@@ -1081,9 +1183,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             st.dataframe(trades_df[cols] if cols else trades_df)
         except Exception:
             pass
-        trade_path = os.path.join(
-            trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv"
-        )
+        trade_path = os.path.join(trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv")
         try:
             try:
                 settings = get_settings(create_dirs=True)
@@ -1181,9 +1281,7 @@ def display_cache_health_dashboard() -> None:
             if st.button("🧹 Rolling Cache Prune実行"):
                 with st.spinner("Prune実行中..."):
                     prune_result = cache_manager.prune_rolling_if_needed()
-                    st.success(
-                        f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理"
-                    )
+                    st.success(f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理")
 
     except Exception as e:
         st.error(f"Cache health dashboard エラー: {str(e)}")
@@ -1263,9 +1361,7 @@ def display_system_cache_coverage() -> None:
         overall_analysis = cache_manager.analyze_rolling_gaps()
 
         # システム別カバレッジ分析
-        coverage_analysis = analyze_system_symbols_coverage(
-            system_symbols_map, overall_analysis
-        )
+        coverage_analysis = analyze_system_symbols_coverage(system_symbols_map, overall_analysis)
 
         # グループ別サマリー表示
         st.write("### 📈 グループ別サマリー")
@@ -1276,9 +1372,7 @@ def display_system_cache_coverage() -> None:
                 group_stats = group_data[group_name]
                 col1, col2, col3, col4 = st.columns(4)
 
-                group_display = (
-                    "Long Systems" if group_name == "long" else "Short Systems"
-                )
+                group_display = "Long Systems" if group_name == "long" else "Short Systems"
                 st.write(f"**{group_display}**")
 
                 with col1:

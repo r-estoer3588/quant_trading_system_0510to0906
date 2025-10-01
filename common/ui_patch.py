@@ -12,9 +12,9 @@ try:
     import pandas as pd
     import streamlit as st
 
+    import common.ui_components as _ui
     from common.logging_utils import log_with_progress as _core_log_with_progress
     from common.performance_summary import summarize as _summarize_perf
-    import common.ui_components as _ui
     from config.settings import get_settings
 except Exception:  # pragma: no cover
     _core_log_with_progress = None
@@ -33,6 +33,7 @@ def _patched_log_with_progress(
     progress_bar=None,
     extra_msg=None,
     unit="件",
+    **kwargs,
 ):
     if _core_log_with_progress is None:
         # 旧実装にフォールバック（安全側）
@@ -64,6 +65,7 @@ def _patched_log_with_progress(
         progress_func=(lambda v: progress_bar.progress(v)) if progress_bar else None,
         extra_msg=extra_msg,
         unit=unit,
+        **{k: v for k, v in kwargs.items() if k in {"silent"}},
     )
     # 追加: コンソール(標準出力)にも常に進捗を出す
     try:
@@ -89,10 +91,19 @@ def _patched_summarize_results(results_df, capital):
     return s.to_dict(), df2
 
 
-if _ui is not None:
-    # 関数を置き換え
-    _ui.log_with_progress = _patched_log_with_progress
-    _ui.summarize_results = _patched_summarize_results
+if _ui is not None:  # 動的差し替え（存在チェックで安全化）
+    try:
+        if hasattr(_ui, "log_with_progress"):
+            _ui.log_with_progress = _patched_log_with_progress  # type: ignore[attr-defined]
+        else:
+            # 後方互換: 存在しない場合も追加（旧バージョン想定）
+            _ui.log_with_progress = _patched_log_with_progress  # type: ignore[attr-defined]
+        if hasattr(_ui, "summarize_results"):
+            _ui.summarize_results = _patched_summarize_results  # type: ignore[attr-defined]
+        else:
+            _ui.summarize_results = _patched_summarize_results  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 # ダウンロードボタンの一括無効化（自動保存がある場合に隠す）
 try:
@@ -124,7 +135,11 @@ try:
             except Exception:
                 return False
 
-    st.download_button = _patched_download_button
+    try:
+        if st is not None:
+            st.download_button = _patched_download_button  # type: ignore[attr-defined]
+    except Exception:
+        pass
 except Exception:
     # 失敗時は従来動作のまま
     pass
@@ -134,13 +149,10 @@ try:  # noqa: WPS501
     import pandas as _pd
     import streamlit as _st
 
-    from common.i18n import tr as _tr
     import common.ui_components as _ui_mod
+    from common.i18n import tr as _tr
 
-    try:
-        import matplotlib.pyplot as _plt
-    except Exception:  # pragma: no cover
-        _plt = None
+    _plt = None  # 遅延インポート: 実際にグラフ描画が必要になるまで import しない
 
     def _show_results_patched(
         results_df, capital, system_name: str = "SystemX", *, key_context: str = "main"
@@ -176,19 +188,28 @@ try:  # noqa: WPS501
 
         # 累積PnL + Drawdown プロット
         try:
-            if _plt is not None and "cumulative_pnl" in df2.columns:
-                _plt.figure(figsize=(10, 4))
-                _plt.plot(df2["exit_date"], df2["cumulative_pnl"], label="CumPnL")
-                if "cum_max" in df2.columns:
-                    _dd = df2["cumulative_pnl"] - df2["cum_max"]
-                    _plt.plot(
-                        df2["exit_date"],
-                        _dd,
-                        color="red",
-                        linewidth=1.2,
-                        label="Drawdown",
-                    )
-                _st.pyplot(_plt)
+            if "cumulative_pnl" in df2.columns:
+                if _plt is None:
+                    try:
+                        import matplotlib.pyplot as _plt  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _plt = None
+                if _plt is not None:
+                    fig = _plt.figure(figsize=(10, 4))
+                    ax = fig.add_subplot(111)
+                    ax.plot(df2["exit_date"], df2["cumulative_pnl"], label="CumPnL")
+                    if "cum_max" in df2.columns:
+                        _dd = df2["cumulative_pnl"] - df2["cum_max"]
+                        ax.plot(
+                            df2["exit_date"],
+                            _dd,
+                            color="red",
+                            linewidth=1.2,
+                            label="Drawdown",
+                        )
+                    ax.legend(loc="upper left")
+                    ax.grid(alpha=0.3)
+                    _st.pyplot(fig)
         except Exception:
             pass
 

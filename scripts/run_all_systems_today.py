@@ -659,6 +659,116 @@ def _emit_ui_log(message: str) -> None:
     `{"ts": epoch_ms, "iso": iso8601, "msg": message}` 形式にする。
     既存テスト互換のためデフォルトは従来のプレーンテキスト。
     """
+    # 1) フラグ判定（UI構造化 と NDJSON）
+    try:
+        structured_ui = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {"1", "true", "yes"}
+    except Exception:
+        structured_ui = False
+    try:
+        ndjson_flag = (os.environ.get("STRUCTURED_LOG_NDJSON") or "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+    except Exception:
+        ndjson_flag = False
+
+    obj = None
+    json_payload = None
+    if structured_ui or ndjson_flag:
+        try:
+            import json as _json
+            import re as _re
+            import time as _t
+
+            # 開始基準時刻（プロセス起動後最初の呼び出しで初期化）
+            global _STRUCTURED_LOG_START_TS  # type: ignore
+            try:
+                _STRUCTURED_LOG_START_TS  # noqa: F401
+            except NameError:  # 初回
+                _STRUCTURED_LOG_START_TS = _t.time()
+            now = _t.time()
+            iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            elapsed_ms = int((now - _STRUCTURED_LOG_START_TS) * 1000)
+            raw_msg = str(message)
+            lower = raw_msg.lower()
+            # system 抽出: System1..System7 (大文字小文字そのまま想定)
+            m_sys = _re.search(r"\bSystem([1-9]|1[0-9])\b", raw_msg)
+            system = f"system{m_sys.group(1)}" if m_sys else None
+
+            # phase マッチ辞書 (順序重要: より特殊な語を前に)
+            phase_patterns = [
+                ("universe", [r"universe", r"load symbols", r"symbol universe"]),
+                ("indicators", [r"indicator", r"precompute", r"adx", r"rsi"]),
+                ("filter", [r"filter", r"phase2 filter", r"screening"]),
+                ("setup", [r"setup", r"prepare setup"]),
+                ("ranking", [r"ranking", r"rank "]),
+                ("signals", [r" signal", r"signals", r"generate signal"]),
+                ("allocation", [r"allocation", r"alloc ", r"allocating", r"final allocation"]),
+            ]
+            phase = None
+            for ph, pats in phase_patterns:
+                if any(pat in lower for pat in pats):
+                    phase = ph
+                    break
+
+            # 開始/終了ステータス推定
+            phase_status = None
+            if phase:
+                if _re.search(r"\b(start|begin|開始)\b", lower):
+                    phase_status = "start"
+                elif _re.search(r"\b(done|complete|completed|終了|end|finished)\b", lower):
+                    phase_status = "end"
+
+            # 前回 phase の補強: system 単位で直前 phase を覚え、end/done だけのメッセージにも付与
+            global _STRUCTURED_LAST_PHASE  # type: ignore
+            try:
+                _STRUCTURED_LAST_PHASE  # noqa: F401
+            except NameError:
+                _STRUCTURED_LAST_PHASE = {}
+            if system:
+                if phase:
+                    _STRUCTURED_LAST_PHASE[system] = phase
+                else:
+                    # 明示 phase なし かつ done/complete 語があれば直前を参照
+                    if _re.search(r"\b(done|complete|completed|終了|end|finished)\b", lower):
+                        last = _STRUCTURED_LAST_PHASE.get(system)
+                        if last:
+                            phase = last
+                            phase_status = phase_status or "end"
+            # v: スキーマバージョン / lvl: 将来のレベル拡張 (現状 INFO 固定)
+            obj = {
+                "v": 1,
+                "ts": int(now * 1000),
+                "iso": iso,
+                "lvl": "INFO",
+                "msg": raw_msg,
+                "elapsed_ms": elapsed_ms,
+            }
+            if system:
+                obj["system"] = system
+            if phase:
+                obj["phase"] = phase
+            if phase_status:
+                obj["phase_status"] = phase_status
+            if structured_ui:
+                json_payload = _json.dumps(obj)
+        except Exception:
+            obj = None
+            json_payload = None
+
+    # 2) NDJSON 書き出し（UIコールバック有無に関係なく）
+    if ndjson_flag and obj is not None:
+        try:
+            from common.structured_log_ndjson import maybe_init_global_writer
+
+            writer = maybe_init_global_writer()
+            if writer:
+                writer.write(obj)
+        except Exception:
+            pass
+
+    # 3) UI コールバックへ送信（存在する場合のみ）
     try:
         cb = globals().get("_LOG_CALLBACK")
     except Exception:
@@ -666,25 +776,7 @@ def _emit_ui_log(message: str) -> None:
     if not (cb and callable(cb)):
         return
 
-    try:
-        structured = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {"1", "true", "yes"}
-    except Exception:
-        structured = False
-
-    payload: str
-    if structured:
-        try:
-            import json as _json
-            import time as _t
-
-            now = _t.time()
-            iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-            payload = _json.dumps({"ts": int(now * 1000), "iso": iso, "msg": str(message)})
-        except Exception:
-            payload = str(message)
-    else:
-        payload = str(message)
-
+    payload = json_payload if (structured_ui and json_payload) else str(message)
     try:
         token = _LOG_FORWARDING.set(True)
         try:

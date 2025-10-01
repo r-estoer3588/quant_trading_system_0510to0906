@@ -82,6 +82,15 @@ _JA_MAP: dict[str, str] = {
     "capital (USD)": "資金（USD）",
     "symbol limit": "銘柄数の上限",
     "use all symbols": "全銘柄を使用",  # 廃止済み
+    "use full common stocks universe": "普通株の全銘柄を使用",
+    "using all common stocks: {n} symbols": "普通株 全銘柄を使用中: {n}銘柄",
+    "large universe may slow processing (>{th} symbols)": "銘柄数が多いため処理が遅くなる可能性があります (>{th}銘柄)",
+    "estimated processing time: median {m:.1f}s (p25={p25:.1f}s / p75={p75:.1f}s)": "推定処理時間: 中央値 {m:.1f}秒 (p25={p25:.1f}秒 / p75={p75:.1f}秒)",
+    # Fast Preview / MVP mode
+    "fast preview mode (mvp)": "MVPモード",
+    "fast preview mode enabled (approximate results)": "MVPモード: 近似結果 (一部指標省略)",
+    "mode: fast": "モード: 簡易",
+    "mode: normal": "モード: 通常",
     "symbols (comma separated)": "銘柄一覧（カンマ区切り）",
     "please input symbols": "銘柄を入力してください",
     "run": "バックテスト実行",
@@ -99,14 +108,10 @@ _JA_MAP: dict[str, str] = {
     "indicators: done": "インジケーター計算 完了",
     "candidates: extracting...": "トレード候補：抽出中...",
     "candidates: done": "候補抽出 完了",
-    (
-        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
-    ): (
+    ("📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
         "📊 インジケーター計算 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
-    (
-        "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
-    ): (
+    ("📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
         "📊 候補抽出 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
     "symbols: {names}": "銘柄: {names}",
