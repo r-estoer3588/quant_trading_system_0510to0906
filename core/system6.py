@@ -98,12 +98,13 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     try:
         # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
+        # インデックス対応の問題を回避するため、.valuesを使用してインデックスを無視
 
         # ATR10
         if "ATR10" in df.columns:
-            x["atr10"] = df["ATR10"]
+            x["atr10"] = df["ATR10"].values
         elif "atr10" in df.columns:
-            x["atr10"] = df["atr10"]
+            x["atr10"] = df["atr10"].values
         else:
             # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_atr10", 1, "count")
@@ -113,9 +114,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
         # DollarVolume50
         if "DollarVolume50" in df.columns:
-            x["dollarvolume50"] = df["DollarVolume50"]
+            x["dollarvolume50"] = df["DollarVolume50"].values
         elif "dollarvolume50" in df.columns:
-            x["dollarvolume50"] = df["dollarvolume50"]
+            x["dollarvolume50"] = df["dollarvolume50"].values
         else:
             # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_dollarvolume50", 1, "count")
@@ -123,9 +124,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
         # Return_6D
         if "Return_6D" in df.columns:
-            x["return_6d"] = df["Return_6D"]
+            x["return_6d"] = df["Return_6D"].values
         elif "return_6d" in df.columns:
-            x["return_6d"] = df["return_6d"]
+            x["return_6d"] = df["return_6d"].values
         else:
             # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_return_6d", 1, "count")
@@ -133,9 +134,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
         # UpTwoDays
         if "UpTwoDays" in df.columns:
-            x["UpTwoDays"] = df["UpTwoDays"]
+            x["UpTwoDays"] = df["UpTwoDays"].values
         elif "uptwodays" in df.columns:
-            x["UpTwoDays"] = df["uptwodays"]
+            x["UpTwoDays"] = df["uptwodays"].values
         else:
             # フォールバック（通常は実行されない）
             _metrics.record_metric("system6_fallback_uptwodays", 1, "count")
