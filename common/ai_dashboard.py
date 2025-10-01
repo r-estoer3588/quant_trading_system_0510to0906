@@ -66,7 +66,9 @@ def render_ai_summary_cards(summary: Dict[str, Any]) -> None:
     """AIシステムサマリーカードの表示"""
     model_status = summary.get("model_status", {})
     data_collection = summary.get("data_collection", {})
-    analysis_capabilities = summary.get("capabilities", {})  # noqa: F841 (将来拡張用・未使用保持)
+    analysis_capabilities = summary.get(
+        "capabilities", {}
+    )  # noqa: F841 (将来拡張用・未使用保持)
 
     col1, col2, col3, col4 = st.columns(4)
 

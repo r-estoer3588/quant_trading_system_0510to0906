@@ -55,10 +55,14 @@ def main() -> int:
     if not rows:
         print("(no categories)")
         return 0
+
     def fmt(r):
-        sign = '+' if r[3] > 0 else ''
+        sign = "+" if r[3] > 0 else ""
         return f"| {r[0]:25} | {r[1]:5} | {r[2]:5} | {sign}{r[3]:+4} |"
-    print("\n| Category                  | Prev  | Curr  | Δ    |\n|---------------------------|-------|-------|------|")
+
+    print(
+        "\n| Category                  | Prev  | Curr  | Δ    |\n|---------------------------|-------|-------|------|"
+    )
     for r in rows:
         print(fmt(r))
     print("\nIncreased:")
@@ -68,6 +72,7 @@ def main() -> int:
     for r in dec:
         print(f"  {r[0]}: {r[3]}")
     return 0
+
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

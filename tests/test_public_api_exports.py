@@ -5,9 +5,11 @@
 
 CI/ローカルのどちらでも高速に終了する（import のみ）。
 """
+
 from __future__ import annotations
 
 import inspect
+
 from common import ui_components as uic
 
 # 公開として維持したい関数シグネチャ名（引数までは縛らない）
@@ -29,6 +31,7 @@ INTERNAL_SHOULD_NOT_EXPORT = {
 
 # 追加: 公開 API は docstring を持つことを推奨
 MIN_DOCSTRING_RATIO = 0.8  # 推奨しきい値（情報目的、FAIL ではない）
+
 
 def test_expected_public_api_presence():
     missing = [name for name in EXPECTED_EXPORTS if not hasattr(uic, name)]
@@ -121,4 +124,6 @@ def test_callable_prefix_classification():
         if items:
             print(f"  {p}: {len(items)}")
     if uncategorized:
-        print(f"[INFO] 未分類 callable: {sorted(uncategorized)[:15]} ... (total {len(uncategorized)})")
+        print(
+            f"[INFO] 未分類 callable: {sorted(uncategorized)[:15]} ... (total {len(uncategorized)})"
+        )

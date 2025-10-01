@@ -61,7 +61,9 @@ def append_jsonl(out_path: Path, counts: Counter) -> None:
     }
     with out_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    print(f"[collect_warnings] Appended summary: total={total} categories={len(counts)} -> {out_path}")
+    print(
+        f"[collect_warnings] Appended summary: total={total} categories={len(counts)} -> {out_path}"
+    )
 
 
 def main() -> int:

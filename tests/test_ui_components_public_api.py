@@ -262,6 +262,7 @@ class TestBacktestApp:
 
 class TestDefensiveGuards:
     """新規追加: 防御的ガードの挙動確認"""
+
     def setup_method(self):
         set_test_determinism()
 
