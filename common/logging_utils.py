@@ -1,8 +1,8 @@
-from collections.abc import Callable
 import logging
 import logging.handlers
-from pathlib import Path
 import time
+from collections.abc import Callable
+from pathlib import Path
 
 from config.settings import Settings
 
@@ -78,10 +78,12 @@ def log_with_progress(
     progress_func: Callable[[float], None] | None = None,
     extra_msg: str | None = None,
     unit: str = "件",
-):
+    silent: bool = False,
+) -> None:
     """ストリームリット/CLIの両方で使える共通進捗ログ。
     - log_func: 文字列を受け取る関数（例: `st.text`, `logger.info`）
     - progress_func: 0..1 の進捗率を受け取る関数（例: `st.progress`）
+    - silent: True の場合、log_func へのメッセージ出力を抑制（進捗バーのみ更新）
     """
     if i % batch != 0 and i != total:
         return
@@ -94,7 +96,7 @@ def log_with_progress(
     )
     if extra_msg:
         msg += f"\n{extra_msg}"
-    if log_func:
+    if log_func and not silent:
         try:
             log_func(msg)
         except Exception:

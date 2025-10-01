@@ -9,6 +9,7 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+import os
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
@@ -147,7 +148,7 @@ def prepare_data_vectorized_system1(
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **_kwargs,
 ) -> dict[str, pd.DataFrame]:
     """System1 data preparation processing (ROC200 momentum strategy).
 
@@ -167,8 +168,19 @@ def prepare_data_vectorized_system1(
     Returns:
         Processed data dictionary
     """
+    def _substep(msg: str) -> None:
+        if not log_callback:
+            return
+        try:
+            if (os.environ.get("ENABLE_SUBSTEP_LOGS") or "").lower() in {"1", "true", "yes"}:
+                log_callback(f"System1: {msg}")
+        except Exception:
+            pass
+
+    _substep("enter prepare_data")
     # Fast path: reuse precomputed indicators
     if reuse_indicators and raw_data_dict:
+        _substep("fast-path check start")
         try:
             # Early check - verify required indicators exist
             valid_data_dict, error_symbols = check_precomputed_indicators(
@@ -189,8 +201,7 @@ def prepare_data_vectorized_system1(
 
                     prepared_dict[symbol] = x
 
-                if log_callback:
-                    log_callback(f"System1: Fast-path processed {len(prepared_dict)} symbols")
+                _substep(f"fast-path processed symbols={len(prepared_dict)}")
 
                 return prepared_dict
 
@@ -199,8 +210,7 @@ def prepare_data_vectorized_system1(
             raise
         except Exception:
             # Fall back to normal processing for other errors
-            if log_callback:
-                log_callback("System1: Fast-path failed, falling back to normal processing")
+            _substep("fast-path failed fallback to normal path")
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -208,14 +218,13 @@ def prepare_data_vectorized_system1(
     elif raw_data_dict:
         target_symbols = list(raw_data_dict.keys())
     else:
-        if log_callback:
-            log_callback("System1: No symbols provided, returning empty dict")
+        _substep("no symbols provided -> empty dict")
         return {}
 
-    if log_callback:
-        log_callback(f"System1: Starting normal processing for {len(target_symbols)} symbols")
+    _substep(f"normal path start symbols={len(target_symbols)}")
 
     # Execute batch processing
+    _substep("batch processing start")
     results, error_symbols = process_symbols_batch(
         target_symbols,
         _compute_indicators,
@@ -227,6 +236,7 @@ def prepare_data_vectorized_system1(
         skip_callback=skip_callback,
         system_name="System1",
     )
+    _substep(f"batch processing done ok={len(results)} err={len(error_symbols)}")
 
     return results
 

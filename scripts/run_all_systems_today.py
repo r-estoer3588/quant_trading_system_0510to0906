@@ -653,19 +653,44 @@ def _get_today_logger() -> logging.Logger:
 
 
 def _emit_ui_log(message: str) -> None:
-    """UI 側のログコールバックが登録されていれば、そのまま文字列を送信する。"""
+    """UI コールバックへログを送信。
+
+    環境変数 `STRUCTURED_UI_LOGS=1` の場合は JSON 文字列を送り、
+    `{"ts": epoch_ms, "iso": iso8601, "msg": message}` 形式にする。
+    既存テスト互換のためデフォルトは従来のプレーンテキスト。
+    """
     try:
         cb = globals().get("_LOG_CALLBACK")
-        if cb and callable(cb):
-            # 型安全ガード: messageが文字列でない場合は変換
-            safe_message = str(message) if message is not None else ""
-            token = _LOG_FORWARDING.set(True)
-            try:
-                cb(safe_message)
-            finally:
-                _LOG_FORWARDING.reset(token)
     except Exception:
-        # UI コールバック未設定や例外は黙って無視（CLI 実行時を考慮）
+        cb = None
+    if not (cb and callable(cb)):
+        return
+
+    try:
+        structured = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {"1", "true", "yes"}
+    except Exception:
+        structured = False
+
+    payload: str
+    if structured:
+        try:
+            import time as _t
+            import json as _json
+            now = _t.time()
+            iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            payload = _json.dumps({"ts": int(now * 1000), "iso": iso, "msg": str(message)})
+        except Exception:
+            payload = str(message)
+    else:
+        payload = str(message)
+
+    try:
+        token = _LOG_FORWARDING.set(True)
+        try:
+            cb(payload)
+        finally:
+            _LOG_FORWARDING.reset(token)
+    except Exception:
         pass
 
 
@@ -839,20 +864,20 @@ def _log(
                 print(safe, flush=True)
             except Exception:
                 pass
-    except Exception:
-        pass
 
-    # UI 側のコールバックにはフィルタ済みで通知（UI での重複プレフィックス回避）
+    # UI 側への通知
     if ui_allowed:
-        _emit_ui_log(str(msg))
+        try:
+            _emit_ui_log(str(msg))
+        except Exception:
+            pass
 
-    # 常にファイルへも適切なレベルで出力（UI/CLI の別なく完全なログを保存）
+    # バックエンドログ（ファイル）
     try:
         logger = _get_today_logger()
         log_msg = str(msg)
         if error_code:
             log_msg = f"[{error_code}] {log_msg}"
-
         if level == "ERROR":
             logger.error(log_msg)
         elif level == "WARNING":
@@ -863,6 +888,38 @@ def _log(
             logger.info(log_msg)
     except Exception:
         pass
+
+
+class _PerfTimer:
+    """軽量パフォーマンス計測 (環境変数 ENABLE_STEP_TIMINGS=1 の時のみ有効)"""
+
+    def __init__(self, label: str, level: str = "DEBUG") -> None:
+        self.label = label
+        self.level = level
+        self.enabled = (os.environ.get("ENABLE_STEP_TIMINGS") or "").lower() in {"1", "true", "yes"}
+        self._t0: float | None = None
+
+    def __enter__(self):  # noqa: D401
+        if self.enabled:
+            try:
+                import time as _t
+
+                self._t0 = _t.perf_counter()
+            except Exception:
+                self.enabled = False
+        return self
+
+    def __exit__(self, exc_type, exc, tb):  # noqa: D401
+        if not self.enabled or self._t0 is None:
+            return False
+        try:
+            import time as _t
+
+            dt = _t.perf_counter() - self._t0
+            _log(f"⏱ {self.label} {dt*1000:.1f}ms", ui=False, level=self.level)
+        except Exception:
+            pass
+        return False
 
 
 def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None = None):
@@ -3598,23 +3655,22 @@ def compute_today_signals(
                 continue
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
-
-            try:
-                prepared_data = strategy.prepare_data(raw_data)
-            except Exception as prep_err:
-                _log_error(f"[{system_name}] データ準備でエラー: {prep_err}", "DATA001")
-                per_system[system_name] = pd.DataFrame()
-                _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
-                _log(f"✅ {system_name} 完了: 0件")
-                continue
+            with _PerfTimer(f"{system_name}.prepare_data"):
+                try:
+                    prepared_data = strategy.prepare_data(raw_data)
+                except Exception as prep_err:
+                    _log_error(f"[{system_name}] データ準備でエラー: {prep_err}", "DATA001")
+                    per_system[system_name] = pd.DataFrame()
+                    _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
+                    _log(f"✅ {system_name} 完了: 0件")
+                    continue
 
             candidate_kwargs: dict[str, Any] = {}
             if system_name == "system4":
-                # System4 には market_df として SPY データを渡す
                 candidate_kwargs["market_df"] = spy_df
 
-            # System7 も含め、準備済みデータを用いて候補生成
-            candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
+            with _PerfTimer(f"{system_name}.generate_candidates"):
+                candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
             if candidates:
                 # 候補をDataFrameに変換
                 rows = []

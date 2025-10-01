@@ -124,6 +124,10 @@ def display_return6d_ranking(
     )
     df = df.sort_values(["Date", "return_6d_Rank"], ascending=[True, True])
     df = df.groupby("Date").head(top_n)
+
+    # return_6d を % 表示用に変換（内部データは 0.x のまま保持）
+    df["return_6d_pct"] = (df["return_6d"] * 100).round(2)
+
     title = tr(
         "{display_name} return_6d ランキング（直近{years}年 / 上位{top_n}銘柄）",
         display_name=DISPLAY_NAME,
@@ -131,10 +135,11 @@ def display_return6d_ranking(
         top_n=top_n,
     )
     with st.expander(title, expanded=False):
-        st.dataframe(
-            df.reset_index(drop=True)[["Date", "return_6d_Rank", "symbol", "return_6d"]],
-            hide_index=False,
-        )
+        display_df = df.reset_index(drop=True)[
+            ["Date", "return_6d_Rank", "symbol", "return_6d_pct"]
+        ]
+        display_df = display_df.rename(columns={"return_6d_pct": "return_6d (%)"})
+        st.dataframe(display_df, hide_index=False)
 
 
 def run_tab(ui_manager: UIManager | None = None) -> None:
@@ -149,10 +154,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
     st.info(
         tr(
             "💡 **System6 銘柄選択のガイド**\n\n"
-            "• **全銘柄（約11,800）**: ETF、優先株、REITも含む全銘柄\n"
-            "• **普通株のみ（約6,200）**: 一般的な普通株式のみ（推奨）\n"
+            "• **普通株（約6,200銘柄）**: 一般的な普通株式のみ\n"
             "• **制限数**: System6では100-1,000銘柄程度が実用的\n\n"
-            "**推奨設定**: 普通株のみ ✓ + 銘柄制限を100-500程度に調整"
+            "**推奨設定**: 銘柄制限を100-500程度に調整"
         )
     )
 
