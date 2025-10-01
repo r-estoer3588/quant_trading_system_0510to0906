@@ -19,6 +19,6 @@ def test_slack_send_text_only_once(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setattr(notifier, "WebClient", DummyClient)
 
-    n = notifier.FallbackNotifier()
+    n = notifier.SimpleSlackNotifier()
     assert n._slack_send_text("hello") is True
     assert call_count == 1

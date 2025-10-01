@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import os
 import pandas as pd
 
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD  # 振る舞い維持: 元スクリプトの閾値
@@ -384,11 +385,26 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
     total = len(symbols or [])
     dv_pass = 0
     hv_pass = 0
+    debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
+    debug_limit = 10
+    debug_count = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         dv_ok, hv_ok = _system4_conditions(df)
+        if debug_enabled and debug_count < debug_limit:
+            try:
+                # 末尾値を直接参照（可能なら）
+                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_val = _last_scalar(dv_series)
+                hv_series = _pick_series(df, ["HV50", "hv50", "HV_50"])  # type: ignore[misc]
+                hv_val = _last_scalar(hv_series)
+            except Exception:
+                dv_val = None
+                hv_val = None
+            print(f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} hv_val={hv_val} hv_ok={hv_ok}")
+            debug_count += 1
         if not dv_ok:
             continue
         dv_pass += 1
@@ -409,11 +425,28 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
     av_pass = 0
     dv_pass = 0
     atr_pass = 0
+    debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
+    debug_limit = 10
+    debug_count = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         av_ok, dv_ok, atr_ok = _system5_conditions(df)
+        if debug_enabled and debug_count < debug_limit:
+            try:
+                av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "AVGVOL50"])  # type: ignore[misc]
+                av_val = _last_scalar(av_series)
+                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_val = _last_scalar(dv_series)
+                atr_series = _pick_series(df, ["ATR_Pct", "atr_pct", "ATR_Ratio", "atr_ratio"])  # type: ignore[misc]
+                atr_val = _last_scalar(atr_series)
+            except Exception:
+                av_val = dv_val = atr_val = None
+            print(
+                f"[DBG system5] sym={sym} av_val={av_val} av_ok={av_ok} dv_val={dv_val} dv_ok={dv_ok} atr_val={atr_val} atr_ok={atr_ok}"
+            )
+            debug_count += 1
         if not av_ok:
             continue
         av_pass += 1

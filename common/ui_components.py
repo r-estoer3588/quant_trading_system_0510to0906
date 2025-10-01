@@ -834,6 +834,11 @@ def run_backtest_app(
                 use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
                 use_json = os.getenv("BACKTEST_JSON", "1") != "0"
                 mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                # run_id: 1 回の UI 実行単位
+                import uuid
+
+                run_id = os.getenv("BACKTEST_RUN_ID") or uuid.uuid4().hex[:12]
+                os.environ["BACKTEST_RUN_ID"] = run_id  # Downstream (Slack) 使用向け
                 # ANSI colors
                 C = {
                     "reset": "\u001b[0m",
@@ -852,6 +857,7 @@ def run_backtest_app(
                     f"{C['bold']}🚀 バックテスト開始{C['reset']}: {system_name}",
                     f"🕒 開始時刻: {_t_start:%Y-%m-%d %H:%M:%S}",
                     f"📊 対象シンボル数: {len(symbols)}",
+                    f"🆔 Run ID: {run_id}",
                     f"モード: {mode_txt}",
                     f"{C['cyan']}=============================={C['reset']}",
                 ]
@@ -871,6 +877,7 @@ def run_backtest_app(
                         "timestamp": _t_start.isoformat(),
                         "symbols": len(symbols),
                         "mode": mode_txt,
+                        "run_id": run_id,
                     }
                     with (log_dir / f"{system_name.lower()}_events.jsonl").open(
                         "a", encoding="utf-8"
@@ -944,6 +951,7 @@ def run_backtest_app(
 
                     use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
                     use_json = os.getenv("BACKTEST_JSON", "1") != "0"
+                    run_id = os.getenv("BACKTEST_RUN_ID") or "unknown"
                     _t_end = _dt.now()
                     _elapsed = (_t_end - _t_start).total_seconds()
                     h = int(_elapsed // 3600)
@@ -971,13 +979,23 @@ def run_backtest_app(
                         for k in list(C.keys()):
                             C[k] = ""
                     mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                    # 視認性向上: 0埋め H:MM:SS と合計秒、両方を表示
+                    total_fmt = f"{h}:{m:02d}:{int(s):02d}"  # 例 0:03:52
+                    # 長時間色付け(> 15分)で注意を引く
+                    warn = use_color and _elapsed > 900
+                    elapsed_line = (
+                        f"⏱️ 所要時間: {total_fmt} (合計 {_elapsed:.2f} 秒)"
+                        if not warn
+                        else f"⏱️ 所要時間: {C['yellow']}{total_fmt}{C['reset']} (合計 {_elapsed:.2f} 秒)"
+                    )
                     end_lines = [
                         "",
                         f"{C['green']}=============================={C['reset']}",
                         f"{C['bold']}✅ バックテスト完了{C['reset']}: {system_name}",
                         f"🕒 終了時刻: {_t_end:%Y-%m-%d %H:%M:%S}",
-                        f"⏱️ 所要時間: {h}時間 {m}分 {s:.1f}秒 （合計{_elapsed:.2f}秒）",
+                        elapsed_line,
                         f"📊 取引件数: {trades_cnt} / シンボル数: {len(symbols)}",
+                        f"🆔 Run ID: {run_id}",
                         f"モード: {mode_txt}",
                         f"{C['green']}=============================={C['reset']}",
                         "",
@@ -1002,6 +1020,7 @@ def run_backtest_app(
                             "symbols": len(symbols),
                             "trades": trades_cnt,
                             "mode": mode_txt,
+                            "run_id": run_id,
                         }
                         with (log_dir / f"{system_name.lower()}_events.jsonl").open(
                             "a", encoding="utf-8"
