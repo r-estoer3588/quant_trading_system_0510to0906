@@ -827,10 +827,55 @@ def run_backtest_app(
 
             _t_start = _dt.now()
             try:
-                print(
-                    f"[{system_name}] BACKTEST START {_t_start:%Y-%m-%d %H:%M:%S}",
-                    flush=True,
-                )
+                import json
+                import os
+                import pathlib
+
+                use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
+                use_json = os.getenv("BACKTEST_JSON", "1") != "0"
+                mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                # ANSI colors
+                C = {
+                    "reset": "\u001b[0m",
+                    "cyan": "\u001b[36m",
+                    "green": "\u001b[32m",
+                    "yellow": "\u001b[33m",
+                    "magenta": "\u001b[35m",
+                    "bold": "\u001b[1m",
+                }
+                if not use_color:
+                    for k in list(C.keys()):
+                        C[k] = ""
+                start_lines = [
+                    "",
+                    f"{C['cyan']}=============================={C['reset']}",
+                    f"{C['bold']}🚀 バックテスト開始{C['reset']}: {system_name}",
+                    f"🕒 開始時刻: {_t_start:%Y-%m-%d %H:%M:%S}",
+                    f"📊 対象シンボル数: {len(symbols)}",
+                    f"モード: {mode_txt}",
+                    f"{C['cyan']}=============================={C['reset']}",
+                ]
+                print("\n".join(start_lines), flush=True)
+                if use_json:
+                    try:
+                        settings_local = get_settings(create_dirs=True)
+                        log_dir = (
+                            pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
+                        )
+                    except Exception:
+                        log_dir = pathlib.Path("logs") / "backtest_events"
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    rec = {
+                        "event": "start",
+                        "system": system_name,
+                        "timestamp": _t_start.isoformat(),
+                        "symbols": len(symbols),
+                        "mode": mode_txt,
+                    }
+                    with (log_dir / f"{system_name.lower()}_events.jsonl").open(
+                        "a", encoding="utf-8"
+                    ) as jf:
+                        jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
             except Exception:
                 pass
             prepared_dict, candidates_by_date, merged_df = prepare_backtest_data(
@@ -893,12 +938,75 @@ def run_backtest_app(
             else:
                 # --- timing end (stdout) ---
                 try:
+                    import json
+                    import os
+                    import pathlib
+
+                    use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
+                    use_json = os.getenv("BACKTEST_JSON", "1") != "0"
                     _t_end = _dt.now()
                     _elapsed = (_t_end - _t_start).total_seconds()
-                    print(
-                        f"[{system_name}] BACKTEST END {_t_end:%Y-%m-%d %H:%M:%S} elapsed={_elapsed:.2f}s",
-                        flush=True,
-                    )
+                    h = int(_elapsed // 3600)
+                    m = int((_elapsed % 3600) // 60)
+                    s = _elapsed % 60
+                    trades_cnt = 0
+                    try:
+                        if (
+                            results_df is not None
+                            and hasattr(results_df, "empty")
+                            and not results_df.empty
+                        ):
+                            trades_cnt = len(results_df)
+                    except Exception:
+                        trades_cnt = 0
+                    C = {
+                        "reset": "\u001b[0m",
+                        "cyan": "\u001b[36m",
+                        "green": "\u001b[32m",
+                        "yellow": "\u001b[33m",
+                        "magenta": "\u001b[35m",
+                        "bold": "\u001b[1m",
+                    }
+                    if not use_color:
+                        for k in list(C.keys()):
+                            C[k] = ""
+                    mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                    end_lines = [
+                        "",
+                        f"{C['green']}=============================={C['reset']}",
+                        f"{C['bold']}✅ バックテスト完了{C['reset']}: {system_name}",
+                        f"🕒 終了時刻: {_t_end:%Y-%m-%d %H:%M:%S}",
+                        f"⏱️ 所要時間: {h}時間 {m}分 {s:.1f}秒 （合計{_elapsed:.2f}秒）",
+                        f"📊 取引件数: {trades_cnt} / シンボル数: {len(symbols)}",
+                        f"モード: {mode_txt}",
+                        f"{C['green']}=============================={C['reset']}",
+                        "",
+                    ]
+                    print("\n".join(end_lines), flush=True)
+                    if use_json:
+                        try:
+                            settings_local = get_settings(create_dirs=True)
+                            log_dir = (
+                                pathlib.Path(settings_local.LOGS_DIR)
+                                / "backtest_events"
+                            )
+                        except Exception:
+                            log_dir = pathlib.Path("logs") / "backtest_events"
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        rec = {
+                            "event": "end",
+                            "system": system_name,
+                            "timestamp": _t_end.isoformat(),
+                            "elapsed_sec": round(_elapsed, 3),
+                            "elapsed_hms": {"h": h, "m": m, "s": round(s, 3)},
+                            "symbols": len(symbols),
+                            "trades": trades_cnt,
+                            "mode": mode_txt,
+                        }
+                        with (log_dir / f"{system_name.lower()}_events.jsonl").open(
+                            "a", encoding="utf-8"
+                        ) as jf:
+                            jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 except Exception:
                     pass
                 return results_df, None, prepared_dict, capital, candidates_by_date
