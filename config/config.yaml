@@ -25,7 +25,7 @@ strategies:
     # 設定はドキュメントに合わせる（エントリーギャップ 4% 等）
     entry_min_gap_pct: 0.04
     profit_take_pct: 0.04
-    max_hold_days: 2  # 書籍通り: 2日後に利益目標に到達しないときは翌日に手仕舞い
+    max_hold_days: 2 # 書籍通り: 2日後に利益目標に到達しないときは翌日に手仕舞い
     stop_atr_multiple: 3.0
   system3:
     ema_short: 12
@@ -35,7 +35,7 @@ strategies:
     entry_price_ratio_vs_prev_close: 0.93
     stop_atr_multiple: 2.5
     profit_take_pct: 0.04
-    max_hold_days: 3  # 書籍通り: 3日後に利益目標に到達しないときは翌日に手仕舞い
+    max_hold_days: 3 # 書籍通り: 3日後に利益目標に到達しないときは翌日に手仕舞い
   system4:
     # System4 は主にSPY依存のフィルタとATRを用いた短期売り戦略
     stop_atr_multiple: 1.5
@@ -47,13 +47,13 @@ strategies:
     entry_price_ratio_vs_prev_close: 0.97
     stop_atr_multiple: 3.0
     target_atr_multiple: 1.0
-    fallback_exit_after_days: 6  # 書籍通り: 6日後に到達しないときは翌日に手仕舞い
+    fallback_exit_after_days: 6 # 書籍通り: 6日後に到達しないときは翌日に手仕舞い
   system6:
     # System6: ショート戦略。利確・損切り・保持期間に関するパラメータ
     entry_price_ratio_vs_prev_close: 1.05
     stop_atr_multiple: 3.0
     profit_take_pct: 0.05
-    profit_take_max_days: 3  # 書籍通り: 3日後には手仕舞い
+    profit_take_max_days: 3 # 書籍通り: 3日後には手仕舞い
   system7:
     # System7: SPY 専用ヘッジ。ATR50 等を使うため最小限の上書き
     stop_atr_multiple: 3.0
