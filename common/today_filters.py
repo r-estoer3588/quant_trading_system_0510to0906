@@ -55,6 +55,7 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
         cols = list(df.columns)
         if not cols:
             return None
+
         # 正規化マップ: key = lower + アンダースコア除去
         def norm(s: str):
             return s.replace("_", "").lower()
@@ -71,7 +72,10 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
             if nm in df.columns:
                 s_any = df[nm]
                 try:
-                    if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                    if (
+                        isinstance(s_any, pd.DataFrame)
+                        and getattr(s_any, "ndim", None) == 2
+                    ):
                         # 先頭列のみ使用
                         s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 except Exception:
@@ -90,7 +94,10 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
                 continue
             try:
                 s_any = df[real]
-                if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                if (
+                    isinstance(s_any, pd.DataFrame)
+                    and getattr(s_any, "ndim", None) == 2
+                ):
                     s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 try:
                     s_any = pd.to_numeric(s_any, errors="coerce")
@@ -256,7 +263,9 @@ def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
+    dv_series = _pick_series(
+        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
+    )
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -275,7 +284,9 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
+    dv_series = _pick_series(
+        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
+    )
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -297,7 +308,9 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         low_val = _last_non_nan(low_series)
     low_ok = bool(low_val is not None and low_val >= 1)
 
-    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
+    av_series = _pick_series(
+        df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"]
+    )
     av_val = _last_scalar(av_series)
     if av_val is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -315,7 +328,9 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -334,7 +349,9 @@ def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
 
 def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
+    av_series = _pick_series(
+        df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"]
+    )
     av_val = _last_scalar(av_series)
     if av_val is None:
         av_val = _calc_average_volume_from_series(volume_series, 50)
@@ -343,7 +360,9 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     av_ok = bool(av_val is not None and av_val > 500_000)
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -369,7 +388,9 @@ def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)

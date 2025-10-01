@@ -50,46 +50,26 @@ def generate_holding_matrix(
     # フェーズ2: マトリクス生成
     all_dates = sorted(holding_dict.keys())
     all_symbols = sorted(set(results_df["symbol"].unique()))
-    holding_matrix = pd.DataFrame(index=all_dates, columns=all_symbols)
+    # 事前に 0 で埋めた int8 型マトリクスを確保することで、後段の fillna → downcast に伴う
+    # FutureWarning (pandas の object -> int 暗黙ダウンキャスト非推奨) を完全に回避する。
+    # これにより列ごとの個別型推論と逐次代入も不要になりパフォーマンスも僅かに改善。
+    holding_matrix = pd.DataFrame(0, index=all_dates, columns=all_symbols, dtype="int8")
 
     total_steps = len(all_dates)
     for j, date in enumerate(all_dates, 1):
-        for sym in all_symbols:
-            holding_matrix.loc[date, sym] = 1 if sym in holding_dict[date] else 0
+        # その日の保有銘柄だけ 1 に更新（非保有は既に 0 初期化済み）
+        held = holding_dict[date]
+        if held:
+            # .loc/at で個別更新より高速なベクトル代入を使用
+            holding_matrix.loc[date, list(held)] = 1
 
         if matrix_progress_callback:
             ratio = j / total_steps
             # 1%進んだタイミング or 最後の処理で更新
             if int(ratio * 100) != int((j - 1) / total_steps * 100) or j == total_steps:
                 matrix_progress_callback(j, total_steps)
-    # FutureWarning 回避: fillna -> infer_objects -> astype(int) 連鎖での暗黙ダウンキャストを明示的に行う
-    filled = holding_matrix.fillna(0)
-    # object列のみ抽出して安全に数値へ（0/1以外は無視）
-    for c in filled.columns:
-        col = filled[c]
-        if col.dtype == "O":  # object のみ対象
-            try:
-                # to_numeric で強制変換し、失敗は NaN にして 0 に置換
-                num = pd.to_numeric(col, errors="coerce").fillna(0)
-                # 0/1 に丸め（念のため）
-                num = (
-                    (num > 0).astype(int)
-                    if set(num.unique()) - {0, 1}
-                    else num.astype(int)
-                )
-                filled[c] = num
-            except Exception:
-                try:
-                    filled[c] = col.astype(int)
-                except Exception:
-                    # 変換不可なら 0/1 推定: truthy->1 falsy->0
-                    filled[c] = col.apply(
-                        lambda x: 1 if x in (1, "1", True, "True") else 0
-                    )
-    try:
-        return filled.astype(int)
-    except Exception:
-        return filled
+    # すでに int8 で確定しているので追加処理不要
+    return holding_matrix
 
 
 def display_holding_heatmap(

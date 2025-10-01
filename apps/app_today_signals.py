@@ -691,7 +691,60 @@ def _log_manual_rebuild_notice(
                     pass
         return message
 
-    # 非コンパクトモード: 従来通り全文を出力
+    # 非コンパクトモード: 大量発生時は環境変数で抑制
+    # ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT: 0 または未設定=無制限, N>0 で最初の N 件のみ詳細出力し残りはサマリーへ集約
+    global _MANUAL_REBUILD_VERBOSE_LIMIT, _MANUAL_REBUILD_VERBOSE_COUNT, _MANUAL_REBUILD_SUPPRESSED, _MANUAL_REBUILD_ATEXIT_REGISTERED
+    try:  # 初期化 (例外あっても致命的でない)
+        if "_MANUAL_REBUILD_VERBOSE_LIMIT" not in globals():  # 初回
+            _MANUAL_REBUILD_VERBOSE_LIMIT = None
+            _MANUAL_REBUILD_VERBOSE_COUNT = 0
+            _MANUAL_REBUILD_SUPPRESSED = 0
+            _MANUAL_REBUILD_ATEXIT_REGISTERED = False
+        if _MANUAL_REBUILD_VERBOSE_LIMIT is None:
+            import atexit as _atexit
+            import os as _os
+
+            try:
+                _MANUAL_REBUILD_VERBOSE_LIMIT = int(
+                    _os.getenv("ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT", "0")
+                )
+            except Exception:
+                _MANUAL_REBUILD_VERBOSE_LIMIT = 0
+
+            def _flush_manual_rebuild_summary() -> None:  # atexit フラッシュ
+                try:
+                    if _MANUAL_REBUILD_SUPPRESSED > 0 and _MANUAL_REBUILD_VERBOSE_LIMIT > 0:
+                        # 抑制件数の最終サマリー (WARNING でなく INFO 相当が妥当だが log_fn のレベル制御不明なのでそのまま)
+                        if log_fn:
+                            log_fn(
+                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました"
+                            )
+                except Exception:
+                    pass
+
+            if not _MANUAL_REBUILD_ATEXIT_REGISTERED:
+                try:
+                    _atexit.register(_flush_manual_rebuild_summary)
+                    _MANUAL_REBUILD_ATEXIT_REGISTERED = True
+                except Exception:
+                    pass
+
+        _MANUAL_REBUILD_VERBOSE_COUNT += 1
+        limit = _MANUAL_REBUILD_VERBOSE_LIMIT or 0
+        if limit > 0 and _MANUAL_REBUILD_VERBOSE_COUNT > limit:
+            _MANUAL_REBUILD_SUPPRESSED += 1
+            # 最初の抑制タイミングで 1 度だけ告知行
+            if _MANUAL_REBUILD_SUPPRESSED == 1 and log_fn:
+                try:
+                    log_fn(
+                        f"… (以降 rolling未整備 詳細は抑制中: 閾値{limit}件を超過。環境変数 ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT で変更可能)"
+                    )
+                except Exception:
+                    pass
+            return message  # 呼び出し元には返すが表示しない
+    except Exception:  # 失敗時は従来挙動
+        pass
+
     if log_fn is None:
         return message
     try:
