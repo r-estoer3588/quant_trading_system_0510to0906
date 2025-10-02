@@ -50,7 +50,12 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
-        return generate_candidates_system2(data_dict, top_n=top_n)
+        latest_only = bool(kwargs.get("latest_only", False))
+        return generate_candidates_system2(
+            data_dict,
+            top_n=top_n,
+            latest_only=latest_only,
+        )
 
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）

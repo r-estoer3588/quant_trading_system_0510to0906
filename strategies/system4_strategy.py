@@ -71,12 +71,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
+        latest_only = bool(kwargs.get("latest_only", False))
         return generate_candidates_system4(
             prepared_dict,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,
             batch_size=batch_size,
+            latest_only=latest_only,
         )
 
     # システムフック群

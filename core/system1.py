@@ -250,6 +250,7 @@ def generate_candidates_system1(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    latest_only: bool = False,
     **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System1 candidate generation (ROC200 descending ranking).
@@ -270,6 +271,68 @@ def generate_candidates_system1(
 
     if top_n is None:
         top_n = 20  # Default value
+
+    # Fast path: 当日（最新日）だけでランキングする用途 (today run) 向け最適化
+    # full-history が必要なバックテストでは latest_only=False を指定して従来処理を維持
+    if latest_only:
+        try:
+            rows: list[dict] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    continue
+                # 最終行取得
+                last_row = df.iloc[-1]
+                # setup 通過のみ対象
+                if not last_row.get("setup", False):
+                    continue
+                roc200_val = last_row.get("roc200", 0)
+                try:
+                    if pd.isna(roc200_val) or float(roc200_val) <= 0:
+                        continue
+                except Exception:
+                    continue
+                date_val = df.index[-1]
+                # 統計用
+                date_counter[date_val] = date_counter.get(date_val, 0) + 1
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": date_val,
+                        "roc200": roc200_val,
+                        "close": last_row.get("Close", 0),
+                    }
+                )
+            if not rows:
+                if log_callback:
+                    log_callback("System1: latest_only fast-path produced 0 rows")
+                return {}, None
+            df_all = pd.DataFrame(rows)
+            # 最頻日を採用（欠損シンボル混在への耐性）
+            try:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+            except Exception:
+                # 失敗したらそのまま
+                pass
+            df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
+            # candidates_by_date 互換構造生成
+            by_date = {}
+            for dt, sub in df_all.groupby("date"):
+                by_date[dt] = sub.to_dict("records")
+            if log_callback:
+                log_callback(
+                    f"System1: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                )
+            # 統合 DataFrame は従来形式を踏襲
+            out_df = df_all.copy()
+            return by_date, out_df
+        except Exception as fast_err:
+            # フォールバック: 失敗時は従来ロジックへ
+            if log_callback:
+                log_callback(f"System1: fast-path failed -> fallback ({fast_err})")
+            # 続行して下の従来ロジックへ
+            pass
 
     # Aggregate all dates
     all_dates = set()

@@ -159,6 +159,7 @@ def generate_candidates_system2(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    latest_only: bool = False,
     **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System2 candidate generation (ADX7 descending ranking).
@@ -179,6 +180,59 @@ def generate_candidates_system2(
 
     if top_n is None:
         top_n = 20  # Default value
+
+    # === Fast Path (latest_only) ===
+    # 当日シグナル抽出用途: 最新日のみを対象に O(S) でランキング
+    if latest_only:
+        try:
+            rows: list[dict] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    continue
+                last_row = df.iloc[-1]
+                if not last_row.get("setup", False):
+                    continue
+                adx7_val = last_row.get("adx7", 0)
+                try:
+                    if pd.isna(adx7_val) or float(adx7_val) <= 0:
+                        continue
+                except Exception:
+                    continue
+                dt = df.index[-1]
+                date_counter[dt] = date_counter.get(dt, 0) + 1
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": dt,
+                        "adx7": adx7_val,
+                        "rsi3": last_row.get("rsi3", 0),
+                        "close": last_row.get("Close", 0),
+                    }
+                )
+            if not rows:
+                if log_callback:
+                    log_callback("System2: latest_only fast-path produced 0 rows")
+                return {}, None
+            df_all = pd.DataFrame(rows)
+            # 最頻日で揃える（欠落シンボル耐性）
+            try:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+            except Exception:
+                pass
+            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
+            by_date = {dt: sub.to_dict("records") for dt, sub in df_all.groupby("date")}
+            if log_callback:
+                log_callback(
+                    f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                )
+            return by_date, df_all.copy()
+        except Exception as e:
+            if log_callback:
+                log_callback(f"System2: fast-path failed -> fallback ({e})")
+            # フォールバックして従来ロジックへ続行
+            pass
 
     # Aggregate all dates
     all_dates = set()

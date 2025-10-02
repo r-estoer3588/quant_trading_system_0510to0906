@@ -3795,6 +3795,9 @@ def compute_today_signals(
             if system_name == "system4":
                 candidate_kwargs["market_df"] = spy_df
 
+            # today 実行では最新日のみを対象とした高速候補抽出を有効化（バックテスト互換保持のためオプション）
+            if system_name in {"system1", "system2", "system3", "system4", "system5"}:
+                candidate_kwargs.setdefault("latest_only", True)
             with _PerfTimer(f"{system_name}.generate_candidates"):
                 candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
             if candidates:

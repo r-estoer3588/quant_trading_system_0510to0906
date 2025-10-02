@@ -36,6 +36,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        latest_only = bool(kwargs.get("latest_only", False))
 
         # Extract progress/log callbacks from kwargs if present
         progress_callback = kwargs.get("progress_callback", kwargs.get("on_progress"))
@@ -44,6 +45,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         return generate_candidates_system1(
             data_dict,
             top_n=top_n,
+            latest_only=latest_only,
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
