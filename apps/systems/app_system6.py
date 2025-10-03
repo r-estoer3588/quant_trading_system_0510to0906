@@ -23,7 +23,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-from strategies.system6_strategy import System6Strategy
+from strategies import get_strategy
 
 # 翻訳辞書ロード + 言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
@@ -64,7 +64,11 @@ with st.sidebar:
 SYSTEM_NAME = "System6"
 DISPLAY_NAME = "システム6"
 
-strategy: System6Strategy = System6Strategy()
+
+def _strategy():
+    return get_strategy("system6")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
@@ -188,6 +192,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     run_start = time.time()
+    strategy = _strategy()
     _rb = cast(
         tuple[
             pd.DataFrame | None,

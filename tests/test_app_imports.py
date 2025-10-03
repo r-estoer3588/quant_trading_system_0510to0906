@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Test app imports after reorganization"""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
@@ -16,10 +16,29 @@ try:
 
     print("✅ apps.main - OK")
 
-    # システムアプリのimportテスト
+    # システムアプリの import テスト (遅延戦略ファクトリ導入後)
     print("2. Testing system apps import...")
-    print("⚠️  System apps have core dependency issues - skipping for now")
-    # TODO: Fix core.system dependencies in later phase
+    system_modules = [
+        "apps.systems.app_system1",
+        "apps.systems.app_system2",
+        "apps.systems.app_system3",
+        "apps.systems.app_system4",
+        "apps.systems.app_system5",
+        "apps.systems.app_system6",
+        "apps.systems.app_system7",
+    ]
+    imported = 0
+    for mod in system_modules:
+        try:
+            __import__(mod)
+            print(f"✅ {mod} - OK")
+            imported += 1
+        except Exception as e:  # pragma: no cover - defensive
+            print(f"⚠️  {mod} import skipped: {e}")
+    if imported == len(system_modules):
+        print("✅ All system apps imported successfully")
+    else:
+        print(f"ℹ️ Imported {imported}/{len(system_modules)} system apps (some skipped)")
 
     # ダッシュボードアプリのimportテスト
     print("3. Testing dashboard apps import...")

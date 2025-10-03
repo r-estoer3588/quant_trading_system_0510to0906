@@ -51,11 +51,33 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         latest_only = bool(kwargs.get("latest_only", False))
-        return generate_candidates_system2(
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system2(
             data_dict,
             top_n=top_n,
             latest_only=latest_only,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）

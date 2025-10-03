@@ -70,7 +70,15 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
         # kwargs から取り出し: 重複渡し防止
         latest_only = bool(kwargs.pop("latest_only", False))
-        return generate_candidates_system5(
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system5(
             prepared_dict,
             top_n=top_n,
             progress_callback=progress_callback,
@@ -79,6 +87,20 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             latest_only=latest_only,
             **kwargs,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(prepared_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:

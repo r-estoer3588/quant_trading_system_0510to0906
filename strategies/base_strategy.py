@@ -178,6 +178,31 @@ class StrategyBase(ABC):
         shares = min(risk_per_trade / risk_per_share, max_position_value / entry_price)
         return int(shares)
 
+    # --- Perf Snapshot Helpers -------------------------------------------------
+    @staticmethod
+    def _compute_candidate_count(result: object) -> int | None:
+        """generate_candidates 戻り値から候補件数を推定。
+
+        パターン:
+        - dict -> len(dict)
+        - list/set/tuple -> len(collection)
+        - (dict, DataFrame|None) -> 先頭要素が dict なら len(dict)
+        - 上記以外/None/例外時 -> None (不明扱い)
+        呼び出し側は None をそのまま記録し、可視化層で区別できるようにする。
+        """
+        try:  # noqa: SIM105
+            if result is None:
+                return None
+            if isinstance(result, tuple) and result and isinstance(result[0], dict):
+                return len(result[0])
+            if isinstance(result, dict):
+                return len(result)
+            if isinstance(result, (list, set, tuple)):
+                return len(result)
+        except Exception:  # pragma: no cover
+            return None
+        return None
+
     # ----------------------------
     # 当日シグナル抽出（共通関数）
     # ----------------------------

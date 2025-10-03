@@ -50,7 +50,29 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         kwargs.pop("single_mode", None)
-        return generate_candidates_system7(data_dict, **kwargs)
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system7(data_dict, **kwargs)
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     def run_backtest(
         self,

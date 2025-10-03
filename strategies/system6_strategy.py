@@ -53,13 +53,34 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用、特殊分岐廃止）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         batch_size = self._get_batch_size_setting(len(data_dict))
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
 
-        return generate_candidates_system6(
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system6(
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
             **kwargs,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     # シミュレーター用フック（System6: Short）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):

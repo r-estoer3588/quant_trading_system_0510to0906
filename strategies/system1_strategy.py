@@ -42,13 +42,36 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         progress_callback = kwargs.get("progress_callback", kwargs.get("on_progress"))
         log_callback = kwargs.get("log_callback", kwargs.get("on_log"))
 
-        return generate_candidates_system1(
+        # perf snapshot 計測（存在しない場合はノーオペ）
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system1(
             data_dict,
             top_n=top_n,
             latest_only=latest_only,
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         """

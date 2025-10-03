@@ -19,7 +19,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-from strategies.system2_strategy import System2Strategy
+from strategies import get_strategy
 
 # 翻訳辞書ロードと言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
@@ -29,8 +29,12 @@ if not st.session_state.get("_integrated_ui", False):
 SYSTEM_NAME = "System2"
 DISPLAY_NAME = "システム2"
 
-# 戦略インスタンス
-strategy: System2Strategy = System2Strategy()
+
+# 戦略インスタンス (遅延生成)
+def _strategy():
+    return get_strategy("system2")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
@@ -109,6 +113,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             display_name=DISPLAY_NAME,
         )
     )
+    strategy = _strategy()
     ui_base: UIManager = (
         ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )

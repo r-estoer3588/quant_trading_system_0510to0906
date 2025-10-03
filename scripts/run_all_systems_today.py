@@ -4653,6 +4653,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="外部API呼び出しをスキップ（NASDAQ Trader, pandas_market_calendars等）",
     )
+    parser.add_argument(
+        "--perf-snapshot",
+        action="store_true",
+        help="性能スナップショット(JSON)を logs/perf_snapshots に保存 (latest_only 切替比較用)",
+    )
     return parser
 
 
@@ -4673,18 +4678,37 @@ def configure_logging_for_cli(args: argparse.Namespace) -> None:
 
 
 def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    result = compute_today_signals(
-        args.symbols,
-        slots_long=args.slots_long,
-        slots_short=args.slots_short,
-        capital_long=args.capital_long,
-        capital_short=args.capital_short,
-        save_csv=args.save_csv,
-        csv_name_mode=args.csv_name_mode,
-        parallel=args.parallel,
-        test_mode=getattr(args, "test_mode", None),
-        skip_external=getattr(args, "skip_external", False),
-    )
+    # latest_only 推定: --full-scan-today 指定で False、それ以外 True (システム毎デフォルトロジックと揃える)
+    latest_only_flag = False if getattr(args, "full_scan_today", False) else True
+
+    perf = None
+    if getattr(args, "perf_snapshot", False):
+        try:
+            from common.perf_snapshot import enable_global_perf
+
+            perf = enable_global_perf(True)
+        except Exception:  # pragma: no cover - 安全フォールバック
+            perf = None
+
+    if perf is not None:
+        cm = perf.run(latest_only=latest_only_flag)
+    else:
+        # ダミー contextmanager
+        from contextlib import nullcontext as cm  # type: ignore
+
+    with cm:  # type: ignore
+        result = compute_today_signals(
+            args.symbols,
+            slots_long=args.slots_long,
+            slots_short=args.slots_short,
+            capital_long=args.capital_long,
+            capital_short=args.capital_short,
+            save_csv=args.save_csv,
+            csv_name_mode=args.csv_name_mode,
+            parallel=args.parallel,
+            test_mode=getattr(args, "test_mode", None),
+            skip_external=getattr(args, "skip_external", False),
+        )
     # 戻り値がNoneの場合のフォールバック
     if result is None:
         return pd.DataFrame(), {}

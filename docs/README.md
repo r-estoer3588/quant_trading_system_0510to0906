@@ -21,6 +21,7 @@
 - [今日のシグナル処理](./today_signal_scan/) - 8 フェーズ詳細解説
 - [必須指標](./required_indicators.md) - 計算ロジック
 - [MCP 統合](./mcp_integration_plan.md) - AI 連携機能
+- [パフォーマンススナップショット](./technical/perf_snapshot.md) - 実行時間/候補計測 JSON
 
 ### 🏃 [運用ガイド](#operations)
 

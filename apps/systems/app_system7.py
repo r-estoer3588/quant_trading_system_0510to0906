@@ -18,7 +18,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-from strategies.system7_strategy import System7Strategy
+from strategies import get_strategy
 
 # Load translations and (optionally) show language selector
 load_translations_from_dir(Path(__file__).parent / "translations")
@@ -28,7 +28,11 @@ if not st.session_state.get("_integrated_ui", False):
 SYSTEM_NAME = "System7"
 DISPLAY_NAME = "システム7"
 
-strategy: System7Strategy = System7Strategy()
+
+def _strategy():
+    return get_strategy("system7")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
@@ -54,6 +58,7 @@ def run_tab(
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     run_start = time.time()
+    strategy = _strategy()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
