@@ -69,3 +69,10 @@ repos:
         files: ^(scripts/run_all_systems_today\.py|core/|common/)
         pass_filenames: false
         stages: [pre-push]
+
+      - id: local-quality-aggregate
+        name: Local quality aggregate (ruff/mypy/pytest/bandit/radon)
+        entry: python tools/local_quality_check.py --limit 30
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

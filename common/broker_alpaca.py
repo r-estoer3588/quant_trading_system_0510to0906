@@ -361,32 +361,34 @@ def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
 def reset_paper_cash(
     target_cash: float | int,
     *,
-    api_key: str | None = None,
+    api_key: str | None = None,  # 引数シグネチャ互換維持
     secret_key: str | None = None,
     log_callback=None,
     dry_run: bool = False,
-) -> dict[str, Any]:  # pragma: no cover - ネットワーク依存機能
-    """ペーパーアカウントの現金残高を再設定しようと試みる補助関数。
+) -> dict[str, Any]:  # pragma: no cover - ネットワーク呼び出し廃止済み
+    """[DEPRECATED] ペーパー口座残高リセット試行 (現行API非対応のためスタブ)
 
-    注意: Alpaca 現行 API / SDK では公式に *任意金額へ直接リセット* する公開エンドポイントは
-    提供されていません。過去 (tradeapi.REST.patch_account) の挙動に倣った互換的ベストエフォートです。
+    旧実装では Alpaca paper 環境へ PATCH /v2/account を送り任意 cash を設定しようと
+    していたが、現行公開 API ではサポートされていないため常に *非対応* として扱う。
 
-    実装方針:
-      1. paper 環境のみ許可 (live では即座に例外)
-      2. 非公式 PATCH /v2/account を試行 (失敗時はエラーを返却)
-      3. 失敗理由を含む dict を返す (呼び出し側は UI で表示)
+    目的:
+      - 既存 UI / 呼び出しコードの破壊的変更を避けつつ挙動を明確化
+      - 無駄な 404 / 4xx リクエストとログノイズを除去
 
-    戻り値:
-      {"ok": bool, "status": int | None, "error": str | None, "raw": dict | None}
+    振る舞い:
+      - dry_run=True の場合: ローカル仮想キャッシュ値を（ログ用途として）返すのみ
+      - dry_run=False の場合: 非対応メッセージとダッシュボード誘導を返却
 
-    dry_run=True の場合は実行せず成功想定のみ返します。
+    戻り値例:
+      dry_run: {"ok": True,  "status": "dry_run", "cash": 100000.0, ...}
+      非対応: {"ok": False, "status": "manual_required", "error": "API reset not supported", ...}
     """
 
-    # 型と値の正規化
+    # 値の正規化（以前と整合する最小限の検証: 正数チェック）
     try:
         cash_val = float(target_cash)
         if cash_val <= 0:
-            raise ValueError("target_cash は正の数である必要があります")
+            raise ValueError("target_cash must be positive")
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -395,98 +397,59 @@ def reset_paper_cash(
             "raw": None,
         }
 
-    # SDK が存在しない環境ではネットワーク呼び出しを避ける
-    if TradingClient is None:
-        return {
-            "ok": False,
-            "status": None,
-            "error": "alpaca-py 未インストール",
-            "raw": None,
-        }
+    import logging
 
-    _load_env_once()
-    api_key = api_key or os.getenv("APCA_API_KEY_ID")
-    secret_key = secret_key or os.getenv("APCA_API_SECRET_KEY")
-    if not api_key or not secret_key:
-        return {"ok": False, "status": None, "error": "APIキー未設定", "raw": None}
+    logger = logging.getLogger(__name__)
 
-    # paper 以外禁止 (保護)
-    if os.getenv("ALPACA_PAPER", "true").lower() not in ("1", "true", "yes", "on", "y"):
-        return {
-            "ok": False,
-            "status": None,
-            "error": "live環境では実行禁止です",
-            "raw": None,
-        }
-
-    # dry-run モード
+    # dry-run: 旧仕様互換の情報ログ + 擬似成功
     if dry_run:
+        msg = f"[dry-run] Internal simulated paper cash set to ${cash_val:,.2f} (API unsupported)"
         if log_callback:
             try:
-                log_callback(f"[dry-run] Reset paper cash -> ${cash_val:,.2f}")
+                log_callback(msg)
             except Exception:  # noqa: BLE001
                 pass
+        else:
+            logger.info(msg)
         return {
             "ok": True,
-            "status": None,
+            "status": "dry_run",
             "error": None,
-            "raw": {"dry_run": True, "cash": cash_val},
+            "raw": {"dry_run": True, "cash": cash_val, "deprecated": True},
+            "cash": cash_val,
+            "message": msg,
         }
 
-    try:
-        import requests  # type: ignore
-    except Exception:  # pragma: no cover - requests 無し環境
-        return {
-            "ok": False,
-            "status": None,
-            "error": "requests 未インストール",
-            "raw": None,
-        }
-
-    url = "https://paper-api.alpaca.markets/v2/account"
-    headers = {
-        "APCA-API-KEY-ID": api_key,
-        "APCA-API-SECRET-KEY": secret_key,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    payload = {"cash": f"{cash_val:.2f}"}
-    try:
-        resp = requests.patch(url, json=payload, headers=headers, timeout=10)
-    except Exception as exc:  # pragma: no cover - ネットワーク例外
-        return {
-            "ok": False,
-            "status": None,
-            "error": f"request error: {exc}",
-            "raw": None,
-        }
-
-    status = resp.status_code
-    raw_json: Any | None
-    try:
-        raw_json = resp.json()
-    except Exception:  # noqa: BLE001
-        raw_json = None
-
-    ok = 200 <= status < 300
-    if ok:
+    # 非対応: 初回のみ WARNING を発生させ以後は DEBUG
+    reset_url = "https://app.alpaca.markets/paper/dashboard/overview"
+    warn_msg = (
+        "Paper cash reset via API is not supported; use Alpaca web dashboard. "
+        f"(Open: {reset_url})"
+    )
+    if not getattr(reset_paper_cash, "_warned", False):  # type: ignore[attr-defined]
         if log_callback:
             try:
-                log_callback(
-                    f"✅ Paper cash reset success -> ${cash_val:,.2f} (status {status})"
-                )
+                log_callback(warn_msg)
             except Exception:  # noqa: BLE001
                 pass
-        return {"ok": True, "status": status, "error": None, "raw": raw_json}
+        else:
+            logger.warning(warn_msg)
+        setattr(reset_paper_cash, "_warned", True)  # type: ignore[attr-defined]
     else:
-        err = None
-        if isinstance(raw_json, dict):
-            err = raw_json.get("message") or raw_json.get("error")
-        if not err:
-            err = f"HTTP {status}"
-        if log_callback:
-            try:
-                log_callback(f"❌ Paper cash reset failed: {err}")
-            except Exception:  # noqa: BLE001
-                pass
-        return {"ok": False, "status": status, "error": err, "raw": raw_json}
+        logger.debug("paper cash reset skipped (unsupported API)")
+
+    user_message = (
+        "ペーパー口座の残高リセットは API では行えません。\n"
+        f"1. {reset_url} を開く\n"
+        "2. 'Reset Account' ボタンをクリック\n"
+        "3. 確認ダイアログで 'Reset' を選択 (1日1回制限)"
+    )
+
+    return {
+        "ok": False,
+        "status": "manual_required",
+        "error": "API reset not supported",
+        "message": user_message,
+        "reset_url": reset_url,
+        "raw": {"deprecated": True},
+    }

@@ -3429,23 +3429,32 @@ with st.sidebar:
                             _rl = st.session_state.get("reset_log", [])
                             if len(_rl) > 100:
                                 st.session_state["reset_log"] = _rl[-100:]
-                        if result.get("ok"):
+                        status_val = result.get("status")
+                        if status_val == "dry_run" and result.get("ok"):
+                            st.info(result.get("message", "ドライラン: 実際の変更は行っていません。"))
+                        elif status_val == "manual_required" and not result.get("ok"):
+                            # API 非対応案内
+                            st.info(result.get("message", "API でのリセットは非対応です。"))
+                            reset_url = result.get("reset_url")
+                            if reset_url:
+                                st.markdown(
+                                    f"[Alpaca ダッシュボードを開く]({reset_url})",
+                                    help="ブラウザでリセット操作を行ってください。",
+                                )
+                        elif result.get("ok"):
+                            # 将来対応（現在は到達しない想定）
                             if do_dry:
                                 st.info("ドライラン: 実際の変更は行っていません。")
                             else:
                                 st.success(
                                     f"リセットリクエスト完了 (status={result.get('status')}); 反映には時間がかかる場合があります。"
                                 )
-                            # 成功後の自動資産再取得
                             if auto_refetch and not do_dry:
                                 try:
                                     import time as _time
-
-                                    _time.sleep(0.5)  # 反映遅延/レート制限緩和のための短い待機
+                                    _time.sleep(0.5)
                                     client_auto = ba.get_client(paper=True)
                                     acct_auto = client_auto.get_account()
-                                    equity_auto = getattr(acct_auto, "equity", None)
-                                    cash_auto = getattr(acct_auto, "cash", None)
                                     buying_power_auto = getattr(acct_auto, "buying_power", None)
                                     if buying_power_auto is not None:
                                         try:
@@ -3455,9 +3464,12 @@ with st.sidebar:
                                             st.session_state["today_cap_short"] = half_bp
                                         except Exception:  # noqa: BLE001
                                             pass
-                                    # NOTE: Streamlit は expander のネストを禁止するため
-                                    # 親 expander(ペーパー資金リセット) 内では新しい expander を作らず
-                                    # シンプルなコンテナ表示に変更 (以前: with st.expander("直後の取得結果"))
+                                except Exception:  # noqa: BLE001
+                                    pass
+                        else:
+                            st.warning(
+                                f"リセット失敗または非対応: {result.get('error', 'unknown error')}"
+                            )
                                     _auto_res_ct = st.container()
                                     with _auto_res_ct:
                                         st.caption("直後の取得結果")
