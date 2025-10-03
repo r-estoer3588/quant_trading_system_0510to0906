@@ -3455,7 +3455,12 @@ with st.sidebar:
                                             st.session_state["today_cap_short"] = half_bp
                                         except Exception:  # noqa: BLE001
                                             pass
-                                    with st.expander("直後の取得結果", expanded=False):
+                                    # NOTE: Streamlit は expander のネストを禁止するため
+                                    # 親 expander(ペーパー資金リセット) 内では新しい expander を作らず
+                                    # シンプルなコンテナ表示に変更 (以前: with st.expander("直後の取得結果"))
+                                    _auto_res_ct = st.container()
+                                    with _auto_res_ct:
+                                        st.caption("直後の取得結果")
                                         if equity_auto is not None:
                                             st.write(f"Equity: ${float(equity_auto):,.2f}")
                                         if cash_auto is not None:
@@ -3499,8 +3504,12 @@ with st.sidebar:
                                 if help_message:
                                     st.info(help_message)
                         if "raw" in result and result["raw"]:
-                            with st.expander("APIレスポンス詳細"):
+                            # ネスト禁止対応: ここも expander を使わずインライン表示
+                            st.caption("APIレスポンス詳細")
+                            try:
                                 st.json(result["raw"])
+                            except Exception:  # noqa: BLE001
+                                st.write(result["raw"])
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"リセット処理中に例外: {exc}")
         # 直近ログ表示 (最新5件)
