@@ -327,7 +327,6 @@ __all__ = [
     "log_orders_positions",
     "cancel_all_orders",
     "subscribe_order_updates",
-    "reset_paper_cash",
 ]
 
 
@@ -358,98 +357,3 @@ def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
 # ----------------------------------------------------------------------------
 # Paper cash reset (best-effort / unofficial)
 # ----------------------------------------------------------------------------
-def reset_paper_cash(
-    target_cash: float | int,
-    *,
-    api_key: str | None = None,  # 引数シグネチャ互換維持
-    secret_key: str | None = None,
-    log_callback=None,
-    dry_run: bool = False,
-) -> dict[str, Any]:  # pragma: no cover - ネットワーク呼び出し廃止済み
-    """[DEPRECATED] ペーパー口座残高リセット試行 (現行API非対応のためスタブ)
-
-    旧実装では Alpaca paper 環境へ PATCH /v2/account を送り任意 cash を設定しようと
-    していたが、現行公開 API ではサポートされていないため常に *非対応* として扱う。
-
-    目的:
-      - 既存 UI / 呼び出しコードの破壊的変更を避けつつ挙動を明確化
-      - 無駄な 404 / 4xx リクエストとログノイズを除去
-
-    振る舞い:
-      - dry_run=True の場合: ローカル仮想キャッシュ値を（ログ用途として）返すのみ
-      - dry_run=False の場合: 非対応メッセージとダッシュボード誘導を返却
-
-    戻り値例:
-      dry_run: {"ok": True,  "status": "dry_run", "cash": 100000.0, ...}
-      非対応: {"ok": False, "status": "manual_required", "error": "API reset not supported", ...}
-    """
-
-    # 値の正規化（以前と整合する最小限の検証: 正数チェック）
-    try:
-        cash_val = float(target_cash)
-        if cash_val <= 0:
-            raise ValueError("target_cash must be positive")
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "status": None,
-            "error": f"invalid target_cash: {exc}",
-            "raw": None,
-        }
-
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    # dry-run: 旧仕様互換の情報ログ + 擬似成功
-    if dry_run:
-        msg = f"[dry-run] Internal simulated paper cash set to ${cash_val:,.2f} (API unsupported)"
-        if log_callback:
-            try:
-                log_callback(msg)
-            except Exception:  # noqa: BLE001
-                pass
-        else:
-            logger.info(msg)
-        return {
-            "ok": True,
-            "status": "dry_run",
-            "error": None,
-            "raw": {"dry_run": True, "cash": cash_val, "deprecated": True},
-            "cash": cash_val,
-            "message": msg,
-        }
-
-    # 非対応: 初回のみ WARNING を発生させ以後は DEBUG
-    reset_url = "https://app.alpaca.markets/paper/dashboard/overview"
-    warn_msg = (
-        "Paper cash reset via API is not supported; use Alpaca web dashboard. "
-        f"(Open: {reset_url})"
-    )
-    if not getattr(reset_paper_cash, "_warned", False):  # type: ignore[attr-defined]
-        if log_callback:
-            try:
-                log_callback(warn_msg)
-            except Exception:  # noqa: BLE001
-                pass
-        else:
-            logger.warning(warn_msg)
-        setattr(reset_paper_cash, "_warned", True)  # type: ignore[attr-defined]
-    else:
-        logger.debug("paper cash reset skipped (unsupported API)")
-
-    user_message = (
-        "ペーパー口座の残高リセットは API では行えません。\n"
-        f"1. {reset_url} を開く\n"
-        "2. 'Reset Account' ボタンをクリック\n"
-        "3. 確認ダイアログで 'Reset' を選択 (1日1回制限)"
-    )
-
-    return {
-        "ok": False,
-        "status": "manual_required",
-        "error": "API reset not supported",
-        "message": user_message,
-        "reset_url": reset_url,
-        "raw": {"deprecated": True},
-    }
