@@ -357,3 +357,139 @@ def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
 # ----------------------------------------------------------------------------
 # Paper cash reset (best-effort / unofficial)
 # ----------------------------------------------------------------------------
+
+import json
+from dataclasses import dataclass
+from typing import TypedDict
+
+import requests
+
+
+class PaperResetResult(TypedDict, total=False):
+    ok: bool
+    status_code: int
+    error: str | None
+    equity: float | None
+    raw: dict[str, Any] | None
+
+
+@dataclass(slots=True)
+class PaperResetOptions:
+    desired_equity: float | None = None  # 希望初期残高 (None なら API デフォルト)
+    timeout: float = 10.0  # seconds
+    dry_run: bool = False  # True なら実行せず検証のみ
+
+
+def reset_paper_account(
+    *,
+    api_key: str | None = None,
+    secret_key: str | None = None,
+    desired_equity: float | None = None,
+    dry_run: bool = False,
+    timeout: float = 10.0,
+    endpoint: str | None = None,
+) -> PaperResetResult:
+    """Alpaca Paper 口座をリセットするヘルパ。
+
+    - Live キー / live base URL では動かない想定なので paper API 固定。
+    - desired_equity を指定すると (サポートされている環境なら) 新しい初期残高を設定試行。
+    - dry_run=True なら HTTP リクエストを送らず検証のみ。
+    戻り値: 成功/失敗の簡易情報 (ok, status_code, equity 等)
+    失敗しても例外を極力投げず呼び出し側で扱いやすい形にする。
+    """
+    _load_env_once()
+    api_key = api_key or os.getenv("APCA_API_KEY_ID")
+    secret_key = secret_key or os.getenv("APCA_API_SECRET_KEY")
+    if not api_key or not secret_key:
+        return PaperResetResult(
+            ok=False,
+            status_code=0,
+            error="Missing API keys in params or .env",
+            equity=None,
+            raw=None,
+        )
+
+    base_url = "https://paper-api.alpaca.markets"
+    # 環境変数で上書き可能 (テスト/将来変更検証用): ALPACA_PAPER_RESET_ENDPOINT
+    ep_env = os.getenv("ALPACA_PAPER_RESET_ENDPOINT")
+    endpoint = endpoint or ep_env or f"{base_url}/v2/account/reset"
+
+    headers = {
+        "APCA-API-KEY-ID": api_key,
+        "APCA-API-SECRET-KEY": secret_key,
+        "Content-Type": "application/json",
+    }
+    payload: dict[str, Any] = {}
+    if desired_equity is not None:
+        # API は文字列形式を許容、少数はサポート幅不明なため丸め
+        payload["equity"] = str(int(desired_equity))
+
+    if dry_run:
+        return PaperResetResult(
+            ok=True,
+            status_code=0,
+            error=None,
+            equity=desired_equity,
+            raw={"dry_run": True, "endpoint": endpoint, "payload": payload},
+        )
+
+    try:
+        resp = requests.post(
+            endpoint,
+            headers=headers,
+            data=json.dumps(payload) if payload else None,
+            timeout=timeout,
+        )
+    except Exception as e:  # pragma: no cover - ネットワーク例外
+        return PaperResetResult(
+            ok=False, status_code=0, error=f"network_error:{e}", equity=None, raw=None
+        )
+
+    raw_text: str | None = None
+    try:
+        data = resp.json() if resp.content else {}
+    except Exception:
+        raw_text = resp.text[:500] if resp.text else None
+        data = {}
+
+    ok = 200 <= resp.status_code < 300
+    # 成功時 data から新 equity を拾える場合だけ抽出
+    new_equity: float | None = None
+    for key in ("cash", "equity", "portfolio_value"):
+        try:
+            if key in data and data[key] is not None:
+                new_equity = float(data[key])
+                break
+        except Exception:
+            continue
+
+    # 403/404 の典型原因ヒント
+    error_msg: str | None = None
+    if not ok:
+        if resp.status_code in (403, 404):
+            # 404 の場合: 仕様変更 / エンドポイント無効化 / 誤 URL / リージョン差異
+            hint = "endpoint still enabled? correct paper key?"
+            if resp.status_code == 404:
+                hint += (
+                    " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
+                )
+            error_msg = f"reset failed status={resp.status_code} ({hint})"
+        elif resp.status_code == 422:
+            error_msg = "invalid equity value format"
+        else:
+            error_msg = f"reset failed status={resp.status_code}"
+
+    result = PaperResetResult(
+        ok=ok,
+        status_code=resp.status_code,
+        error=error_msg,
+        equity=new_equity,
+        raw=data if isinstance(data, dict) else None,
+    )
+    if raw_text and not result.get("raw"):
+        # type: ignore[index]
+        result["raw"] = {"_non_json": raw_text}
+    return result
+
+
+__all__.append("reset_paper_account")

@@ -375,7 +375,8 @@ class StrategyBase(ABC):
             stop_multiplier = float(self.config.get("stop_atr_multiple", 3.0))
 
         stop_price = entry_price - stop_multiplier * atr_value
-        sudo apt install -y python3.11 python3.11-venv python3.11-dev        if entry_price - stop_price <= 0:
+        # エントリー直後の想定リスク幅が 0 以下なら無効（データ異常/ATR異常）
+        if entry_price - stop_price <= 0:
             return None
 
         return entry_price, stop_price, entry_idx

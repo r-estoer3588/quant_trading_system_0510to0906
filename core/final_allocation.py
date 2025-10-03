@@ -962,9 +962,58 @@ def finalize_allocation(
     return final_df, summary
 
 
+def to_allocation_summary_dict(summary: AllocationSummary | Any) -> dict[str, Any]:
+    """AllocationSummary もしくは類似オブジェクトを dict へ安全変換。
+
+    - 既知フィールドを優先的に収集
+    - 失敗しても空 dict
+    - 追加フィールドにある程度耐性
+    """
+    try:
+        fields = [
+            "mode",
+            "long_allocations",
+            "short_allocations",
+            "active_positions",
+            "available_slots",
+            "final_counts",
+            "slot_allocation",
+            "slot_candidates",
+            "budgets",
+            "budget_remaining",
+            "capital_long",
+            "capital_short",
+        ]
+        out: dict[str, Any] = {}
+        for f in fields:
+            if hasattr(summary, f):
+                try:
+                    out[f] = getattr(summary, f)
+                except Exception:
+                    pass
+        # 追加で *_allocations など緩く拾う（既存キー除外）
+        try:
+            for name in dir(summary):
+                if name.startswith("_") or name in out:
+                    continue
+                if callable(getattr(summary, name, None)):
+                    continue
+                if name.endswith("_allocations"):
+                    try:
+                        out[name] = getattr(summary, name)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return {}
+
+
 __all__ = [
     "AllocationSummary",
     "count_active_positions_by_system",
     "finalize_allocation",
     "load_symbol_system_map",
+    "to_allocation_summary_dict",
 ]

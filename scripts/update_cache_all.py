@@ -122,7 +122,9 @@ def main():
         )
         print(f"   🕐 開始日時: {start_dt}")
         print(f"   🕐 終了日時: {end_dt}")
-        print(f"   ⏱️ 経過(壁時計): {format_duration(wall_elapsed)}  / ステップ合計: {format_duration(total_duration)}")
+        print(
+            f"   ⏱️ 経過(壁時計): {format_duration(wall_elapsed)}  / ステップ合計: {format_duration(total_duration)}"
+        )
         if not args.skip_cache_daily:
             print(f"   📋 cache_daily_data: {format_duration(duration1)}")
         print(f"   📋 build_rolling: {format_duration(duration2)}")

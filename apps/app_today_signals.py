@@ -2160,7 +2160,8 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # 仮のloggerを作成してヘッダーメッセージを表示
     temp_start_time = time.time()
-    temp_progress_ui = ProgressUI({})
+    # 初期ヘッダーログ用: 本番進捗バーと重複しないよう overall_progress を無効化
+    temp_progress_ui = ProgressUI({"overall_progress": False, "data_load_progress_lines": False})
     temp_logger = UILogger(temp_start_time, temp_progress_ui)
 
     # ヘッダーメッセージの表示
@@ -2264,6 +2265,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 missing_details=missing_details,
             )
         else:
+            # --- compute_today_signals 実行 & 戻り値解釈 ---
             result = compute_today_signals(
                 run_config.symbols,
                 capital_long=run_config.capital_long,
@@ -2277,21 +2279,46 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 symbol_data=symbol_data_map,
                 parallel=run_config.run_parallel,
             )
-            # 安全に結果を解釈
-            if isinstance(result, (tuple, list)) and len(result) == 2:
-                result_pair: Sequence[Any] = tuple(result)
-                maybe_df, maybe_system = result_pair
-                if isinstance(maybe_df, pd.DataFrame) and isinstance(maybe_system, dict):
-                    final_df = maybe_df
-                    per_system = maybe_system
-                else:
-                    actual_types = (
-                        f"df={type(maybe_df).__name__}, system={type(maybe_system).__name__}"
+            final_df, per_system = _interpret_compute_today_result(result, logger)
+            # final_counts=0 の場合の追加デバッグ
+            try:
+                alloc_dict = (
+                    per_system.get("__allocation_summary__")
+                    if isinstance(per_system, dict)
+                    else None
+                )
+                final_counts = (
+                    (alloc_dict or {}).get("final_counts") if isinstance(alloc_dict, dict) else None
+                )
+                if (
+                    (not final_df.empty)
+                    and isinstance(final_counts, dict)
+                    and sum(final_counts.values()) == 0
+                ):
+                    # 最終候補 DataFrame には列があるのに全カウント0 → system 列異常か集計ミス
+                    if "system" in final_df.columns:
+                        sys_counts = final_df["system"].value_counts().to_dict()
+                    else:
+                        sys_counts = {"<no system column>": len(final_df)}
+                    logger.log(
+                        f"🔍 final_counts=0 だが final_df 行数={len(final_df)} system別={sys_counts}"
                     )
-                    logger.log(f"⚠️ compute_today_signals の戻り値型が不正: {actual_types}")
-            else:
-                result_info = f"type={type(result).__name__}, len={len(result) if hasattr(result, '__len__') else 'N/A'}"
-                logger.log(f"⚠️ compute_today_signals の戻り値構造が不正: {result_info}")
+                if (
+                    final_df.empty
+                    and isinstance(final_counts, dict)
+                    and sum(final_counts.values()) == 0
+                ):
+                    # 完全0のとき per_system DataFrame の行数概要
+                    if isinstance(per_system, dict):
+                        per_rows = {
+                            k: (len(v) if hasattr(v, "shape") else None)
+                            for k, v in per_system.items()
+                            if k.startswith("system")
+                        }
+                        if per_rows:
+                            logger.log(f"🔍 per_system 行数サマリ: {per_rows}")
+            except Exception:
+                pass
 
     if debug_result is not None:
         return debug_result
@@ -3698,3 +3725,71 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     render_today_signals_results(artifacts, run_config, trade_options)
 else:
     _render_previous_results_section()
+
+
+# ================================================================
+# Helper: compute_today_signals 戻り値解釈 (切り出し関数)
+# ================================================================
+def _interpret_compute_today_result(
+    result: Any, logger: Any
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """UI からの呼び出し用に compute_today_signals 戻り値を正規化する。
+
+    戻り値形式:
+      - 期待: (DataFrame, AllocationSummary)
+      - 後方互換: (DataFrame, dict)
+    失敗/不正形式の場合は空 DataFrame / {} を返し、警告をログ。
+    """
+    empty: tuple[pd.DataFrame, dict[str, Any]] = (pd.DataFrame(), {})
+    if not (isinstance(result, (tuple, list)) and len(result) == 2):
+        try:
+            logger.log(f"⚠️ compute_today_signals の戻り値構造が不正: type={type(result).__name__}")
+        except Exception:
+            pass
+        return empty
+    maybe_df, maybe_second = result
+    if not isinstance(maybe_df, pd.DataFrame):
+        try:
+            logger.log(
+                f"⚠️ compute_today_signals 戻り値の第1要素が DataFrame でない: {type(maybe_df).__name__}"
+            )
+        except Exception:
+            pass
+        return empty
+
+    # dict ならそのまま
+    if isinstance(maybe_second, dict):
+        return maybe_df, maybe_second  # type: ignore[return-value]
+
+    # AllocationSummary を dict 化
+    try:
+        from core.final_allocation import to_allocation_summary_dict  # type: ignore
+    except Exception:
+        to_allocation_summary_dict = None  # type: ignore
+
+    if to_allocation_summary_dict is not None:
+        try:
+            summary_dict = to_allocation_summary_dict(maybe_second)
+            if summary_dict:
+                # ログ出力
+                fc = summary_dict.get("final_counts")
+                if isinstance(fc, dict):
+                    logger.log("🧾 AllocationSummary final_counts=" + str(fc))
+                logger.log(
+                    f"ℹ️ AllocationSummary mode={summary_dict.get('mode')} long={len(summary_dict.get('long_allocations',{}))} short={len(summary_dict.get('short_allocations',{}))}"
+                )
+                return maybe_df, {"__allocation_summary__": summary_dict}
+        except Exception as e:  # pragma: no cover
+            try:
+                logger.log(f"⚠️ AllocationSummary 解析失敗: {e}")
+            except Exception:
+                pass
+
+    # 不明な型
+    try:
+        logger.log(
+            f"⚠️ compute_today_signals の戻り値型が不正: df=DataFrame, second={type(maybe_second).__name__}"
+        )
+    except Exception:
+        pass
+    return empty

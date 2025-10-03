@@ -47,9 +47,7 @@ class CacheFileManager:
             else:
                 return csv_path
 
-    def read_with_fallback(
-        self, path: Path, ticker: str, profile: str
-    ) -> pd.DataFrame | None:
+    def read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
         """指定パスからデータを読み込み、失敗時はフォールバック。"""
         if not path.exists():
             return None
@@ -86,9 +84,7 @@ class CacheFileManager:
 
             return None
 
-    def write_atomic(
-        self, df: pd.DataFrame, path: Path, ticker: str, profile: str
-    ) -> None:
+    def write_atomic(self, df: pd.DataFrame, path: Path, ticker: str, profile: str) -> None:
         """データフレームをアトミック書き込みで保存する。"""
         if df is None or df.empty:
             logger.warning(f"[{profile}] {ticker}: 空のDataFrameをスキップ")
@@ -136,17 +132,12 @@ class CacheFileManager:
                             max_val = optimized[col].max()
 
                             # float32で表現可能な範囲内ならダウンキャスト
-                            if (
-                                -3.4e38 <= min_val <= 3.4e38
-                                and -3.4e38 <= max_val <= 3.4e38
-                            ):
+                            if -3.4e38 <= min_val <= 3.4e38 and -3.4e38 <= max_val <= 3.4e38:
                                 optimized[col] = optimized[col].astype("float32")
 
                     # 整数の最適化
                     elif pd.api.types.is_integer_dtype(optimized[col]):
-                        optimized[col] = pd.to_numeric(
-                            optimized[col], downcast="integer"
-                        )
+                        optimized[col] = pd.to_numeric(optimized[col], downcast="integer")
 
                 except Exception:
                     # 最適化に失敗しても元のデータを保持
@@ -166,9 +157,7 @@ class CacheFileManager:
 
         # keep_columns に含まれる列のみ保持
         keep_columns_lower = [col.lower() for col in keep_columns]
-        available_cols = [
-            col for col in df.columns if col.lower() in keep_columns_lower
-        ]
+        available_cols = [col for col in df.columns if col.lower() in keep_columns_lower]
 
         if not available_cols:
             return df
