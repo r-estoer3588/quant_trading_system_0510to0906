@@ -68,7 +68,8 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-        latest_only = bool(kwargs.get("latest_only", False))
+        # kwargs から取り出し: 重複渡し防止
+        latest_only = bool(kwargs.pop("latest_only", False))
         return generate_candidates_system5(
             prepared_dict,
             top_n=top_n,
@@ -76,6 +77,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             log_callback=log_callback,
             batch_size=batch_size,
             latest_only=latest_only,
+            **kwargs,
         )
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):

@@ -9,6 +9,9 @@ RSI3-based short spike strategy:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any, cast
+
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
@@ -56,15 +59,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 def prepare_data_vectorized_system2(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     reuse_indicators: bool = True,
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """System2 data preparation processing (RSI3 spike strategy).
 
@@ -156,12 +159,12 @@ def generate_candidates_system2(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
     latest_only: bool = False,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
+    **kwargs: Any,
+) -> tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]:
     """System2 candidate generation (ADX7 descending ranking).
 
     Args:
@@ -191,7 +194,8 @@ def generate_candidates_system2(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                if not last_row.get("setup", False):
+                # 'setup' 列がまだ生成されていないケースを許容 (列が存在する場合のみ判定)
+                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
                     continue
                 adx7_val = last_row.get("adx7", 0)
                 try:
@@ -222,7 +226,18 @@ def generate_candidates_system2(
             except Exception:
                 pass
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
-            by_date = {dt: sub.to_dict("records") for dt, sub in df_all.groupby("date")}
+            # Orchestrator expects: {date: {symbol: {field: value}}}
+            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+            for dt_raw, sub in df_all.groupby("date"):
+                dt = pd.Timestamp(dt_raw)
+                symbol_map: dict[str, dict[str, Any]] = {}
+                for rec in sub.to_dict("records"):
+                    sym = rec.get("symbol")
+                    if not sym:
+                        continue
+                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+                    symbol_map[sym] = payload
+                by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
                     f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
@@ -235,20 +250,19 @@ def generate_candidates_system2(
             pass
 
     # Aggregate all dates
-    all_dates = set()
+    all_dates_set: set[pd.Timestamp] = set()
     for df in prepared_dict.values():
         if df is not None and not df.empty:
-            all_dates.update(df.index)
+            all_dates_set.update(df.index)
 
-    if not all_dates:
+    if not all_dates_set:
         if log_callback:
             log_callback("System2: No valid dates found in data")
         return {}, None
+    all_dates = sorted(all_dates_set)
 
-    all_dates = sorted(all_dates)
-
-    candidates_by_date = {}
-    all_candidates = []
+    candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+    all_candidates: list[dict[str, Any]] = []
 
     if log_callback:
         log_callback(f"System2: Generating candidates for {len(all_dates)} dates")
@@ -261,16 +275,15 @@ def generate_candidates_system2(
             try:
                 if df is None or date not in df.index:
                     continue
-
-                row = df.loc[date]
-
-                # Check setup conditions
-                if not row.get("setup", False):
+                row = cast(pd.Series, df.loc[date])
+                setup_val = row.get("setup", False)
+                if not bool(setup_val):
                     continue
-
-                # Get ADX7 value
-                adx7_val = row.get("adx7", 0)
-                if pd.isna(adx7_val) or adx7_val <= 0:
+                adx7_val = cast(Any, row.get("adx7", 0))
+                try:
+                    if pd.isna(adx7_val) or float(adx7_val) <= 0:
+                        continue
+                except Exception:
                     continue
 
                 date_candidates.append(
@@ -313,7 +326,18 @@ def generate_candidates_system2(
             f"System2: Generated {total_candidates} candidates across {unique_dates} dates"
         )
 
-    return candidates_by_date, candidates_df
+    # Normalize to {date: {symbol: payload}}
+    normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for dt, recs in candidates_by_date.items():
+        out_symbol_map: dict[str, dict[str, Any]] = {}
+        for rec in recs:
+            sym_any = rec.get("symbol")
+            if not isinstance(sym_any, str) or not sym_any:
+                continue
+            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+            out_symbol_map[sym_any] = payload
+        normalized[dt] = out_symbol_map
+    return normalized, candidates_df
 
 
 def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:

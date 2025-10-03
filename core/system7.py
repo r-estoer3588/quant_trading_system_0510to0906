@@ -5,6 +5,7 @@ run_backtest は strategy 側にカスタム実装が残る。
 """
 
 import os
+from typing import Any, Callable, Tuple
 
 import pandas as pd
 
@@ -14,11 +15,11 @@ from common.utils_spy import resolve_signal_entry_date
 def prepare_data_vectorized_system7(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str], None] | None = None,
     reuse_indicators: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """Compute indicators for SPY and cache the result."""
     cache_dir = "data_cache/indicators_system7_cache"
@@ -155,15 +156,92 @@ def generate_candidates_system7(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
-    candidates_by_date: dict[pd.Timestamp, list] = {}
+    latest_only: bool = False,
+    **kwargs: Any,
+) -> Tuple[dict[pd.Timestamp, dict[str, dict[str, object]]], pd.DataFrame | None]:
+    """Generate System7 candidates.
+
+    Optimization notes:
+    - Added fast-path (latest_only=True) using only the last row of SPY.
+      This preserves trading logic because System7 entries always occur the
+      NEXT trading day after a setup (50-day low break). Historical scanning
+      is only required when backtesting; for same-day extraction we only need
+      to know whether *today* is a setup day.
+    - Normalized return structure to dict-of-dicts
+        { entry_date: { symbol: {payload...} } }
+      matching Systems1–6 for orchestration uniformity.
+    """
+
     if "SPY" not in prepared_dict:
         return {}, None
-    df = prepared_dict["SPY"]
+
+    df = prepared_dict.get("SPY")
+    if df is None or df.empty:
+        return {}, None
+
+    # === Fast Path ===
+    if latest_only:
+        try:
+            last_row = df.iloc[-1]
+            if bool(last_row.get("setup")):
+                setup_date = df.index[-1]
+                entry_date = resolve_signal_entry_date(setup_date)
+                if not pd.isna(entry_date):
+                    # last_price（直近終値）
+                    entry_price = None
+                    if "Close" in df.columns and not df["Close"].empty:
+                        entry_price = df["Close"].iloc[-1]
+                    atr_val = last_row.get("ATR50")
+                    if atr_val is None:
+                        atr_val = last_row.get("atr50")
+                    rows = [
+                        {
+                            "symbol": "SPY",
+                            "date": entry_date,
+                            "ATR50": atr_val,
+                            "entry_price": entry_price,
+                        }
+                    ]
+                    df_fast = pd.DataFrame(rows)
+                    # rank 付与（単一シンボル）
+                    df_fast.loc[:, "rank"] = 1
+                    df_fast.loc[:, "rank_total"] = 1
+                    normalized: dict[pd.Timestamp, dict[str, dict[str, object]]] = {}
+                    symbol_payload = {
+                        k: v for k, v in rows[0].items() if k not in ("symbol", "date")
+                    }
+                    symbol_payload["entry_date"] = entry_date
+                    normalized[pd.Timestamp(entry_date)] = {"SPY": symbol_payload}
+                    if log_callback:
+                        try:
+                            log_callback("System7: latest_only fast-path -> 1 candidate")
+                        except Exception:
+                            pass
+                    if progress_callback:
+                        try:
+                            progress_callback(1, 1)
+                        except Exception:
+                            pass
+                    return normalized, df_fast
+            # no setup today
+            if progress_callback:
+                try:
+                    progress_callback(1, 1)
+                except Exception:
+                    pass
+            return {}, None
+        except Exception as e:  # fallback to full scan
+            if log_callback:
+                try:
+                    log_callback(f"System7: fast-path failed -> fallback ({e})")
+                except Exception:
+                    pass
+
+    # === Full Historical Path (backtest or fallback) ===
+    candidates_by_date: dict[pd.Timestamp, list] = {}
     limit_n: int | None
     if top_n is None:
         limit_n = None
@@ -172,31 +250,41 @@ def generate_candidates_system7(
             limit_n = max(0, int(top_n))
         except (TypeError, ValueError):
             limit_n = None
-    setup_days = df[df["setup"]]
+    try:
+        setup_days = df[df["setup"]]
+    except Exception:
+        setup_days = pd.DataFrame()
+
     for date, row in setup_days.iterrows():
-        entry_date = resolve_signal_entry_date(date)
+        try:
+            entry_date = resolve_signal_entry_date(date)
+        except Exception:
+            continue
         if pd.isna(entry_date):
             continue
         if limit_n == 0:
             continue
-        # last_price（直近終値）を取得
+        # last_price（直近終値）
         last_price = None
         if "Close" in df.columns and not df["Close"].empty:
             last_price = df["Close"].iloc[-1]
+        try:
+            atr_val_full = row.get("ATR50") if hasattr(row, "get") else row["ATR50"]
+        except Exception:
+            atr_val_full = None
         rec = {
             "symbol": "SPY",
             "entry_date": entry_date,
-            "ATR50": row["ATR50"],
+            "ATR50": atr_val_full,
             "entry_price": last_price,
         }
         bucket = candidates_by_date.setdefault(entry_date, [])
         if limit_n is not None and len(bucket) >= limit_n:
             continue
         bucket.append(rec)
+
     if log_callback:
         try:
-            # 直近のセットアップ（50日安値ブレイク）に基づく、
-            # 翌営業日のユニークなエントリー予定日数を、過去50営業日に限定して集計
             all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
             window_size = int(min(50, len(all_dates)) or 50)
             if window_size > 0:
@@ -215,7 +303,19 @@ def generate_candidates_system7(
             progress_callback(1, 1)
         except Exception:
             pass
-    return candidates_by_date, None
+
+    # Normalize list structure to dict-of-dicts
+    normalized_full: dict[pd.Timestamp, dict[str, dict[str, object]]] = {}
+    for dt, recs in candidates_by_date.items():
+        payload_map: dict[str, dict[str, object]] = {}
+        for rec in recs:
+            sym_val = rec.get("symbol") if isinstance(rec, dict) else None
+            if sym_val != "SPY":
+                continue
+            payload = {k: v for k, v in rec.items() if k not in ("symbol",)}
+            payload_map["SPY"] = payload
+        normalized_full[pd.Timestamp(dt)] = payload_map
+    return normalized_full, None
 
 
 def get_total_days_system7(data_dict: dict[str, pd.DataFrame]) -> int:

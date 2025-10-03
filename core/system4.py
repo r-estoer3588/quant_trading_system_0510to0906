@@ -10,6 +10,9 @@ Trend low-volatility pullback strategy:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any, cast
+
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
@@ -55,15 +58,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 def prepare_data_vectorized_system4(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     reuse_indicators: bool = True,
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **_unused_kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """System4 data preparation processing (trend low-volatility pullback strategy).
 
@@ -87,7 +90,7 @@ def prepare_data_vectorized_system4(
     if reuse_indicators and raw_data_dict:
         try:
             # Early check - verify required indicators exist
-            valid_data_dict, error_symbols = check_precomputed_indicators(
+            valid_data_dict, _error_symbols = check_precomputed_indicators(
                 raw_data_dict, SYSTEM4_REQUIRED_INDICATORS, "System4", skip_callback
             )
 
@@ -151,12 +154,11 @@ def generate_candidates_system4(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
-    batch_size: int | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     latest_only: bool = False,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
+    **_unused_kwargs: Any,
+) -> tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]:
     """System4 candidate generation (RSI4 ascending ranking).
 
     Args:
@@ -184,7 +186,8 @@ def generate_candidates_system4(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                if not last_row.get("setup", False):
+                # 'setup' 列が存在する場合のみ判定。無いときは早期除外しない
+                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
                     continue
                 rsi4_val = last_row.get("rsi4", 100)
                 try:
@@ -215,7 +218,17 @@ def generate_candidates_system4(
             except Exception:
                 pass
             df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(top_n)
-            by_date = {dt: sub.to_dict("records") for dt, sub in df_all.groupby("date")}
+            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+            for dt_raw, sub in df_all.groupby("date"):
+                dt = pd.Timestamp(str(dt_raw))  # safe cast for mypy (numpy scalar -> str)
+                symbol_map: dict[str, dict[str, Any]] = {}
+                for rec in sub.to_dict("records"):
+                    sym = rec.get("symbol")
+                    if not sym:
+                        continue
+                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+                    symbol_map[sym] = payload
+                by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
                     f"System4: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
@@ -224,23 +237,22 @@ def generate_candidates_system4(
         except Exception as e:
             if log_callback:
                 log_callback(f"System4: fast-path failed -> fallback ({e})")
-            pass
+            # fall back to normal path below
 
     # Aggregate all dates
-    all_dates = set()
+    all_dates_set: set[pd.Timestamp] = set()
     for df in prepared_dict.values():
         if df is not None and not df.empty:
-            all_dates.update(df.index)
+            all_dates_set.update(df.index)
 
-    if not all_dates:
+    if not all_dates_set:
         if log_callback:
             log_callback("System4: No valid dates found in data")
         return {}, None
+    all_dates = sorted(all_dates_set)
 
-    all_dates = sorted(all_dates)
-
-    candidates_by_date = {}
-    all_candidates = []
+    candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+    all_candidates: list[dict[str, Any]] = []
 
     if log_callback:
         log_callback(f"System4: Generating candidates for {len(all_dates)} dates")
@@ -253,16 +265,15 @@ def generate_candidates_system4(
             try:
                 if df is None or date not in df.index:
                     continue
-
-                row = df.loc[date]
-
-                # Check setup conditions
-                if not row.get("setup", False):
+                row = cast(pd.Series, df.loc[date])
+                setup_val = row.get("setup", False)
+                if not bool(setup_val):
                     continue
-
-                # Get RSI4 value
-                rsi4_val = row.get("rsi4", 100)
-                if pd.isna(rsi4_val) or rsi4_val >= 30.0:
+                rsi4_val = cast(Any, row.get("rsi4", 100))
+                try:
+                    if pd.isna(rsi4_val) or float(rsi4_val) >= 30.0:
+                        continue
+                except Exception:
                     continue
 
                 date_candidates.append(
@@ -306,7 +317,17 @@ def generate_candidates_system4(
             f"System4: Generated {total_candidates} candidates across {unique_dates} dates"
         )
 
-    return candidates_by_date, candidates_df
+    normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for dt, recs in candidates_by_date.items():
+        out_symbol_map: dict[str, dict[str, Any]] = {}
+        for rec in recs:
+            sym_any = rec.get("symbol")
+            if not isinstance(sym_any, str) or not sym_any:
+                continue
+            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+            out_symbol_map[sym_any] = payload
+        normalized[dt] = out_symbol_map
+    return normalized, candidates_df
 
 
 def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:

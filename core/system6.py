@@ -1,6 +1,7 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
 import time
+from typing import Any
 
 import pandas as pd
 from ta.volatility import AverageTrueRange
@@ -227,8 +228,86 @@ def generate_candidates_system6(
     log_callback=None,
     skip_callback=None,
     batch_size: int | None = None,
-) -> tuple[dict, pd.DataFrame | None]:
+    latest_only: bool = False,
+) -> tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]:
+    """Generate System6 candidates.
+
+    Added fast-path (latest_only=True): O(symbols) processing using only the last row
+    of each DataFrame. Returns normalized mapping {date: {symbol: payload}}.
+    """
     candidates_by_date: dict[pd.Timestamp, list] = {}
+
+    # === Fast Path: latest_only ===
+    if latest_only:
+        try:
+            rows: list[dict[str, Any]] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    continue
+                if "setup" not in df.columns:
+                    continue
+                last_row = df.iloc[-1]
+                if not bool(last_row.get("setup")):
+                    continue
+                # 必要指標取得 (存在しない場合はスキップ)
+                return_6d = last_row.get("return_6d")
+                if return_6d is None or pd.isna(return_6d):
+                    continue
+                atr10 = last_row.get("atr10", None)
+                dt = df.index[-1]
+                date_counter[dt] = date_counter.get(dt, 0) + 1
+                entry_price = last_row.get("Close") if "Close" in df else None
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": dt,
+                        "return_6d": return_6d,
+                        "atr10": atr10,
+                        "entry_price": entry_price,
+                    }
+                )
+            if not rows:
+                return {}, None
+            df_all = pd.DataFrame(rows)
+            # 最頻日で揃える（欠落シンボル耐性）
+            try:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+            except Exception:
+                pass
+            df_all = df_all.sort_values("return_6d", ascending=False, kind="stable")
+            df_all = df_all.head(int(top_n)) if top_n else df_all
+            # rank 付与（従来互換）
+            total = len(df_all)
+            df_all.loc[:, "rank"] = list(range(1, total + 1))
+            df_all.loc[:, "rank_total"] = total
+            normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+            for dt_raw, sub in df_all.groupby("date"):
+                dt = pd.Timestamp(str(dt_raw))
+                symbol_map: dict[str, dict[str, Any]] = {}
+                for rec in sub.to_dict("records"):
+                    sym_val = rec.get("symbol")
+                    if not isinstance(sym_val, str) or not sym_val:
+                        continue
+                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+                    symbol_map[sym_val] = payload
+                normalized[dt] = symbol_map
+            if log_callback:
+                try:
+                    log_callback(
+                        f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    )
+                except Exception:
+                    pass
+            return normalized, df_all.copy()
+        except Exception as e:
+            if log_callback:
+                try:
+                    log_callback(f"System6: fast-path failed -> fallback ({e})")
+                except Exception:
+                    pass
+            # fall through to full path
     total = len(prepared_dict)
 
     if batch_size is None:
@@ -418,7 +497,21 @@ def generate_candidates_system6(
         except Exception:
             pass
 
-    return candidates_by_date, None
+    # Normalize list structure to dict-of-dicts for consistency
+    normalized_full: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for dt, recs in candidates_by_date.items():
+        symbol_map: dict[str, dict[str, Any]] = {}
+        for rec in recs:
+            sym_val = rec.get("symbol") if isinstance(rec, dict) else None
+            if not isinstance(sym_val, str) or not sym_val:
+                continue
+            # rec may contain entry_date; unify key name 'date' for DF compatibility
+            payload = {k: v for k, v in rec.items() if k not in ("symbol", "entry_date")}
+            # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
+            payload["entry_date"] = rec.get("entry_date")
+            symbol_map[sym_val] = payload
+        normalized_full[pd.Timestamp(dt)] = symbol_map
+    return normalized_full, None
 
 
 def get_total_days_system6(data_dict: dict[str, pd.DataFrame]) -> int:

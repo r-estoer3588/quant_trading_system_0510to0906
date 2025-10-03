@@ -35,16 +35,51 @@ def get_first(mapping: Mapping[str, Any], *candidates: str) -> Any:
     return None
 
 
+def _build_lower_map(row: Mapping[str, Any]) -> dict[str, str]:
+    """row のキーを小文字化 -> 元キー へのマップ生成 (必要時のみ)。"""
+    lm: dict[str, str] = {}
+    try:
+        for k in row.keys():  # type: ignore[attr-defined]
+            if isinstance(k, str):
+                lk = k.lower()
+                if lk not in lm:
+                    lm[lk] = k
+    except Exception:
+        pass
+    return lm
+
+
 def get_indicator(row: Mapping[str, Any], name: str) -> Any:
     """行(dict/Series)から指標値を取得。未取得なら None。
 
-    name は大小混在可。内部的に小文字化してエイリアスを走査。
+    仕様追加: エイリアス探索で見つからない場合、全キーの lowercase マップを一度構築し
+    name.lower() と一致する元キーがあればその値を返す（列が全て小文字化されているケースの救済）。
+
+    修正: pandas.Series に対し ``if not row`` は ValueError (真偽値が不明) を発生させるため
+    None/空判定は is None と len==0 のみに限定。
     """
-    if not row:
+    if row is None:  # 明示的 None
         return None
+    try:
+        # pandas Series / dict いずれでも len 0 を空扱い
+        if hasattr(row, "__len__") and len(row) == 0:  # type: ignore[arg-type]
+            return None
+    except Exception:
+        pass
     key = name.lower()
     aliases: Iterable[str] = _ALIAS_MAP.get(key, (name,))
-    return get_first(row, *aliases)
+    val = get_first(row, *aliases)
+    if val is not None:
+        return val
+    # フォールバック lowercase 探索
+    lower_map = _build_lower_map(row)
+    orig = lower_map.get(key)
+    if orig is not None:
+        try:
+            return row[orig]  # type: ignore[index]
+        except Exception:
+            return None
+    return None
 
 
 def to_float(val: Any) -> float:

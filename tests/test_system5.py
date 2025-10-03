@@ -54,7 +54,7 @@ def test_core_indicators_computation():
             price = 100 + 75 * 0.5 - (i - 74) * 0.3 + np.random.normal(0, 0.5)
         price_data.append(max(price, 20))  # 最低価格保証
 
-    df = pd.DataFrame(
+    _ = pd.DataFrame(
         {
             "Open": price_data,
             "High": [p * 1.02 for p in price_data],

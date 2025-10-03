@@ -238,6 +238,50 @@ python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
 - 旧来の `data_cache/` 直下ファイルは参照しません（移行済みを前提）。
 - SPY フル履歴の復旧は `scripts/recover_spy_cache.py` が `data_cache/full_backup/` のみへ保存します。
 
+## 型チェックと静的解析 (Windows / UTF-8 対応)
+
+Windows 環境 (cp932) で `mypy` 実行時にエンコード例外が発生するケースがあったため、UTF-8 強制ラッパーを用意しています。
+
+### 使い方 (部分チェック)
+
+```bash
+python tools/mypy_utf8_runner.py core/system7.py core/system6.py --no-incremental
+```
+
+### 使い方 (主要システムまとめチェック)
+
+```bash
+python tools/mypy_utf8_runner.py core/system1.py core/system2.py core/system3.py core/system4.py core/system5.py core/system6.py core/system7.py --no-incremental
+```
+
+オプション `--no-incremental` はキャッシュ破損や KeyError 回避のため開発中は推奨。高速化したい場合は省略可能です。
+
+### ruff (Lint)
+
+```bash
+ruff check .
+```
+
+修正を自動適用したい場合:
+
+```bash
+ruff check --fix .
+```
+
+### Codacy について
+
+Windows ネイティブで Codacy CLI が動作しない場合は WSL 経由での実行、または `ruff + mypy` の組み合わせを暫定利用します。
+
+## 当日シグナル高速化 (latest_only 最適化)
+
+Systems 1–7 全てで当日シグナル抽出 (`scripts/run_all_systems_today.py`) 時に `latest_only` 最適化を有効化しました。これにより:
+
+- 当日処理: 最終行のみ参照してセットアップ成立可否を判定 (O(銘柄数))
+- バックテスト: 従来通り全履歴走査 (ロジック不変)
+- 返却スキーマ: すべて `{date: {symbol: payload}}` に統一
+
+バックテスト等で従来挙動を強制したい場合は戦略 `generate_candidates` 呼び出しで `latest_only=False` を明示してください。
+
 ## 貢献ガイド
 
 - コミットメッセージは命令形・現在形で 72 文字以内。

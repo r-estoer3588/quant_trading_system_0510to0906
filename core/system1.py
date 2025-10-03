@@ -278,22 +278,54 @@ def generate_candidates_system1(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            debug_reasons: list[str] = []
+            debug_enabled = (
+                bool(os.environ.get("SYSTEM_DEBUG_VERBOSE")) or True
+            )  # 常に有効(後で削除)
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
+                    if debug_enabled:
+                        debug_reasons.append(f"{sym}:empty")
                     continue
-                # 最終行取得
                 last_row = df.iloc[-1]
-                # setup 通過のみ対象
-                if not last_row.get("setup", False):
-                    continue
+                # 優先: setup 列が True なら無条件に候補対象
+                setup_flag = bool(last_row.get("setup", True))  # 無い場合 True (緩和)
+                # フォールバック: setup False でも SMA25>SMA50 & filter 条件を満たせば許容
+                if not setup_flag:
+                    try:
+                        sma25_v = last_row.get("sma25")
+                        sma50_v = last_row.get("sma50")
+                        if (
+                            pd.isna(sma25_v)
+                            or pd.isna(sma50_v)
+                            or not (float(sma25_v) > float(sma50_v))
+                        ):
+                            if debug_enabled:
+                                debug_reasons.append(f"{sym}:sma25<=sma50")
+                            continue
+                        # filter 列があれば True を要求（無ければ通す）
+                        if ("filter" in last_row.index) and (not last_row.get("filter", False)):
+                            if debug_enabled:
+                                debug_reasons.append(f"{sym}:filterFalse")
+                            continue
+                    except Exception:
+                        if debug_enabled:
+                            debug_reasons.append(f"{sym}:fallbackException")
+                        continue
                 roc200_val = last_row.get("roc200", 0)
                 try:
                     if pd.isna(roc200_val) or float(roc200_val) <= 0:
+                        if debug_enabled:
+                            try:
+                                debug_reasons.append(f"{sym}:roc200<=0({roc200_val})")
+                            except Exception:
+                                pass
                         continue
                 except Exception:
+                    if debug_enabled:
+                        debug_reasons.append(f"{sym}:roc200Err")
                     continue
                 date_val = df.index[-1]
-                # 統計用
                 date_counter[date_val] = date_counter.get(date_val, 0) + 1
                 rows.append(
                     {
@@ -301,37 +333,59 @@ def generate_candidates_system1(
                         "date": date_val,
                         "roc200": roc200_val,
                         "close": last_row.get("Close", 0),
+                        "setup": bool(last_row.get("setup", False)),
                     }
                 )
             if not rows:
                 if log_callback:
-                    log_callback("System1: latest_only fast-path produced 0 rows")
-                return {}, None
-            df_all = pd.DataFrame(rows)
-            # 最頻日を採用（欠損シンボル混在への耐性）
-            try:
-                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                df_all = df_all[df_all["date"] == mode_date]
-            except Exception:
-                # 失敗したらそのまま
-                pass
-            df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
-            # candidates_by_date 互換構造生成
-            by_date = {}
-            for dt, sub in df_all.groupby("date"):
-                by_date[dt] = sub.to_dict("records")
-            if log_callback:
-                log_callback(
-                    f"System1: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
-                )
-            # 統合 DataFrame は従来形式を踏襲
-            out_df = df_all.copy()
-            return by_date, out_df
+                    log_callback(
+                        "System1: latest_only fast-path produced 0 rows (after gating v2) — will fallback"
+                    )
+                    if debug_reasons and log_callback:
+                        # 上位数件のみ
+                        log_callback("System1: exclude_reasons=" + ", ".join(debug_reasons[:12]))
+                # 明示的に通常パスへフォールバック
+            else:
+                df_all = pd.DataFrame(rows)
+                try:
+                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    df_all = df_all[df_all["date"] == mode_date]
+                except Exception:
+                    pass
+                df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
+                # 期待形式: date -> {symbol: {...各指標...}}
+                by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+                for dt, sub in df_all.groupby("date"):
+                    symbol_map: dict[str, dict] = {}
+                    recs = sub.to_dict("records")
+                    for rec in recs:
+                        sym = rec.get("symbol")
+                        if not sym:
+                            continue
+                        # symbol と date を除き残りを属性辞書に
+                        symbol_map[str(sym)] = {
+                            k: v for k, v in rec.items() if k not in {"symbol", "date"}
+                        }
+                    by_date[dt] = symbol_map
+                if log_callback:
+                    log_callback(
+                        f"System1: latest_only fast-path -> {sum(len(v) for v in by_date.values())} candidates (symbols={len(rows)})"
+                    )
+                    if debug_enabled:
+                        try:
+                            first_dt = next(iter(by_date))
+                            first_sym, first_payload = next(iter(by_date[first_dt].items()))
+                            log_callback(
+                                f"System1: first_candidate dt={first_dt} sym={first_sym} payload={first_payload}"
+                            )
+                        except Exception:
+                            pass
+                out_df = df_all.copy()
+                return by_date, out_df
         except Exception as fast_err:
-            # フォールバック: 失敗時は従来ロジックへ
             if log_callback:
                 log_callback(f"System1: fast-path failed -> fallback ({fast_err})")
-            # 続行して下の従来ロジックへ
+            # 続けて従来パスへ
             pass
 
     # Aggregate all dates

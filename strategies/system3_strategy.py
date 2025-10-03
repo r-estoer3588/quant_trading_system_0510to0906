@@ -43,8 +43,8 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         batch_size = self._get_batch_size_setting(len(data_dict))
-
-        latest_only = bool(kwargs.get("latest_only", False))
+        # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
+        latest_only = bool(kwargs.pop("latest_only", False))
         return generate_candidates_system3(
             data_dict,
             top_n=top_n,

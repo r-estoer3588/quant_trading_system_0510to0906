@@ -117,8 +117,15 @@ def emit_progress_event(event_type: str, data: dict) -> None:
         pass
 
 
-_LOG_FORWARDING = ContextVar("_LOG_FORWARDING", default=False)
-_LOG_START_TS = None  # CLI 用の経過時間測定開始時刻
+_LOG_FORWARDING: ContextVar[bool] = ContextVar("_LOG_FORWARDING", default=False)
+
+
+## NOTE: StrategyProtocol 一時撤去 (戦略側の実装差異が大きく attr-defined 問題を誘発したため)
+_LOG_START_TS: float | None = None  # CLI 用の経過時間測定開始時刻
+
+# Structured UI logging state (initialized lazily inside _emit_ui_log)
+_STRUCTURED_LOG_START_TS: float | None = None  # monotonic-ish epoch seconds
+_STRUCTURED_LAST_PHASE: dict[str, str] | None = None  # {system: last_phase}
 
 # ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
 # レート制限ロガー
@@ -683,10 +690,8 @@ def _emit_ui_log(message: str) -> None:
             import time as _t
 
             # 開始基準時刻（プロセス起動後最初の呼び出しで初期化）
-            global _STRUCTURED_LOG_START_TS  # type: ignore
-            try:
-                _STRUCTURED_LOG_START_TS  # noqa: F401
-            except NameError:  # 初回
+            global _STRUCTURED_LOG_START_TS
+            if _STRUCTURED_LOG_START_TS is None:
                 _STRUCTURED_LOG_START_TS = _t.time()
             now = _t.time()
             iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -722,10 +727,8 @@ def _emit_ui_log(message: str) -> None:
                     phase_status = "end"
 
             # 前回 phase の補強: system 単位で直前 phase を覚え、end/done だけのメッセージにも付与
-            global _STRUCTURED_LAST_PHASE  # type: ignore
-            try:
-                _STRUCTURED_LAST_PHASE  # noqa: F401
-            except NameError:
+            global _STRUCTURED_LAST_PHASE
+            if _STRUCTURED_LAST_PHASE is None:
                 _STRUCTURED_LAST_PHASE = {}
             if system:
                 if phase:
@@ -797,15 +800,53 @@ def _drain_stage_event_queue() -> None:
         cb2 = None
 
     def _normalize_stage_value(value: object | None) -> int | None:
+        """値を int に安全変換。文字列/数値以外は None。
+
+        mypy: object から直接 int(value) すると overload 不一致になるため
+        型分岐を明確化して Any 化を避ける。
+        """
         if value is None:
             return None
-        try:
+        # 既に int
+        if isinstance(value, int):
+            return value
+        # bool は int のサブクラスなので除外（進捗値に使わない）
+        if isinstance(value, bool):
             return int(value)
-        except Exception:
+        # float -> 切り捨て (意図的)
+        if isinstance(value, float):
             try:
-                return int(float(value))
+                return int(value)
             except Exception:
                 return None
+        # 文字列は空白除去後 数値判定
+        if isinstance(value, str):
+            txt = value.strip()
+            if not txt:
+                return None
+            # まず整数表現
+            if txt.isdigit() or (txt[0] == "-" and txt[1:].isdigit()):
+                try:
+                    return int(txt)
+                except Exception:
+                    return None
+            # float 表現を許容
+            try:
+                fl = float(txt)
+                return int(fl)
+            except Exception:
+                return None
+        # その他サポート: __int__ 実装オブジェクト
+        try:
+            if hasattr(value, "__int__"):
+                try:
+                    val_int_conv = int(value)  # __int__ 実装利用
+                    return val_int_conv if isinstance(val_int_conv, int) else None
+                except Exception:
+                    return None
+        except Exception:
+            return None
+        return None
 
     events: list[StageEvent] = []
 
@@ -884,7 +925,7 @@ def _log(
     phase_id: str | None = None,
     level: str = "INFO",
     error_code: str | None = None,
-):
+) -> None:
     """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。
 
     Args:
@@ -1016,14 +1057,14 @@ class _PerfTimer:
         return False
 
 
-def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None = None):
+def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None = None) -> None:
     """エラーログの簡便関数。"""
     _log(msg, ui=ui, phase_id=phase_id, level="ERROR", error_code=error_code)
 
 
 def _log_warning(
     msg: str, error_code: str | None = None, ui: bool = True, phase_id: str | None = None
-):
+) -> None:
     """警告ログの簡便関数。"""
     _log(msg, ui=ui, phase_id=phase_id, level="WARNING", error_code=error_code)
 
@@ -2788,8 +2829,6 @@ def _prepare_system2_data(
                 50,
                 filter_count=int(s2_filter),
                 setup_count=int(s2_combo),
-                target_total=None,
-                duration=None,
             )
         except Exception:
             pass
@@ -3394,6 +3433,29 @@ def compute_today_signals(
                 last = _df.iloc[-1]
             except Exception:
                 continue
+            if s1_setup_calc == 0:
+                try:
+                    print(f"[DEBUG_S1_COLS] sym={_sym} df_cols={list(_df.columns)[:40]}")
+                except Exception:
+                    pass
+            # DEBUG ONCE: 列状況と SMA25/SMA50 推定値を最初の1銘柄で出力（後で削除）
+            if s1_setup_calc == 0:
+                try:
+                    _cols_preview = (
+                        list(last.index)
+                        if hasattr(last, "index")
+                        else list(getattr(last, "keys", lambda: [])())
+                    )
+                except Exception:
+                    _cols_preview = []
+                try:
+                    _s25_raw = get_indicator(last, "sma25")
+                    _s50_raw = get_indicator(last, "sma50")
+                    print(
+                        f"[DEBUG_S1_ONCE] sym={_sym} sma25_raw={_s25_raw} sma50_raw={_s50_raw} cols_sample={_cols_preview[:25]}"
+                    )
+                except Exception:
+                    print(f"[DEBUG_S1_ONCE] sym={_sym} 取得失敗")
             try:
                 a = to_float(get_indicator(last, "sma25"))
                 b = to_float(get_indicator(last, "sma50"))
@@ -3796,10 +3858,65 @@ def compute_today_signals(
                 candidate_kwargs["market_df"] = spy_df
 
             # today 実行では最新日のみを対象とした高速候補抽出を有効化（バックテスト互換保持のためオプション）
-            if system_name in {"system1", "system2", "system3", "system4", "system5"}:
-                candidate_kwargs.setdefault("latest_only", True)
+            # --full-scan-today フラグ（または環境変数 FULL_SCAN_TODAY=1）指定時は latest_only を無効化し
+            # 従来どおり全履歴を対象に候補抽出する。
+            try:
+                _disable_fast = False
+                # 環境変数優先: FULL_SCAN_TODAY=1/true/on なら無効化
+                _env_full = (os.environ.get("FULL_SCAN_TODAY") or "").strip().lower()
+                if _env_full in {"1", "true", "yes", "on"}:
+                    _disable_fast = True
+                # argparse からのフラグ（利用可能な場合のみ getattr で安全取得）
+                if not _disable_fast:
+                    _args_obj = globals().get("_CLI_ARGS")
+                    if _args_obj is not None:
+                        try:
+                            if getattr(_args_obj, "full_scan_today", False):
+                                _disable_fast = True
+                        except Exception:
+                            pass
+                if not _disable_fast and system_name in {
+                    "system1",
+                    "system2",
+                    "system3",
+                    "system4",
+                    "system5",
+                    "system6",
+                    "system7",
+                }:
+                    candidate_kwargs.setdefault("latest_only", True)
+                else:
+                    # 明示的に無効化する場合は latest_only=False を入れておく（ストラテジ側で分岐容易）
+                    candidate_kwargs.setdefault("latest_only", False)
+            except Exception:
+                # 失敗時は従来挙動（高速経路）
+                if system_name in {
+                    "system1",
+                    "system2",
+                    "system3",
+                    "system4",
+                    "system5",
+                    "system6",
+                    "system7",
+                }:
+                    candidate_kwargs.setdefault("latest_only", True)
+            # DEBUG: latest_only フラグと top_n 相当をログ（system1のみ冗長）
+            try:
+                if system_name == "system1":
+                    _log(
+                        f"[system1] DEBUG call generate_candidates latest_only={candidate_kwargs.get('latest_only')} prepared_syms={len(prepared_data)}"
+                    )
+            except Exception:
+                pass
             with _PerfTimer(f"{system_name}.generate_candidates"):
                 candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
+            try:
+                if system_name == "system1":
+                    _log(
+                        f"[system1] DEBUG returned candidate_dates={len(candidates) if candidates else 0}"
+                    )
+            except Exception:
+                pass
             if candidates:
                 # 候補をDataFrameに変換
                 rows = []
@@ -3823,7 +3940,11 @@ def compute_today_signals(
 
             per_system[system_name] = df
             count = len(df) if not df.empty else 0
-            _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
+            if count > 0:
+                # 成功アイコン（従来は常に❌表示だった箇所を条件分岐）
+                _log(f"[{system_name}] ✅ {system_name}: {count} 件")
+            else:
+                _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
 
         except Exception as e:
             _log(f"[{system_name}] ⚠️ {system_name}: シグナル抽出に失敗しました: {e}")
@@ -3928,14 +4049,36 @@ def compute_today_signals(
     return final_df, allocation_summary
 
 
-def _safe_stage_int(value) -> int:
+def _safe_stage_int(value: object | None) -> int:
     """安全に整数値に変換する"""
     if value is None:
         return 0
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (ValueError, TypeError):
-        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        try:
+            return int(value)
+        except Exception:
+            return 0
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt:
+            return 0
+        try:
+            return int(float(txt))
+        except Exception:
+            return 0
+    # 最後のフォールバック: __int__ 実装のみ許容
+    if hasattr(value, "__int__"):
+        try:
+            v2 = value.__int__()
+            if isinstance(v2, int):
+                return v2
+        except Exception:
+            return 0
+    return 0
 
 
 def _format_stage_message(
@@ -4075,7 +4218,9 @@ def _stage(
 
 
 # プロセスプール利用可否（環境変数で上書き可）
-def _configure_process_pool_and_workers(name: str = "", _log=print) -> tuple[bool, int | None]:
+def _configure_process_pool_and_workers(
+    name: str = "", _log: Callable[[str], None] = print
+) -> tuple[bool, int | None]:
     """Configure process pool usage and worker count based on environment variables."""
     env_pp_raw = os.environ.get("USE_PROCESS_POOL", "")
     env_pp = env_pp_raw.strip().lower()
@@ -4155,7 +4300,7 @@ def _configure_lookback_days(
         fn = None
     if fn is not None:
         try:
-            _val = fn(base)  # type: ignore[arg-type]
+            _val = fn(base)
             if isinstance(_val, (int, float)):
                 custom_need = int(_val)
             elif isinstance(_val, str):
@@ -4177,15 +4322,14 @@ def _configure_lookback_days(
 # Let's clean up from here and find the actual function that needs these variables
 def _run_strategy_with_proper_scope(
     name: str,
-    stg,
-    base,
-    spy_df,
-    today,
-    _log,
-):
-    """Run strategy with properly scoped variables."""
-    # Initialize variables
-    logs: list[str] = []  # Initialize logs list with type annotation
+    stg: object,
+    base: object,
+    spy_df: pd.DataFrame | None,
+    today: datetime | None,
+    _log: Callable[[str], None],
+) -> tuple[str, pd.DataFrame, str, list[str]]:
+    """Run strategy with properly scoped variables (現在は簡略版)."""
+    logs: list[str] = []
     pool_outcome = "none"
     progress_q: Any | None = None
     mgr: Any | None = None
@@ -4229,7 +4373,9 @@ def _run_strategy_with_proper_scope(
             "メインプロセスで進行状況を記録します"
         )
     try:
-        df = stg.get_today_signals(
+        # 戦略インターフェースは統一されていないため Any として扱う (後続段階で整備予定)
+        stg_any: Any = stg
+        df = stg_any.get_today_signals(
             base,
             market_df=spy_df,
             today=today,
@@ -4272,7 +4418,8 @@ def _run_strategy_with_proper_scope(
             _log("🛟 フォールバック再試行: プロセスプール無効化で実行します")
             try:
                 _t0b = __import__("time").time()
-                df = stg.get_today_signals(
+                stg_fallback: Any = stg
+                df = stg_fallback.get_today_signals(
                     base,
                     market_df=spy_df,
                     today=today,
@@ -4330,8 +4477,8 @@ def _run_strategy_with_proper_scope(
     return name, df, msg, logs
 
 
-def _run_strategy(name: str, _stg) -> tuple[str, pd.DataFrame, str, list[str]]:
-    """Wrapper function for _run_strategy_with_proper_scope with appropriate defaults"""
+def _run_strategy(name: str, _stg: object) -> tuple[str, pd.DataFrame, str, list[str]]:
+    """Wrapper function for _run_strategy_with_proper_scope with appropriate defaults."""
     try:
         # This is a simplified wrapper - the actual implementation would depend on the complete context
         # For now, return a basic result structure
@@ -4432,6 +4579,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--parallel",
         action="store_true",
         help="システムごとの当日シグナル抽出を並列実行する",
+    )
+    parser.add_argument(
+        "--full-scan-today",
+        action="store_true",
+        help="当日シグナル抽出で latest_only 最適化を無効化し全履歴走査 (検証/デバッグ用途)",
     )
     # Alpaca 自動発注オプション
     parser.add_argument(
@@ -4642,6 +4794,14 @@ def maybe_run_planned_exits(args: argparse.Namespace) -> None:
 def main():
     args = parse_cli_args()
     configure_logging_for_cli(args)
+    # 他スコープ（compute_today_signals 内）で --full-scan-today を参照できるように一時保存
+    try:
+        globals()["_CLI_ARGS"] = args
+    except Exception:
+        pass
+    if getattr(args, "full_scan_today", False):
+        # 環境変数で明示しておくと将来他コンポーネントでも利用可能
+        os.environ.setdefault("FULL_SCAN_TODAY", "1")
     final_df, _per_system = run_signal_pipeline(args)
     signals_for_merge = log_final_candidates(final_df)
     merge_signals_for_cli(signals_for_merge)

@@ -32,8 +32,10 @@ extend-exclude = [
   "tools/archive",
   "codacy_report",
 ]
-lint.select = ["E", "F", "B", "UP", "N"]
-lint.ignore = [
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "N"]
+ignore = [
   # pytestの未使用引数や命名など、既存テスト互換のために一部緩める
   "N802",
   "N803",

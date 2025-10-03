@@ -846,7 +846,30 @@ def _compute_setup_pass(
             row = _last_row(df)
             if row is None:
                 continue
+            # symbol 情報を Series に埋め込む（後段の判定/デバッグで利用）
+            try:
+                if "symbol" not in row:
+                    # copy() で元 DataFrame を汚さない
+                    row = row.copy()
+                    row["symbol"] = str(sym)
+            except Exception:
+                pass
             latest_rows[str(sym)] = row
+
+        # === STRUCTURE DEBUG (TEMP) ======================================
+        if log_callback:
+            try:
+                sample_row = next(iter(latest_rows.values())) if latest_rows else None
+                log_callback(
+                    f"[DBG latest_rows] keys={list(latest_rows.keys())} count={len(latest_rows)}"
+                )
+                if sample_row is not None:
+                    log_callback(
+                        f"[DBG latest_rows first] index_head={list(sample_row.index)[:25]} has_symbol={'symbol' in sample_row}"
+                    )
+            except Exception:
+                pass
+        # =================================================================
 
         def _count_if(rows: list[pd.Series], fn: Callable[[pd.Series], bool]) -> int:
             cnt = 0
@@ -863,7 +886,64 @@ def _compute_setup_pass(
         setup_pass = 0
 
         if name == "system1":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+            # フィルタ列が存在しない (latest_only 高速経路など) 場合は True とみなして除外しない
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
+            # 強制標準出力デバッグ (一時) --- 開始
+            try:
+                print(
+                    f"PRINT_DBG system1 filtered_rows={len(filtered_rows)} latest_rows_keys={list(latest_rows.keys())}",
+                    flush=True,
+                )
+                # 先頭1行のインデックス
+                if filtered_rows:
+                    first = filtered_rows[0]
+                    try:
+                        print(
+                            "PRINT_DBG system1 first_index_head=",
+                            list(first.index)[:25],
+                            "has_symbol=",
+                            ("symbol" in first),
+                            flush=True,
+                        )
+                    except Exception:
+                        pass
+                for rr in filtered_rows:
+                    symv = rr.get("symbol") or rr.get("Symbol") or rr.get("SYMBOL")
+                    if symv == "AAPL":
+                        print(
+                            "PRINT_DBG system1 AAPL row_keys_head=",
+                            list(rr.index)[:40],
+                            "sma25=",
+                            get_indicator(rr, "sma25"),
+                            "sma50=",
+                            get_indicator(rr, "sma50"),
+                            flush=True,
+                        )
+                        break
+            except Exception:
+                pass
+            # 強制標準出力デバッグ (一時) --- 終了
+
+            # === DEBUG (TEMP) =====================================================
+            # AAPL の最終行指標値を一度ログに出して SMA25/SMA50 判定が常に 0 になる原因を特定する。
+            # 後で必ず削除すること。
+            if log_callback:
+                try:
+                    for r in filtered_rows:
+                        sym = r.get("symbol") or r.get("Symbol") or r.get("SYMBOL")
+                        if sym == "AAPL":
+                            v_sma25 = get_indicator(r, "sma25")
+                            v_sma50 = get_indicator(r, "sma50")
+                            v_close = r.get("Close")
+                            log_callback(
+                                f"[DBG system1 AAPL] sma25={v_sma25} sma50={v_sma50} close={v_close} keys={list(r.keys())[:20]}"
+                            )
+                            break
+                except Exception:
+                    pass
+            # =====================================================================
 
             def _sma_ok(row: pd.Series) -> bool:  # SMA25 > SMA50
                 try:
@@ -922,7 +1002,9 @@ def _compute_setup_pass(
                     get_indicator(row, "twodayup") or get_indicator(row, "uptwodays")
                 )
 
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
             rsi_pass = _count_if(filtered_rows, _rsi_ok)
             two_up_pass = _count_if(
                 filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r)
@@ -938,7 +1020,9 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system3":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
 
             def _close_ok(row: pd.Series) -> bool:
                 try:
@@ -974,7 +1058,7 @@ def _compute_setup_pass(
                     c = to_float(row.get("Close"))
                     s = to_float(get_indicator(row, "sma200"))
                     return (
-                        bool(row.get("filter"))
+                        (("filter" not in row) or bool(row.get("filter")))
                         and (not np.isnan(c))
                         and (not np.isnan(s))
                         and c > s
@@ -1059,7 +1143,7 @@ def _compute_setup_pass(
                     s = to_float(get_indicator(row, "sma100"))
                     a = to_float(get_indicator(row, "atr10"))
                     return (
-                        bool(row.get("filter"))
+                        (("filter" not in row) or bool(row.get("filter")))
                         and (not np.isnan(c) and not np.isnan(s) and not np.isnan(a))
                         and (c > s + a)
                     )
@@ -1096,7 +1180,9 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system6":
-            filtered_rows = [r for r in rows_list if bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
 
             def _ret_ok(row: pd.Series) -> bool:
                 try:
