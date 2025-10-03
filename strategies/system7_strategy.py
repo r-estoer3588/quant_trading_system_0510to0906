@@ -29,8 +29,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     SYSTEM_NAME = "system7"
 
-    def __init__(self):
-        super().__init__()
+    def get_trading_side(self) -> str:
+        """System7 はショート戦略"""
+        return "short"
 
     def prepare_data(
         self,
@@ -49,7 +50,29 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         kwargs.pop("single_mode", None)
-        return generate_candidates_system7(data_dict, **kwargs)
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system7(data_dict, **kwargs)
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     def run_backtest(
         self,
@@ -104,7 +127,16 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 entry_price = float(df.iloc[entry_idx]["Open"])
                 atr_val = None
                 try:
-                    atr_val = c.get("ATR50") if isinstance(c, dict) else c["ATR50"]
+                    atr_val = None
+                    if isinstance(c, dict):
+                        for key in ("atr50", "ATR50"):
+                            if key in c:
+                                atr_val = c[key]
+                                break
+                    else:
+                        atr_val = c.get("atr50") if hasattr(c, "get") else None
+                        if atr_val is None:
+                            atr_val = c["ATR50"]
                 except Exception:
                     atr_val = None
                 if atr_val is None or pd.isna(atr_val):
@@ -173,7 +205,8 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         return pd.DataFrame(results)
 
     @staticmethod
-    def _safe_positive(value: object) -> float | None:
+    def _safe_positive(value) -> float | None:
+        """値を安全に正の浮動小数点数に変換"""
         try:
             out = float(value)
         except (TypeError, ValueError):
@@ -245,7 +278,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         atr_series = tr.rolling(window, min_periods=min_periods).mean()
         return System7Strategy._latest_positive(atr_series)
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         key = candidate.get("entry_date")
         if key is None:
             return None
@@ -267,7 +300,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             entry_idx = -1
 
         atr_columns = self._detect_atr_columns(df)
-        atr_column = atr_columns[0] if atr_columns else "ATR50"
+        atr_column = atr_columns[0] if atr_columns else "atr50"
         atr_window = self._infer_atr_window(atr_column, 50)
 
         if 0 <= entry_idx < len(df):
@@ -302,10 +335,12 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                             entry_price = entry_candidate
                             break
             if atr_val is None:
-                atr_candidate = self._safe_positive(candidate.get("ATR50"))
-                if atr_candidate is not None:
-                    atr_val = atr_candidate
-                    atr_window = self._infer_atr_window("ATR50", atr_window)
+                for key in ("atr50", "ATR50"):
+                    atr_candidate = self._safe_positive(candidate.get(key))
+                    if atr_candidate is not None:
+                        atr_val = atr_candidate
+                        atr_window = self._infer_atr_window(key, atr_window)
+                        break
             if atr_val is None:
                 for key, value in candidate.items():
                     if not isinstance(key, str):
@@ -351,7 +386,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 ],
                 axis=1,
             ).max(axis=1)
-            x["ATR50"] = tr.rolling(50).mean()
+            x["atr50"] = tr.rolling(50).mean()
             out[sym] = x
         return out
 

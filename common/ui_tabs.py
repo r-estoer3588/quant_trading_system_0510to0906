@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 # Notifier は型ヒント用途のみ。実体は app 側で生成・注入する。
 from typing import Any as Notifier  # forward alias for type hints
@@ -296,7 +296,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
     st.subheader("未約定注文一覧")
     try:
         client = _ba.get_client(paper=st.session_state.get("pos_tab_paper", True))
-        orders = client.get_orders(status="open")
+        orders = _ba.get_open_orders(client)
         rows = []
         for o in orders:
             rows.append(

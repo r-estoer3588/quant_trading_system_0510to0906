@@ -6,17 +6,17 @@ UIManager（任意）に進捗とログを出力できるようにしている�
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, cast
 
 import matplotlib as mpl
-from matplotlib import font_manager as _font_manager
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from matplotlib import font_manager as _font_manager
 
 from common.cache_format import round_dataframe
 from common.utils import get_cached_data, safe_filename
@@ -29,14 +29,25 @@ try:
     _APP_SETTINGS = get_settings(create_dirs=True)
 except Exception:
     _APP_SETTINGS = None
-from common.cache_manager import base_cache_path, load_base_cache
-from common.holding_tracker import display_holding_heatmap, generate_holding_matrix
 import common.i18n as i18n
-from core.system1 import generate_roc200_ranking_system1
+from common.cache_manager import base_cache_path, load_base_cache
+from common.holding_tracker import generate_holding_matrix
+from common.logging_utils import log_with_progress
 from scripts.tickers_loader import get_all_tickers
 
 # 互換用エイリアス（既存コードの tr(...) 呼び出しを維持）
 tr = i18n.tr
+
+# 明示的公開API境界: tests/test_public_api_exports.py の EXPECTED_EXPORTS と同期すること。
+__all__ = [
+    "run_backtest_app",
+    "prepare_backtest_data",
+    "fetch_data",
+    "show_results",
+    "show_signal_trade_summary",
+    "clean_date_column",
+    "save_signal_and_trade_logs",
+]
 
 
 # ------------------------------
@@ -104,39 +115,6 @@ def clean_date_column(df: pd.DataFrame, col_name: str = "Date") -> pd.DataFrame:
     return df
 
 
-def log_with_progress(
-    i: int,
-    total: int,
-    start_time: float,
-    *,
-    prefix: str = "進捗",
-    batch: int = 50,
-    log_area=None,
-    progress_bar=None,
-    extra_msg: str | None = None,
-    unit: str = "件",
-) -> None:
-    if i % batch == 0 or i == total:
-        elapsed = time.time() - start_time
-        remain = (elapsed / i) * (total - i) if i > 0 else 0
-        msg = (
-            f"{prefix}: {i}/{total} {unit} | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒"
-            f" / 残り目安: 約{int(remain // 60)}分{int(remain % 60)}秒"
-        )
-        if extra_msg:
-            msg += f"\n{extra_msg}"
-        try:
-            if log_area is not None:
-                log_area.text(msg)
-        except Exception:
-            pass
-        try:
-            if progress_bar is not None:
-                progress_bar.progress(0 if total == 0 else i / total)
-        except Exception:
-            pass
-
-
 def default_log_callback(
     processed: int, total: int, start_time: float, prefix: str = "📊 状況"
 ) -> str:
@@ -188,7 +166,9 @@ def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.Dat
     )
 
 
-def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> dict[str, pd.DataFrame]:
+def fetch_data(
+    symbols, max_workers: int = 8, ui_manager=None, enable_debug_logs: bool = True
+) -> dict[str, pd.DataFrame]:
     data_dict: dict[str, pd.DataFrame] = {}
     total = len(symbols)
     # UIManagerのフェーズ（fetch）があればそこへ出力
@@ -212,11 +192,17 @@ def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> dict[str, pd.D
         except Exception:
             pass
     else:
-        st.info(tr("fetch: start | {total} symbols", total=total))
-        progress_bar = st.progress(0)
-        log_area = st.empty()
+        # UIManager なしの場合: 実行時に動的生成
+        fetch_info_placeholder = st.empty()
+        fetch_progress_placeholder = st.empty()
+        fetch_log_placeholder = st.empty()
+        no_data_placeholder = st.empty()
+
+        fetch_info_placeholder.info(tr("fetch: start | {total} symbols", total=total))
+        progress_bar = fetch_progress_placeholder.progress(0)
+        log_area = fetch_log_placeholder
         # フェーズ未使用時は直下にno-data用スロットを用意
-        no_data_area = st.empty()
+        no_data_area = no_data_placeholder
     buffer, skipped, start_time = [], [], time.time()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -236,9 +222,18 @@ def fetch_data(symbols, max_workers: int = 8, ui_manager=None) -> dict[str, pd.D
                     start_time,
                     prefix="データ取得",
                     batch=50,
-                    log_area=log_area,
-                    progress_bar=progress_bar,
+                    log_func=(
+                        (lambda msg: (log_area.text(msg), None)[1])
+                        if hasattr(log_area, "text")
+                        else None
+                    ),
+                    progress_func=(
+                        (lambda val: (progress_bar.progress(val), None)[1])
+                        if hasattr(progress_bar, "progress")
+                        else None
+                    ),
                     extra_msg=(f"銘柄: {', '.join(buffer)}" if buffer else None),
+                    silent=not enable_debug_logs,
                 )
                 buffer.clear()
 
@@ -276,13 +271,15 @@ def prepare_backtest_data(
     spy_df: pd.DataFrame | None = None,
     ui_manager=None,
     use_process_pool: bool = False,
+    enable_debug_logs: bool = True,
+    fast_mode: bool = False,
     **kwargs,
 ):
     # 1) fetch
     if use_process_pool:
         data_dict = None
     else:
-        data_dict = fetch_data(symbols, ui_manager=ui_manager)
+        data_dict = fetch_data(symbols, ui_manager=ui_manager, enable_debug_logs=enable_debug_logs)
         if not data_dict:
             st.error(tr("no valid data"))
             return None, None, None
@@ -298,17 +295,55 @@ def prepare_backtest_data(
         ind_progress = ind_phase.progress_bar
         ind_log = ind_phase.log_area
     else:
-        st.info(tr("indicators: computing..."))
-        ind_progress = st.progress(0)
-        ind_log = st.empty()
-    start_time = time.time()
+        # UIManager なしの場合: 実行時に動的生成
+        ind_info_placeholder = st.empty()
+        ind_progress_placeholder = st.empty()
+        ind_log_placeholder = st.empty()
+
+        ind_info_placeholder.info(tr("indicators: computing..."))
+        ind_progress = ind_progress_placeholder.progress(0)
+        ind_log = ind_log_placeholder
+
+    if fast_mode and data_dict:
+        # 履歴を末尾120行に短縮（存在する日付数に応じて）
+        try:
+            trimmed = {}
+            for _sym, _df in data_dict.items():
+                if hasattr(_df, "tail"):
+                    trimmed[_sym] = _df.tail(120)
+                else:
+                    trimmed[_sym] = _df
+            data_dict = trimmed
+        except Exception:
+            pass
+
     call_input = data_dict if not use_process_pool else symbols
+
+    # 進捗カウンター（文字列メッセージをカウントに変換）
+    progress_counter = {"count": 0}
+    total_symbols = len(symbols)
+
+    def _update_progress(msg_or_tuple):
+        """進捗更新：文字列メッセージまたは(done, total)タプルの両方に対応"""
+        try:
+            if isinstance(msg_or_tuple, tuple) and len(msg_or_tuple) == 2:
+                # (done, total) 形式
+                done, total = msg_or_tuple
+                if total > 0:
+                    ind_progress.progress(done / total)
+            else:
+                # 文字列メッセージ形式（レガシー）
+                progress_counter["count"] += 1
+                if total_symbols > 0:
+                    ind_progress.progress(progress_counter["count"] / total_symbols)
+        except Exception:
+            pass
+
     call_kwargs = dict(
-        progress_callback=lambda done, total: ind_progress.progress(
-            0 if total == 0 else done / total
-        ),
+        progress_callback=_update_progress,
         log_callback=lambda msg: ind_log.text(str(msg)),
         skip_callback=lambda msg: ind_log.text(str(msg)),
+        fast_mode=fast_mode,
         **kwargs,
     )
     if use_process_pool:
@@ -318,9 +353,9 @@ def prepare_backtest_data(
     try:
         prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     except TypeError:
-        # 古い戦略実装との後方互換: skip_callback/use_process_pool 未対応の戦略に再試行
-        call_kwargs.pop("skip_callback", None)
-        call_kwargs.pop("use_process_pool", None)
+        # 後方互換: 未対応パラメータを削除して再試行
+        for _k in ["skip_callback", "use_process_pool", "fast_mode"]:
+            call_kwargs.pop(_k, None)
         prepared_dict = strategy.prepare_data(call_input, **call_kwargs)
     try:
         ind_progress.empty()
@@ -335,66 +370,33 @@ def prepare_backtest_data(
             cand_phase.info(tr("candidates: extracting..."))
         except Exception:
             pass
-        cand_log = cand_phase.log_area
         cand_progress = cand_phase.progress_bar
     else:
-        st.info(tr("candidates: extracting..."))
-        cand_log = st.empty()
-        cand_progress = st.progress(0)
-    start_time = time.time()
+        # UIManager なしの場合: 実行時に動的生成
+        cand_info_placeholder = st.empty()
+        cand_progress_placeholder = st.empty()
+
+        cand_info_placeholder.info(tr("candidates: extracting..."))
+        cand_progress = cand_progress_placeholder.progress(0)
 
     merged_df = None
-    if system_name == "System1":
-        if spy_df is None or spy_df.empty:
-            st.error(tr("System1 requires SPY data for market filter"))
-            return prepared_dict, None, None
-        candidates_by_date, merged_df = generate_roc200_ranking_system1(
-            prepared_dict,
-            spy_df,
-            on_progress=lambda i, total, start: log_with_progress(
-                i,
-                total,
-                start,
-                prefix="📈 ROC200ランキング",
-                log_area=cand_log,
-                progress_bar=cand_progress,
-                unit=tr("days"),
-            ),
-            on_log=None,
-        )
-    else:
-        # generic path (System2–7)
-        try:
+    # すべてのシステムは strategy.generate_candidates を使う統一パス
+    try:
+        if system_name == "System4" and spy_df is not None:
             candidates_by_date = strategy.generate_candidates(
                 prepared_dict,
-                progress_callback=lambda done, total: log_with_progress(
-                    done,
-                    total,
-                    start_time,
-                    prefix="candidates",
-                    log_area=cand_log,
-                    progress_bar=cand_progress,
-                ),
-                log_callback=lambda msg: cand_log.text(str(msg)),
+                market_df=spy_df,
                 **kwargs,
             )
-        except (TypeError, ValueError):
-            # 戻り値の形 or 引数不一致（例: System4 の market_df）に対応
-            if system_name == "System4" and spy_df is not None:
-                ret = strategy.generate_candidates(
-                    prepared_dict,
-                    market_df=spy_df,
-                    **kwargs,
-                )
-            else:
-                ret = strategy.generate_candidates(
-                    prepared_dict,
-                    **kwargs,
-                )
-            if isinstance(ret, tuple) and len(ret) == 2:
-                candidates_by_date, merged_df = ret
-            else:
-                candidates_by_date = ret
+        else:
+            candidates_by_date = strategy.generate_candidates(
+                prepared_dict,
+                **kwargs,
+            )
+    except (TypeError, ValueError) as e:
+        st.error(f"候補抽出エラー: {e}")
+        return prepared_dict, None, None
+
     # 正常系でも (dict, df) を返す実装があるため後段で正規化
     if isinstance(candidates_by_date, tuple) and len(candidates_by_date) == 2:
         candidates_by_date, merged_df = candidates_by_date
@@ -440,12 +442,17 @@ def run_backtest_with_logging(
         except Exception:
             pass
     else:
-        st.info(tr("backtest: running..."))
-        progress = st.progress(0)
-        log_area = st.empty()
-        fund_log_area = st.empty()
-    # debug_area is not used directly here; keep UI placeholder via st.empty() when needed
-    _ = st.empty()
+        # UIManager なしの場合: 実行時に動的生成
+        bt_info_placeholder = st.empty()
+        bt_progress_placeholder = st.empty()
+        bt_log_placeholder = st.empty()
+        bt_fund_log_placeholder = st.empty()
+
+        bt_info_placeholder.info(tr("backtest: running..."))
+        progress = bt_progress_placeholder.progress(0)
+        log_area = bt_log_placeholder
+        fund_log_area = bt_fund_log_placeholder
+
     debug_logs: list[str] = []
 
     def handle_log(msg):
@@ -473,8 +480,14 @@ def run_backtest_with_logging(
             total,
             start,
             prefix="bt",
-            log_area=log_area,
-            progress_bar=progress,
+            log_func=(
+                (lambda msg: (log_area.text(msg), None)[1]) if hasattr(log_area, "text") else None
+            ),
+            progress_func=(
+                (lambda val: (progress.progress(val), None)[1])
+                if hasattr(progress, "progress")
+                else None
+            ),
             unit="days",
         ),
         on_log=lambda msg: handle_log(msg),
@@ -488,7 +501,11 @@ def run_backtest_with_logging(
     # ログをセッションへ保持（リランしても表示できるように）
     st.session_state[f"{system_name}_debug_logs"] = list(debug_logs)
 
-    if st.session_state.get("show_debug_logs", True) and debug_logs:
+    # システム固有のデバッグフラグをチェック
+    debug_key = f"{system_name}_show_debug_logs"
+    show_debug = st.session_state.get(debug_key, True)
+
+    if show_debug and debug_logs:
         # ログはバックテスト・フェーズのコンテナ内に配置（システムごとにまとまるように）
         parent = bt_phase.container if bt_phase else st.container()
         # ユーザー要望: 取引ログはエクスパンダーで折りたたみ表示
@@ -521,8 +538,187 @@ def run_backtest_app(
     **kwargs,
 ):
     st.title(system_title or f"{system_name} backtest")
+    # モード表示用のプレースホルダー（タイトル直下）
+    mode_caption_placeholder = st.empty()
 
-    # --- 前回実行結果の表示/クリア（セッション保持） ---
+    # --- サイドバーに設定UIを統合 ---
+    with st.sidebar:
+        st.subheader(tr("backtest settings"))
+
+        debug_key = f"{system_name}_show_debug_logs"
+        if debug_key not in st.session_state:
+            st.session_state[debug_key] = True
+        st.checkbox(tr("show debug logs"), key=debug_key)
+
+        # 自動ユニバース利用フラグ (普通株ユニバース) 復元
+        auto_key = f"{system_name}_auto"
+        if auto_key not in st.session_state:
+            st.session_state[auto_key] = True
+        use_auto = st.checkbox(
+            tr("auto symbols (common stocks)"),
+            value=st.session_state[auto_key],
+            key=auto_key,
+        )
+        # 普通株 全銘柄を一括利用するオプション（制限数入力を無視する）
+        all_common_key = f"{system_name}_use_all_common"
+        st.checkbox(tr("use full common stocks universe"), value=True, key=all_common_key)
+        # Fast Preview / 挙動確認モード (MVP)
+        fast_key = f"{system_name}_fast_mode"
+        if fast_key not in st.session_state:
+            st.session_state[fast_key] = False
+        from common.i18n import get_language as _get_lang  # 遅延 import
+
+        st.checkbox(
+            ("Fast Preview Mode" if _get_lang() == "en" else tr("fast preview mode (mvp)")),
+            key=fast_key,
+            help=(
+                "Skip heavy indicators & shorten lookback (~120d) for quicker approximate preview"
+                if _get_lang() == "en"
+                else "重い指標を省略し履歴を約120日に短縮して高速に近似結果を表示"
+            ),
+        )
+
+        _init_cap = int(st.session_state.get(f"{system_name}_capital_saved", 100000))
+        capital = st.number_input(
+            tr("capital (USD)"),
+            min_value=1000,
+            value=_init_cap,
+            step=100,
+            key=f"{system_name}_capital",
+        )
+
+        # 常に通常株（普通株のみ、~6200銘柄）を使用（11800全銘柄オプション廃止）
+        # 簡易キャッシュ（プロセス内）: 毎回ロードを避ける
+        global _COMMON_STOCKS_CACHE  # type: ignore
+        if "_COMMON_STOCKS_CACHE" not in globals():  # 初回定義
+            _COMMON_STOCKS_CACHE = None  # type: ignore
+
+        if _COMMON_STOCKS_CACHE is None:
+            try:
+                from scripts.tickers_loader import get_common_stocks_only
+
+                _COMMON_STOCKS_CACHE = list(get_common_stocks_only())  # type: ignore
+            except ImportError:
+                _COMMON_STOCKS_CACHE = list(get_all_tickers())  # type: ignore
+            except Exception:
+                _COMMON_STOCKS_CACHE = list(get_all_tickers())  # type: ignore
+
+        all_tickers = _COMMON_STOCKS_CACHE  # type: ignore
+
+        max_allowed = len(all_tickers)
+        default_value = min(10, max_allowed)
+        # 全銘柄選択時の銘柄総数表示 & パフォーマンス警告 + 過去ログから推定時間
+        if st.session_state.get(all_common_key, False):
+            st.caption(tr("using all common stocks: {n} symbols", n=max_allowed))
+            if max_allowed > 3000:
+                st.warning(
+                    tr(
+                        "large universe may slow processing (>{th} symbols)",
+                        th=3000,
+                    )
+                )
+            # 過去の実行時間ログ(JSONL)から推定（単純に同Universeサイズ近傍を対象）
+            try:
+                import json
+                import math
+                import statistics
+                from pathlib import Path
+
+                settings = get_settings(create_dirs=True)
+                perf_dir = Path(settings.LOGS_DIR) / "perf_estimates"
+                perf_dir.mkdir(parents=True, exist_ok=True)
+                history_path = perf_dir / f"{system_name}_universe_times.jsonl"
+
+                # 既存ログ読み込み
+                sizes: list[int] = []
+                durations: list[float] = []
+                if history_path.exists():
+                    with history_path.open("r", encoding="utf-8") as fh:
+                        for line in fh:
+                            try:
+                                rec = json.loads(line)
+                                sizes.append(int(rec.get("size", 0)))
+                                durations.append(float(rec.get("seconds", 0.0)))
+                            except Exception:
+                                continue
+                # 近傍 (±5%) のサイズサンプルを抽出
+                est_seconds: float | None = None
+                p25 = p75 = None
+                if sizes:
+                    target_min = max_allowed * 0.95
+                    target_max = max_allowed * 1.05
+                    filt = [
+                        d
+                        for s, d in zip(sizes, durations)
+                        if target_min <= s <= target_max and d > 0
+                    ]
+                    if len(filt) >= 3:
+                        filt.sort()
+                        p25 = filt[max(0, math.floor(len(filt) * 0.25) - 1)]
+                        p75 = filt[min(len(filt) - 1, math.floor(len(filt) * 0.75))]
+                        est_seconds = statistics.median(filt)
+                if est_seconds is not None and p25 is not None and p75 is not None:
+                    st.caption(
+                        tr(
+                            "estimated processing time: median {m:.1f}s (p25={p25:.1f}s / p75={p75:.1f}s)",
+                            m=est_seconds,
+                            p25=p25,
+                            p75=p75,
+                        )
+                    )
+            except Exception:
+                pass
+
+        if system_name != "System7" and not st.session_state.get(all_common_key, False):
+            limit_symbols = st.number_input(
+                tr("symbol limit"),
+                min_value=1,
+                max_value=max_allowed,
+                value=default_value,
+                step=1,
+                key=f"{system_name}_limit",
+            )
+            # 全銘柄使用オプションは廃止（上限指定のみ）
+
+        symbols_input = None
+        if not use_auto:
+            symbols_input = st.text_input(
+                tr("symbols (comma separated)"),
+                "AAPL,MSFT,TSLA,NVDA,META",
+                key=f"{system_name}_symbols_main",
+            )
+
+        # 通知トグル（サイドバーへ移動）
+        if system_name in (
+            "System1",
+            "System2",
+            "System3",
+            "System4",
+            "System5",
+            "System6",
+            "System7",
+        ):
+            _notify_key = f"{system_name}_notify_backtest"
+            if _notify_key not in st.session_state:
+                st.session_state[_notify_key] = True
+            _label = tr("バックテスト結果を通知する（Webhook）")
+            try:
+                _use_toggle = hasattr(st, "toggle")
+            except Exception:
+                _use_toggle = False
+            if _use_toggle:
+                st.toggle(_label, key=_notify_key)
+            else:
+                st.checkbox(_label, key=_notify_key)
+            try:
+                import os as _os
+
+                if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")):
+                    st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
+            except Exception:
+                pass
+
+    # --- メイン領域: 前回実行結果の表示/クリア（セッション保持） ---
     key_results = f"{system_name}_results_df"
     key_prepared = f"{system_name}_prepared_dict"
     key_cands = f"{system_name}_candidates_by_date"
@@ -542,8 +738,6 @@ def run_backtest_app(
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
             if dbg:
-                # Streamlit の制約により Expander 同声の入れ子は不可
-                # 内側の expander を通常表示に変更
                 st.markdown("**保存済み 取引ログ**")
                 st.text("\n".join(map(str, dbg)))
             if st.button(tr("保存済み結果をクリア"), key=f"{system_name}_clear_saved"):
@@ -558,7 +752,6 @@ def run_backtest_app(
                 ]:
                     if k in st.session_state:
                         del st.session_state[k]
-                # 型チェッカーや古い Streamlit 実装に対応するため存在を確認してから呼び出す
                 rerun = getattr(st, "experimental_rerun", None)
                 if callable(rerun):
                     try:
@@ -570,96 +763,122 @@ def run_backtest_app(
         st.cache_data.clear()
         st.success(tr("cache cleared"))
 
-    debug_key = f"{system_name}_show_debug_logs"
-    if debug_key not in st.session_state:
-        st.session_state[debug_key] = True
-    st.checkbox(tr("show debug logs"), key=debug_key)
-
-    use_auto = st.checkbox(tr("auto symbols (all tickers)"), value=True, key=f"{system_name}_auto")
-    _init_cap = int(st.session_state.get(key_capital_saved, 1000))
-    capital = st.number_input(
-        tr("capital (USD)"),
-        min_value=1000,
-        value=_init_cap,
-        step=100,
-        key=f"{system_name}_capital",
-    )
-
-    all_tickers = get_all_tickers()
-    max_allowed = len(all_tickers)
-    default_value = min(10, max_allowed)
-
-    if system_name != "System7":
-        # テスト用でも使いやすいように最小値を1に、刻み幅を1に変更
-        limit_symbols = st.number_input(
-            tr("symbol limit"),
-            min_value=1,
-            max_value=max_allowed,
-            value=default_value,
-            step=1,
-            key=f"{system_name}_limit",
-        )
-        if st.checkbox(tr("use all symbols"), key=f"{system_name}_all"):
-            limit_symbols = max_allowed
-
-    symbols_input = None
-    if not use_auto:
-        symbols_input = st.text_input(
-            tr("symbols (comma separated)"),
-            "AAPL,MSFT,TSLA,NVDA,META",
-            key=f"{system_name}_symbols_main",
-        )
-
+    # シンボル選択処理（サイドバーで定義済みの変数を使用）
     if system_name == "System7":
         symbols = ["SPY"]
     elif use_auto:
-        symbols = all_tickers[:limit_symbols]
+        if st.session_state.get(f"{system_name}_use_all_common", False):
+            symbols = all_tickers  # 全普通株
+        else:
+            symbols = all_tickers[:limit_symbols]
     else:
         if not symbols_input:
             st.error(tr("please input symbols"))
             return None, None, None, None, None
         symbols = [s.strip().upper() for s in symbols_input.split(",")]
 
-    # System1 専用: 実行ボタンの直前に通知トグルを配置
-    if system_name in (
-        "System1",
-        "System2",
-        "System3",
-        "System4",
-        "System5",
-        "System6",
-        "System7",
-    ):
-        _notify_key = f"{system_name}_notify_backtest"
-        if _notify_key not in st.session_state:
-            st.session_state[_notify_key] = True
-        _label = tr("バックテスト結果を通知する（Webhook）")
-        try:
-            _use_toggle = hasattr(st, "toggle")
-        except Exception:
-            _use_toggle = False
-        if _use_toggle:
-            st.toggle(_label, key=_notify_key)
-        else:
-            st.checkbox(_label, key=_notify_key)
-        try:
-            import os as _os  # local alias to avoid top imports churn
-
-            if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")):
-                st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
-        except Exception:
-            pass
-
     run_clicked = st.button(tr("run"), key=f"{system_name}_run")
-    result_area = st.container()
+    fast_mode_flag = bool(st.session_state.get(f"{system_name}_fast_mode", False))
+    # タイトル下に現在モードを表示（即時更新）
+    try:
+        from common.i18n import get_language as _get_lang2
+
+        if fast_mode_flag:
+            if _get_lang2() == "en":
+                mode_caption_placeholder.caption("Mode: Fast Preview (approximate)")
+            else:
+                mode_caption_placeholder.caption(
+                    tr("fast preview mode enabled (approximate results)")
+                )
+        else:
+            if _get_lang2() == "en":
+                mode_caption_placeholder.caption("Mode: Normal")
+            else:
+                mode_caption_placeholder.caption(tr("mode: normal"))
+    except Exception:
+        pass
+
+    # 実行ボタンクリック後に動的にプレースホルダーを生成
     if run_clicked:
+        # バックテスト実行領域を動的生成（実行前は表示されない）
+        result_area = st.container()
         with result_area:
+            # --- timing start (stdout) ---
+            from datetime import datetime as _dt
+
+            _t_start = _dt.now()
+            try:
+                import json
+                import os
+                import pathlib
+
+                use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
+                use_json = os.getenv("BACKTEST_JSON", "1") != "0"
+                mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                # run_id: 1 回の UI 実行単位
+                import uuid
+
+                run_id = os.getenv("BACKTEST_RUN_ID") or uuid.uuid4().hex[:12]
+                os.environ["BACKTEST_RUN_ID"] = run_id  # Downstream (Slack) 使用向け
+                # ANSI colors
+                C = {
+                    "reset": "\u001b[0m",
+                    "cyan": "\u001b[36m",
+                    "green": "\u001b[32m",
+                    "yellow": "\u001b[33m",
+                    "magenta": "\u001b[35m",
+                    "bold": "\u001b[1m",
+                }
+                if not use_color:
+                    for k in list(C.keys()):
+                        C[k] = ""
+                start_lines = [
+                    "",
+                    f"{C['cyan']}=============================={C['reset']}",
+                    f"{C['bold']}🚀 バックテスト開始{C['reset']}: {system_name}",
+                    f"🕒 開始時刻: {_t_start:%Y-%m-%d %H:%M:%S}",
+                    f"📊 対象シンボル数: {len(symbols)}",
+                    f"🆔 Run ID: {run_id}",
+                    f"モード: {mode_txt}",
+                    f"{C['cyan']}=============================={C['reset']}",
+                ]
+                print("\n".join(start_lines), flush=True)
+                try:
+                    # UI 側にも Run ID を表示する小パネル
+                    st.info(f"Run ID: {run_id}")
+                except Exception:
+                    pass
+                if use_json:
+                    try:
+                        settings_local = get_settings(create_dirs=True)
+                        log_dir = pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
+                    except Exception:
+                        log_dir = pathlib.Path("logs") / "backtest_events"
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    rec = {
+                        "event": "start",
+                        "system": system_name,
+                        "timestamp": _t_start.isoformat(),
+                        "symbols": len(symbols),
+                        "mode": mode_txt,
+                        "run_id": run_id,
+                        "status": "running",
+                        "exception": None,
+                    }
+                    with (log_dir / f"{system_name.lower()}_events.jsonl").open(
+                        "a", encoding="utf-8"
+                    ) as jf:
+                        jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
             prepared_dict, candidates_by_date, merged_df = prepare_backtest_data(
                 strategy,
                 symbols,
                 system_name=system_name,
                 spy_df=spy_df,
                 ui_manager=ui_manager,
+                enable_debug_logs=st.session_state.get(debug_key, True),
+                fast_mode=fast_mode_flag,
                 **kwargs,
             )
             if candidates_by_date is None:
@@ -673,7 +892,29 @@ def run_backtest_app(
                 system_name,
                 ui_manager=ui_manager,
             )
+            # fast_mode 列付与（後工程で利用者が識別できるように）
+            try:
+                if results_df is not None and not results_df.empty:
+                    results_df = results_df.copy()
+                    results_df["mode"] = "fast" if fast_mode_flag else "normal"
+            except Exception:
+                pass
             show_results(results_df, capital, system_name, key_context="curr")
+
+            # fast_mode 実行後に通常モードでの再実行ボタンを提供
+            try:
+                if fast_mode_flag:
+                    if st.button(tr("re-run in normal mode"), key=f"{system_name}_rerun_normal"):
+                        # フラグを False にして再実行。ユーザー操作簡略化。
+                        st.session_state[f"{system_name}_fast_mode"] = False
+                        rerun = getattr(st, "experimental_rerun", None)
+                        if callable(rerun):
+                            try:
+                                rerun()
+                            except Exception:
+                                pass
+            except Exception:
+                pass
 
             # セッションへ保存（リラン対策）
             st.session_state[key_results] = results_df
@@ -686,15 +927,144 @@ def run_backtest_app(
             if system_name == "System1":
                 return results_df, merged_df, prepared_dict, capital, candidates_by_date
             else:
-                return results_df, None, prepared_dict, capital, candidates_by_date
+                # --- timing end (stdout) ---
+                try:
+                    import json
+                    import os
+                    import pathlib
 
+                    use_color = os.getenv("BACKTEST_COLOR", "1") != "0"
+                    use_json = os.getenv("BACKTEST_JSON", "1") != "0"
+                    run_id = os.getenv("BACKTEST_RUN_ID") or "unknown"
+                    _t_end = _dt.now()
+                    _elapsed = (_t_end - _t_start).total_seconds()
+                    h = int(_elapsed // 3600)
+                    m = int((_elapsed % 3600) // 60)
+                    s = _elapsed % 60
+                    trades_cnt = 0
+                    try:
+                        if (
+                            results_df is not None
+                            and hasattr(results_df, "empty")
+                            and not results_df.empty
+                        ):
+                            trades_cnt = len(results_df)
+                    except Exception:
+                        trades_cnt = 0
+                    C = {
+                        "reset": "\u001b[0m",
+                        "cyan": "\u001b[36m",
+                        "green": "\u001b[32m",
+                        "yellow": "\u001b[33m",
+                        "magenta": "\u001b[35m",
+                        "bold": "\u001b[1m",
+                    }
+                    if not use_color:
+                        for k in list(C.keys()):
+                            C[k] = ""
+                    mode_txt = "FAST" if fast_mode_flag else "NORMAL"
+                    # 視認性向上: 0埋め H:MM:SS と合計秒、両方を表示
+                    total_fmt = f"{h}:{m:02d}:{int(s):02d}"  # 例 0:03:52
+                    # 長時間色付け(> 15分)で注意を引く
+                    warn = use_color and _elapsed > 900
+                    elapsed_line = (
+                        f"⏱️ 所要時間: {total_fmt} (合計 {_elapsed:.2f} 秒)"
+                        if not warn
+                        else f"⏱️ 所要時間: {C['yellow']}{total_fmt}{C['reset']} (合計 {_elapsed:.2f} 秒)"
+                    )
+                    end_lines = [
+                        "",
+                        f"{C['green']}=============================={C['reset']}",
+                        f"{C['bold']}✅ バックテスト完了{C['reset']}: {system_name}",
+                        f"🕒 終了時刻: {_t_end:%Y-%m-%d %H:%M:%S}",
+                        elapsed_line,
+                        f"📊 取引件数: {trades_cnt} / シンボル数: {len(symbols)}",
+                        f"🆔 Run ID: {run_id}",
+                        f"モード: {mode_txt}",
+                        f"{C['green']}=============================={C['reset']}",
+                        "",
+                    ]
+                    print("\n".join(end_lines), flush=True)
+                    if use_json:
+                        try:
+                            settings_local = get_settings(create_dirs=True)
+                            log_dir = pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
+                        except Exception:
+                            log_dir = pathlib.Path("logs") / "backtest_events"
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        rec = {
+                            "event": "end",
+                            "system": system_name,
+                            "timestamp": _t_end.isoformat(),
+                            "elapsed_sec": round(_elapsed, 3),
+                            "elapsed_hms": {"h": h, "m": m, "s": round(s, 3)},
+                            "symbols": len(symbols),
+                            "trades": trades_cnt,
+                            "mode": mode_txt,
+                            "run_id": run_id,
+                            "status": "success",
+                            "exception": None,
+                        }
+                        with (log_dir / f"{system_name.lower()}_events.jsonl").open(
+                            "a", encoding="utf-8"
+                        ) as jf:
+                            jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                return results_df, None, prepared_dict, capital, candidates_by_date
     return None, None, None, None, None
+
+
+# ------------------------------
+# Heatmap silent export helper
+# ------------------------------
+def _export_holding_heatmap_silent(matrix, system_name: str) -> None:
+    """Export holding matrix to CSV (and optionally PNG in future) without rendering.
+
+    The UI no longer renders the heatmap directly to avoid vertical clutter and
+    performance overhead. We still persist a CSV so users can download or use it
+    for offline analysis. PNG export can be added later if required.
+    """
+    from pathlib import Path
+
+    try:
+        from .logging_utils import get_logger  # type: ignore
+    except Exception:  # pragma: no cover - fallback when logger util unavailable
+        get_logger = None  # type: ignore
+
+    try:
+        settings = get_settings(create_dirs=True)
+        base_dir = Path(getattr(settings.cache, "base_dir", "data_cache"))  # type: ignore[arg-type]
+        out_dir = base_dir / "exports" / "holding_heatmaps"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"holding_status_{system_name}.csv"
+        matrix.to_csv(out_path)
+        if get_logger:
+            try:
+                logger = get_logger()
+                logger.info(
+                    "heatmap csv exported",
+                    extra={"system": system_name, "path": str(out_path)},
+                )
+            except Exception:
+                pass
+    except Exception:
+        # 非致命: 失敗しても UI で warning 済み
+        pass
 
 
 # ------------------------------
 # Rendering helpers
 # ------------------------------
 def summarize_results(results_df: pd.DataFrame, capital: float):
+    # 防御: 必須列不足時は空サマリ返却（呼び出し側でinfo表示済）
+    required_cols = {"entry_date", "exit_date"}
+    if (
+        results_df is None
+        or results_df.empty
+        or not required_cols.issubset(set(results_df.columns))
+    ):
+        return {"trades": 0, "total_return": 0.0, "win_rate": 0.0, "max_dd": 0.0}, pd.DataFrame(columns=["cumulative_pnl"])  # type: ignore
     df = results_df.copy()
 
     # 日付を確実に日時型に
@@ -742,7 +1112,9 @@ def show_results(
     *,
     key_context: str = "main",
 ):
-    if results_df is None or results_df.empty:
+    # 追加防御: results_dfが期待列を欠く場合は早期returnでUI崩壊防止
+    minimal_cols = {"entry_date", "exit_date"}
+    if results_df is None or results_df.empty or not minimal_cols.issubset(set(results_df.columns)):
         st.info(i18n.tr("no trades"))
         return
 
@@ -826,74 +1198,46 @@ def show_results(
         pass
 
     st.subheader(i18n.tr("yearly summary"))
-    yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-    yearly["損益"] = yearly["pnl"].round(2)
-    yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
-    yearly = yearly.rename(columns={"exit_date": "年"})
-    st.dataframe(
-        yearly[["年", "損益", "リターン(%)"]].style.format(
-            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+    if len(df2) > 0:
+        yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
+        yearly["損益"] = yearly["pnl"].round(2)
+        yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
+        yearly = yearly.rename(columns={"exit_date": "年"})
+        st.dataframe(
+            yearly[["年", "損益", "リターン(%)"]].style.format(
+                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+            )
         )
-    )
-    st.subheader(i18n.tr("monthly summary"))
-    monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-    monthly["損益"] = monthly["pnl"].round(2)
-    monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
-    monthly = monthly.rename(columns={"exit_date": "月"})
-    st.dataframe(
-        monthly[["月", "損益", "リターン(%)"]].style.format(
-            {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
-        )
-    )
+    else:
+        st.info("トレードデータがありません")
 
-    st.subheader(i18n.tr("holdings heatmap (by day)"))
-    progress_heatmap = st.progress(0)
-    heatmap_log = st.empty()
-    start_time = time.time()
-    unique_dates = sorted(df2["entry_date"].dt.normalize().unique())
-    total_dates = len(unique_dates)
-    for i, _date in enumerate(unique_dates, 1):
-        _ = df2[(df2["entry_date"] <= _date) & (df2["exit_date"] >= _date)]
-        log_with_progress(
-            i,
-            total_dates,
-            start_time,
-            prefix="heatmap",
-            batch=10,
-            log_area=heatmap_log,
-            progress_bar=progress_heatmap,
-            unit="days",
+    st.subheader(i18n.tr("monthly summary"))
+    if len(df2) > 0:
+        monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
+        monthly["損益"] = monthly["pnl"].round(2)
+        monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
+        monthly = monthly.rename(columns={"exit_date": "月"})
+        st.dataframe(
+            monthly[["月", "損益", "リターン(%)"]].style.format(
+                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+            )
         )
-        time.sleep(0.005)
-    heatmap_log.text(i18n.tr("drawing heatmap..."))
-    holding_matrix = generate_holding_matrix(df2)
-    display_holding_heatmap(
-        holding_matrix, title=f"{system_name} - {i18n.tr('holdings heatmap (by day)')}"
-    )
-    heatmap_log.success(tr("heatmap generated"))
-    # unique-key download button to avoid DuplicateElementId across tabs/systems
+    else:
+        st.info("トレードデータがありません")
+
+    # (仕様変更) ヒートマップは UI へ描画せず、後続のサイレントエクスポートのみ実行
+    # 利用者へは軽量な完了情報のみ提供。
     try:
-        settings = get_settings(create_dirs=True)
-        round_dec = getattr(settings.cache, "round_decimals", None)
-    except Exception:
-        round_dec = None
-    try:
-        hm_out = round_dataframe(holding_matrix, round_dec)
-    except Exception:
-        hm_out = holding_matrix
-    csv_bytes = hm_out.to_csv().encode("utf-8")
-    if getattr(getattr(_APP_SETTINGS, "ui", None), "show_download_buttons", True):
-        st.download_button(
-            label=(i18n.tr("download holdings csv")),
-            data=csv_bytes,
-            file_name=f"holding_status_{system_name}.csv",
-            mime="text/csv",
-            key=f"{system_name}_{key_context}_download_holding_csv",
+        export_start = time.time()
+        holding_matrix = generate_holding_matrix(df2)
+        _export_holding_heatmap_silent(holding_matrix, system_name)
+        st.caption(i18n.tr("heatmap generated"))
+        st.session_state[f"{system_name}_heatmap_export_secs"] = round(
+            time.time() - export_start, 3
         )
-    try:
-        progress_heatmap.empty()
-    except Exception:
-        pass
+    except Exception as _e:
+        # 失敗しても致命的でないため warning のみに留める
+        st.warning(f"heatmap export skipped: {_e}")
 
 
 def show_signal_trade_summary(
@@ -980,6 +1324,8 @@ def display_roc200_ranking(
 
 
 def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
+    # download_button key衝突回避: key_contextを含め一意性強化
+    key_suffix = f"{system_name}_{int(capital)}"
     today_str = pd.Timestamp.today().strftime("%Y-%m-%d_%H%M")
     save_dir = "results_csv"
     os.makedirs(save_dir, exist_ok=True)
@@ -1007,7 +1353,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             data=out_df.to_csv(index=False).encode("utf-8"),
             file_name=f"{system_name}_signals_{today_str}_{int(capital)}.csv",
             mime="text/csv",
-            key=f"{system_name}_download_signals_csv",
+            key=f"{key_suffix}_download_signals_csv",
         )
 
     trades_df = pd.DataFrame(results) if isinstance(results, list) else results
@@ -1046,51 +1392,17 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
                 data=out_trades.to_csv(index=False).encode("utf-8"),
                 file_name=f"{system_name}_trades_{today_str}_{int(capital)}.csv",
                 mime="text/csv",
-                key=f"{system_name}_download_trades_csv",
+                key=f"{key_suffix}_download_trades_csv",
             )
         except Exception:
             # 書き込み/ダウンロード失敗しても処理を継続
             pass
 
 
-def save_prepared_data_cache(data_dict: dict[str, pd.DataFrame], system_name: str = "SystemX"):
-    """Save prepared per-symbol CSVs under `data_cache/` (Streamlit UI helper).
-
-    This implementation attempts to round numeric columns according to
-    `settings.cache.round_decimals` before writing. Failures fall back to
-    writing the unrounded DataFrame.
-    """
-    st.info(tr("{system_name} の日次データを保存中...", system_name=system_name))
-    if not data_dict:
-        st.warning(tr("保存するデータがありません"))
-        return
-    total = len(data_dict)
-    progress_bar = st.progress(0)
-    for i, (sym, df) in enumerate(data_dict.items(), 1):
-        path = os.path.join("data_cache", f"{safe_filename(sym)}.csv")
-        try:
-            try:
-                settings = get_settings(create_dirs=True)
-                round_dec = getattr(settings.cache, "round_decimals", None)
-            except Exception:
-                round_dec = None
-            try:
-                out_df = round_dataframe(df, round_dec)
-            except Exception:
-                out_df = df
-            try:
-                out_df.to_csv(path)
-            except Exception:
-                df.to_csv(path)
-        except Exception:
-            # Ignore failures and continue
-            pass
-        progress_bar.progress(0 if total == 0 else i / total)
-    st.write(tr("{total}件のファイルを保存しました", total=total))
-    try:
-        progress_bar.empty()
-    except Exception:
-        pass
+###############################
+# Deprecated/Removed Features #
+###############################
+# save_prepared_data_cache: 完全撤去 (2025-10). UI からも呼出し削除済み。
 
 
 def display_cache_health_dashboard() -> None:

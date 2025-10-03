@@ -2,9 +2,7 @@
 Core System5 Focused Tests - ADX7 Mean-Reversion Strategy Testing
 """
 
-import pytest
 import pandas as pd
-from datetime import datetime, timedelta
 from unittest.mock import Mock
 
 from core.system5 import (

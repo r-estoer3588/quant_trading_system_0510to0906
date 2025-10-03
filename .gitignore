@@ -29,3 +29,39 @@ codacy_report/
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
 temp_test_cache
+
+# === Reorganization Additions ===
+
+# Backup directories (contains old/deprecated code)
+backup/
+*.backup
+*.bak
+*.old
+
+# Test coverage reports  
+test_coverage/
+htmlcov*/
+.coverage*
+coverage.xml
+*.cover
+
+# Temporary experimental files
+tests/experimental/disabled/
+**/experimental_*.py
+
+# Performance profiling
+*.prof
+*.stats
+profile_results/
+
+# Temporary data
+temp/
+tmp/
+*.tmp
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Development tools output
+logs/archive/

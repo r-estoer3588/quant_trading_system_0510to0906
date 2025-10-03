@@ -1,15 +1,33 @@
 from __future__ import annotations
 
+import importlib
+import json
 import logging
 import os
+import re
 import sys
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, Any
+
+try:
+    from zoneinfo import ZoneInfo
+
+    def get_zoneinfo(name: str) -> tzinfo:
+        return ZoneInfo(name)
+
+except ImportError:
+    # Python < 3.9 or Windows without zoneinfo, use UTC as fallback
+    def get_zoneinfo(name: str) -> tzinfo:
+        _ = name
+        return timezone.utc
+
 
 import pandas as pd
 import streamlit as st
@@ -18,10 +36,24 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 # ページ設定を最初に実行
 st.set_page_config(page_title="本日のシグナル", layout="wide")
 
-import scripts.run_all_systems_today as _run_today_mod
+# sys.pathを正しく設定してからimport
+try:
+    # プロジェクトルートがsys.pathにない場合の事前処理
+    project_root = Path(__file__).parent.parent.resolve()
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    # scriptsディレクトリも追加
+    scripts_dir = project_root / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+except Exception:
+    pass
+
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_format import round_dataframe
+from common.cache_manager import CacheManager
 from common.data_loader import load_price
 from common.exit_planner import decide_exit_schedule
 from common.notifier import create_notifier
@@ -42,15 +74,15 @@ from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
+from strategies.system1_strategy import System1Strategy
+from strategies.system2_strategy import System2Strategy
+from strategies.system3_strategy import System3Strategy
+from strategies.system4_strategy import System4Strategy
+from strategies.system5_strategy import System5Strategy
+from strategies.system6_strategy import System6Strategy
 
 # 条件付きインポート - alpaca.trading.requests は実行時のみ必要
-if TYPE_CHECKING:  # pragma: no cover - static typing only
-    try:
-        import alpaca.trading.requests as AlpacaTradingRequests
-    except ImportError:  # pragma: no cover - runtime fallback
-        AlpacaTradingRequests = Any
-else:
-    AlpacaTradingRequests = None
+AlpacaTradingRequests: Any | None = None
 
 
 def _import_alpaca_requests():
@@ -59,8 +91,6 @@ def _import_alpaca_requests():
     Returns the module or None if not importable.
     """
     try:
-        import importlib
-
         return importlib.import_module("alpaca.trading.requests")
     except ImportError:
         return None
@@ -139,9 +169,7 @@ try:
                 return original_checkbox(label, *args, **kwargs)
             else:
                 # フォールバック: 元の関数を直接呼び出し
-                import streamlit
-
-                return streamlit.checkbox(label, *args, **kwargs)
+                return st.checkbox(label, *args, **kwargs)
 
         # 元のチェックボックスを保存して新しい関数を設定
         setattr(st, "_orig_checkbox", original_checkbox)
@@ -624,7 +652,7 @@ def _build_manual_rebuild_message(symbol: str, detail: dict[str, Any]) -> str:
     message = f"⛔ rolling未整備: {symbol} ({reason_label})"
     if parts:
         message += " | " + ", ".join(parts)
-    message += " → 手動で rolling キャッシュを更新してください"
+    message += " （自動スキップ済み）"
     return message
 
 
@@ -633,7 +661,90 @@ def _log_manual_rebuild_notice(
     detail: dict[str, Any],
     log_fn: Callable[[str], None] | None = None,
 ) -> str:
+    """rolling未整備メッセージを出力。
+
+    COMPACT_TODAY_LOGS=1 の場合:
+        - 旧仕様: 銘柄ごとに "⛔ rolling未整備: SYMBOL (...) （自動スキップ済み）" を逐次出力し大量に冗長化
+        - 新仕様: `common.cache_warnings.RollingIssueAggregator` へカテゴリ manual_rebuild として集約
+            * 先頭 N 件 (ROLLING_ISSUES_VERBOSE_HEAD, 既定=5) のみ WARNING
+            * 以降は DEBUG にダウングレード（ログ量削減）
+            * 集約サマリーは他カテゴリと同じ仕組みで INFO 出力
+    COMPACT_TODAY_LOGS!=1 の場合は従来通り全文を log_fn へ出力する。
+    """
     message = _build_manual_rebuild_message(symbol, detail)
+
+    compact_mode = os.getenv("COMPACT_TODAY_LOGS") == "1"
+    if compact_mode:
+        # 既存 aggregator を利用してカテゴリ: manual_rebuild として登録
+        try:
+            from common.cache_warnings import report_rolling_issue  # ローカル import (遅延)
+
+            # 代表的な理由を status から抽出してメッセージ縮小
+            status = str(detail.get("status") or "manual_rebuild")
+            report_rolling_issue("manual_rebuild", symbol, status)
+        except Exception:
+            # フォールバック: 直接ログ
+            if log_fn:
+                try:
+                    log_fn(message)
+                except Exception:
+                    pass
+        return message
+
+    # 非コンパクトモード: 大量発生時は環境変数で抑制
+    # ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT: 0 または未設定=無制限, N>0 で最初の N 件のみ詳細出力し残りはサマリーへ集約
+    global _MANUAL_REBUILD_VERBOSE_LIMIT, _MANUAL_REBUILD_VERBOSE_COUNT, _MANUAL_REBUILD_SUPPRESSED, _MANUAL_REBUILD_ATEXIT_REGISTERED
+    try:  # 初期化 (例外あっても致命的でない)
+        if "_MANUAL_REBUILD_VERBOSE_LIMIT" not in globals():  # 初回
+            _MANUAL_REBUILD_VERBOSE_LIMIT = None
+            _MANUAL_REBUILD_VERBOSE_COUNT = 0
+            _MANUAL_REBUILD_SUPPRESSED = 0
+            _MANUAL_REBUILD_ATEXIT_REGISTERED = False
+        if _MANUAL_REBUILD_VERBOSE_LIMIT is None:
+            import atexit as _atexit
+            import os as _os
+
+            try:
+                _MANUAL_REBUILD_VERBOSE_LIMIT = int(
+                    _os.getenv("ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT", "0")
+                )
+            except Exception:
+                _MANUAL_REBUILD_VERBOSE_LIMIT = 0
+
+            def _flush_manual_rebuild_summary() -> None:  # atexit フラッシュ
+                try:
+                    if _MANUAL_REBUILD_SUPPRESSED > 0 and _MANUAL_REBUILD_VERBOSE_LIMIT > 0:
+                        # 抑制件数の最終サマリー (WARNING でなく INFO 相当が妥当だが log_fn のレベル制御不明なのでそのまま)
+                        if log_fn:
+                            log_fn(
+                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました"
+                            )
+                except Exception:
+                    pass
+
+            if not _MANUAL_REBUILD_ATEXIT_REGISTERED:
+                try:
+                    _atexit.register(_flush_manual_rebuild_summary)
+                    _MANUAL_REBUILD_ATEXIT_REGISTERED = True
+                except Exception:
+                    pass
+
+        _MANUAL_REBUILD_VERBOSE_COUNT += 1
+        limit = _MANUAL_REBUILD_VERBOSE_LIMIT or 0
+        if limit > 0 and _MANUAL_REBUILD_VERBOSE_COUNT > limit:
+            _MANUAL_REBUILD_SUPPRESSED += 1
+            # 最初の抑制タイミングで 1 度だけ告知行
+            if _MANUAL_REBUILD_SUPPRESSED == 1 and log_fn:
+                try:
+                    log_fn(
+                        f"… (以降 rolling未整備 詳細は抑制中: 閾値{limit}件を超過。環境変数 ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT で変更可能)"
+                    )
+                except Exception:
+                    pass
+            return message  # 呼び出し元には返すが表示しない
+    except Exception:  # 失敗時は従来挙動
+        pass
+
     if log_fn is None:
         return message
     try:
@@ -745,7 +856,7 @@ def _collect_symbol_data(
             detail["action"] = "manual_rebuild_required"
             manual_note = _merge_note(
                 _issues_to_note(issues),
-                "手動で rolling キャッシュを更新してください",
+                "自動スキップ",
             )
             detail["note"] = manual_note
             manual_msg = _build_manual_rebuild_message(sym, detail)
@@ -815,10 +926,15 @@ def _collect_symbol_data(
             sample = ", ".join(manual_symbols[:5])
             if len(manual_symbols) > 5:
                 sample += f" ほか{len(manual_symbols) - 5}件"
+            # より詳細な状況説明を追加
+            new_listings = [
+                s for s in manual_symbols if len(s) <= 4 and s.isalpha()
+            ]  # 新規上場の可能性
             try:
-                log_fn(
-                    "⚠️ rolling未整備: " + sample + " → 手動で rolling キャッシュを更新してください"
-                )
+                base_msg = f"⚠️ rolling未整備: {len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
+                if new_listings:
+                    base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
+                log_fn(base_msg)
             except Exception:
                 pass
         if malformed:
@@ -867,7 +983,10 @@ def _get_today_logger() -> logging.Logger:
 
     # orchestrator 側の設定を最優先
     log_path: Path | None = None
+    # 動的インポートでエラーを回避
     try:
+        import scripts.run_all_systems_today as _run_today_mod
+
         sel = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
         if isinstance(sel, Path):
             log_path = sel
@@ -884,14 +1003,9 @@ def _get_today_logger() -> logging.Logger:
             log_path = log_dir / "today_signals.log"
         else:
             try:
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-
-                jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+                jst_now = datetime.now(get_zoneinfo("Asia/Tokyo"))
             except Exception:
-                from datetime import datetime
-
-                jst_now = datetime.now()
+                jst_now = datetime.now(get_zoneinfo("UTC"))
             stamp = jst_now.strftime("%Y%m%d_%H%M")
             log_path = log_dir / f"today_signals_{stamp}.log"
 
@@ -966,7 +1080,7 @@ class ProgressUI:
         self.phase_title_area = st.empty()
         self.progress_area = st.empty()
         self.progress_bar = st.progress(0) if self.show_overall else None
-        self.progress_text = st.empty() if self.show_overall else None
+        # progress_textは削除（タイトルで表示するため）
         self.phase_state: dict[str, Any] = {"percent": 0, "label": "対象読み込み"}
         self._render_title()
 
@@ -990,13 +1104,7 @@ class ProgressUI:
             self.progress_bar.progress(percent)
         except Exception:
             pass
-        if self.progress_text is not None:
-            try:
-                self.progress_text.text(
-                    f"進捗 {percent}%: {self.phase_state.get('label', '対象読み込み')}"
-                )
-            except Exception:
-                pass
+        # プログレスバー下のテキストは削除（タイトルで表示するため）
         self._render_title()
 
     def update_label_for_stage(self, stage_value: int) -> None:
@@ -1092,13 +1200,37 @@ class StageTracker:
         progress_bar = self.bars.get(key)
         if progress_bar is None:
             return
-        value = 50 if phase == "start" else 100 if phase == "done" else None
-        if value is None:
-            return
+
+        # フェーズに応じた適切な値を設定
+        if phase == "start":
+            # 開始時は0%から開始（リセット）
+            value = 0
+            self.states[key] = 0  # 状態もリセット
+        elif phase == "done":
+            value = 100
+        else:
+            # その他のフェーズでは実際の進捗値を取得
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(key)
+                if snapshot is not None:
+                    value = snapshot.progress
+                else:
+                    value = self.states.get(key, 0)
+            except Exception:
+                value = self.states.get(key, 0)
+
+        value = max(0, min(100, int(value)))
+
+        # 通常時は進捗後退を防ぐが、開始時（phase="start"）はリセットを許可
+        if phase != "start":
+            prev = int(self.states.get(key, 0))
+            value = max(prev, value)
+
         self.states[key] = value
+
         try:
             progress_bar.progress(value)
-            self.stage_txt[key].text("run 50%" if value == 50 else "done 100%")
+            self.stage_txt[key].text(f"run {value}%" if value < 100 else "done 100%")
         except Exception:
             pass
 
@@ -1122,15 +1254,33 @@ class StageTracker:
     def _apply_snapshot(self, name: str, snapshot: StageSnapshot) -> None:
         key = str(name).lower()
         counts = self._ensure_counts(key)
+
+        # ターゲット数の設定（優先度順で設定）
         if snapshot.target is not None:
             try:
-                counts["target"] = int(snapshot.target)
-                self.universe_total = int(snapshot.target)
+                target_val = int(snapshot.target)
+                counts["target"] = target_val
+                self.universe_total = target_val
             except Exception:
                 pass
+        elif snapshot.filter_pass is not None and counts.get("target") is None:
+            try:
+                fallback_target = int(snapshot.filter_pass)
+                counts["target"] = fallback_target
+                if self.universe_total is None:
+                    self.universe_total = fallback_target
+            except Exception:
+                pass
+
+        # 進捗データの設定
         if snapshot.filter_pass is not None:
             try:
                 counts["filter"] = int(snapshot.filter_pass)
+                # フィルター通過数が設定されている場合、ターゲットがなければフィルター数をターゲットとして使用
+                if counts.get("target") is None:
+                    counts["target"] = int(snapshot.filter_pass)
+                    if self.universe_total is None:
+                        self.universe_total = int(snapshot.filter_pass)
             except Exception:
                 pass
         if snapshot.setup_pass is not None:
@@ -1206,13 +1356,21 @@ class StageTracker:
         counts = self._ensure_counts(key)
         if filter_cnt is not None:
             try:
-                if value == 0:
-                    counts["target"] = int(filter_cnt)
-                    self.universe_total = int(filter_cnt)
-                else:
-                    counts["filter"] = int(filter_cnt)
+                filter_val = int(filter_cnt)
             except Exception:
-                counts["filter"] = counts.get("filter")
+                filter_val = None
+            if filter_val is not None:
+                if value == 0:
+                    counts["target"] = filter_val
+                    self.universe_total = filter_val
+                else:
+                    counts["filter"] = filter_val
+                    if counts.get("target") is None:
+                        counts["target"] = (
+                            self.universe_total if self.universe_total is not None else filter_val
+                        )
+                        if self.universe_total is None:
+                            self.universe_total = filter_val
         if setup_cnt is not None:
             counts["setup"] = int(setup_cnt)
         if cand_cnt is not None:
@@ -1232,11 +1390,14 @@ class StageTracker:
         try:
             if tgt is None:
                 self.universe_target = None
+                self.universe_total = None
             else:
                 self.universe_target = int(tgt)
+                self.universe_total = int(tgt)
             GLOBAL_STAGE_METRICS.set_universe_target(self.universe_target)
         except Exception:
             self.universe_target = None
+            self.universe_total = None
             try:
                 GLOBAL_STAGE_METRICS.set_universe_target(None)
             except Exception:
@@ -1366,6 +1527,25 @@ class StageTracker:
             return
         vv = max(0, min(100, int(value)))
         prev = int(self.states.get(key, 0))
+        # 進捗が 0/25/50/75 のままでも、下流ステージのカウントが埋まっている場合は補完
+        if vv < 100:
+            try:
+                snap = GLOBAL_STAGE_METRICS.get_snapshot(key)
+            except Exception:
+                snap = None
+            if snap is not None:
+                # entry_count が存在 → 75% 以上完了とみなし 100 に丸め
+                if snap.entry_count is not None:
+                    vv = 100
+                # candidate_count のみ → 75%
+                elif snap.candidate_count is not None and vv < 75:
+                    vv = 75
+                # setup_pass があり filter_pass も → 50%
+                elif snap.setup_pass is not None and snap.filter_pass is not None and vv < 50:
+                    vv = 50
+                # filter_pass のみ存在 → 25%
+                elif snap.filter_pass is not None and vv < 25:
+                    vv = 25
         vv = max(prev, vv)
         self.states[key] = vv
         try:
@@ -1434,21 +1614,110 @@ class UILogger:
     def log(self, msg: str, no_timestamp: bool = False) -> None:
         forwarded_from_cli = False
         try:
+            import scripts.run_all_systems_today as _run_today_mod
+
             forwarding_flag = getattr(_run_today_mod, "_LOG_FORWARDING", None)
             if forwarding_flag is not None:
                 forwarded_from_cli = bool(forwarding_flag.get())
         except Exception:
             forwarded_from_cli = False
-        try:
-            elapsed = max(0, time.time() - self.start_time)
-            m, s = divmod(int(elapsed), 60)
-        except Exception:
-            m, s = 0, 0
-        now_txt = time.strftime("%Y-%m-%d %H:%M:%S")
-        if no_timestamp:
-            line = str(msg)
+        structured_mode = False
+        parsed_msg: str | None = None
+        iso_ts: str | None = None
+        rel_prefix: str | None = None
+        if not no_timestamp:
+            # STRUCTURED_UI_LOGS=1 のとき、エンジン側から渡される JSON 形式を優先的に解釈
+            if os.environ.get("STRUCTURED_UI_LOGS") == "1":
+                try:
+                    import json as _json
+
+                    if isinstance(msg, str) and msg.startswith("{") and '"msg"' in msg:
+                        obj = _json.loads(msg)
+                        # 最低限 'msg' があること
+                        raw_inner = obj.get("msg")
+                        if isinstance(raw_inner, str):
+                            structured_mode = True
+                            parsed_msg = raw_inner
+                            # ISO 時刻
+                            iso_candidate = obj.get("iso")
+                            if isinstance(iso_candidate, str):
+                                iso_ts = iso_candidate
+                            # 相対時間（エポックを start_time との差分で計算）
+                            ts_val = obj.get("ts")
+                            if isinstance(ts_val, (int, float)):
+                                try:
+                                    rel_elapsed = max(0, (ts_val / 1000.0) - self.start_time)
+                                    mm, ss = divmod(int(rel_elapsed), 60)
+                                    rel_prefix = f"{mm}分{ss}秒"
+                                except Exception:
+                                    pass
+                except Exception:
+                    structured_mode = False
+
+        def _format_rel_compact(elapsed: float) -> str:
+            try:
+                if elapsed < 0:
+                    elapsed = 0.0
+                if elapsed < 1:
+                    return f"+{int(elapsed * 1000)}ms"
+                if elapsed < 60:
+                    return f"+{elapsed:.1f}s"
+                if elapsed < 3600:
+                    m, s = divmod(int(elapsed), 60)
+                    return f"+{m}:{s:02d}"
+                if elapsed < 86400:
+                    h, rem = divmod(int(elapsed), 3600)
+                    m, s = divmod(rem, 60)
+                    return f"+{h}h{m:02d}m"  # 秒は省略
+                d, rem = divmod(int(elapsed), 86400)
+                h, _ = divmod(rem, 3600)
+                return f"+{d}d{h}h"
+            except Exception:
+                return "+0.0s"
+
+        compact_mode = os.environ.get("COMPACT_REL_TIME") == "1"
+
+        if structured_mode and parsed_msg is not None:
+            # ISO or 現在時刻 fallback
+            if iso_ts is None:
+                iso_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            if rel_prefix is None:
+                try:
+                    _elapsed = max(0, time.time() - self.start_time)
+                    if compact_mode:
+                        rel_prefix = _format_rel_compact(_elapsed)
+                    else:
+                        mm, ss = divmod(int(_elapsed), 60)
+                        rel_prefix = f"{mm}分{ss}秒"
+                except Exception:
+                    rel_prefix = "0分0秒"
+            line = f"[{iso_ts} | {rel_prefix}] {parsed_msg}"
         else:
-            line = f"[{now_txt} | {m}分{s}秒] {msg}"
+            try:
+                elapsed = max(0, time.time() - self.start_time)
+                if compact_mode:
+                    rel_prefix = _format_rel_compact(elapsed)
+                else:
+                    m, s = divmod(int(elapsed), 60)
+            except Exception:
+                rel_prefix = "0分0秒" if not compact_mode else "+0.0s"
+            now_txt = time.strftime("%Y-%m-%d %H:%M:%S")
+            if no_timestamp:
+                line = str(msg)
+            else:
+                if compact_mode:
+                    if not rel_prefix:
+                        rel_prefix = "+0.0s"
+                    line = f"[{now_txt} | {rel_prefix}] {msg}"
+                else:
+                    try:
+                        # m,s が計算済みでないケースは再計算
+                        if "m" not in locals() or "s" not in locals():
+                            _m, _s = divmod(int(max(0, time.time() - self.start_time)), 60)
+                            m, s = _m, _s
+                        line = f"[{now_txt} | {m}分{s}秒] {msg}"
+                    except Exception:
+                        line = f"[{now_txt} | 0分0秒] {msg}"
         self.log_lines.append(line)
         if _has_st_ctx() and self.progress_ui.show_overall:
             if self._should_display(str(msg)):
@@ -1492,19 +1761,49 @@ class UILogger:
         return not any(keyword in msg for keyword in skip_keywords)
 
     def _echo_cli(self, line: str) -> None:
+        # Windows コンソールでの文字化け緩和（任意フラグ）
         try:
-            print(line, flush=True)
-            return
-        except UnicodeEncodeError:
+            if os.name == "nt" and os.environ.get("FORCE_UTF8_CONSOLE") == "1":
+                try:
+                    if hasattr(sys.stdout, "reconfigure"):
+                        # 既に utf-8 の場合は触らない
+                        if (getattr(sys.stdout, "encoding", "") or "").lower() not in (
+                            "utf-8",
+                            "utf8",
+                        ):
+                            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            # 初回ヒント表示（化けを検知できそうなら）
+            if not getattr(self, "_encoding_hint_done", False) and os.name == "nt":
+                setattr(self, "_encoding_hint_done", True)
+                if os.environ.get("SUPPRESS_ENCODING_HINT") != "1":
+                    enc = (getattr(sys.stdout, "encoding", "") or "").lower()
+                    # 簡易判定: cp932 / ansi 系で絵文字が含まれそうな行
+                    if enc and "utf" not in enc and any(ch for ch in line if ord(ch) > 0x2600):
+                        try:
+                            print(
+                                "[INFO] 文字化けする場合は 'chcp 65001' 実行後に再試行してください (SUPPRESS_ENCODING_HINT=1 で非表示)",
+                                flush=True,
+                            )
+                        except Exception:
+                            pass
             try:
-                encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
-                safe = line.encode(encoding, errors="replace").decode(encoding, errors="replace")
-                print(safe, flush=True)
+                print(line, flush=True)
                 return
-            except Exception:
-                pass
+            except UnicodeEncodeError:
+                try:
+                    encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
+                    safe = line.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                    print(safe, flush=True)
+                    return
+                except Exception:
+                    pass
         except Exception:
             pass
+        # 最終フォールバック: ASCII 置換
         try:
             fallback = line.encode("ascii", errors="replace").decode("ascii", errors="replace")
             print(fallback, flush=True)
@@ -1549,6 +1848,8 @@ class RunCallbacks:
 
     def register_with_module(self) -> None:
         try:
+            import scripts.run_all_systems_today as _run_today_mod
+
             # 安全な属性アクセス方法を使用
             mod = _run_today_mod
             setattr(mod, "_PER_SYSTEM_STAGE", self.per_system_stage)
@@ -1839,6 +2140,8 @@ def _configure_today_logger_ui() -> None:
         mode_env = ""
     sel_mode = "single" if mode_env == "single" else "dated"
     try:
+        import scripts.run_all_systems_today as _run_today_mod
+
         _run_today_mod._configure_today_logger(mode=sel_mode)
         sel_path = getattr(_run_today_mod, "_LOG_FILE_PATH", None)
         if sel_path:
@@ -1851,8 +2154,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     # 実行開始時のヘッダーメッセージを表示
     today = get_signal_target_trading_day().normalize()
     try:
-        import uuid
-
         run_id = str(uuid.uuid4())[:8]
     except Exception:
         run_id = "--------"
@@ -1883,8 +2184,6 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # データの新しさをチェックして必要な場合のみ警告を表示
     try:
-        from common.cache_manager import CacheManager
-
         settings = get_settings()
         cm = CacheManager(settings)
         # SPYデータでキャッシュの新しさを確認
@@ -1931,7 +2230,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     rows_needed = max_days + buffer_days
     symbols_for_data = list(dict.fromkeys([*run_config.symbols, "SPY"]))
     progress_ui.set_label("対象読み込み")
-    final_df: pd.DataFrame | None = None
+    final_df: pd.DataFrame = pd.DataFrame()
     per_system: dict[str, pd.DataFrame] = {}
     debug_result: RunArtifacts | None = None
     with st.spinner("実行中... (経過時間表示あり)"):
@@ -1978,18 +2277,24 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 symbol_data=symbol_data_map,
                 parallel=run_config.run_parallel,
             )
-            # 安全にアンパック
-            if result is not None and isinstance(result, (tuple, list)) and len(result) == 2:
-                final_df, per_system = result
+            # 安全に結果を解釈
+            if isinstance(result, (tuple, list)) and len(result) == 2:
+                result_pair: Sequence[Any] = tuple(result)
+                maybe_df, maybe_system = result_pair
+                if isinstance(maybe_df, pd.DataFrame) and isinstance(maybe_system, dict):
+                    final_df = maybe_df
+                    per_system = maybe_system
+                else:
+                    actual_types = (
+                        f"df={type(maybe_df).__name__}, system={type(maybe_system).__name__}"
+                    )
+                    logger.log(f"⚠️ compute_today_signals の戻り値型が不正: {actual_types}")
             else:
-                # フォールバック: 空のDataFrameとdict
-                final_df = pd.DataFrame()
-                per_system = {}
-                logger.log("⚠️ compute_today_signals から予期しない結果が返されました")
+                result_info = f"type={type(result).__name__}, len={len(result) if hasattr(result, '__len__') else 'N/A'}"
+                logger.log(f"⚠️ compute_today_signals の戻り値構造が不正: {result_info}")
 
     if debug_result is not None:
         return debug_result
-    assert final_df is not None  # 安全策: debugモードでは既にreturn済み
     total_elapsed = max(0.0, time.time() - start_time)
     stage_tracker.finalize_counts(final_df, per_system)
     _store_run_results(final_df, per_system)
@@ -2004,37 +2309,63 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
 
 def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
+    """現在保有中ポジションの手仕舞い予定を推定する。
+
+    役割:
+      1. 保有ポジション取得
+      2. エントリー日補完（ローカル→不足分 Alpaca 取得→保存）
+      3. システム判定 & Strategy インスタンス生成
+      4. ストラテジー exit ロジックを用い本日/将来 exit を分類
+    """
+
     exits_today_rows: list[dict[str, Any]] = []
     planned_rows: list[dict[str, Any]] = []
     exit_counts: dict[str, int] = {f"system{i}": 0 for i in range(1, 8)}
     try:
         client_tmp = ba.get_client(paper=paper_mode)
-        positions = list(client_tmp.get_all_positions())
+        try:
+            positions = list(client_tmp.get_all_positions())
+        except Exception:
+            positions = []
+
+        # 1) エントリー日マップ読み込み
         raw_entry_map = load_entry_dates()
         entry_map: dict[str, str] = {}
-        for key, value in raw_entry_map.items():
+        for k, v in raw_entry_map.items():
             try:
-                entry_map[str(key).upper()] = str(value)
+                entry_map[str(k).upper()] = str(v)
             except Exception:
                 continue
-        missing: list[str] = []
-        for pos in positions:
-            sym = str(getattr(pos, "symbol", "")).upper()
-            if sym and sym not in entry_map:
-                missing.append(sym)
+
+        # 2) 不足エントリー日の補完
+        missing = [
+            str(getattr(p, "symbol", "")).upper()
+            for p in positions
+            if str(getattr(p, "symbol", "")).upper()
+            and str(getattr(p, "symbol", "")).upper() not in entry_map
+        ]
         if missing:
-            fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            try:
+                fetched = fetch_entry_dates_from_alpaca(client_tmp, missing)
+            except Exception:
+                fetched = None
             if fetched:
                 for sym, ts in fetched.items():
                     if sym not in entry_map:
-                        entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                        try:
+                            entry_map[sym] = pd.Timestamp(ts).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
                 try:
                     save_entry_dates(entry_map)
                 except Exception:
                     pass
+
         symbol_system_map = _load_symbol_system_map(Path("data/symbol_system_map.json"))
         latest_trading_day = _latest_trading_day()
-        strategy_classes = _strategy_class_map()
+        strategy_classes = STRATEGY_CLASS_MAP
+
+        # 3) 各ポジション解析
         for pos in positions:
             result = _evaluate_position_for_exit(
                 pos,
@@ -2045,18 +2376,19 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
             )
             if result is None:
                 continue
-            (system, _pos_side, _qty, exit_when, row_data, exit_today) = result
-            when_value = str(exit_when or "")
-            when_lower = when_value.lower()
-            when_entry = when_lower or when_value
+            system, _pos_side, _qty, exit_when, row_base, exit_today = result
+            when_val = str(exit_when or "").strip()
+            when_lower = when_val.lower()
+            when_display = when_lower or when_val
             if exit_today:
                 exit_counts[system] = exit_counts.get(system, 0) + 1
                 if when_lower == "tomorrow_open":
-                    planned_rows.append(row_data | {"when": when_entry})
+                    planned_rows.append(row_base | {"when": when_display})
                 else:
-                    exits_today_rows.append(row_data | {"when": when_entry})
+                    exits_today_rows.append(row_base | {"when": when_display})
             else:
-                planned_rows.append(row_data | {"when": when_entry})
+                planned_rows.append(row_base | {"when": when_display})
+
         exits_today_df = pd.DataFrame(exits_today_rows)
         planned_df = pd.DataFrame(planned_rows)
         return ExitAnalysisResult(
@@ -2073,10 +2405,8 @@ def analyze_exit_candidates(paper_mode: bool) -> ExitAnalysisResult:
 
 def _load_symbol_system_map(path: Path) -> dict[str, str]:
     try:
-        import json as _json
-
         if path.exists():
-            data = _json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return {str(k).upper(): str(v).lower() for k, v in data.items()}
     except Exception:
@@ -2112,22 +2442,17 @@ def _latest_trading_day() -> pd.Timestamp | None:
     return calendar_day or price_day
 
 
-def _strategy_class_map() -> dict[str, Callable[[], Any]]:
-    from strategies.system1_strategy import System1Strategy
-    from strategies.system2_strategy import System2Strategy
-    from strategies.system3_strategy import System3Strategy
-    from strategies.system4_strategy import System4Strategy
-    from strategies.system5_strategy import System5Strategy
-    from strategies.system6_strategy import System6Strategy
+STRATEGY_CLASS_MAP: dict[str, Callable[[], Any]] = {
+    "system1": System1Strategy,
+    "system2": System2Strategy,
+    "system3": System3Strategy,
+    "system4": System4Strategy,
+    "system5": System5Strategy,
+    "system6": System6Strategy,
+}
 
-    return {
-        "system1": System1Strategy,
-        "system2": System2Strategy,
-        "system3": System3Strategy,
-        "system4": System4Strategy,
-        "system5": System5Strategy,
-        "system6": System6Strategy,
-    }
+
+## 互換用関数は削除（直接 STRATEGY_CLASS_MAP を参照する実装へ移行済み）
 
 
 def _evaluate_position_for_exit(
@@ -2354,14 +2679,12 @@ def _display_planned_exits_section(result: ExitAnalysisResult) -> None:  # trade
 def _auto_save_planned_exits(
     planned_rows: list[dict[str, Any]], show_success: bool
 ) -> None:  # noqa: E501
-    import json as _json
-
     plan_path = Path("data/planned_exits.jsonl")
     try:
         plan_path.parent.mkdir(parents=True, exist_ok=True)
         with plan_path.open("w", encoding="utf-8") as f:
             for row in planned_rows:
-                f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
         if show_success:
             st.success(f"保存しました: {plan_path}")
         else:
@@ -2629,14 +2952,13 @@ def _auto_save_final_results(
         settings2 = get_settings(create_dirs=True)
         sig_dir = Path(settings2.outputs.signals_dir)
         sig_dir.mkdir(parents=True, exist_ok=True)
-        from datetime import datetime as _dt
-
-        ts = _dt.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        ts = now.strftime("%Y-%m-%d")
         if run_config.csv_name_mode == "datetime":
-            ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+            ts = now.strftime("%Y-%m-%d_%H%M")
         elif run_config.csv_name_mode == "runid":
             rid = st.session_state.get("last_run_id") or "RUN"
-            ts = f"{_dt.now().strftime('%Y-%m-%d')}_{rid}"
+            ts = f"{now.strftime('%Y-%m-%d')}_{rid}"
         fp = sig_dir / f"today_signals_{ts}.csv"
         try:
             settings2 = get_settings(create_dirs=True)
@@ -2786,17 +3108,15 @@ def _render_system_details(
                 reason_text: str | None = None
                 try:
                     if per_system_logs and name in per_system_logs:
-                        import re as _re
-
                         logs = per_system_logs.get(name) or []
                         for ln in reversed(logs):
                             if not ln:
                                 continue
-                            m = _re.search(r"候補0件理由[:：]\s*(.+)$", ln)
+                            m = re.search(r"候補0件理由[:：]\s*(.+)$", ln)
                             if m:
                                 reason_text = m.group(1).strip()
                                 break
-                            m2 = _re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
+                            m2 = re.search(r"セットアップ不成立[:：]\s*(.+)$", ln)
                             if m2:
                                 reason_text = m2.group(1).strip()
                                 break
@@ -2882,11 +3202,10 @@ def _render_previous_run_logs(log_lines: list[str]) -> None:
     prev_msgs = [line for line in log_lines if line and ("(前回結果) system" in line)]
     if not prev_msgs:
         return
-    import re as _re
 
     def _parse_prev_line(ln: str) -> tuple[str, int, str, str]:
         ts = ln.split("] ", 1)[0].strip("[")
-        m = _re.search(r"\(前回結果\) (system\d+):\s*(\d+)", ln)
+        m = re.search(r"\(前回結果\) (system\d+):\s*(\d+)", ln)
         sys = m.group(1) if m else "system999"
         cnt = int(m.group(2)) if m else 0
         return sys, cnt, ts, ln
@@ -2973,12 +3292,285 @@ with st.sidebar:
     st.write(f"銘柄数: {len(syms)}")
     st.write(", ".join(syms[:10]) + (" ..." if len(syms) > 10 else ""))
 
+    # Alpaca未約定注文表示
+    st.header("Alpaca注文状況")
+
+    # デバッグ情報の表示
+    with st.expander("🔧 デバッグ情報"):
+        st.write("broker_alpaca モジュール属性:")
+        ba_attrs = [attr for attr in dir(ba) if not attr.startswith("_")]
+        for attr in sorted(ba_attrs):
+            if attr == "get_open_orders":
+                st.write(f"✅ {attr}: {type(getattr(ba, attr))}")
+            elif callable(getattr(ba, attr)):
+                st.write(f"📝 {attr}: {type(getattr(ba, attr))}")
+            else:
+                st.write(f"📦 {attr}: {type(getattr(ba, attr))}")
+
+        st.write(f"get_open_orders 存在確認: {hasattr(ba, 'get_open_orders')}")
+        if hasattr(ba, "get_open_orders"):
+            st.write(f"get_open_orders 型: {type(ba.get_open_orders)}")
+            st.write(f"get_open_orders docstring: {ba.get_open_orders.__doc__}")
+
+    if st.button("📋 未約定注文を表示"):
+        try:
+            paper_mode = st.session_state.get("paper_mode", True)
+
+            # デバッグ: モジュール状態の確認
+            st.info(f"broker_alpaca モジュール: {ba}")
+            st.info(f"get_open_orders 存在: {hasattr(ba, 'get_open_orders')}")
+
+            if not hasattr(ba, "get_open_orders"):
+                st.error("get_open_orders 関数が見つかりません")
+                available_funcs = [
+                    attr
+                    for attr in dir(ba)
+                    if callable(getattr(ba, attr)) and not attr.startswith("_")
+                ]
+                st.write("利用可能な関数:")
+                st.write(available_funcs)
+                st.stop()
+
+            client = ba.get_client(paper=paper_mode)
+            orders = ba.get_open_orders(client)
+            if orders:
+                orders_data = []
+                for order in orders:
+                    orders_data.append(
+                        {
+                            "注文ID": order.id,
+                            "銘柄": order.symbol,
+                            "サイド": order.side,
+                            "数量": order.qty,
+                            "注文価格": getattr(order, "limit_price", "Market"),
+                            "注文タイプ": order.order_type,
+                            "状況": order.status,
+                            "作成日時": order.created_at,
+                        }
+                    )
+                orders_df = pd.DataFrame(orders_data)
+                st.dataframe(orders_df, use_container_width=True)
+            else:
+                st.info("未約定注文はありません")
+        except Exception as e:
+            st.error(f"注文取得エラー: {e}")
+            st.error(f"エラー詳細: {type(e).__name__}")
+            import traceback
+
+            st.code(traceback.format_exc())
+
     st.header("資産")
     # デフォルト値を設定
     if "today_cap_long" not in st.session_state:
         st.session_state["today_cap_long"] = 10000.0
     if "today_cap_short" not in st.session_state:
         st.session_state["today_cap_short"] = 10000.0
+
+    # --- ペーパー資金リセット UI -------------------------------------------------
+    with st.expander("🧪 ペーパー資金リセット", expanded=False):
+        st.caption(
+            "Alpaca Paper アカウントの現金残高を希望額に再設定する試行を行います。\n"
+            "公式にサポートされた機能ではないため、失敗する場合があります。"
+        )
+        reset_amount = st.number_input(
+            "リセット後の現金残高 (USD)",
+            min_value=1000.0,
+            step=1000.0,
+            value=100000.0,
+            key="reset_paper_cash_amount",
+            help="希望する paper 現金残高。成功しても Buying Power 更新にタイムラグが生じる可能性があります。",
+        )
+        col_r1, col_r2, col_r3 = st.columns([1, 1, 1])
+        with col_r1:
+            do_dry = st.checkbox("ドライラン", value=True, key="reset_paper_cash_dry_run")
+        with col_r2:
+            confirm = st.checkbox(
+                "私はリスクを理解しました", value=False, key="reset_paper_cash_confirm"
+            )
+        with col_r3:
+            auto_refetch = st.checkbox(
+                "成功後に資産再取得",
+                value=True,
+                key="reset_paper_cash_auto_refetch",
+                help="成功時に直ちに 'Alpacaから現在の資産を取得' を自動実行して画面を更新します。",
+            )
+        # ドライラン時は視覚的強調を落とし誤操作リスクを低減
+        _btn_type = (
+            "secondary" if st.session_state.get("reset_paper_cash_dry_run", True) else "primary"
+        )
+        if st.button("💣 ペーパー資金をリセット", key="reset_paper_cash_button", type=_btn_type):
+            if not confirm:
+                st.warning("実行には '私はリスクを理解しました' にチェックが必要です。")
+            else:
+                try:
+                    # UI state と環境変数の二重チェックで live 誤操作を防止
+                    is_ui_paper = st.session_state.get("paper_mode", True)
+                    env_paper = os.getenv("ALPACA_PAPER", "true").lower() in (
+                        "1",
+                        "true",
+                        "yes",
+                        "on",
+                        "y",
+                    )
+                    if (not is_ui_paper) or (not env_paper):
+                        st.error(
+                            "live モードでは実行できません。paper モードに切り替えてください。"
+                        )
+                    else:
+                        with st.spinner("リセット処理を試行中... (最大10秒程度)"):
+                            result = ba.reset_paper_cash(
+                                reset_amount,
+                                dry_run=do_dry,
+                                log_callback=lambda m: st.session_state.setdefault(
+                                    "reset_log", []
+                                ).append(m),
+                            )
+                            # ログサイズ上限 (100件) を維持
+                            _rl = st.session_state.get("reset_log", [])
+                            if len(_rl) > 100:
+                                st.session_state["reset_log"] = _rl[-100:]
+                        if result.get("ok"):
+                            if do_dry:
+                                st.info("ドライラン: 実際の変更は行っていません。")
+                            else:
+                                st.success(
+                                    f"リセットリクエスト完了 (status={result.get('status')}); 反映には時間がかかる場合があります。"
+                                )
+                            # 成功後の自動資産再取得
+                            if auto_refetch and not do_dry:
+                                try:
+                                    import time as _time
+
+                                    _time.sleep(0.5)  # 反映遅延/レート制限緩和のための短い待機
+                                    client_auto = ba.get_client(paper=True)
+                                    acct_auto = client_auto.get_account()
+                                    equity_auto = getattr(acct_auto, "equity", None)
+                                    cash_auto = getattr(acct_auto, "cash", None)
+                                    buying_power_auto = getattr(acct_auto, "buying_power", None)
+                                    if buying_power_auto is not None:
+                                        try:
+                                            bpv = float(buying_power_auto)
+                                            half_bp = round(bpv / 2.0, 2)
+                                            st.session_state["today_cap_long"] = half_bp
+                                            st.session_state["today_cap_short"] = half_bp
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                                    with st.expander("直後の取得結果", expanded=False):
+                                        if equity_auto is not None:
+                                            st.write(f"Equity: ${float(equity_auto):,.2f}")
+                                        if cash_auto is not None:
+                                            st.write(f"Cash: ${float(cash_auto):,.2f}")
+                                        if buying_power_auto is not None:
+                                            st.write(
+                                                f"Buying Power: ${float(buying_power_auto):,.2f}"
+                                            )
+                                except (ConnectionError, TimeoutError) as _net_exc:  # noqa: BLE001
+                                    st.info(f"ネットワーク遅延で自動再取得をスキップ: {_net_exc}")
+                                except Exception as _auto_exc:  # noqa: BLE001
+                                    st.warning(
+                                        f"自動再取得に失敗（手動で『Alpacaから現在の資産を取得』を押してください）: {_auto_exc}"
+                                    )
+                            elif not do_dry:
+                                st.info(
+                                    "💡 反映確認には『💰 Alpacaから現在の資産を取得』ボタンを押してください。"
+                                )
+                        else:
+                            st.error(f"リセット失敗: {result.get('error')}")
+                            # ステータスコード別ヘルプ
+                            status_code = result.get("status")
+                            if isinstance(status_code, int):
+                                help_message = None
+                                if status_code == 400:
+                                    help_message = "400: 無効パラメータ。'cash' 指定が拒否された可能性があります (現行APIで非サポート)。"
+                                elif status_code == 401:
+                                    help_message = "401: 認証失敗。APIキー/シークレットまたは権限を確認してください。"
+                                elif status_code == 403:
+                                    help_message = "403: 権限または機能非サポート。Paper 環境でも現行仕様で直接リセット不可の可能性。"
+                                elif status_code == 404:
+                                    help_message = (
+                                        "404: エンドポイント未対応。Alpaca 側仕様変更の可能性。"
+                                    )
+                                elif status_code == 429:
+                                    help_message = (
+                                        "429: レート制限。時間を置いて再試行してください。"
+                                    )
+                                elif 500 <= status_code < 600:
+                                    help_message = f"{status_code}: サーバーエラー。しばらく待って再試行してください。"
+                                if help_message:
+                                    st.info(help_message)
+                        if "raw" in result and result["raw"]:
+                            with st.expander("APIレスポンス詳細"):
+                                st.json(result["raw"])
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"リセット処理中に例外: {exc}")
+        # 直近ログ表示 (最新5件)
+        reset_log = st.session_state.get("reset_log", [])[-5:]
+        if reset_log:
+            st.caption("最近のリセットログ:")
+            for ln in reset_log:
+                st.text(ln)
+
+    # Alpaca資産取得ボタンを追加
+    if st.button("💰 Alpacaから現在の資産を取得"):
+        try:
+            # 接続前の事前チェック
+            api_key = os.environ.get("APCA_API_KEY_ID")
+            api_secret = os.environ.get("APCA_API_SECRET_KEY")
+
+            if not api_key or not api_secret:
+                st.error("❌ Alpaca API認証情報が設定されていません")
+                st.info("環境変数 APCA_API_KEY_ID と APCA_API_SECRET_KEY を設定してください")
+            else:
+                # ネットワーク接続テスト
+                with st.spinner("Alpacaサーバーに接続中..."):
+                    client = ba.get_client(paper=st.session_state.get("paper_mode", True))
+                    acct = client.get_account()
+
+                equity = getattr(acct, "equity", None)
+                cash = getattr(acct, "cash", None)
+                buying_power = getattr(acct, "buying_power", None)
+
+                if equity is not None:
+                    equity_val = float(equity)
+                    st.success(f"✅ 総資産: ${equity_val:,.2f}")
+                if cash is not None:
+                    cash_val = float(cash)
+                    st.info(f"💵 現金残高: ${cash_val:,.2f}")
+                if buying_power is not None:
+                    bp_val = float(buying_power)
+                    st.info(f"🚀 買付余力: ${bp_val:,.2f}")
+
+                    # 買付余力を半分ずつロング・ショートに配分
+                    half_bp = round(bp_val / 2.0, 2)
+                    st.session_state["today_cap_long"] = half_bp
+                    st.session_state["today_cap_short"] = half_bp
+                    st.success("資金配分を更新しました:")
+                    st.success(f"ロング `${half_bp:,.2f}` / ショート `${half_bp:,.2f}`")
+                else:
+                    st.warning("買付余力が取得できませんでした")
+
+        except Exception as exc:
+            ERROR_MSG = str(exc)
+            if "getaddrinfo failed" in ERROR_MSG or "Failed to resolve" in ERROR_MSG:
+                st.error("🌐 ネットワーク接続エラー")
+                st.error("- インターネット接続を確認してください")
+                st.error("- DNSサーバー設定を確認してください")
+                st.error("- ファイアウォール/プロキシ設定を確認してください")
+                with st.expander("詳細エラー情報"):
+                    st.code(ERROR_MSG)
+            elif "HTTPSConnectionPool" in ERROR_MSG:
+                st.error("🔒 HTTPS接続エラー")
+                st.error("- SSL証明書の問題の可能性があります")
+                st.error("- プロキシ設定を確認してください")
+                with st.expander("詳細エラー情報"):
+                    st.code(ERROR_MSG)
+            elif "401" in ERROR_MSG or "403" in ERROR_MSG:
+                st.error("🔑 API認証エラー")
+                st.error("- API キーとシークレットを確認してください")
+                st.error("- APIキーの権限を確認してください")
+            else:
+                st.error(f"❌ Alpaca資産取得エラー: {ERROR_MSG}")
+                st.info("💡 オフライン環境では手動で資金を設定してください")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -3103,43 +3695,14 @@ st.session_state["ui_vis"] = {
 
 st.subheader("保有ポジションと利益保護判定")
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("🔍 Alpacaから保有ポジション取得"):
-        try:
-            client = ba.get_client(paper=paper_mode)
-            positions = client.get_all_positions()
-            st.session_state["positions_df"] = evaluate_positions(positions)
-            st.success("ポジションを取得しました")
-        except Exception as e:
-            st.error(f"ポジション取得エラー: {e}")
-
-with col2:
-    if st.button("📋 未約定注文を表示"):
-        try:
-            client = ba.get_client(paper=paper_mode)
-            orders = client.get_orders(status="open")
-            if orders:
-                orders_data = []
-                for order in orders:
-                    orders_data.append(
-                        {
-                            "注文ID": order.id,
-                            "銘柄": order.symbol,
-                            "サイド": order.side,
-                            "数量": order.qty,
-                            "注文価格": getattr(order, "limit_price", "Market"),
-                            "注文タイプ": order.order_type,
-                            "状況": order.status,
-                            "作成日時": order.created_at,
-                        }
-                    )
-                orders_df = pd.DataFrame(orders_data)
-                st.dataframe(orders_df, use_container_width=True)
-            else:
-                st.info("未約定注文はありません")
-        except Exception as e:
-            st.error(f"注文取得エラー: {e}")
+if st.button("🔍 Alpacaから保有ポジション取得"):
+    try:
+        client = ba.get_client(paper=paper_mode)
+        positions = client.get_all_positions()
+        st.session_state["positions_df"] = evaluate_positions(positions)
+        st.success("ポジションを取得しました")
+    except Exception as e:
+        st.error(f"ポジション取得エラー: {e}")
 
 if "positions_df" in st.session_state:
     positions_df = st.session_state["positions_df"]

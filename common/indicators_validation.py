@@ -80,7 +80,9 @@ def validate_precomputed_indicators(
         systems = list(SYSTEM_REQUIRED_INDICATORS.keys())
 
     if log_callback is None:
-        log_callback = lambda x: None
+
+        def log_callback(x: str) -> None:
+            pass
 
     # 全システムで必要な指標を収集
     all_required = set(COMMON_REQUIRED_INDICATORS)
@@ -159,7 +161,9 @@ def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None)
         return True
 
     if log_callback is None:
-        log_callback = lambda x: None
+
+        def log_callback(x: str) -> None:
+            pass
 
     # 最初の3銘柄をサンプリング
     sample_symbols = list(data_dict.keys())[:3]

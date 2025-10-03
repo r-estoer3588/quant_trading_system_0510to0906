@@ -1,5 +1,6 @@
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -7,11 +8,18 @@ import pandas as pd
 class StrategyBase(ABC):
     """
     全戦略共通の抽象基底クラス。
+
     各戦略はこのクラスを継承し、必要メソッドを実装する。
     また、YAML のリスク設定とシステム固有設定を self.config に取り込む。
+
+    Attributes:
+        config: システム設定とリスク管理パラメータを含む辞書
     """
 
+    config: Dict[str, Any]
+
     def __init__(self) -> None:
+        """戦略の初期化を行い、設定を読み込む。"""
         logger = logging.getLogger(__name__)
         try:
             from config.settings import get_settings, get_system_params
@@ -37,14 +45,14 @@ class StrategyBase(ABC):
             )
             sys_name = cand or ""
 
-        system_params = {}
+        system_params: Dict[str, Any] = {}
         if sys_name:
             try:
-                system_params = get_system_params(sys_name)
+                system_params = dict(get_system_params(sys_name))
             except Exception as exc:
                 logger.warning("システム固有パラメータ取得失敗: %s", exc)
 
-        cfg = {
+        cfg: Dict[str, Any] = {
             "risk_pct": settings.risk.risk_pct,
             "max_positions": settings.risk.max_positions,
             "max_pct": settings.risk.max_pct,
@@ -62,22 +70,74 @@ class StrategyBase(ABC):
         reuse_indicators: bool | None = None,
         **kwargs,
     ) -> dict:
-        """生データからインジケーターやシグナルを計算"""
-        pass
+        """
+        生データからインジケーターやシグナルを計算。
+
+        Args:
+            raw_data_or_symbols: OHLCV生データまたはシンボル辞書
+            reuse_indicators: インジケーターキャッシュの再利用フラグ
+            **kwargs: その他のオプション引数
+
+        Returns:
+            インジケーター付きデータ辞書
+        """
 
     @abstractmethod
     def generate_candidates(
         self, data_dict: dict, market_df: pd.DataFrame | None = None, **kwargs
     ) -> tuple[dict, pd.DataFrame | None]:
-        """日別仕掛け候補を生成し、(candidates_by_date, market_df) を返す"""
-        pass
+        """
+        日別仕掛け候補を生成。
 
-    @abstractmethod
+        Args:
+            data_dict: インジケーター付きデータ辞書
+            market_df: 市場データ（SPY等）
+            **kwargs: その他のオプション引数
+
+        Returns:
+            (日別候補辞書, 市場データ) のタプル
+        """
+
+    def get_trading_side(self) -> str:
+        """戦略の取引方向を返す（サブクラスでオーバーライド）"""
+        return "long"  # デフォルトはロング
+
     def run_backtest(
         self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
     ) -> pd.DataFrame:
-        """仕掛け候補に基づくバックテストを実施"""
-        pass
+        """
+        仕掛け候補に基づくバックテストを実施（共通実装）。
+
+        Args:
+            data_dict: インジケーター付きデータ辞書
+            candidates_by_date: 日別仕掛け候補
+            capital: 初期資本
+            **kwargs: その他のオプション引数
+
+        Returns:
+            トレード結果DataFrame
+        """
+        from common.backtest_utils import simulate_trades_with_risk
+
+        on_progress = kwargs.get("on_progress", None)
+        on_log = kwargs.get("on_log", None)
+        side = self.get_trading_side()
+
+        # side が "long" の場合は引数から除外（デフォルト動作）
+        extra_kwargs = {}
+        if side != "long":
+            extra_kwargs["side"] = side
+
+        trades_df, _ = simulate_trades_with_risk(
+            candidates_by_date,
+            data_dict,
+            capital,
+            self,
+            on_progress=on_progress,
+            on_log=on_log,
+            **extra_kwargs,
+        )
+        return trades_df
 
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
@@ -118,6 +178,31 @@ class StrategyBase(ABC):
         shares = min(risk_per_trade / risk_per_share, max_position_value / entry_price)
         return int(shares)
 
+    # --- Perf Snapshot Helpers -------------------------------------------------
+    @staticmethod
+    def _compute_candidate_count(result: object) -> int | None:
+        """generate_candidates 戻り値から候補件数を推定。
+
+        パターン:
+        - dict -> len(dict)
+        - list/set/tuple -> len(collection)
+        - (dict, DataFrame|None) -> 先頭要素が dict なら len(dict)
+        - 上記以外/None/例外時 -> None (不明扱い)
+        呼び出し側は None をそのまま記録し、可視化層で区別できるようにする。
+        """
+        try:  # noqa: SIM105
+            if result is None:
+                return None
+            if isinstance(result, tuple) and result and isinstance(result[0], dict):
+                return len(result[0])
+            if isinstance(result, dict):
+                return len(result)
+            if isinstance(result, (list, set, tuple)):
+                return len(result)
+        except Exception:  # pragma: no cover
+            return None
+        return None
+
     # ----------------------------
     # 当日シグナル抽出（共通関数）
     # ----------------------------
@@ -138,8 +223,8 @@ class StrategyBase(ABC):
         各 strategy の `prepare_data`/`generate_candidates` を流用し、
         最新営業日のみのシグナルを DataFrame で返す。
 
-        戻り値カラム: symbol, system, side, signal_type, entry_date, entry_price,
-        stop_price, score_key, score
+        戻り値カラム: symbol, system, side, signal_type, entry_date,
+        entry_price, stop_price, score_key, score
         """
         from common.today_signals import get_today_signals_for_strategy
 
@@ -160,10 +245,17 @@ class StrategyBase(ABC):
     # リファクタリング用共通メソッド（追加）
     # ----------------------------
 
-    def _resolve_data_params(self, raw_data_or_symbols, use_process_pool=False, **kwargs):
+    def _resolve_data_params(self, raw_data_or_symbols, use_process_pool=False, **_kwargs):
         """
         データパラメータの共通解決処理
-        戻り値: (symbols, raw_dict)
+
+        Args:
+            raw_data_or_symbols: 生データ辞書またはシンボルリスト
+            use_process_pool: プロセスプール使用フラグ
+            **_kwargs: 未使用の追加引数（前方互換性のため）
+
+        Returns:
+            (symbols, raw_dict): シンボルリストと生データ辞書のタプル
         """
         if isinstance(raw_data_or_symbols, dict):
             symbols = list(raw_data_or_symbols.keys())
@@ -172,6 +264,38 @@ class StrategyBase(ABC):
             symbols = list(raw_data_or_symbols)
             raw_dict = None
         return symbols, raw_dict
+
+    # ----------------------------
+    # 共通PnL計算メソッド
+    # ----------------------------
+
+    def compute_pnl_long(self, entry_price: float, exit_price: float, shares: int) -> float:
+        """
+        ロングポジションのPnL計算。
+
+        Args:
+            entry_price: エントリー価格
+            exit_price: 決済価格
+            shares: 株数
+
+        Returns:
+            損益
+        """
+        return (exit_price - entry_price) * shares
+
+    def compute_pnl_short(self, entry_price: float, exit_price: float, shares: int) -> float:
+        """
+        ショートポジションのPnL計算。
+
+        Args:
+            entry_price: エントリー価格
+            exit_price: 決済価格
+            shares: 株数
+
+        Returns:
+            損益
+        """
+        return (entry_price - exit_price) * shares
 
     def _get_top_n_setting(self, top_n_override=None):
         """
@@ -213,7 +337,7 @@ class StrategyBase(ABC):
         except Exception:
             return min(100, max(10, data_size // 10))
 
-    def _compute_entry_common(self, df, candidate, atr_column="ATR20", stop_multiplier=None):
+    def _compute_entry_common(self, df, candidate, atr_column="atr20", stop_multiplier=None):
         """
         共通エントリー計算（ATRベースのストップロス）
         戻り値: (entry_price, stop_price, entry_idx) または None
@@ -231,15 +355,26 @@ class StrategyBase(ABC):
 
         entry_price = float(df.iloc[entry_idx]["Open"])
 
-        try:
-            atr = float(df.iloc[entry_idx - 1][atr_column])
-        except Exception:
+        atr_value = None
+        column_candidates = [atr_column]
+        if isinstance(atr_column, str):
+            column_candidates.append(atr_column.upper())
+            column_candidates.append(atr_column.lower())
+
+        for col in dict.fromkeys(column_candidates):
+            try:
+                atr_value = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+
+        if atr_value is None:
             return None
 
         if stop_multiplier is None:
             stop_multiplier = float(self.config.get("stop_atr_multiple", 3.0))
 
-        stop_price = entry_price - stop_multiplier * atr
+        stop_price = entry_price - stop_multiplier * atr_value
         if entry_price - stop_price <= 0:
             return None
 

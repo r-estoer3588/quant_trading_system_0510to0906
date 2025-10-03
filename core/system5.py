@@ -1,18 +1,16 @@
 """System5 core logic (Long mean-reversion with high ADX).
 
 High ADX mean-reversion strategy:
-- Indicators:                    # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-                    is_valid = (
-                        (x["Close"] >= 5.0) &
-                        (x["adx7"] > 35.0) &
-                        (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-                    ) ATR20, ATR_Pct (precomputed only)
-- Setup conditions: Close>=5, ADX7>35, ATR_Pct>2.5%
+- Indicators: adx7, atr10, dollarvolume20, atr_pct (precomputed only)
+- Setup conditions: Close>=5, AvgVol50>500k, DV50>2.5M, ATR_Pct>2.5%, Close>SMA100+ATR10, ADX7>55, RSI3<50
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, cast
 
 import pandas as pd
 
@@ -70,15 +68,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 def prepare_data_vectorized_system5(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     reuse_indicators: bool = True,
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """System5 data preparation processing (high ADX mean-reversion strategy).
 
@@ -113,7 +111,11 @@ def prepare_data_vectorized_system5(
                     x = df.copy()
 
                     # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-                    x["filter"] = (x["Close"] >= 5.0) & (x["adx7"] > 35.0) & (x["atr_pct"] > 0.025)
+                    x["filter"] = (
+                        (x["Close"] >= 5.0)
+                        & (x["adx7"] > 35.0)
+                        & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+                    )
 
                     # Setup: Same as filter for System5 (simple high ADX trend selection)
                     x["setup"] = x["filter"]
@@ -166,11 +168,12 @@ def generate_candidates_system5(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
+    latest_only: bool = False,
+    **kwargs: Any,
+) -> tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]:
     """System5 candidate generation (ADX7 descending ranking).
 
     Args:
@@ -190,21 +193,82 @@ def generate_candidates_system5(
     if top_n is None:
         top_n = 20  # Default value
 
+    if latest_only:
+        try:
+            rows: list[dict] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    continue
+                last_row = df.iloc[-1]
+                # 'setup' 列が未生成ならスキップせず、存在する場合のみ False を除外
+                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
+                    continue
+                adx7_val = last_row.get("adx7", 0)
+                try:
+                    if pd.isna(adx7_val) or float(adx7_val) <= 35.0:
+                        continue
+                except Exception:
+                    continue
+                dt = df.index[-1]
+                date_counter[dt] = date_counter.get(dt, 0) + 1
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": dt,
+                        "adx7": adx7_val,
+                        "atr_pct": last_row.get("atr_pct", 0),
+                        "close": last_row.get("Close", 0),
+                    }
+                )
+            if not rows:
+                if log_callback:
+                    log_callback("System5: latest_only fast-path produced 0 rows")
+                return {}, None
+            df_all = pd.DataFrame(rows)
+            try:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+            except Exception:
+                pass
+            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
+            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+            for dt_raw, sub in df_all.groupby("date"):
+                dt = pd.Timestamp(str(dt_raw))
+                symbol_map: dict[str, dict[str, Any]] = {}
+                for rec in sub.to_dict("records"):
+                    sym_val = rec.get("symbol")
+                    if not isinstance(sym_val, str) or not sym_val:
+                        continue
+                    payload: dict[str, Any] = {
+                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
+                    symbol_map[sym_val] = payload
+                by_date[dt] = symbol_map
+            if log_callback:
+                log_callback(
+                    f"System5: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                )
+            return by_date, df_all.copy()
+        except Exception as e:
+            if log_callback:
+                log_callback(f"System5: fast-path failed -> fallback ({e})")
+            pass
+
     # Aggregate all dates
-    all_dates = set()
+    all_dates_set: set[pd.Timestamp] = set()
     for df in prepared_dict.values():
         if df is not None and not df.empty:
-            all_dates.update(df.index)
+            all_dates_set.update(df.index)
 
-    if not all_dates:
+    if not all_dates_set:
         if log_callback:
             log_callback("System5: No valid dates found in data")
         return {}, None
+    all_dates = sorted(all_dates_set)
 
-    all_dates = sorted(all_dates)
-
-    candidates_by_date = {}
-    all_candidates = []
+    candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+    all_candidates: list[dict[str, Any]] = []
 
     if log_callback:
         log_callback(f"System5: Generating candidates for {len(all_dates)} dates")
@@ -217,16 +281,15 @@ def generate_candidates_system5(
             try:
                 if df is None or date not in df.index:
                     continue
-
-                row = df.loc[date]
-
-                # Check setup conditions
-                if not row.get("setup", False):
+                row = cast(pd.Series, df.loc[date])
+                setup_val = row.get("setup", False)
+                if not bool(setup_val):
                     continue
-
-                # Get ADX7 value
-                adx7_val = row.get("adx7", 0)
-                if pd.isna(adx7_val) or adx7_val <= 35.0:
+                adx7_val = cast(Any, row.get("adx7", 0))
+                try:
+                    if pd.isna(adx7_val) or float(adx7_val) <= 35.0:
+                        continue
+                except Exception:
                     continue
 
                 date_candidates.append(
@@ -269,7 +332,17 @@ def generate_candidates_system5(
             f"System5: Generated {total_candidates} candidates across {unique_dates} dates"
         )
 
-    return candidates_by_date, candidates_df
+    normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for dt, recs in candidates_by_date.items():
+        out_symbol_map: dict[str, dict[str, Any]] = {}
+        for rec in recs:
+            sym_any = rec.get("symbol")
+            if not isinstance(sym_any, str) or not sym_any:
+                continue
+            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+            out_symbol_map[sym_any] = payload
+        normalized[dt] = out_symbol_map
+    return normalized, candidates_df
 
 
 def get_total_days_system5(data_dict: dict[str, pd.DataFrame]) -> int:

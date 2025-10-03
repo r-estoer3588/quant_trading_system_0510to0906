@@ -12,10 +12,10 @@ run_all_systems_today.py から戦略実行の責務を分離:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import threading
 import time
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any
 
 import pandas as pd
@@ -129,12 +129,21 @@ def run_strategies_parallel(
             )
             futures[fut] = name
 
-        # 完了待ち・逐次処理
+        # 完了待ち・逐次処理（継続的なドレイン統合）
         pending: set[Future] = set(futures.keys())
         completed_count = 0
 
         while pending:
             done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+
+            # 0.2秒タイムアウト中またはタスク完了時にドレイン実行
+            # リアルタイムUI同期の向上
+            try:
+                from scripts.run_all_systems_today import _drain_stage_event_queue
+
+                _drain_stage_event_queue()
+            except (ImportError, AttributeError):
+                pass
 
             for future in done:
                 system_name = futures[future]
@@ -154,7 +163,11 @@ def run_strategies_parallel(
                             log_callback(f"[{system_name}] {log_line}")
 
                 except Exception as e:
-                    results[system_name] = (pd.DataFrame(), f"❌ {system_name}: エラー", [])
+                    results[system_name] = (
+                        pd.DataFrame(),
+                        f"❌ {system_name}: エラー",
+                        [],
+                    )
                     if log_callback:
                         log_callback(f"❌ {system_name} 失敗: {e}")
 
@@ -192,6 +205,14 @@ def run_strategies_serial(
             results[name] = (pd.DataFrame(), f"❌ {name}: エラー", [])
             if log_callback:
                 log_callback(f"❌ {name} 失敗: {e}")
+
+        # 各戦略完了後にドレイン実行（直列実行でもリアルタイム同期）
+        try:
+            from scripts.run_all_systems_today import _drain_stage_event_queue
+
+            _drain_stage_event_queue()
+        except (ImportError, AttributeError):
+            pass
 
     return results
 

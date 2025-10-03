@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from threading import Lock
+from typing import Any
 
 """Stage metrics tracking shared between the CLI runner and Streamlit UI.
 
@@ -23,11 +24,12 @@ def _normalize_count(value: object | None) -> int | None:
 
     if value is None:
         return None
+    value_any: Any = value
     try:
-        return int(value)
+        return int(value_any)
     except Exception:
         try:
-            return int(float(value))
+            return int(float(value_any))
         except Exception:
             return None
 
@@ -42,12 +44,15 @@ class StageEvent:
     setup_count: int | None = None
     candidate_count: int | None = None
     entry_count: int | None = None
+    # サブステージ情報の追加
+    substage_name: str | None = None
+    substage_progress: int | None = None
+    substage_total: int | None = None
 
     def as_tuple(
         self,
     ) -> tuple[str, int, int | None, int | None, int | None, int | None]:
-        """Return a tuple representation matching the legacy queue payload."""
-
+        """Return a tuple representation for compatibility with legacy queue payload."""
         return (
             self.system,
             self.progress,
@@ -139,6 +144,10 @@ class StageMetricsStore:
         entry_count: object | None = None,
         *,
         emit_event: bool = True,
+        # サブステージ情報の追加
+        substage_name: str | None = None,
+        substage_progress: int | None = None,
+        substage_total: int | None = None,
     ) -> StageSnapshot:
         """Update a system snapshot and optionally queue a stage event."""
 
@@ -166,6 +175,8 @@ class StageMetricsStore:
                         self._universe_target = filter_int
                 else:
                     snapshot.filter_pass = filter_int
+                    if snapshot.target is None:
+                        snapshot.target = filter_int
             if setup_int is not None:
                 snapshot.setup_pass = setup_int
             if candidate_int is not None:
@@ -184,6 +195,9 @@ class StageMetricsStore:
                 setup_int,
                 candidate_int,
                 entry_int,
+                substage_name,
+                substage_progress,
+                substage_total,
             )
             if emit_event:
                 self._events.append(event)
@@ -272,16 +286,17 @@ class StageMetricsStore:
 
         if value is None:
             return None
+        value_any: Any = value
         try:
-            count = int(value)
+            count = int(value_any)
         except Exception:
             try:
-                count = int(float(value))
+                count = int(float(value_any))
             except Exception:
                 return None
         if count < 0:
             return 0
-        return min(count, 9999)
+        return int(min(count, 9999))
 
     @staticmethod
     def _normalize_system_name(system: object) -> str:

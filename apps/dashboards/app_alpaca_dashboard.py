@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -29,6 +30,9 @@ try:
 except Exception:
     # If Streamlit already configured (e.g., during tests), ignore
     pass
+
+# プロジェクトルート（apps/dashboards から2階層上）をパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 try:  # pragma: no cover - optional dependency
     import plotly.graph_objects as go  # type: ignore[import-not-found]
@@ -881,7 +885,7 @@ def _collect_open_exit_levels(client: Any) -> dict[str, dict[str, list[Any]]]:
     if client is None:
         return {}
     try:
-        orders_obj = client.get_orders(status="open")
+        orders_obj = ba.get_open_orders(client)
     except Exception:
         return {}
 
@@ -2014,7 +2018,7 @@ def main() -> None:
         st.markdown("---")
         st.markdown("#### 未約定注文の確認とキャンセル")
         try:
-            open_orders = list(client.get_orders(status="open"))
+            open_orders = list(ba.get_open_orders(client))
         except Exception:
             open_orders = []
         if not open_orders:

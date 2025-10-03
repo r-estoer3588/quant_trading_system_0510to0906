@@ -2,6 +2,20 @@
 
 Streamlit ベースのアプリで 7 つの売買システムを可視化・バックテストします。
 
+## 📚 ドキュメント
+
+詳細なドキュメントは **[docs/](./docs/)** フォルダに整理されています：
+
+- 🚀 **[クイックスタート](./docs/#quick-start)** - 初回セットアップから基本操作まで
+- 📊 **[システム仕様](./docs/systems/)** - System1-7 の詳細仕様と資産配分
+- 🔧 **[技術文書](./docs/technical/)** - アーキテクチャ・指標計算・処理フロー
+- 🏃 **[運用ガイド](./docs/operations/)** - 自動実行・通知・監視設定
+- 🤖 **[AI 連携](./docs/technical/mcp_integration_plan.md)** - MCP 統合と VS Code 連携
+
+> **[📋 統合ドキュメント目次はこちら](./docs/README.md)**
+
+---
+
 ## セットアップ
 
 1. 仮想環境を作成し依存関係をインストール:
@@ -13,12 +27,12 @@ pip install -r requirements.txt
 ```
 
 2. `.env` を用意し `EODHD_API_KEY` に加え、Alpaca 連携を行う場合は
-   `ALPACA_API_KEY` と `ALPACA_SECRET_KEY` を設定します。
+   `APCA_API_KEY_ID` と `APCA_API_SECRET_KEY` を設定します。
 
 ### 主要な環境変数
 
 - `EODHD_API_KEY`: EOD Historical Data API キー（必須）
-- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`: Alpaca ブローカー連携用
+- `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`: Alpaca ブローカー連携用
 - `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL`: Slack 通知設定
 - `DISCORD_WEBHOOK_URL`: Discord 通知設定
 
@@ -170,13 +184,25 @@ python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
 
 ## ディレクトリ構成
 
-- `apps/app_integrated.py` – 統合 UI
-- `strategies/` – 戦略ラッパ
-- `core/` – 各システム純ロジック
-- `common/` – 共通ユーティリティ
-- `config/` – 設定
-- `docs/` – ドキュメント
-- `tests/` – テスト
+```
+├── apps/              # Streamlit UI
+│   ├── app_integrated.py    # 統合ダッシュボード
+│   └── dashboards/          # 専用ダッシュボード
+├── strategies/        # 戦略ラッパークラス
+├── core/             # システム純ロジック (system1.py - system7.py)
+├── common/           # 共通ユーティリティ・バックテスト基盤
+├── config/           # 設定管理 (settings.py, config.yaml)
+├── docs/             # 📚 **統合ドキュメント** (詳細仕様・技術文書)
+│   ├── systems/           # System1-7仕様書
+│   ├── technical/         # アーキテクチャ・指標計算
+│   ├── operations/        # 運用・自動実行・通知
+│   └── today_signal_scan/ # シグナル処理8フェーズ
+├── data/             # 設定ファイル・マッピング
+├── scripts/          # 実行スクリプト
+└── tests/            # テストスイート
+```
+
+> **詳細は [📋 docs/README.md](./docs/README.md) を参照**
 
 ## データストレージ最適化
 
@@ -211,6 +237,50 @@ python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
 
 - 旧来の `data_cache/` 直下ファイルは参照しません（移行済みを前提）。
 - SPY フル履歴の復旧は `scripts/recover_spy_cache.py` が `data_cache/full_backup/` のみへ保存します。
+
+## 型チェックと静的解析 (Windows / UTF-8 対応)
+
+Windows 環境 (cp932) で `mypy` 実行時にエンコード例外が発生するケースがあったため、UTF-8 強制ラッパーを用意しています。
+
+### 使い方 (部分チェック)
+
+```bash
+python tools/mypy_utf8_runner.py core/system7.py core/system6.py --no-incremental
+```
+
+### 使い方 (主要システムまとめチェック)
+
+```bash
+python tools/mypy_utf8_runner.py core/system1.py core/system2.py core/system3.py core/system4.py core/system5.py core/system6.py core/system7.py --no-incremental
+```
+
+オプション `--no-incremental` はキャッシュ破損や KeyError 回避のため開発中は推奨。高速化したい場合は省略可能です。
+
+### ruff (Lint)
+
+```bash
+ruff check .
+```
+
+修正を自動適用したい場合:
+
+```bash
+ruff check --fix .
+```
+
+### Codacy について
+
+Windows ネイティブで Codacy CLI が動作しない場合は WSL 経由での実行、または `ruff + mypy` の組み合わせを暫定利用します。
+
+## 当日シグナル高速化 (latest_only 最適化)
+
+Systems 1–7 全てで当日シグナル抽出 (`scripts/run_all_systems_today.py`) 時に `latest_only` 最適化を有効化しました。これにより:
+
+- 当日処理: 最終行のみ参照してセットアップ成立可否を判定 (O(銘柄数))
+- バックテスト: 従来通り全履歴走査 (ロジック不変)
+- 返却スキーマ: すべて `{date: {symbol: payload}}` に統一
+
+バックテスト等で従来挙動を強制したい場合は戦略 `generate_candidates` 呼び出しで `latest_only=False` を明示してください。
 
 ## 貢献ガイド
 

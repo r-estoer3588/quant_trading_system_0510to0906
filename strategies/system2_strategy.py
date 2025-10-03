@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system2 import (
     generate_candidates_system2,
     get_total_days_system2,
@@ -24,8 +23,9 @@ from .constants import (
 class System2Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system2"
 
-    def __init__(self):
-        super().__init__()
+    def get_trading_side(self) -> str:
+        """System2 はショート戦略"""
+        return "short"
 
     # -------------------------------
     # データ準備（共通コアへ委譲）
@@ -50,31 +50,50 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
-        return generate_candidates_system2(data_dict, top_n=top_n)
+        latest_only = bool(kwargs.get("latest_only", False))
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
 
-    # -------------------------------
-    # バックテスト実行（共通シミュレーター）
-    # -------------------------------
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system2(
             data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="short",
+            top_n=top_n,
+            latest_only=latest_only,
         )
-        return trades_df
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
+
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
     # -------------------------------
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
-        """エントリー価格とストップを返す（ショート）。
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+        """
+        エントリー価格とストップを返す（ショート）。
         - candidate["entry_date"] の行をもとに、ギャップ条件とATRベースのストップを計算。
+
+        Args:
+            df: 価格データ
+            candidate: エントリー候補情報
+            _current_capital: 現在資本（未使用、インターフェース互換性のため）
+
+        Returns:
+            (entry_price, stop_price) または None
         """
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
@@ -93,9 +112,14 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         # 上窓（前日終値比+4%）未満なら見送り（ショート前提）
         if entry_price < prior_close * (1 + min_gap):
             return None
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
@@ -129,8 +153,8 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        """ショートのPnL。"""
-        return (entry_price - exit_price) * shares
+        """ショートのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_short(entry_price, exit_price, shares)
 
     # --- テスト用の最小RSI3計算 ---
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
@@ -142,7 +166,7 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             gain = delta.clip(lower=0).rolling(3).mean()
             loss = -delta.clip(upper=0).rolling(3).mean()
             rs = gain / loss.replace(0, pd.NA)
-            x["RSI3"] = 100 - (100 / (1 + rs))
+            x["rsi3"] = 100 - (100 / (1 + rs))
             out[sym] = x
         return out
 

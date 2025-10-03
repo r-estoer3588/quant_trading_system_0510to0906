@@ -1,13 +1,16 @@
 """System3 core logic (Long mean-reversion).
 
 3-day drop mean-reversion strategy:
-- Indicators: ATR10, DollarVolume20, ATR_Ratio, Drop3D (precomputed only)
-- Setup conditions: Close>5, DollarVolume20>25M, ATR_Ratio>=0.05, Drop3D>=0.125
-- Candidate generation: Drop3D descending ranking by date, extract top_n
+- Indicators: atr10, dollarvolume20, atr_ratio, drop3d (precomputed only)
+- Setup conditions: Close>5, DollarVolume20>25M, atr_ratio>=0.05, drop3d>=0.125
+- Candidate generation: drop3d descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, cast
 
 import pandas as pd
 
@@ -44,8 +47,8 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= 0.05)
         )
 
-        # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-        x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
+        # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
+        x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
 
         return symbol, x
 
@@ -56,15 +59,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 def prepare_data_vectorized_system3(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     reuse_indicators: bool = True,
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """System3 data preparation processing (3-day drop mean-reversion strategy).
 
@@ -105,8 +108,8 @@ def prepare_data_vectorized_system3(
                         & (x["atr_ratio"] >= 0.05)
                     )
 
-                    # Setup: Filter + Drop3D>=0.125 (12.5% 3-day drop)
-                    x["setup"] = x["filter"] & (x["Drop3D"] >= 0.125)
+                    # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
+                    x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
 
                     prepared_dict[symbol] = x
 
@@ -156,12 +159,13 @@ def generate_candidates_system3(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
-    """System3 candidate generation (Drop3D descending ranking).
+    latest_only: bool = False,
+    **kwargs: Any,
+) -> tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]:
+    """System3 candidate generation (drop3d descending ranking).
 
     Args:
         prepared_dict: Prepared data dictionary
@@ -180,26 +184,87 @@ def generate_candidates_system3(
     if top_n is None:
         top_n = 20  # Default value
 
+    if latest_only:
+        try:
+            rows: list[dict] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    continue
+                last_row = df.iloc[-1]
+                # 'setup' 列未生成時は通過させる (列存在時のみ False を除外)
+                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
+                    continue
+                drop3d_val = last_row.get("drop3d", 0)
+                try:
+                    if pd.isna(drop3d_val) or float(drop3d_val) < 0.125:
+                        continue
+                except Exception:
+                    continue
+                dt = df.index[-1]
+                date_counter[dt] = date_counter.get(dt, 0) + 1
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": dt,
+                        "drop3d": drop3d_val,
+                        "atr_ratio": last_row.get("atr_ratio", 0),
+                        "close": last_row.get("Close", 0),
+                    }
+                )
+            if not rows:
+                if log_callback:
+                    log_callback("System3: latest_only fast-path produced 0 rows")
+                return {}, None
+            df_all = pd.DataFrame(rows)
+            try:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+            except Exception:
+                pass
+            df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
+            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+            for dt_raw, sub in df_all.groupby("date"):
+                dt = pd.Timestamp(str(dt_raw))
+                symbol_map: dict[str, dict[str, Any]] = {}
+                for rec in sub.to_dict("records"):
+                    sym_val = rec.get("symbol")
+                    if not isinstance(sym_val, str) or not sym_val:
+                        continue
+                    payload: dict[str, Any] = {
+                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
+                    symbol_map[sym_val] = payload
+                by_date[dt] = symbol_map
+            if log_callback:
+                log_callback(
+                    f"System3: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                )
+            return by_date, df_all.copy()
+        except Exception as e:
+            if log_callback:
+                log_callback(f"System3: fast-path failed -> fallback ({e})")
+            pass
+
     # Aggregate all dates
-    all_dates = set()
+    all_dates_set: set[pd.Timestamp] = set()
     for df in prepared_dict.values():
         if df is not None and not df.empty:
-            all_dates.update(df.index)
+            all_dates_set.update(df.index)
 
-    if not all_dates:
+    if not all_dates_set:
         if log_callback:
             log_callback("System3: No valid dates found in data")
         return {}, None
+    all_dates = sorted(all_dates_set)
 
-    all_dates = sorted(all_dates)
-
-    candidates_by_date = {}
-    all_candidates = []
+    candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+    all_candidates: list[dict[str, Any]] = []
 
     if log_callback:
         log_callback(f"System3: Generating candidates for {len(all_dates)} dates")
 
-    # Execute Drop3D ranking by date
+    # Execute drop3d ranking by date
     for i, date in enumerate(all_dates):
         date_candidates = []
 
@@ -207,16 +272,15 @@ def generate_candidates_system3(
             try:
                 if df is None or date not in df.index:
                     continue
-
-                row = df.loc[date]
-
-                # Check setup conditions
-                if not row.get("setup", False):
+                row = cast(pd.Series, df.loc[date])
+                setup_val = row.get("setup", False)
+                if not bool(setup_val):
                     continue
-
-                # Get Drop3D value
-                drop3d_val = row.get("Drop3D", 0)
-                if pd.isna(drop3d_val) or drop3d_val < 0.125:
+                drop3d_val = cast(Any, row.get("drop3d", 0))
+                try:
+                    if pd.isna(drop3d_val) or float(drop3d_val) < 0.125:
+                        continue
+                except Exception:
                     continue
 
                 date_candidates.append(
@@ -232,7 +296,7 @@ def generate_candidates_system3(
             except Exception:
                 continue
 
-        # Sort by Drop3D descending and extract top_n
+        # Sort by drop3d descending and extract top_n
         if date_candidates:
             date_candidates.sort(key=lambda x: x["drop3d"], reverse=True)
             top_candidates = date_candidates[:top_n]
@@ -259,7 +323,17 @@ def generate_candidates_system3(
             f"System3: Generated {total_candidates} candidates across {unique_dates} dates"
         )
 
-    return candidates_by_date, candidates_df
+    normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
+    for dt, recs in candidates_by_date.items():
+        out_symbol_map: dict[str, dict[str, Any]] = {}
+        for rec in recs:
+            sym_any = rec.get("symbol")
+            if not isinstance(sym_any, str) or not sym_any:
+                continue
+            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+            out_symbol_map[sym_any] = payload
+        normalized[dt] = out_symbol_map
+    return normalized, candidates_df
 
 
 def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:

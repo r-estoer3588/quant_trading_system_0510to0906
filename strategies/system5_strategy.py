@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from common.utils import resolve_batch_size
 from core.system5 import (
     generate_candidates_system5,
@@ -20,7 +19,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system5"
 
     def __init__(self):
+        """System5初期化、_last_entry_atr属性を追加。"""
         super().__init__()
+        self._last_entry_atr: float = 0.0
 
     def prepare_data(
         self,
@@ -67,28 +68,41 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             except Exception:
                 batch_size = 100
             batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-        return generate_candidates_system5(
+        # kwargs から取り出し: 重複渡し防止
+        latest_only = bool(kwargs.pop("latest_only", False))
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
+
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system5(
             prepared_dict,
             top_n=top_n,
             progress_callback=progress_callback,
             log_callback=log_callback,
             batch_size=batch_size,
+            latest_only=latest_only,
+            **kwargs,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
 
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-        )
-        return trades_df
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(prepared_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -103,9 +117,14 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
         ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
         entry_price = round(prev_close * ratio, 2)
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(
             getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
@@ -127,7 +146,15 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         atr = getattr(self, "_last_entry_atr", None)
         if atr is None:
             try:
-                atr = float(df.iloc[entry_idx - 1]["ATR10"])
+                atr = None
+                for col in ("atr10", "ATR10"):
+                    try:
+                        atr = float(df.iloc[entry_idx - 1][col])
+                        break
+                    except Exception:
+                        continue
+                if atr is None:
+                    return None
             except Exception:
                 atr = 0.0
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
@@ -169,13 +196,14 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         return exit_price, exit_date
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (exit_price - entry_price) * shares
+        """ロングのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_long(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}
         for sym, df in raw_data_dict.items():
             x = df.copy()
-            x["SMA100"] = x["Close"].rolling(100).mean()
+            x["sma100"] = x["Close"].rolling(100).mean()
             out[sym] = x
         return out
 

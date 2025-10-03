@@ -2,6 +2,7 @@
 Working tests for actual existing functions
 Based on real function signatures from grep search
 """
+
 import pandas as pd
 from unittest.mock import Mock
 
@@ -12,13 +13,13 @@ from common.system_common import (
     _rename_ohlcv,
     _normalize_index,
     _prepare_source_frame,
-    validate_data_frame_basic
+    validate_data_frame_basic,
 )
 from core.final_allocation import (
     load_symbol_system_map,
     count_active_positions_by_system,
     _safe_positive_float,
-    _candidate_count
+    _candidate_count,
 )
 
 
@@ -28,9 +29,9 @@ class TestSystemCommonExistingFunctions:
     def test_get_total_days_working(self):
         """Test get_total_days function"""
         data_dict = {
-            'AAPL': pd.DataFrame({'Close': [100, 101, 102, 103, 104]}),
-            'GOOGL': pd.DataFrame({'Close': [2000, 2010, 2020]}),
-            'MSFT': pd.DataFrame({'Close': [300, 301, 302, 303]})
+            "AAPL": pd.DataFrame({"Close": [100, 101, 102, 103, 104]}),
+            "GOOGL": pd.DataFrame({"Close": [2000, 2010, 2020]}),
+            "MSFT": pd.DataFrame({"Close": [300, 301, 302, 303]}),
         }
 
         result = get_total_days(data_dict)
@@ -45,10 +46,10 @@ class TestSystemCommonExistingFunctions:
     def test_get_date_range_working(self):
         """Test get_date_range function"""
         # Create data with date index
-        dates = pd.date_range('2023-01-01', periods=5, freq='D')
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
         data_dict = {
-            'AAPL': pd.DataFrame({'Close': [100, 101, 102, 103, 104]}, index=dates),
-            'GOOGL': pd.DataFrame({'Close': [2000, 2010, 2020]}, index=dates[:3])
+            "AAPL": pd.DataFrame({"Close": [100, 101, 102, 103, 104]}, index=dates),
+            "GOOGL": pd.DataFrame({"Close": [2000, 2010, 2020]}, index=dates[:3]),
         }
 
         try:
@@ -61,19 +62,21 @@ class TestSystemCommonExistingFunctions:
 
     def test_rename_ohlcv_working(self):
         """Test _rename_ohlcv function"""
-        df = pd.DataFrame({
-            'open': [100, 101, 102],
-            'high': [101, 102, 103],
-            'low': [99, 100, 101],
-            'close': [100.5, 101.5, 102.5],
-            'volume': [1000, 1100, 1200]
-        })
+        df = pd.DataFrame(
+            {
+                "open": [100, 101, 102],
+                "high": [101, 102, 103],
+                "low": [99, 100, 101],
+                "close": [100.5, 101.5, 102.5],
+                "volume": [1000, 1100, 1200],
+            }
+        )
 
         result = _rename_ohlcv(df)
         assert isinstance(result, pd.DataFrame)
 
         # Should have proper OHLCV columns
-        expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        expected_columns = ["Open", "High", "Low", "Close", "Volume"]
         for col in expected_columns:
             if col.lower() in [c.lower() for c in df.columns]:
                 assert col in result.columns
@@ -81,10 +84,9 @@ class TestSystemCommonExistingFunctions:
     def test_normalize_index_working(self):
         """Test _normalize_index function"""
         # Test with date column
-        df = pd.DataFrame({
-            'Date': ['2023-01-01', '2023-01-02', '2023-01-03'],
-            'Close': [100, 101, 102]
-        })
+        df = pd.DataFrame(
+            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+        )
 
         try:
             result = _normalize_index(df)
@@ -97,13 +99,15 @@ class TestSystemCommonExistingFunctions:
 
     def test_prepare_source_frame_working(self):
         """Test _prepare_source_frame function"""
-        df = pd.DataFrame({
-            'open': [100, 101, 102],
-            'high': [101, 102, 103],
-            'low': [99, 100, 101],
-            'close': [100.5, 101.5, 102.5],
-            'volume': [1000, 1100, 1200]
-        })
+        df = pd.DataFrame(
+            {
+                "open": [100, 101, 102],
+                "high": [101, 102, 103],
+                "low": [99, 100, 101],
+                "close": [100.5, 101.5, 102.5],
+                "volume": [1000, 1100, 1200],
+            }
+        )
 
         try:
             result = _prepare_source_frame(df)
@@ -116,13 +120,11 @@ class TestSystemCommonExistingFunctions:
     def test_validate_data_frame_basic_working(self):
         """Test validate_data_frame_basic function"""
         # Create DataFrame with sufficient rows
-        df = pd.DataFrame({
-            'Close': list(range(200))  # 200 rows, should be enough
-        })
+        df = pd.DataFrame({"Close": list(range(200))})  # 200 rows, should be enough
 
         try:
             # Should not raise exception for sufficient data
-            validate_data_frame_basic(df, 'TEST_SYMBOL', min_rows=150)
+            validate_data_frame_basic(df, "TEST_SYMBOL", min_rows=150)
             assert True  # Passed validation
         except Exception as e:
             # Might have other requirements
@@ -131,12 +133,10 @@ class TestSystemCommonExistingFunctions:
     def test_validate_data_frame_insufficient_rows(self):
         """Test validate_data_frame_basic with insufficient rows"""
         # Create DataFrame with insufficient rows
-        df = pd.DataFrame({
-            'Close': [100, 101, 102]  # Only 3 rows
-        })
+        df = pd.DataFrame({"Close": [100, 101, 102]})  # Only 3 rows
 
         try:
-            validate_data_frame_basic(df, 'TEST_SYMBOL', min_rows=150)
+            validate_data_frame_basic(df, "TEST_SYMBOL", min_rows=150)
             raise AssertionError()  # Should have raised exception
         except Exception as e:
             # Should raise ValueError for insufficient rows
@@ -169,7 +169,7 @@ class TestFinalAllocationExistingFunctions:
     def test_candidate_count_working(self):
         """Test _candidate_count function"""
         # Test with DataFrame
-        df = pd.DataFrame({'Symbol': ['AAPL', 'GOOGL', 'MSFT']})
+        df = pd.DataFrame({"Symbol": ["AAPL", "GOOGL", "MSFT"]})
         assert _candidate_count(df) == 3
 
         # Test with None
@@ -197,17 +197,13 @@ class TestFinalAllocationExistingFunctions:
         """Test count_active_positions_by_system function"""
         # Mock position objects with qty attribute
         mock_positions = [
-            Mock(symbol='AAPL', qty=100),
-            Mock(symbol='GOOGL', qty=50),
-            Mock(symbol='MSFT', qty=200)
+            Mock(symbol="AAPL", qty=100),
+            Mock(symbol="GOOGL", qty=50),
+            Mock(symbol="MSFT", qty=200),
         ]
 
         # Mock symbol_system_map
-        symbol_map = {
-            'AAPL': 'System1_Long',
-            'GOOGL': 'System2_Short',
-            'MSFT': 'System1_Long'
-        }
+        symbol_map = {"AAPL": "System1_Long", "GOOGL": "System2_Short", "MSFT": "System1_Long"}
 
         try:
             result = count_active_positions_by_system(mock_positions, symbol_map)
@@ -231,11 +227,11 @@ class TestSystemCommonHelpers:
         """Test _rename_ohlcv with different case variants"""
         test_cases = [
             # Lowercase
-            {'open': [100], 'high': [101], 'low': [99], 'close': [100.5], 'volume': [1000]},
+            {"open": [100], "high": [101], "low": [99], "close": [100.5], "volume": [1000]},
             # Uppercase
-            {'OPEN': [100], 'HIGH': [101], 'LOW': [99], 'CLOSE': [100.5], 'VOLUME': [1000]},
+            {"OPEN": [100], "HIGH": [101], "LOW": [99], "CLOSE": [100.5], "VOLUME": [1000]},
             # Mixed case
-            {'Open': [100], 'High': [101], 'Low': [99], 'Close': [100.5], 'Volume': [1000]}
+            {"Open": [100], "High": [101], "Low": [99], "Close": [100.5], "Volume": [1000]},
         ]
 
         for data in test_cases:
@@ -256,7 +252,7 @@ class TestSystemCommonHelpers:
             assert isinstance(e, ValueError | KeyError)
 
         # DataFrame with missing columns
-        incomplete_df = pd.DataFrame({'Close': [100, 101]})
+        incomplete_df = pd.DataFrame({"Close": [100, 101]})
 
         try:
             result = _rename_ohlcv(incomplete_df)
@@ -276,14 +272,13 @@ class TestFinalAllocationHelpers:
             (5, False, 5.0),
             ("3.14", False, 3.14),
             (0, True, 0.0),
-
             # Invalid cases
             (-1.0, False, None),
             (0, False, None),
             ("abc", False, None),
             (None, False, None),
-            (float('inf'), False, None),
-            (float('nan'), False, None),
+            (float("inf"), False, None),
+            (float("nan"), False, None),
         ]
 
         for value, allow_zero, expected in test_cases:
@@ -296,10 +291,9 @@ class TestFinalAllocationHelpers:
     def test_candidate_count_edge_cases(self):
         """Test _candidate_count edge cases"""
         # DataFrame with NaN values
-        df_with_nan = pd.DataFrame({
-            'Symbol': ['AAPL', None, 'GOOGL'],
-            'Price': [100, float('nan'), 200]
-        })
+        df_with_nan = pd.DataFrame(
+            {"Symbol": ["AAPL", None, "GOOGL"], "Price": [100, float("nan"), 200]}
+        )
 
         result = _candidate_count(df_with_nan)
         assert isinstance(result, int)
@@ -312,12 +306,7 @@ def test_system_common_module_structure():
     import common.system_common as sc
 
     # Check for expected functions
-    expected_functions = [
-        'get_total_days',
-        'get_date_range',
-        '_rename_ohlcv',
-        '_normalize_index'
-    ]
+    expected_functions = ["get_total_days", "get_date_range", "_rename_ohlcv", "_normalize_index"]
 
     for func_name in expected_functions:
         assert hasattr(sc, func_name)
@@ -329,21 +318,14 @@ def test_final_allocation_module_structure():
     import core.final_allocation as fa
 
     # Check for expected functions
-    expected_functions = [
-        'load_symbol_system_map',
-        '_safe_positive_float',
-        '_candidate_count'
-    ]
+    expected_functions = ["load_symbol_system_map", "_safe_positive_float", "_candidate_count"]
 
     for func_name in expected_functions:
         assert hasattr(fa, func_name)
         assert callable(getattr(fa, func_name))
 
     # Check for expected constants
-    expected_constants = [
-        'DEFAULT_LONG_ALLOCATIONS',
-        'DEFAULT_SHORT_ALLOCATIONS'
-    ]
+    expected_constants = ["DEFAULT_LONG_ALLOCATIONS", "DEFAULT_SHORT_ALLOCATIONS"]
 
     for const_name in expected_constants:
         assert hasattr(fa, const_name)

@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
@@ -18,9 +17,9 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_AT
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system6"
 
-    def __init__(self):
-        """System6初期化（特殊分岐を廃止し他システムに統一）"""
-        super().__init__()
+    def get_trading_side(self) -> str:
+        """System6 はショート戦略"""
+        return "short"
 
     def prepare_data(
         self,
@@ -29,6 +28,15 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
+        # パフォーマンス最適化: プロセスプール使用制御
+        import os
+
+        use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+
+        # System6専用のパフォーマンス設定
+        kwargs.setdefault("use_process_pool", use_process_pool)
+        kwargs.setdefault("max_workers", 2)  # プロセスプール使用時も控えめに
+
         return self._prepare_data_template(
             raw_data_or_symbols,
             prepare_data_vectorized_system6,
@@ -45,30 +53,37 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用、特殊分岐廃止）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         batch_size = self._get_batch_size_setting(len(data_dict))
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
 
-        return generate_candidates_system6(
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system6(
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
             **kwargs,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
 
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="short",
-        )
-        return trades_df
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     # シミュレーター用フック（System6: Short）
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -83,13 +98,19 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
         ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 1.05))
         entry_price = round(prev_close * ratio, 2)
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
-        if stop_price - entry_price <= 0:
+        # ショート戦略: ストップロスはエントリー価格より上に設定される
+        if stop_price <= entry_price:
             return None
         return entry_price, stop_price
 
@@ -106,17 +127,21 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 break
             row = df.iloc[idx]
 
+            # ショート戦略: 損切り（価格上昇で損失）
             if float(row["High"]) >= stop_price:
                 return float(stop_price), df.index[idx]
 
-            gain = (entry_price - float(row["Close"])) / entry_price
+            # ショート戦略: 利食い（価格下落で利益）
+            current_price = float(row["Close"])
+            gain = (entry_price - current_price) / entry_price
             if gain >= profit_take_pct:
+                # 翌日の大引けで決済（仕様通り）
                 exit_idx = idx + 1
                 if exit_idx < len(df):
                     exit_price = float(df.iloc[exit_idx]["Close"])
                     exit_date = df.index[exit_idx]
                 else:
-                    exit_price = float(row["Close"])
+                    exit_price = current_price
                     exit_date = df.index[idx]
                 return exit_price, exit_date
 
@@ -131,7 +156,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         return exit_price, exit_date
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (entry_price - exit_price) * shares
+        """ショートのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_short(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}
@@ -146,7 +172,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 ],
                 axis=1,
             ).max(axis=1)
-            x["ATR10"] = tr.rolling(10).mean()
+            x["atr10"] = tr.rolling(10).mean()
+            returns = close.pct_change()
+            x["hv50"] = returns.rolling(50).std() * (252**0.5) * 100
             out[sym] = x
         return out
 

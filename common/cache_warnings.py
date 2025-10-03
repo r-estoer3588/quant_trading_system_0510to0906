@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import logging
 import os
 import threading
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +53,14 @@ class RollingIssueAggregator:
             message: 追加メッセージ（省略可）
         """
         if not self._compact_mode:
-            # 通常モード: 各問題を個別にWARNING出力
+            # 通常モード: insufficient_dataはDEBUGレベルに、その他はWARNING出力
             full_msg = f"[{category}] {symbol}"
             if message:
                 full_msg += f": {message}"
-            logger.warning(full_msg)
+            if category == "insufficient_data":
+                logger.debug(full_msg)
+            else:
+                logger.warning(full_msg)
             return
 
         # コンパクトモード: 集約処理

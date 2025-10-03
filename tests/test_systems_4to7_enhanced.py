@@ -5,18 +5,19 @@ Focus on main functions with mock-based testing for remaining trading systems
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from common.testing import set_test_determinism
 
 # Import System4 functions
 try:
     from core.system4 import (
-        prepare_data_vectorized_system4,
         generate_candidates_system4,
         get_total_days_system4,
+        prepare_data_vectorized_system4,
     )
 
     SYSTEM4_AVAILABLE = True
@@ -26,9 +27,9 @@ except ImportError:
 # Import System5 functions
 try:
     from core.system5 import (
-        prepare_data_vectorized_system5,
         generate_candidates_system5,
         get_total_days_system5,
+        prepare_data_vectorized_system5,
     )
 
     SYSTEM5_AVAILABLE = True
@@ -38,9 +39,9 @@ except ImportError:
 # Import System6 functions
 try:
     from core.system6 import (
-        prepare_data_vectorized_system6,
         generate_candidates_system6,
         get_total_days_system6,
+        prepare_data_vectorized_system6,
     )
 
     SYSTEM6_AVAILABLE = True
@@ -50,9 +51,9 @@ except ImportError:
 # Import System7 functions
 try:
     from core.system7 import (
-        prepare_data_vectorized_system7,
         generate_candidates_system7,
         get_total_days_system7,
+        prepare_data_vectorized_system7,
     )
 
     SYSTEM7_AVAILABLE = True
@@ -95,13 +96,8 @@ class TestSystem4MainFunctions:
             index=dates,
         )
 
-        # Mock SPY market data required by System4
-        spy_df = pd.DataFrame(
-            {
-                "Close": [400, 405, 410],
-            },
-            index=dates,
-        )
+        # Mock SPY market data required by System4 (spy_df removed)
+        # spy_df definition removed - not used in test
 
         prepared_dict = {"AAPL": mock_df}
 
@@ -242,7 +238,7 @@ class TestSystem7MainFunctions:
 
         with (
             patch("core.system7.os.path.exists") as mock_exists,
-            patch("core.system7.pd.read_feather") as mock_read,
+            patch("core.system7.pd.read_feather"),  # mock_read removed
         ):
             mock_exists.return_value = False  # No cache
 

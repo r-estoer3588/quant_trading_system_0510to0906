@@ -2,9 +2,9 @@
 極限最適化: メモリマッピング + 超軽量データ構造
 """
 
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 # パス設定 - tests/experimental/ から2階層上のルートへ
 _ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +54,7 @@ def benchmark_io_methods():
     }
     for file_path in test_files:
         try:
-            df = pd.read_csv(file_path, dtype=dtype_map, low_memory=False)
+            df = pd.read_csv(file_path, dtype=dtype_map, low_memory=False)  # type: ignore
         except Exception:
             pass
     methods["dtype指定pandas"] = time.perf_counter() - start_time
@@ -69,7 +69,7 @@ def benchmark_io_methods():
             available_cols = [c for c in essential_cols if c in sample.columns]
             if available_cols:
                 df = pd.read_csv(
-                    file_path, usecols=available_cols, dtype=dtype_map, low_memory=False
+                    file_path, usecols=available_cols, dtype=dtype_map, low_memory=False  # type: ignore
                 )
         except Exception:
             pass
@@ -80,7 +80,8 @@ def benchmark_io_methods():
     for file_path in test_files:
         try:
             # numpyで直接数値データを読み込み（日付列は無視）
-            data = np.genfromtxt(
+            # data = np.genfromtxt(  # Unused variable removed
+            np.genfromtxt(
                 file_path,
                 delimiter=",",
                 skip_header=1,

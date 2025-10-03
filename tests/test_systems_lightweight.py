@@ -56,7 +56,7 @@ class TestSystemBasics:
             result = prepare_data_vectorized_system1(data_dict, lookback_days=200)
             assert isinstance(result, dict)
             assert "TEST" in result
-        except Exception as e:
+        except Exception:
             # Expected errors due to missing data/indicators are OK
             assert True
 

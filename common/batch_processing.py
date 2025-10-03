@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 from typing import Any, TypeVar
 
 from common.utils import BatchSizeMonitor, resolve_batch_size
@@ -50,8 +50,10 @@ def process_symbols_batch(
     if not symbols:
         return {}, []
 
-    # バッチサイズ調整
-    effective_batch_size = resolve_batch_size(batch_size, len(symbols))
+    # バッチサイズ調整（デフォルト値を設定）
+    if batch_size is None:
+        batch_size = 100  # デフォルトバッチサイズ
+    effective_batch_size = resolve_batch_size(len(symbols), batch_size)
 
     if log_callback:
         log_callback(
@@ -157,14 +159,19 @@ def _process_sequential(
     results = {}
     error_symbols = []
 
+    total = len(symbols)
+    processed_count = 0
+
     for symbol in symbols:
         try:
             returned_symbol, result = process_func(symbol)
+            processed_count += 1
 
             if result is not None:
                 results[returned_symbol] = result
-                if progress_callback:
-                    progress_callback(f"Processed {returned_symbol}")
+                # 進捗報告を間引く（100件ごと、または最後）
+                if progress_callback and (processed_count % 100 == 0 or processed_count == total):
+                    progress_callback((processed_count, total))
             else:
                 error_symbols.append(returned_symbol)
                 if skip_callback:
@@ -172,6 +179,7 @@ def _process_sequential(
 
         except Exception as e:
             error_symbols.append(symbol)
+            processed_count += 1
             if skip_callback:
                 skip_callback(symbol, f"{system_name}_exception_{type(e).__name__}: {e}")
 

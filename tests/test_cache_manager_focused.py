@@ -4,10 +4,11 @@ Simplified and focused CacheManager tests for maximum coverage boost
 
 import tempfile
 from pathlib import Path
-import pandas as pd
+from unittest.mock import Mock
+
 import numpy as np
+import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
 
 from common.cache_manager import (
     CacheManager,
@@ -251,7 +252,7 @@ class TestCacheManagerReadWrite:
         # Test the method exists and can be called
         try:
             # Just test that the method exists, don't mock non-existent attributes
-            result = manager.write_atomic(sample_ohlcv, "AAPL", "rolling")
+            manager.write_atomic(sample_ohlcv, "AAPL", "rolling")  # result removed
             write_success = True
         except (AttributeError, FileNotFoundError, OSError):
             # Expected for this test environment

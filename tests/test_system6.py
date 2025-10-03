@@ -1,3 +1,5 @@
+from typing import cast
+
 import pandas as pd
 import pytest
 
@@ -63,7 +65,8 @@ def test_entry_rule_limit_short():
         index=dates,
     )
     candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
-    entry = strategy.compute_entry(df, candidate, current_capital=10_000)
+    entry = strategy.compute_entry(df, candidate, 10_000)
+    assert entry is not None
     assert entry == (105.0, 108.0)
 
 
@@ -81,8 +84,10 @@ def test_system6_profit_target_exits_next_close():
         index=dates,
     )
     candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
-    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
-    entry_idx = df.index.get_loc(dates[1])
+    entry = strategy.compute_entry(df, candidate, 10_000)
+    assert entry is not None
+    entry_price, stop_price = entry
+    entry_idx = cast(int, df.index.get_loc(dates[1]))
 
     exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
@@ -104,8 +109,10 @@ def test_system6_stop_exit_same_day_at_stop_price():
         index=dates,
     )
     candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
-    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
-    entry_idx = df.index.get_loc(dates[1])
+    entry = strategy.compute_entry(df, candidate, 10_000)
+    assert entry is not None
+    entry_price, stop_price = entry
+    entry_idx = cast(int, df.index.get_loc(dates[1]))
 
     exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
@@ -129,11 +136,44 @@ def test_system6_time_exit_after_max_days_close():
         index=dates,
     )
     candidate = {"symbol": "DUMMY", "entry_date": dates[1]}
-    entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
-    entry_idx = df.index.get_loc(dates[1])
+    entry = strategy.compute_entry(df, candidate, 10_000)
+    assert entry is not None
+    entry_price, stop_price = entry
+    entry_idx = cast(int, df.index.get_loc(dates[1]))
 
     exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
 
     expected_idx = entry_idx + max_days
     assert exit_date == dates[expected_idx]
     assert exit_price == pytest.approx(float(df.iloc[expected_idx]["Close"]))
+
+
+def test_compute_indicators_from_frame_aligns_range_index():
+    from core.system6 import _compute_indicators_from_frame
+
+    periods = 120
+    base_dates = pd.date_range("2024-01-01", periods=periods, freq="B")
+    df = pd.DataFrame(
+        {
+            "date": base_dates.strftime("%Y-%m-%d"),
+            "open": 20.0,
+            "high": 21.0,
+            "low": 19.5,
+            "close": 20.5,
+            "volume": 2_000_000,
+            "atr10": 1.2,
+            "dollarvolume50": 50_000_000,
+            "return_6d": 0.25,
+            "uptwodays": True,
+            "hv50": 25.0,
+        }
+    )
+
+    prepared = _compute_indicators_from_frame(df)
+
+    assert len(prepared) == periods
+    assert prepared.index.is_monotonic_increasing
+    assert {"atr10", "dollarvolume50", "return_6d", "UpTwoDays", "hv50"}.issubset(prepared.columns)
+    # 既存の指標がそのまま活用され、filter/setupも生成される
+    assert prepared["filter"].all()
+    assert prepared["setup"].all()

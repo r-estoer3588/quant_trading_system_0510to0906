@@ -2,13 +2,14 @@
 Working tests for core.final_allocation and common.system_common
 High impact modules for coverage improvement
 """
+
 import pandas as pd
 
 from common.system_common import get_total_days, format_dataframes_for_display
 from core.final_allocation import (
     validate_allocations,
     calculate_position_sizes_fixed_fractional,
-    get_max_position_dollars
+    get_max_position_dollars,
 )
 
 
@@ -19,9 +20,9 @@ class TestSystemCommonWorking:
         """Test get_total_days with valid data"""
         # Create test data
         data_dict = {
-            'AAPL': pd.DataFrame({'Close': [100, 101, 102, 103, 104]}),
-            'GOOGL': pd.DataFrame({'Close': [2000, 2010, 2020]}),
-            'MSFT': pd.DataFrame({'Close': [300, 301, 302, 303]})
+            "AAPL": pd.DataFrame({"Close": [100, 101, 102, 103, 104]}),
+            "GOOGL": pd.DataFrame({"Close": [2000, 2010, 2020]}),
+            "MSFT": pd.DataFrame({"Close": [300, 301, 302, 303]}),
         }
 
         result = get_total_days(data_dict)
@@ -35,9 +36,9 @@ class TestSystemCommonWorking:
     def test_get_total_days_with_none_values_filtered(self):
         """Test get_total_days filtering None values correctly"""
         data_dict = {
-            'AAPL': pd.DataFrame({'Close': [100, 101, 102]}),
-            'INVALID': None,  # This should be skipped
-            'GOOGL': pd.DataFrame({'Close': [2000, 2010]})
+            "AAPL": pd.DataFrame({"Close": [100, 101, 102]}),
+            "INVALID": None,  # This should be skipped
+            "GOOGL": pd.DataFrame({"Close": [2000, 2010]}),
         }
 
         # Filter out None values before passing
@@ -49,14 +50,10 @@ class TestSystemCommonWorking:
         """Test format_dataframes_for_display function"""
         # Create test dataframes
         data_dict = {
-            'AAPL': pd.DataFrame({
-                'Close': [100.123, 101.456, 102.789],
-                'Volume': [1000000, 1100000, 1200000]
-            }),
-            'GOOGL': pd.DataFrame({
-                'Close': [2000.12, 2010.34],
-                'Volume': [500000, 550000]
-            })
+            "AAPL": pd.DataFrame(
+                {"Close": [100.123, 101.456, 102.789], "Volume": [1000000, 1100000, 1200000]}
+            ),
+            "GOOGL": pd.DataFrame({"Close": [2000.12, 2010.34], "Volume": [500000, 550000]}),
         }
 
         try:
@@ -66,7 +63,7 @@ class TestSystemCommonWorking:
             # Check that all keys are preserved
             assert set(result.keys()) == set(data_dict.keys())
 
-        except Exception as e:
+        except Exception:
             # Function might not exist or have issues, which is acceptable
             assert True  # Pass if function doesn't exist
 
@@ -86,9 +83,9 @@ class TestFinalAllocationWorking:
     def test_validate_allocations_basic(self):
         """Test validate_allocations with valid input"""
         allocations = {
-            'System1': ['AAPL', 'GOOGL'],
-            'System2': ['MSFT', 'TSLA'],
-            'System3': []  # Empty allocation
+            "System1": ["AAPL", "GOOGL"],
+            "System2": ["MSFT", "TSLA"],
+            "System3": [],  # Empty allocation
         }
 
         try:
@@ -110,22 +107,12 @@ class TestFinalAllocationWorking:
     def test_calculate_position_sizes_basic(self):
         """Test calculate_position_sizes_fixed_fractional"""
         # Mock data
-        allocations = {
-            'System1_Long': ['AAPL', 'GOOGL'],
-            'System2_Short': ['MSFT']
-        }
+        allocations = {"System1_Long": ["AAPL", "GOOGL"], "System2_Short": ["MSFT"]}
 
-        prices = {
-            'AAPL': 150.0,
-            'GOOGL': 2500.0,
-            'MSFT': 300.0
-        }
+        prices = {"AAPL": 150.0, "GOOGL": 2500.0, "MSFT": 300.0}
 
         total_capital = 100000.0
-        system_allocations = {
-            'System1_Long': 0.5,
-            'System2_Short': 0.3
-        }
+        system_allocations = {"System1_Long": 0.5, "System2_Short": 0.3}
 
         try:
             result = calculate_position_sizes_fixed_fractional(
@@ -136,7 +123,7 @@ class TestFinalAllocationWorking:
             assert isinstance(result, dict)
 
             # Check basic structure
-            for symbol in ['AAPL', 'GOOGL', 'MSFT']:
+            for symbol in ["AAPL", "GOOGL", "MSFT"]:
                 if symbol in result:
                     assert isinstance(result[symbol], int | float)
 
@@ -181,13 +168,15 @@ class TestSystemCommonUtilities:
             from common.system_common import validate_ohlcv_data
 
             # Test with valid OHLCV
-            valid_df = pd.DataFrame({
-                'Open': [100, 101, 102],
-                'High': [101, 102, 103],
-                'Low': [99, 100, 101],
-                'Close': [100.5, 101.5, 102.5],
-                'Volume': [1000, 1100, 1200]
-            })
+            valid_df = pd.DataFrame(
+                {
+                    "Open": [100, 101, 102],
+                    "High": [101, 102, 103],
+                    "Low": [99, 100, 101],
+                    "Close": [100.5, 101.5, 102.5],
+                    "Volume": [1000, 1100, 1200],
+                }
+            )
 
             result = validate_ohlcv_data(valid_df)
             assert isinstance(result, bool | pd.DataFrame)
@@ -205,10 +194,9 @@ class TestSystemCommonUtilities:
             from common.system_common import normalize_dates
 
             # Create test data with mixed date formats
-            df = pd.DataFrame({
-                'Date': ['2023-01-01', '2023-01-02', '2023-01-03'],
-                'Close': [100, 101, 102]
-            })
+            df = pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            )
 
             result = normalize_dates(df)
             assert isinstance(result, pd.DataFrame)
@@ -257,9 +245,7 @@ class TestFinalAllocationUtilities:
         try:
             from core.final_allocation import enforce_max_positions
 
-            allocations = {
-                'System1_Long': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']  # Too many
-            }
+            allocations = {"System1_Long": ["A", "B", "C", "D", "E", "F", "G", "H"]}  # Too many
 
             result = enforce_max_positions(allocations, max_positions=5)
             assert isinstance(result, dict)
@@ -279,8 +265,8 @@ class TestFinalAllocationUtilities:
             from core.final_allocation import balance_long_short
 
             allocations = {
-                'System1_Long': ['AAPL', 'GOOGL'],
-                'System2_Short': ['MSFT', 'TSLA', 'NVDA']  # Unbalanced
+                "System1_Long": ["AAPL", "GOOGL"],
+                "System2_Short": ["MSFT", "TSLA", "NVDA"],  # Unbalanced
             }
 
             result = balance_long_short(allocations)
@@ -297,13 +283,14 @@ def test_final_allocation_imports():
     """Test that final_allocation module imports work"""
     try:
         import core.final_allocation
-        assert hasattr(core.final_allocation, '__file__')
+
+        assert hasattr(core.final_allocation, "__file__")
 
         # Check for common functions
         common_functions = [
-            'validate_allocations',
-            'calculate_position_sizes_fixed_fractional',
-            'get_max_position_dollars'
+            "validate_allocations",
+            "calculate_position_sizes_fixed_fractional",
+            "get_max_position_dollars",
         ]
 
         for func_name in common_functions:
@@ -319,10 +306,11 @@ def test_system_common_imports():
     """Test that system_common module imports work"""
     try:
         import common.system_common
-        assert hasattr(common.system_common, '__file__')
+
+        assert hasattr(common.system_common, "__file__")
 
         # Check for known functions
-        known_functions = ['get_total_days']
+        known_functions = ["get_total_days"]
 
         for func_name in known_functions:
             if hasattr(common.system_common, func_name):

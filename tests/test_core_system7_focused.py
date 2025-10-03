@@ -7,15 +7,15 @@ System7 is a SPY-only short catastrophe hedge strategy that:
 - Designed as portfolio hedge against market crashes
 """
 
-import pytest
-import pandas as pd
+from unittest.mock import Mock, patch
+
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+import pandas as pd
 
 from core.system7 import (
-    prepare_data_vectorized_system7,
     generate_candidates_system7,
     get_total_days_system7,
+    prepare_data_vectorized_system7,
 )
 
 
@@ -286,10 +286,10 @@ class TestSystem7Integration:
 
     def test_system7_error_handling(self):
         """Test System7 error handling scenarios."""
-        # Test with empty data
-        empty_data = {}
+        # Test with empty data (empty_data removed)
+        # Empty data test removed
 
-        prepared_empty = prepare_data_vectorized_system7(empty_data) if False else {}
+        # prepared_empty = prepare_data_vectorized_system7(empty_data) if False else {}  # removed
         # Note: prepare_data_vectorized_system7({}) should raise ValueError
 
         candidates_dict, candidates_df = generate_candidates_system7({}, top_n=1)

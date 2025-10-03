@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-import os
 from threading import Lock
 from typing import Any
 
@@ -491,6 +491,7 @@ def load_basic_data_phase(
 
     stats_lock = Lock()
     stats: dict[str, int] = {}
+    skipped_symbols: list[tuple[str, str, list[str]]] = []  # (symbol, reason_label, skip_parts)
 
     def _record_stat(key: str) -> None:
         with stats_lock:
@@ -646,15 +647,9 @@ def load_basic_data_phase(
                 skip_parts.append("date列欠損")
             elif df is None or getattr(df, "empty", True):
                 skip_parts.append("rolling未生成")
-            if log is not None:
-                msg = f"⛔ rolling未整備: {sym} ({reason_label})"
-                if skip_parts:
-                    msg += " | " + ", ".join(skip_parts)
-                msg += " → 手動で rolling キャッシュを更新してください"
-                try:
-                    log(msg)
-                except Exception:  # pragma: no cover - defensive
-                    pass
+            # 個別ログを出さず、後でサマリー表示
+            with stats_lock:
+                skipped_symbols.append((sym, reason_label, skip_parts))
             _record_stat("manual_rebuild_required")
             _record_stat("failed")
             return sym, None, detail
@@ -744,6 +739,24 @@ def load_basic_data_phase(
             parallel = total_syms >= max(0, threshold)
 
     data = _run_parallel() if parallel else _run_sequential()
+
+    # rolling未整備銘柄のサマリー表示
+    if skipped_symbols and log is not None:
+        try:
+            total_skipped = len(skipped_symbols)
+            batch_size = max(1, int(total_syms * 0.1))  # 総数の10%ごと
+            for i in range(0, total_skipped, batch_size):
+                batch = skipped_symbols[i : i + batch_size]
+                symbols_str = ", ".join(sym for sym, _, _ in batch)
+                log(
+                    f"⚠️ rolling未整備 ({i+1}〜{min(i+batch_size, total_skipped)}/{total_skipped}): {symbols_str}"
+                )
+            # 最後に集計メッセージ
+            log(
+                f"💡 rolling未整備の計{total_skipped}銘柄は自動的にスキップされました（base/full_backupからの再試行は不要）"
+            )
+        except Exception:  # pragma: no cover - defensive
+            pass
 
     try:
         summary_map = {

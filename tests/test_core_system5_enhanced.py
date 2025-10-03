@@ -8,25 +8,23 @@ System5 implements a high ADX mean-reversion strategy with volatility filters:
 - Strategy: Mean reversion on high ADX/volatility stocks
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
-
-import sys
 import os
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from common.system_constants import SYSTEM5_REQUIRED_INDICATORS
 from core.system5 import (
-    prepare_data_vectorized_system5,
-    generate_candidates_system5,
-    get_total_days_system5,
     DEFAULT_ATR_PCT_THRESHOLD,
     format_atr_pct_threshold_label,
+    generate_candidates_system5,
+    get_total_days_system5,
+    prepare_data_vectorized_system5,
 )
-from common.system_constants import SYSTEM5_REQUIRED_INDICATORS
 
 
 class TestSystem5Utilities:
@@ -363,7 +361,7 @@ class TestSystem5CandidateGeneration:
         assert len(candidates) == 0
 
 
-class TestSystem5Utilities:
+class TestSystem5UtilitiesExtended:
     """Test suite for System5 utility functions."""
 
     def test_get_total_days_system5(self):

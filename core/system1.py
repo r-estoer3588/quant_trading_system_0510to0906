@@ -9,6 +9,8 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
@@ -147,7 +149,7 @@ def prepare_data_vectorized_system1(
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **_kwargs,
 ) -> dict[str, pd.DataFrame]:
     """System1 data preparation processing (ROC200 momentum strategy).
 
@@ -167,8 +169,20 @@ def prepare_data_vectorized_system1(
     Returns:
         Processed data dictionary
     """
+
+    def _substep(msg: str) -> None:
+        if not log_callback:
+            return
+        try:
+            if (os.environ.get("ENABLE_SUBSTEP_LOGS") or "").lower() in {"1", "true", "yes"}:
+                log_callback(f"System1: {msg}")
+        except Exception:
+            pass
+
+    _substep("enter prepare_data")
     # Fast path: reuse precomputed indicators
     if reuse_indicators and raw_data_dict:
+        _substep("fast-path check start")
         try:
             # Early check - verify required indicators exist
             valid_data_dict, error_symbols = check_precomputed_indicators(
@@ -189,8 +203,7 @@ def prepare_data_vectorized_system1(
 
                     prepared_dict[symbol] = x
 
-                if log_callback:
-                    log_callback(f"System1: Fast-path processed {len(prepared_dict)} symbols")
+                _substep(f"fast-path processed symbols={len(prepared_dict)}")
 
                 return prepared_dict
 
@@ -199,8 +212,7 @@ def prepare_data_vectorized_system1(
             raise
         except Exception:
             # Fall back to normal processing for other errors
-            if log_callback:
-                log_callback("System1: Fast-path failed, falling back to normal processing")
+            _substep("fast-path failed fallback to normal path")
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -208,14 +220,13 @@ def prepare_data_vectorized_system1(
     elif raw_data_dict:
         target_symbols = list(raw_data_dict.keys())
     else:
-        if log_callback:
-            log_callback("System1: No symbols provided, returning empty dict")
+        _substep("no symbols provided -> empty dict")
         return {}
 
-    if log_callback:
-        log_callback(f"System1: Starting normal processing for {len(target_symbols)} symbols")
+    _substep(f"normal path start symbols={len(target_symbols)}")
 
     # Execute batch processing
+    _substep("batch processing start")
     results, error_symbols = process_symbols_batch(
         target_symbols,
         _compute_indicators,
@@ -227,6 +238,7 @@ def prepare_data_vectorized_system1(
         skip_callback=skip_callback,
         system_name="System1",
     )
+    _substep(f"batch processing done ok={len(results)} err={len(error_symbols)}")
 
     return results
 
@@ -238,6 +250,7 @@ def generate_candidates_system1(
     progress_callback=None,
     log_callback=None,
     batch_size: int | None = None,
+    latest_only: bool = False,
     **kwargs,
 ) -> tuple[dict, pd.DataFrame | None]:
     """System1 candidate generation (ROC200 descending ranking).
@@ -258,6 +271,122 @@ def generate_candidates_system1(
 
     if top_n is None:
         top_n = 20  # Default value
+
+    # Fast path: 当日（最新日）だけでランキングする用途 (today run) 向け最適化
+    # full-history が必要なバックテストでは latest_only=False を指定して従来処理を維持
+    if latest_only:
+        try:
+            rows: list[dict] = []
+            date_counter: dict[pd.Timestamp, int] = {}
+            debug_reasons: list[str] = []
+            debug_enabled = (
+                bool(os.environ.get("SYSTEM_DEBUG_VERBOSE")) or True
+            )  # 常に有効(後で削除)
+            for sym, df in prepared_dict.items():
+                if df is None or df.empty:
+                    if debug_enabled:
+                        debug_reasons.append(f"{sym}:empty")
+                    continue
+                last_row = df.iloc[-1]
+                # 優先: setup 列が True なら無条件に候補対象
+                setup_flag = bool(last_row.get("setup", True))  # 無い場合 True (緩和)
+                # フォールバック: setup False でも SMA25>SMA50 & filter 条件を満たせば許容
+                if not setup_flag:
+                    try:
+                        sma25_v = last_row.get("sma25")
+                        sma50_v = last_row.get("sma50")
+                        if (
+                            pd.isna(sma25_v)
+                            or pd.isna(sma50_v)
+                            or not (float(sma25_v) > float(sma50_v))
+                        ):
+                            if debug_enabled:
+                                debug_reasons.append(f"{sym}:sma25<=sma50")
+                            continue
+                        # filter 列があれば True を要求（無ければ通す）
+                        if ("filter" in last_row.index) and (not last_row.get("filter", False)):
+                            if debug_enabled:
+                                debug_reasons.append(f"{sym}:filterFalse")
+                            continue
+                    except Exception:
+                        if debug_enabled:
+                            debug_reasons.append(f"{sym}:fallbackException")
+                        continue
+                roc200_val = last_row.get("roc200", 0)
+                try:
+                    if pd.isna(roc200_val) or float(roc200_val) <= 0:
+                        if debug_enabled:
+                            try:
+                                debug_reasons.append(f"{sym}:roc200<=0({roc200_val})")
+                            except Exception:
+                                pass
+                        continue
+                except Exception:
+                    if debug_enabled:
+                        debug_reasons.append(f"{sym}:roc200Err")
+                    continue
+                date_val = df.index[-1]
+                date_counter[date_val] = date_counter.get(date_val, 0) + 1
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "date": date_val,
+                        "roc200": roc200_val,
+                        "close": last_row.get("Close", 0),
+                        "setup": bool(last_row.get("setup", False)),
+                    }
+                )
+            if not rows:
+                if log_callback:
+                    log_callback(
+                        "System1: latest_only fast-path produced 0 rows (after gating v2) — will fallback"
+                    )
+                    if debug_reasons and log_callback:
+                        # 上位数件のみ
+                        log_callback("System1: exclude_reasons=" + ", ".join(debug_reasons[:12]))
+                # 明示的に通常パスへフォールバック
+            else:
+                df_all = pd.DataFrame(rows)
+                try:
+                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    df_all = df_all[df_all["date"] == mode_date]
+                except Exception:
+                    pass
+                df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
+                # 期待形式: date -> {symbol: {...各指標...}}
+                by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+                for dt, sub in df_all.groupby("date"):
+                    symbol_map: dict[str, dict] = {}
+                    recs = sub.to_dict("records")
+                    for rec in recs:
+                        sym = rec.get("symbol")
+                        if not sym:
+                            continue
+                        # symbol と date を除き残りを属性辞書に
+                        symbol_map[str(sym)] = {
+                            k: v for k, v in rec.items() if k not in {"symbol", "date"}
+                        }
+                    by_date[dt] = symbol_map
+                if log_callback:
+                    log_callback(
+                        f"System1: latest_only fast-path -> {sum(len(v) for v in by_date.values())} candidates (symbols={len(rows)})"
+                    )
+                    if debug_enabled:
+                        try:
+                            first_dt = next(iter(by_date))
+                            first_sym, first_payload = next(iter(by_date[first_dt].items()))
+                            log_callback(
+                                f"System1: first_candidate dt={first_dt} sym={first_sym} payload={first_payload}"
+                            )
+                        except Exception:
+                            pass
+                out_df = df_all.copy()
+                return by_date, out_df
+        except Exception as fast_err:
+            if log_callback:
+                log_callback(f"System1: fast-path failed -> fallback ({fast_err})")
+            # 続けて従来パスへ
+            pass
 
     # Aggregate all dates
     all_dates = set()

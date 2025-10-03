@@ -2,14 +2,15 @@
 Focused configuration tests for Settings coverage boost
 """
 
+import json
 import os
 import tempfile
-import json
-import yaml
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
-from config.settings import get_settings, Settings
+import yaml
+
+from config.settings import Settings, get_settings
 
 
 class TestSettingsLoading:
@@ -205,7 +206,7 @@ class TestSettingsFileLoading:
         json_content = {"cache": {"rolling": {"days": 123}}}
         yaml_content = "cache:\n  rolling:\n    days: 456"
 
-        with patch("builtins.open", mock_open()) as mock_file:
+        with patch("builtins.open", mock_open()):  # mock_file removed
             with patch("os.path.exists", return_value=True):
                 with patch("json.load", return_value=json_content):
                     with patch("yaml.safe_load", return_value=yaml.safe_load(yaml_content)):

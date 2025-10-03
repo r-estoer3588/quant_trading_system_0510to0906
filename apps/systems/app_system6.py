@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
+import sys
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-from common.cache_utils import save_prepared_data_cache
+# プロジェクトルート（apps/systems/ から2階層上）をパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
@@ -19,19 +23,95 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-import common.ui_patch  # noqa: F401
-from strategies.system6_strategy import System6Strategy
+from strategies import get_strategy
 
 # 翻訳辞書ロード + 言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
-if not st.session_state.get("_integrated_ui", False):
-    language_selector()
+
+# --- サイドバー構成: 言語切替 / ガイド / 条件詳細 ---
+with st.sidebar:
+    if not st.session_state.get("_integrated_ui", False):
+        # English チェックボックスをサイドバーへ移動
+        language_selector()
+    st.divider()
+    # System6 銘柄選択ガイド
+    st.info(
+        tr(
+            "💡 **System6 銘柄選択のガイド**\n\n"
+            "• **普通株（約6,200銘柄）**: 一般的な普通株式のみ\n"
+            "• **制限数**: System6では100-1,000銘柄程度が実用的\n\n"
+            "**推奨設定**: 銘柄制限を100-500程度に調整"
+        )
+    )
+    st.divider()
+    # 条件詳細（expander をサイドバーへ移動）
+    with st.expander("🎯 System6の条件詳細", expanded=False):
+        st.markdown(
+            tr(
+                "**System6はショート戦略で、極端な相場状況専用です**\n\n"
+                "**フィルター条件（基本要件）:**\n"
+                "• 価格 ≥ $5.00\n"
+                "• 50日平均ドルボリューム ≥ 1,000万ドル\n\n"
+                "**セットアップ条件（非常に厳しい）:**\n"
+                "• **6日間リターン ≥ 20%**（最も厳しい条件）\n"
+                "• **連続2日上昇**（UpTwoDays = True）\n\n"
+                "**統計例:**\n"
+                "通常の相場では、フィルター通過銘柄の1%未満がセットアップ条件を満たします。\n"
+                "急激な相場変動時にのみトレード機会が発生する設計です。"
+            )
+        )
 
 SYSTEM_NAME = "System6"
 DISPLAY_NAME = "システム6"
 
-strategy: System6Strategy = System6Strategy()
+
+def _strategy():
+    return get_strategy("system6")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
+
+
+def run_system6_historical_analysis(data_dict: dict) -> pd.DataFrame | None:
+    """System6セットアップ条件の過去発生状況を分析する"""
+    try:
+        analysis_data = []
+        for symbol, df in list(data_dict.items())[:20]:  # 最初の20銘柄のみ分析
+            if df is None or df.empty or len(df) < 50:
+                continue
+
+            # System6の条件をチェック
+            filter_ok = (df["Close"] >= 5.0) & (
+                df.get("dollarvolume50", df.get("DollarVolume50", 0)) > 10_000_000
+            )
+            setup_ok = (
+                filter_ok
+                & (df.get("return_6d", df.get("Return_6D", 0)) > 0.20)
+                & df.get("UpTwoDays", df.get("uptwodays", False))
+            )
+
+            filter_days = filter_ok.sum() if hasattr(filter_ok, "sum") else 0
+            setup_days = setup_ok.sum() if hasattr(setup_ok, "sum") else 0
+            total_days = len(df)
+
+            if filter_days > 0:
+                setup_rate = (setup_days / filter_days) * 100
+                analysis_data.append(
+                    {
+                        "Symbol": symbol,
+                        "Total Days": total_days,
+                        "Filter Pass": filter_days,
+                        "Setup Pass": setup_days,
+                        "Setup Rate (%)": round(setup_rate, 2),
+                    }
+                )
+
+        if analysis_data:
+            analysis_df = pd.DataFrame(analysis_data)
+            return analysis_df.head(10)
+        return None
+    except Exception:
+        return None
 
 
 def display_return6d_ranking(
@@ -79,6 +159,10 @@ def display_return6d_ranking(
     )
     df = df.sort_values(["Date", "return_6d_Rank"], ascending=[True, True])
     df = df.groupby("Date").head(top_n)
+
+    # return_6d を % 表示用に変換（内部データは 0.x のまま保持）
+    df["return_6d_pct"] = (df["return_6d"] * 100).round(2)
+
     title = tr(
         "{display_name} return_6d ランキング（直近{years}年 / 上位{top_n}銘柄）",
         display_name=DISPLAY_NAME,
@@ -86,28 +170,29 @@ def display_return6d_ranking(
         top_n=top_n,
     )
     with st.expander(title, expanded=False):
-        st.dataframe(
-            df.reset_index(drop=True)[["Date", "return_6d_Rank", "symbol", "return_6d"]],
-            hide_index=False,
-        )
+        display_df = df.reset_index(drop=True)[
+            ["Date", "return_6d_Rank", "symbol", "return_6d_pct"]
+        ]
+        display_df = display_df.rename(columns={"return_6d_pct": "return_6d (%)"})
+        st.dataframe(display_df, hide_index=False)
 
 
 def run_tab(ui_manager: UIManager | None = None) -> None:
-    st.header(
-        tr(
-            "{display_name} バックテスト（return_6d ランキング）",
-            display_name=DISPLAY_NAME,
-        )
+    # 重複タイトル防止: run_backtest_app に日本語タイトルを渡し、ここでは header を追加しない
+    page_title = tr(
+        "{display_name} バックテスト（return_6d ランキング）",
+        display_name=DISPLAY_NAME,
     )
+
+    # UIManager を必要最低限で初期化（事前フェーズプレースホルダーは生成しない）
     ui_base: UIManager = (
         ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
     )
-    fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
-    ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
-    cand_phase = ui_base.phase("candidates", title=tr("候補選定"))
+
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     run_start = time.time()
+    strategy = _strategy()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -119,15 +204,17 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         run_backtest_app(
             strategy,
             system_name=SYSTEM_NAME,
-            limit_symbols=100,
             ui_manager=ui_base,
+            system_title=page_title,
         ),
     )
     elapsed = time.time() - run_start
     results_df, _, data_dict, capital, candidates_by_date = _rb
-    fetch_phase.log_area.write(tr("データ取得完了"))
-    ind_phase.log_area.write(tr("インジケーター計算完了"))
-    cand_phase.log_area.write(tr("候補選定完了"))
+
+    # 詳細な完了メッセージを表示
+    if data_dict and candidates_by_date is not None:
+        # 必要ならここで簡易サマリ（詳細なログは共通コンポーネントに委譲済み）
+        pass
     if results_df is not None and candidates_by_date is not None:
         display_return6d_ranking(candidates_by_date)
         summary_df = show_signal_trade_summary(
@@ -143,8 +230,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
                 SYSTEM_NAME,
                 capital,
             )
-        if data_dict is not None:
-            save_prepared_data_cache(data_dict, SYSTEM_NAME)
+        # Prepared data cache save removed (deprecated feature)
         summary, df2 = summarize_perf(results_df, capital)
         try:
             _max_dd = float(df2["drawdown"].min())
@@ -231,6 +317,30 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             else:
                 st.warning(tr("通知の送信に失敗しました"))
     else:
+        # 候補 0 件 or データなし → サイドバーに理由分析を表示
+        with st.sidebar.expander("🔍 候補なしの理由分析", expanded=False):
+            st.markdown(
+                tr(
+                    "System6は極端な相場状況でのみ機能する戦略です。\n\n"
+                    "以下の厳しい条件をすべて満たす必要があります:\n\n"
+                    "1. **価格フィルター**: 株価 ≥ $5.00\n"
+                    "2. **流動性フィルター**: 50日平均ドルボリューム ≥ 1,000万ドル\n"
+                    "3. **モメンタムフィルター**: 6日間リターン ≥ 20% 🔥\n"
+                    "4. **連続上昇フィルター**: 連続2日上昇\n\n"
+                    "**通常の相場**: フィルター通過銘柄の1%未満がセットアップ条件達成\n"
+                    "**急変相場**: 10-20%の銘柄がセットアップ条件達成の可能性"
+                )
+            )
+            if data_dict:
+                st.caption(f"データ準備完了: {len(data_dict)}銘柄")
+                if st.button("📊 過去発生状況 (上位20銘柄)", key="system6_hist_btn"):
+                    with st.spinner("過去データを分析中..."):
+                        analysis_results = run_system6_historical_analysis(data_dict)
+                        if analysis_results is not None and not analysis_results.empty:
+                            st.dataframe(analysis_results)
+            else:
+                st.caption("データ未取得または失敗")
+
         # フォールバック表示（セッション保存から復元）
         prev_res = st.session_state.get(f"{SYSTEM_NAME}_results_df")
         prev_cands = st.session_state.get(f"{SYSTEM_NAME}_candidates_by_date")

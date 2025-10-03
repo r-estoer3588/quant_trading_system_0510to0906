@@ -3,11 +3,12 @@
 16%→20%+カバレッジ向上のため核心機能の直接実行
 """
 
-import pytest
-import sys
 import os
-import pandas as pd
-import numpy as np
+import sys
+
+import pytest
+
+# pandas and numpy removed (unused)
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,8 +34,7 @@ class TestBasicDataOperations:
             from common.cache_validation import CacheValidator
 
             validator = CacheValidator()
-            # 基本的なpandas DataFrameで軽量テスト
-            test_df = pd.DataFrame({"test": [1, 2, 3]})
+            # 基本的なpandas DataFrameで軽量テスト (test_df removed)
             # とりあえずvalidatorが存在することを確認
             assert hasattr(validator, "validate")
         except (ImportError, Exception):
@@ -67,10 +67,9 @@ class TestUtilityFunctions:
     def test_dataframe_utils_basic(self):
         """dataframe_utils.pyの基本機能"""
         try:
-            from common.dataframe_utils import safe_column_access, fill_missing_values
+            from common.dataframe_utils import fill_missing_values, safe_column_access
 
-            # 基本的なテストデータで機能確認
-            test_df = pd.DataFrame({"A": [1, np.nan, 3], "B": [4, 5, 6]})
+            # 基本的なテストデータで機能確認 (test_df removed)
             # 関数が存在し、呼び出し可能であることを確認
             assert callable(safe_column_access)
             assert callable(fill_missing_values)
@@ -80,7 +79,7 @@ class TestUtilityFunctions:
     def test_cache_utils_basic(self):
         """cache_utils.pyの基本機能"""
         try:
-            from common.cache_utils import get_cache_path, ensure_cache_directory
+            from common.cache_utils import ensure_cache_directory, get_cache_path
 
             # 関数存在確認
             assert callable(get_cache_path)
@@ -156,7 +155,7 @@ class TestCommonUtilitiesExecution:
     def test_logging_utils_basic(self):
         """logging_utils.pyの基本機能"""
         try:
-            from common.logging_utils import get_logger, setup_logging
+            from common.logging_utils import get_logger  # setup_logging removed
 
             # ロガー取得テスト
             logger = get_logger("test_logger")
@@ -168,7 +167,7 @@ class TestCommonUtilitiesExecution:
     def test_progress_events_basic(self):
         """progress_events.pyの基本イベント"""
         try:
-            from common.progress_events import ProgressEvent, EventType
+            from common.progress_events import EventType, ProgressEvent
 
             # 進捗イベント作成テスト
             event = ProgressEvent("test", EventType.INFO, "Test message")

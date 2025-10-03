@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Mapping
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore
 
 from common import broker_alpaca as ba
 
@@ -27,9 +27,11 @@ def update_trailing_stops(
 
     client = ba.get_client(paper=paper)
     ba.cancel_all_orders(client)
-    positions: Iterable[object] = client.get_all_positions()
+    positions = client.get_all_positions()
     for pos in positions:
-        symbol = pos.symbol
+        symbol = getattr(pos, "symbol", None)
+        if symbol is None:
+            continue
         pct = None
         if symbol_trail_pct and symbol in symbol_trail_pct:
             pct = symbol_trail_pct[symbol]

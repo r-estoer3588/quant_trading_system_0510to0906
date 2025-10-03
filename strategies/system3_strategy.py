@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
-from common.backtest_utils import simulate_trades_with_risk
 from core.system3 import (
     generate_candidates_system3,
     get_total_days_system3,
@@ -18,9 +17,6 @@ from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_4, STOP_AT
 
 class System3Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system3"
-
-    def __init__(self):
-        super().__init__()
 
     # データ準備（共通コアへ委譲）
     def prepare_data(
@@ -47,31 +43,40 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         """候補生成（共通メソッド使用）"""
         top_n = self._get_top_n_setting(kwargs.get("top_n"))
         batch_size = self._get_batch_size_setting(len(data_dict))
+        # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
+        latest_only = bool(kwargs.pop("latest_only", False))
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf
 
-        return generate_candidates_system3(
+            _perf = get_global_perf()
+            if _perf is not None:
+                _perf.mark_system_start(self.SYSTEM_NAME)
+        except Exception:  # pragma: no cover
+            pass
+        result = generate_candidates_system3(
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
+            latest_only=latest_only,
             **kwargs,
         )
+        try:  # noqa: SIM105
+            from common.perf_snapshot import get_global_perf as _gpf
 
-    # バックテスト実行（共通シミュレーター）
-    def run_backtest(self, data_dict, candidates_by_date, capital, **kwargs):
-        on_progress = kwargs.get("on_progress", None)
-        on_log = kwargs.get("on_log", None)
-        trades_df, _ = simulate_trades_with_risk(
-            candidates_by_date,
-            data_dict,
-            capital,
-            self,
-            on_progress=on_progress,
-            on_log=on_log,
-            side="long",
-        )
-        return trades_df
+            _p2 = _gpf()
+            if _p2 is not None:
+                candidate_count = self._compute_candidate_count(result)
+                _p2.mark_system_end(
+                    self.SYSTEM_NAME,
+                    symbol_count=len(data_dict or {}),
+                    candidate_count=candidate_count,
+                )
+        except Exception:  # pragma: no cover
+            pass
+        return result
 
     # 共通シミュレーター用フック（System3）
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -86,9 +91,14 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
         ratio = float(self.config.get("entry_price_ratio_vs_prev_close", 0.93))
         entry_price = round(prev_close * ratio, 2)
-        try:
-            atr = float(df.iloc[entry_idx - 1]["ATR10"])
-        except Exception:
+        atr = None
+        for col in ("atr10", "ATR10"):
+            try:
+                atr = float(df.iloc[entry_idx - 1][col])
+                break
+            except Exception:
+                continue
+        if atr is None:
             return None
         stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM3))
         stop_price = entry_price - stop_mult * atr
@@ -121,13 +131,14 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
 
     def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float:
-        return (exit_price - entry_price) * shares
+        """ロングのPnL - 基底クラスのメソッドを使用。"""
+        return self.compute_pnl_long(entry_price, exit_price, shares)
 
     def prepare_minimal_for_test(self, raw_data_dict: dict) -> dict:
         out = {}
         for sym, df in raw_data_dict.items():
             x = df.copy()
-            x["SMA150"] = x["Close"].rolling(150).mean()
+            x["sma150"] = x["Close"].rolling(150).mean()
             out[sym] = x
         return out
 

@@ -5,11 +5,11 @@ NotImplementedError を回避してモジュールの機能をテストします
 カバレッジ80%以上を目指した詳細なテストを提供します。
 """
 
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -495,9 +495,8 @@ class TestCacheUpdateLogic(TestIndicatorsPrecompute):
 
                 # attrs属性の存在をチェック（エラーハンドリングも含めて）
                 try:
-                    skip_attr = getattr(result["SKIP_TEST"], "attrs", {}).get(
-                        "_precompute_skip_cache"
-                    )
+                    # skip_attr removed (unused)
+                    getattr(result["SKIP_TEST"], "attrs", {}).get("_precompute_skip_cache")
                     # 属性が設定されているかどうかは実装に依存するため、エラーが発生しないことのみ確認
                     self.assertIsNone(None)  # 常にパス
                 except Exception:
@@ -716,7 +715,8 @@ class TestParallelExecution(TestIndicatorsPrecompute):
             mock_get_settings.return_value = mock_settings
 
             if precompute_shared_indicators:
-                result = precompute_shared_indicators(
+                # result removed (unused)
+                precompute_shared_indicators(
                     test_data, parallel=False, log=mock_log  # シリアル実行でテスト
                 )
 
@@ -1159,7 +1159,8 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
         }
 
         if precompute_shared_indicators:
-            result = precompute_shared_indicators(test_data)
+            # result removed (unused)
+            precompute_shared_indicators(test_data)
 
             # 標準化が呼ばれたことを確認
             self.assertGreater(len(standardize_calls), 0)
@@ -1281,35 +1282,8 @@ class TestPRECOMPUTEDINDICATORS(TestIndicatorsPrecompute):
         """PRECOMPUTED_INDICATORS定数の内容テスト"""
         if PRECOMPUTED_INDICATORS:
             # 期待される指標が含まれていることを確認
-            expected_indicators = [
-                "ATR10",
-                "ATR20",
-                "ATR40",
-                "ATR50",
-                "SMA25",
-                "SMA50",
-                "SMA100",
-                "SMA150",
-                "SMA200",
-                "ROC200",
-                "RSI3",
-                "RSI4",
-                "ADX7",
-                "DollarVolume20",
-                "DollarVolume50",
-                "AvgVolume50",
-                "ATR_Ratio",
-                "ATR_Pct",
-                "Return_3D",
-                "Return_6D",
-                "Return_Pct",
-                "UpTwoDays",
-                "TwoDays",
-                "Drop3D",
-                "HV50",
-                "min_50",
-                "max_70",
-            ]
+            # リストの内容確認（変数削除）
+            assert len(PRECOMPUTED_INDICATORS) > 0
 
             # 一部の指標が含まれていることを確認（完全一致は不要）
             indicators_list = list(PRECOMPUTED_INDICATORS)

@@ -3,16 +3,17 @@ Comprehensive tests for core.system2 module.
 Focus on System2 RSI spike short strategy logic.
 """
 
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from core.system2 import (
     _compute_indicators,
-    prepare_data_vectorized_system2,
     generate_candidates_system2,
     get_total_days_system2,
+    prepare_data_vectorized_system2,
 )
 
 
@@ -34,7 +35,7 @@ def sample_system2_data():
             "atr10": np.random.rand(100) * 2,  # ATR10 values
             "dollarvolume20": np.random.randint(10_000_000, 100_000_000, 100),
             "atr_ratio": np.random.rand(100) * 0.1,  # ATR_Ratio values
-            "TwoDayUp": np.random.choice([True, False], 100),  # TwoDayUp (matching constants)
+            "twodayup": np.random.choice([True, False], 100),  # twodayup flag
             "filter": np.random.choice([True, False], 100),  # Filter column
             "setup": np.random.choice([True, False], 100),  # Setup column
         }
@@ -55,7 +56,7 @@ def sample_system2_data_with_setup():
             "atr10": [1.0] * 50,
             "dollarvolume20": [30_000_000] * 50,  # > 25M
             "atr_ratio": [0.05] * 50,  # > 0.03
-            "TwoDayUp": [True] * 50,  # TwoDayUp condition met (matching constants)
+            "twodayup": [True] * 50,  # twodayup condition met
             "filter": [True] * 50,  # Filter column
             "setup": [True] * 50,  # Setup column
         }

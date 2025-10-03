@@ -11,6 +11,7 @@ run_all_systems_today.py からロジックを分離（責務分割）:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 import pandas as pd
@@ -41,35 +42,91 @@ __all__ = [
 
 
 def _pick_series(df: pd.DataFrame, names: Sequence[str]):
-    """候補列名リストから最初に存在する列を Series として返す。
+    """候補列名から Series を返す。大小文字やアンダースコア差異を吸収する正規化検索を追加。
 
-    ・DataFrame（二重階層化）であれば先頭列を抽出
-    ・数値化できる場合は to_numeric で変換（エラーは握りつぶし）
-    見つからなければ None
+    優先順:
+      1. 与えられた順 (完全一致)
+      2. 正規化一致 (lower + '_' 除去)
+    見つかったら数値化 (coerce)。失敗時 None。
     """
+    if df is None:
+        return None
     try:
+        cols = list(df.columns)
+        if not cols:
+            return None
+
+        # 正規化マップ: key = lower + アンダースコア除去
+        def norm(s: str):
+            return s.replace("_", "").lower()
+
+        norm_map: dict[str, str] = {}
+        for c in cols:
+            n = norm(c)
+            # 先勝ち（最初の列を保持）
+            if n not in norm_map:
+                norm_map[n] = c
+
+        # 1) 完全一致探索
         for nm in names:
             if nm in df.columns:
-                s = df[nm]
-                if isinstance(s, pd.DataFrame):  # 2D -> 1D へ簡約
-                    try:
-                        if getattr(s, "ndim", None) == 2 and hasattr(s, "iloc"):
-                            s = s.iloc[:, 0]
-                        else:
-                            cols = list(s.columns or [])
-                            if cols:
-                                s = s[cols[0]]
-                            else:
-                                continue
-                    except Exception:
-                        continue
+                s_any = df[nm]
                 try:
-                    s = pd.to_numeric(s, errors="coerce")
+                    if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                        # 先頭列のみ使用
+                        s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 except Exception:
                     pass
-                return s
+                try:
+                    s_any = pd.to_numeric(s_any, errors="coerce")
+                except Exception:
+                    pass
+                return s_any
+
+        # 2) 正規化一致
+        for nm in names:
+            key = norm(nm)
+            real = norm_map.get(key)
+            if real is None:
+                continue
+            try:
+                s_any = df[real]
+                if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                    s_any = s_any.iloc[:, 0]  # type: ignore[index]
+                try:
+                    s_any = pd.to_numeric(s_any, errors="coerce")
+                except Exception:
+                    pass
+                return s_any
+            except Exception:
+                continue
     except Exception:
-        pass
+        return None
+    return None
+
+
+def _last_non_nan(series, lookback: int = 5):
+    """末尾から最大 lookback 件遡って最初に非 NaN の値を返す。なければ None。
+
+    指標末尾が一時的に NaN（インジ計算直後 / 欠損穴埋め前）でも直近の実値を利用して
+    不要な False 判定を避けるためのフォールバック。
+    """
+    try:
+        if series is None:
+            return None
+        tail = series.tail(lookback) if hasattr(series, "tail") else series
+        if hasattr(tail, "tolist"):
+            values = tail.tolist()
+        else:
+            values = list(tail)
+        for v in reversed(values):
+            try:
+                if v == v:  # not NaN
+                    return float(v)
+            except Exception:
+                continue
+    except Exception:
+        return None
     return None
 
 
@@ -188,30 +245,38 @@ def _resolve_atr_ratio(
 
 
 def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
-    close_series = _pick_series(df, ["Close", "close"])
+    close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     last_close = _last_scalar(close_series)
+    if last_close is None:
+        last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20"])
+    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
         dv20 = _calc_dollar_volume_from_series(close_series, volume_series, 20)
+        if dv20 is None:
+            dv20 = _last_non_nan(dv_series)
     dv_ok = bool(dv20 is not None and dv20 >= 50_000_000)
 
     return price_ok, dv_ok
 
 
 def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
-    close_series = _pick_series(df, ["Close", "close"])
+    close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     last_close = _last_scalar(close_series)
+    if last_close is None:
+        last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20"])
+    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
         dv20 = _calc_dollar_volume_from_series(close_series, volume_series, 20)
+        if dv20 is None:
+            dv20 = _last_non_nan(dv_series)
     dv_ok = bool(dv20 is not None and dv20 >= 25_000_000)
 
     atr_ratio = _resolve_atr_ratio(df, close_series, last_close)
@@ -223,13 +288,17 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     low_series = _pick_series(df, ["Low", "low"])
     low_val = _last_scalar(low_series)
+    if low_val is None:
+        low_val = _last_non_nan(low_series)
     low_ok = bool(low_val is not None and low_val >= 1)
 
-    av_series = _pick_series(df, ["AvgVolume50"])
+    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
     av_val = _last_scalar(av_series)
     if av_val is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
         av_val = _calc_average_volume_from_series(volume_series, 50)
+        if av_val is None:
+            av_val = _last_non_nan(av_series)
     av_ok = bool(av_val is not None and av_val >= 1_000_000)
 
     atr_ratio = _resolve_atr_ratio(df)
@@ -239,34 +308,42 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 
 
 def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
-    close_series = _pick_series(df, ["Close", "close"])
-    volume_series = _pick_series(df, ["Volume", "volume"])
-    dv_series = _pick_series(df, ["DollarVolume50"])
+    close_series = _pick_series(df, ["Close", "close", "CLOSE"])
+    volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
+    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+        if dv50 is None:
+            dv50 = _last_non_nan(dv_series)
     dv_ok = bool(dv50 is not None and dv50 > 100_000_000)
 
-    hv_series = _pick_series(df, ["HV50"])
+    hv_series = _pick_series(df, ["HV50", "hv50", "HV_50"])
     hv_val = _last_scalar(hv_series)
+    if hv_val is None:
+        hv_val = _last_non_nan(hv_series)
     hv_ok = bool(hv_val is not None and 10 <= hv_val <= 40)
 
     return dv_ok, hv_ok
 
 
 def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
-    volume_series = _pick_series(df, ["Volume", "volume"])
-    av_series = _pick_series(df, ["AvgVolume50"])
+    volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
+    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
     av_val = _last_scalar(av_series)
     if av_val is None:
         av_val = _calc_average_volume_from_series(volume_series, 50)
+        if av_val is None:
+            av_val = _last_non_nan(av_series)
     av_ok = bool(av_val is not None and av_val > 500_000)
 
-    close_series = _pick_series(df, ["Close", "close"])
-    dv_series = _pick_series(df, ["DollarVolume50"])
+    close_series = _pick_series(df, ["Close", "close", "CLOSE"])
+    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+        if dv50 is None:
+            dv50 = _last_non_nan(dv_series)
     dv_ok = bool(dv50 is not None and dv50 > 2_500_000)
 
     atr_series = _pick_series(df, ["ATR_Pct", "ATR_Ratio"])
@@ -281,14 +358,18 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     low_series = _pick_series(df, ["Low", "low"])
     low_val = _last_scalar(low_series)
+    if low_val is None:
+        low_val = _last_non_nan(low_series)
     low_ok = bool(low_val is not None and low_val >= 5)
 
-    close_series = _pick_series(df, ["Close", "close"])
-    volume_series = _pick_series(df, ["Volume", "volume"])
-    dv_series = _pick_series(df, ["DollarVolume50"])
+    close_series = _pick_series(df, ["Close", "close", "CLOSE"])
+    volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
+    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
+        if dv50 is None:
+            dv50 = _last_non_nan(dv_series)
     dv_ok = bool(dv50 is not None and dv50 > 10_000_000)
 
     return low_ok, dv_ok
@@ -384,11 +465,28 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
     total = len(symbols or [])
     dv_pass = 0
     hv_pass = 0
+    debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
+    debug_limit = 10
+    debug_count = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         dv_ok, hv_ok = _system4_conditions(df)
+        if debug_enabled and debug_count < debug_limit:
+            try:
+                # 末尾値を直接参照（可能なら）
+                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_val = _last_scalar(dv_series)
+                hv_series = _pick_series(df, ["HV50", "hv50", "HV_50"])  # type: ignore[misc]
+                hv_val = _last_scalar(hv_series)
+            except Exception:
+                dv_val = None
+                hv_val = None
+            print(
+                f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} hv_val={hv_val} hv_ok={hv_ok}"
+            )
+            debug_count += 1
         if not dv_ok:
             continue
         dv_pass += 1
@@ -409,11 +507,28 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
     av_pass = 0
     dv_pass = 0
     atr_pass = 0
+    debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
+    debug_limit = 10
+    debug_count = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
         av_ok, dv_ok, atr_ok = _system5_conditions(df)
+        if debug_enabled and debug_count < debug_limit:
+            try:
+                av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "AVGVOL50"])  # type: ignore[misc]
+                av_val = _last_scalar(av_series)
+                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_val = _last_scalar(dv_series)
+                atr_series = _pick_series(df, ["ATR_Pct", "atr_pct", "ATR_Ratio", "atr_ratio"])  # type: ignore[misc]
+                atr_val = _last_scalar(atr_series)
+            except Exception:
+                av_val = dv_val = atr_val = None
+            print(
+                f"[DBG system5] sym={sym} av_val={av_val} av_ok={av_ok} dv_val={dv_val} dv_ok={dv_ok} atr_val={atr_val} atr_ok={atr_ok}"
+            )
+            debug_count += 1
         if not av_ok:
             continue
         av_pass += 1

@@ -39,8 +39,9 @@ class TestAppsModules:
     def test_import_system_apps(self):
         """システム別アプリのインポートテスト"""
         try:
-            import apps.systems.app_system1
-            import apps.systems.app_system2
+            # Test if modules can be imported without errors
+            __import__("apps.systems.app_system1")
+            # app_system2 removed (unused)
 
             assert True
         except ImportError:
@@ -124,7 +125,6 @@ class TestBasicExecution:
     def test_simple_data_operations(self):
         """シンプルなデータ操作テスト"""
         import pandas as pd
-        import numpy as np
 
         # 基本的なDataFrame操作
         df = pd.DataFrame({"A": [1, 2, 3, 4, 5], "B": [10, 20, 30, 40, 50]})

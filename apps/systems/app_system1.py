@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-from common.cache_utils import save_prepared_data_cache
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.notifier import Notifier, now_jst_str
 from common.performance_summary import summarize as summarize_perf
@@ -21,9 +21,8 @@ from common.ui_components import (
     save_signal_and_trade_logs,
     show_signal_trade_summary,
 )
-import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_with_indicators
-from strategies.system1_strategy import System1Strategy
+from strategies import get_strategy
 
 # Notifier は存在しない環境もあるため安全にフォールバック
 try:  # noqa: WPS501
@@ -43,7 +42,15 @@ if not st.session_state.get("_integrated_ui", False):
 SYSTEM_NAME = "System1"
 DISPLAY_NAME = "システム1"
 
-strategy: System1Strategy = System1Strategy()
+
+# NOTE:
+#   直接 import 時に重い初期化が走ることを避けるため、strategy インスタンスは遅延生成する。
+#   テスト (test_app_imports) での軽量 import 通過を容易にし、不要なキャッシュ I/O を抑制。
+# 戦略取得は共通ファクトリを利用
+def _strategy():
+    return get_strategy("system1")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
@@ -62,6 +69,7 @@ def run_tab(
             return
         spy_df = new_df
     run_start = time.time()
+    strategy = _strategy()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -90,8 +98,7 @@ def run_tab(
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
             save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
-        if data_dict is not None:
-            save_prepared_data_cache(data_dict, SYSTEM_NAME)
+        # Prepared data cache save removed (deprecated feature)
 
         summary, df2 = summarize_perf(results_df, capital)
         # 統合タブと同じ算出（ピーク資産比の%）で表示
@@ -244,5 +251,5 @@ def run_tab(
 if __name__ == "__main__":
     import sys
 
-    if "streamlit" not in sys.argv[0]:
+    if "streamlit" not in sys.argv[0]:  # 直接 python 実行時のみ
         run_tab()

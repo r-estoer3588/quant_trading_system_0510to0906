@@ -1,15 +1,19 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 import time
 
 import pandas as pd
 from ta.volatility import AverageTrueRange
 
+from common.batch_processing import process_symbols_batch
 from common.i18n import tr
-from common.utils import BatchSizeMonitor, get_cached_data, is_today_run, resolve_batch_size
+from common.structured_logging import MetricsCollector
+from common.utils import resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
+
+# System6 configuration constants
+MIN_PRICE = 5.0  # 最低価格フィルター（ドル）
+MIN_DOLLAR_VOLUME_50 = 10_000_000  # 最低ドルボリューム50日平均（ドル）
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 SYSTEM6_FEATURE_COLUMNS = [
@@ -32,19 +36,79 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     x = x.sort_index()
     if len(x) < 50:
         raise ValueError("insufficient rows")
+
+
+def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
+    missing = [col for col in SYSTEM6_BASE_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"missing columns: {', '.join(missing)}")
+    x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
+    x = x.sort_index()
+    if len(x) < 50:
+        raise ValueError("insufficient rows")
+
+    # フォールバック使用回数を記録するためのMetricsCollector
+    from common.structured_logging import MetricsCollector
+
+    metrics = MetricsCollector()
+
     try:
-        x["atr10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
-        x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-        x["return_6d"] = x["Close"].pct_change(6)
-        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-            x["Close"].shift(1) > x["Close"].shift(2)
-        )
+        # 🚀 プリコンピューテッド指標を使用（すべての指標を最適化）
+
+        # ATR10
+        if "ATR10" in df.columns:
+            x["atr10"] = df["ATR10"]
+        elif "atr10" in df.columns:
+            x["atr10"] = df["atr10"]
+        else:
+            # フォールバック（通常は実行されない）
+            metrics.record_metric("system6_fallback_atr10", 1, "count")
+            x["atr10"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=10
+            ).average_true_range()
+
+        # DollarVolume50
+        if "DollarVolume50" in df.columns:
+            x["dollarvolume50"] = df["DollarVolume50"]
+        elif "dollarvolume50" in df.columns:
+            x["dollarvolume50"] = df["dollarvolume50"]
+        else:
+            # フォールバック（通常は実行されない）
+            metrics.record_metric("system6_fallback_dollarvolume50", 1, "count")
+            x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
+
+        # Return_6D
+        if "Return_6D" in df.columns:
+            x["return_6d"] = df["Return_6D"]
+        elif "return_6d" in df.columns:
+            x["return_6d"] = df["return_6d"]
+        else:
+            # フォールバック（通常は実行されない）
+            metrics.record_metric("system6_fallback_return_6d", 1, "count")
+            x["return_6d"] = x["Close"].pct_change(6)
+
+        # UpTwoDays
+        if "UpTwoDays" in df.columns:
+            x["UpTwoDays"] = df["UpTwoDays"]
+        elif "uptwodays" in df.columns:
+            x["UpTwoDays"] = df["uptwodays"]
+        else:
+            # フォールバック（通常は実行されない）
+            metrics.record_metric("system6_fallback_uptwodays", 1, "count")
+            x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
+                x["Close"].shift(1) > x["Close"].shift(2)
+            )
+
+        # フィルターとセットアップ条件（軽量な論理演算）
         x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
+
     except Exception as exc:
-        raise ValueError("calc_error") from exc
+        raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc
+
+    x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
+    if x.empty:
+        raise ValueError("insufficient rows")
     x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
     if x.empty:
         raise ValueError("insufficient rows")
@@ -54,94 +118,6 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     return x
 
 
-def _load_system6_cache(cache_path: str) -> pd.DataFrame | None:
-    if not os.path.exists(cache_path):
-        return None
-    try:
-        cached = pd.read_feather(cache_path)
-    except Exception:
-        return None
-    for col in ("Date", "date", "index"):
-        if col in cached.columns:
-            cached = cached.rename(columns={col: "Date"})
-            break
-    else:
-        return None
-    try:
-        cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
-        cached.set_index("Date", inplace=True)
-    except Exception:
-        return None
-    cached = cached.sort_index()
-    if not set(SYSTEM6_ALL_COLUMNS).issubset(cached.columns):
-        return None
-    cached = cached.loc[:, SYSTEM6_ALL_COLUMNS].copy()
-    cached = cached.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
-    if cached.empty:
-        return None
-    cached = cached.loc[~cached.index.duplicated()].sort_index()
-    cached.index = pd.to_datetime(cached.index).tz_localize(None)
-    cached.index.name = "Date"
-    return cached
-
-
-def _save_system6_cache(cache_path: str, df: pd.DataFrame) -> None:
-    try:
-        out = df.loc[:, SYSTEM6_ALL_COLUMNS].copy()
-        out.index = pd.to_datetime(out.index).tz_localize(None)
-        out.index.name = "Date"
-        out.reset_index().to_feather(cache_path)
-    except Exception:
-        pass
-
-
-def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
-    df = get_cached_data(symbol)
-    if df is None or df.empty:
-        return symbol, None
-    # 子プロセスから親へ簡易進捗を送る（存在すれば）
-    try:
-        q = globals().get("_PROGRESS_QUEUE")
-        if q is not None:
-            try:
-                q.put((symbol, 0))
-            except Exception:
-                pass
-    except Exception:
-        pass
-    df = df.copy()
-    rename_map = {}
-    for low, up in (
-        ("open", "Open"),
-        ("high", "High"),
-        ("low", "Low"),
-        ("close", "Close"),
-        ("volume", "Volume"),
-    ):
-        if low in df.columns and up not in df.columns:
-            rename_map[low] = up
-    if rename_map:
-        df.rename(columns=rename_map, inplace=True)
-    try:
-        prepared = _compute_indicators_from_frame(df)
-    except ValueError:
-        return symbol, None
-    except Exception:
-        return symbol, None
-    # 完了を親に伝える
-    try:
-        q = globals().get("_PROGRESS_QUEUE")
-        if q is not None:
-            try:
-                q.put((symbol, 100))
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    return symbol, prepared
-
-
 def prepare_data_vectorized_system6(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
@@ -149,292 +125,49 @@ def prepare_data_vectorized_system6(
     log_callback=None,
     skip_callback=None,
     batch_size: int | None = None,
-    reuse_indicators: bool = True,
-    symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
     **kwargs,
 ) -> dict[str, pd.DataFrame]:
-    cache_dir = "data_cache/indicators_system6_cache"
-    os.makedirs(cache_dir, exist_ok=True)
-    result_dict: dict[str, pd.DataFrame] = {}
-    raw_data_dict = raw_data_dict or {}
-    if use_process_pool:
-        if symbols is None:
-            symbols = list(raw_data_dict.keys())
-        total = len(symbols)
-        if batch_size is None:
-            try:
-                from config.settings import get_settings
+    """System6 data preparation using standard batch processing pattern"""
 
-                batch_size = get_settings(create_dirs=False).data.batch_size
-            except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(total, batch_size)
+    if not raw_data_dict:
+        if log_callback:
+            log_callback("System6: No raw data provided, returning empty dict")
+        return {}
 
-        pool_buffer: list[str] = []
-        start_time = time.time()
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_compute_indicators, s): s for s in symbols}
-            for i, fut in enumerate(as_completed(futures), 1):
-                sym, df = fut.result()
-                if df is not None:
-                    result_dict[sym] = df
-                    pool_buffer.append(sym)
-                else:
-                    if skip_callback:
-                        try:
-                            skip_callback(sym, "pool_skipped")
-                        except Exception:
-                            try:
-                                skip_callback(f"{sym}: pool_skipped")
-                            except Exception:
-                                pass
-                if progress_callback:
-                    try:
-                        progress_callback(i, total)
-                    except Exception:
-                        pass
-                if (i % batch_size == 0 or i == total) and log_callback:
-                    elapsed = time.time() - start_time
-                    remain = (elapsed / i) * (total - i) if i else 0
-                    em, es = divmod(int(elapsed), 60)
-                    rm, rs = divmod(int(remain), 60)
-                    msg = tr(
-                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                        "remain: ~{rm}m{rs}s",
-                        done=i,
-                        total=total,
-                        em=em,
-                        es=es,
-                        rm=rm,
-                        rs=rs,
-                    )
-                    if pool_buffer:
-                        try:
-                            today_mode = is_today_run()
-                        except Exception:
-                            today_mode = False
-                        if not today_mode:
-                            # Avoid logging very long symbol lists; show concise sample and count
-                            sample = ", ".join(pool_buffer[:10])
-                            more = len(pool_buffer) - len(pool_buffer[:10])
-                            if more > 0:
-                                sample = f"{sample}, ...(+{more} more)"
-                            msg += "\n" + tr("symbols: {names}", names=sample)
-                    try:
-                        log_callback(msg)
-                    except Exception:
-                        pass
-                    pool_buffer.clear()
-        return result_dict
+    target_symbols = list(raw_data_dict.keys())
 
-    total = len(raw_data_dict)
-    if batch_size is None:
-        try:
-            from config.settings import get_settings
+    if log_callback:
+        log_callback(f"System6: Starting processing for {len(target_symbols)} symbols")
 
-            batch_size = get_settings(create_dirs=False).data.batch_size
-        except Exception:
-            batch_size = 100
-        batch_size = resolve_batch_size(total, batch_size)
-    start_time = time.time()
-    batch_monitor = BatchSizeMonitor(batch_size)
-    batch_start = time.time()
-    processed, skipped = 0, 0
-    skipped_insufficient_rows = 0
-    skipped_missing_cols = 0
-    skipped_calc_errors = 0
-    buffer: list[str] = []
-
-    def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
-        return _compute_indicators_from_frame(src)
-
-    for sym, df in raw_data_dict.items():
-        df = df.copy()
-        rename_map = {}
-        for low, up in (
-            ("open", "Open"),
-            ("high", "High"),
-            ("low", "Low"),
-            ("close", "Close"),
-            ("volume", "Volume"),
-        ):
-            if low in df.columns and up not in df.columns:
-                rename_map[low] = up
-        if rename_map:
-            df.rename(columns=rename_map, inplace=True)
-
-        if "Date" in df.columns:
-            df.index = pd.Index(pd.to_datetime(df["Date"]).dt.normalize())
-        elif "date" in df.columns:
-            df.index = pd.Index(pd.to_datetime(df["date"]).dt.normalize())
-        else:
-            df.index = pd.Index(pd.to_datetime(df.index).normalize())
-
-        cache_path = os.path.join(cache_dir, f"{sym}.feather")
-        cached: pd.DataFrame | None = None
-        if reuse_indicators and os.path.exists(cache_path):
-            cached = _load_system6_cache(cache_path)
+    # Create a closure to pass raw_data_dict to the compute function
+    def _compute_indicators_with_data(symbol: str) -> tuple[str, pd.DataFrame | None]:
+        """Indicator calculation function that uses provided raw data"""
+        df = raw_data_dict.get(symbol)
+        if df is None or df.empty:
+            return symbol, None
 
         try:
-            # Fast-path: todayモードでは最小限の列のみ補完して省力化
-            if reuse_indicators:
-                x = df.loc[:, SYSTEM6_BASE_COLUMNS].copy()
-                x = x.sort_index()
-                if len(x) < 50:
-                    raise ValueError("insufficient_rows")
-                # 既存があれば流用、無ければ最小限の計算で補完
-                if "atr10" in df.columns:
-                    x["atr10"] = pd.to_numeric(df["atr10"], errors="coerce")
-                else:
-                    x["atr10"] = AverageTrueRange(
-                        x["High"], x["Low"], x["Close"], window=10
-                    ).average_true_range()
-                if "dollarvolume50" in df.columns:
-                    x["dollarvolume50"] = pd.to_numeric(df["dollarvolume50"], errors="coerce")
-                else:
-                    x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
-                # 派生（軽量）
-                x["return_6d"] = x["Close"].pct_change(6)
-                x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-                    x["Close"].shift(1) > x["Close"].shift(2)
-                )
-                x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
-                x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
-                x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
-                x = x.loc[~x.index.duplicated()].sort_index()
-                x.index = pd.to_datetime(x.index).tz_localize(None)
-                x.index.name = "Date"
-                result_df = x
-                _save_system6_cache(cache_path, result_df)
-                result_dict[sym] = result_df
-                buffer.append(sym)
-            else:
-                # 通常パス（キャッシュ差分再計算 or フル計算）
-                if cached is not None and not cached.empty:
-                    last_date = cached.index.max()
-                    new_rows = df[df.index > last_date]
-                    if new_rows.empty:
-                        result_df = cached
-                    else:
-                        context_start = last_date - pd.Timedelta(days=50)
-                        recompute_src = df[df.index >= context_start]
-                        recomputed = _calc_indicators(recompute_src)
-                        recomputed = recomputed[recomputed.index > last_date]
-                        result_df = pd.concat([cached, recomputed])
-                        result_df = result_df.loc[
-                            ~result_df.index.duplicated(keep="last")
-                        ].sort_index()
-                else:
-                    result_df = _calc_indicators(df)
-                _save_system6_cache(cache_path, result_df)
-                result_dict[sym] = result_df
-                buffer.append(sym)
-        except ValueError as e:
-            skipped += 1
-            # 分類: insufficient_rows or calc_error
-            try:
-                msg = str(e).lower()
-                reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
-            except Exception:
-                reason = "calc_error"
-            if reason == "insufficient_rows":
-                skipped_insufficient_rows += 1
-            else:
-                skipped_calc_errors += 1
-            if skip_callback:
-                try:
-                    skip_callback(sym, reason)
-                except Exception:
-                    try:
-                        skip_callback(f"{sym}: {reason}")
-                    except Exception:
-                        pass
+            prepared = _compute_indicators_from_frame(df)
+            return symbol, prepared
         except Exception:
-            skipped += 1
-            skipped_calc_errors += 1
-            if skip_callback:
-                try:
-                    skip_callback(sym, "calc_error")
-                except Exception:
-                    try:
-                        skip_callback(f"{sym}: calc_error")
-                    except Exception:
-                        pass
+            return symbol, None
 
-        processed += 1
-        if progress_callback:
-            try:
-                progress_callback(processed, total)
-            except Exception:
-                pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
-            elapsed = time.time() - start_time
-            remain = (elapsed / processed) * (total - processed) if processed else 0
-            em, es = divmod(int(elapsed), 60)
-            rm, rs = divmod(int(remain), 60)
-            msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
-                done=processed,
-                total=total,
-                em=em,
-                es=es,
-                rm=rm,
-                rs=rs,
-            )
-            if buffer:
-                try:
-                    today_mode = is_today_run()
-                except Exception:
-                    today_mode = False
-                if not today_mode:
-                    # Show concise sample instead of full list
-                    sample = ", ".join(buffer[:10])
-                    more = len(buffer) - len(buffer[:10])
-                    if more > 0:
-                        sample = f"{sample}, ...(+{more} more)"
-                    msg += "\n" + tr("symbols: {names}", names=sample)
-            batch_duration = time.time() - batch_start
-            batch_size = batch_monitor.update(batch_duration)
-            batch_start = time.time()
-            try:
-                log_callback(msg)
-                log_callback(
-                    tr(
-                        "⏱️ batch time: {sec:.2f}s | next batch size: {size}",
-                        sec=batch_duration,
-                        size=batch_size,
-                    )
-                )
-            except Exception:
-                pass
-            buffer.clear()
+    # Execute batch processing using standard pattern
+    results, error_symbols = process_symbols_batch(
+        target_symbols,
+        _compute_indicators_with_data,
+        batch_size=batch_size,
+        use_process_pool=use_process_pool,
+        max_workers=max_workers,
+        progress_callback=progress_callback,
+        log_callback=log_callback,
+        skip_callback=skip_callback,
+        system_name="System6",
+    )
 
-    # 集計サマリーはログにのみ出力（skip_callback で集計を汚染しない）
-    if skipped > 0 and log_callback:
-        try:
-            log_callback(f"⚠️ データ不足/計算失敗でスキップ: {skipped} 件")
-            if skipped_insufficient_rows:
-                try:
-                    log_callback(f"  ├─ 行数不足(<50): {skipped_insufficient_rows} 件")
-                except Exception:
-                    pass
-            if skipped_missing_cols:
-                try:
-                    log_callback(f"  ├─ 必須列欠落: {skipped_missing_cols} 件")
-                except Exception:
-                    pass
-            if skipped_calc_errors:
-                try:
-                    log_callback(f"  └─ 計算エラー: {skipped_calc_errors} 件")
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    return result_dict
+    return results
 
 
 def generate_candidates_system6(
@@ -448,6 +181,10 @@ def generate_candidates_system6(
 ) -> tuple[dict, pd.DataFrame | None]:
     candidates_by_date: dict[pd.Timestamp, list] = {}
     total = len(prepared_dict)
+
+    # MetricsCollector初期化
+    metrics = MetricsCollector()
+
     if batch_size is None:
         try:
             from config.settings import get_settings
@@ -457,6 +194,7 @@ def generate_candidates_system6(
             batch_size = 100
         batch_size = resolve_batch_size(total, batch_size)
     start_time = time.time()
+    batch_start = time.time()
     processed, skipped = 0, 0
     skipped_missing_cols = 0
     buffer: list[str] = []
@@ -544,6 +282,17 @@ def generate_candidates_system6(
                 log_callback(msg)
             except Exception:
                 pass
+
+            # バッチ性能記録
+            batch_duration = time.time() - batch_start
+            if batch_duration > 0:
+                rows_per_second = len(buffer) / batch_duration
+                metrics.record_metric(
+                    "system6_candidates_batch_duration", batch_duration, "seconds"
+                )
+                metrics.record_metric("system6_candidates_rows_per_second", rows_per_second, "rate")
+
+            batch_start = time.time()
             buffer.clear()
 
     limit_n = int(top_n)
@@ -573,6 +322,23 @@ def generate_candidates_system6(
                 log_callback(line)
         except Exception:
             pass
+
+    # 最終メトリクス記録
+    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    unique_dates = len(candidates_by_date)
+    metrics.record_metric("system6_total_candidates", total_candidates, "count")
+    metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
+    metrics.record_metric("system6_processed_symbols_candidates", processed, "count")
+
+    if log_callback:
+        try:
+            log_callback(
+                f"📊 System6 候補生成完了: {total_candidates}件の候補 "
+                f"({unique_dates}日分, {processed}シンボル処理)"
+            )
+        except Exception:
+            pass
+
     return candidates_by_date, None
 
 

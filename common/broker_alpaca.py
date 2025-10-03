@@ -1,37 +1,49 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
 import os
 import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from dotenv import load_dotenv
 
 try:  # pragma: no cover - SDK 未導入環境でも壊れないように
-    from alpaca.trading.client import TradingClient  # type: ignore
+    from alpaca.trading.client import TradingClient
 
     try:
-        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
+        from alpaca.trading.enums import (
+            OrderClass,
+            OrderSide,
+            QueryOrderStatus,
+            TimeInForce,
+        )
     except ImportError:
-        from alpaca.trading.models.enums import OrderClass, OrderSide, TimeInForce  # type: ignore
-    from alpaca.trading.requests import (  # type: ignore
+        from alpaca.trading.models.enums import (
+            OrderClass,
+            OrderSide,
+            QueryOrderStatus,
+            TimeInForce,
+        )
+    from alpaca.trading.requests import (
+        GetOrdersRequest,
         LimitOrderRequest,
         MarketOrderRequest,
         StopLossRequest,
         TakeProfitRequest,
         TrailingStopOrderRequest,
     )
-    from alpaca.trading.stream import TradingStream  # type: ignore
+    from alpaca.trading.stream import TradingStream
 except Exception:  # pragma: no cover
-    TradingClient = None  # type: ignore
-    OrderSide = OrderClass = TimeInForce = None  # type: ignore
-    MarketOrderRequest = None  # type: ignore
-    LimitOrderRequest = None  # type: ignore
-    TakeProfitRequest = None  # type: ignore
-    StopLossRequest = None  # type: ignore
-    TrailingStopOrderRequest = None  # type: ignore
-    TradingStream = None  # type: ignore
+    TradingClient = None
+    OrderSide = OrderClass = TimeInForce = QueryOrderStatus = None
+    MarketOrderRequest = None
+    LimitOrderRequest = None
+    GetOrdersRequest = None
+    TakeProfitRequest = None
+    StopLossRequest = None
+    TrailingStopOrderRequest = None
+    TradingStream = None
 
 
 def _require_sdk() -> None:
@@ -55,7 +67,7 @@ def get_client(
     """TradingClient を生成して返す。
 
     - paper: None の場合は `ALPACA_PAPER` を '1/true/yes/on' として解釈（デフォルト True）
-    - api_key/secret_key: 未指定なら .env から `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`
+    - api_key/secret_key: 未指定なら .env から `APCA_API_KEY_ID`/`APCA_API_SECRET_KEY`
     """
     _require_sdk()
     _load_env_once()
@@ -68,18 +80,18 @@ def get_client(
             "y",
             "on",
         )
-    api_key = api_key or os.getenv("ALPACA_API_KEY")
-    secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
+    api_key = api_key or os.getenv("APCA_API_KEY_ID")
+    secret_key = secret_key or os.getenv("APCA_API_SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError(
-            "ALPACA_API_KEY/ALPACA_SECRET_KEY が .env に設定されていません。",
+            "APCA_API_KEY_ID/APCA_API_SECRET_KEY が .env に設定されていません。",
         )
 
-    return TradingClient(
+    return TradingClient(  # type: ignore[misc]
         api_key,
         secret_key,
         paper=bool(paper),
-    )  # type: ignore[arg-type]
+    )
 
 
 def submit_order(
@@ -105,14 +117,14 @@ def submit_order(
 
     if OrderSide is None:
         raise RuntimeError("Alpaca SDK is not installed or OrderSide is unavailable.")
-    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL  # type: ignore[attr-defined]
+    side_enum = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
     if TimeInForce is None:
         raise RuntimeError("Alpaca SDK is not installed or TimeInForce is unavailable.")
     tif = (
         getattr(TimeInForce, time_in_force.upper())
         if hasattr(TimeInForce, time_in_force.upper())
         else TimeInForce.GTC
-    )  # type: ignore[attr-defined]
+    )
 
     if order_type == "market":
         req = MarketOrderRequest(  # type: ignore[call-arg]
@@ -164,9 +176,7 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            msg = (
-                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
-            )
+            msg = f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
             log_callback(msg)
         except Exception:
             pass
@@ -254,13 +264,26 @@ def get_orders_status_map(client, order_ids: Iterable[str]) -> dict[str, Any]:
 
 def log_orders_positions(client) -> tuple[Any, Any]:
     """現在の注文とポジションを同時に取得する."""
+    if GetOrdersRequest is None or QueryOrderStatus is None:
+        raise RuntimeError("alpaca-py がインストールされていません。")
+
     # 並列取得で待ち時間を短縮
     with ThreadPoolExecutor(max_workers=2) as executor:
-        orders_future = executor.submit(client.get_orders, status="all")
+        orders_future = executor.submit(
+            client.get_orders, GetOrdersRequest(status=QueryOrderStatus.ALL)
+        )
         positions_future = executor.submit(client.get_all_positions)
         orders = orders_future.result()
         positions = positions_future.result()
     return orders, positions
+
+
+def get_open_orders(client) -> Any:
+    """未約定注文を取得する."""
+    if GetOrdersRequest is None or QueryOrderStatus is None:
+        raise RuntimeError("alpaca-py がインストールされていません。")
+
+    return client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
 
 
 def cancel_all_orders(client) -> None:
@@ -304,6 +327,7 @@ __all__ = [
     "log_orders_positions",
     "cancel_all_orders",
     "subscribe_order_updates",
+    "reset_paper_cash",
 ]
 
 
@@ -329,3 +353,140 @@ def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
             # On error per-symbol, leave it out (unknown)
             continue
     return out
+
+
+# ----------------------------------------------------------------------------
+# Paper cash reset (best-effort / unofficial)
+# ----------------------------------------------------------------------------
+def reset_paper_cash(
+    target_cash: float | int,
+    *,
+    api_key: str | None = None,
+    secret_key: str | None = None,
+    log_callback=None,
+    dry_run: bool = False,
+) -> dict[str, Any]:  # pragma: no cover - ネットワーク依存機能
+    """ペーパーアカウントの現金残高を再設定しようと試みる補助関数。
+
+    注意: Alpaca 現行 API / SDK では公式に *任意金額へ直接リセット* する公開エンドポイントは
+    提供されていません。過去 (tradeapi.REST.patch_account) の挙動に倣った互換的ベストエフォートです。
+
+    実装方針:
+      1. paper 環境のみ許可 (live では即座に例外)
+      2. 非公式 PATCH /v2/account を試行 (失敗時はエラーを返却)
+      3. 失敗理由を含む dict を返す (呼び出し側は UI で表示)
+
+    戻り値:
+      {"ok": bool, "status": int | None, "error": str | None, "raw": dict | None}
+
+    dry_run=True の場合は実行せず成功想定のみ返します。
+    """
+
+    # 型と値の正規化
+    try:
+        cash_val = float(target_cash)
+        if cash_val <= 0:
+            raise ValueError("target_cash は正の数である必要があります")
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "status": None,
+            "error": f"invalid target_cash: {exc}",
+            "raw": None,
+        }
+
+    # SDK が存在しない環境ではネットワーク呼び出しを避ける
+    if TradingClient is None:
+        return {
+            "ok": False,
+            "status": None,
+            "error": "alpaca-py 未インストール",
+            "raw": None,
+        }
+
+    _load_env_once()
+    api_key = api_key or os.getenv("APCA_API_KEY_ID")
+    secret_key = secret_key or os.getenv("APCA_API_SECRET_KEY")
+    if not api_key or not secret_key:
+        return {"ok": False, "status": None, "error": "APIキー未設定", "raw": None}
+
+    # paper 以外禁止 (保護)
+    if os.getenv("ALPACA_PAPER", "true").lower() not in ("1", "true", "yes", "on", "y"):
+        return {
+            "ok": False,
+            "status": None,
+            "error": "live環境では実行禁止です",
+            "raw": None,
+        }
+
+    # dry-run モード
+    if dry_run:
+        if log_callback:
+            try:
+                log_callback(f"[dry-run] Reset paper cash -> ${cash_val:,.2f}")
+            except Exception:  # noqa: BLE001
+                pass
+        return {
+            "ok": True,
+            "status": None,
+            "error": None,
+            "raw": {"dry_run": True, "cash": cash_val},
+        }
+
+    try:
+        import requests  # type: ignore
+    except Exception:  # pragma: no cover - requests 無し環境
+        return {
+            "ok": False,
+            "status": None,
+            "error": "requests 未インストール",
+            "raw": None,
+        }
+
+    url = "https://paper-api.alpaca.markets/v2/account"
+    headers = {
+        "APCA-API-KEY-ID": api_key,
+        "APCA-API-SECRET-KEY": secret_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    payload = {"cash": f"{cash_val:.2f}"}
+    try:
+        resp = requests.patch(url, json=payload, headers=headers, timeout=10)
+    except Exception as exc:  # pragma: no cover - ネットワーク例外
+        return {
+            "ok": False,
+            "status": None,
+            "error": f"request error: {exc}",
+            "raw": None,
+        }
+
+    status = resp.status_code
+    raw_json: Any | None
+    try:
+        raw_json = resp.json()
+    except Exception:  # noqa: BLE001
+        raw_json = None
+
+    ok = 200 <= status < 300
+    if ok:
+        if log_callback:
+            try:
+                log_callback(
+                    f"✅ Paper cash reset success -> ${cash_val:,.2f} (status {status})"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True, "status": status, "error": None, "raw": raw_json}
+    else:
+        err = None
+        if isinstance(raw_json, dict):
+            err = raw_json.get("message") or raw_json.get("error")
+        if not err:
+            err = f"HTTP {status}"
+        if log_callback:
+            try:
+                log_callback(f"❌ Paper cash reset failed: {err}")
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": False, "status": status, "error": err, "raw": raw_json}

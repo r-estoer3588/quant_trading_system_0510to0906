@@ -1,11 +1,11 @@
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-from common.cache_utils import save_prepared_data_cache
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
@@ -17,9 +17,8 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_data_cached
-from strategies.system4_strategy import System4Strategy
+from strategies import get_strategy
 
 # 翻訳辞書ロード + 言語選択
 load_translations_from_dir(Path(__file__).parent / "translations")
@@ -29,7 +28,11 @@ if not st.session_state.get("_integrated_ui", False):
 SYSTEM_NAME = "System4"
 DISPLAY_NAME = "システム4"
 
-strategy: System4Strategy = System4Strategy()
+
+def _strategy():
+    return get_strategy("system4")
+
+
 notifiers: list[Notifier] = get_notifiers_from_env()
 
 
@@ -125,6 +128,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
     run_start = time.time()
+    strategy = _strategy()
     _rb = cast(
         tuple[
             pd.DataFrame | None,
@@ -161,8 +165,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
                 SYSTEM_NAME,
                 capital,
             )
-        if data_dict is not None:
-            save_prepared_data_cache(data_dict, SYSTEM_NAME)
+        # Prepared data cache save removed (deprecated feature)
         summary, df2 = summarize_perf(results_df, capital)
         try:
             _max_dd = float(df2["drawdown"].min())

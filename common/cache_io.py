@@ -13,6 +13,15 @@ import pandas as pd
 
 from common.cache_format import write_dataframe_to_csv
 
+# 遅延インポート（存在しない場合は静かに無視: テスト互換）
+try:  # noqa: SIM105
+    from common.perf_snapshot import increment_cache_io  # type: ignore
+except Exception:  # pragma: no cover - perf 未使用時
+
+    def increment_cache_io(kind: str) -> None:  # type: ignore
+        return
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +47,9 @@ class CacheFileManager:
             else:
                 return csv_path
 
-    def read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
+    def read_with_fallback(
+        self, path: Path, ticker: str, profile: str
+    ) -> pd.DataFrame | None:
         """指定パスからデータを読み込み、失敗時はフォールバック。"""
         if not path.exists():
             return None
@@ -46,8 +57,10 @@ class CacheFileManager:
         try:
             if path.suffix == ".feather":
                 df = pd.read_feather(path)
+                increment_cache_io("read_feather")
             else:
                 df = pd.read_csv(path)
+                increment_cache_io("read_csv")
 
             if df is not None and not df.empty:
                 # 列名を小文字に統一
@@ -63,6 +76,7 @@ class CacheFileManager:
                 if csv_path.exists():
                     try:
                         df = pd.read_csv(csv_path)
+                        increment_cache_io("read_csv")
                         if df is not None and not df.empty:
                             df.columns = [str(col).lower() for col in df.columns]
                         logger.info(f"[{profile}] {ticker}: CSV フォールバック成功")
@@ -72,7 +86,9 @@ class CacheFileManager:
 
             return None
 
-    def write_atomic(self, df: pd.DataFrame, path: Path, ticker: str, profile: str) -> None:
+    def write_atomic(
+        self, df: pd.DataFrame, path: Path, ticker: str, profile: str
+    ) -> None:
         """データフレームをアトミック書き込みで保存する。"""
         if df is None or df.empty:
             logger.warning(f"[{profile}] {ticker}: 空のDataFrameをスキップ")
@@ -85,9 +101,11 @@ class CacheFileManager:
             if path.suffix == ".feather":
                 # Feather形式で保存
                 df.to_feather(temp_path)
+                increment_cache_io("write_feather")
             else:
                 # CSV形式で保存（フォーマット処理込み）
                 write_dataframe_to_csv(df, temp_path, self.settings)
+                increment_cache_io("write_csv")
 
             # アトミック移動
             temp_path.replace(path)
@@ -118,12 +136,17 @@ class CacheFileManager:
                             max_val = optimized[col].max()
 
                             # float32で表現可能な範囲内ならダウンキャスト
-                            if -3.4e38 <= min_val <= 3.4e38 and -3.4e38 <= max_val <= 3.4e38:
+                            if (
+                                -3.4e38 <= min_val <= 3.4e38
+                                and -3.4e38 <= max_val <= 3.4e38
+                            ):
                                 optimized[col] = optimized[col].astype("float32")
 
                     # 整数の最適化
                     elif pd.api.types.is_integer_dtype(optimized[col]):
-                        optimized[col] = pd.to_numeric(optimized[col], downcast="integer")
+                        optimized[col] = pd.to_numeric(
+                            optimized[col], downcast="integer"
+                        )
 
                 except Exception:
                     # 最適化に失敗しても元のデータを保持
@@ -143,7 +166,9 @@ class CacheFileManager:
 
         # keep_columns に含まれる列のみ保持
         keep_columns_lower = [col.lower() for col in keep_columns]
-        available_cols = [col for col in df.columns if col.lower() in keep_columns_lower]
+        available_cols = [
+            col for col in df.columns if col.lower() in keep_columns_lower
+        ]
 
         if not available_cols:
             return df

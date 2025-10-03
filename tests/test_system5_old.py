@@ -6,6 +6,21 @@ from core.system5 import DEFAULT_ATR_PCT_THRESHOLD
 from strategies.constants import FALLBACK_EXIT_DAYS_DEFAULT
 from strategies.system5_strategy import System5Strategy
 
+# Import needed functions from archived version
+try:
+    from tools.archive.system5_old import _compute_indicators_frame, _rename_ohlcv
+except ImportError:
+    # Fallback implementations if not available
+    def _compute_indicators_frame(df):
+        """Minimal fallback implementation"""
+        from common.indicators_common import add_indicators
+
+        return add_indicators(df)
+
+    def _rename_ohlcv(df):
+        """Minimal fallback implementation"""
+        return df.rename(columns=str.upper)
+
 
 @pytest.fixture
 def dummy_data():
