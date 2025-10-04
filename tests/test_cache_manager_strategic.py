@@ -164,7 +164,11 @@ class TestUtilityFunctionsCoverage:
 
         # Test with DataFrame containing exact column
         exact_match_df = pd.DataFrame(
-            {"sma_20": [100, 101, 102], "sma_50": [95, 96, 97], "close": [105, 106, 107]}
+            {
+                "sma_20": [100, 101, 102],
+                "sma_50": [95, 96, 97],
+                "close": [105, 106, 107],
+            }
         )
         result = get_indicator_column_flexible(exact_match_df, "sma_20")
         assert result is not None
@@ -184,7 +188,11 @@ class TestUtilityFunctionsCoverage:
 
         # Test with DataFrame without matching columns
         no_match_df = pd.DataFrame(
-            {"ema_12": [100, 101, 102], "rsi_14": [50, 55, 60], "close": [105, 106, 107]}
+            {
+                "ema_12": [100, 101, 102],
+                "rsi_14": [50, 55, 60],
+                "close": [105, 106, 107],
+            }
         )
         result = get_indicator_column_flexible(no_match_df, "sma_20")
         assert result is None
@@ -200,7 +208,14 @@ class TestUtilityFunctionsCoverage:
             }
         )
 
-        test_indicators = ["sma_20", "ema_12", "rsi_14", "macd_line", "bbands_upper", "nonexistent"]
+        test_indicators = [
+            "sma_20",
+            "ema_12",
+            "rsi_14",
+            "macd_line",
+            "bbands_upper",
+            "nonexistent",
+        ]
         for indicator in test_indicators:
             result = get_indicator_column_flexible(indicators_df, indicator)
             if indicator == "nonexistent":
@@ -366,7 +381,9 @@ class TestCacheManagerAdvancedFeatures:
 
         # Test rolling meta path handling
         assert isinstance(self.manager.rolling_meta_path, Path)
-        assert str(self.manager.rolling_cfg.meta_file) in str(self.manager.rolling_meta_path)
+        assert str(self.manager.rolling_cfg.meta_file) in str(
+            self.manager.rolling_meta_path
+        )
 
     def test_settings_integration(self):
         """Test settings integration and configuration"""
@@ -377,4 +394,7 @@ class TestCacheManagerAdvancedFeatures:
 
         # Test file format configuration
         original_format = getattr(self.settings.cache, "file_format", "auto")
-        assert self.manager.file_format == original_format or self.manager.file_format == "auto"
+        assert (
+            self.manager.file_format == original_format
+            or self.manager.file_format == "auto"
+        )

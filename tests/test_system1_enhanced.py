@@ -5,18 +5,20 @@ Focus on the main pipeline functions and integration tests
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
 try:
     from core.system1 import (
-        prepare_data_vectorized_system1,
         generate_candidates_system1,
         get_total_days_system1,
+        prepare_data_vectorized_system1,
+        summarize_system1_diagnostics,
     )
 
     IMPORTS_AVAILABLE = True
@@ -60,7 +62,9 @@ class TestSystem1MainFunctions:
         with patch("core.system1.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system1(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system1(
+                raw_data_dict=mock_data, reuse_indicators=True
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -129,7 +133,9 @@ class TestSystem1MainFunctions:
             ),
         }
 
-        candidates_by_date, candidates_df = generate_candidates_system1(prepared_data, top_n=10)
+        candidates_by_date, candidates_df, diagnostics = generate_candidates_system1(
+            prepared_data, top_n=10
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert len(candidates_by_date) > 0
@@ -143,9 +149,10 @@ class TestSystem1MainFunctions:
 
     def test_generate_candidates_system1_empty_data(self):
         """Test candidate generation with empty data"""
-        candidates_by_date, candidates_df = generate_candidates_system1({})
+        candidates_by_date, candidates_df, diagnostics = generate_candidates_system1({})
         assert candidates_by_date == {}
         assert candidates_df is None
+        assert isinstance(diagnostics, dict)
 
     def test_generate_candidates_system1_no_setup_conditions(self):
         """Test candidate generation when no setup conditions are met"""
@@ -160,7 +167,9 @@ class TestSystem1MainFunctions:
             )
         }
 
-        candidates_by_date, candidates_df = generate_candidates_system1(prepared_data, top_n=10)
+        candidates_by_date, candidates_df, _ = generate_candidates_system1(
+            prepared_data, top_n=10
+        )
 
         assert isinstance(candidates_by_date, dict)
         # Should still return dict structure even if no candidates
@@ -170,7 +179,8 @@ class TestSystem1MainFunctions:
         """Test get_total_days_system1 function"""
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Close": [100, 110, 120, 130, 140]}, index=pd.date_range("2023-01-01", periods=5)
+                {"Close": [100, 110, 120, 130, 140]},
+                index=pd.date_range("2023-01-01", periods=5),
             ),
             "MSFT": pd.DataFrame(
                 {"Close": [200, 210, 220]}, index=pd.date_range("2023-01-01", periods=3)
@@ -233,6 +243,9 @@ class TestSystem1MainFunctions:
 
     def test_generate_candidates_system1_with_callbacks(self):
         """Test generate_candidates_system1 with callbacks and progress"""
+        if not IMPORTS_AVAILABLE:
+            pytest.skip("core.system1 imports not available")
+
         prepared_data = {
             "AAPL": pd.DataFrame(
                 {
@@ -253,11 +266,47 @@ class TestSystem1MainFunctions:
         def log_callback(msg):
             log_calls.append(msg)
 
-        generate_candidates_system1(
-            prepared_data, top_n=10, progress_callback=progress_callback, log_callback=log_callback
+        result = generate_candidates_system1(  # type: ignore[name-defined]
+            prepared_data,
+            top_n=10,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
         )
 
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
         assert len(log_calls) > 0
+
+    def test_summarize_system1_diagnostics_basic(self):
+        """Diagnostics helper should normalize counters and reasons."""
+
+        if not IMPORTS_AVAILABLE:
+            pytest.skip("core.system1 imports not available")
+
+        diag = {
+            "filter_pass": "12",
+            "setup_flag_true": 7.0,
+            "fallback_pass": None,
+            "roc200_positive": 9,
+            "final_pass": "0",
+            "top_n": 10,
+            "exclude_reasons": {"setup": 5, "roc200": 3, "filter": 1},
+        }
+
+        summary = summarize_system1_diagnostics(diag)
+
+        assert summary["filter_pass"] == 12
+        assert summary["setup_flag_true"] == 7
+        assert summary["fallback_pass"] == 0
+        assert summary["roc200_positive"] == 9
+        assert summary["final_pass"] == 0
+        assert summary.get("top_n") == 10
+        assert summary.get("exclude_reasons") == {
+            "setup": 5,
+            "roc200": 3,
+            "filter": 1,
+        }
 
 
 if __name__ == "__main__":

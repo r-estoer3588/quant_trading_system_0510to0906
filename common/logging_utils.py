@@ -1,8 +1,8 @@
+from collections.abc import Callable
 import logging
 import logging.handlers
-import time
-from collections.abc import Callable
 from pathlib import Path
+import time
 
 from config.settings import Settings
 

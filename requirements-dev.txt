@@ -1,12 +1,11 @@
-# Dev tooling
+# Dev tooling - Modern & Fast
 pre-commit>=3.8,<4
-ruff>=0.6,<1
-black>=24.8,<25
-flake8>=7,<8
-isort>=5.13,<6
-mypy>=1.11,<2
-bandit>=1.7,<2
-pip-audit>=2.7,<3
+ruff>=0.6,<1          # Fast linter (replaces flake8, pylint, bandit, etc.)
+black>=24.8,<25       # Code formatter
+isort>=5.13,<6        # Import sorter
+mypy>=1.11,<2         # Type checker
+pip-audit>=2.7,<3     # Security audit
+pandas-stubs>=2.3     # Type stubs for pandas
 
 # Testing helpers
 pytest>=8,<9

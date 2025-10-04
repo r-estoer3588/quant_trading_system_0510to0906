@@ -2,15 +2,15 @@
 Working System1 tests without precomputed indicators dependency
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 
 # Import actual functions that exist
 from core.system1 import (
-    _rename_ohlcv,
     _normalize_index,
     _prepare_source_frame,
+    _rename_ohlcv,
     get_total_days_system1,
 )
 
@@ -22,10 +22,43 @@ def safe_ohlcv():
 
     df = pd.DataFrame(
         {
-            "Open": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0],
-            "High": [102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0],
+            "Open": [
+                100.0,
+                101.0,
+                102.0,
+                103.0,
+                104.0,
+                105.0,
+                106.0,
+                107.0,
+                108.0,
+                109.0,
+            ],
+            "High": [
+                102.0,
+                103.0,
+                104.0,
+                105.0,
+                106.0,
+                107.0,
+                108.0,
+                109.0,
+                110.0,
+                111.0,
+            ],
             "Low": [98.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0],
-            "Close": [101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0],
+            "Close": [
+                101.0,
+                102.0,
+                103.0,
+                104.0,
+                105.0,
+                106.0,
+                107.0,
+                108.0,
+                109.0,
+                110.0,
+            ],
             "Volume": [
                 1000000,
                 1100000,
@@ -117,7 +150,9 @@ class TestSystem1HelpersSafe:
 
     def test_normalize_index_invalid_date(self):
         """Test index normalization with invalid date"""
-        df = pd.DataFrame({"Close": [100, 101], "Date": ["invalid_date", "another_invalid"]})
+        df = pd.DataFrame(
+            {"Close": [100, 101], "Date": ["invalid_date", "another_invalid"]}
+        )
 
         result = _normalize_index(df)
 
@@ -199,7 +234,11 @@ class TestSystem1TotalDaysSafe:
 
     def test_get_total_days_none_values(self, safe_ohlcv):
         """Test total days with None values in dictionary"""
-        data_dict = {"AAPL": safe_ohlcv, "GOOGL": None, "MSFT": safe_ohlcv.copy()}  # None value
+        data_dict = {
+            "AAPL": safe_ohlcv,
+            "GOOGL": None,
+            "MSFT": safe_ohlcv.copy(),
+        }  # None value
 
         result = get_total_days_system1(data_dict)
 
@@ -227,7 +266,13 @@ class TestSystem1EdgeCasesSafe:
     def test_functions_with_single_row(self):
         """Test functions with single row data"""
         single_row = pd.DataFrame(
-            {"Open": [100.0], "High": [101.0], "Low": [99.0], "Close": [100.5], "Volume": [1000000]}
+            {
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+            }
         )
 
         # Test rename function
@@ -336,7 +381,11 @@ class TestSystem1IntegrationSafe:
                     "High": [102 + i, 103 + i, 104 + i],
                     "Low": [98 + i, 99 + i, 100 + i],
                     "Close": [101 + i, 102 + i, 103 + i],
-                    "Volume": [1000000 + i * 100000, 1100000 + i * 100000, 1200000 + i * 100000],
+                    "Volume": [
+                        1000000 + i * 100000,
+                        1100000 + i * 100000,
+                        1200000 + i * 100000,
+                    ],
                 }
             )
 
@@ -355,9 +404,9 @@ class TestSystem1IntegrationSafe:
 def test_system1_basic_imports():
     """Test that imports work correctly"""
     from core.system1 import (
-        _rename_ohlcv,
         _normalize_index,
         _prepare_source_frame,
+        _rename_ohlcv,
         get_total_days_system1,
     )
 

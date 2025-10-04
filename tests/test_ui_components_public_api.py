@@ -34,7 +34,10 @@ class TestPublicUtilities:
     def test_clean_date_column_basic(self):
         """Test clean_date_column with basic input."""
         df = pd.DataFrame(
-            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100.0, 101.0, 102.0]}
+            {
+                "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                "Close": [100.0, 101.0, 102.0],
+            }
         )
         result = ui_components.clean_date_column(df, "Date")
         assert isinstance(result, pd.DataFrame)
@@ -102,7 +105,10 @@ class TestBacktestDataPreparation:
         mock_strategy = Mock()
         mock_strategy.prepare_data = Mock(
             return_value=pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=100), "Close": [150.0] * 100}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=100),
+                    "Close": [150.0] * 100,
+                }
             )
         )
 
@@ -213,7 +219,9 @@ class TestLoggingFunctions:
         )
 
         # Should not raise exceptions
-        ui_components.save_signal_and_trade_logs(signal_df, results_df, "TestSystem", 10000.0)
+        ui_components.save_signal_and_trade_logs(
+            signal_df, results_df, "TestSystem", 10000.0
+        )
 
         # Verify CSV save was attempted
         assert mock_to_csv.called
@@ -232,7 +240,10 @@ class TestBacktestApp:
         # Mock prepare_backtest_data to return prepared data
         mock_prepared = {
             "AAPL": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=100), "Close": [150.0] * 100}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=100),
+                    "Close": [150.0] * 100,
+                }
             )
         }
         mock_prepare.return_value = mock_prepared
@@ -252,7 +263,10 @@ class TestBacktestApp:
         mock_strategy = Mock()
 
         result = ui_components.run_backtest_app(
-            strategy=mock_strategy, system_name="TestSystem", limit_symbols=10, spy_df=None
+            strategy=mock_strategy,
+            system_name="TestSystem",
+            limit_symbols=10,
+            spy_df=None,
         )
 
         # Should return a tuple

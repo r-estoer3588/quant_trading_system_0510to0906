@@ -3,12 +3,13 @@
 18%→25%+ カバレッジ向上のための積極戦略
 """
 
-import pytest
-import sys
-import os
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
+import os
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -143,7 +144,9 @@ class TestStrategiesExecution:
         try:
             from strategies import constants
 
-            constants_attrs = [attr for attr in dir(constants) if not attr.startswith("_")]
+            constants_attrs = [
+                attr for attr in dir(constants) if not attr.startswith("_")
+            ]
             assert len(constants_attrs) >= 0
         except (ImportError, Exception):
             pytest.skip("Strategy constants access not available")
@@ -200,7 +203,11 @@ class TestDataOperations:
         """拡張pandas操作"""
         # 基本的なDataFrame操作
         df = pd.DataFrame(
-            {"A": [1, 2, 3, 4, 5], "B": [10, 20, 30, 40, 50], "C": [0.1, 0.2, 0.3, 0.4, 0.5]}
+            {
+                "A": [1, 2, 3, 4, 5],
+                "B": [10, 20, 30, 40, 50],
+                "C": [0.1, 0.2, 0.3, 0.4, 0.5],
+            }
         )
 
         # 複数の操作を実行

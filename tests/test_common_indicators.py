@@ -1,12 +1,13 @@
 """Tests for common.indicators_common module to improve coverage."""
 
-import pandas as pd
 from unittest.mock import patch
 
+import pandas as pd
+
 from common.indicators_common import (
+    _add_indicators_optimized,
     add_indicators,
     add_indicators_batch,
-    _add_indicators_optimized,
 )
 
 
@@ -188,7 +189,13 @@ class TestIndicatorsEdgeCases:
     def test_indicators_with_insufficient_data(self):
         """Test indicators with insufficient data points."""
         df = pd.DataFrame(
-            {"Open": [100], "High": [105], "Low": [95], "Close": [104], "Volume": [1000]}
+            {
+                "Open": [100],
+                "High": [105],
+                "Low": [95],
+                "Close": [104],
+                "Volume": [1000],
+            }
         )
 
         result = add_indicators(df)

@@ -89,7 +89,9 @@ def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
         symbol = "".join(random.choices(alphabet, k=length))
         additional_symbols.append(symbol)
 
-    all_symbols = common_symbols + additional_symbols[: num_symbols - len(common_symbols)]
+    all_symbols = (
+        common_symbols + additional_symbols[: num_symbols - len(common_symbols)]
+    )
 
     raw_data = {}
     loaded_count = 0
@@ -97,7 +99,9 @@ def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
     for symbol in all_symbols:
         try:
             df = load_base_cache(symbol, prefer_precomputed_indicators=True)
-            if df is not None and not df.empty and len(df) > 100:  # 十分なデータがある場合のみ
+            if (
+                df is not None and not df.empty and len(df) > 100
+            ):  # 十分なデータがある場合のみ
                 raw_data[symbol] = df
                 loaded_count += 1
                 if loaded_count >= num_symbols:
@@ -160,7 +164,9 @@ def test_system_performance(
             use_process_pool=True,  # 並列処理
         )
 
-        candidates_parallel = strategy.generate_candidates(prepared_data_parallel, top_n=10)
+        candidates_parallel = strategy.generate_candidates(
+            prepared_data_parallel, top_n=10
+        )
 
         end_time = time.time()
         parallel_time = end_time - start_time
@@ -238,7 +244,9 @@ def main():
     print("📊 全システム性能サマリー")
     print("=" * 80)
 
-    print(f"{'System':<10} {'Single(秒)':<12} {'Parallel(秒)':<13} {'Speedup':<8} {'Status'}")
+    print(
+        f"{'System':<10} {'Single(秒)':<12} {'Parallel(秒)':<13} {'Speedup':<8} {'Status'}"
+    )
     print("-" * 60)
 
     for system_name in [

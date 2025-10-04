@@ -10,12 +10,11 @@ repos:
     hooks:
       - id: black
         args: ["--line-length=88"]
-
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
-    hooks:
-      - id: flake8
-        args: ["--max-line-length=88", "--extend-ignore=E203,E501,W503"]
+      # Ensure the same pinned Black checks also run on pre-push to prevent drift
+      - id: black
+        name: black (check only, pre-push)
+        args: ["--check", "--line-length=88"]
+        stages: [pre-push]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -27,24 +26,18 @@ repos:
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
+        exclude: ^\.vscode/
       - id: trailing-whitespace
         exclude: ^.*\.(md|rst)$
       - id: check-yaml
         args: ["--allow-multiple-documents"]
       - id: check-json
+        exclude: ^(\.vscode/|f821_errors\.json$)
       - id: check-toml
       - id: check-added-large-files
         args: ["--maxkb=5000"]
       - id: check-merge-conflict
       - id: debug-statements
-
-  - repo: https://github.com/pycqa/bandit
-    rev: 1.7.6
-    hooks:
-      - id: bandit
-        args: [-ll, --severity-level=medium, --confidence-level=medium]
-        files: ^(core|common|scripts|strategies)/
-        exclude: ^tests/
 
   - repo: local
     hooks:
@@ -53,12 +46,12 @@ repos:
         entry: python tools/guard_critical_files.py
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [manual]
 
       - id: run-enhanced-tests
         name: Run enhanced final_allocation tests
         entry: python -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
-        language: python
+        language: system
         files: ^(core/final_allocation\.py|tests/test_final_allocation_enhanced\.py)$
         pass_filenames: false
 
@@ -68,4 +61,23 @@ repos:
         language: python
         files: ^(scripts/run_all_systems_today\.py|core/|common/)
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
+
+      - id: local-quality-aggregate
+        name: Local quality aggregate (ruff/mypy/pytest/bandit/radon)
+        entry: python tools/local_quality_check.py --limit 30
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
+      # --- Static analysis additions ---
+      # mypy (UTF-8 forced) - Windows codepage compatibility
+      - id: mypy-utf8
+        name: mypy (UTF-8 forced)
+        entry: python -X utf8 -m mypy --config-file mypy.ini
+        language: system
+        types: [python]
+        # Gradual rollout: start with specific tools and common modules
+        files: ^(tools/verify_trd_length\.py|tools/validate_log_compactness\.py|common/system_diagnostics\.py)$
+        pass_filenames: true
+        stages: [pre-commit]

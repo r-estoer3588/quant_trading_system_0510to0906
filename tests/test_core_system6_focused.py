@@ -2,19 +2,20 @@
 Core System6 Focused Tests - Rise6D Short Mean-Reversion Strategy Testing
 """
 
-import pytest
-import pandas as pd
 from unittest.mock import Mock
 
+import pandas as pd
+import pytest
+
 from core.system6 import (
-    prepare_data_vectorized_system6,
-    generate_candidates_system6,
-    get_total_days_system6,
-    _compute_indicators_from_frame,
+    SYSTEM6_ALL_COLUMNS,
     SYSTEM6_BASE_COLUMNS,
     SYSTEM6_FEATURE_COLUMNS,
-    SYSTEM6_ALL_COLUMNS,
     SYSTEM6_NUMERIC_COLUMNS,
+    _compute_indicators_from_frame,
+    generate_candidates_system6,
+    get_total_days_system6,
+    prepare_data_vectorized_system6,
 )
 
 
@@ -28,7 +29,14 @@ class TestSystem6Constants:
 
     def test_feature_columns(self):
         """Test SYSTEM6_FEATURE_COLUMNS contains expected indicators."""
-        expected_features = ["atr10", "dollarvolume50", "return_6d", "UpTwoDays", "filter", "setup"]
+        expected_features = [
+            "atr10",
+            "dollarvolume50",
+            "return_6d",
+            "UpTwoDays",
+            "filter",
+            "setup",
+        ]
         assert all(feature in SYSTEM6_FEATURE_COLUMNS for feature in expected_features)
 
     def test_all_columns_composition(self):
@@ -48,7 +56,11 @@ class TestSystem6Utilities:
         """Test get_total_days_system6 with basic data."""
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Close": [100, 102, 101], "High": [101, 103, 102], "Low": [99, 101, 100]},
+                {
+                    "Close": [100, 102, 101],
+                    "High": [101, 103, 102],
+                    "Low": [99, 101, 100],
+                },
                 index=pd.date_range("2023-01-01", periods=3),
             )
         }
@@ -85,7 +97,9 @@ class TestSystem6IndicatorComputation:
             {
                 "Open": [p * 0.995 for p in prices],
                 "High": [p * 1.02 for p in prices],
-                "Low": [max(5.1, p * 0.98) for p in prices],  # Ensure Low >= 5 for filter tests
+                "Low": [
+                    max(5.1, p * 0.98) for p in prices
+                ],  # Ensure Low >= 5 for filter tests
                 "Close": prices,
                 "Volume": [1000000 + i * 10000 for i in range(periods)],
             },
@@ -156,7 +170,9 @@ class TestSystem6DataPreparation:
         raw_data = self.create_minimal_test_data()
 
         # Note: prepare_data_vectorized_system6 may return empty dict due to data compatibility issues
-        result = prepare_data_vectorized_system6(raw_data, reuse_indicators=True, symbols=None)
+        result = prepare_data_vectorized_system6(
+            raw_data, reuse_indicators=True, symbols=None
+        )
 
         assert isinstance(result, dict)
         # Note: May be empty due to data processing issues
@@ -261,7 +277,9 @@ class TestSystem6Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system6(prepared_data, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system6(
+            prepared_data, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days (may be 0 due to data compatibility issues)
@@ -276,7 +294,9 @@ class TestSystem6Integration:
         prepared_empty = prepare_data_vectorized_system6(empty_data)
         assert isinstance(prepared_empty, dict)
 
-        candidates_dict, candidates_df = generate_candidates_system6(prepared_empty, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system6(
+            prepared_empty, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         total_days_empty = get_total_days_system6(prepared_empty)

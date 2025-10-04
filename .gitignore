@@ -38,7 +38,7 @@ backup/
 *.bak
 *.old
 
-# Test coverage reports  
+# Test coverage reports
 test_coverage/
 htmlcov*/
 .coverage*
@@ -65,3 +65,9 @@ Thumbs.db
 
 # Development tools output
 logs/archive/
+
+# Python virtual environments (ローカル仮想環境はコミットしない)
+.venv/
+venv/
+env/
+.wslvenv/

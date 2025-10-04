@@ -159,9 +159,15 @@ class TestFinalizeAllocation:
         """Test finalize_allocation in slot mode with basic data"""
         per_system = {
             "system1": pd.DataFrame(
-                {"symbol": ["AAPL", "MSFT"], "score": [0.8, 0.7], "close": [150.0, 300.0]}
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [0.8, 0.7],
+                    "close": [150.0, 300.0],
+                }
             ),
-            "system2": pd.DataFrame({"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}),
+            "system2": pd.DataFrame(
+                {"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}
+            ),
         }
 
         try:
@@ -247,7 +253,9 @@ class TestFinalizeAllocation:
     def test_finalize_allocation_with_mock_strategies(self):
         """Test finalize_allocation with mock strategy objects"""
         per_system = {
-            "system1": pd.DataFrame({"symbol": ["AAPL"], "score": [0.8], "close": [150.0]})
+            "system1": pd.DataFrame(
+                {"symbol": ["AAPL"], "score": [0.8], "close": [150.0]}
+            )
         }
 
         # Mock strategy object

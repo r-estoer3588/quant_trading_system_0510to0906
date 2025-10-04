@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 import logging
 import os
 import threading
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,17 @@ class RollingIssueAggregator:
             message: 追加メッセージ（省略可）
         """
         if not self._compact_mode:
-            # 通常モード: insufficient_dataはDEBUGレベルに、その他はWARNING出力
+            # 通常モードでも has_issue() 判定を可能にするため内部リストへ登録する
+            # （compact でない場合は冗長制御は不要だが、重複抑制ロジックが利用する）
+            try:
+                with self._lock_issues:
+                    self._issues[category].append(symbol)
+                    self._count_by_category[category] += 1
+            except Exception:
+                # 記録失敗してもログ出力自体は継続
+                pass
+
+            # 通常モード: insufficient_data は DEBUG、その他は WARNING
             full_msg = f"[{category}] {symbol}"
             if message:
                 full_msg += f": {message}"
@@ -81,6 +91,28 @@ class RollingIssueAggregator:
                 if message:
                     full_msg += f": {message}"
                 logger.debug(full_msg)
+
+    # -------------------- public query helpers -------------------- #
+
+    def has_issue(self, category: str, symbol: str) -> bool:
+        """指定カテゴリでシンボルが既に報告済みかを返す。
+
+        コンパクトモード/通常モードいずれでも機能するように、
+        通常モード時は O(1) 判定用に内部キャッシュへも登録する。
+        """
+        try:
+            if category in self._issues:
+                if symbol in self._issues[category]:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def already_reported(
+        self, category: str, symbol: str
+    ) -> bool:  # backward-friendly alias
+        """`has_issue` のエイリアス。外部呼び出しの可読性を重視。"""
+        return self.has_issue(category, symbol)
 
     def _output_summary(self) -> None:
         """集約結果をサマリー出力する（プロセス終了時など）。"""

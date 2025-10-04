@@ -107,7 +107,10 @@ class TestNormalizeIndex:
     def test_normalize_index_with_date_column(self):
         """Test _normalize_index with Date column"""
         df = pd.DataFrame(
-            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            {
+                "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                "Close": [100, 101, 102],
+            }
         )
 
         result = _normalize_index(df)

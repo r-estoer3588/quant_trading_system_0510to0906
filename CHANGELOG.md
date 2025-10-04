@@ -4,6 +4,40 @@
 
 ## Unreleased
 
+### Added
+
+- **Diagnostics API**: 統一キー（`setup_predicate_count`, `final_top_n_count`, `ranking_source`）を全システム(System1-7)に導入
+- **Setup Predicates**: `common/system_setup_predicates.py` に共通 predicate 関数を実装
+- **Snapshot Export**: `tools/export_diagnostics_snapshot.py` で診断情報を JSON 出力
+- **Diff Comparison**: `tools/compare_diagnostics_snapshots.py` でスナップショット差分比較
+- **TRD Validation**: `tools/verify_trd_length.py` で Trading Day リスト長を検証
+- **Zero TRD Escalation**: 全システム候補ゼロ時に通知を送信
+
+### Changed
+
+- **Test Mode Freshness**: Mini/Quick/Sample モード時のデータ鮮度許容を 365 日に緩和（`scripts/run_all_systems_today.py`）
+- **System6 Filter**: HV50 条件を two-phase フィルタに統合
+- **Diagnostics Enrichment**: Systems 1-7 で統一キーを出力（System6 は別タスクで統合予定）
+
+### Fixed
+
+- **SPY Rolling Cache**: テストモードで SPY が読み込まれない問題を修正（freshness_tolerance 緩和）
+
+### Tests
+
+- **Parametric Diagnostics Tests**: `tests/diagnostics/test_diagnostics_param_all_systems.py` で Systems 1-7 を網羅
+- **Minimal Diagnostics Tests**: 個別システムの diagnostics 形式を検証
+
+### Documentation
+
+- **Diagnostics API**: `docs/technical/diagnostics.md` に仕様と使用例を追加
+- **README**: Diagnostics 機能の紹介セクション追加
+- **CHANGELOG**: Phase0-7 の変更内容を記録
+
+---
+
+## Previous Releases
+
 - 初期: 開発ツール導入（pre-commit, ruff, black, isort, mypy）
 - CI 追加（lint/type/security/test）
 - ドキュメント整備（AGENTS.md, .env.example）

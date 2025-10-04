@@ -2,9 +2,9 @@
 極限最適化: メモリマッピング + 超軽量データ構造
 """
 
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 # パス設定 - tests/experimental/ から2階層上のルートへ
 _ROOT = Path(__file__).resolve().parents[2]
@@ -116,7 +116,9 @@ def benchmark_io_methods():
                 first_line = f.readline().strip()
 
             # 基本的なOHLCVカラムがあるかチェック
-            if any(col in first_line.lower() for col in ["open", "high", "low", "close"]):
+            if any(
+                col in first_line.lower() for col in ["open", "high", "low", "close"]
+            ):
                 sample = pd.read_csv(file_path, nrows=0)
                 available_cols = [c for c in essential_cols if c in sample.columns]
 
@@ -124,7 +126,9 @@ def benchmark_io_methods():
                     df = pd.read_csv(
                         file_path,
                         usecols=available_cols,
-                        dtype={k: v for k, v in dtype_map.items() if k in available_cols},
+                        dtype={
+                            k: v for k, v in dtype_map.items() if k in available_cols
+                        },
                         low_memory=False,
                         engine="c",  # Cエンジン使用
                     )

@@ -11,12 +11,18 @@ run_all_systems_today.py からロジックを分離（責務分割）:
 
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
+import os
 
 import pandas as pd
 
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD  # 振る舞い維持: 元スクリプトの閾値
+from core.system6 import (  # System6 のフィルター閾値と HV 範囲を共有
+    HV50_BOUNDS_FRACTION,
+    HV50_BOUNDS_PERCENT,
+    MIN_DOLLAR_VOLUME_50,
+    MIN_PRICE,
+)
 
 __all__ = [
     "_pick_series",
@@ -37,6 +43,85 @@ __all__ = [
     "filter_system5",
     "filter_system6",
 ]
+
+
+# ------------------------------------------------------------------
+# Optional debug logging (FILTER_DEBUG=1) to trace pass counts quickly
+# ノイズ抑制のため環境変数で明示的に有効化された時のみ出力。
+# run_all_systems_today の log_callback が未配線でも print フォールバックで可視化可能。
+# ------------------------------------------------------------------
+def _filter_debug_enabled() -> bool:
+    try:
+        return os.getenv("FILTER_DEBUG", "0") == "1"
+    except Exception:
+        return False
+
+
+def _emit_filter_debug(
+    system_tag: str, stats: dict[str, int] | None, final_list_len: int
+) -> None:
+    if not _filter_debug_enabled():
+        return
+    try:
+        # 初回ヘッダ: 環境変数が有効であることを示す（system_tag 毎に1回）
+        marker_name = f"_FDBG_INIT_{system_tag}"
+        if marker_name not in globals():  # type: ignore
+            try:
+                globals()[marker_name] = True  # type: ignore
+                print(f"[FDBG {system_tag}] debug-enabled FILTER_DEBUG=1 (init)")
+            except Exception:
+                pass
+        st = stats or {}
+        # 共通で出すキー順を簡易に整える（存在するものだけ）
+        order = [
+            "total",
+            "price_pass",
+            "low_pass",
+            "avgvol_pass",
+            "dv_pass",
+            "hv_pass",
+            "atr_pass",
+            # reason counters (will appear only if collected)
+            "atr_missing",
+            "atr_below",
+            "hv_missing",
+            "hv_range_fail",
+        ]
+        parts: list[str] = []
+        label_map = {
+            "atr_missing": "atrMiss",
+            "atr_below": "atrBelow",
+            "hv_missing": "hvMiss",
+            "hv_range_fail": "hvRange",
+        }
+        for k in order:
+            if k in st:
+                base = label_map.get(k, k.split("_")[0])
+                parts.append(f"{base}={st[k]}")
+        parts.append(f"final={final_list_len}")
+        ratio_parts: list[str] = []
+        try:
+            total = float(st.get("total", 0) or 0)
+            if total > 0:
+                for k in [
+                    "price_pass",
+                    "low_pass",
+                    "avgvol_pass",
+                    "dv_pass",
+                    "hv_pass",
+                    "atr_pass",
+                ]:
+                    if k in st and st[k] >= 0:
+                        ratio_parts.append(f"{k.split('_')[0]}%={st[k]/total*100:.1f}")
+        except Exception:
+            pass
+        msg = f"[FDBG {system_tag}] " + " ".join(parts)
+        if ratio_parts:
+            msg += " | " + " ".join(ratio_parts)
+        print(msg)
+    except Exception:
+        pass
+
 
 # ----------------------------- 基本ヘルパ ----------------------------- #
 
@@ -72,7 +157,10 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
             if nm in df.columns:
                 s_any = df[nm]
                 try:
-                    if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                    if (
+                        isinstance(s_any, pd.DataFrame)
+                        and getattr(s_any, "ndim", None) == 2
+                    ):
                         # 先頭列のみ使用
                         s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 except Exception:
@@ -91,7 +179,10 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
                 continue
             try:
                 s_any = df[real]
-                if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
+                if (
+                    isinstance(s_any, pd.DataFrame)
+                    and getattr(s_any, "ndim", None) == 2
+                ):
                     s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 try:
                     s_any = pd.to_numeric(s_any, errors="coerce")
@@ -143,7 +234,9 @@ def _last_scalar(series):
         return None
 
 
-def _calc_dollar_volume_from_series(close_series, volume_series, window: int) -> float | None:
+def _calc_dollar_volume_from_series(
+    close_series, volume_series, window: int
+) -> float | None:
     if close_series is None or volume_series is None:
         return None
     try:
@@ -172,7 +265,11 @@ def _calc_average_volume_from_series(volume_series, window: int) -> float | None
     if volume_series is None:
         return None
     try:
-        tail = volume_series.tail(window) if hasattr(volume_series, "tail") else volume_series
+        tail = (
+            volume_series.tail(window)
+            if hasattr(volume_series, "tail")
+            else volume_series
+        )
     except Exception:
         tail = volume_series
     try:
@@ -187,6 +284,23 @@ def _calc_average_volume_from_series(volume_series, window: int) -> float | None
         return float(tail.mean())
     except Exception:
         return None
+
+
+def _calc_hv50_from_series(close_series) -> float | None:
+    if close_series is None:
+        return None
+    try:
+        returns = pd.Series(close_series).pct_change()
+    except Exception:
+        return None
+    try:
+        hv = returns.rolling(50).std() * (252**0.5) * 100
+    except Exception:
+        return None
+    hv_val = _last_scalar(hv)
+    if hv_val is None:
+        hv_val = _last_non_nan(hv)
+    return hv_val
 
 
 def _resolve_atr_ratio(
@@ -251,7 +365,9 @@ def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
+    dv_series = _pick_series(
+        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
+    )
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -270,7 +386,9 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
+    dv_series = _pick_series(
+        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
+    )
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -281,6 +399,19 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 
     atr_ratio = _resolve_atr_ratio(df, close_series, last_close)
     atr_ok = bool(atr_ratio is not None and atr_ratio >= 0.03)
+    if _filter_debug_enabled():  # 理由分類カウンタ用タグを添付（外部副作用なし）
+        reason = None
+        if atr_ok:
+            reason = "pass"
+        elif atr_ratio is None:
+            reason = "atr_missing"
+        else:
+            reason = "atr_below"
+        (
+            df.attrs.setdefault("_fdbg_reasons2", []).append(reason)
+            if hasattr(df, "attrs")
+            else None
+        )
 
     return price_ok, dv_ok, atr_ok
 
@@ -292,7 +423,9 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         low_val = _last_non_nan(low_series)
     low_ok = bool(low_val is not None and low_val >= 1)
 
-    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
+    av_series = _pick_series(
+        df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"]
+    )
     av_val = _last_scalar(av_series)
     if av_val is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -303,6 +436,19 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 
     atr_ratio = _resolve_atr_ratio(df)
     atr_ok = bool(atr_ratio is not None and atr_ratio >= 0.05)
+    if _filter_debug_enabled():
+        reason = None
+        if atr_ok:
+            reason = "pass"
+        elif atr_ratio is None:
+            reason = "atr_missing"
+        else:
+            reason = "atr_below"
+        (
+            df.attrs.setdefault("_fdbg_reasons3", []).append(reason)
+            if hasattr(df, "attrs")
+            else None
+        )
 
     return low_ok, av_ok, atr_ok
 
@@ -310,7 +456,9 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -323,13 +471,28 @@ def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     if hv_val is None:
         hv_val = _last_non_nan(hv_series)
     hv_ok = bool(hv_val is not None and 10 <= hv_val <= 40)
+    if _filter_debug_enabled():
+        reason = None
+        if hv_ok:
+            reason = "pass"
+        elif hv_val is None:
+            reason = "hv_missing"
+        else:
+            reason = "hv_range_fail"
+        (
+            df.attrs.setdefault("_fdbg_reasons4", []).append(reason)
+            if hasattr(df, "attrs")
+            else None
+        )
 
     return dv_ok, hv_ok
 
 
 def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
+    av_series = _pick_series(
+        df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"]
+    )
     av_val = _last_scalar(av_series)
     if av_val is None:
         av_val = _calc_average_volume_from_series(volume_series, 50)
@@ -338,7 +501,9 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     av_ok = bool(av_val is not None and av_val > 500_000)
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -351,28 +516,74 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     if atr_val is None:
         atr_val = _resolve_atr_ratio(df, close_series)
     atr_ok = bool(atr_val is not None and atr_val > DEFAULT_ATR_PCT_THRESHOLD)
+    if _filter_debug_enabled():
+        reason = None
+        if atr_ok:
+            reason = "pass"
+        elif atr_val is None:
+            reason = "atr_missing"
+        else:
+            reason = "atr_below"
+        (
+            df.attrs.setdefault("_fdbg_reasons5", []).append(reason)
+            if hasattr(df, "attrs")
+            else None
+        )
 
     return av_ok, dv_ok, atr_ok
 
 
-def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
+def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     low_series = _pick_series(df, ["Low", "low"])
     low_val = _last_scalar(low_series)
     if low_val is None:
         low_val = _last_non_nan(low_series)
-    low_ok = bool(low_val is not None and low_val >= 5)
+    low_ok = bool(low_val is not None and low_val >= MIN_PRICE)
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"]
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
         if dv50 is None:
             dv50 = _last_non_nan(dv_series)
-    dv_ok = bool(dv50 is not None and dv50 > 10_000_000)
+    dv_ok = bool(dv50 is not None and dv50 > MIN_DOLLAR_VOLUME_50)
 
-    return low_ok, dv_ok
+    hv_series = _pick_series(df, ["HV50", "hv50", "HV_50"])
+    hv_val = _last_scalar(hv_series)
+    if hv_val is None:
+        hv_val = _last_non_nan(hv_series)
+    if hv_val is None:
+        hv_val = _calc_hv50_from_series(close_series)
+    hv_ok = False
+    if hv_val is not None:
+        try:
+            hv_float = float(hv_val)
+        except Exception:
+            hv_float = None
+        if hv_float is not None:
+            hv_ok = bool(
+                HV50_BOUNDS_PERCENT[0] <= hv_float <= HV50_BOUNDS_PERCENT[1]
+                or HV50_BOUNDS_FRACTION[0] <= hv_float <= HV50_BOUNDS_FRACTION[1]
+            )
+    if _filter_debug_enabled():
+        reason = None
+        if hv_ok:
+            reason = "pass"
+        elif hv_val is None:
+            reason = "hv_missing"
+        else:
+            reason = "hv_range_fail"
+        if hasattr(df, "attrs"):
+            try:
+                df.attrs.setdefault("_fdbg_reasons6", []).append(reason)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+    return low_ok, dv_ok, hv_ok
 
 
 # ------------------------- filter_systemX 群 ------------------------- #
@@ -399,6 +610,7 @@ def filter_system1(symbols, data, stats: dict[str, int] | None = None):
         stats["total"] = total
         stats["price_pass"] = price_pass
         stats["dv_pass"] = dv_pass
+    _emit_filter_debug("system1", stats, len(result))
     return result
 
 
@@ -408,6 +620,8 @@ def filter_system2(symbols, data, stats: dict[str, int] | None = None):
     price_pass = 0
     dv_pass = 0
     atr_pass = 0
+    atr_missing = 0
+    atr_below = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
@@ -420,6 +634,17 @@ def filter_system2(symbols, data, stats: dict[str, int] | None = None):
             continue
         dv_pass += 1
         if not atr_ok:
+            # 理由カウンタ: _system2_conditions 内で df.attrs に付与された最新理由を参照
+            try:
+                reasons = df.attrs.get("_fdbg_reasons2")  # type: ignore[attr-defined]
+                if isinstance(reasons, list) and reasons:
+                    r = reasons[-1]
+                    if r == "atr_missing":
+                        atr_missing += 1
+                    elif r == "atr_below":
+                        atr_below += 1
+            except Exception:
+                pass
             continue
         atr_pass += 1
         result.append(sym)
@@ -428,6 +653,10 @@ def filter_system2(symbols, data, stats: dict[str, int] | None = None):
         stats["price_pass"] = price_pass
         stats["dv_pass"] = dv_pass
         stats["atr_pass"] = atr_pass
+        if atr_missing or atr_below:
+            stats["atr_missing"] = atr_missing
+            stats["atr_below"] = atr_below
+    _emit_filter_debug("system2", stats, len(result))
     return result
 
 
@@ -437,6 +666,8 @@ def filter_system3(symbols, data, stats: dict[str, int] | None = None):
     low_pass = 0
     av_pass = 0
     atr_pass = 0
+    atr_missing = 0
+    atr_below = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
@@ -449,6 +680,16 @@ def filter_system3(symbols, data, stats: dict[str, int] | None = None):
             continue
         av_pass += 1
         if not atr_ok:
+            try:
+                reasons = df.attrs.get("_fdbg_reasons3")  # type: ignore[attr-defined]
+                if isinstance(reasons, list) and reasons:
+                    r = reasons[-1]
+                    if r == "atr_missing":
+                        atr_missing += 1
+                    elif r == "atr_below":
+                        atr_below += 1
+            except Exception:
+                pass
             continue
         atr_pass += 1
         result.append(sym)
@@ -457,6 +698,10 @@ def filter_system3(symbols, data, stats: dict[str, int] | None = None):
         stats["low_pass"] = low_pass
         stats["avgvol_pass"] = av_pass
         stats["atr_pass"] = atr_pass
+        if atr_missing or atr_below:
+            stats["atr_missing"] = atr_missing
+            stats["atr_below"] = atr_below
+    _emit_filter_debug("system3", stats, len(result))
     return result
 
 
@@ -465,6 +710,8 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
     total = len(symbols or [])
     dv_pass = 0
     hv_pass = 0
+    hv_missing = 0
+    hv_range_fail = 0
     debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
     debug_limit = 10
     debug_count = 0
@@ -491,6 +738,16 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
             continue
         dv_pass += 1
         if not hv_ok:
+            try:
+                reasons = df.attrs.get("_fdbg_reasons4")  # type: ignore[attr-defined]
+                if isinstance(reasons, list) and reasons:
+                    r = reasons[-1]
+                    if r == "hv_missing":
+                        hv_missing += 1
+                    elif r == "hv_range_fail":
+                        hv_range_fail += 1
+            except Exception:
+                pass
             continue
         hv_pass += 1
         result.append(sym)
@@ -498,6 +755,10 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
         stats["total"] = total
         stats["dv_pass"] = dv_pass
         stats["hv_pass"] = hv_pass
+        if hv_missing or hv_range_fail:
+            stats["hv_missing"] = hv_missing
+            stats["hv_range_fail"] = hv_range_fail
+    _emit_filter_debug("system4", stats, len(result))
     return result
 
 
@@ -507,6 +768,8 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
     av_pass = 0
     dv_pass = 0
     atr_pass = 0
+    atr_missing = 0
+    atr_below = 0
     debug_enabled = os.getenv("DEBUG_SYSTEM_FILTERS") == "1"
     debug_limit = 10
     debug_count = 0
@@ -536,6 +799,16 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
             continue
         dv_pass += 1
         if not atr_ok:
+            try:
+                reasons = df.attrs.get("_fdbg_reasons5")  # type: ignore[attr-defined]
+                if isinstance(reasons, list) and reasons:
+                    r = reasons[-1]
+                    if r == "atr_missing":
+                        atr_missing += 1
+                    elif r == "atr_below":
+                        atr_below += 1
+            except Exception:
+                pass
             continue
         atr_pass += 1
         result.append(sym)
@@ -544,6 +817,10 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
         stats["avgvol_pass"] = av_pass
         stats["dv_pass"] = dv_pass
         stats["atr_pass"] = atr_pass
+        if atr_missing or atr_below:
+            stats["atr_missing"] = atr_missing
+            stats["atr_below"] = atr_below
+    _emit_filter_debug("system5", stats, len(result))
     return result
 
 
@@ -552,20 +829,41 @@ def filter_system6(symbols, data, stats: dict[str, int] | None = None):
     total = len(symbols or [])
     low_pass = 0
     dv_pass = 0
+    hv_pass = 0
+    hv_missing = 0
+    hv_range_fail = 0
     for sym in symbols or []:
         df = data.get(sym)
         if df is None or df.empty:
             continue
-        low_ok, dv_ok = _system6_conditions(df)
+        low_ok, dv_ok, hv_ok = _system6_conditions(df)
         if not low_ok:
             continue
         low_pass += 1
         if not dv_ok:
             continue
         dv_pass += 1
+        if not hv_ok:
+            try:
+                reasons = df.attrs.get("_fdbg_reasons6")  # type: ignore[attr-defined]
+                if isinstance(reasons, list) and reasons:
+                    r = reasons[-1]
+                    if r == "hv_missing":
+                        hv_missing += 1
+                    elif r == "hv_range_fail":
+                        hv_range_fail += 1
+            except Exception:
+                pass
+            continue
+        hv_pass += 1
         result.append(sym)
     if stats is not None:
         stats["total"] = total
         stats["low_pass"] = low_pass
         stats["dv_pass"] = dv_pass
+        stats["hv_pass"] = hv_pass
+        if hv_missing or hv_range_fail:
+            stats["hv_missing"] = hv_missing
+            stats["hv_range_fail"] = hv_range_fail
+    _emit_filter_debug("system6", stats, len(result))
     return result

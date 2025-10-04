@@ -4,7 +4,6 @@
     "ms-python.black-formatter",
     "github.copilot",
     "github.copilot-chat",
-    "ms-python.pylint",
     "charliermarsh.ruff",
     "ms-python.mypy-type-checker",
     "tamasfe.even-better-toml",

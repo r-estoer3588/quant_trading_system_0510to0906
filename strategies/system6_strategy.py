@@ -4,6 +4,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_greater_than,
+)
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
@@ -11,7 +16,11 @@ from core.system6 import (
 )
 
 from .base_strategy import StrategyBase
-from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_ATR_MULTIPLE_DEFAULT
+from .constants import (
+    MAX_HOLD_DAYS_DEFAULT,
+    PROFIT_TAKE_PCT_DEFAULT_5,
+    STOP_ATR_MULTIPLE_DEFAULT,
+)
 
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
@@ -31,7 +40,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         # パフォーマンス最適化: プロセスプール使用制御
         import os
 
-        use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+        use_process_pool = (
+            os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+        )
 
         # System6専用のパフォーマンス設定
         kwargs.setdefault("use_process_pool", use_process_pool)
@@ -65,8 +76,30 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
+            include_diagnostics=True,
             **kwargs,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diag = result
+            self.last_diagnostics = diag
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            # fallback to computed diagnostics if core didn't return it
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                data_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=bool(kwargs.get("latest_only", False)),
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="return_6d",
+                    rank_predicate=numeric_greater_than("return_6d", 0.20),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -107,17 +140,23 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         # ショート戦略: ストップロスはエントリー価格より上に設定される
         if stop_price <= entry_price:
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
-        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5)
+        )
         max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         last_idx = len(df) - 1
 

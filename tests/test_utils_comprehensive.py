@@ -155,7 +155,10 @@ class TestCleanDateColumn:
     def test_successful_date_conversion(self):
         """正常な日付変換とソート"""
         df = pd.DataFrame(
-            {"Date": ["2023-12-31", "2023-01-01", "2023-06-15"], "Value": [100, 200, 150]}
+            {
+                "Date": ["2023-12-31", "2023-01-01", "2023-06-15"],
+                "Value": [100, 200, 150],
+            }
         )
         result = clean_date_column(df)
 
@@ -278,7 +281,9 @@ class TestMergeOhlcvVariants:
 
     def test_single_ohlcv_column_preservation(self):
         """単一OHLCV列の保持"""
-        df = pd.DataFrame({"Open": [1, 2, 3], "High": [4, 5, 6], "Other": ["a", "b", "c"]})
+        df = pd.DataFrame(
+            {"Open": [1, 2, 3], "High": [4, 5, 6], "Other": ["a", "b", "c"]}
+        )
         result = _merge_ohlcv_variants(df)
 
         # 正規化されて同じ値が維持される
@@ -354,7 +359,9 @@ class TestMergeOhlcvVariants:
     def test_exception_handling_in_merging(self):
         """マージ処理中の例外処理"""
         # 異なる型の列で例外が発生する可能性
-        df = pd.DataFrame({"open": ["1", "2", "3"], "OPEN": [1.0, 2.0, 3.0]})  # 文字列  # 数値
+        df = pd.DataFrame(
+            {"open": ["1", "2", "3"], "OPEN": [1.0, 2.0, 3.0]}
+        )  # 文字列  # 数値
 
         # 例外が発生してもクラッシュしない
         result = _merge_ohlcv_variants(df)
@@ -566,7 +573,11 @@ class TestBatchSizeMonitor:
     def test_initialization(self):
         """初期化パラメータの設定"""
         monitor = BatchSizeMonitor(
-            initial=100, target_time=30.0, patience=5, min_batch_size=5, max_batch_size=2000
+            initial=100,
+            target_time=30.0,
+            patience=5,
+            min_batch_size=5,
+            max_batch_size=2000,
         )
 
         assert monitor.batch_size == 100
@@ -615,7 +626,11 @@ class TestBatchSizeMonitor:
     def test_min_max_batch_size_limits(self):
         """最小/最大バッチサイズの制限"""
         monitor = BatchSizeMonitor(
-            initial=20, target_time=30.0, patience=2, min_batch_size=10, max_batch_size=100
+            initial=20,
+            target_time=30.0,
+            patience=2,
+            min_batch_size=10,
+            max_batch_size=100,
         )
 
         # 最小制限のテスト

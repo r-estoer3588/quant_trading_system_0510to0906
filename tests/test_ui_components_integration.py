@@ -131,12 +131,19 @@ class TestDataQuality:
         test_cases = [
             # Standard format
             pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+                {
+                    "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                    "Close": [100, 101, 102],
+                }
             ),
             # With NaN values
-            pd.DataFrame({"Date": ["2023-01-01", None, "2023-01-03"], "Close": [100, 101, 102]}),
+            pd.DataFrame(
+                {"Date": ["2023-01-01", None, "2023-01-03"], "Close": [100, 101, 102]}
+            ),
             # Empty strings
-            pd.DataFrame({"Date": ["2023-01-01", "", "2023-01-03"], "Close": [100, 101, 102]}),
+            pd.DataFrame(
+                {"Date": ["2023-01-01", "", "2023-01-03"], "Close": [100, 101, 102]}
+            ),
         ]
 
         for df in test_cases:

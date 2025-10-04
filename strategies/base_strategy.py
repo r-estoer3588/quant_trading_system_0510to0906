@@ -1,5 +1,5 @@
-import logging
 from abc import ABC, abstractmethod
+import logging
 from typing import Any, Dict
 
 import pandas as pd
@@ -40,7 +40,11 @@ class StrategyBase(ABC):
         if not sys_name:
             parts = module.split(".")
             cand = next(
-                (p for p in parts if p.startswith("system") and any(ch.isdigit() for ch in p)),
+                (
+                    p
+                    for p in parts
+                    if p.startswith("system") and any(ch.isdigit() for ch in p)
+                ),
                 None,
             )
             sys_name = cand or ""
@@ -62,6 +66,9 @@ class StrategyBase(ABC):
         except Exception as exc:
             logger.warning("config update failed: %s", exc)
         self.config = cfg
+
+        # Diagnostics payload populated by subclasses after candidate generation
+        self.last_diagnostics: dict[str, Any] | None = None
 
     @abstractmethod
     def prepare_data(
@@ -142,14 +149,20 @@ class StrategyBase(ABC):
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
     # ----------------------------
-    def update_capital_with_exits(self, capital: float, active_positions: list, current_date):
+    def update_capital_with_exits(
+        self, capital: float, active_positions: list, current_date
+    ):
         """
         exit_date == current_date のポジションを決済して損益を反映。
         戻り値: (更新後capital, 未決済active_positions)
         """
-        realized_pnl = sum(p["pnl"] for p in active_positions if p["exit_date"] == current_date)
+        realized_pnl = sum(
+            p["pnl"] for p in active_positions if p["exit_date"] == current_date
+        )
         capital += realized_pnl
-        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
+        active_positions = [
+            p for p in active_positions if p["exit_date"] > current_date
+        ]
         return capital, active_positions
 
     def calculate_position_size(
@@ -187,6 +200,7 @@ class StrategyBase(ABC):
         - dict -> len(dict)
         - list/set/tuple -> len(collection)
         - (dict, DataFrame|None) -> 先頭要素が dict なら len(dict)
+        - DataFrame -> len(df) （空なら 0）
         - 上記以外/None/例外時 -> None (不明扱い)
         呼び出し側は None をそのまま記録し、可視化層で区別できるようにする。
         """
@@ -199,6 +213,16 @@ class StrategyBase(ABC):
                 return len(result)
             if isinstance(result, (list, set, tuple)):
                 return len(result)
+            # DataFrame 直接返却パターン（戦略実装が DataFrame 単体を返すケースを補足）
+            try:
+                import pandas as _pd  # 局所 import（依存循環回避 & 軽量）
+
+                if isinstance(result, _pd.DataFrame):
+                    # 空 DataFrame も 0 として明示 (None ではなく 0) → UI 上は 0 件として表示
+                    return int(len(result))
+            except Exception:
+                # pandas 未インポートや型変換失敗時は従来どおり None へフォールバック
+                pass
         except Exception:  # pragma: no cover
             return None
         return None
@@ -245,7 +269,9 @@ class StrategyBase(ABC):
     # リファクタリング用共通メソッド（追加）
     # ----------------------------
 
-    def _resolve_data_params(self, raw_data_or_symbols, use_process_pool=False, **_kwargs):
+    def _resolve_data_params(
+        self, raw_data_or_symbols, use_process_pool=False, **_kwargs
+    ):
         """
         データパラメータの共通解決処理
 
@@ -269,7 +295,9 @@ class StrategyBase(ABC):
     # 共通PnL計算メソッド
     # ----------------------------
 
-    def compute_pnl_long(self, entry_price: float, exit_price: float, shares: int) -> float:
+    def compute_pnl_long(
+        self, entry_price: float, exit_price: float, shares: int
+    ) -> float:
         """
         ロングポジションのPnL計算。
 
@@ -283,7 +311,9 @@ class StrategyBase(ABC):
         """
         return (exit_price - entry_price) * shares
 
-    def compute_pnl_short(self, entry_price: float, exit_price: float, shares: int) -> float:
+    def compute_pnl_short(
+        self, entry_price: float, exit_price: float, shares: int
+    ) -> float:
         """
         ショートポジションのPnL計算。
 
@@ -337,7 +367,9 @@ class StrategyBase(ABC):
         except Exception:
             return min(100, max(10, data_size // 10))
 
-    def _compute_entry_common(self, df, candidate, atr_column="atr20", stop_multiplier=None):
+    def _compute_entry_common(
+        self, df, candidate, atr_column="atr20", stop_multiplier=None
+    ):
         """
         共通エントリー計算（ATRベースのストップロス）
         戻り値: (entry_price, stop_price, entry_idx) または None
@@ -375,12 +407,15 @@ class StrategyBase(ABC):
             stop_multiplier = float(self.config.get("stop_atr_multiple", 3.0))
 
         stop_price = entry_price - stop_multiplier * atr_value
+        # エントリー直後の想定リスク幅が 0 以下なら無効（データ異常/ATR異常）
         if entry_price - stop_price <= 0:
             return None
 
         return entry_price, stop_price, entry_idx
 
-    def _prepare_data_with_fallback(self, core_prepare_func, raw_dict, symbols, **kwargs):
+    def _prepare_data_with_fallback(
+        self, core_prepare_func, raw_dict, symbols, **kwargs
+    ):
         """
         System1用のフォールバック付きprepare_data処理
         """
@@ -421,11 +456,20 @@ class StrategyBase(ABC):
 
         # batch_size の設定（use_process_pool=Falseの時のみ）
         use_process_pool = kwargs.get("use_process_pool", False)
-        if not use_process_pool and raw_dict is not None and kwargs.get("batch_size") is None:
+        if (
+            not use_process_pool
+            and raw_dict is not None
+            and kwargs.get("batch_size") is None
+        ):
             kwargs["batch_size"] = self._get_batch_size_setting(len(raw_dict))
 
         # System1のフォールバック処理
-        if hasattr(self, "SYSTEM_NAME") and getattr(self, "SYSTEM_NAME", None) == "system1":
-            return self._prepare_data_with_fallback(core_prepare_func, raw_dict, symbols, **kwargs)
+        if (
+            hasattr(self, "SYSTEM_NAME")
+            and getattr(self, "SYSTEM_NAME", None) == "system1"
+        ):
+            return self._prepare_data_with_fallback(
+                core_prepare_func, raw_dict, symbols, **kwargs
+            )
         else:
             return core_prepare_func(raw_dict, symbols=symbols, **kwargs)

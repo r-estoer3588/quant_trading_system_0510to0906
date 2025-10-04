@@ -3,19 +3,20 @@ Enhanced tests for CacheManager to boost coverage to 80%+
 Testing all critical methods including read, write, indicators, and batch operations
 """
 
-import tempfile
 from pathlib import Path
-import pandas as pd
-import numpy as np
-import pytest
+import tempfile
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from common.cache_manager import (
     CacheManager,
+    _base_dir,
     compute_base_indicators,
     get_indicator_column_flexible,
     standardize_indicator_columns,
-    _base_dir,
 )
 from config.settings import Settings
 
@@ -267,7 +268,9 @@ class TestStandaloneFunctions:
 
         # Check for common indicators (depending on implementation)
         potential_indicators = ["SMA_20", "RSI_14", "ATR_20", "adx7"]
-        found_indicators = [col for col in potential_indicators if col in result.columns]
+        found_indicators = [
+            col for col in potential_indicators if col in result.columns
+        ]
         assert len(found_indicators) > 0  # Should have at least some indicators
 
     def test_get_indicator_column_flexible(self, sample_data):

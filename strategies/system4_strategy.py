@@ -5,6 +5,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_is_finite,
+)
 from common.utils import resolve_batch_size
 from core.system4 import (
     generate_candidates_system4,
@@ -88,8 +93,29 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             log_callback=log_callback,
             batch_size=batch_size,
             latest_only=latest_only,
+            include_diagnostics=True,
             **kwargs,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                prepared_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=latest_only,
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="rsi4",
+                    rank_predicate=numeric_is_finite("rsi4"),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -129,14 +155,18 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         if atr40 is None:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4)
+            getattr(self, "config", {}).get(
+                "stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4
+            )
         )
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         trail_pct = float(getattr(self, "config", {}).get("trailing_pct", 0.20))
         highest = entry_price
         for idx2 in range(entry_idx + 1, len(df)):

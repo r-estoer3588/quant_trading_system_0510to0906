@@ -155,7 +155,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
         # フィルターとセットアップ
         x["filter"] = (
-            (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50) & hv50_condition
+            (x["Low"] >= MIN_PRICE)
+            & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
+            & hv50_condition
         )
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
@@ -229,12 +231,31 @@ def generate_candidates_system6(
     skip_callback=None,
     batch_size: int | None = None,
     latest_only: bool = False,
-) -> tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]:
+    include_diagnostics: bool = False,
+    diagnostics: dict[str, Any] | None = None,
+) -> (
+    tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
+    | tuple[
+        dict[pd.Timestamp, dict[str, dict[str, Any]]],
+        pd.DataFrame | None,
+        dict[str, Any],
+    ]
+):
     """Generate System6 candidates.
 
     Added fast-path (latest_only=True): O(symbols) processing using only the last row
     of each DataFrame. Returns normalized mapping {date: {symbol: payload}}.
     """
+    # diagnostics payload (opt-in)
+    if diagnostics is None:
+        diagnostics = {
+            "ranking_source": None,
+            "setup_predicate_count": 0,
+            "final_top_n_count": 0,
+            "predicate_only_pass_count": 0,
+            "mismatch_flag": 0,
+        }
+
     candidates_by_date: dict[pd.Timestamp, list] = {}
 
     # === Fast Path: latest_only ===
@@ -248,7 +269,9 @@ def generate_candidates_system6(
                 if "setup" not in df.columns:
                     continue
                 last_row = df.iloc[-1]
-                if not bool(last_row.get("setup")):
+                if bool(last_row.get("setup")):
+                    diagnostics["setup_predicate_count"] += 1
+                else:
                     continue
                 # 必要指標取得 (存在しない場合はスキップ)
                 return_6d = last_row.get("return_6d")
@@ -268,7 +291,7 @@ def generate_candidates_system6(
                     }
                 )
             if not rows:
-                return {}, None
+                return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             # 最頻日で揃える（欠落シンボル耐性）
             try:
@@ -290,7 +313,9 @@ def generate_candidates_system6(
                     sym_val = rec.get("symbol")
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
-                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+                    payload = {
+                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
                     symbol_map[sym_val] = payload
                 normalized[dt] = symbol_map
             if log_callback:
@@ -300,7 +325,13 @@ def generate_candidates_system6(
                     )
                 except Exception:
                     pass
-            return normalized, df_all.copy()
+            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranking_source"] = "latest_only"
+            return (
+                (normalized, df_all.copy(), diagnostics)
+                if include_diagnostics
+                else (normalized, df_all.copy())
+            )
         except Exception as e:
             if log_callback:
                 try:
@@ -391,6 +422,11 @@ def generate_candidates_system6(
                     "atr10": row["atr10"],
                 }
                 candidates_by_date.setdefault(entry_date, []).append(rec)
+                try:
+                    if bool(row.get("setup", False)):
+                        diagnostics["setup_predicate_count"] += 1
+                except Exception:
+                    pass
         except Exception:
             skipped += 1
 
@@ -482,7 +518,9 @@ def generate_candidates_system6(
             pass
 
     # 最終メトリクス記録
-    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    total_candidates = sum(
+        len(candidates) for candidates in candidates_by_date.values()
+    )
     unique_dates = len(candidates_by_date)
     _metrics.record_metric("system6_total_candidates", total_candidates, "count")
     _metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
@@ -506,12 +544,28 @@ def generate_candidates_system6(
             if not isinstance(sym_val, str) or not sym_val:
                 continue
             # rec may contain entry_date; unify key name 'date' for DF compatibility
-            payload = {k: v for k, v in rec.items() if k not in ("symbol", "entry_date")}
+            payload = {
+                k: v for k, v in rec.items() if k not in ("symbol", "entry_date")
+            }
             # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
             payload["entry_date"] = rec.get("entry_date")
             symbol_map[sym_val] = payload
         normalized_full[pd.Timestamp(dt)] = symbol_map
-    return normalized_full, None
+    # diagnostics for full path
+    diagnostics["ranking_source"] = diagnostics.get("ranking_source") or "full_scan"
+    try:
+        last_dt = max(normalized_full.keys()) if normalized_full else None
+        diagnostics["final_top_n_count"] = (
+            len(normalized_full.get(last_dt, {})) if last_dt is not None else 0
+        )
+    except Exception:
+        diagnostics["final_top_n_count"] = 0
+
+    return (
+        (normalized_full, None, diagnostics)
+        if include_diagnostics
+        else (normalized_full, None)
+    )
 
 
 def get_total_days_system6(data_dict: dict[str, pd.DataFrame]) -> int:

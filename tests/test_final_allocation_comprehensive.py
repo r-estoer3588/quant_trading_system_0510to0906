@@ -163,9 +163,15 @@ class TestFinalizeAllocation:
         # Create mock candidate DataFrames
         per_system = {
             "system1": pd.DataFrame(
-                {"symbol": ["AAPL", "MSFT"], "score": [0.8, 0.7], "close": [150.0, 300.0]}
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [0.8, 0.7],
+                    "close": [150.0, 300.0],
+                }
             ),
-            "system2": pd.DataFrame({"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}),
+            "system2": pd.DataFrame(
+                {"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}
+            ),
         }
 
         try:
@@ -334,9 +340,15 @@ class TestFinalizeAllocationDuplicate:
         # Create mock candidate DataFrames
         candidates = {
             "system1": pd.DataFrame(
-                {"symbol": ["AAPL", "MSFT"], "score": [0.8, 0.7], "close": [150.0, 300.0]}
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [0.8, 0.7],
+                    "close": [150.0, 300.0],
+                }
             ),
-            "system2": pd.DataFrame({"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}),
+            "system2": pd.DataFrame(
+                {"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}
+            ),
         }
 
         # Mock active positions
@@ -374,7 +386,12 @@ class TestFinalizeAllocationDuplicate:
         """Test finalize_allocation in capital mode"""
         candidates = {
             "system1": pd.DataFrame(
-                {"symbol": ["AAPL"], "score": [0.8], "close": [150.0], "position_size": [100]}
+                {
+                    "symbol": ["AAPL"],
+                    "score": [0.8],
+                    "close": [150.0],
+                    "position_size": [100],
+                }
             )
         }
 
@@ -410,7 +427,9 @@ class TestFinalizeAllocationDuplicate:
         with patch("core.final_allocation.get_settings"):
             try:
                 result = finalize_allocation(
-                    candidates=candidates, active_positions=active_positions, mode="slot"
+                    candidates=candidates,
+                    active_positions=active_positions,
+                    mode="slot",
                 )
 
                 if result is not None:
@@ -497,7 +516,9 @@ class TestAllocationErrorHandling:
 
         with patch("core.final_allocation.get_settings"):
             try:
-                finalize_allocation(candidates=invalid_candidates, active_positions={}, mode="slot")
+                finalize_allocation(
+                    candidates=invalid_candidates, active_positions={}, mode="slot"
+                )
                 # Should handle gracefully or raise appropriate exception
             except (TypeError, AttributeError, ValueError):
                 # Expected for invalid input

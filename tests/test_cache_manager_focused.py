@@ -2,8 +2,8 @@
 Simplified and focused CacheManager tests for maximum coverage boost
 """
 
-import tempfile
 from pathlib import Path
+import tempfile
 from unittest.mock import Mock
 
 import numpy as np
@@ -157,7 +157,12 @@ class TestCacheManagerCore:
         manager = CacheManager(simple_settings)
 
         df = pd.DataFrame(
-            {"Keep1": [1, 2, 3], "Keep2": [4, 5, 6], "Remove1": [7, 8, 9], "Remove2": [10, 11, 12]}
+            {
+                "Keep1": [1, 2, 3],
+                "Keep2": [4, 5, 6],
+                "Remove1": [7, 8, 9],
+                "Remove2": [10, 11, 12],
+            }
         )
 
         keep_columns = ["Keep1", "Keep2"]
@@ -322,7 +327,9 @@ class TestCacheManagerBatch:
             for symbol in results:
                 assert symbol in symbols
                 # Each value should be None or DataFrame
-                assert results[symbol] is None or isinstance(results[symbol], pd.DataFrame)
+                assert results[symbol] is None or isinstance(
+                    results[symbol], pd.DataFrame
+                )
 
 
 # Integration test that covers multiple methods

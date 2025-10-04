@@ -11,18 +11,18 @@ import requests
 
 import common  # noqa: F401
 from common.cache_manager import CacheManager
-from common.trading_errors import (
-    ErrorCode,
-    TradingError,
-    NetworkError,
-    DataError,
-    SystemError,
-    retry_with_backoff,
-    RetryPolicy,
-    ErrorContext,
-)
-from common.trace_context import trace_context, ProcessingPhase
 from common.structured_logging import get_trading_logger
+from common.trace_context import ProcessingPhase, trace_context
+from common.trading_errors import (
+    DataError,
+    ErrorCode,
+    ErrorContext,
+    NetworkError,
+    RetryPolicy,
+    SystemError,
+    TradingError,
+    retry_with_backoff,
+)
 from config.settings import get_settings
 
 # .envからAPIキー取得
@@ -36,7 +36,9 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
     """EODHD API から SPY データを取得し CacheManager で保存する（エラー解析強化版）。"""
     symbol = "SPY"
 
-    with trace_context(phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol) as ctx:
+    with trace_context(
+        phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol
+    ) as ctx:
         logger.get_logger("spy_recovery").info(
             f"Starting SPY cache recovery with trace_id: {ctx.trace_id}"
         )
@@ -75,7 +77,9 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         except Exception as e:
             # Classify unknown exceptions
             error_ctx = ErrorContext(
-                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="spy_recovery", symbol=symbol
+                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                phase="spy_recovery",
+                symbol=symbol,
             )
             trading_error = SystemError(
                 f"Unexpected error during SPY recovery: {str(e)}",
@@ -148,7 +152,8 @@ def _fetch_spy_data_with_retry(api_key: str, symbol: str) -> pd.DataFrame:
 
             df = pd.DataFrame(data)
             logger.get_logger("spy_recovery").info(
-                f"データ取得成功: {len(df)} 行", extra={"symbol": symbol, "rows": len(df)}
+                f"データ取得成功: {len(df)} 行",
+                extra={"symbol": symbol, "rows": len(df)},
             )
             print(f"[INFO] 取得件数: {len(df)}")
             return df
@@ -180,7 +185,9 @@ def _fetch_spy_data_with_retry(api_key: str, symbol: str) -> pd.DataFrame:
                 )
 
     # Retry policy for network operations
-    retry_policy = RetryPolicy(max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0)
+    retry_policy = RetryPolicy(
+        max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0
+    )
 
     return retry_with_backoff(
         _fetch_data,
@@ -268,7 +275,9 @@ def _validate_and_normalize_data(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
             f"データの正規化に失敗しました: {e}",
             ErrorCode.DAT002E,
             context=ErrorContext(
-                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="data_validation", symbol=symbol
+                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                phase="data_validation",
+                symbol=symbol,
             ),
             cause=e,
         )
@@ -294,7 +303,9 @@ def _store_to_cache(cache_manager: CacheManager, symbol: str, df: pd.DataFrame):
             f"CacheManager による保存に失敗しました: {e}",
             ErrorCode.DAT001E,
             context=ErrorContext(
-                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="cache_storage", symbol=symbol
+                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                phase="cache_storage",
+                symbol=symbol,
             ),
             cause=e,
         )
@@ -305,7 +316,10 @@ if __name__ == "__main__":
         description="SPY の日足を取得し CacheManager でキャッシュへ保存"
     )
     parser.add_argument(
-        "--out", dest="out", default=None, help="非推奨: CacheManager が設定から自動決定します"
+        "--out",
+        dest="out",
+        default=None,
+        help="非推奨: CacheManager が設定から自動決定します",
     )
     parser.add_argument(
         "--group",
@@ -316,6 +330,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.out or args.group:
-        print("⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます")
+        print(
+            "⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます"
+        )
 
     fetch_and_cache_spy_from_eodhd()

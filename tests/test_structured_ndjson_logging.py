@@ -97,4 +97,6 @@ def test_ndjson_writer_rotation_by_lines(tmp_path, monkeypatch):
     assert total_lines == len(msgs)
     assert collected_msgs == msgs
     # part サフィックス付きファイルが少なくとも 1 つ存在
-    assert any("_part" in f.name for f in files), "ローテーション後の part ファイルが見つからない"
+    assert any(
+        "_part" in f.name for f in files
+    ), "ローテーション後の part ファイルが見つからない"

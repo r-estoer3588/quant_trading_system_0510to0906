@@ -21,7 +21,8 @@ def test_extended_health_check():
 
     # ロギング設定
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
 
@@ -99,7 +100,9 @@ def test_extended_health_check():
             print("\n=== 全体統計 ===")
             print(f"総銘柄数: {overall.get('total_symbols_analyzed', 'N/A')}")
             print(f"平均行数/ファイル: {overall.get('average_rows_per_file', 'N/A')}")
-            print(f"平均カラム数/ファイル: {overall.get('average_columns_per_file', 'N/A')}")
+            print(
+                f"平均カラム数/ファイル: {overall.get('average_columns_per_file', 'N/A')}"
+            )
             print(f"全体健全性率: {overall.get('overall_health_rate', 'N/A')}%")
 
         print("\n=== 出力ファイル ===")
@@ -116,7 +119,9 @@ def test_extended_health_check():
                 if sample_count >= 2:
                     break
                 print(f"\n銘柄: {metrics.symbol} ({profile})")
-                print(f"  行数: {metrics.total_rows}, カラム数: {metrics.total_columns}")
+                print(
+                    f"  行数: {metrics.total_rows}, カラム数: {metrics.total_columns}"
+                )
                 print(f"  NaN率: {metrics.nan_rate_overall*100:.2f}%")
                 print(f"  高NaNカラム: {len(metrics.columns_with_high_nan)}")
                 print(f"  欠損カラム: {len(metrics.missing_columns)}")
@@ -140,7 +145,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Extended Cache Health Test")
-    parser.add_argument("--sample", type=int, default=5, help="サンプリングサイズ（デフォルト: 5）")
+    parser.add_argument(
+        "--sample", type=int, default=5, help="サンプリングサイズ（デフォルト: 5）"
+    )
     parser.add_argument(
         "--profiles",
         nargs="*",
@@ -158,7 +165,9 @@ if __name__ == "__main__":
 
         checker = ExtendedCacheHealthChecker(sample_size=args.sample)
 
-        print(f"拡張ヘルスチェック開始 - サンプル: {args.sample}, プロファイル: {args.profiles}")
+        print(
+            f"拡張ヘルスチェック開始 - サンプル: {args.sample}, プロファイル: {args.profiles}"
+        )
 
         all_results = {}
         for profile in args.profiles:

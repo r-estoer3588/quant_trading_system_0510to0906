@@ -28,23 +28,23 @@ function Move-SafelyTo {
         [string]$Source,
         [string]$Destination
     )
-    
+
     if (-not (Test-Path $Source)) {
         Write-Info "Source not found: $Source"
         return
     }
-    
+
     if ($DryRun) {
         Write-Host "[DRY-RUN] Would move: $Source -> $Destination" -ForegroundColor Yellow
         return
     }
-    
+
     $destDir = Split-Path -Parent $Destination
     if (-not (Test-Path $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
         Write-Info "Created directory: $destDir"
     }
-    
+
     try {
         Move-Item -Path $Source -Destination $Destination -Force
         Write-Info "Moved: $Source -> $Destination"
@@ -56,17 +56,17 @@ function Move-SafelyTo {
 
 function Remove-SafelyFile {
     param([string]$FilePath)
-    
+
     if (-not (Test-Path $FilePath)) {
         Write-Info "File not found for removal: $FilePath"
         return
     }
-    
+
     if ($DryRun) {
         Write-Host "[DRY-RUN] Would remove: $FilePath" -ForegroundColor Yellow
         return
     }
-    
+
     try {
         Remove-Item -Path $FilePath -Force
         Write-Info "Removed: $FilePath"
@@ -81,17 +81,17 @@ function Remove-SafelyFile {
 # ==========================================
 if ($CreateBackup -and -not $DryRun) {
     Write-Progress "Phase 1" "Creating backup before reorganization"
-    
+
     $backupName = "quant_trading_system_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
     $backupPath = "C:\Backup\$backupName"
-    
+
     if (-not (Test-Path "C:\Backup")) {
         New-Item -ItemType Directory -Path "C:\Backup" -Force | Out-Null
     }
-    
+
     Write-Host "Creating backup at: $backupPath" -ForegroundColor Cyan
     robocopy . $backupPath /E /XD .git __pycache__ .venv node_modules /XF *.tmp *.log > $null
-    
+
     if ($LASTEXITCODE -le 8) {  # robocopy success codes
         Write-Host "✓ Backup created successfully" -ForegroundColor Green
     } else {
@@ -114,7 +114,7 @@ $newDirs = @(
     "tools/maintenance",
     "tools/analysis",
     "docs/architecture",
-    "docs/guides", 
+    "docs/guides",
     "docs/api",
     "docs/internal/deprecated"
 )
@@ -172,7 +172,7 @@ Write-Progress "Phase 5" "Removing unnecessary files"
 
 $unnecessaryFiles = @(
     "*.tmp",
-    "*.temp", 
+    "*.temp",
     "*.bak",
     "Thumbs.db",
     ".DS_Store"
@@ -192,13 +192,13 @@ Write-Progress "Phase 6" "Organizing log files"
 
 if (Test-Path "logs") {
     $oldLogs = Get-ChildItem -Path "logs" -Filter "*.log" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) }
-    
+
     if ($oldLogs.Count -gt 0) {
         $archiveDir = "logs/archive"
         if (-not (Test-Path $archiveDir) -and -not $DryRun) {
             New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
         }
-        
+
         foreach ($log in $oldLogs) {
             Move-SafelyTo -Source $log.FullName -Destination "$archiveDir/$($log.Name)"
         }
@@ -221,7 +221,7 @@ backup/
 *.bak
 *.old
 
-# Test coverage reports  
+# Test coverage reports
 test_coverage/
 htmlcov*/
 .coverage*
@@ -292,7 +292,7 @@ Write-Host $summary -ForegroundColor Green
 # ==========================================
 if (-not $DryRun) {
     Write-Progress "Phase 9" "Final verification"
-    
+
     # 重要なファイルが残っているか確認
     $criticalFiles = @(
         "core/final_allocation.py",
@@ -301,7 +301,7 @@ if (-not $DryRun) {
         "config/settings.py",
         "requirements.txt"
     )
-    
+
     $allGood = $true
     foreach ($file in $criticalFiles) {
         if (-not (Test-Path $file)) {
@@ -309,14 +309,14 @@ if (-not $DryRun) {
             $allGood = $false
         }
     }
-    
+
     if ($allGood) {
         Write-Host "`n✓ All critical files verified" -ForegroundColor Green
-        
+
         # Git status display
         Write-Host "`n=== Git Status ===" -ForegroundColor Magenta
         git status --short
-        
+
         Write-Host "`nReorganization completed successfully! 🚀" -ForegroundColor Green
     } else {
         Write-Error "Some critical files are missing. Please review the changes."

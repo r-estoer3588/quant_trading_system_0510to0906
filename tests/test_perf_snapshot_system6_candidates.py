@@ -23,7 +23,10 @@ def test_system6_perf_snapshot_candidate_count(tmp_path, monkeypatch):
     # StrategyBase は設定読み込みを行うため、ここでは標準 __init__ を使用（引数不要）
     s = System6Strategy()
 
-    dummy_candidates = {"AAA": {"entry_date": "2024-01-01"}, "BBB": {"entry_date": "2024-01-01"}}
+    dummy_candidates = {
+        "AAA": {"entry_date": "2024-01-01"},
+        "BBB": {"entry_date": "2024-01-01"},
+    }
     dummy_df = pd.DataFrame({"Close": [1, 2, 3]})
 
     def fake_generate_candidates_system6(data_dict, top_n, batch_size, **kwargs):
@@ -31,7 +34,8 @@ def test_system6_perf_snapshot_candidate_count(tmp_path, monkeypatch):
 
     # strategy ファイル内で import 済みのシンボルを差し替え
     monkeypatch.setattr(
-        "strategies.system6_strategy.generate_candidates_system6", fake_generate_candidates_system6
+        "strategies.system6_strategy.generate_candidates_system6",
+        fake_generate_candidates_system6,
     )
 
     data_dict = {"AAA": dummy_df, "BBB": dummy_df}

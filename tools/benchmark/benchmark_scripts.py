@@ -12,7 +12,9 @@ import subprocess
 import time
 from typing import Any
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).parent
@@ -31,7 +33,11 @@ def measure_execution_time(
     try:
         # プロセス実行
         result = subprocess.run(
-            command, cwd=ROOT_DIR, capture_output=True, text=True, timeout=timeout_seconds
+            command,
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
         )
 
         end_time = time.time()
@@ -39,7 +45,9 @@ def measure_execution_time(
 
         success = result.returncode == 0
 
-        logger.info(f"完了: {description} - {duration:.2f}秒 - {'成功' if success else '失敗'}")
+        logger.info(
+            f"完了: {description} - {duration:.2f}秒 - {'成功' if success else '失敗'}"
+        )
 
         return {
             "description": description,
@@ -136,7 +144,9 @@ def main():
 
     for result in results:
         status = "✓" if result["success"] else "✗"
-        print(f"{status} {result['description']:50} {result['duration_seconds']:8.2f}秒")
+        print(
+            f"{status} {result['description']:50} {result['duration_seconds']:8.2f}秒"
+        )
         if not result["success"]:
             if "error" in result:
                 print(f"   エラー: {result.get('error', '不明')}")
@@ -146,7 +156,12 @@ def main():
     # JSONファイルに結果を保存
     output_file = ROOT_DIR / "benchmark_results.json"
     with open(output_file, "w", encoding="utf-8") as f:
-        json.dump({"timestamp": time.time(), "results": results}, f, indent=2, ensure_ascii=False)
+        json.dump(
+            {"timestamp": time.time(), "results": results},
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
 
     logger.info(f"結果をJSONファイルに保存: {output_file}")
 

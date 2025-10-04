@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
@@ -11,7 +11,6 @@ import streamlit as st
 # プロジェクトルート（apps/systems/ から2階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
@@ -23,6 +22,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
+import common.ui_patch  # noqa: F401
 from strategies import get_strategy
 
 # 翻訳辞書ロード + 言語選択
@@ -186,7 +186,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
 
     # UIManager を必要最低限で初期化（事前フェーズプレースホルダーは生成しない）
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME)
+        if ui_manager
+        else UIManager().system(SYSTEM_NAME)
     )
 
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
@@ -237,7 +239,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            _dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -282,7 +286,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
+                    0
+                ]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

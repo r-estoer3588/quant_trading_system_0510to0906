@@ -5,6 +5,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_greater_than,
+)
 from core.system2 import (
     generate_candidates_system2,
     get_total_days_system2,
@@ -63,7 +68,28 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             data_dict,
             top_n=top_n,
             latest_only=latest_only,
+            include_diagnostics=True,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                data_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=latest_only,
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="adx7",
+                    rank_predicate=numeric_greater_than("adx7", 0.0),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -121,18 +147,24 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         """利確/損切りロジック。
         - ストップ到達: その日の高値>=stop で当日決済
         - 利確到達: 前日終値で判定し、翌日大引けで決済
         - 未達: 2営業日待っても利確に届かない場合は3日目の大引けで決済
         返り値: (exit_price, exit_date)
         """
-        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
+        )
         max_hold_days = int(self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT))
 
         for offset in range(max_hold_days):

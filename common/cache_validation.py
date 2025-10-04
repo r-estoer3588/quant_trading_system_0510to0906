@@ -91,7 +91,9 @@ class CacheValidator:
     def __init__(self):
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+    def _warn_once(
+        self, ticker: str, profile: str, category: str, message: str
+    ) -> None:
         """同じ警告を一度だけ出力する。"""
         key = (ticker, profile, category)
         if key in self._warned:
@@ -104,7 +106,9 @@ class CacheValidator:
         if df is None or df.empty:
             return
 
-        present_indicators = [col for col in MAIN_INDICATOR_COLUMNS if col in df.columns]
+        present_indicators = [
+            col for col in MAIN_INDICATOR_COLUMNS if col in df.columns
+        ]
         if not present_indicators:
             return
 
@@ -129,7 +133,11 @@ class CacheValidator:
         if problematic_cols:
             msg = (
                 f"[{profile}] {ticker}: 指標NaN率が高い列: {', '.join(problematic_cols[:5])}"
-                + (f" (+{len(problematic_cols)-5})" if len(problematic_cols) > 5 else "")
+                + (
+                    f" (+{len(problematic_cols)-5})"
+                    if len(problematic_cols) > 5
+                    else ""
+                )
                 + f" (rows={total_rows})"
             )
             self._warn_once(ticker, profile, "high_nan", msg)
@@ -141,7 +149,9 @@ class CacheValidator:
         dtype_info = describe_dtype(df, max_columns=8)
         logger.debug(f"[{profile}] {ticker}: dtypes={dtype_info}")
 
-    def check_non_positive_prices(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
+    def check_non_positive_prices(
+        self, df: pd.DataFrame, ticker: str, profile: str
+    ) -> None:
         """価格列で非正値の割合をチェックする。"""
         price_cols = ["open", "high", "low", "close"]
         issues = []

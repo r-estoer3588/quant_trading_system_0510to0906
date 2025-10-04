@@ -2,12 +2,13 @@
 Fixed and working CacheManager tests for reliable coverage
 """
 
-import tempfile
 from pathlib import Path
-import pandas as pd
-import numpy as np
-import pytest
+import tempfile
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from common.cache_manager import (
     CacheManager,
@@ -102,7 +103,9 @@ class TestCacheManagerCoreFixed:
         manager = CacheManager(working_settings)
 
         # Simple DataFrame
-        df = pd.DataFrame({"Keep1": [1, 2, 3], "Keep2": [4, 5, 6], "Remove1": [7, 8, 9]})
+        df = pd.DataFrame(
+            {"Keep1": [1, 2, 3], "Keep2": [4, 5, 6], "Remove1": [7, 8, 9]}
+        )
 
         keep_columns = ["Keep1", "Keep2"]
         result = manager.remove_unnecessary_columns(df, keep_columns)
@@ -145,7 +148,11 @@ class TestStandaloneFunctionsSafe:
     def test_get_indicator_column_flexible_safe(self):
         """Test flexible column retrieval with simple data"""
         df = pd.DataFrame(
-            {"Price": [100, 101, 102], "RSI_14": [50, 60, 70], "Volume": [1000, 1100, 1200]}
+            {
+                "Price": [100, 101, 102],
+                "RSI_14": [50, 60, 70],
+                "Volume": [1000, 1100, 1200],
+            }
         )
 
         # Test exact match
@@ -160,7 +167,11 @@ class TestStandaloneFunctionsSafe:
     def test_standardize_indicator_columns_safe(self):
         """Test column standardization with predictable data"""
         df = pd.DataFrame(
-            {"Close": [100, 101, 102], "rsi": [50, 60, 70], "SMA_20": [99, 100, 101]}  # lowercase
+            {
+                "Close": [100, 101, 102],
+                "rsi": [50, 60, 70],
+                "SMA_20": [99, 100, 101],
+            }  # lowercase
         )
 
         result = standardize_indicator_columns(df)

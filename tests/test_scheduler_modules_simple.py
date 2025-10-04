@@ -3,9 +3,10 @@
 16%→20%+を狙うための戦略的カバレッジ向上
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

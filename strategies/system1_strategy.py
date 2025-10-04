@@ -24,7 +24,12 @@ from .constants import STOP_ATR_MULTIPLE_SYSTEM1
 class System1Strategy(AlpacaOrderMixin, StrategyBase):
     SYSTEM_NAME = "system1"
 
-    def prepare_data(self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def prepare_data(
+        self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs
+    ):
         """System1のデータ準備（共通テンプレート + フォールバック対応）"""
         return self._prepare_data_template(
             raw_data_or_symbols,
@@ -58,12 +63,24 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            if merged_df is not None:
+                try:
+                    merged_df.attrs["system1_diagnostics"] = diagnostics
+                except Exception:
+                    pass
+            result_tuple = (candidates_by_date, merged_df)
+        else:  # Fallback for unexpected shapes
+            self.last_diagnostics = None
+            result_tuple = result  # type: ignore[assignment]
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
             _p2 = _gpf()
             if _p2 is not None:
-                candidate_count = self._compute_candidate_count(result)
+                candidate_count = self._compute_candidate_count(result_tuple)
                 _p2.mark_system_end(
                     self.SYSTEM_NAME,
                     symbol_count=len(data_dict or {}),
@@ -71,7 +88,7 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
                 )
         except Exception:  # pragma: no cover
             pass
-        return result
+        return result_tuple
 
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         """
@@ -89,7 +106,9 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             df,
             candidate,
             atr_column="atr20",
-            stop_multiplier=self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1),
+            stop_multiplier=self.config.get(
+                "stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1
+            ),
         )
         if result is None:
             return None

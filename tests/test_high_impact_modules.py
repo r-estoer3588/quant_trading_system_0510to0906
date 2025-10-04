@@ -5,11 +5,11 @@ High impact modules for coverage improvement
 
 import pandas as pd
 
-from common.system_common import get_total_days, format_dataframes_for_display
+from common.system_common import format_dataframes_for_display, get_total_days
 from core.final_allocation import (
-    validate_allocations,
     calculate_position_sizes_fixed_fractional,
     get_max_position_dollars,
+    validate_allocations,
 )
 
 
@@ -51,9 +51,14 @@ class TestSystemCommonWorking:
         # Create test dataframes
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Close": [100.123, 101.456, 102.789], "Volume": [1000000, 1100000, 1200000]}
+                {
+                    "Close": [100.123, 101.456, 102.789],
+                    "Volume": [1000000, 1100000, 1200000],
+                }
             ),
-            "GOOGL": pd.DataFrame({"Close": [2000.12, 2010.34], "Volume": [500000, 550000]}),
+            "GOOGL": pd.DataFrame(
+                {"Close": [2000.12, 2010.34], "Volume": [500000, 550000]}
+            ),
         }
 
         try:
@@ -195,7 +200,10 @@ class TestSystemCommonUtilities:
 
             # Create test data with mixed date formats
             df = pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+                {
+                    "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                    "Close": [100, 101, 102],
+                }
             )
 
             result = normalize_dates(df)
@@ -245,7 +253,9 @@ class TestFinalAllocationUtilities:
         try:
             from core.final_allocation import enforce_max_positions
 
-            allocations = {"System1_Long": ["A", "B", "C", "D", "E", "F", "G", "H"]}  # Too many
+            allocations = {
+                "System1_Long": ["A", "B", "C", "D", "E", "F", "G", "H"]
+            }  # Too many
 
             result = enforce_max_positions(allocations, max_positions=5)
             assert isinstance(result, dict)

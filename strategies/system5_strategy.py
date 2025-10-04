@@ -4,6 +4,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_greater_than,
+)
 from common.utils import resolve_batch_size
 from core.system5 import (
     generate_candidates_system5,
@@ -60,16 +65,18 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                 top_n = max(0, int(top_n))
             except Exception:
                 top_n = 10
+
         if batch_size is None:
             try:
                 from config.settings import get_settings
 
-                batch_size = get_settings(create_dirs=False).data.batch_size
+                default_bs = int(get_settings(create_dirs=False).data.batch_size)
             except Exception:
-                batch_size = 100
-            batch_size = resolve_batch_size(len(prepared_dict), batch_size)
-        # kwargs から取り出し: 重複渡し防止
+                default_bs = 100
+            batch_size = resolve_batch_size(len(prepared_dict or {}), default_bs)
+
         latest_only = bool(kwargs.pop("latest_only", False))
+
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
 
@@ -78,6 +85,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                 _perf.mark_system_start(self.SYSTEM_NAME)
         except Exception:  # pragma: no cover
             pass
+
         result = generate_candidates_system5(
             prepared_dict,
             top_n=top_n,
@@ -85,8 +93,30 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             log_callback=log_callback,
             batch_size=batch_size,
             latest_only=latest_only,
+            include_diagnostics=True,
             **kwargs,
         )
+
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                prepared_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=latest_only,
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="adx7",
+                    rank_predicate=numeric_greater_than("adx7", 0.0),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -115,7 +145,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
+        ratio = float(
+            getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97)
+        )
         entry_price = round(prev_close * ratio, 2)
         atr = None
         for col in ("atr10", "ATR10"):
@@ -127,7 +159,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if atr is None:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+            getattr(self, "config", {}).get(
+                "stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT
+            )
         )
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
@@ -135,7 +169,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         self._last_entry_atr = atr
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         """System5 の利確・損切り・時間退出ロジック。
 
         - 利益目標: 過去10日ATR×設定倍率を上回ったら翌営業日の寄り付きで決済
@@ -160,7 +196,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
         target_price = entry_price + target_mult * atr
         fallback_days = int(
-            getattr(self, "config", {}).get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT)
+            getattr(self, "config", {}).get(
+                "fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT
+            )
         )
 
         last_idx = len(df) - 1

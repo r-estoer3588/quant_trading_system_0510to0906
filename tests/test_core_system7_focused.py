@@ -30,7 +30,9 @@ class TestSystem7Constants:
         raw_data_no_spy = {"AAPL": pd.DataFrame({"Close": [100, 101]})}
 
         # System7 should return empty dict if no SPY data
-        result = prepare_data_vectorized_system7(raw_data_no_spy, reuse_indicators=False)
+        result = prepare_data_vectorized_system7(
+            raw_data_no_spy, reuse_indicators=False
+        )
         assert result == {}
 
     def test_system7_atr50_requirement(self):
@@ -107,7 +109,10 @@ class TestSystem7DataPreparation:
                 "High": [p * 1.008 for p in prices],
                 "Low": [p * 0.992 for p in prices],
                 "Close": prices,
-                "Volume": [50000000 + np.random.randint(-5000000, 5000000) for _ in range(periods)],
+                "Volume": [
+                    50000000 + np.random.randint(-5000000, 5000000)
+                    for _ in range(periods)
+                ],
                 "atr50": [p * 0.02 for p in prices],  # Realistic ATR50 values
             },
             index=dates,
@@ -133,7 +138,9 @@ class TestSystem7DataPreparation:
 
     @patch("os.path.exists")
     @patch("pandas.read_feather")
-    def test_prepare_data_vectorized_system7_with_cache(self, mock_read_feather, mock_exists):
+    def test_prepare_data_vectorized_system7_with_cache(
+        self, mock_read_feather, mock_exists
+    ):
         """Test data preparation with caching."""
         spy_data = self.create_valid_spy_data(periods=350)  # Enough for caching
         raw_data = {"SPY": spy_data}
@@ -197,7 +204,9 @@ class TestSystem7CandidateGeneration:
         """Test basic candidate generation."""
         prepared_data = self.create_prepared_spy_data()
 
-        candidates_dict, candidates_df = generate_candidates_system7(prepared_data, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system7(
+            prepared_data, top_n=5
+        )
 
         assert isinstance(candidates_dict, dict)
         assert candidates_df is None or isinstance(candidates_df, pd.DataFrame)
@@ -210,7 +219,9 @@ class TestSystem7CandidateGeneration:
         """Test candidate generation with empty data."""
         empty_data = {}
 
-        candidates_dict, candidates_df = generate_candidates_system7(empty_data, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system7(
+            empty_data, top_n=5
+        )
 
         assert isinstance(candidates_dict, dict)
         assert len(candidates_dict) == 0
@@ -272,12 +283,16 @@ class TestSystem7Integration:
         raw_data = self.create_integration_spy_data()
 
         # Step 1: Prepare data
-        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         assert isinstance(prepared_data, dict)
         assert "SPY" in prepared_data
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system7(prepared_data, top_n=1)
+        candidates_dict, candidates_df = generate_candidates_system7(
+            prepared_data, top_n=1
+        )
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days
@@ -304,12 +319,18 @@ class TestSystem7Integration:
         # Verify System7 only processes SPY and rejects other symbols
         dates = pd.date_range("2023-01-01", periods=3, freq="D")
         multi_symbol_data = {
-            "SPY": pd.DataFrame({"Close": [400, 401, 402], "atr50": [8.0, 8.1, 8.2]}, index=dates),
-            "QQQ": pd.DataFrame({"Close": [300, 301, 302], "atr50": [6.0, 6.1, 6.2]}, index=dates),
+            "SPY": pd.DataFrame(
+                {"Close": [400, 401, 402], "atr50": [8.0, 8.1, 8.2]}, index=dates
+            ),
+            "QQQ": pd.DataFrame(
+                {"Close": [300, 301, 302], "atr50": [6.0, 6.1, 6.2]}, index=dates
+            ),
         }
 
         # System7 should only process SPY
-        result = prepare_data_vectorized_system7(multi_symbol_data, reuse_indicators=False)
+        result = prepare_data_vectorized_system7(
+            multi_symbol_data, reuse_indicators=False
+        )
 
         # Should contain SPY (if processing succeeds) and definitely not QQQ
         if result:  # If not empty

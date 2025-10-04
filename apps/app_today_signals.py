@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
 import importlib
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import sys
-import time
-import uuid
-from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone, tzinfo
-from pathlib import Path
 from threading import Lock
+import time
 from typing import TYPE_CHECKING, Any
+import uuid
 
 try:
     from zoneinfo import ZoneInfo
@@ -74,6 +74,7 @@ from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
 from common.today_signals import run_all_systems_today as compute_today_signals
 from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
 from config.settings import get_settings
+from core.system1 import summarize_system1_diagnostics
 from strategies.system1_strategy import System1Strategy
 from strategies.system2_strategy import System2Strategy
 from strategies.system3_strategy import System3Strategy
@@ -238,14 +239,18 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
         ~work["system_norm"].isin(LONG_SYSTEMS)
     )  # noqa: E501
     if long_conflict_mask.any():
-        conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].tolist()})
+        conflict = sorted(
+            {str(v) for v in work.loc[long_conflict_mask, "system"].tolist()}
+        )
         raise ValueError(f"Longサイドに想定外のsystemが含まれています: {conflict}")
 
     short_conflict_mask = (work["side_norm"] == "short") & (
         ~work["system_norm"].isin(SHORT_SYSTEMS)
     )
     if short_conflict_mask.any():
-        conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].tolist()})
+        conflict = sorted(
+            {str(v) for v in work.loc[short_conflict_mask, "system"].tolist()}
+        )
         raise ValueError(f"Shortサイドに想定外のsystemが含まれています: {conflict}")
 
     def _sorted_systems(systems: set[str]) -> list[str]:
@@ -567,7 +572,9 @@ def _analyze_rolling_cache(df: pd.DataFrame | None) -> tuple[bool, dict[str, Any
     if _ROLLING_DEBUG_LOG_SKIPPED and skipped_lookback_count:
         try:
             logger = logging.getLogger("today_signals")
-            logger.info("lookback未満でスキップされた列は%d件でした", skipped_lookback_count)
+            logger.info(
+                "lookback未満でスキップされた列は%d件でした", skipped_lookback_count
+            )
         except Exception:
             pass
 
@@ -673,17 +680,59 @@ def _log_manual_rebuild_notice(
     """
     message = _build_manual_rebuild_message(symbol, detail)
 
-    compact_mode = os.getenv("COMPACT_TODAY_LOGS") == "1"
-    if compact_mode:
-        # 既存 aggregator を利用してカテゴリ: manual_rebuild として登録
-        try:
-            from common.cache_warnings import report_rolling_issue  # ローカル import (遅延)
+    # 既定で銘柄ごとの詳細ログは抑制し（過去指示: "1銘柄ごとに出さなくて良い"）
+    # 明示的に詳細を見たい場合のみ ROLLING_MANUAL_REBUILD_VERBOSE=1 を設定。
+    # 互換のため COMPACT_TODAY_LOGS=1 も引き続き抑制扱い。
+    verbose_flag = os.getenv("ROLLING_MANUAL_REBUILD_VERBOSE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    suppress_default_flag = os.getenv(
+        "ROLLING_MANUAL_REBUILD_SUPPRESS_PER_SYMBOL", "1"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    # compact_mode: True => 集約（per-symbolログ抑制）
+    if suppress_default_flag:
+        compact_mode = True
+    else:
+        compact_mode = (os.getenv("COMPACT_TODAY_LOGS") == "1") or not verbose_flag
 
-            # 代表的な理由を status から抽出してメッセージ縮小
+    # compact モード時は既存 aggregator + 共通 aggregator の二段構え
+    if compact_mode:
+        try:
+            from common.cache_warnings import (  # 遅延 import
+                get_rolling_issue_aggregator,
+                report_rolling_issue,
+            )
+
             status = str(detail.get("status") or "manual_rebuild")
-            report_rolling_issue("manual_rebuild", symbol, status)
+            agg = get_rolling_issue_aggregator()
+            # 既に manual_rebuild か missing_rolling で報告済みなら重複出力を抑止
+            if not (
+                agg.has_issue("manual_rebuild", symbol)
+                or agg.has_issue("missing_rolling", symbol)
+            ):
+                report_rolling_issue("manual_rebuild", symbol, status)
+            # 共通 aggregator: グローバルに1つ保持し、必要なら後工程で flush 可能
+            try:
+                from common.rolling_issue_logging import (
+                    RollingIssueAggregator,  # type: ignore
+                )
+
+                global _MANUAL_REBUILD_AGG
+                if "_MANUAL_REBUILD_AGG" not in globals():
+                    _MANUAL_REBUILD_AGG = RollingIssueAggregator(
+                        category="rolling未整備",
+                        verbose=verbose_flag,
+                        batch_fraction=0.1,
+                    )
+                # 同上: 未報告の場合のみ追加
+                if not agg.has_issue("manual_rebuild", symbol):
+                    _MANUAL_REBUILD_AGG.add(symbol, status)
+            except Exception:
+                pass
         except Exception:
-            # フォールバック: 直接ログ
             if log_fn:
                 try:
                     log_fn(message)
@@ -713,11 +762,29 @@ def _log_manual_rebuild_notice(
 
             def _flush_manual_rebuild_summary() -> None:  # atexit フラッシュ
                 try:
-                    if _MANUAL_REBUILD_SUPPRESSED > 0 and _MANUAL_REBUILD_VERBOSE_LIMIT > 0:
+                    if (
+                        _MANUAL_REBUILD_SUPPRESSED > 0
+                        and _MANUAL_REBUILD_VERBOSE_LIMIT > 0
+                    ):
                         # 抑制件数の最終サマリー (WARNING でなく INFO 相当が妥当だが log_fn のレベル制御不明なのでそのまま)
                         if log_fn:
+                            # 参考として missing_rolling 件数を括弧追加（既報カテゴリの全体感）
+                            try:
+                                from common.cache_warnings import (
+                                    get_rolling_issue_aggregator,
+                                )
+
+                                _agg_summary = get_rolling_issue_aggregator()
+                                missing_cnt = len(getattr(_agg_summary, "_issues", {}).get("missing_rolling", []))  # type: ignore[attr-defined]
+                            except Exception:
+                                missing_cnt = 0
+                            extra = (
+                                f" missing_rolling:{missing_cnt}件"
+                                if missing_cnt
+                                else ""
+                            )
                             log_fn(
-                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました"
+                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました{extra}"
                             )
                 except Exception:
                     pass
@@ -792,7 +859,9 @@ def _collect_symbol_data(
     max_workers: int | None = None
     if use_parallel:
         try:
-            env_workers_raw = (os.environ.get("TODAY_PREFETCH_MAX_WORKERS") or "").strip()
+            env_workers_raw = (
+                os.environ.get("TODAY_PREFETCH_MAX_WORKERS") or ""
+            ).strip()
             if env_workers_raw:
                 max_workers = int(env_workers_raw)
         except Exception:
@@ -810,7 +879,9 @@ def _collect_symbol_data(
         max_workers = max(1, min(int(max_workers), total))
         if log_fn:
             try:
-                log_fn(f"🧵 基礎データロード(事前チェック)並列化: workers={max_workers}")
+                log_fn(
+                    f"🧵 基礎データロード(事前チェック)並列化: workers={max_workers}"
+                )
             except Exception:
                 pass
 
@@ -828,7 +899,9 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(f"📦 基礎データロード進捗: {current}/{total} | 経過 {minutes}分{seconds}秒")
+            log_fn(
+                f"📦 基礎データロード進捗: {current}/{total} | 経過 {minutes}分{seconds}秒"
+            )
         except Exception:
             try:
                 log_fn(f"📦 基礎データロード進捗: {current}/{total}")
@@ -873,7 +946,9 @@ def _collect_symbol_data(
         return sym, None, None, None, malformed_flag
 
     def _handle_result(
-        result: tuple[str, pd.DataFrame | None, dict[str, Any] | None, str | None, bool],
+        result: tuple[
+            str, pd.DataFrame | None, dict[str, Any] | None, str | None, bool
+        ],
     ) -> None:
         nonlocal processed
         sym, norm, detail, manual_msg, malformed_flag = result
@@ -914,7 +989,9 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒")
+            log_fn(
+                f"📦 基礎データロード完了: {len(fetched)}/{total} | 所要 {minutes}分{seconds}秒"
+            )
         except Exception:
             pass
         manual_symbols = [
@@ -1367,7 +1444,9 @@ class StageTracker:
                     counts["filter"] = filter_val
                     if counts.get("target") is None:
                         counts["target"] = (
-                            self.universe_total if self.universe_total is not None else filter_val
+                            self.universe_total
+                            if self.universe_total is not None
+                            else filter_val
                         )
                         if self.universe_total is None:
                             self.universe_total = filter_val
@@ -1489,7 +1568,11 @@ class StageTracker:
             try:
                 GLOBAL_STAGE_METRICS.record_stage(
                     name,
-                    int(self.states.get(name, 100 if counts.get("entry") is not None else 0)),
+                    int(
+                        self.states.get(
+                            name, 100 if counts.get("entry") is not None else 0
+                        )
+                    ),
                     counts.get("filter"),
                     counts.get("setup"),
                     counts.get("cand"),
@@ -1541,7 +1624,11 @@ class StageTracker:
                 elif snap.candidate_count is not None and vv < 75:
                     vv = 75
                 # setup_pass があり filter_pass も → 50%
-                elif snap.setup_pass is not None and snap.filter_pass is not None and vv < 50:
+                elif (
+                    snap.setup_pass is not None
+                    and snap.filter_pass is not None
+                    and vv < 50
+                ):
                     vv = 50
                 # filter_pass のみ存在 → 25%
                 elif snap.filter_pass is not None and vv < 25:
@@ -1560,7 +1647,9 @@ class StageTracker:
             return
         display = self.metrics_store.get_display_metrics(key)
         target_value = (
-            self.universe_target if self.universe_target is not None else display.get("target")
+            self.universe_target
+            if self.universe_target is not None
+            else display.get("target")
         )
         text = "  ".join(
             [
@@ -1646,7 +1735,9 @@ class UILogger:
                             ts_val = obj.get("ts")
                             if isinstance(ts_val, (int, float)):
                                 try:
-                                    rel_elapsed = max(0, (ts_val / 1000.0) - self.start_time)
+                                    rel_elapsed = max(
+                                        0, (ts_val / 1000.0) - self.start_time
+                                    )
                                     mm, ss = divmod(int(rel_elapsed), 60)
                                     rel_prefix = f"{mm}分{ss}秒"
                                 except Exception:
@@ -1713,7 +1804,9 @@ class UILogger:
                     try:
                         # m,s が計算済みでないケースは再計算
                         if "m" not in locals() or "s" not in locals():
-                            _m, _s = divmod(int(max(0, time.time() - self.start_time)), 60)
+                            _m, _s = divmod(
+                                int(max(0, time.time() - self.start_time)), 60
+                            )
                             m, s = _m, _s
                         line = f"[{now_txt} | {m}分{s}秒] {msg}"
                     except Exception:
@@ -1780,7 +1873,11 @@ class UILogger:
                 if os.environ.get("SUPPRESS_ENCODING_HINT") != "1":
                     enc = (getattr(sys.stdout, "encoding", "") or "").lower()
                     # 簡易判定: cp932 / ansi 系で絵文字が含まれそうな行
-                    if enc and "utf" not in enc and any(ch for ch in line if ord(ch) > 0x2600):
+                    if (
+                        enc
+                        and "utf" not in enc
+                        and any(ch for ch in line if ord(ch) > 0x2600)
+                    ):
                         try:
                             print(
                                 "[INFO] 文字化けする場合は 'chcp 65001' 実行後に再試行してください (SUPPRESS_ENCODING_HINT=1 で非表示)",
@@ -1805,7 +1902,9 @@ class UILogger:
             pass
         # 最終フォールバック: ASCII 置換
         try:
-            fallback = line.encode("ascii", errors="replace").decode("ascii", errors="replace")
+            fallback = line.encode("ascii", errors="replace").decode(
+                "ascii", errors="replace"
+            )
             print(fallback, flush=True)
         except Exception:
             pass
@@ -1920,7 +2019,9 @@ def _prepare_symbol_data(
             count = len(data_map)
         except Exception:
             count = 0
-        logger.log(f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)")
+        logger.log(
+            f"📦 基礎データロード再利用: {count}/{len(symbols)}件 (前回結果を使用)"
+        )
         return data_map, []
 
     logger.log(f"📦 基礎データロード開始: {len(symbols)} 銘柄 (必要日数≒{rows})")
@@ -1978,7 +2079,9 @@ def _store_run_results(
         except Exception:
             round_dec = None
         try:
-            st.session_state["today_final_df"] = round_dataframe(final_df.copy(), round_dec)
+            st.session_state["today_final_df"] = round_dataframe(
+                final_df.copy(), round_dec
+            )
         except Exception:
             st.session_state["today_final_df"] = final_df.copy()
         stored = {}
@@ -2038,7 +2141,9 @@ def _log_run_completion(
         if counts_map:
             per_counts_lines = format_group_counts(counts_map)
         detail = (
-            f" | Long/Short別: {', '.join(per_counts_lines)}" if per_counts_lines else ""
+            f" | Long/Short別: {', '.join(per_counts_lines)}"
+            if per_counts_lines
+            else ""
         )  # noqa: E501
         _get_today_logger().info(
             "✅ 本日のシグナル: シグナル検出処理終了 (経過 %d分%d秒, 最終候補 %d 件)%s",
@@ -2109,7 +2214,9 @@ def _display_per_system_logs(per_system_logs: dict[str, list[str]]) -> None:
 
 def _display_system2_filter_breakdown(logs: list[str]) -> None:
     try:
-        detail_lines = [x for x in logs if ("フィルタ内訳:" in x or "filter breakdown:" in x)]
+        detail_lines = [
+            x for x in logs if ("フィルタ内訳:" in x or "filter breakdown:" in x)
+        ]
         if not detail_lines:
             return
         last_line = str(detail_lines[-1])
@@ -2122,7 +2229,9 @@ def _display_system2_filter_breakdown(logs: list[str]) -> None:
 def _display_system5_filter_breakdown(logs: list[str]) -> None:
     try:
         detail_lines = [
-            x for x in logs if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
+            x
+            for x in logs
+            if ("system5内訳" in x and ("AvgVol50" in x or "avgvol50" in x))
         ]
         if not detail_lines:
             return
@@ -2160,23 +2269,31 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # 仮のloggerを作成してヘッダーメッセージを表示
     temp_start_time = time.time()
-    temp_progress_ui = ProgressUI({})
+    # 初期ヘッダーログ用: 本番進捗バーと重複しないよう overall_progress を無効化
+    temp_progress_ui = ProgressUI(
+        {"overall_progress": False, "data_load_progress_lines": False}
+    )
     temp_logger = UILogger(temp_start_time, temp_progress_ui)
 
     # ヘッダーメッセージの表示
     temp_logger.log(
-        "####################################################################", no_timestamp=True
+        "####################################################################",
+        no_timestamp=True,
     )
-    temp_logger.log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", no_timestamp=True)
+    temp_logger.log(
+        "# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", no_timestamp=True
+    )
 
     # 時刻とRUN-ID、銘柄数の表示
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     symbols_count = len(run_config.symbols) if run_config.symbols else 0
     temp_logger.log(
-        f"# ⏱️ {now_str} | 銘柄数：{symbols_count}　| RUN-ID: {run_id}", no_timestamp=True
+        f"# ⏱️ {now_str} | 銘柄数：{symbols_count}　| RUN-ID: {run_id}",
+        no_timestamp=True,
     )
     temp_logger.log(
-        "####################################################################", no_timestamp=True
+        "####################################################################",
+        no_timestamp=True,
     )
 
     # 営業日と注意事項の表示
@@ -2209,7 +2326,8 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     except Exception:
         # エラー時は従来通り警告を表示
         temp_logger.log(
-            "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True
+            "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。",
+            no_timestamp=True,
         )
 
     temp_logger.log("", no_timestamp=True)  # 空行を追加
@@ -2246,9 +2364,13 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
             report_path = _save_missing_report(missing_details)
             if missing_details:
                 if report_path is not None:
-                    logger.log(f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV: {report_path})")
+                    logger.log(
+                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV: {report_path})"
+                    )
                 else:
-                    logger.log(f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV保存に失敗)")
+                    logger.log(
+                        f"🧪 欠損洗い出し: {len(missing_details)}件 (CSV保存に失敗)"
+                    )
             else:
                 logger.log("🧪 欠損洗い出し: 欠損は検出されませんでした")
             stage_tracker.finalize_counts(pd.DataFrame(), {})
@@ -2264,6 +2386,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 missing_details=missing_details,
             )
         else:
+            # --- compute_today_signals 実行 & 戻り値解釈 ---
             result = compute_today_signals(
                 run_config.symbols,
                 capital_long=run_config.capital_long,
@@ -2277,21 +2400,48 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 symbol_data=symbol_data_map,
                 parallel=run_config.run_parallel,
             )
-            # 安全に結果を解釈
-            if isinstance(result, (tuple, list)) and len(result) == 2:
-                result_pair: Sequence[Any] = tuple(result)
-                maybe_df, maybe_system = result_pair
-                if isinstance(maybe_df, pd.DataFrame) and isinstance(maybe_system, dict):
-                    final_df = maybe_df
-                    per_system = maybe_system
-                else:
-                    actual_types = (
-                        f"df={type(maybe_df).__name__}, system={type(maybe_system).__name__}"
+            final_df, per_system = _interpret_compute_today_result(result, logger)
+            # final_counts=0 の場合の追加デバッグ
+            try:
+                alloc_dict = (
+                    per_system.get("__allocation_summary__")
+                    if isinstance(per_system, dict)
+                    else None
+                )
+                final_counts = (
+                    (alloc_dict or {}).get("final_counts")
+                    if isinstance(alloc_dict, dict)
+                    else None
+                )
+                if (
+                    (not final_df.empty)
+                    and isinstance(final_counts, dict)
+                    and sum(final_counts.values()) == 0
+                ):
+                    # 最終候補 DataFrame には列があるのに全カウント0 → system 列異常か集計ミス
+                    if "system" in final_df.columns:
+                        sys_counts = final_df["system"].value_counts().to_dict()
+                    else:
+                        sys_counts = {"<no system column>": len(final_df)}
+                    logger.log(
+                        f"🔍 final_counts=0 だが final_df 行数={len(final_df)} system別={sys_counts}"
                     )
-                    logger.log(f"⚠️ compute_today_signals の戻り値型が不正: {actual_types}")
-            else:
-                result_info = f"type={type(result).__name__}, len={len(result) if hasattr(result, '__len__') else 'N/A'}"
-                logger.log(f"⚠️ compute_today_signals の戻り値構造が不正: {result_info}")
+                if (
+                    final_df.empty
+                    and isinstance(final_counts, dict)
+                    and sum(final_counts.values()) == 0
+                ):
+                    # 完全0のとき per_system DataFrame の行数概要
+                    if isinstance(per_system, dict):
+                        per_rows = {
+                            k: (len(v) if hasattr(v, "shape") else None)
+                            for k, v in per_system.items()
+                            if k.startswith("system")
+                        }
+                        if per_rows:
+                            logger.log(f"🔍 per_system 行数サマリ: {per_rows}")
+            except Exception:
+                pass
 
     if debug_result is not None:
         return debug_result
@@ -2650,13 +2800,16 @@ def _display_exit_orders_table(
             st.dataframe(res, use_container_width=True)
 
 
-def _display_planned_exits_section(result: ExitAnalysisResult) -> None:  # trade_options引数を削除
+def _display_planned_exits_section(
+    result: ExitAnalysisResult,
+) -> None:  # trade_options引数を削除
     if result.planned.empty:
         return
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
     st.dataframe(result.planned, use_container_width=True)
     planned_rows = [
-        {str(k): v for k, v in row.items()} for row in result.planned.to_dict(orient="records")
+        {str(k): v for k, v in row.items()}
+        for row in result.planned.to_dict(orient="records")
     ]
     _auto_save_planned_exits(planned_rows, show_success=False)
     if st.button("計画を保存（JSONL）"):
@@ -2784,7 +2937,9 @@ def _render_missing_debug_results(artifacts: RunArtifacts) -> None:
                 mime="text/csv",
                 key=f"missing_report_{int(time.time() * 1000)}",
             )
-    st.info("このモードでは基礎データの欠損確認のみを実施しました。シグナル計算は行っていません。")
+    st.info(
+        "このモードでは基礎データの欠損確認のみを実施しました。シグナル計算は行っていません。"
+    )
     _render_previous_results_section()
     _render_previous_run_logs(artifacts.log_lines)
 
@@ -2870,7 +3025,9 @@ def _render_skip_reports() -> None:
             if fp.exists() and fp.is_file():
                 skip_files.append((name, fp))
         if skip_files:
-            with st.expander("🧪 データスキップ/ショート不可の内訳CSV（本日）", expanded=False):
+            with st.expander(
+                "🧪 データスキップ/ショート不可の内訳CSV（本日）", expanded=False
+            ):
                 _render_skip_file_group(skip_files, "skip")
             detail_files = []
             for i in range(1, 8):
@@ -3073,9 +3230,124 @@ def _render_system_details(
     stage_tracker: StageTracker,
     per_system_logs: dict[str, list[str]] | None = None,
 ) -> None:
+    _SYSTEM1_REASON_LABELS_UI = {
+        "filter": "フィルター条件 (filter)",
+        "setup": "セットアップ条件 (setup)",
+        "roc200": "ROC200≤0",
+    }
+
+    def _build_system1_diagnostic_messages(
+        diag_payload: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        summary = summarize_system1_diagnostics(diag_payload)
+        if not summary:
+            return None, None
+
+        top_n = summary.get("top_n")
+        prefix = (
+            f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        )
+        reason_line = (
+            "候補0件理由: "
+            f"{prefix}フィルター通過 {summary.get('filter_pass', 0)} 件, "
+            f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件, "
+            f"代替判定成立 {summary.get('fallback_pass', 0)} 件, "
+            f"ROC200>0 {summary.get('roc200_positive', 0)} 件, "
+            f"最終通過 {summary.get('final_pass', 0)} 件。"
+        )
+
+        reasons = summary.get("exclude_reasons")
+        detail_line: str | None = None
+        if isinstance(reasons, Mapping) and reasons:
+            parts: list[str] = []
+            for key, value in reasons.items():
+                if not isinstance(value, int) or value <= 0:
+                    continue
+                label = _SYSTEM1_REASON_LABELS_UI.get(str(key), str(key))
+                parts.append(f"{label} {value} 件")
+            if parts:
+                detail_line = "除外内訳: " + ", ".join(parts)
+
+        return reason_line, detail_line
+
+    def _build_generic_diagnostic_messages(
+        system_name: str, diag_payload: Mapping[str, Any] | None
+    ) -> tuple[str | None, str | None]:
+        if not isinstance(diag_payload, Mapping):
+            return None, None
+
+        # 診断キーの存在確認と安全な型変換
+        def _get_int(d: Mapping[str, Any], key: str, default: int = 0) -> int:
+            try:
+                v = d.get(key, default)
+                return int(v) if v is not None else default
+            except Exception:
+                return default
+
+        def _get_bool(d: Mapping[str, Any], key: str) -> bool | None:
+            try:
+                v = d.get(key, None)
+                if isinstance(v, bool):
+                    return v
+                if isinstance(v, (int, float)):
+                    return bool(v)
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    if s in {"true", "1", "yes"}:
+                        return True
+                    if s in {"false", "0", "no"}:
+                        return False
+                return None
+            except Exception:
+                return None
+
+        setup_cnt = _get_int(diag_payload, "setup_predicate_count", 0)
+        final_topn = _get_int(diag_payload, "final_top_n_count", 0)
+        only_pass = _get_int(diag_payload, "predicate_only_pass_count", 0)
+        mismatch = _get_bool(diag_payload, "mismatch_flag")
+        ranking_src = str(diag_payload.get("ranking_source", "-") or "-")
+        top_n_val = diag_payload.get("top_n")
+        try:
+            top_n = int(top_n_val) if top_n_val is not None else None
+        except Exception:
+            top_n = None
+
+        prefix = (
+            f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        )
+        mismatch_txt = (
+            "乖離あり"
+            if mismatch is True
+            else ("乖離なし" if mismatch is False else "乖離不明")
+        )
+        reason_line = (
+            f"候補0件理由: {prefix}セットアップ成立 {setup_cnt} 件, 最終TopN {final_topn} 件, "
+            f"セットアップのみ通過 {only_pass} 件, ランキング {ranking_src}, {mismatch_txt}。"
+        )
+        return reason_line, None
+
+    diagnostics_map: dict[str, Mapping[str, Any]] = {}
+    try:
+        summary_entry = (
+            per_system.get("__allocation_summary__")
+            if isinstance(per_system, dict)
+            else None
+        )
+        if isinstance(summary_entry, Mapping):
+            raw_diag = summary_entry.get("system_diagnostics")
+            if isinstance(raw_diag, Mapping):
+                diagnostics_map = {
+                    str(k).strip().lower(): v
+                    for k, v in raw_diag.items()
+                    if isinstance(k, str)
+                }
+    except Exception:
+        diagnostics_map = {}
     with st.expander("システム別詳細"):
         settings_local = get_settings(create_dirs=True)
-        results_dir = Path(getattr(settings_local.outputs, "results_csv_dir", "results_csv"))
+        results_dir = Path(
+            getattr(settings_local.outputs, "results_csv_dir", "results_csv")
+        )
         shortable_excluded_map = {}
         for i in (2, 6):
             name = f"system{i}"
@@ -3084,7 +3356,9 @@ def _render_system_details(
                 try:
                     df_exc = pd.read_csv(fp)
                     if df_exc is not None and not df_exc.empty:
-                        shortable_excluded_map[name] = set(df_exc["symbol"].astype(str).str.upper())
+                        shortable_excluded_map[name] = set(
+                            df_exc["symbol"].astype(str).str.upper()
+                        )
                 except Exception:
                     pass
         system_order = [f"system{i}" for i in range(1, 8)]
@@ -3123,9 +3397,27 @@ def _render_system_details(
                 except Exception:
                     reason_text = None
 
+                diag_reason: str | None = None
+                diag_detail: str | None = None
+                diag_payload = diagnostics_map.get(name)
+                if name == "system1":
+                    diag_reason, diag_detail = _build_system1_diagnostic_messages(
+                        diag_payload
+                    )
+                else:
+                    diag_reason, diag_detail = _build_generic_diagnostic_messages(
+                        name, diag_payload
+                    )
+
                 st.write("(空) 候補は0件です。")
-                if reason_text:
+                if diag_reason:
+                    st.info(diag_reason)
+                elif reason_text:
                     st.info(f"候補0件理由: {reason_text}")
+                if diag_detail:
+                    st.caption(diag_detail)
+                elif reason_text and diag_reason:
+                    st.caption(f"ログ補足: {reason_text}")
                 continue
             df_disp = df.copy()
             side_type = None
@@ -3247,8 +3539,8 @@ with st.sidebar:
     st.header("ユニバース")
     universe: list[str] = []
     try:
-        import common.universe as univ
         from common.symbol_universe import build_symbol_universe_from_settings
+        import common.universe as univ
 
         logger = logging.getLogger("today_signals.ui")
         universe = build_symbol_universe_from_settings(settings, logger=logger)
@@ -3366,149 +3658,7 @@ with st.sidebar:
     if "today_cap_short" not in st.session_state:
         st.session_state["today_cap_short"] = 10000.0
 
-    # --- ペーパー資金リセット UI -------------------------------------------------
-    with st.expander("🧪 ペーパー資金リセット", expanded=False):
-        st.caption(
-            "Alpaca Paper アカウントの現金残高を希望額に再設定する試行を行います。\n"
-            "公式にサポートされた機能ではないため、失敗する場合があります。"
-        )
-        reset_amount = st.number_input(
-            "リセット後の現金残高 (USD)",
-            min_value=1000.0,
-            step=1000.0,
-            value=100000.0,
-            key="reset_paper_cash_amount",
-            help="希望する paper 現金残高。成功しても Buying Power 更新にタイムラグが生じる可能性があります。",
-        )
-        col_r1, col_r2, col_r3 = st.columns([1, 1, 1])
-        with col_r1:
-            do_dry = st.checkbox("ドライラン", value=True, key="reset_paper_cash_dry_run")
-        with col_r2:
-            confirm = st.checkbox(
-                "私はリスクを理解しました", value=False, key="reset_paper_cash_confirm"
-            )
-        with col_r3:
-            auto_refetch = st.checkbox(
-                "成功後に資産再取得",
-                value=True,
-                key="reset_paper_cash_auto_refetch",
-                help="成功時に直ちに 'Alpacaから現在の資産を取得' を自動実行して画面を更新します。",
-            )
-        # ドライラン時は視覚的強調を落とし誤操作リスクを低減
-        _btn_type = (
-            "secondary" if st.session_state.get("reset_paper_cash_dry_run", True) else "primary"
-        )
-        if st.button("💣 ペーパー資金をリセット", key="reset_paper_cash_button", type=_btn_type):
-            if not confirm:
-                st.warning("実行には '私はリスクを理解しました' にチェックが必要です。")
-            else:
-                try:
-                    # UI state と環境変数の二重チェックで live 誤操作を防止
-                    is_ui_paper = st.session_state.get("paper_mode", True)
-                    env_paper = os.getenv("ALPACA_PAPER", "true").lower() in (
-                        "1",
-                        "true",
-                        "yes",
-                        "on",
-                        "y",
-                    )
-                    if (not is_ui_paper) or (not env_paper):
-                        st.error(
-                            "live モードでは実行できません。paper モードに切り替えてください。"
-                        )
-                    else:
-                        with st.spinner("リセット処理を試行中... (最大10秒程度)"):
-                            result = ba.reset_paper_cash(
-                                reset_amount,
-                                dry_run=do_dry,
-                                log_callback=lambda m: st.session_state.setdefault(
-                                    "reset_log", []
-                                ).append(m),
-                            )
-                            # ログサイズ上限 (100件) を維持
-                            _rl = st.session_state.get("reset_log", [])
-                            if len(_rl) > 100:
-                                st.session_state["reset_log"] = _rl[-100:]
-                        if result.get("ok"):
-                            if do_dry:
-                                st.info("ドライラン: 実際の変更は行っていません。")
-                            else:
-                                st.success(
-                                    f"リセットリクエスト完了 (status={result.get('status')}); 反映には時間がかかる場合があります。"
-                                )
-                            # 成功後の自動資産再取得
-                            if auto_refetch and not do_dry:
-                                try:
-                                    import time as _time
-
-                                    _time.sleep(0.5)  # 反映遅延/レート制限緩和のための短い待機
-                                    client_auto = ba.get_client(paper=True)
-                                    acct_auto = client_auto.get_account()
-                                    equity_auto = getattr(acct_auto, "equity", None)
-                                    cash_auto = getattr(acct_auto, "cash", None)
-                                    buying_power_auto = getattr(acct_auto, "buying_power", None)
-                                    if buying_power_auto is not None:
-                                        try:
-                                            bpv = float(buying_power_auto)
-                                            half_bp = round(bpv / 2.0, 2)
-                                            st.session_state["today_cap_long"] = half_bp
-                                            st.session_state["today_cap_short"] = half_bp
-                                        except Exception:  # noqa: BLE001
-                                            pass
-                                    with st.expander("直後の取得結果", expanded=False):
-                                        if equity_auto is not None:
-                                            st.write(f"Equity: ${float(equity_auto):,.2f}")
-                                        if cash_auto is not None:
-                                            st.write(f"Cash: ${float(cash_auto):,.2f}")
-                                        if buying_power_auto is not None:
-                                            st.write(
-                                                f"Buying Power: ${float(buying_power_auto):,.2f}"
-                                            )
-                                except (ConnectionError, TimeoutError) as _net_exc:  # noqa: BLE001
-                                    st.info(f"ネットワーク遅延で自動再取得をスキップ: {_net_exc}")
-                                except Exception as _auto_exc:  # noqa: BLE001
-                                    st.warning(
-                                        f"自動再取得に失敗（手動で『Alpacaから現在の資産を取得』を押してください）: {_auto_exc}"
-                                    )
-                            elif not do_dry:
-                                st.info(
-                                    "💡 反映確認には『💰 Alpacaから現在の資産を取得』ボタンを押してください。"
-                                )
-                        else:
-                            st.error(f"リセット失敗: {result.get('error')}")
-                            # ステータスコード別ヘルプ
-                            status_code = result.get("status")
-                            if isinstance(status_code, int):
-                                help_message = None
-                                if status_code == 400:
-                                    help_message = "400: 無効パラメータ。'cash' 指定が拒否された可能性があります (現行APIで非サポート)。"
-                                elif status_code == 401:
-                                    help_message = "401: 認証失敗。APIキー/シークレットまたは権限を確認してください。"
-                                elif status_code == 403:
-                                    help_message = "403: 権限または機能非サポート。Paper 環境でも現行仕様で直接リセット不可の可能性。"
-                                elif status_code == 404:
-                                    help_message = (
-                                        "404: エンドポイント未対応。Alpaca 側仕様変更の可能性。"
-                                    )
-                                elif status_code == 429:
-                                    help_message = (
-                                        "429: レート制限。時間を置いて再試行してください。"
-                                    )
-                                elif 500 <= status_code < 600:
-                                    help_message = f"{status_code}: サーバーエラー。しばらく待って再試行してください。"
-                                if help_message:
-                                    st.info(help_message)
-                        if "raw" in result and result["raw"]:
-                            with st.expander("APIレスポンス詳細"):
-                                st.json(result["raw"])
-                except Exception as exc:  # noqa: BLE001
-                    st.error(f"リセット処理中に例外: {exc}")
-        # 直近ログ表示 (最新5件)
-        reset_log = st.session_state.get("reset_log", [])[-5:]
-        if reset_log:
-            st.caption("最近のリセットログ:")
-            for ln in reset_log:
-                st.text(ln)
+    # （旧）ペーパー資金リセット UI は API 非対応のため削除済み
 
     # Alpaca資産取得ボタンを追加
     if st.button("💰 Alpacaから現在の資産を取得"):
@@ -3519,11 +3669,15 @@ with st.sidebar:
 
             if not api_key or not api_secret:
                 st.error("❌ Alpaca API認証情報が設定されていません")
-                st.info("環境変数 APCA_API_KEY_ID と APCA_API_SECRET_KEY を設定してください")
+                st.info(
+                    "環境変数 APCA_API_KEY_ID と APCA_API_SECRET_KEY を設定してください"
+                )
             else:
                 # ネットワーク接続テスト
                 with st.spinner("Alpacaサーバーに接続中..."):
-                    client = ba.get_client(paper=st.session_state.get("paper_mode", True))
+                    client = ba.get_client(
+                        paper=st.session_state.get("paper_mode", True)
+                    )
                     acct = client.get_account()
 
                 equity = getattr(acct, "equity", None)
@@ -3619,7 +3773,9 @@ with st.sidebar:
         help="rolling キャッシュからの読み込み時に欠損を検出し、CSVに書き出して終了します。",
     )
     if scan_missing_only:
-        st.caption("※ このモードではシグナル計算を行いません。欠損レポートのみ出力します。")
+        st.caption(
+            "※ このモードではシグナル計算を行いません。欠損レポートのみ出力します。"
+        )
 
     # 通知（Slack Bot Token）設定（チャンネル指定フォームは廃止）
     st.header("通知設定（Slack Bot Token）")
@@ -3632,20 +3788,27 @@ with st.sidebar:
     # 簡易ヘルスチェック表示
     try:
         has_token = bool(os.environ.get("SLACK_BOT_TOKEN", "").strip())
-        st.caption("トークン: " + ("検出済み" if has_token else "未設定（.envを設定してください）"))
+        st.caption(
+            "トークン: "
+            + ("検出済み" if has_token else "未設定（.envを設定してください）")
+        )
     except Exception:
         pass
 
     # 並列実行の詳細設定は削除（初期デフォルト挙動に戻す）
     st.header("Alpaca自動発注")
     paper_mode = st.checkbox("ペーパートレードを使用", value=True, key="paper_mode")
-    retries = st.number_input("リトライ回数", min_value=0, max_value=5, value=2, key="retries")
+    retries = st.number_input(
+        "リトライ回数", min_value=0, max_value=5, value=2, key="retries"
+    )
     delay = st.number_input(
         "発注間隔 (秒)", min_value=0.0, max_value=10.0, value=1.0, step=0.1, key="delay"
     )
     poll_status = st.checkbox("注文状況をポーリング", value=False, key="poll_status")
     do_trade = st.checkbox("実際に発注する", value=False, key="do_trade")
-    update_bp_after = st.checkbox("約定後に余力を更新", value=False, key="update_bp_after")
+    update_bp_after = st.checkbox(
+        "約定後に余力を更新", value=False, key="update_bp_after"
+    )
 
 # メイン実行部分
 # デフォルト値を設定（サイドバーが未実行の場合）
@@ -3759,7 +3922,9 @@ if "positions_df" in st.session_state:
         if not positions_df.empty:
             symbols_list = positions_df["symbol"].tolist()
             selected_symbols: list[str] = st.multiselect(
-                "手仕舞いする銘柄を選択:", options=symbols_list, key="manual_exit_symbols"
+                "手仕舞いする銘柄を選択:",
+                options=symbols_list,
+                key="manual_exit_symbols",
             )
 
             if selected_symbols:
@@ -3785,16 +3950,22 @@ if "positions_df" in st.session_state:
                                     {
                                         "symbol": row["symbol"],
                                         "side": (
-                                            "sell" if str(row["side"]).lower() == "long" else "buy"
+                                            "sell"
+                                            if str(row["side"]).lower() == "long"
+                                            else "buy"
                                         ),
                                         "qty": abs(float(row["qty"])),
                                         "order_type": (
-                                            "market" if "Market" in exit_type else "limit"
+                                            "market"
+                                            if "Market" in exit_type
+                                            else "limit"
                                         ),
                                         "time_in_force": (
                                             "cls"
                                             if "MOC" in exit_type
-                                            else ("opg" if "OPG" in exit_type else "day")
+                                            else (
+                                                "opg" if "OPG" in exit_type else "day"
+                                            )
                                         ),
                                     }
                                 )
@@ -3826,11 +3997,19 @@ if "positions_df" in st.session_state:
                             selected_positions = positions_df[
                                 positions_df["symbol"].isin(selected_symbols)
                             ].copy()
-                            total_pl = selected_positions["unrealized_pl"].astype(float).sum()
+                            total_pl = (
+                                selected_positions["unrealized_pl"].astype(float).sum()
+                            )
                             st.info(f"選択銘柄の合計含み損益: ${total_pl:,.2f}")
                             st.dataframe(
                                 selected_positions[
-                                    ["symbol", "side", "qty", "unrealized_pl", "judgement"]
+                                    [
+                                        "symbol",
+                                        "side",
+                                        "qty",
+                                        "unrealized_pl",
+                                        "judgement",
+                                    ]
                                 ],
                                 use_container_width=True,
                             )
@@ -3840,3 +4019,73 @@ if st.button("▶ 本日のシグナル実行", type="primary"):
     render_today_signals_results(artifacts, run_config, trade_options)
 else:
     _render_previous_results_section()
+
+
+# ================================================================
+# Helper: compute_today_signals 戻り値解釈 (切り出し関数)
+# ================================================================
+def _interpret_compute_today_result(
+    result: Any, logger: Any
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """UI からの呼び出し用に compute_today_signals 戻り値を正規化する。
+
+    戻り値形式:
+      - 期待: (DataFrame, AllocationSummary)
+      - 後方互換: (DataFrame, dict)
+    失敗/不正形式の場合は空 DataFrame / {} を返し、警告をログ。
+    """
+    empty: tuple[pd.DataFrame, dict[str, Any]] = (pd.DataFrame(), {})
+    if not (isinstance(result, (tuple, list)) and len(result) == 2):
+        try:
+            logger.log(
+                f"⚠️ compute_today_signals の戻り値構造が不正: type={type(result).__name__}"
+            )
+        except Exception:
+            pass
+        return empty
+    maybe_df, maybe_second = result
+    if not isinstance(maybe_df, pd.DataFrame):
+        try:
+            logger.log(
+                f"⚠️ compute_today_signals 戻り値の第1要素が DataFrame でない: {type(maybe_df).__name__}"
+            )
+        except Exception:
+            pass
+        return empty
+
+    # dict ならそのまま
+    if isinstance(maybe_second, dict):
+        return maybe_df, maybe_second  # type: ignore[return-value]
+
+    # AllocationSummary を dict 化
+    try:
+        from core.final_allocation import to_allocation_summary_dict  # type: ignore
+    except Exception:
+        to_allocation_summary_dict = None  # type: ignore
+
+    if to_allocation_summary_dict is not None:
+        try:
+            summary_dict = to_allocation_summary_dict(maybe_second)
+            if summary_dict:
+                # ログ出力
+                fc = summary_dict.get("final_counts")
+                if isinstance(fc, dict):
+                    logger.log("🧾 AllocationSummary final_counts=" + str(fc))
+                logger.log(
+                    f"ℹ️ AllocationSummary mode={summary_dict.get('mode')} long={len(summary_dict.get('long_allocations',{}))} short={len(summary_dict.get('short_allocations',{}))}"
+                )
+                return maybe_df, {"__allocation_summary__": summary_dict}
+        except Exception as e:  # pragma: no cover
+            try:
+                logger.log(f"⚠️ AllocationSummary 解析失敗: {e}")
+            except Exception:
+                pass
+
+    # 不明な型
+    try:
+        logger.log(
+            f"⚠️ compute_today_signals の戻り値型が不正: df=DataFrame, second={type(maybe_second).__name__}"
+        )
+    except Exception:
+        pass
+    return empty

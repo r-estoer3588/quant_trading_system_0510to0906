@@ -6,23 +6,23 @@ System5 implements high ADX mean-reversion with filters:
 - Strategy: Mean reversion on high ADX/volatility stocks
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-
-import sys
 import os
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from common.system_constants import SYSTEM5_REQUIRED_INDICATORS
 from core.system5 import (
-    prepare_data_vectorized_system5,
-    generate_candidates_system5,
-    get_total_days_system5,
     DEFAULT_ATR_PCT_THRESHOLD,
     format_atr_pct_threshold_label,
+    generate_candidates_system5,
+    get_total_days_system5,
+    prepare_data_vectorized_system5,
 )
-from common.system_constants import SYSTEM5_REQUIRED_INDICATORS
 
 
 class TestSystem5Utilities:
@@ -134,7 +134,9 @@ class TestSystem5DataPreparation:
         """Test with batch processing parameters."""
         sample_data = {"TEST": self.create_test_data_with_indicators("TEST")}
 
-        result = prepare_data_vectorized_system5(sample_data, batch_size=50, use_process_pool=False)
+        result = prepare_data_vectorized_system5(
+            sample_data, batch_size=50, use_process_pool=False
+        )
 
         assert isinstance(result, dict)
 
@@ -172,7 +174,9 @@ class TestSystem5CandidateGeneration:
         """Test basic generate_candidates_system5 functionality."""
         prepared_data = self.create_prepared_data_dict()
 
-        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=3)
+        candidates_by_date, candidates_df = generate_candidates_system5(
+            prepared_data, top_n=3
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert isinstance(candidates_df, pd.DataFrame) or candidates_df is None
@@ -204,7 +208,9 @@ class TestSystem5CandidateGeneration:
         """Test with top_n=None."""
         prepared_data = self.create_prepared_data_dict()
 
-        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=None)
+        candidates_by_date, candidates_df = generate_candidates_system5(
+            prepared_data, top_n=None
+        )
 
         assert isinstance(candidates_by_date, dict)
 
@@ -261,7 +267,9 @@ class TestSystem5Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=3)
+        candidates_by_date, candidates_df = generate_candidates_system5(
+            prepared_data, top_n=3
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert isinstance(candidates_df, pd.DataFrame) or candidates_df is None
@@ -288,7 +296,10 @@ class TestSystem5Integration:
 
         # Step 2: Generate with callbacks
         candidates_by_date, candidates_df = generate_candidates_system5(
-            prepared_data, top_n=2, progress_callback=progress_callback, log_callback=log_callback
+            prepared_data,
+            top_n=2,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
         )
 
         assert isinstance(candidates_by_date, dict)

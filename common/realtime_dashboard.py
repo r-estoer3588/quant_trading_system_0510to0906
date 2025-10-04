@@ -4,15 +4,15 @@ StreamlitとPlotlyを使用したリアルタイムメトリクス可視化機�
 CPU/メモリ/処理速度の推移をグラフ形式で表示。
 """
 
-import time
 from datetime import datetime
+import time
 from typing import Any, Dict, List
 
 try:
     import plotly.express as px
     import plotly.graph_objects as go
-    import streamlit as st
     from plotly.subplots import make_subplots
+    import streamlit as st
 
     DASHBOARD_AVAILABLE = True
 except ImportError:
@@ -65,7 +65,9 @@ class RealTimeDashboard:
             self._render_alerts_section(dashboard_data["alerts"])
 
         # システムメトリクスグラフ
-        self._render_system_metrics_charts(dashboard_data["system_metrics"], time_window)
+        self._render_system_metrics_charts(
+            dashboard_data["system_metrics"], time_window
+        )
 
         # システム別パフォーマンス
         if dashboard_data["system_performance"]:
@@ -238,7 +240,9 @@ class RealTimeDashboard:
 
         # リソース使用率比較（CPU vs Memory）
         if metrics_data["cpu"] and metrics_data["memory"]:
-            cpu_values = [item["value"] for item in metrics_data["cpu"][-50:]]  # 最新50ポイント
+            cpu_values = [
+                item["value"] for item in metrics_data["cpu"][-50:]
+            ]  # 最新50ポイント
             memory_values = [item["value"] for item in metrics_data["memory"][-50:]]
 
             fig.add_trace(
@@ -373,7 +377,9 @@ class RealTimeDashboard:
                 st.progress(progress_value)
 
                 # 詳細情報
-                details = f"進捗: {progress['processed_items']}/{progress['total_items']} "
+                details = (
+                    f"進捗: {progress['processed_items']}/{progress['total_items']} "
+                )
                 details += f"({progress['progress_percentage']:.1f}%) "
                 details += f"処理速度: {progress['current_rate']:.2f} items/sec"
 
@@ -427,7 +433,9 @@ class RealTimeDashboard:
         with col1:
             # フェーズ別時間割合（円グラフ）
             phase_names = [phase["name"] for phase in bottleneck_data["phases"]]
-            time_percentages = [phase["time_percentage"] for phase in bottleneck_data["phases"]]
+            time_percentages = [
+                phase["time_percentage"] for phase in bottleneck_data["phases"]
+            ]
 
             fig_pie = px.pie(
                 values=time_percentages,
@@ -439,7 +447,9 @@ class RealTimeDashboard:
 
         with col2:
             # フェーズ別平均実行時間（棒グラフ）
-            avg_durations = [phase["avg_duration"] for phase in bottleneck_data["phases"]]
+            avg_durations = [
+                phase["avg_duration"] for phase in bottleneck_data["phases"]
+            ]
 
             fig_bar = px.bar(
                 x=phase_names,
@@ -450,7 +460,8 @@ class RealTimeDashboard:
 
             # ボトルネックのフェーズをハイライト
             colors = [
-                "red" if phase["is_bottleneck"] else "blue" for phase in bottleneck_data["phases"]
+                "red" if phase["is_bottleneck"] else "blue"
+                for phase in bottleneck_data["phases"]
             ]
             fig_bar.update_traces(marker_color=colors)
 
