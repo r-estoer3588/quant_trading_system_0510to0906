@@ -45,7 +45,8 @@ def _coerce_bool(value: Any) -> bool:
     """Coerce arbitrary values to boolean in a NaN/None-safe way.
 
     Keep behavior identical to the previous implementation while reducing the
-    number of return statements to satisfy static analysis (pylint R0911).
+    number of return statements to satisfy static analysis guidance for
+    readability and maintainability.
     """
     if isinstance(value, bool):
         return value

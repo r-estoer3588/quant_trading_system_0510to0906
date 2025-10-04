@@ -396,3 +396,20 @@ git commit -m "message"
 #### pre-commit バイパスの禁止
 
 `git commit --no-verify` は使用しないでください。品質チェックをバイパスすると、CI で失敗する可能性があります。
+
+#### pre-push フックの動作確認
+
+初回セットアップ後、pre-push フックが正しく動作するか確認してください：
+
+```bash
+# テストコミットを作成
+echo "test" > test_file.txt
+git add test_file.txt
+git commit -m "Test pre-push hook"
+git push  # ここで pre-push フックが実行されます
+```
+
+pre-push 時に以下のチェックが実行されます：
+- Mini パイプラインテスト（core/common 変更時のみ）
+- 品質集計（ruff/mypy/pytest/bandit/radon）
+- **Black フォーマット厳格チェック**（全ファイル検証）
