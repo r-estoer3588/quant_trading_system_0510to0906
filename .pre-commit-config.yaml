@@ -32,6 +32,7 @@ repos:
       - id: check-yaml
         args: ["--allow-multiple-documents"]
       - id: check-json
+        exclude: ^(\.vscode/|f821_errors\.json$)
       - id: check-toml
       - id: check-added-large-files
         args: ["--maxkb=5000"]
@@ -60,6 +61,7 @@ repos:
         entry: python -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
         language: python
         files: ^(core/final_allocation\.py|tests/test_final_allocation_enhanced\.py)$
+        additional_dependencies: [pytest]
         pass_filenames: false
 
       - id: check-mini-pipeline
