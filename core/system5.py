@@ -175,7 +175,7 @@ def prepare_data_vectorized_system5(
         validate_predicate_equivalence(results, "5", log_fn=log_callback)
     except Exception:
         pass
-    return results
+    return cast(dict[str, pd.DataFrame], results)
 
 
 def generate_candidates_system5(
@@ -190,8 +190,12 @@ def generate_candidates_system5(
     diagnostics: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> (
-    tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]
-    | tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None, dict[str, Any]]
+    tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
+    | tuple[
+        dict[pd.Timestamp, dict[str, dict[str, Any]]],
+        pd.DataFrame | None,
+        dict[str, Any],
+    ]
 ):
     """System5 candidate generation (ADX7 descending ranking).
 
@@ -425,7 +429,8 @@ def get_total_days_system5(data_dict: dict[str, pd.DataFrame]) -> int:
     Returns:
         Maximum day count
     """
-    return get_total_days(data_dict)
+    # follow-imports 設定により戻り値が Any 扱いになる環境向けに明示変換
+    return int(get_total_days(data_dict))
 
 
 __all__ = [

@@ -9,7 +9,9 @@
         "normalises",
         "behaviour",
         "mojibake",
-        "spyp"
+        "spyp",
+        "uptwodays",
+        "cands"
     ],
     "ignorePaths": [
         "data_cache/**",
