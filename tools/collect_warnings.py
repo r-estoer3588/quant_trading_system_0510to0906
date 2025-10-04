@@ -19,11 +19,11 @@ Design constraints:
 from __future__ import annotations
 
 import argparse
-import json
-import re
 from collections import Counter
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import re
 
 WARNING_REGEX = re.compile(r"([A-Za-z0-9_]+Warning):")
 
@@ -32,7 +32,9 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Collect warnings summary from log")
     p.add_argument("--log", required=True, help="Path to pytest warnings log file")
     p.add_argument("--out", required=True, help="JSONL output file path")
-    p.add_argument("--top", type=int, default=20, help="Show top-N categories on stdout")
+    p.add_argument(
+        "--top", type=int, default=20, help="Show top-N categories on stdout"
+    )
     return p.parse_args()
 
 

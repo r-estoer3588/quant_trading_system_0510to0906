@@ -63,7 +63,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 _perf.mark_system_start(self.SYSTEM_NAME)
         except Exception:  # pragma: no cover
             pass
-        result = generate_candidates_system7(data_dict, include_diagnostics=True, **kwargs)
+        result = generate_candidates_system7(
+            data_dict, include_diagnostics=True, **kwargs
+        )
         if isinstance(result, tuple) and len(result) == 3:
             candidates_by_date, merged_df, diagnostics = result
             self.last_diagnostics = diagnostics
@@ -128,10 +130,14 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         max_pct = float(self.config.get("max_pct", 0.20))
         if "single_mode" in self.config:
             single_mode = (
-                bool(self.config.get("single_mode", False)) if not single_mode else single_mode
+                bool(self.config.get("single_mode", False))
+                if not single_mode
+                else single_mode
             )
 
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -175,7 +181,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = capital_current if single_mode else capital_current * max_pct
+                max_position_value = (
+                    capital_current if single_mode else capital_current * max_pct
+                )
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -199,7 +207,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     exit_price = float(df.iloc[-1]["Close"])
 
                 exit_price_safe = (
-                    float(exit_price) if exit_price is not None else float(df.iloc[-1]["Close"])
+                    float(exit_price)
+                    if exit_price is not None
+                    else float(df.iloc[-1]["Close"])
                 )
                 pnl = (entry_price - exit_price_safe) * shares
                 return_pct = pnl / capital_current * 100 if capital_current else 0.0
@@ -394,7 +404,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             return None
 
         atr = float(atr_val)
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None

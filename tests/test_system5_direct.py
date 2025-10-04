@@ -80,13 +80,13 @@ class TestSystem5DirectFunctions:
                     # 絶対値降順でソート（大幅下落優先）
                     combined["abs_deviation"] = combined["price_deviation"].abs()
                     combined = combined.sort_values("abs_deviation", ascending=False)
-                    return {"signals": combined.head(top_n).to_dict("records")}, combined.head(
-                        top_n
-                    )
+                    return {
+                        "signals": combined.head(top_n).to_dict("records")
+                    }, combined.head(top_n)
                 else:
-                    return {"signals": combined.head(top_n).to_dict("records")}, combined.head(
-                        top_n
-                    )
+                    return {
+                        "signals": combined.head(top_n).to_dict("records")
+                    }, combined.head(top_n)
             else:
                 return {}, None
 
@@ -114,7 +114,9 @@ class TestSystem5DirectFunctions:
             ),
         }
 
-        result_signals, result_df = mock_generate_candidates_system5(prepared_dict, top_n=5)
+        result_signals, result_df = mock_generate_candidates_system5(
+            prepared_dict, top_n=5
+        )
 
         # mean-reversionシグナルが検出されることを確認
         assert isinstance(result_signals, dict)
@@ -321,7 +323,9 @@ class TestSystem5DirectFunctions:
                 # mean-reversionスコア計算
                 rsi_score = (30 - df["RSI14"]).clip(0, 30) / 30  # RSI oversold度
                 adx_score = (df["ADX14"] - 25).clip(0, 25) / 25  # ADX強度
-                deviation_score = (-df["price_deviation"]).clip(0, 20) / 20  # 価格下落度
+                deviation_score = (-df["price_deviation"]).clip(
+                    0, 20
+                ) / 20  # 価格下落度
 
                 # 総合mean-reversionスコア
                 scores = rsi_score * 0.4 + adx_score * 0.3 + deviation_score * 0.3
@@ -333,7 +337,18 @@ class TestSystem5DirectFunctions:
             {
                 "RSI14": [50, 40, 30, 20, 15, 10, 20, 30, 40, 50],  # oversold→回復
                 "ADX14": [20, 25, 30, 35, 40, 35, 30, 25, 20, 15],  # 高ADX変動
-                "price_deviation": [0, -2, -5, -8, -12, -15, -10, -5, -2, 0],  # 価格乖離
+                "price_deviation": [
+                    0,
+                    -2,
+                    -5,
+                    -8,
+                    -12,
+                    -15,
+                    -10,
+                    -5,
+                    -2,
+                    0,
+                ],  # 価格乖離
                 "Close": [100, 98, 95, 92, 88, 85, 90, 95, 98, 100],
             }
         )

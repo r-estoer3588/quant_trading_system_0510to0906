@@ -13,11 +13,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+from pathlib import Path
 import subprocess
 import sys
 import time
-from datetime import datetime
-from pathlib import Path
 
 # プロジェクトルートをPYTHONPATHに追加
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -56,7 +56,9 @@ def main():
         )
     )
     parser.add_argument(
-        "--parallel", action="store_true", help="build_rolling_with_indicatorsで並列処理を有効化"
+        "--parallel",
+        action="store_true",
+        help="build_rolling_with_indicatorsで並列処理を有効化",
     )
     parser.add_argument(
         "--workers",

@@ -39,7 +39,9 @@ def minimal_system1_df():
         df = pd.DataFrame(data, index=dates)
         if pass_setup:
             df["filter"] = (df["Close"] >= 5.0) & (df["dollarvolume20"] > 25_000_000)
-            df["setup"] = df["filter"] & (df["Close"] > df["sma200"]) & (df["roc200"] > 0)
+            df["setup"] = (
+                df["filter"] & (df["Close"] > df["sma200"]) & (df["roc200"] > 0)
+            )
         return df
 
     return _make
@@ -113,7 +115,9 @@ def minimal_system4_df():
         }
         df = pd.DataFrame(data, index=dates)
         if pass_setup:
-            df["filter"] = (df["dollarvolume50"] > 100_000_000) & df["hv50"].between(10, 40)
+            df["filter"] = (df["dollarvolume50"] > 100_000_000) & df["hv50"].between(
+                10, 40
+            )
             df["setup"] = df["filter"] & (df["Close"] > df["sma200"])
         return df
 
@@ -133,7 +137,9 @@ def minimal_system5_df():
         }
         df = pd.DataFrame(data, index=dates)
         if pass_setup:
-            df["filter"] = (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
+            df["filter"] = (
+                (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
+            )
             df["setup"] = df["filter"]
         return df
 
@@ -165,7 +171,9 @@ def minimal_system6_df():
             # system6 prepare path will build filter/setup using provided columns
             # We can pre-set for safety
             hv_ok = pd.Series([True, True], index=dates)
-            df["filter"] = (df["Low"] >= 5.0) & (df["DollarVolume50"] > 10_000_000) & hv_ok
+            df["filter"] = (
+                (df["Low"] >= 5.0) & (df["DollarVolume50"] > 10_000_000) & hv_ok
+            )
             df["setup"] = df["filter"] & (df["Return_6D"] > 0.20) & df["UpTwoDays"]
         return df
 

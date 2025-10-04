@@ -14,7 +14,10 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from common.cache_manager import CacheManager
-from common.indicator_metrics import create_instrumented_add_indicators, get_metrics_collector
+from common.indicator_metrics import (
+    create_instrumented_add_indicators,
+    get_metrics_collector,
+)
 from config.settings import get_settings
 
 
@@ -96,8 +99,12 @@ def main():
     parser.add_argument(
         "--symbols", type=str, help="テスト対象銘柄 (カンマ区切り、例: AAPL,MSFT,GOOGL)"
     )
-    parser.add_argument("--samples", type=int, default=10, help="処理サンプル数 (デフォルト: 10)")
-    parser.add_argument("--auto", action="store_true", help="自動で利用可能銘柄からサンプル選択")
+    parser.add_argument(
+        "--samples", type=int, default=10, help="処理サンプル数 (デフォルト: 10)"
+    )
+    parser.add_argument(
+        "--auto", action="store_true", help="自動で利用可能銘柄からサンプル選択"
+    )
 
     args = parser.parse_args()
 
@@ -114,7 +121,18 @@ def main():
         print(f"🔍 自動選択: {len(symbols)}銘柄から {args.samples}件をサンプル")
     else:
         # デフォルト銘柄リスト
-        symbols = ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "META", "AMZN", "NFLX", "SPY", "QQQ"]
+        symbols = [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "TSLA",
+            "NVDA",
+            "META",
+            "AMZN",
+            "NFLX",
+            "SPY",
+            "QQQ",
+        ]
         print("📌 デフォルト銘柄リストを使用")
 
     try:

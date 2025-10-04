@@ -5,11 +5,11 @@ NotImplementedError を回避してモジュールの機能をテストします
 カバレッジ80%以上を目指した詳細なテストを提供します。
 """
 
+from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -52,7 +52,9 @@ def load_indicators_precompute_without_error():
 
     # 必要な関数とクラスを取得
     return {
-        "precompute_shared_indicators": globals_dict.get("precompute_shared_indicators"),
+        "precompute_shared_indicators": globals_dict.get(
+            "precompute_shared_indicators"
+        ),
         "_ensure_price_columns_upper": globals_dict.get("_ensure_price_columns_upper"),
         "PRECOMPUTED_INDICATORS": globals_dict.get("PRECOMPUTED_INDICATORS"),
     }
@@ -159,7 +161,9 @@ class TestCacheFunctionality(TestIndicatorsPrecompute):
                             # Date 正規化
                             col = "Date" if "Date" in df.columns else None
                             if col:
-                                df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
+                                df[col] = pd.to_datetime(
+                                    df[col], errors="coerce"
+                                ).dt.normalize()
                             return df
                     except Exception:
                         continue
@@ -232,17 +236,23 @@ class TestCacheFunctionality(TestIndicatorsPrecompute):
         # Featherで失敗した場合のParquetフォールバックをテスト
         # 不正なデータでFeatherの書き込みを失敗させる
         test_df = pd.DataFrame(
-            {"complex_col": [complex(1, 2), complex(3, 4)]}  # Featherでサポートされない型
+            {
+                "complex_col": [complex(1, 2), complex(3, 4)]
+            }  # Featherでサポートされない型
         )
 
         # Featherでの保存を無効化してパッチ
-        with patch("pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")):
+        with patch(
+            "pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")
+        ):
             self._write_cache("TEST_PARQUET", test_df)
 
             # Parquetファイルが作成されることを確認（複素数型は失敗する可能性があるが、フォールバックの動作をテスト）
             # 代わりに通常のデータでテスト
             normal_df = self.sample_data["AAPL"].copy()
-            with patch("pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")):
+            with patch(
+                "pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")
+            ):
                 self._write_cache("TEST_PARQUET_NORMAL", normal_df)
                 parquet_path = self.cache_dir / "TEST_PARQUET_NORMAL.parquet"
                 self.assertTrue(parquet_path.exists())
@@ -253,8 +263,12 @@ class TestCacheFunctionality(TestIndicatorsPrecompute):
         test_df = self.sample_data["AAPL"].copy()
 
         with (
-            patch("pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")),
-            patch("pandas.DataFrame.to_parquet", side_effect=Exception("Parquet failed")),
+            patch(
+                "pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")
+            ),
+            patch(
+                "pandas.DataFrame.to_parquet", side_effect=Exception("Parquet failed")
+            ),
         ):
             # エラーが発生してもクラッシュしないことを確認
             try:
@@ -262,7 +276,9 @@ class TestCacheFunctionality(TestIndicatorsPrecompute):
                 # 例外が発生せずに完了することを確認
                 self.assertTrue(True)
             except Exception as e:
-                self.fail(f"キャッシュエラーハンドリングが適切に動作しませんでした: {e}")
+                self.fail(
+                    f"キャッシュエラーハンドリングが適切に動作しませんでした: {e}"
+                )
 
     def test_read_cache_corrupted_file(self):
         """破損ファイルの読み込みテスト"""
@@ -388,7 +404,10 @@ class TestCacheUpdateLogic(TestIndicatorsPrecompute):
         # データが大幅に変更された場合の完全再計算をテスト
         data_v1 = {
             "TEST": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=30), "Close": range(100, 130)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=30),
+                    "Close": range(100, 130),
+                }
             )
         }
 
@@ -457,7 +476,10 @@ class TestCacheUpdateLogic(TestIndicatorsPrecompute):
         # 同じ日付範囲のデータでキャッシュが再利用されることをテスト
         same_data = {
             "DATE_TEST": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=30), "Close": range(100, 130)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=30),
+                    "Close": range(100, 130),
+                }
             )
         }
 
@@ -480,7 +502,10 @@ class TestCacheUpdateLogic(TestIndicatorsPrecompute):
         # _precompute_skip_cache属性が適切に設定されることをテスト
         test_data = {
             "SKIP_TEST": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=10), "Close": range(100, 110)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=10),
+                    "Close": range(100, 110),
+                }
             )
         }
 
@@ -496,7 +521,9 @@ class TestCacheUpdateLogic(TestIndicatorsPrecompute):
                 # attrs属性の存在をチェック（エラーハンドリングも含めて）
                 try:
                     # skip_attr removed (unused)
-                    getattr(result["SKIP_TEST"], "attrs", {}).get("_precompute_skip_cache")
+                    getattr(result["SKIP_TEST"], "attrs", {}).get(
+                        "_precompute_skip_cache"
+                    )
                     # 属性が設定されているかどうかは実装に依存するため、エラーが発生しないことのみ確認
                     self.assertIsNone(None)  # 常にパス
                 except Exception:
@@ -562,7 +589,9 @@ class TestParallelExecution(TestIndicatorsPrecompute):
             test_data = {"AAPL": self.sample_data["AAPL"].copy()}
 
             if precompute_shared_indicators:
-                result = precompute_shared_indicators(test_data, parallel=True, max_workers=2)
+                result = precompute_shared_indicators(
+                    test_data, parallel=True, max_workers=2
+                )
 
                 # 並列実行が呼ばれたことを確認
                 mock_executor_class.assert_called_once()
@@ -641,7 +670,9 @@ class TestParallelExecution(TestIndicatorsPrecompute):
 
     @patch("concurrent.futures.ThreadPoolExecutor")
     @patch("common.indicators_precompute.get_settings")
-    def test_parallel_execution_with_logging(self, mock_get_settings, mock_executor_class):
+    def test_parallel_execution_with_logging(
+        self, mock_get_settings, mock_executor_class
+    ):
         """ログ付き並列実行のテスト"""
         # settings.pyからの設定取得をモック
         mock_settings = MagicMock()
@@ -679,7 +710,9 @@ class TestParallelExecution(TestIndicatorsPrecompute):
 
         with patch("concurrent.futures.as_completed", return_value=mock_futures):
             if precompute_shared_indicators:
-                result = precompute_shared_indicators(test_data, parallel=True, log=mock_log)
+                result = precompute_shared_indicators(
+                    test_data, parallel=True, log=mock_log
+                )
 
                 # ログが呼ばれたことを確認
                 self.assertGreater(len(log_calls), 0)
@@ -702,10 +735,16 @@ class TestParallelExecution(TestIndicatorsPrecompute):
         # 小さなテストデータセット
         test_data = {
             "TEST1": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(100, 105)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=5),
+                    "Close": range(100, 105),
+                }
             ),
             "TEST2": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(200, 205)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=5),
+                    "Close": range(200, 205),
+                }
             ),
         }
 
@@ -807,14 +846,21 @@ class TestCalcFunctionErrorHandling(TestIndicatorsPrecompute):
         def failing_add_indicators(df):
             raise ValueError("計算エラー")
 
-        with patch("indicators_common.add_indicators", side_effect=failing_add_indicators):
+        with patch(
+            "indicators_common.add_indicators", side_effect=failing_add_indicators
+        ):
             error_data = {
                 "ERROR_TEST": pd.DataFrame(
-                    {"Date": pd.date_range("2023-01-01", periods=10), "Close": range(100, 110)}
+                    {
+                        "Date": pd.date_range("2023-01-01", periods=10),
+                        "Close": range(100, 110),
+                    }
                 )
             }
 
-            with patch("common.indicators_precompute.get_settings") as mock_get_settings:
+            with patch(
+                "common.indicators_precompute.get_settings"
+            ) as mock_get_settings:
                 mock_settings = MagicMock()
                 mock_settings.outputs.signals_dir = str(self.temp_dir)
                 mock_get_settings.return_value = mock_settings
@@ -930,13 +976,18 @@ class TestCalcFunctionErrorHandling(TestIndicatorsPrecompute):
         """エッジケースのDataFrame処理テスト"""
         # 1行だけのDataFrame
         single_row = {
-            "SINGLE": pd.DataFrame({"Date": [pd.Timestamp("2023-01-01")], "Close": [100]})
+            "SINGLE": pd.DataFrame(
+                {"Date": [pd.Timestamp("2023-01-01")], "Close": [100]}
+            )
         }
 
         # NaN値を含むDataFrame
         nan_data = {
             "NAN_TEST": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=3), "Close": [100, None, 102]}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=3),
+                    "Close": [100, None, 102],
+                }
             )
         }
 
@@ -1026,7 +1077,10 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
 
         test_data = {
             "STD_TEST": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=10), "Close": range(100, 110)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=10),
+                    "Close": range(100, 110),
+                }
             )
         }
 
@@ -1041,7 +1095,8 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
             if result["STD_TEST"] is not None:
                 # 標準化された列名が存在することを確認
                 self.assertTrue(
-                    "sma_10" in result["STD_TEST"].columns or "SMA10" in result["STD_TEST"].columns
+                    "sma_10" in result["STD_TEST"].columns
+                    or "SMA10" in result["STD_TEST"].columns
                 )
 
     @patch("common.cache_manager.standardize_indicator_columns")
@@ -1057,10 +1112,15 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
         mock_standardize.side_effect = lambda df: df
 
         # add_indicatorsで例外を発生させる
-        with patch("indicators_common.add_indicators", side_effect=Exception("計算エラー")):
+        with patch(
+            "indicators_common.add_indicators", side_effect=Exception("計算エラー")
+        ):
             test_data = {
                 "ERROR_STD": pd.DataFrame(
-                    {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(100, 105)}
+                    {
+                        "Date": pd.date_range("2023-01-01", periods=5),
+                        "Close": range(100, 105),
+                    }
                 )
             }
 
@@ -1079,11 +1139,16 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
         with patch("common.cache_manager.standardize_indicator_columns", None):
             test_data = {
                 "IMPORT_FAIL": pd.DataFrame(
-                    {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(100, 105)}
+                    {
+                        "Date": pd.date_range("2023-01-01", periods=5),
+                        "Close": range(100, 105),
+                    }
                 )
             }
 
-            with patch("common.indicators_precompute.get_settings") as mock_get_settings:
+            with patch(
+                "common.indicators_precompute.get_settings"
+            ) as mock_get_settings:
                 mock_settings = MagicMock()
                 mock_settings.outputs.signals_dir = str(self.temp_dir)
                 mock_get_settings.return_value = mock_settings
@@ -1102,7 +1167,9 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
 
     @patch("common.cache_manager.standardize_indicator_columns")
     @patch("common.indicators_precompute.get_settings")
-    def test_standardization_exception_handling(self, mock_get_settings, mock_standardize):
+    def test_standardization_exception_handling(
+        self, mock_get_settings, mock_standardize
+    ):
         """標準化処理での例外ハンドリングテスト"""
         # settings.pyからの設定取得をモック
         mock_settings = MagicMock()
@@ -1114,7 +1181,10 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
 
         test_data = {
             "STD_ERROR": pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(100, 105)}
+                {
+                    "Date": pd.date_range("2023-01-01", periods=5),
+                    "Close": range(100, 105),
+                }
             )
         }
 
@@ -1188,7 +1258,10 @@ class TestStandardizeIntegration(TestIndicatorsPrecompute):
         with patch("indicators_common.add_indicators", side_effect=lambda df: df):
             test_data = {
                 "NO_NEW_COLS": pd.DataFrame(
-                    {"Date": pd.date_range("2023-01-01", periods=5), "Close": range(100, 105)}
+                    {
+                        "Date": pd.date_range("2023-01-01", periods=5),
+                        "Close": range(100, 105),
+                    }
                 )
             }
 
@@ -1321,9 +1394,13 @@ class TestModuleFunctions(TestIndicatorsPrecompute):
         # _cache_dir関数の動作を再現
         def mock_cache_dir():
             try:
-                settings = mock_get_settings(create_dirs=True) if mock_get_settings else None
+                settings = (
+                    mock_get_settings(create_dirs=True) if mock_get_settings else None
+                )
                 base = (
-                    Path(settings.outputs.signals_dir) if settings else Path("data_cache/signals")
+                    Path(settings.outputs.signals_dir)
+                    if settings
+                    else Path("data_cache/signals")
                 )
             except Exception:
                 base = Path("data_cache/signals")
@@ -1422,7 +1499,9 @@ class TestIntegrationScenarios(TestIndicatorsPrecompute):
                 # Volume基準
                 if "Volume" in result.columns:
                     result["DollarVolume"] = result["Close"] * result["Volume"]
-                    result["AvgVolume20"] = result["Volume"].rolling(20, min_periods=1).mean()
+                    result["AvgVolume20"] = (
+                        result["Volume"].rolling(20, min_periods=1).mean()
+                    )
 
             return result
 

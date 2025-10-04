@@ -27,7 +27,9 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self) -> None:
         super().__init__()
 
-    def prepare_data(self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs):
+    def prepare_data(
+        self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs
+    ):
         """System1のデータ準備（共通テンプレート + フォールバック対応）"""
         return self._prepare_data_template(
             raw_data_or_symbols,
@@ -104,7 +106,9 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             df,
             candidate,
             atr_column="atr20",
-            stop_multiplier=self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1),
+            stop_multiplier=self.config.get(
+                "stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1
+            ),
         )
         if result is None:
             return None

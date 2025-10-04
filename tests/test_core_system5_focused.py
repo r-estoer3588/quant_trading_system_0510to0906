@@ -2,16 +2,17 @@
 Core System5 Focused Tests - ADX7 Mean-Reversion Strategy Testing
 """
 
-import pandas as pd
 from unittest.mock import Mock
 
+import pandas as pd
+
 from core.system5 import (
-    prepare_data_vectorized_system5,
-    generate_candidates_system5,
-    get_total_days_system5,
-    format_atr_pct_threshold_label,
     DEFAULT_ATR_PCT_THRESHOLD,
     SYSTEM5_REQUIRED_INDICATORS,
+    format_atr_pct_threshold_label,
+    generate_candidates_system5,
+    get_total_days_system5,
+    prepare_data_vectorized_system5,
 )
 
 
@@ -24,8 +25,18 @@ class TestSystem5Constants:
 
     def test_required_indicators_list(self):
         """Test SYSTEM5_REQUIRED_INDICATORS contains expected indicators."""
-        expected_indicators = ["adx7", "atr10", "dollarvolume20", "atr_pct", "filter", "setup"]
-        assert all(indicator in SYSTEM5_REQUIRED_INDICATORS for indicator in expected_indicators)
+        expected_indicators = [
+            "adx7",
+            "atr10",
+            "dollarvolume20",
+            "atr_pct",
+            "filter",
+            "setup",
+        ]
+        assert all(
+            indicator in SYSTEM5_REQUIRED_INDICATORS
+            for indicator in expected_indicators
+        )
 
     def test_format_atr_pct_threshold_label(self):
         """Test format_atr_pct_threshold_label formatting."""
@@ -41,7 +52,11 @@ class TestSystem5Utilities:
         """Test get_total_days_system5 with basic data."""
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Close": [100, 102, 101], "adx7": [40, 38, 36], "atr_pct": [0.03, 0.028, 0.032]},
+                {
+                    "Close": [100, 102, 101],
+                    "adx7": [40, 38, 36],
+                    "atr_pct": [0.03, 0.028, 0.032],
+                },
                 index=pd.date_range("2023-01-01", periods=3),
             )
         }
@@ -71,7 +86,13 @@ class TestSystem5DataPreparation:
                     "Volume": [1000000, 1100000, 950000, 1200000, 1050000],
                     "adx7": [40.0, 38.0, 36.0, 42.0, 39.0],
                     "atr10": [2.5, 2.3, 2.7, 2.4, 2.6],
-                    "dollarvolume20": [100000000, 112000000, 96000000, 123000000, 107000000],
+                    "dollarvolume20": [
+                        100000000,
+                        112000000,
+                        96000000,
+                        123000000,
+                        107000000,
+                    ],
                     "atr_pct": [0.03, 0.028, 0.032, 0.025, 0.029],
                     "filter": [1, 1, 1, 1, 1],
                     "setup": [1, 0, 1, 1, 0],
@@ -86,7 +107,13 @@ class TestSystem5DataPreparation:
                     "Volume": [800000, 850000, 750000, 900000, 825000],
                     "adx7": [35.0, 37.0, 38.0, 36.0, 39.0],
                     "atr10": [3.0, 2.8, 3.2, 2.9, 3.1],
-                    "dollarvolume20": [200000000, 214000000, 188000000, 228000000, 208000000],
+                    "dollarvolume20": [
+                        200000000,
+                        214000000,
+                        188000000,
+                        228000000,
+                        208000000,
+                    ],
                     "atr_pct": [0.027, 0.031, 0.026, 0.033, 0.028],
                     "filter": [1, 1, 1, 1, 1],
                     "setup": [0, 1, 1, 0, 1],
@@ -174,11 +201,55 @@ class TestSystem5Integration:
         return {
             "TEST": pd.DataFrame(
                 {
-                    "Close": [100.0, 102.0, 101.0, 103.0, 102.5, 104.0, 103.5, 105.0, 104.5, 106.0],
-                    "High": [101.0, 103.0, 102.0, 104.0, 103.5, 105.0, 104.5, 106.0, 105.5, 107.0],
-                    "Low": [99.0, 101.0, 100.0, 102.0, 101.5, 103.0, 102.5, 104.0, 103.5, 105.0],
+                    "Close": [
+                        100.0,
+                        102.0,
+                        101.0,
+                        103.0,
+                        102.5,
+                        104.0,
+                        103.5,
+                        105.0,
+                        104.5,
+                        106.0,
+                    ],
+                    "High": [
+                        101.0,
+                        103.0,
+                        102.0,
+                        104.0,
+                        103.5,
+                        105.0,
+                        104.5,
+                        106.0,
+                        105.5,
+                        107.0,
+                    ],
+                    "Low": [
+                        99.0,
+                        101.0,
+                        100.0,
+                        102.0,
+                        101.5,
+                        103.0,
+                        102.5,
+                        104.0,
+                        103.5,
+                        105.0,
+                    ],
                     "Volume": [1000000] * 10,
-                    "adx7": [40.0, 38.0, 36.0, 42.0, 39.0, 41.0, 37.0, 43.0, 40.0, 38.0],
+                    "adx7": [
+                        40.0,
+                        38.0,
+                        36.0,
+                        42.0,
+                        39.0,
+                        41.0,
+                        37.0,
+                        43.0,
+                        40.0,
+                        38.0,
+                    ],
                     "atr10": [2.5, 2.3, 2.7, 2.4, 2.6, 2.8, 2.2, 2.9, 2.5, 2.7],
                     "dollarvolume20": [100000000] * 10,
                     "atr_pct": [
@@ -209,7 +280,9 @@ class TestSystem5Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system5(prepared_data, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system5(
+            prepared_data, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days
@@ -224,7 +297,9 @@ class TestSystem5Integration:
         prepared_empty = prepare_data_vectorized_system5(empty_data)
         assert isinstance(prepared_empty, dict)
 
-        candidates_dict, candidates_df = generate_candidates_system5(prepared_empty, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system5(
+            prepared_empty, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         total_days_empty = get_total_days_system5(prepared_empty)

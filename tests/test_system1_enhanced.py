@@ -5,18 +5,19 @@ Focus on the main pipeline functions and integration tests
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
 try:
     from core.system1 import (
-        prepare_data_vectorized_system1,
         generate_candidates_system1,
         get_total_days_system1,
+        prepare_data_vectorized_system1,
         summarize_system1_diagnostics,
     )
 
@@ -61,7 +62,9 @@ class TestSystem1MainFunctions:
         with patch("core.system1.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system1(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system1(
+                raw_data_dict=mock_data, reuse_indicators=True
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -164,7 +167,9 @@ class TestSystem1MainFunctions:
             )
         }
 
-        candidates_by_date, candidates_df, _ = generate_candidates_system1(prepared_data, top_n=10)
+        candidates_by_date, candidates_df, _ = generate_candidates_system1(
+            prepared_data, top_n=10
+        )
 
         assert isinstance(candidates_by_date, dict)
         # Should still return dict structure even if no candidates
@@ -174,7 +179,8 @@ class TestSystem1MainFunctions:
         """Test get_total_days_system1 function"""
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Close": [100, 110, 120, 130, 140]}, index=pd.date_range("2023-01-01", periods=5)
+                {"Close": [100, 110, 120, 130, 140]},
+                index=pd.date_range("2023-01-01", periods=5),
             ),
             "MSFT": pd.DataFrame(
                 {"Close": [200, 210, 220]}, index=pd.date_range("2023-01-01", periods=3)
@@ -261,7 +267,10 @@ class TestSystem1MainFunctions:
             log_calls.append(msg)
 
         result = generate_candidates_system1(  # type: ignore[name-defined]
-            prepared_data, top_n=10, progress_callback=progress_callback, log_callback=log_callback
+            prepared_data,
+            top_n=10,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
         )
 
         assert isinstance(result, tuple)

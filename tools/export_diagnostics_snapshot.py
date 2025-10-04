@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +40,9 @@ def export_diagnostics_snapshot(
         # 辞書の場合
         systems_data = allocation_summary
     else:
-        logger.warning(f"Unexpected allocation_summary type: {type(allocation_summary)}")
+        logger.warning(
+            f"Unexpected allocation_summary type: {type(allocation_summary)}"
+        )
         systems_data = {}
 
     # 各システムの diagnostics を収集
@@ -53,7 +55,9 @@ def export_diagnostics_snapshot(
             diag = getattr(system_info, "diagnostics", {})
             candidates = getattr(system_info, "candidates", [])
         else:
-            logger.warning(f"Unexpected system_info type for {system_id}: {type(system_info)}")
+            logger.warning(
+                f"Unexpected system_info type for {system_id}: {type(system_info)}"
+            )
             diag = {}
             candidates = []
 
@@ -64,7 +68,9 @@ def export_diagnostics_snapshot(
             {
                 "system_id": system_id,
                 "diagnostics": diag_safe,
-                "candidate_count": len(candidates) if isinstance(candidates, (list, tuple)) else 0,
+                "candidate_count": (
+                    len(candidates) if isinstance(candidates, (list, tuple)) else 0
+                ),
             }
         )
 

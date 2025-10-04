@@ -141,7 +141,9 @@ def prepare_data_vectorized_system7(
 
     if log_callback:
         try:
-            log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)")
+            log_callback(
+                "SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)"
+            )
         except Exception:
             pass
     if progress_callback:
@@ -166,7 +168,11 @@ def generate_candidates_system7(
     **kwargs: Any,
 ) -> (
     Tuple[dict[pd.Timestamp, dict[str, dict[str, object]]], pd.DataFrame | None]
-    | Tuple[dict[pd.Timestamp, dict[str, dict[str, object]]], pd.DataFrame | None, dict[str, Any]]
+    | Tuple[
+        dict[pd.Timestamp, dict[str, dict[str, object]]],
+        pd.DataFrame | None,
+        dict[str, Any],
+    ]
 ):
     """Generate System7 candidates.
 
@@ -201,9 +207,13 @@ def generate_candidates_system7(
     if latest_only:
         try:
             last_row = df.iloc[-1]
-            from common.system_setup_predicates import system7_setup_predicate as _s7_pred
+            from common.system_setup_predicates import (
+                system7_setup_predicate as _s7_pred,
+            )
 
-            setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
+            setup_col_val = (
+                bool(last_row.get("setup", False)) if "setup" in last_row else True
+            )
             pred_val = _s7_pred(last_row)
             if pred_val:
                 diagnostics["setup_predicate_count"] += 1
@@ -241,7 +251,9 @@ def generate_candidates_system7(
                     normalized[pd.Timestamp(entry_date)] = {"SPY": symbol_payload}
                     if log_callback:
                         try:
-                            log_callback("System7: latest_only fast-path -> 1 candidate")
+                            log_callback(
+                                "System7: latest_only fast-path -> 1 candidate"
+                            )
                         except Exception:
                             pass
                     diagnostics["final_top_n_count"] = 1
@@ -315,7 +327,9 @@ def generate_candidates_system7(
 
     if log_callback:
         try:
-            all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            all_dates = (
+                pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            )
             window_size = int(min(50, len(all_dates)) or 50)
             if window_size > 0:
                 recent_set = set(all_dates[-window_size:])
@@ -352,7 +366,11 @@ def generate_candidates_system7(
         diagnostics["ranking_source"] = "full_scan"
     except Exception:
         pass
-    return (normalized_full, None, diagnostics) if include_diagnostics else (normalized_full, None)
+    return (
+        (normalized_full, None, diagnostics)
+        if include_diagnostics
+        else (normalized_full, None)
+    )
 
 
 def get_total_days_system7(data_dict: dict[str, pd.DataFrame]) -> int:

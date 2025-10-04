@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import logging
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,8 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict[str, Any]
             "final_top_n_count": {
                 "baseline": b_diag.get("final_top_n_count", -1),
                 "current": c_diag.get("final_top_n_count", -1),
-                "diff": c_diag.get("final_top_n_count", -1) - b_diag.get("final_top_n_count", -1),
+                "diff": c_diag.get("final_top_n_count", -1)
+                - b_diag.get("final_top_n_count", -1),
             },
             "category": _classify_diff(b_diag, c_diag),
         }
@@ -90,20 +91,39 @@ def summarize_diff(diff_result: dict) -> dict[str, int]:
     return dict(Counter(categories))
 
 
+def _pick_latest_two(dir_path: Path) -> tuple[Path, Path]:
+    files = sorted(
+        (p for p in dir_path.glob("*.json") if p.is_file()),
+        key=lambda p: (p.stat().st_mtime, p.name),
+        reverse=True,
+    )
+    if len(files) < 2:
+        raise FileNotFoundError(
+            "スナップショット JSON が2件以上必要です（--dir には最新2件を想定）"
+        )
+    return files[1], files[0]  # baseline, current
+
+
 def main():
     """CLI エントリーポイント。"""
     parser = argparse.ArgumentParser(description="Compare diagnostics snapshots")
     parser.add_argument(
         "--baseline",
         type=Path,
-        required=True,
+        required=False,
         help="Baseline snapshot JSON path",
     )
     parser.add_argument(
         "--current",
         type=Path,
-        required=True,
+        required=False,
         help="Current snapshot JSON path",
+    )
+    parser.add_argument(
+        "--dir",
+        type=Path,
+        required=False,
+        help="Directory to auto-pick latest two snapshot JSON files",
     )
     parser.add_argument(
         "--output",
@@ -117,8 +137,18 @@ def main():
     )
     args = parser.parse_args()
 
+    # 入力決定: --dir があればそこから最新2件、なければ --baseline/--current 必須
+    if args.dir:
+        base_path, curr_path = _pick_latest_two(args.dir)
+    else:
+        if not args.baseline or not args.current:
+            raise SystemExit(
+                "--baseline と --current を指定するか、--dir を使用してください"
+            )
+        base_path, curr_path = args.baseline, args.current
+
     # スナップショット比較
-    diff_result = compare_snapshots(args.baseline, args.current)
+    diff_result = compare_snapshots(base_path, curr_path)
 
     # 出力
     if args.output:

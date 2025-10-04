@@ -155,14 +155,18 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         if atr40 is None:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4)
+            getattr(self, "config", {}).get(
+                "stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4
+            )
         )
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         trail_pct = float(getattr(self, "config", {}).get("trailing_pct", 0.20))
         highest = entry_price
         for idx2 in range(entry_idx + 1, len(df)):

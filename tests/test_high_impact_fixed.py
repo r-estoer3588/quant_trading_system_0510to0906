@@ -3,23 +3,24 @@ Working tests for actual existing functions
 Based on real function signatures from grep search
 """
 
-import pandas as pd
 from unittest.mock import Mock
+
+import pandas as pd
 
 # Import only functions that actually exist
 from common.system_common import (
-    get_total_days,
-    get_date_range,
-    _rename_ohlcv,
     _normalize_index,
     _prepare_source_frame,
+    _rename_ohlcv,
+    get_date_range,
+    get_total_days,
     validate_data_frame_basic,
 )
 from core.final_allocation import (
-    load_symbol_system_map,
-    count_active_positions_by_system,
-    _safe_positive_float,
     _candidate_count,
+    _safe_positive_float,
+    count_active_positions_by_system,
+    load_symbol_system_map,
 )
 
 
@@ -85,7 +86,10 @@ class TestSystemCommonExistingFunctions:
         """Test _normalize_index function"""
         # Test with date column
         df = pd.DataFrame(
-            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            {
+                "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                "Close": [100, 101, 102],
+            }
         )
 
         try:
@@ -203,7 +207,11 @@ class TestFinalAllocationExistingFunctions:
         ]
 
         # Mock symbol_system_map
-        symbol_map = {"AAPL": "System1_Long", "GOOGL": "System2_Short", "MSFT": "System1_Long"}
+        symbol_map = {
+            "AAPL": "System1_Long",
+            "GOOGL": "System2_Short",
+            "MSFT": "System1_Long",
+        }
 
         try:
             result = count_active_positions_by_system(mock_positions, symbol_map)
@@ -227,11 +235,29 @@ class TestSystemCommonHelpers:
         """Test _rename_ohlcv with different case variants"""
         test_cases = [
             # Lowercase
-            {"open": [100], "high": [101], "low": [99], "close": [100.5], "volume": [1000]},
+            {
+                "open": [100],
+                "high": [101],
+                "low": [99],
+                "close": [100.5],
+                "volume": [1000],
+            },
             # Uppercase
-            {"OPEN": [100], "HIGH": [101], "LOW": [99], "CLOSE": [100.5], "VOLUME": [1000]},
+            {
+                "OPEN": [100],
+                "HIGH": [101],
+                "LOW": [99],
+                "CLOSE": [100.5],
+                "VOLUME": [1000],
+            },
             # Mixed case
-            {"Open": [100], "High": [101], "Low": [99], "Close": [100.5], "Volume": [1000]},
+            {
+                "Open": [100],
+                "High": [101],
+                "Low": [99],
+                "Close": [100.5],
+                "Volume": [1000],
+            },
         ]
 
         for data in test_cases:
@@ -306,7 +332,12 @@ def test_system_common_module_structure():
     import common.system_common as sc
 
     # Check for expected functions
-    expected_functions = ["get_total_days", "get_date_range", "_rename_ohlcv", "_normalize_index"]
+    expected_functions = [
+        "get_total_days",
+        "get_date_range",
+        "_rename_ohlcv",
+        "_normalize_index",
+    ]
 
     for func_name in expected_functions:
         assert hasattr(sc, func_name)
@@ -318,7 +349,11 @@ def test_final_allocation_module_structure():
     import core.final_allocation as fa
 
     # Check for expected functions
-    expected_functions = ["load_symbol_system_map", "_safe_positive_float", "_candidate_count"]
+    expected_functions = [
+        "load_symbol_system_map",
+        "_safe_positive_float",
+        "_candidate_count",
+    ]
 
     for func_name in expected_functions:
         assert hasattr(fa, func_name)

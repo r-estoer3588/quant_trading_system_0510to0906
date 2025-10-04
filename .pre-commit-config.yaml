@@ -42,7 +42,7 @@ repos:
     rev: 1.7.6
     hooks:
       - id: bandit
-        args: [-ll, --severity-level=medium, --confidence-level=medium]
+        args: [--severity-level=medium, --confidence-level=medium]
         files: ^(core|common|scripts|strategies)/
         exclude: ^tests/
 
@@ -76,3 +76,36 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      # --- Static analysis additions ---
+      # mypy (UTF-8 強制) — Windows のコードページ差異による mypy.ini デコード問題を回避
+      - id: mypy-utf8
+        name: mypy (UTF-8 forced)
+        entry: python -X utf8 -m mypy --config-file mypy.ini
+        language: system
+        types: [python]
+        # 段階導入: まずは今回追加/更新したファイル群のみを対象
+        # （徐々に対象ディレクトリを拡大予定）
+        files: ^(tools/verify_trd_length\.py|tools/validate_log_compactness\.py|common/system_diagnostics\.py|scripts/run_all_systems_today\.py)$
+        pass_filenames: true
+        stages: [pre-commit]
+
+      # pylint 段階導入: まずは tools 配下
+      - id: pylint-tools
+        name: "pylint (tools only)"
+        entry: pylint -rn --disable=R,C --score=n
+        language: system
+        types: [python]
+        files: ^tools/.*\.py$
+        pass_filenames: true
+        stages: [pre-commit]
+
+      # pylint 段階導入: common の system_* のみ（範囲を徐々に拡大予定）
+      - id: pylint-common-stage1
+        name: "pylint (common stage1: system_*)"
+        entry: pylint -rn --disable=R,C --score=n
+        language: system
+        types: [python]
+        files: ^common/system_.*\.py$
+        pass_filenames: true
+        stages: [pre-commit]

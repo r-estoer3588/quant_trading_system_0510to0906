@@ -84,14 +84,19 @@ class CacheHealthChecker:
 
         except Exception as e:
             error_msg = (
-                f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: " f"健全性チェチE��失敁E({e})"
+                f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
+                f"健全性チェチE��失敁E({e})"
             )
-            self._warn_once(ticker, profile, f"healthcheck_error:{type(e).__name__}", error_msg)
+            self._warn_once(
+                ticker, profile, f"healthcheck_error:{type(e).__name__}", error_msg
+            )
             results["overall_health"] = False
 
         return results
 
-    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+    def _warn_once(
+        self, ticker: str, profile: str, category: str, message: str
+    ) -> None:
         """同じ警告を重褁E��て出力しなぁE��ぁE��する"""
         key = (ticker, profile, category)
         if key in self.warnings:
@@ -107,7 +112,9 @@ class CacheHealthChecker:
 
             # DataFrame冁E��存在する持E���Eを特宁E
             indicator_columns = [
-                col for col in df.columns if col.lower() in self.INDICATOR_MIN_OBSERVATIONS
+                col
+                for col in df.columns
+                if col.lower() in self.INDICATOR_MIN_OBSERVATIONS
             ]
 
             if not indicator_columns:
@@ -119,7 +126,9 @@ class CacheHealthChecker:
 
             for col in indicator_columns:
                 try:
-                    series = pd.to_numeric(df[col], errors="coerce").reset_index(drop=True)
+                    series = pd.to_numeric(df[col], errors="coerce").reset_index(
+                        drop=True
+                    )
                 except Exception:
                     continue
 
@@ -145,9 +154,12 @@ class CacheHealthChecker:
                     problematic_columns.append((col, nan_ratio))
 
             if problematic_columns:
-                issues = ", ".join(f"{col}:{ratio:.2%}" for col, ratio in problematic_columns)
+                issues = ", ".join(
+                    f"{col}:{ratio:.2%}" for col, ratio in problematic_columns
+                )
                 warning_msg = (
-                    f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: " f"NaN玁E��E({issues})"
+                    f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
+                    f"NaN玁E��E({issues})"
                 )
                 self._warn_once(ticker, profile, f"nan_rate:{issues}", warning_msg)
                 return False
@@ -170,12 +182,16 @@ class CacheHealthChecker:
                     f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
                     f"{col}型不一致 ({dtype_description})"
                 )
-                self._warn_once(ticker, profile, f"dtype:{col}:{dtype_description}", warning_msg)
+                self._warn_once(
+                    ticker, profile, f"dtype:{col}:{dtype_description}", warning_msg
+                )
                 health_ok = False
 
         return health_ok
 
-    def _check_non_positive_prices(self, df: pd.DataFrame, ticker: str, profile: str) -> bool:
+    def _check_non_positive_prices(
+        self, df: pd.DataFrame, ticker: str, profile: str
+    ) -> bool:
         """価格列が非正値でなぁE��チェチE��"""
         health_ok = True
         price_columns = ["close", "high", "low"]
@@ -186,9 +202,12 @@ class CacheHealthChecker:
                     values = pd.to_numeric(df[col], errors="coerce")
                     if not values.empty and (values <= 0).all():
                         warning_msg = (
-                            f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: " f"{col}全て非正値"
+                            f"{self.ui_prefix} ⚠�E�E{ticker} {profile} cache: "
+                            f"{col}全て非正値"
                         )
-                        self._warn_once(ticker, profile, f"non_positive:{col}", warning_msg)
+                        self._warn_once(
+                            ticker, profile, f"non_positive:{col}", warning_msg
+                        )
                         health_ok = False
                 except Exception:
                     # 数値変換に失敗した場合もチE�Eタ型�E問題として扱ぁE

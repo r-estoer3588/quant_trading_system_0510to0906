@@ -1,7 +1,7 @@
 # tickers_loader.py
 import os
-import time
 from pathlib import Path
+import time
 
 import pandas as pd
 import streamlit as st
@@ -111,7 +111,11 @@ def update_ticker_list(output_path: str | Path | None = None) -> Path:
             print(f"[webhook skipped] url={url!r} | {text}")
 
     settings = get_settings(create_dirs=True)
-    out = Path(output_path) if output_path else Path(settings.data.cache_dir) / "tickers.csv"
+    out = (
+        Path(output_path)
+        if output_path
+        else Path(settings.data.cache_dir) / "tickers.csv"
+    )
 
     tickers = get_all_tickers()
     prev: set[str] = set()
@@ -206,7 +210,9 @@ def filter_symbols_by_system1(data_dict):
 
     total_elapsed = time.time() - start_time
     tm, ts = divmod(int(total_elapsed), 60)
-    st.write(f"✅ フィルター処理完了：{total}件中 {len(result)}件通過 | 総処理時間: {tm}分{ts}秒")
+    st.write(
+        f"✅ フィルター処理完了：{total}件中 {len(result)}件通過 | 総処理時間: {tm}分{ts}秒"
+    )
 
     return result
 

@@ -147,18 +147,24 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
+    ):
         """利確/損切りロジック。
         - ストップ到達: その日の高値>=stop で当日決済
         - 利確到達: 前日終値で判定し、翌日大引けで決済
         - 未達: 2営業日待っても利確に届かない場合は3日目の大引けで決済
         返り値: (exit_price, exit_date)
         """
-        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
+        )
         max_hold_days = int(self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT))
 
         for offset in range(max_hold_days):

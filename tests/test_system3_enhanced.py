@@ -5,18 +5,19 @@ Focus on main functions with mock-based testing for System3 three-day pullback s
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
 try:
     from core.system3 import (
-        prepare_data_vectorized_system3,
         generate_candidates_system3,
         get_total_days_system3,
+        prepare_data_vectorized_system3,
     )
 
     IMPORTS_AVAILABLE = True
@@ -91,7 +92,9 @@ class TestSystem3MainFunctions:
 
         prepared_dict = {"AAPL": mock_df, "TSLA": mock_df.copy()}
 
-        candidates_by_date, candidates_df = generate_candidates_system3(prepared_dict, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system3(
+            prepared_dict, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
 

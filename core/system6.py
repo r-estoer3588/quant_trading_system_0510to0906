@@ -155,7 +155,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 
         # フィルターとセットアップ
         x["filter"] = (
-            (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50) & hv50_condition
+            (x["Low"] >= MIN_PRICE)
+            & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
+            & hv50_condition
         )
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
@@ -233,7 +235,11 @@ def generate_candidates_system6(
     diagnostics: dict[str, Any] | None = None,
 ) -> (
     tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
-    | tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None, dict[str, Any]]
+    | tuple[
+        dict[pd.Timestamp, dict[str, dict[str, Any]]],
+        pd.DataFrame | None,
+        dict[str, Any],
+    ]
 ):
     """Generate System6 candidates.
 
@@ -307,7 +313,9 @@ def generate_candidates_system6(
                     sym_val = rec.get("symbol")
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
-                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
+                    payload = {
+                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
                     symbol_map[sym_val] = payload
                 normalized[dt] = symbol_map
             if log_callback:
@@ -510,7 +518,9 @@ def generate_candidates_system6(
             pass
 
     # 最終メトリクス記録
-    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    total_candidates = sum(
+        len(candidates) for candidates in candidates_by_date.values()
+    )
     unique_dates = len(candidates_by_date)
     _metrics.record_metric("system6_total_candidates", total_candidates, "count")
     _metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
@@ -534,7 +544,9 @@ def generate_candidates_system6(
             if not isinstance(sym_val, str) or not sym_val:
                 continue
             # rec may contain entry_date; unify key name 'date' for DF compatibility
-            payload = {k: v for k, v in rec.items() if k not in ("symbol", "entry_date")}
+            payload = {
+                k: v for k, v in rec.items() if k not in ("symbol", "entry_date")
+            }
             # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
             payload["entry_date"] = rec.get("entry_date")
             symbol_map[sym_val] = payload
@@ -549,7 +561,11 @@ def generate_candidates_system6(
     except Exception:
         diagnostics["final_top_n_count"] = 0
 
-    return (normalized_full, None, diagnostics) if include_diagnostics else (normalized_full, None)
+    return (
+        (normalized_full, None, diagnostics)
+        if include_diagnostics
+        else (normalized_full, None)
+    )
 
 
 def get_total_days_system6(data_dict: dict[str, pd.DataFrame]) -> int:

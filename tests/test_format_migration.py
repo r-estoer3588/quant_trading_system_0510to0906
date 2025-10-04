@@ -2,11 +2,12 @@
 
 """Test script to verify that the format migration works correctly."""
 
-import tempfile
 import os
-import pandas as pd
 from pathlib import Path
 import sys
+import tempfile
+
+import pandas as pd
 
 
 def test_cache_manager_detects_feather_for_base():
@@ -16,8 +17,8 @@ def test_cache_manager_detects_feather_for_base():
         os.environ["DATA_CACHE_DIR"] = temp_dir
 
         try:
-            from config.settings import get_settings
             from common.cache_manager import CacheManager
+            from config.settings import get_settings
 
             settings = get_settings()
             ROOT = Path(__file__).parent

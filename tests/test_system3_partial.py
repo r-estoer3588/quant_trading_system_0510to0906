@@ -24,12 +24,20 @@ class TestGetTotalDaysSystem3:
 
         data_dict = {
             "AAPL": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 105, 102]}
+                {
+                    "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                    "Close": [100, 105, 102],
+                }
             ),
             "GOOGL": pd.DataFrame(
-                {"Date": ["2023-01-02", "2023-01-03", "2023-01-04"], "Close": [200, 205, 203]}
+                {
+                    "Date": ["2023-01-02", "2023-01-03", "2023-01-04"],
+                    "Close": [200, 205, 203],
+                }
             ),
-            "TSLA": pd.DataFrame({"Date": ["2023-01-01", "2023-01-04"], "Close": [300, 310]}),
+            "TSLA": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-04"], "Close": [300, 310]}
+            ),
         }
 
         result = get_total_days_system3(data_dict)
@@ -54,7 +62,9 @@ class TestGetTotalDaysSystem3:
             pytest.skip(f"Import error: {e}")
 
         data_dict = {
-            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}),
+            "AAPL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}
+            ),
             "GOOGL": None,
             "TSLA": pd.DataFrame({"Date": ["2023-01-03"], "Close": [300]}),
         }
@@ -71,7 +81,9 @@ class TestGetTotalDaysSystem3:
             pytest.skip(f"Import error: {e}")
 
         data_dict = {
-            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}),
+            "AAPL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}
+            ),
             "GOOGL": pd.DataFrame(),  # 空のDataFrame
             "TSLA": pd.DataFrame({"Date": ["2023-01-03"], "Close": [300]}),
         }
@@ -89,19 +101,25 @@ class TestGetTotalDaysSystem3:
 
         # Case 1: "Date" カラム
         data_dict_date = {
-            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]})
+            "AAPL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}
+            )
         }
         assert get_total_days_system3(data_dict_date) == 2
 
         # Case 2: "date" カラム（小文字）
         data_dict_lowercase = {
-            "GOOGL": pd.DataFrame({"date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]})
+            "GOOGL": pd.DataFrame(
+                {"date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}
+            )
         }
         assert get_total_days_system3(data_dict_lowercase) == 2
 
         # Case 3: index が日付（DatetimeIndex）
         dates_index = pd.to_datetime(["2023-01-01", "2023-01-02"])
-        data_dict_index = {"TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)}
+        data_dict_index = {
+            "TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)
+        }
         assert get_total_days_system3(data_dict_index) == 2
 
     def test_duplicate_dates_system3(self):
@@ -160,7 +178,9 @@ class TestGenerateCandidatesSystem3:
             mock_settings.return_value = MagicMock()
             mock_settings.return_value.data.batch_size = 100
 
-            result_signals, result_df = generate_candidates_system3(prepared_dict, top_n=10)
+            result_signals, result_df = generate_candidates_system3(
+                prepared_dict, top_n=10
+            )
 
             # シグナルが検出されることを確認
             assert isinstance(result_signals, dict)
@@ -188,7 +208,9 @@ class TestGenerateCandidatesSystem3:
             mock_settings.return_value = MagicMock()
             mock_settings.return_value.data.batch_size = 100
 
-            result_signals, result_df = generate_candidates_system3(prepared_dict, top_n=10)
+            result_signals, result_df = generate_candidates_system3(
+                prepared_dict, top_n=10
+            )
 
             # 空の結果が返されることを確認
             assert isinstance(result_signals, dict)
@@ -240,7 +262,9 @@ class TestPrepareDataVectorizedSystem3:
             mock_settings.return_value = MagicMock()
             mock_settings.return_value.data.batch_size = 100
 
-            result = prepare_data_vectorized_system3({}, use_process_pool=False)  # 空辞書
+            result = prepare_data_vectorized_system3(
+                {}, use_process_pool=False
+            )  # 空辞書
 
             # 空辞書が返されることを確認
             assert isinstance(result, dict)

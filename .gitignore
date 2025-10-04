@@ -38,7 +38,7 @@ backup/
 *.bak
 *.old
 
-# Test coverage reports  
+# Test coverage reports
 test_coverage/
 htmlcov*/
 .coverage*

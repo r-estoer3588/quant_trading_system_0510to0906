@@ -240,7 +240,10 @@ def create_server() -> Server:
                     "properties": {
                         "filename": {"type": "string"},
                         "content": {"type": "string", "description": "YAML文字列"},
-                        "updates": {"type": "object", "description": "辞書形式の更新内容"},
+                        "updates": {
+                            "type": "object",
+                            "description": "辞書形式の更新内容",
+                        },
                         "mode": {
                             "type": "string",
                             "enum": ["merge", "overwrite"],

@@ -120,7 +120,9 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-def _records_from_df(df: pd.DataFrame, limit: int | None = None) -> list[dict[str, Any]]:
+def _records_from_df(
+    df: pd.DataFrame, limit: int | None = None
+) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     if limit is not None:
@@ -258,7 +260,9 @@ def run_backtest(
     rebuild_cache: bool = False,
 ) -> BacktestResult:
     settings = _load_settings()
-    capital_val = capital if capital is not None else float(settings.backtest.initial_capital)
+    capital_val = (
+        capital if capital is not None else float(settings.backtest.initial_capital)
+    )
     system_key = system.lower()
     if system_key not in STRATEGY_REGISTRY:
         raise ValueError(f"未知のシステム '{system}' です")
@@ -401,7 +405,9 @@ def run_backtest(
         log_messages.append(f"merged candidates preview: {preview_json}")
 
     if missing_symbols:
-        log_messages.append("missing symbols: " + ", ".join(sorted(set(missing_symbols))))
+        log_messages.append(
+            "missing symbols: " + ", ".join(sorted(set(missing_symbols)))
+        )
 
     return BacktestResult(
         summary=summary_dict,
@@ -411,7 +417,9 @@ def run_backtest(
     )
 
 
-def summarize_performance(trades_path: str, capital: float | None = None) -> dict[str, Any]:
+def summarize_performance(
+    trades_path: str, capital: float | None = None
+) -> dict[str, Any]:
     path = _as_repo_path(trades_path)
     if not path.exists():
         raise FileNotFoundError(f"ファイルが存在しません: {path}")
@@ -420,7 +428,9 @@ def summarize_performance(trades_path: str, capital: float | None = None) -> dic
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
     settings = _load_settings()
-    initial_cap = capital if capital is not None else float(settings.backtest.initial_capital)
+    initial_cap = (
+        capital if capital is not None else float(settings.backtest.initial_capital)
+    )
     summary, enriched = summarize(df, initial_cap)
     return {
         "summary": {k: _normalize_value(v) for k, v in summary.to_dict().items()},
@@ -506,7 +516,9 @@ def search_project_files(
     results: list[dict[str, Any]] = []
     for glob in globs:
         for path in REPO_ROOT.rglob(glob):
-            is_hidden = any(part.startswith(".") and part not in {".vscode"} for part in path.parts)
+            is_hidden = any(
+                part.startswith(".") and part not in {".vscode"} for part in path.parts
+            )
             if is_hidden:
                 continue
             try:
@@ -640,7 +652,9 @@ def run_python_file(path: str, args: Sequence[str] | None = None) -> dict[str, A
     }
 
 
-def write_text_file(path: str, content: str, *, mode: str = "overwrite") -> dict[str, Any]:
+def write_text_file(
+    path: str, content: str, *, mode: str = "overwrite"
+) -> dict[str, Any]:
     target = _as_repo_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     if mode not in {"overwrite", "append"}:

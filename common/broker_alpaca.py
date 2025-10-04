@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
-import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+import os
+import time
 from typing import Any
 
 from dotenv import load_dotenv
@@ -176,9 +176,7 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            msg = (
-                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
-            )
+            msg = f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
             log_callback(msg)
         except Exception:
             pass
@@ -360,8 +358,8 @@ def get_shortable_map(client, symbols: Iterable[str]) -> dict[str, bool]:
 # Paper cash reset (best-effort / unofficial)
 # ----------------------------------------------------------------------------
 
-import json
 from dataclasses import dataclass
+import json
 from typing import TypedDict
 
 import requests
@@ -472,7 +470,9 @@ def reset_paper_account(
             # 404 の場合: 仕様変更 / エンドポイント無効化 / 誤 URL / リージョン差異
             hint = "endpoint still enabled? correct paper key?"
             if resp.status_code == 404:
-                hint += " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
+                hint += (
+                    " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
+                )
             error_msg = f"reset failed status={resp.status_code} ({hint})"
         elif resp.status_code == 422:
             error_msg = "invalid equity value format"

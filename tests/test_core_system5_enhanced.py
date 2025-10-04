@@ -56,7 +56,9 @@ class TestSystem5Utilities:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
+        assert (
+            total_days >= 60
+        )  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""
@@ -372,7 +374,9 @@ class TestSystem5UtilitiesExtended:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
+        assert (
+            total_days >= 60
+        )  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""
@@ -527,7 +531,14 @@ class TestSystem5Constants:
         assert isinstance(SYSTEM5_REQUIRED_INDICATORS, (list, tuple))
 
         # Should contain expected indicators for System5
-        expected_indicators = {"adx7", "atr10", "dollarvolume20", "atr_pct", "filter", "setup"}
+        expected_indicators = {
+            "adx7",
+            "atr10",
+            "dollarvolume20",
+            "atr_pct",
+            "filter",
+            "setup",
+        }
         actual_indicators = set(SYSTEM5_REQUIRED_INDICATORS)
 
         # All expected indicators should be present

@@ -1,0 +1,63 @@
+name: Codacy Local Analysis (pylint)
+
+on:
+    workflow_dispatch:
+    pull_request:
+        paths:
+            - "**/*.py"
+            - "pyproject.toml"
+            - ".pylintrc"
+            - ".ruff.toml"
+            - ".github/workflows/codacy-local-analysis.yml"
+    push:
+        branches:
+            - branch0906
+        paths:
+            - "**/*.py"
+            - "pyproject.toml"
+            - ".pylintrc"
+            - ".ruff.toml"
+            - ".github/workflows/codacy-local-analysis.yml"
+
+jobs:
+    codacy-analysis:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Java (for Codacy CLI JAR)
+              uses: actions/setup-java@v4
+              with:
+                  distribution: "temurin"
+                  java-version: "17"
+
+            - name: Prepare output folder
+              run: mkdir -p codacy_report
+
+            - name: Download Codacy Analysis CLI (JAR)
+              run: |
+                  curl -fsSL -o codacy_report/codacy-analysis-cli-assembly.jar \
+                    https://github.com/codacy/codacy-analysis-cli/releases/download/7.10.0/codacy-analysis-cli-assembly.jar
+
+            - name: Run Codacy Analysis (pylint, offline)
+              run: |
+                  set -e
+                  java -jar codacy_report/codacy-analysis-cli-assembly.jar analyze \
+                    --tool pylint \
+                    --directory . \
+                    --output codacy_report/results.sarif \
+                    --format sarif \
+                    --allow-network false || true
+
+            - name: Upload SARIF artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: codacy-results-sarif
+                  path: codacy_report/results.sarif
+
+            - name: Upload SARIF to GitHub Code Scanning (optional)
+              if: ${{ hashFiles('codacy_report/results.sarif') != '' }}
+              uses: github/codeql-action/upload-sarif@v3
+              with:
+                  sarif_file: codacy_report/results.sarif

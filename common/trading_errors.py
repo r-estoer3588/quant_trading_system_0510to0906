@@ -9,10 +9,10 @@ This module provides:
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+import time
 from typing import Any, Dict, Optional
 
 
@@ -223,7 +223,9 @@ def retry_with_backoff(
 
 
 # Error classification helpers
-def classify_exception(e: Exception, context: Optional[ErrorContext] = None) -> TradingError:
+def classify_exception(
+    e: Exception, context: Optional[ErrorContext] = None
+) -> TradingError:
     """Classify and wrap exceptions as TradingError."""
     if isinstance(e, TradingError):
         return e
@@ -239,7 +241,9 @@ def classify_exception(e: Exception, context: Optional[ErrorContext] = None) -> 
             cause=e,
         )
 
-    if "KeyError" in str(type(e)) and any(col in error_msg for col in ["column", "key"]):
+    if "KeyError" in str(type(e)) and any(
+        col in error_msg for col in ["column", "key"]
+    ):
         return DataError(
             f"Missing required data column: {error_msg}",
             ErrorCode.DAT003E,

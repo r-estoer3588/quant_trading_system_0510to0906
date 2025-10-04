@@ -28,13 +28,13 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass
 import json
+from pathlib import Path
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 DEFAULT_LIMIT = 50  # 各ツールの最大エントリ数
 
@@ -116,11 +116,15 @@ def run_mypy(paths: List[str], limit: int) -> ToolResult:
     text = out + err
     lines = [line for line in text.splitlines() if line.strip()]
     # 最終行に summary があるケース: "Found X errors" 等
-    error_lines = [line for line in lines if ": error:" in line or line.endswith(" error")]
+    error_lines = [
+        line for line in lines if ": error:" in line or line.endswith(" error")
+    ]
     issues = len(error_lines)
     if code == 0:
         return ToolResult(name="mypy", status="success", issues=0)
-    return ToolResult(name="mypy", status="fail", issues=issues, details=error_lines[:limit])
+    return ToolResult(
+        name="mypy", status="fail", issues=issues, details=error_lines[:limit]
+    )
 
 
 def run_pytest(limit: int) -> ToolResult:
@@ -137,14 +141,21 @@ def run_pytest(limit: int) -> ToolResult:
             break
     if code == 0:
         return ToolResult(
-            name="pytest", status="success", issues=0, details=[summary] if summary else None
+            name="pytest",
+            status="success",
+            issues=0,
+            details=[summary] if summary else None,
         )
 
     # 失敗: 1件目の失敗部分の冒頭抜粋
     lines = text.splitlines()
     snippet = lines[-limit:]
     return ToolResult(
-        name="pytest", status="fail", issues=1, details=snippet, extra={"summary": summary}
+        name="pytest",
+        status="fail",
+        issues=1,
+        details=snippet,
+        extra={"summary": summary},
     )
 
 
@@ -157,7 +168,10 @@ def run_bandit(paths: List[str], limit: int) -> ToolResult:
         data = json.loads(out or "{}")
     except json.JSONDecodeError:
         return ToolResult(
-            name="bandit", status="error", details=["JSON parse error"], extra={"raw": out[:500]}
+            name="bandit",
+            status="error",
+            details=["JSON parse error"],
+            extra={"raw": out[:500]},
         )
     results = data.get("results", [])
     issues = len(results)
@@ -181,7 +195,10 @@ def run_radon(paths: List[str], limit: int) -> ToolResult:
     lines = text.splitlines()
     issues = len(lines)
     return ToolResult(
-        name="radon", status="fail" if issues else "success", issues=issues, details=lines[:limit]
+        name="radon",
+        status="fail" if issues else "success",
+        issues=issues,
+        details=lines[:limit],
     )
 
 
@@ -205,7 +222,9 @@ def aggregate(paths: List[str], limit: int) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Local quality aggregator (no Docker)")
-    parser.add_argument("--paths", nargs="*", help="Target directories (default: auto-detect)")
+    parser.add_argument(
+        "--paths", nargs="*", help="Target directories (default: auto-detect)"
+    )
     parser.add_argument(
         "--limit", type=int, default=DEFAULT_LIMIT, help="Per tool issue sample limit"
     )
@@ -221,7 +240,8 @@ def main() -> int:
 
     # stderr に簡易サマリ
     summary_lines = [
-        f"[{p['name']}] {p['status']} issues={p.get('issues',0)}" for p in payload["results"]
+        f"[{p['name']}] {p['status']} issues={p.get('issues',0)}"
+        for p in payload["results"]
     ]
     print("\n".join(summary_lines), file=sys.stderr)
 

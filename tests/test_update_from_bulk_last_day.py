@@ -233,7 +233,9 @@ def test_append_to_cache_progress_step_auto_large(tmp_path):
             "low": np.linspace(9.5, 9.5 + len(symbols) - 1, len(symbols)),
             "close": np.linspace(10.2, 10.2 + len(symbols) - 1, len(symbols)),
             "adjusted_close": np.linspace(10.1, 10.1 + len(symbols) - 1, len(symbols)),
-            "volume": np.linspace(1000, 1000 + len(symbols) - 1, len(symbols)).astype(int),
+            "volume": np.linspace(1000, 1000 + len(symbols) - 1, len(symbols)).astype(
+                int
+            ),
         }
     )
 

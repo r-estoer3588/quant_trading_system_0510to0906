@@ -21,13 +21,48 @@ import pytest
 @pytest.mark.parametrize(
     "system_id, fixture_name, func_import, top_n",
     [
-        ("system1", "minimal_system1_df", "core.system1:generate_candidates_system1", 5),
-        ("system2", "minimal_system2_df", "core.system2:generate_candidates_system2", 5),
-        ("system3", "minimal_system3_df", "core.system3:generate_candidates_system3", 5),
-        ("system4", "minimal_system4_df", "core.system4:generate_candidates_system4", 5),
-        ("system5", "minimal_system5_df", "core.system5:generate_candidates_system5", 5),
-        ("system6", "minimal_system6_df", "core.system6:generate_candidates_system6", 5),
-        ("system7", "minimal_system7_df", "core.system7:generate_candidates_system7", 1),
+        (
+            "system1",
+            "minimal_system1_df",
+            "core.system1:generate_candidates_system1",
+            5,
+        ),
+        (
+            "system2",
+            "minimal_system2_df",
+            "core.system2:generate_candidates_system2",
+            5,
+        ),
+        (
+            "system3",
+            "minimal_system3_df",
+            "core.system3:generate_candidates_system3",
+            5,
+        ),
+        (
+            "system4",
+            "minimal_system4_df",
+            "core.system4:generate_candidates_system4",
+            5,
+        ),
+        (
+            "system5",
+            "minimal_system5_df",
+            "core.system5:generate_candidates_system5",
+            5,
+        ),
+        (
+            "system6",
+            "minimal_system6_df",
+            "core.system6:generate_candidates_system6",
+            5,
+        ),
+        (
+            "system7",
+            "minimal_system7_df",
+            "core.system7:generate_candidates_system7",
+            1,
+        ),
     ],
 )
 def test_diagnostics_shape_latest_only(
@@ -66,13 +101,48 @@ def test_diagnostics_shape_latest_only(
 @pytest.mark.parametrize(
     "system_id, fixture_name, func_import, top_n",
     [
-        ("system1", "minimal_system1_df", "core.system1:generate_candidates_system1", 5),
-        ("system2", "minimal_system2_df", "core.system2:generate_candidates_system2", 5),
-        ("system3", "minimal_system3_df", "core.system3:generate_candidates_system3", 5),
-        ("system4", "minimal_system4_df", "core.system4:generate_candidates_system4", 5),
-        ("system5", "minimal_system5_df", "core.system5:generate_candidates_system5", 5),
-        ("system6", "minimal_system6_df", "core.system6:generate_candidates_system6", 5),
-        ("system7", "minimal_system7_df", "core.system7:generate_candidates_system7", 1),
+        (
+            "system1",
+            "minimal_system1_df",
+            "core.system1:generate_candidates_system1",
+            5,
+        ),
+        (
+            "system2",
+            "minimal_system2_df",
+            "core.system2:generate_candidates_system2",
+            5,
+        ),
+        (
+            "system3",
+            "minimal_system3_df",
+            "core.system3:generate_candidates_system3",
+            5,
+        ),
+        (
+            "system4",
+            "minimal_system4_df",
+            "core.system4:generate_candidates_system4",
+            5,
+        ),
+        (
+            "system5",
+            "minimal_system5_df",
+            "core.system5:generate_candidates_system5",
+            5,
+        ),
+        (
+            "system6",
+            "minimal_system6_df",
+            "core.system6:generate_candidates_system6",
+            5,
+        ),
+        (
+            "system7",
+            "minimal_system7_df",
+            "core.system7:generate_candidates_system7",
+            1,
+        ),
     ],
 )
 def test_diagnostics_shape_full_scan(
@@ -101,7 +171,9 @@ def test_diagnostics_shape_full_scan(
     df_multi = pd.DataFrame(extended_data, index=dates)
 
     prepared = {("SPY" if system_id == "system7" else "AAA"): df_multi}
-    result = gen_func(prepared, latest_only=False, include_diagnostics=True, top_n=top_n)
+    result = gen_func(
+        prepared, latest_only=False, include_diagnostics=True, top_n=top_n
+    )
 
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
@@ -124,7 +196,9 @@ def test_diagnostics_shape_full_scan(
         assert k in diag, f"missing diagnostics key {k} for {system_id} (full_scan)"
 
     # full_scan モードでは ranking_source が "full_scan" であること
-    assert diag["ranking_source"] == "full_scan", f"expected 'full_scan' for {system_id}"
+    assert (
+        diag["ranking_source"] == "full_scan"
+    ), f"expected 'full_scan' for {system_id}"
 
     # setup_predicate_count は full_scan 時は複数日分の合計になる可能性がある
     assert isinstance(diag.get("setup_predicate_count"), int)

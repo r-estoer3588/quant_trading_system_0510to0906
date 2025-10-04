@@ -14,7 +14,10 @@ if str(project_root) not in sys.path:
 
 import pandas as pd
 
-from common.indicators_validation import IndicatorValidationError, validate_precomputed_indicators
+from common.indicators_validation import (
+    IndicatorValidationError,
+    validate_precomputed_indicators,
+)
 
 
 def test_runtime_error_with_missing_indicators():

@@ -5,6 +5,8 @@ black>=24.8,<25
 flake8>=7,<8
 isort>=5.13,<6
 mypy>=1.11,<2
+pylint>=3,<4
+astroid>=3,<4
 bandit>=1.7,<2
 pip-audit>=2.7,<3
 

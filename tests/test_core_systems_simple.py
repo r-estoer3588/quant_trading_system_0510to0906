@@ -2,20 +2,21 @@
 Simplified core system tests focusing on existing functions
 """
 
-import pandas as pd
-import numpy as np
-import pytest
 from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # Import actual functions from core modules
 from core.system1 import (
-    prepare_data_vectorized_system1,
-    generate_candidates_system1,
     _compute_indicators_frame,
-    _prepare_source_frame,
     _normalize_index,
+    _prepare_source_frame,
     _rename_ohlcv,
+    generate_candidates_system1,
     get_total_days_system1,
+    prepare_data_vectorized_system1,
 )
 
 # Skip allocation functions - they don't exist in current codebase
@@ -147,7 +148,11 @@ class TestSystem1DataPreparation:
 
     def test_prepare_data_vectorized_none_values(self, sample_stock_data):
         """Test vectorized preparation with None values"""
-        data_dict = {"AAPL": sample_stock_data, "GOOGL": None, "MSFT": sample_stock_data.copy()}
+        data_dict = {
+            "AAPL": sample_stock_data,
+            "GOOGL": None,
+            "MSFT": sample_stock_data.copy(),
+        }
 
         result = prepare_data_vectorized_system1(data_dict)
 
@@ -247,7 +252,8 @@ class TestEdgeCasesAndRobustness:
     def test_functions_with_minimal_data(self):
         """Test functions with minimal data"""
         minimal_data = pd.DataFrame(
-            {"Close": [100], "Volume": [1000000]}, index=pd.date_range("2024-01-01", periods=1)
+            {"Close": [100], "Volume": [1000000]},
+            index=pd.date_range("2024-01-01", periods=1),
         )
 
         functions_to_test = [

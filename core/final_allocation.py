@@ -12,10 +12,10 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
-import json
-import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import json
+import logging
 from pathlib import Path
 from typing import Any, TypeAlias, TypedDict
 
@@ -90,12 +90,16 @@ def _load_allocations_from_settings() -> tuple[dict[str, float], dict[str, float
 
         # 設定がある場合はそれを使用、無い場合はデフォルトを使用
         if long_alloc:
-            long_result = {str(k): float(v) for k, v in long_alloc.items() if float(v) > 0}
+            long_result = {
+                str(k): float(v) for k, v in long_alloc.items() if float(v) > 0
+            }
         else:
             long_result = DEFAULT_LONG_ALLOCATIONS.copy()
 
         if short_alloc:
-            short_result = {str(k): float(v) for k, v in short_alloc.items() if float(v) > 0}
+            short_result = {
+                str(k): float(v) for k, v in short_alloc.items() if float(v) > 0
+            }
         else:
             short_result = DEFAULT_SHORT_ALLOCATIONS.copy()
 
@@ -295,11 +299,17 @@ def count_active_positions_by_system(
             key_str = str(key).strip()
             val_str = str(value).strip()
             if not key_str or not val_str:
-                logger.debug("Skipping empty key/value in symbol_system_map: %r -> %r", key, value)
+                logger.debug(
+                    "Skipping empty key/value in symbol_system_map: %r -> %r",
+                    key,
+                    value,
+                )
                 continue
             norm_map[key_str.upper()] = val_str.lower()
         except Exception as e:
-            logger.warning("Error processing symbol_system_map entry %r -> %r: %s", key, value, e)
+            logger.warning(
+                "Error processing symbol_system_map entry %r -> %r: %s", key, value, e
+            )
             continue
 
     counts: dict[str, int] = {}
@@ -564,7 +574,9 @@ def _allocate_by_capital(
     side: str,
     active_positions: Mapping[str, int],
 ) -> CapitalAllocationResult:
-    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
+    budgets = {
+        name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
+    }
     remaining = budgets.copy()
 
     # stable ordering
@@ -818,10 +830,14 @@ def finalize_allocation(
     if long_allocations is None and short_allocations is None:
         config_long_alloc, config_short_alloc = _load_allocations_from_settings()
         long_alloc = _normalize_allocations(config_long_alloc, DEFAULT_LONG_ALLOCATIONS)
-        short_alloc = _normalize_allocations(config_short_alloc, DEFAULT_SHORT_ALLOCATIONS)
+        short_alloc = _normalize_allocations(
+            config_short_alloc, DEFAULT_SHORT_ALLOCATIONS
+        )
     else:
         long_alloc = _normalize_allocations(long_allocations, DEFAULT_LONG_ALLOCATIONS)
-        short_alloc = _normalize_allocations(short_allocations, DEFAULT_SHORT_ALLOCATIONS)
+        short_alloc = _normalize_allocations(
+            short_allocations, DEFAULT_SHORT_ALLOCATIONS
+        )
 
     systems = sorted({*per_system_norm.keys(), *long_alloc.keys(), *short_alloc.keys()})
     max_pos_map = _resolve_max_positions(strategies, systems, default_max_positions)
@@ -833,7 +849,9 @@ def finalize_allocation(
         limit = int(max_pos_map.get(name, default_max_positions))
         available_slots[name] = max(0, limit - taken)
 
-    candidate_counts = {name: _candidate_count(per_system_norm.get(name)) for name in systems}
+    candidate_counts = {
+        name: _candidate_count(per_system_norm.get(name)) for name in systems
+    }
 
     # Determine allocation mode.
     mode = "slot"
@@ -945,7 +963,9 @@ def finalize_allocation(
 
     if system_diagnostics:
         try:
-            summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
+            summary.system_diagnostics = {
+                str(k): v for k, v in system_diagnostics.items()
+            }
         except Exception:
             try:
                 summary.system_diagnostics = dict(system_diagnostics)
@@ -961,7 +981,9 @@ def finalize_allocation(
 
     if "system" in final_df.columns:
         try:
-            counts_series = final_df["system"].astype(str).str.strip().str.lower().value_counts()
+            counts_series = (
+                final_df["system"].astype(str).str.strip().str.lower().value_counts()
+            )
             summary.final_counts = {str(k): int(v) for k, v in counts_series.items()}
         except Exception:
             summary.final_counts = {}

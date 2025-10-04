@@ -126,7 +126,9 @@ class TestHandleExceptionsDecorator:
 
         # 例外ログ記録
         mock_logger.exception.assert_called_once_with(
-            "Unhandled exception in %s: %s", "error_func", mock_logger.exception.call_args[0][2]
+            "Unhandled exception in %s: %s",
+            "error_func",
+            mock_logger.exception.call_args[0][2],
         )
 
     def test_custom_logger_usage(self):
@@ -284,7 +286,9 @@ class TestMapWithTimeout:
             return x * 2
 
         items = [1, 2, 3, 4]
-        results, errors = map_with_timeout(conditional_slow_func, items, per_item_timeout=0.1)
+        results, errors = map_with_timeout(
+            conditional_slow_func, items, per_item_timeout=0.1
+        )
 
         # 1, 2, 4 は成功
         assert results[0] == 2
@@ -324,7 +328,9 @@ class TestMapWithTimeout:
             return x
 
         items = [1, 2, 3, 4, 5]
-        results, errors = map_with_timeout(simple_func, items, progress=progress_tracker)
+        results, errors = map_with_timeout(
+            simple_func, items, progress=progress_tracker
+        )
 
         assert results == [1, 2, 3, 4, 5]
         assert errors == []
@@ -344,7 +350,9 @@ class TestMapWithTimeout:
 
         items = [1, 2, 3]
         # 進捗コールバックがエラーしても処理は続行
-        results, errors = map_with_timeout(simple_func, items, progress=failing_progress)
+        results, errors = map_with_timeout(
+            simple_func, items, progress=failing_progress
+        )
 
         assert results == [2, 4, 6]
         assert errors == []

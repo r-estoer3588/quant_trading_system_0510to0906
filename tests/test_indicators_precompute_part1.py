@@ -5,8 +5,8 @@ Focus on testing the NotImplementedError, _ensure_price_columns_upper, and basic
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd

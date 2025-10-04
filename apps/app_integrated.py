@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
+import sys
 from typing import Any
 
 import streamlit as st
@@ -10,9 +10,9 @@ import streamlit as st
 # プロジェクトルート（apps/ から1階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import setup_logging
+import common.ui_patch  # noqa: F401
 from common.ui_tabs import (
     render_batch_tab,
     render_cache_health_tab,
@@ -88,7 +88,9 @@ def render_digest_log(log_file_path: Path, container: Any) -> None:
 
         # 最新イベント（強調表示）
         latest_event = recent_events[-1]
-        timestamp = latest_event.get("timestamp", "").split("T")[-1].split(".")[0]  # HH:MM:SS
+        timestamp = (
+            latest_event.get("timestamp", "").split("T")[-1].split(".")[0]
+        )  # HH:MM:SS
         event_type = latest_event.get("event_type", "unknown")
         level = latest_event.get("level", "info")
         data = latest_event.get("data", {})
@@ -125,7 +127,9 @@ def render_digest_log(log_file_path: Path, container: Any) -> None:
                 timestamp = event.get("timestamp", "").split("T")[-1].split(".")[0]
                 event_type = event.get("event_type", "unknown")
                 level = event.get("level", "info")
-                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "📝")
+                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(
+                    level, "📝"
+                )
                 display_lines.append(f"- {level_icon} {timestamp} {event_type}")
 
         # 結合してcontainerに表示

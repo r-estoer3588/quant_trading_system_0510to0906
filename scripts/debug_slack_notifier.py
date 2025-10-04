@@ -66,7 +66,9 @@ def _summarize_env():
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Slack notifier debug runner")
     parser.add_argument("--text", default="デバッグ送信テスト", help="送信本文")
-    parser.add_argument("--channel", default=None, help="明示チャンネル (#name or Cxxxx)")
+    parser.add_argument(
+        "--channel", default=None, help="明示チャンネル (#name or Cxxxx)"
+    )
     parser.add_argument("--rich", action="store_true", help="RichSlackNotifier を使用")
     args = parser.parse_args(argv)
 
@@ -107,7 +109,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         traceback.print_exc()
         return 4
 
-    print("[DONE] 呼び出し完了。 [SLACK_DEBUG] 行に理由・結果が出ているか確認してください。")
+    print(
+        "[DONE] 呼び出し完了。 [SLACK_DEBUG] 行に理由・結果が出ているか確認してください。"
+    )
     print("========================================================")
     return 0
 

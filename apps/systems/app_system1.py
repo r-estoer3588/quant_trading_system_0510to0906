@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
+import time
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.notifier import Notifier, now_jst_str
 from common.performance_summary import summarize as summarize_perf
@@ -21,6 +20,7 @@ from common.ui_components import (
     save_signal_and_trade_logs,
     show_signal_trade_summary,
 )
+import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_with_indicators
 from strategies import get_strategy
 
@@ -58,7 +58,9 @@ def run_tab(
     spy_df: pd.DataFrame | None = None,
     ui_manager: object | None = None,
 ) -> None:
-    st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
+    st.header(
+        tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング")
+    )
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
@@ -91,13 +93,17 @@ def run_tab(
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
-        display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング")
+        display_roc200_ranking(
+            daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング"
+        )
 
         signal_summary_df = show_signal_trade_summary(
             merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME
         )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
-            save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
+            save_signal_and_trade_logs(
+                signal_summary_df, results_df, SYSTEM_NAME, capital
+            )
         # Prepared data cache save removed (deprecated feature)
 
         summary, df2 = summarize_perf(results_df, capital)
@@ -108,7 +114,9 @@ def run_tab(
             else float(summary.max_drawdown)
         )
         try:
-            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            max_dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
         stats: dict[str, Any] = {
@@ -188,7 +196,9 @@ def run_tab(
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
+                    0
+                ]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

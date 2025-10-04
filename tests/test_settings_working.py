@@ -312,7 +312,7 @@ class TestSettingsIntegrationSimple:
 # Simple function to boost coverage
 def test_settings_module_level_functions():
     """Test module level functionality"""
-    from config.settings import get_settings, PROJECT_ROOT
+    from config.settings import PROJECT_ROOT, get_settings
 
     # PROJECT_ROOT should be defined
     assert PROJECT_ROOT is not None

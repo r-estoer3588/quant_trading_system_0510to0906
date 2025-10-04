@@ -4,8 +4,8 @@ Focused configuration tests for Settings coverage boost
 
 import json
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from unittest.mock import mock_open, patch
 
 import yaml
@@ -152,11 +152,11 @@ class TestSettingsFileLoading:
           rolling:
             days: 250
             base_lookback_days: 200
-        
+
         batch_processing:
           max_workers: 2
           chunk_size: 50
-        
+
         logging:
           level: "DEBUG"
           format: "test format"
@@ -209,7 +209,9 @@ class TestSettingsFileLoading:
         with patch("builtins.open", mock_open()):  # mock_file removed
             with patch("os.path.exists", return_value=True):
                 with patch("json.load", return_value=json_content):
-                    with patch("yaml.safe_load", return_value=yaml.safe_load(yaml_content)):
+                    with patch(
+                        "yaml.safe_load", return_value=yaml.safe_load(yaml_content)
+                    ):
                         # Clear settings cache
                         if hasattr(get_settings, "_instance"):
                             delattr(get_settings, "_instance")
@@ -312,7 +314,9 @@ class TestSettingsRobustness:
 
     def test_partial_config_override(self):
         """Test partial configuration override"""
-        partial_config = {"cache": {"rolling": {"days": 150}}}  # Only override this value
+        partial_config = {
+            "cache": {"rolling": {"days": 150}}
+        }  # Only override this value
 
         with patch("builtins.open", mock_open(read_data=json.dumps(partial_config))):
             with patch("os.path.exists", return_value=True):

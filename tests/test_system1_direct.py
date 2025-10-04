@@ -84,7 +84,10 @@ class TestSystem1DirectFunctions:
     def test_normalize_index_date_column(self):
         """_normalize_index の Date カラム処理"""
         df = pd.DataFrame(
-            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            {
+                "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                "Close": [100, 101, 102],
+            }
         )
 
         result = _normalize_index(df)
@@ -109,7 +112,9 @@ class TestSystem1DirectFunctions:
 
     def test_normalize_index_invalid_dates(self):
         """_normalize_index の無効日付処理"""
-        df = pd.DataFrame({"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]})
+        df = pd.DataFrame(
+            {"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]}
+        )
 
         # 無効日付はNaTとなり、dropnaで除去される
         result = _normalize_index(df)
@@ -155,7 +160,15 @@ class TestSystem1DirectFunctions:
         result = _compute_indicators_frame(df)
 
         # System1の実際の指標カラムが追加される
-        indicator_cols = ["ROC200", "SMA25", "SMA50", "ATR20", "DollarVolume20", "filter", "setup"]
+        indicator_cols = [
+            "ROC200",
+            "SMA25",
+            "SMA50",
+            "ATR20",
+            "DollarVolume20",
+            "filter",
+            "setup",
+        ]
         for col in indicator_cols:
             assert col in result.columns
 
@@ -195,7 +208,8 @@ class TestSystem1DirectFunctions:
                 index=pd.date_range("2023-01-01", "2023-01-03", freq="D"),
             ),
             "MSFT": pd.DataFrame(
-                {"Close": [200, 201]}, index=pd.date_range("2023-01-01", "2023-01-02", freq="D")
+                {"Close": [200, 201]},
+                index=pd.date_range("2023-01-01", "2023-01-02", freq="D"),
             ),
             "GOOGL": pd.DataFrame(
                 {"Close": [1000, 1001, 1002, 1003]},
@@ -241,7 +255,9 @@ class TestSystem1DirectFunctions:
                         # 簡易ROCスコア計算
                         close_prices = df["Close"]
                         if len(close_prices) >= 2:
-                            roc_score = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) * 100
+                            roc_score = (
+                                close_prices.iloc[-1] / close_prices.iloc[0] - 1
+                            ) * 100
                             candidates.append(
                                 {
                                     "symbol": symbol,
@@ -272,7 +288,9 @@ class TestSystem1DirectFunctions:
         data_dict = {
             "AAPL": pd.DataFrame({"Close": [150, 151, 152, 153, 154, 155]}),
             "MSFT": pd.DataFrame({"Close": [300, 302, 304, 306, 308, 310]}),
-            "GOOGL": pd.DataFrame({"Close": [2000, 1990, 1980, 1970, 1960, 1950]}),  # 下降トレンド
+            "GOOGL": pd.DataFrame(
+                {"Close": [2000, 1990, 1980, 1970, 1960, 1950]}
+            ),  # 下降トレンド
         }
 
         # mock実装でテスト

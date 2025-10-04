@@ -7,8 +7,9 @@ Mini モード時の基準値超過時は警告を出力。
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import os
+from pathlib import Path
+import sys
 from typing import Any
 
 
@@ -197,8 +198,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate log compactness between COMPACT_TODAY_LOGS=0 and =1"
     )
-    parser.add_argument("--verbose", type=Path, required=True, help="Path to verbose log file")
-    parser.add_argument("--compact", type=Path, required=True, help="Path to compact log file")
+    parser.add_argument(
+        "--verbose", type=Path, required=True, help="Path to verbose log file"
+    )
+    parser.add_argument(
+        "--compact", type=Path, required=True, help="Path to compact log file"
+    )
     parser.add_argument(
         "--max-verbose",
         type=int,
@@ -225,7 +230,7 @@ def main() -> None:
 
     # Exit code: 0=success, 1=validation failed
     exit_code = 0 if result["all_valid"] else 1
-    exit(exit_code)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

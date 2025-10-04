@@ -14,7 +14,9 @@ import pandas as pd
 
 
 class StrategyProtocol(Protocol):
-    def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float: ...
+    def compute_pnl(
+        self, entry_price: float, exit_price: float, shares: int
+    ) -> float: ...
 
     def calculate_position_size(
         self,
@@ -250,7 +252,8 @@ def run_integrated_backtest(
     name_to_state = {s.name: s for s in system_states}
     # シグナル件数
     signal_counts = {
-        s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in system_states
+        s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
+        for s in system_states
     }
 
     # 長短の初期資金
@@ -292,7 +295,9 @@ def run_integrated_backtest(
                 else:
                     long_capital += float(p["pnl"])
         # remove exited
-        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
+        active_positions = [
+            p for p in active_positions if p["exit_date"] > current_date
+        ]
 
         # 2) 当日の各Systemシグナルを順番に処理
         for sys_name in [f"System{k}" for k in range(1, 8)]:
@@ -333,7 +338,9 @@ def run_integrated_backtest(
                 # 既定ポジションサイズ
                 try:
                     # バケット資金を使用
-                    bucket_capital = short_capital if stt.side == "short" else long_capital
+                    bucket_capital = (
+                        short_capital if stt.side == "short" else long_capital
+                    )
                     shares_std = stt.strategy.calculate_position_size(
                         bucket_capital,
                         entry_price,
@@ -357,7 +364,9 @@ def run_integrated_backtest(
                     global_rem = max(0.0, bucket_capital - bucket_used_value[stt.side])
 
                 max_by_alloc = int(alloc_rem // abs(entry_price)) if entry_price else 0
-                max_by_global = int(global_rem // abs(entry_price)) if entry_price else 0
+                max_by_global = (
+                    int(global_rem // abs(entry_price)) if entry_price else 0
+                )
 
                 shares_cap = max(0, min(shares_std, max_by_alloc, max_by_global))
                 if shares_cap <= 0:
@@ -367,7 +376,9 @@ def run_integrated_backtest(
                 if hasattr(stt.strategy, "compute_pnl"):
                     try:
                         pnl = float(
-                            stt.strategy.compute_pnl(entry_price, exit_price, int(shares_cap))
+                            stt.strategy.compute_pnl(
+                                entry_price, exit_price, int(shares_cap)
+                            )
                         )
                     except Exception:
                         pnl = (exit_price - entry_price) * int(shares_cap)
@@ -390,7 +401,8 @@ def run_integrated_backtest(
                         "pnl": round(float(pnl), 2),
                         # 参考用：トレード時点のバケット資金に対する比率
                         "return_%": round(
-                            (float(pnl) / (bucket_capital if bucket_capital else 1.0)) * 100,
+                            (float(pnl) / (bucket_capital if bucket_capital else 1.0))
+                            * 100,
                             4,
                         ),
                     }
@@ -444,7 +456,9 @@ def build_system_states(
         # System7 は SPY のみ
         syms = ["SPY"] if sys_name == "System7" else symbols
         try:
-            logging.getLogger(__name__).info("[prepare] %s | symbols=%d", sys_name, len(syms))
+            logging.getLogger(__name__).info(
+                "[prepare] %s | symbols=%d", sys_name, len(syms)
+            )
         except Exception:
             pass
 
@@ -495,7 +509,9 @@ def build_system_states(
                 side=_get_side(sys_name),
                 strategy=strat,
                 prepared=prepared,
-                candidates_by_date={pd.Timestamp(k): v for k, v in (cands or {}).items()},
+                candidates_by_date={
+                    pd.Timestamp(k): v for k, v in (cands or {}).items()
+                },
             )
         )
 

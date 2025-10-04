@@ -57,7 +57,9 @@ class CacheConstants:
         {"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"}
     )
 
-    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset({"rsi3", "rsi4", "rsi14", "adx7"})
+    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"rsi3", "rsi4", "rsi14", "adx7"}
+    )
 
     PERCENTAGE_COLUMNS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -72,7 +74,9 @@ class CacheConstants:
     )
 
     # 必須OHLCV列
-    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset({"open", "high", "low", "close"})
+    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"open", "high", "low", "close"}
+    )
 
     REQUIRED_OHLCV_COLUMNS: ClassVar[frozenset[str]] = frozenset(
         {"open", "high", "low", "close", "volume"}

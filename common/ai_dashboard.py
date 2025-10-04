@@ -66,7 +66,7 @@ def render_ai_summary_cards(summary: Dict[str, Any]) -> None:
     """AIシステムサマリーカードの表示"""
     model_status = summary.get("model_status", {})
     data_collection = summary.get("data_collection", {})
-    analysis_capabilities = summary.get("capabilities", {})  # noqa: F841 (将来拡張用・未使用保持)
+    _analysis_capabilities = summary.get("capabilities", {})  # 将来拡張用・未使用保持
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -172,13 +172,19 @@ def render_model_status_tab(summary: Dict[str, Any]) -> None:
                 "✅ 利用可能" if capabilities.get("anomaly_detection") else "❌ 未訓練"
             ),
             "パフォーマンス予測": (
-                "✅ 利用可能" if capabilities.get("performance_prediction") else "❌ 未訓練"
+                "✅ 利用可能"
+                if capabilities.get("performance_prediction")
+                else "❌ 未訓練"
             ),
             "最適化提案": (
-                "✅ 利用可能" if capabilities.get("optimization_suggestions") else "❌ 未対応"
+                "✅ 利用可能"
+                if capabilities.get("optimization_suggestions")
+                else "❌ 未対応"
             ),
             "scikit-learn": (
-                "✅ インストール済み" if model_status.get("has_sklearn") else "❌ 未インストール"
+                "✅ インストール済み"
+                if model_status.get("has_sklearn")
+                else "❌ 未インストール"
             ),
         }
 
@@ -257,7 +263,9 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
 
     with col2:
         anomaly_score = current_analysis.get("anomaly_score", 0)
-        score_color = "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
+        score_color = (
+            "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
+        )
         st.metric(
             label=f"{score_color} 異常スコア",
             value=f"{anomaly_score:.3f}",
@@ -267,7 +275,9 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
     with col3:
         predicted_time = current_analysis.get("predicted_performance")
         if predicted_time:
-            st.metric(label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None)
+            st.metric(
+                label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None
+            )
         else:
             st.metric(label="⏱️ 予測実行時間", value="N/A", delta="データ不足")
 
@@ -302,12 +312,12 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
         st.markdown(
             """
         **Isolation Forest アルゴリズム**
-        
+
         1. **学習フェーズ**: 過去の正常なパフォーマンスデータから正常範囲を学習
         2. **検知フェーズ**: 新しいデータが正常範囲から外れているかを判定
         3. **スコア計算**: -1（異常）から +1（正常）までのスコアを算出
         4. **閾値判定**: スコアが -0.1 未満の場合に異常として検知
-        
+
         **検知対象の特徴量**
         - 実行時間（総時間、最長フェーズ、ばらつき）
         - システムリソース（CPU、メモリ、I/O）
@@ -349,7 +359,11 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
                     r["total_time"] for r in list(ai_analyzer.performance_history)[-10:]
                 ]
                 avg_time = np.mean(recent_times) if recent_times else predicted_time
-                diff_percent = ((predicted_time - avg_time) / avg_time * 100) if avg_time > 0 else 0
+                diff_percent = (
+                    ((predicted_time - avg_time) / avg_time * 100)
+                    if avg_time > 0
+                    else 0
+                )
 
                 st.metric(
                     label="📈 過去平均との差",
@@ -366,7 +380,9 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
 
             actual_times = [r["total_time"] for r in recent_data]
             # 模擬的な予測値（実際の実装では保存された予測値を使用）
-            predicted_times = [t * (0.9 + 0.2 * np.random.random()) for t in actual_times]
+            predicted_times = [
+                t * (0.9 + 0.2 * np.random.random()) for t in actual_times
+            ]
 
             fig = go.Figure()
 
@@ -417,7 +433,9 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
         importance_scores = importance_scores / importance_scores.sum() * 100
 
         fig = go.Figure(
-            data=[go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")]
+            data=[
+                go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")
+            ]
         )
 
         fig.update_layout(
@@ -438,12 +456,12 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
         st.markdown(
             """
         **Random Forest 回帰モデル**
-        
+
         1. **学習データ**: 過去の実行データから特徴量と実行時間の関係を学習
         2. **特徴量**: システムメトリクス、実行設定、時間的要因を組み合わせ
         3. **予測**: 現在の状況から実行時間を予測
         4. **信頼度**: 過去の予測精度に基づく信頼性スコア
-        
+
         **活用メリット**
         - 事前のリソース計画立案
         - ボトルネック予測による最適化
@@ -507,9 +525,9 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
             st.markdown(
                 f"""
             <div style="
-                border-left: 4px solid {config['color']}; 
-                padding: 1rem; 
-                margin: 1rem 0; 
+                border-left: 4px solid {config['color']};
+                padding: 1rem;
+                margin: 1rem 0;
                 background-color: #f8f9fa;
                 border-radius: 0 8px 8px 0;
             ">
@@ -599,12 +617,12 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
         st.markdown(
             """
         **AI分析による提案生成**
-        
+
         1. **パフォーマンス分析**: 実行データから問題点を特定
         2. **機械学習分析**: モデルの特徴量重要度から改善ポイントを抽出
         3. **ルールベース分析**: 経験的知識に基づく最適化パターン
         4. **効果予測**: 過去データから改善効果を定量的に推定
-        
+
         **提案カテゴリ**
         - **phase_optimization**: フェーズ別の処理最適化
         - **resource_optimization**: システムリソース使用の最適化

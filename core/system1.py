@@ -9,11 +9,11 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 import math
 import os
-from collections import Counter
-from collections.abc import Mapping, Callable
-from dataclasses import dataclass, field
 from typing import Any, cast
 
 import pandas as pd
@@ -291,7 +291,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM1_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM1_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -346,7 +348,11 @@ def prepare_data_vectorized_system1(
         if not log_callback:
             return
         try:
-            if (os.environ.get("ENABLE_SUBSTEP_LOGS") or "").lower() in {"1", "true", "yes"}:
+            if (os.environ.get("ENABLE_SUBSTEP_LOGS") or "").lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
                 log_callback(f"System1: {msg}")
         except Exception:
             pass
@@ -368,10 +374,14 @@ def prepare_data_vectorized_system1(
                     x = df.copy()
 
                     # Filter: Close>=5, DollarVolume20>25M
-                    x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000)
+                    x["filter"] = (x["Close"] >= 5.0) & (
+                        x["dollarvolume20"] > 25_000_000
+                    )
 
                     # Setup: Filter + Close>SMA200 + ROC200>0
-                    x["setup"] = x["filter"] & (x["Close"] > x["sma200"]) & (x["roc200"] > 0)
+                    x["setup"] = (
+                        x["filter"] & (x["Close"] > x["sma200"]) & (x["roc200"] > 0)
+                    )
 
                     prepared_dict[symbol] = x
 
@@ -450,7 +460,9 @@ def generate_candidates_system1(
     diagnostics = System1Diagnostics(mode=mode, top_n=top_n)
     diagnostics.symbols_total = len(prepared_dict)
     diagnostics.symbols_with_data = sum(
-        1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
+        1
+        for df in prepared_dict.values()
+        if isinstance(df, pd.DataFrame) and not df.empty
     )
 
     # Fast path: evaluate only the most recent bar per symbol
@@ -515,7 +527,9 @@ def generate_candidates_system1(
                     df_all = df_all[df_all["date"] == mode_date]
                 except Exception:
                     pass
-                df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
+                df_all = df_all.sort_values(
+                    "roc200", ascending=False, kind="stable"
+                ).head(top_n)
                 diagnostics.final_top_n_count = len(df_all)
                 diagnostics.ranking_source = "latest_only"
                 by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -576,7 +590,9 @@ def generate_candidates_system1(
 
             if date == diag_target_date:
                 diagnostics.total_symbols += 1
-                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=False)
+                passed, flags, reason = system1_row_passes_setup(
+                    row, allow_fallback=False
+                )
                 # 共通 predicate による正式 predicate（fallback 無し）
                 from common.system_setup_predicates import (
                     system1_setup_predicate as _s1_pred,
@@ -631,7 +647,9 @@ def generate_candidates_system1(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "roc200"], ascending=[True, False]
+        )
         # 最終日の top_n 数を格納
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:

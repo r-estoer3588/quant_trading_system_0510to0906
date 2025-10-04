@@ -1,19 +1,20 @@
 """Tests for core.system1 module to improve coverage."""
 
-import pandas as pd
-import pytest
 from unittest.mock import patch
 
+import pandas as pd
+import pytest
+
 from core.system1 import (
-    _rename_ohlcv,
+    _compute_indicators,
+    _compute_indicators_frame,
     _normalize_index,
     _prepare_source_frame,
-    _compute_indicators_frame,
-    _compute_indicators,
-    prepare_data_vectorized_system1,
+    _rename_ohlcv,
     generate_candidates_system1,
-    get_total_days_system1,
     generate_roc200_ranking_system1,
+    get_total_days_system1,
+    prepare_data_vectorized_system1,
 )
 
 
@@ -78,7 +79,10 @@ class TestSystem1HelperFunctions:
     def test_normalize_index_with_date_column(self):
         """Test _normalize_index with Date column."""
         df = pd.DataFrame(
-            {"Date": ["2023-01-01", "2023-01-02", "2023-01-03"], "Close": [100, 101, 102]}
+            {
+                "Date": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                "Close": [100, 101, 102],
+            }
         )
 
         result = _normalize_index(df)
@@ -235,7 +239,9 @@ class TestSystem1MainFunctions:
         }
 
         # Test with top_n=3
-        result = generate_candidates_system1(data_dict, target_date="2023-01-05", top_n=3)
+        result = generate_candidates_system1(
+            data_dict, target_date="2023-01-05", top_n=3
+        )
 
         assert isinstance(result, dict)
 

@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 from pathlib import Path
+import sys
 from typing import Any, Dict
 
 
@@ -100,7 +100,9 @@ def compare(a: Dict[str, Any], b: Dict[str, Any]) -> None:
 
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
-        print("Usage: python scripts/compare_perf_snapshots.py <perf_A.json> <perf_B.json>")
+        print(
+            "Usage: python scripts/compare_perf_snapshots.py <perf_A.json> <perf_B.json>"
+        )
         return 1
     a = _load(argv[1])
     b = _load(argv[2])

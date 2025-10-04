@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
+import time
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
-import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
 from common.performance_summary import summarize as summarize_perf
@@ -18,6 +17,7 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
+import common.ui_patch  # noqa: F401
 from strategies import get_strategy
 
 # Load translations and (optionally) show language selector
@@ -50,7 +50,9 @@ def run_tab(
     single_mode = st.checkbox(tr("単体モード（資金100%を使用）"), value=False)
 
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME)
+        if ui_manager
+        else UIManager().system(SYSTEM_NAME)
     )
     fetch_phase = ui_base.phase("fetch", title=tr("データ取得"))
     ind_phase = ui_base.phase("indicators", title=tr("インジケーター計算"))
@@ -102,7 +104,9 @@ def run_tab(
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            _dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -138,7 +142,9 @@ def run_tab(
         if "exit_date" in df2.columns:
             eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["exit_date"]))
         elif "entry_date" in df2.columns:
-            eq_series = pd.Series(equity.values, index=pd.to_datetime(df2["entry_date"]))
+            eq_series = pd.Series(
+                equity.values, index=pd.to_datetime(df2["entry_date"])
+            )
         else:
             eq_series = pd.Series(equity.values)
         # インデックスをソートして日次にリサンプル（取引の無い日も埋める）
@@ -161,7 +167,11 @@ def run_tab(
         # --- 常時表示: 資産推移の可視化（ラインチャート + 直近テーブル） ---
         try:
             if daily_eq is None or len(daily_eq) == 0:
-                st.info(tr("資産推移データが存在しません。取引記録や累積PnL を確認してください。"))
+                st.info(
+                    tr(
+                        "資産推移データが存在しません。取引記録や累積PnL を確認してください。"
+                    )
+                )
             else:
                 with st.expander(tr("資産推移（直近）"), expanded=False):
                     try:
@@ -196,7 +206,9 @@ def run_tab(
             if not zero_days.empty:
                 first_zero_date = pd.to_datetime(zero_days.index[0])
                 zero_count = len(zero_days)
-                stats["資金尽きた日"] = f"{first_zero_date:%Y-%m-%d} (件数: {zero_count})"
+                stats["資金尽きた日"] = (
+                    f"{first_zero_date:%Y-%m-%d} (件数: {zero_count})"
+                )
                 st.error(
                     tr(
                         "バックテスト中に資金が0以下になった日があります: {d} (件数: {n})",
@@ -248,7 +260,9 @@ def run_tab(
             if not low_days.empty:
                 first_low_date = pd.to_datetime(low_days.index[0])
                 low_count = len(low_days)
-                stats["資金10%未満日"] = f"{first_low_date:%Y-%m-%d} (件数: {low_count})"
+                stats["資金10%未満日"] = (
+                    f"{first_low_date:%Y-%m-%d} (件数: {low_count})"
+                )
                 st.warning(
                     tr(
                         (
@@ -329,7 +343,9 @@ def run_tab(
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
+                    0
+                ]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

@@ -46,9 +46,9 @@ except ImportError:  # pragma: no cover - tests may stub cache_manager
                 return df
 
 
+from common.indicators_common import add_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
-from common.indicators_common import add_indicators  # noqa: E402
 
 load_dotenv()
 API_KEY = os.getenv("EODHD_API_KEY")
@@ -82,7 +82,9 @@ class BulkUpdateStats:
         return self.updated_symbols > 0
 
 
-class CacheUpdateInterrupted(Exception):  # noqa: N801,N818 - keep historical name for callers
+class CacheUpdateInterrupted(
+    Exception
+):  # noqa: N801,N818 - keep historical name for callers
     """進捗情報を保持する中断例外。
 
     元々は KeyboardInterrupt を継承していましたが、
@@ -253,7 +255,9 @@ def _get_available_memory_mb() -> int | None:
 def _get_configured_rate_limit(cm: CacheManager) -> int | None:
     """Return configured API rate limit (requests per minute) from env or settings."""
     try:
-        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv("API_RATE_LIMIT_PER_MIN")
+        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv(
+            "API_RATE_LIMIT_PER_MIN"
+        )
         if env:
             try:
                 return int(env)
@@ -269,7 +273,9 @@ def _get_configured_rate_limit(cm: CacheManager) -> int | None:
 
 def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "adjclose", "volume"])
+        return pd.DataFrame(
+            columns=["date", "open", "high", "low", "close", "adjclose", "volume"]
+        )
     working = df.copy()
     lower_map = {str(col).lower(): col for col in working.columns}
     col_aliases = {
@@ -517,7 +523,9 @@ def append_to_cache(
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
+            combined = _concat_excluding_all_na(
+                existing_raw, new_raw, ignore_index=True
+            )
             if combined.empty:
                 return 0, 0, sym_norm
             combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
@@ -569,7 +577,9 @@ def append_to_cache(
             full_ready = _merge_existing_full(full_ready, existing_full)
             prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
-                prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
+                prev_full_sorted = (
+                    existing_full.copy().sort_values("date").reset_index(drop=True)
+                )
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
@@ -615,7 +625,9 @@ def append_to_cache(
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     settings = getattr(cm, "settings", None)
-                    dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
+                    dec = getattr(
+                        getattr(settings, "cache", None), "round_decimals", None
+                    )
                 except Exception:
                     dec = None
 
@@ -635,9 +647,15 @@ def append_to_cache(
                     base_reset = base_reset.rename(columns={"date": "Date"})
 
                 # If adjusted_close exists, prefer it for the 'Close' column
-                if "adjusted_close" in base_reset.columns and "Close" not in base_reset.columns:
+                if (
+                    "adjusted_close" in base_reset.columns
+                    and "Close" not in base_reset.columns
+                ):
                     base_reset["Close"] = base_reset["adjusted_close"]
-                elif "Close" in base_reset.columns and "adjusted_close" not in base_reset.columns:
+                elif (
+                    "Close" in base_reset.columns
+                    and "adjusted_close" not in base_reset.columns
+                ):
                     # ensure column name casing matches expectations
                     base_reset.rename(columns={"Close": "Close"}, inplace=True)
 

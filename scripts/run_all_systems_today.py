@@ -16,18 +16,18 @@ patches without altering CLI flags or public behavior.
 from __future__ import annotations
 
 import argparse
-import json
-import logging
-import multiprocessing
-import os
-import sys
-import threading
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
+import logging
+import multiprocessing
+import os
 from pathlib import Path
+import sys
+import threading
 from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
@@ -54,6 +54,7 @@ from common.signal_merge import Signal, merge_signals
 from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
 from common.structured_logging import MetricsCollector
 from common.symbol_universe import build_symbol_universe_from_settings
+from common.system_diagnostics import get_diagnostics_with_fallback
 
 # 抽出: データローダ関数は common.today_data_loader へ分離
 from common.today_data_loader import load_basic_data
@@ -92,10 +93,7 @@ from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from tools.notify_metrics import send_metrics_notification
-from tools.verify_trd_length import (
-    get_expected_max_for_mode,
-    verify_trd_length,
-)
+from tools.verify_trd_length import get_expected_max_for_mode, verify_trd_length
 
 _LOG_CALLBACK = None
 
@@ -676,7 +674,11 @@ def _emit_ui_log(message: str) -> None:
     """
     # 1) フラグ判定（UI構造化 と NDJSON）
     try:
-        structured_ui = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {"1", "true", "yes"}
+        structured_ui = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
     except Exception:
         structured_ui = False
     try:
@@ -717,7 +719,10 @@ def _emit_ui_log(message: str) -> None:
                 ("setup", [r"setup", r"prepare setup"]),
                 ("ranking", [r"ranking", r"rank "]),
                 ("signals", [r" signal", r"signals", r"generate signal"]),
-                ("allocation", [r"allocation", r"alloc ", r"allocating", r"final allocation"]),
+                (
+                    "allocation",
+                    [r"allocation", r"alloc ", r"allocating", r"final allocation"],
+                ),
             ]
             phase = None
             for ph, pats in phase_patterns:
@@ -889,7 +894,12 @@ def _drain_stage_event_queue() -> None:
                 continue
             events.append(
                 StageEvent(
-                    system, progress, filter_count, setup_count, candidate_count, entry_count
+                    system,
+                    progress,
+                    filter_count,
+                    setup_count,
+                    candidate_count,
+                    entry_count,
                 )
             )
 
@@ -1038,7 +1048,11 @@ class _PerfTimer:
     def __init__(self, label: str, level: str = "DEBUG") -> None:
         self.label = label
         self.level = level
-        self.enabled = (os.environ.get("ENABLE_STEP_TIMINGS") or "").lower() in {"1", "true", "yes"}
+        self.enabled = (os.environ.get("ENABLE_STEP_TIMINGS") or "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         self._t0: float | None = None
 
     def __enter__(self):  # noqa: D401
@@ -1070,7 +1084,10 @@ def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None 
 
 
 def _log_warning(
-    msg: str, error_code: str | None = None, ui: bool = True, phase_id: str | None = None
+    msg: str,
+    error_code: str | None = None,
+    ui: bool = True,
+    phase_id: str | None = None,
 ) -> None:
     """警告ログの簡便関数。"""
     _log(msg, ui=ui, phase_id=phase_id, level="WARNING", error_code=error_code)
@@ -1159,9 +1176,7 @@ def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | 
         final_counts: dict[str, int] = {}
         try:
             if final_df is not None and not final_df.empty and "system" in final_df.columns:
-                final_counts = (
-                    final_df.groupby("system").size().astype(int).to_dict()  # type: ignore[assignment]
-                )
+                final_counts = final_df.groupby("system").size().astype(int).to_dict()
         except Exception:
             final_counts = {}
 
@@ -1169,12 +1184,13 @@ def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | 
         try:
             diag_map = getattr(ctx, "system_diagnostics", {}) or {}
             for sys_id in sorted(diag_map.keys()):
-                diag = diag_map.get(sys_id) or {}
-                # そのまま記録（詳細なフォールバックは Phase5 で実施）
+                raw_diag = diag_map.get(sys_id) or {}
+                # Phase5: フォールバック適用で欠損値を -1 / unknown に正規化
+                safe_diag = get_diagnostics_with_fallback(raw_diag, sys_id)
                 systems_payload.append(
                     {
                         "system_id": sys_id,
-                        "diagnostics": diag,
+                        "diagnostics": safe_diag,
                         "final_candidate_count": int(final_counts.get(sys_id, 0)),
                     }
                 )
@@ -1190,7 +1206,10 @@ def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | 
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)
 
-        _log(f"🧪 Diagnostics snapshot exported: {out_path.relative_to(base_dir)}", ui=True)
+        _log(
+            f"🧪 Diagnostics snapshot exported: {out_path.relative_to(base_dir)}",
+            ui=True,
+        )
     except Exception as e:
         _log_warning(f"diagnostics スナップショットの出力に失敗: {e}", error_code="SNAP-FAIL")
 
@@ -1645,7 +1664,10 @@ def _load_basic_data(
                 # データ長さチェックを追加
                 if len(df) < target_len:
                     if len(df) < 100:  # 明らかに新規上場
-                        _log(f"📊 新規上場銘柄 {sym}: len={len(df)}/{target_len} (正常)", ui=False)
+                        _log(
+                            f"📊 新規上場銘柄 {sym}: len={len(df)}/{target_len} (正常)",
+                            ui=False,
+                        )
                         # 短いデータでも処理を継続（rebuildしない）
                     else:
                         rebuild_reason = "length"
@@ -1886,7 +1908,9 @@ def _load_indicator_data(
                         import logging
 
                         logging.getLogger(__name__).debug(
-                            "suppress rolling_missing verbose: %s (%s)", sym, reason_desc
+                            "suppress rolling_missing verbose: %s (%s)",
+                            sym,
+                            reason_desc,
                         )
                     except Exception:
                         pass
@@ -2091,7 +2115,8 @@ def _submit_orders(
         # Emit progress event for notification
         if ENABLE_PROGRESS_EVENTS:
             emit_progress_event(
-                "notification_complete", {"notifications_sent": 1, "results_count": len(results)}
+                "notification_complete",
+                {"notifications_sent": 1, "results_count": len(results)},
             )
 
         notifier = create_notifier(platform="auto", fallback=True)
@@ -2681,7 +2706,11 @@ def _save_and_notify_phase(
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁", ui=False, no_timestamp=True)
+    _log(
+        "# 🏁🏁🏁  本日のシグナル 実行終了 (Engine)  🏁🏁🏁",
+        ui=False,
+        no_timestamp=True,
+    )
     _log(f"# ⏱️ {end_txt} | RUN-ID: {run_id}", ui=False, no_timestamp=True)
     try:
         print("#" * 68 + "\n", flush=True)
@@ -3412,7 +3441,11 @@ def compute_today_signals(
         print("#" * 68, flush=True)
     except Exception:
         pass
-    _log("# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀", ui=False, no_timestamp=True)
+    _log(
+        "# 🚀🚀🚀  本日のシグナル 実行開始 (Engine)  🚀🚀🚀",
+        ui=False,
+        no_timestamp=True,
+    )
     try:
         import time as _time
 
@@ -3426,7 +3459,10 @@ def compute_today_signals(
         pass
 
     _log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
-    _log("ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。", no_timestamp=True)
+    _log(
+        "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。",
+        no_timestamp=True,
+    )
     _log("", no_timestamp=True)  # 空行を追加
     # 開始直後に前回結果をまとめて表示
     try:
@@ -3604,7 +3640,9 @@ def compute_today_signals(
         )
         rate_limited_logger = _get_rate_limited_logger()
         rate_limited_logger.debug_rate_limited(
-            f"🧪 system7内訳: SPY固定 | SPY存在={spyp}", message_key="system7_detail", interval=10
+            f"🧪 system7内訳: SPY固定 | SPY存在={spyp}",
+            message_key="system7_detail",
+            interval=10,
         )
     except Exception:
         pass
@@ -4251,7 +4289,9 @@ def compute_today_signals(
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
         final_df = pd.DataFrame()
-        from core.final_allocation import AllocationSummary as _AS  # local import to avoid cycle
+        from core.final_allocation import (
+            AllocationSummary as _AS,  # local import to avoid cycle
+        )
 
         allocation_summary = _AS(
             mode="error",
@@ -4410,7 +4450,12 @@ def _format_phase_completion(
 ) -> str | None:
     """フェーズ完了メッセージをフォーマット"""
     # phase_namesはグローバルスコープから取得する想定
-    phase_names = {0: "フィルタリング", 25: "セットアップ", 50: "候補抽出", 75: "最終選定"}
+    phase_names = {
+        0: "フィルタリング",
+        25: "セットアップ",
+        50: "候補抽出",
+        75: "最終選定",
+    }
     name = "System"  # デフォルト値
 
     label = phase_names.get(prev_stage)
@@ -4953,7 +4998,9 @@ def configure_logging_for_cli(args: argparse.Namespace) -> None:
         pass
 
 
-def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+def run_signal_pipeline(
+    args: argparse.Namespace,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     # latest_only 推定: --full-scan-today 指定で False、それ以外 True (システム毎デフォルトロジックと揃える)
     latest_only_flag = False if getattr(args, "full_scan_today", False) else True
 
@@ -4973,6 +5020,9 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         except Exception:  # pragma: no cover - 安全フォールバック
             perf = None
 
+    from typing import Any, ContextManager
+
+    cm: ContextManager[Any]
     if perf is not None:
         cm = perf.run(latest_only=latest_only_flag)
     else:
@@ -4981,7 +5031,7 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
 
         cm = nullcontext()
 
-    with cm:  # type: ignore
+    with cm:
         result = compute_today_signals(
             args.symbols,
             slots_long=args.slots_long,

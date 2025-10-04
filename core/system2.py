@@ -17,8 +17,8 @@ import pandas as pd
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM2_REQUIRED_INDICATORS
-from common.utils import get_cached_data
 from common.system_setup_predicates import validate_predicate_equivalence
+from common.utils import get_cached_data
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -36,7 +36,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM2_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM2_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -45,7 +47,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
         # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>0.03
         x["filter"] = (
-            (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+            (x["Close"] >= 5.0)
+            & (x["dollarvolume20"] > 25_000_000)
+            & (x["atr_ratio"] > 0.03)
         )
 
         # Setup: Filter + RSI3>90 + twodayup
@@ -115,7 +119,9 @@ def prepare_data_vectorized_system2(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System2: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System2: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -125,7 +131,9 @@ def prepare_data_vectorized_system2(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System2: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System2: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -138,7 +146,9 @@ def prepare_data_vectorized_system2(
         return {}
 
     if log_callback:
-        log_callback(f"System2: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System2: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -213,8 +223,12 @@ def generate_candidates_system2(
                     continue
                 last_row = df.iloc[-1]
                 # setup 列 (存在しないなら True 扱い: 事前生成前呼び出し耐性)
-                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-                from common.system_setup_predicates import system2_setup_predicate as _s2_pred
+                setup_col_val = (
+                    bool(last_row.get("setup", False)) if "setup" in last_row else True
+                )
+                from common.system_setup_predicates import (
+                    system2_setup_predicate as _s2_pred,
+                )
 
                 pred_val = _s2_pred(last_row)
                 if pred_val:
@@ -252,7 +266,9 @@ def generate_candidates_system2(
                 df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
+            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(
+                top_n
+            )
             diagnostics["final_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             # Orchestrator expects: {date: {symbol: {field: value}}}
@@ -313,7 +329,9 @@ def generate_candidates_system2(
                     continue
                 row = cast(pd.Series, df.loc[date])
                 setup_val = bool(row.get("setup", False))
-                from common.system_setup_predicates import system2_setup_predicate as _s2_pred
+                from common.system_setup_predicates import (
+                    system2_setup_predicate as _s2_pred,
+                )
 
                 pred_val = _s2_pred(row)
                 if pred_val:
@@ -359,10 +377,14 @@ def generate_candidates_system2(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "adx7"], ascending=[True, False]
+        )
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
-            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_date, []))
+            diagnostics["final_top_n_count"] = len(
+                candidates_by_date.get(last_date, [])
+            )
         diagnostics["ranking_source"] = "full_scan"
     else:
         candidates_df = None
