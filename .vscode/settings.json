@@ -6,6 +6,7 @@
     "PYTHONPATH": "C:\\Repos\\quant_trading_system"
   },
   "files.watcherExclude": {
+    "**/.wslvenv/**": true,
     "**/.git/**": true,
     "**/.venv/**": true,
     "**/__pycache__/**": true,
@@ -13,21 +14,29 @@
     "**/data_cache/**": true
   },
   "files.exclude": {
+    "**/.wslvenv": true,
     "**/.venv": true,
     "**/__pycache__": true,
     "**/.git": true
   },
-  "chatgpt.openOnStartup": true,
+  // Pylint を完全に無効化（外部ライブラリのエラーを表示しない）
+  "python.linting.enabled": false,
+  "python.linting.pylintEnabled": false,
   "editor.formatOnSave": true,
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
-    "python.formatting.blackArgs": ["--line-length", "88"]
+    "python.formatting.blackArgs": [
+      "--line-length",
+      "88"
+    ]
   },
   "black-formatter.importStrategy": "fromEnvironment",
   // "black-formatter.importStrategy": "fromEnvironment",
   "files.autoGuessEncoding": false,
   "files.encoding": "utf8",
-  "python.testing.pytestArgs": ["tests"],
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "chat.mcp.autostart": "newAndOutdated",
@@ -71,7 +80,9 @@
     "source.organizeImports": "explicit",
     "source.fixAll.ruff": "explicit"
   },
-  "editor.rulers": [88],
+  "editor.rulers": [
+    88
+  ],
   "editor.wordWrap": "wordWrapColumn",
   "editor.wordWrapColumn": 88,
   // テスト・デバッグ効率化
@@ -86,7 +97,9 @@
   "terminal.integrated.profiles.windows": {
     "PowerShell": {
       "source": "PowerShell",
-      "args": ["-NoLogo"]
+      "args": [
+        "-NoLogo"
+      ]
     }
   },
   // エラー・警告の即座表示

@@ -1,4 +1,10 @@
 [MASTER]
+# Ignore non-project paths
+ignore=.git,__pycache__,.venv,.wslvenv,venv,site-packages
+ignore-patterns=.*\.pyi
+# Strong path-based ignores for vendor libs (Windows path separators supported)
+ignore-paths=.*[\\/](site-packages|\.wslvenv)[\\/].*
+
 # Maximum number of characters on a single line.
 max-line-length=120
 

@@ -31,7 +31,7 @@ st.session_state["_integrated_ui"] = True
 
 
 # expose Notifier symbol for tests (module-level)
-try:  # noqa: WPS501
+try:
     from common.notifier import Notifier, create_notifier  # type: ignore
 except Exception:  # pragma: no cover
 

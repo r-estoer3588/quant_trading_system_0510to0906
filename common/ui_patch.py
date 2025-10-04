@@ -147,7 +147,7 @@ except Exception:
     pass
 
 # show_results を上部統一レイアウトに差し替え
-try:  # noqa: WPS501
+try:
     import pandas as _pd
     import streamlit as _st
 

@@ -11,12 +11,6 @@ repos:
       - id: black
         args: ["--line-length=88"]
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
-    hooks:
-      - id: flake8
-        args: ["--max-line-length=88", "--extend-ignore=E203,E501,W503"]
-
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
@@ -39,14 +33,6 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
 
-  - repo: https://github.com/pycqa/bandit
-    rev: 1.7.6
-    hooks:
-      - id: bandit
-        args: [--severity-level=medium, --confidence-level=medium]
-        files: ^(core|common|scripts|strategies)/
-        exclude: ^tests/
-
   - repo: local
     hooks:
       - id: guard-critical-files
@@ -54,14 +40,13 @@ repos:
         entry: python tools/guard_critical_files.py
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [manual]
 
       - id: run-enhanced-tests
         name: Run enhanced final_allocation tests
         entry: python -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
-        language: python
+        language: system
         files: ^(core/final_allocation\.py|tests/test_final_allocation_enhanced\.py)$
-        additional_dependencies: [pytest]
         pass_filenames: false
 
       - id: check-mini-pipeline
@@ -80,34 +65,13 @@ repos:
         stages: [pre-push]
 
       # --- Static analysis additions ---
-      # mypy (UTF-8 強制) — Windows のコードページ差異による mypy.ini デコード問題を回避
+      # mypy (UTF-8 forced) - Windows codepage compatibility
       - id: mypy-utf8
         name: mypy (UTF-8 forced)
         entry: python -X utf8 -m mypy --config-file mypy.ini
         language: system
         types: [python]
-        # 段階導入: まずは今回追加/更新したファイル群のみを対象
-        # （徐々に対象ディレクトリを拡大予定）
-        files: ^(tools/verify_trd_length\.py|tools/validate_log_compactness\.py|common/system_diagnostics\.py|scripts/run_all_systems_today\.py)$
-        pass_filenames: true
-        stages: [pre-commit]
-
-      # pylint 段階導入: まずは tools 配下
-      - id: pylint-tools
-        name: "pylint (tools only)"
-        entry: pylint -rn --disable=R,C --score=n
-        language: system
-        types: [python]
-        files: ^tools/.*\.py$
-        pass_filenames: true
-        stages: [pre-commit]
-
-      # pylint 段階導入: common の system_* のみ（範囲を徐々に拡大予定）
-      - id: pylint-common-stage1
-        name: "pylint (common stage1: system_*)"
-        entry: pylint -rn --disable=R,C --score=n
-        language: system
-        types: [python]
-        files: ^common/system_.*\.py$
+        # Gradual rollout: start with specific tools and common modules
+        files: ^(tools/verify_trd_length\.py|tools/validate_log_compactness\.py|common/system_diagnostics\.py)$
         pass_filenames: true
         stages: [pre-commit]

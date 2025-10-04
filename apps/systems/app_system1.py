@@ -25,7 +25,7 @@ from common.utils_spy import get_spy_with_indicators
 from strategies import get_strategy
 
 # Notifier は存在しない環境もあるため安全にフォールバック
-try:  # noqa: WPS501
+try:
     from common.notifier import get_notifiers_from_env  # type: ignore
 except Exception:  # pragma: no cover
 
