@@ -125,7 +125,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
 
     df_pos = st.session_state.get("positions_df_tab")
     if isinstance(df_pos, _pd.DataFrame) and not df_pos.empty:
-        st.dataframe(df_pos, use_container_width=True)
+        st.dataframe(df_pos, width="stretch")
         # Selection for exits
         syms = df_pos["symbol"].astype(str).tolist()
         sel = st.multiselect("手仕舞い対象シンボル", syms, default=[])
@@ -157,7 +157,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                     _pd.DataFrame(rows), paper=paper, tif="CLS", notify=True
                 )
                 if res is not None and not res.empty:
-                    st.dataframe(res, use_container_width=True)
+                    st.dataframe(res, width="stretch")
             # Plan tomorrow open/close
             col_o, col_c = st.columns(2)
             with col_o:
@@ -219,7 +219,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
 
                 df = _exec("open")
                 if df is not None and not df.empty:
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, width="stretch")
                 else:
                     st.info("実行対象はありません")
             except Exception as e:  # noqa: BLE001
@@ -231,7 +231,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
 
                 df = _exec("close")
                 if df is not None and not df.empty:
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, width="stretch")
                 else:
                     st.info("実行対象はありません")
             except Exception as e:  # noqa: BLE001
@@ -266,7 +266,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
         import pandas as _pd
 
         df_pl = _pd.DataFrame(plans)
-        st.dataframe(df_pl, use_container_width=True)
+        st.dataframe(df_pl, width="stretch")
         sel_to_remove = st.multiselect(
             "削除する予約（symbol when で選択）",
             [f"{r.get('symbol')} | {r.get('when')}" for r in plans],
@@ -325,7 +325,7 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
             import pandas as _pd
 
             df_o = _pd.DataFrame(rows)
-            st.dataframe(df_o, use_container_width=True)
+            st.dataframe(df_o, width="stretch")
             ids = [str(r.get("id")) for r in rows if r.get("id")]
             sel_ids = st.multiselect("キャンセルする order_id", ids, default=[])
             if st.button("選択した注文をキャンセル"):
@@ -1029,7 +1029,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             else:
                 # --- 結論から表示: 発注銘柄リスト ---
                 st.subheader(tr("Order list"))
-                st.dataframe(final_df, use_container_width=True)
+                st.dataframe(final_df, width="stretch")
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1073,7 +1073,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 st.markdown(tr("Orders by system"))
                 st.dataframe(
                     final_df.groupby("system")["symbol"].count().rename("count"),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 # 資金推移
@@ -1090,7 +1090,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     total_capital - cap_df["position_value"].cumsum()
                 )
                 st.markdown(tr("Capital progression"))
-                st.dataframe(cap_df, use_container_width=True)
+                st.dataframe(cap_df, width="stretch")
 
                 # 候補一覧（ロング/ショート）
                 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
@@ -1107,7 +1107,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             _tmp["setup"] = (
                                 ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
                             ).map(lambda x: "⭐" if x else "")
-                            st.dataframe(_tmp, use_container_width=True)
+                            st.dataframe(_tmp, width="stretch")
 
                 with st.expander(tr("Short system candidates"), expanded=False):
                     for name, df in per_system.items():
@@ -1121,7 +1121,7 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             _tmp["setup"] = (
                                 ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
                             ).map(lambda x: "⭐" if x else "")
-                            st.dataframe(_tmp, use_container_width=True)
+                            st.dataframe(_tmp, width="stretch")
 
                 # ログのCSV保存ボタン
                 logs = st.session_state.get("batch_today_logs", [])

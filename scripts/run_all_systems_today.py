@@ -1,4 +1,4 @@
-﻿"""Daily multi-system signal pipeline (repaired minimal bootstrap section).
+"""Daily multi-system signal pipeline (repaired minimal bootstrap section).
 
 NOTE: This file experienced prior encoding corruption. Incremental repairs are
 being applied. The current patch introduces:

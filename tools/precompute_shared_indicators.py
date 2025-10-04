@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 DEPRECATED: precompute_shared_indicators.py
 This tool has been disabled.

@@ -9,14 +9,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
 import json
 import math
 import os
-from pathlib import Path
 import sys
+from collections.abc import Iterable
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -1159,7 +1159,7 @@ def _render_exit_actions(
         limit_info_df = df[
             ["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]
         ].copy()
-        st.dataframe(limit_info_df, use_container_width=True)
+        st.dataframe(limit_info_df, width="stretch")
 
     # 上限日数に近いか、すでに到達したポジションを特定
     eligible_df = df[
@@ -1532,7 +1532,7 @@ def main() -> None:
                 help="自動ルールに参加（経過日や損益閾値での自動決済）",
             )
         with schedule_inner_cols[2]:
-            if st.button("保存", key="save_schedule", use_container_width=True):
+            if st.button("保存", key="save_schedule", width="stretch"):
                 _save_schedule(
                     {
                         "time": datetime.combine(
@@ -1546,7 +1546,7 @@ def main() -> None:
     # 中央：手動更新
     with toolbar_cols[1]:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-        if st.button("🔄 手動更新", key="manual_refresh", use_container_width=True):
+        if st.button("🔄 手動更新", key="manual_refresh", width="stretch"):
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1921,12 +1921,12 @@ def main() -> None:
             try:
                 st.dataframe(
                     display_df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     column_config=col_cfg,
                 )
             except Exception:
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                st.dataframe(display_df, width="stretch", hide_index=True)
 
             # エクスポート機能
             st.markdown("#### 📥 データエクスポート")
@@ -2524,7 +2524,6 @@ def main() -> None:
                                 st.plotly_chart(
                                     fig,
                                     use_container_width=True,
-                                    config={"displayModeBar": False},
                                 )
                         i += 1
         elif mapping_path.exists():
