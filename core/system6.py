@@ -1,7 +1,8 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
+from collections.abc import Callable
 import time
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from ta.volatility import AverageTrueRange
@@ -173,13 +174,13 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_data_vectorized_system6(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, pd.DataFrame]:
     """System6 data preparation using standard batch processing pattern"""
 
@@ -219,16 +220,16 @@ def prepare_data_vectorized_system6(
         system_name="System6",
     )
 
-    return results
+    return cast(dict[str, pd.DataFrame], results)
 
 
 def generate_candidates_system6(
     prepared_dict: dict[str, pd.DataFrame],
     *,
     top_n: int = 10,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     latest_only: bool = False,
     include_diagnostics: bool = False,
@@ -310,10 +311,12 @@ def generate_candidates_system6(
                 dt = pd.Timestamp(str(dt_raw))
                 symbol_map: dict[str, dict[str, Any]] = {}
                 for rec in sub.to_dict("records"):
+                    # ensure record and payload types are precise for mypy
+                    rec = cast(dict[str, Any], rec)
                     sym_val = rec.get("symbol")
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
-                    payload = {
+                    payload: dict[str, Any] = {
                         k: v for k, v in rec.items() if k not in ("symbol", "date")
                     }
                     symbol_map[sym_val] = payload
@@ -434,10 +437,13 @@ def generate_candidates_system6(
         buffer.append(sym)
         if progress_callback:
             try:
-                progress_callback(processed, total)
+                progress_callback(f"{processed}/{total}")
             except Exception:
                 pass
-        if (processed % batch_size == 0 or processed == total) and log_callback:
+        effective_batch_size = batch_size if batch_size is not None else 100
+        if (
+            processed % effective_batch_size == 0 or processed == total
+        ) and log_callback:
             elapsed = time.time() - start_time
             remain = (elapsed / processed) * (total - processed) if processed else 0
             em, es = divmod(int(elapsed), 60)
@@ -538,7 +544,7 @@ def generate_candidates_system6(
     # Normalize list structure to dict-of-dicts for consistency
     normalized_full: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
     for dt, recs in candidates_by_date.items():
-        symbol_map: dict[str, dict[str, Any]] = {}
+        symbol_dict: dict[str, dict[str, Any]] = {}
         for rec in recs:
             sym_val = rec.get("symbol") if isinstance(rec, dict) else None
             if not isinstance(sym_val, str) or not sym_val:
@@ -549,8 +555,8 @@ def generate_candidates_system6(
             }
             # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
             payload["entry_date"] = rec.get("entry_date")
-            symbol_map[sym_val] = payload
-        normalized_full[pd.Timestamp(dt)] = symbol_map
+            symbol_dict[sym_val] = payload
+        normalized_full[pd.Timestamp(dt)] = symbol_dict
     # diagnostics for full path
     diagnostics["ranking_source"] = diagnostics.get("ranking_source") or "full_scan"
     try:
