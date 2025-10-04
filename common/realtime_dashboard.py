@@ -273,7 +273,7 @@ class RealTimeDashboard:
         fig.update_yaxes(title_text="items/sec", row=2, col=1)
         fig.update_yaxes(title_text="Memory%", row=2, col=2)
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     def _render_system_performance_charts(
         self, system_data: Dict[str, Dict], time_window: int
@@ -322,7 +322,7 @@ class RealTimeDashboard:
             height=400,
         )
 
-        st.plotly_chart(fig_duration, use_container_width=True)
+        st.plotly_chart(fig_duration, width="stretch")
 
         # システム別スループット
         fig_throughput = go.Figure()
@@ -353,7 +353,7 @@ class RealTimeDashboard:
             height=400,
         )
 
-        st.plotly_chart(fig_throughput, use_container_width=True)
+        st.plotly_chart(fig_throughput, width="stretch")
 
     def _render_progress_section(self) -> None:
         """進捗情報セクションを表示。"""
@@ -443,7 +443,7 @@ class RealTimeDashboard:
                 title="フェーズ別処理時間割合",
             )
 
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
         with col2:
             # フェーズ別平均実行時間（棒グラフ）
@@ -465,7 +465,7 @@ class RealTimeDashboard:
             ]
             fig_bar.update_traces(marker_color=colors)
 
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
         # ボトルネック詳細
         if bottleneck_data["bottlenecks"]:

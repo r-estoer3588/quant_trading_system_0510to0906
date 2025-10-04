@@ -2782,7 +2782,7 @@ def _display_exit_orders_table(
     if result.exits_today.empty:
         st.info("本日大引けでの手仕舞い候補はありません。")
         return
-    st.dataframe(result.exits_today, use_container_width=True)
+    st.dataframe(result.exits_today, width="stretch")
     stage_tracker.apply_exit_counts(result.exit_counts)
     if st.button("本日分の手仕舞い注文（MOC）を送信"):
         from common.alpaca_order import submit_exit_orders_df
@@ -2797,7 +2797,7 @@ def _display_exit_orders_table(
             notify=notify,
         )
         if res is not None and not res.empty:
-            st.dataframe(res, use_container_width=True)
+            st.dataframe(res, width="stretch")
 
 
 def _display_planned_exits_section(
@@ -2806,7 +2806,7 @@ def _display_planned_exits_section(
     if result.planned.empty:
         return
     st.caption("明日発注する手仕舞い計画（保存→スケジューラが実行）")
-    st.dataframe(result.planned, use_container_width=True)
+    st.dataframe(result.planned, width="stretch")
     planned_rows = [
         {str(k): v for k, v in row.items()}
         for row in result.planned.to_dict(orient="records")
@@ -2860,7 +2860,7 @@ def _run_planned_exit_scheduler(kind: str, dry_run: bool) -> None:
                 if kind == "open"
                 else "引け（CLS）分の予約送信を実行しました。結果を表示します。"
             )
-            st.dataframe(df_exec, use_container_width=True)
+            st.dataframe(df_exec, width="stretch")
         else:
             st.info(
                 "寄り（OPG）対象の予約はありませんでした。"
@@ -2916,7 +2916,7 @@ def _render_missing_debug_results(artifacts: RunArtifacts) -> None:
         except Exception:
             df_details = None
         if df_details is not None and not df_details.empty:
-            st.dataframe(df_details, use_container_width=True)
+            st.dataframe(df_details, width="stretch")
         else:
             st.json(details)
     else:
@@ -2962,7 +2962,7 @@ def _render_final_signals_section(
         st.info("本日のシグナルはありません。")
         return
     _render_final_summary(final_df)
-    st.dataframe(final_df, use_container_width=True)
+    st.dataframe(final_df, width="stretch")
     _render_skip_reports()
     _download_final_csv(final_df)
     st.session_state["today_shown_this_run"] = True
@@ -3063,7 +3063,7 @@ def _render_skip_file_group(files: list[tuple[str, Path]], key_prefix: str) -> N
                 df_skip = None
             st.caption(f"{name}: {path.name}")
             if df_skip is not None and not df_skip.empty:
-                st.dataframe(df_skip, use_container_width=True)
+                st.dataframe(df_skip, width="stretch")
             else:
                 st.write("(空) 内訳情報は見つかりませんでした。")
         with cols[1]:
@@ -3174,7 +3174,7 @@ def _execute_auto_trading(
         notify=run_config.notify,
     )
     if results_df is not None and not results_df.empty:
-        st.dataframe(results_df, use_container_width=True)
+        st.dataframe(results_df, width="stretch")
         if trade_options.poll_status and any(
             results_df["order_id"].fillna("").astype(str)
         ):  # noqa: E501
@@ -3449,7 +3449,7 @@ def _render_system_details(
                         f"</span>",
                         unsafe_allow_html=True,
                     )
-            st.dataframe(df_disp, use_container_width=True)
+            st.dataframe(df_disp, width="stretch")
 
 
 def _render_previous_results_section() -> None:
@@ -3460,7 +3460,7 @@ def _render_previous_results_section() -> None:
             prev_df = st.session_state.get("today_final_df")
             if prev_df is not None and not prev_df.empty:
                 st.subheader("前回の最終選定銘柄（再表示）")
-                st.dataframe(prev_df, use_container_width=True)
+                st.dataframe(prev_df, width="stretch")
                 try:
                     settings2 = get_settings(create_dirs=True)
                     round_dec = getattr(settings2.cache, "round_decimals", None)
@@ -3485,7 +3485,7 @@ def _render_previous_results_section() -> None:
                             if df is None or df.empty:
                                 continue
                             st.markdown(f"#### {name}")
-                            st.dataframe(df, use_container_width=True)
+                            st.dataframe(df, width="stretch")
     except Exception:
         pass
 
@@ -3641,7 +3641,7 @@ with st.sidebar:
                         }
                     )
                 orders_df = pd.DataFrame(orders_data)
-                st.dataframe(orders_df, use_container_width=True)
+                st.dataframe(orders_df, width="stretch")
             else:
                 st.info("未約定注文はありません")
         except Exception as e:
@@ -3874,7 +3874,7 @@ if "positions_df" in st.session_state:
             summary_table = _build_position_summary_table(positions_df)
             if not summary_table.empty:
                 st.caption("保有ポジション（System × Side別）")
-                st.dataframe(summary_table, use_container_width=True)
+                st.dataframe(summary_table, width="stretch")
         except Exception:
             pass
 
@@ -3912,7 +3912,7 @@ if "positions_df" in st.session_state:
             "利確/損切りルール概要",
         ]
         df_disp = df_disp[[col for col in display_cols if col in df_disp.columns]]
-        st.dataframe(df_disp, use_container_width=True)
+        st.dataframe(df_disp, width="stretch")
 
         # 手動手仕舞い機能
         st.subheader("🎯 手動手仕舞い")
@@ -3984,7 +3984,7 @@ if "positions_df" in st.session_state:
                                     st.success(
                                         f"{len(selected_symbols)}銘柄の手仕舞い注文を送信しました"
                                     )
-                                    st.dataframe(results, use_container_width=True)
+                                    st.dataframe(results, width="stretch")
                                 else:
                                     st.warning("注文送信結果が取得できませんでした")
 
@@ -4011,7 +4011,7 @@ if "positions_df" in st.session_state:
                                         "judgement",
                                     ]
                                 ],
-                                use_container_width=True,
+                                width="stretch",
                             )
 
 if st.button("▶ 本日のシグナル実行", type="primary"):

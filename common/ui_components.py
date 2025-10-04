@@ -1655,7 +1655,7 @@ def display_system_cache_coverage() -> None:
 
         if df_data:
             df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
 
         # 詳細分析用の展開セクション
         with st.expander("📋 詳細分析結果"):

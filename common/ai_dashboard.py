@@ -157,7 +157,7 @@ def render_model_status_tab(summary: Dict[str, Any]) -> None:
                 height=300,
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with col2:
         st.markdown("### 🤖 モデル情報")
@@ -416,7 +416,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
                 showlegend=True,
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         # 特徴量重要度（模擬データ）
         st.markdown("### 🎯 パフォーマンス影響要因")
@@ -445,7 +445,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
             height=400,
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     else:
         st.warning("⚠️ 予測モデルが利用できません")
@@ -561,7 +561,7 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
 
         fig.update_layout(title="最適化提案の分布", height=400)
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # 実装アクションプラン
     st.markdown("### 🚀 実装アクションプラン")
