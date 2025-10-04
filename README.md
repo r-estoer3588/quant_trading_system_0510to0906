@@ -341,3 +341,58 @@ Systems 1–7 全てで当日シグナル抽出 (`scripts/run_all_systems_today.
 
 - コミットメッセージは命令形・現在形で 72 文字以内。
 - 変更後は `pytest -q` を実行してテストを確認してください。
+
+### コード品質管理
+
+#### pre-commit フックのセットアップ（必須）
+
+初回セットアップ時に必ず pre-commit フックをインストールしてください：
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+#### 自動フォーマット
+
+VS Code 使用時は保存時に自動フォーマットが適用されます（`.vscode/settings.json` で設定済み）。他のエディタを使用する場合は、コミット前に以下を実行してください：
+
+```bash
+# 全ファイルをフォーマット
+black .
+ruff check --fix .
+isort .
+```
+
+#### コミット前チェック
+
+pre-commit フックが以下を自動実行します：
+
+- **pre-commit ステージ**: ruff、black、isort、基本チェック（trailing whitespace 等）
+- **pre-push ステージ**: 
+  - mini パイプラインテスト（core/common 変更時）
+  - 品質集計（ruff/mypy/pytest/bandit/radon）
+  - **black フォーマット厳格チェック**（フォーマット漏れを防止）
+
+#### フォーマット問題の回避
+
+大量のファイル編集後は以下の手順でコミットしてください：
+
+1. 変更をステージ: `git add -u`
+2. コミット実行: `git commit -m "message"`
+3. pre-commit が black でフォーマット → 自動修正される
+4. 再度ステージ: `git add -u`
+5. 再コミット: `git commit -m "Apply black formatting"`
+
+または、コミット前に手動フォーマット：
+
+```bash
+black .
+git add -u
+git commit -m "message"
+```
+
+#### pre-commit バイパスの禁止
+
+`git commit --no-verify` は使用しないでください。品質チェックをバイパスすると、CI で失敗する可能性があります。

@@ -125,7 +125,6 @@ def numeric_is_finite(column: str) -> RowPredicate:
     return _predicate
 
 
-# pylint: disable=too-many-instance-attributes
 @dataclass(slots=True)
 class SystemDiagnosticSpec:
     """Specification for per-system diagnostics collection."""
@@ -156,7 +155,6 @@ def _evaluate(
         return False
 
 
-# pylint: disable=too-many-branches
 def build_system_diagnostics(
     system_name: str,
     prepared_dict: Mapping[str, pd.DataFrame] | None,

@@ -64,6 +64,13 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: black-check-strict
+        name: Black format verification (strict, pre-push)
+        entry: black --check --diff .
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       # --- Static analysis additions ---
       # mypy (UTF-8 forced) - Windows codepage compatibility
       - id: mypy-utf8
