@@ -10,6 +10,11 @@ repos:
     hooks:
       - id: black
         args: ["--line-length=88"]
+      # Ensure the same pinned Black checks also run on pre-push to prevent drift
+      - id: black
+        name: black (check only, pre-push)
+        args: ["--check", "--line-length=88"]
+        stages: [pre-push]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -60,13 +65,6 @@ repos:
       - id: local-quality-aggregate
         name: Local quality aggregate (ruff/mypy/pytest/bandit/radon)
         entry: python tools/local_quality_check.py --limit 30
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-
-      - id: black-check-strict
-        name: Black format verification (strict, pre-push)
-        entry: black --check --diff .
         language: system
         pass_filenames: false
         stages: [pre-push]
