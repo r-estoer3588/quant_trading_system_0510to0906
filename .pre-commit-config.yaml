@@ -26,6 +26,7 @@ repos:
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
+        exclude: ^\.vscode/
       - id: trailing-whitespace
         exclude: ^.*\.(md|rst)$
       - id: check-yaml

@@ -104,5 +104,22 @@
   },
   // エラー・警告の即座表示
   "problems.decorations.enabled": true,
-  "editor.lightbulb.enabled": "onCode"
+  "editor.lightbulb.enabled": "onCode",
+  // 外部ライブラリのエラーを除外
+  "mypy-type-checker.ignorePatterns": [
+    "**/.wslvenv/**",
+    "**/.venv/**",
+    "**/site-packages/**",
+    "**/venv/**"
+  ],
+  "python.analysis.exclude": [
+    "**/.wslvenv/**",
+    "**/.venv/**",
+    "**/site-packages/**",
+    "**/__pycache__/**"
+  ],
+  "python.analysis.ignore": [
+    "**/.wslvenv/**",
+    "**/.venv/**"
+  ]
 }
