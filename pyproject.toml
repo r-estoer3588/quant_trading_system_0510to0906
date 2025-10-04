@@ -63,15 +63,3 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests/experimental", "."]
 addopts = "--cov=./ --cov-report=term-missing"
-
-[tool.pylint.main]
-ignore = [
-  "CVS",
-  ".git",
-  "__pycache__",
-  ".venv",
-  ".wslvenv",
-  "venv",
-  "site-packages",
-]
-ignore-paths = [".*/site-packages/.*", ".*/\\.wslvenv/.*"]
