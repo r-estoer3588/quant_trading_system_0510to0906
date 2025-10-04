@@ -8,7 +8,7 @@ import re
 import sys
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
@@ -80,6 +80,7 @@ from strategies.system3_strategy import System3Strategy
 from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
+from core.system1 import summarize_system1_diagnostics
 
 # 条件付きインポート - alpaca.trading.requests は実行時のみ必要
 AlpacaTradingRequests: Any | None = None
@@ -673,17 +674,56 @@ def _log_manual_rebuild_notice(
     """
     message = _build_manual_rebuild_message(symbol, detail)
 
-    compact_mode = os.getenv("COMPACT_TODAY_LOGS") == "1"
-    if compact_mode:
-        # 既存 aggregator を利用してカテゴリ: manual_rebuild として登録
-        try:
-            from common.cache_warnings import report_rolling_issue  # ローカル import (遅延)
+    # 既定で銘柄ごとの詳細ログは抑制し（過去指示: "1銘柄ごとに出さなくて良い"）
+    # 明示的に詳細を見たい場合のみ ROLLING_MANUAL_REBUILD_VERBOSE=1 を設定。
+    # 互換のため COMPACT_TODAY_LOGS=1 も引き続き抑制扱い。
+    verbose_flag = os.getenv("ROLLING_MANUAL_REBUILD_VERBOSE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    suppress_default_flag = os.getenv(
+        "ROLLING_MANUAL_REBUILD_SUPPRESS_PER_SYMBOL", "1"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    # compact_mode: True => 集約（per-symbolログ抑制）
+    if suppress_default_flag:
+        compact_mode = True
+    else:
+        compact_mode = (os.getenv("COMPACT_TODAY_LOGS") == "1") or not verbose_flag
 
-            # 代表的な理由を status から抽出してメッセージ縮小
+    # compact モード時は既存 aggregator + 共通 aggregator の二段構え
+    if compact_mode:
+        try:
+            from common.cache_warnings import (
+                report_rolling_issue,
+                get_rolling_issue_aggregator,
+            )  # 遅延 import
+
             status = str(detail.get("status") or "manual_rebuild")
-            report_rolling_issue("manual_rebuild", symbol, status)
+            agg = get_rolling_issue_aggregator()
+            # 既に manual_rebuild か missing_rolling で報告済みなら重複出力を抑止
+            if not (
+                agg.has_issue("manual_rebuild", symbol) or agg.has_issue("missing_rolling", symbol)
+            ):
+                report_rolling_issue("manual_rebuild", symbol, status)
+            # 共通 aggregator: グローバルに1つ保持し、必要なら後工程で flush 可能
+            try:
+                from common.rolling_issue_logging import RollingIssueAggregator  # type: ignore
+
+                global _MANUAL_REBUILD_AGG
+                if "_MANUAL_REBUILD_AGG" not in globals():
+                    _MANUAL_REBUILD_AGG = RollingIssueAggregator(
+                        category="rolling未整備",
+                        verbose=verbose_flag,
+                        batch_fraction=0.1,
+                    )
+                # 同上: 未報告の場合のみ追加
+                if not agg.has_issue("manual_rebuild", symbol):
+                    _MANUAL_REBUILD_AGG.add(symbol, status)
+            except Exception:
+                pass
         except Exception:
-            # フォールバック: 直接ログ
             if log_fn:
                 try:
                     log_fn(message)
@@ -716,8 +756,17 @@ def _log_manual_rebuild_notice(
                     if _MANUAL_REBUILD_SUPPRESSED > 0 and _MANUAL_REBUILD_VERBOSE_LIMIT > 0:
                         # 抑制件数の最終サマリー (WARNING でなく INFO 相当が妥当だが log_fn のレベル制御不明なのでそのまま)
                         if log_fn:
+                            # 参考として missing_rolling 件数を括弧追加（既報カテゴリの全体感）
+                            try:
+                                from common.cache_warnings import get_rolling_issue_aggregator
+
+                                _agg_summary = get_rolling_issue_aggregator()
+                                missing_cnt = len(getattr(_agg_summary, "_issues", {}).get("missing_rolling", []))  # type: ignore[attr-defined]
+                            except Exception:
+                                missing_cnt = 0
+                            extra = f" missing_rolling:{missing_cnt}件" if missing_cnt else ""
                             log_fn(
-                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました"
+                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました{extra}"
                             )
                 except Exception:
                     pass
@@ -3100,6 +3149,109 @@ def _render_system_details(
     stage_tracker: StageTracker,
     per_system_logs: dict[str, list[str]] | None = None,
 ) -> None:
+    _SYSTEM1_REASON_LABELS_UI = {
+        "filter": "フィルター条件 (filter)",
+        "setup": "セットアップ条件 (setup)",
+        "roc200": "ROC200≤0",
+    }
+
+    def _build_system1_diagnostic_messages(
+        diag_payload: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        summary = summarize_system1_diagnostics(diag_payload)
+        if not summary:
+            return None, None
+
+        top_n = summary.get("top_n")
+        prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        reason_line = (
+            "候補0件理由: "
+            f"{prefix}フィルター通過 {summary.get('filter_pass', 0)} 件, "
+            f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件, "
+            f"代替判定成立 {summary.get('fallback_pass', 0)} 件, "
+            f"ROC200>0 {summary.get('roc200_positive', 0)} 件, "
+            f"最終通過 {summary.get('final_pass', 0)} 件。"
+        )
+
+        reasons = summary.get("exclude_reasons")
+        detail_line: str | None = None
+        if isinstance(reasons, Mapping) and reasons:
+            parts: list[str] = []
+            for key, value in reasons.items():
+                if not isinstance(value, int) or value <= 0:
+                    continue
+                label = _SYSTEM1_REASON_LABELS_UI.get(str(key), str(key))
+                parts.append(f"{label} {value} 件")
+            if parts:
+                detail_line = "除外内訳: " + ", ".join(parts)
+
+        return reason_line, detail_line
+
+    def _build_generic_diagnostic_messages(
+        system_name: str, diag_payload: Mapping[str, Any] | None
+    ) -> tuple[str | None, str | None]:
+        if not isinstance(diag_payload, Mapping):
+            return None, None
+
+        # 診断キーの存在確認と安全な型変換
+        def _get_int(d: Mapping[str, Any], key: str, default: int = 0) -> int:
+            try:
+                v = d.get(key, default)
+                return int(v) if v is not None else default
+            except Exception:
+                return default
+
+        def _get_bool(d: Mapping[str, Any], key: str) -> bool | None:
+            try:
+                v = d.get(key, None)
+                if isinstance(v, bool):
+                    return v
+                if isinstance(v, (int, float)):
+                    return bool(v)
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    if s in {"true", "1", "yes"}:
+                        return True
+                    if s in {"false", "0", "no"}:
+                        return False
+                return None
+            except Exception:
+                return None
+
+        setup_cnt = _get_int(diag_payload, "setup_predicate_count", 0)
+        final_topn = _get_int(diag_payload, "final_top_n_count", 0)
+        only_pass = _get_int(diag_payload, "predicate_only_pass_count", 0)
+        mismatch = _get_bool(diag_payload, "mismatch_flag")
+        ranking_src = str(diag_payload.get("ranking_source", "-") or "-")
+        top_n_val = diag_payload.get("top_n")
+        try:
+            top_n = int(top_n_val) if top_n_val is not None else None
+        except Exception:
+            top_n = None
+
+        prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        mismatch_txt = (
+            "乖離あり" if mismatch is True else ("乖離なし" if mismatch is False else "乖離不明")
+        )
+        reason_line = (
+            f"候補0件理由: {prefix}セットアップ成立 {setup_cnt} 件, 最終TopN {final_topn} 件, "
+            f"セットアップのみ通過 {only_pass} 件, ランキング {ranking_src}, {mismatch_txt}。"
+        )
+        return reason_line, None
+
+    diagnostics_map: dict[str, Mapping[str, Any]] = {}
+    try:
+        summary_entry = (
+            per_system.get("__allocation_summary__") if isinstance(per_system, dict) else None
+        )
+        if isinstance(summary_entry, Mapping):
+            raw_diag = summary_entry.get("system_diagnostics")
+            if isinstance(raw_diag, Mapping):
+                diagnostics_map = {
+                    str(k).strip().lower(): v for k, v in raw_diag.items() if isinstance(k, str)
+                }
+    except Exception:
+        diagnostics_map = {}
     with st.expander("システム別詳細"):
         settings_local = get_settings(create_dirs=True)
         results_dir = Path(getattr(settings_local.outputs, "results_csv_dir", "results_csv"))
@@ -3150,9 +3302,25 @@ def _render_system_details(
                 except Exception:
                     reason_text = None
 
+                diag_reason: str | None = None
+                diag_detail: str | None = None
+                diag_payload = diagnostics_map.get(name)
+                if name == "system1":
+                    diag_reason, diag_detail = _build_system1_diagnostic_messages(diag_payload)
+                else:
+                    diag_reason, diag_detail = _build_generic_diagnostic_messages(
+                        name, diag_payload
+                    )
+
                 st.write("(空) 候補は0件です。")
-                if reason_text:
+                if diag_reason:
+                    st.info(diag_reason)
+                elif reason_text:
                     st.info(f"候補0件理由: {reason_text}")
+                if diag_detail:
+                    st.caption(diag_detail)
+                elif reason_text and diag_reason:
+                    st.caption(f"ログ補足: {reason_text}")
                 continue
             df_disp = df.copy()
             side_type = None

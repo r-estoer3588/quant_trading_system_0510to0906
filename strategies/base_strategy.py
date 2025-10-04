@@ -63,6 +63,9 @@ class StrategyBase(ABC):
             logger.warning("config update failed: %s", exc)
         self.config = cfg
 
+        # Diagnostics payload populated by subclasses after candidate generation
+        self.last_diagnostics: dict[str, Any] | None = None
+
     @abstractmethod
     def prepare_data(
         self,
@@ -187,6 +190,7 @@ class StrategyBase(ABC):
         - dict -> len(dict)
         - list/set/tuple -> len(collection)
         - (dict, DataFrame|None) -> 先頭要素が dict なら len(dict)
+        - DataFrame -> len(df) （空なら 0）
         - 上記以外/None/例外時 -> None (不明扱い)
         呼び出し側は None をそのまま記録し、可視化層で区別できるようにする。
         """
@@ -199,6 +203,16 @@ class StrategyBase(ABC):
                 return len(result)
             if isinstance(result, (list, set, tuple)):
                 return len(result)
+            # DataFrame 直接返却パターン（戦略実装が DataFrame 単体を返すケースを補足）
+            try:
+                import pandas as _pd  # 局所 import（依存循環回避 & 軽量）
+
+                if isinstance(result, _pd.DataFrame):
+                    # 空 DataFrame も 0 として明示 (None ではなく 0) → UI 上は 0 件として表示
+                    return int(len(result))
+            except Exception:
+                # pandas 未インポートや型変換失敗時は従来どおり None へフォールバック
+                pass
         except Exception:  # pragma: no cover
             return None
         return None

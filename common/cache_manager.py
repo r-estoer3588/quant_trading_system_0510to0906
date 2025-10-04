@@ -158,10 +158,24 @@ class CacheManager:
 
     def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
         """指定プロファイルからデータを読み込む。"""
+        original_ticker = ticker
         if profile == "rolling":
             # rolling優先、フォールバック処理
             path = self.file_manager.detect_path(self.rolling_dir, ticker)
             df = self.file_manager.read_with_fallback(path, ticker, profile)
+
+            # サニタイズ無効化モード時 / あるいは以前のファイル命名互換用に元名探索フォールバック
+            if (df is None or df.empty) and ticker != original_ticker:
+                try:
+                    legacy_path = self.file_manager.detect_path(self.rolling_dir, original_ticker)
+                    if legacy_path.exists():
+                        alt = self.file_manager.read_with_fallback(
+                            legacy_path, original_ticker, profile
+                        )
+                        if alt is not None and not alt.empty:
+                            df = alt
+                except Exception:
+                    pass
 
             if df is None or df.empty:
                 # baseからrolling相当を生成

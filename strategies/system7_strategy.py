@@ -8,6 +8,11 @@ import time
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_is_finite,
+)
 from core.system7 import (
     generate_candidates_system7,
     get_total_days_system7,
@@ -58,7 +63,29 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 _perf.mark_system_start(self.SYSTEM_NAME)
         except Exception:  # pragma: no cover
             pass
-        result = generate_candidates_system7(data_dict, **kwargs)
+        result = generate_candidates_system7(data_dict, include_diagnostics=True, **kwargs)
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                data_dict,
+                candidates_by_date,
+                top_n=None,
+                latest_only=bool(kwargs.get("latest_only", False)),
+                spec=SystemDiagnosticSpec(
+                    filter_key=None,
+                    setup_key="setup",
+                    rank_metric_name="ATR50",
+                    rank_predicate=numeric_is_finite("ATR50"),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 

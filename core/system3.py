@@ -18,6 +18,7 @@ from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM3_REQUIRED_INDICATORS
 from common.utils import get_cached_data
+from common.system_setup_predicates import validate_predicate_equivalence
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -151,7 +152,11 @@ def prepare_data_vectorized_system3(
         skip_callback=skip_callback,
         system_name="System3",
     )
-
+    # Optional predicate equivalence validation (env gated)
+    try:
+        validate_predicate_equivalence(results, "3", log_fn=log_callback)
+    except Exception:
+        pass
     return results
 
 
@@ -163,8 +168,13 @@ def generate_candidates_system3(
     log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
     latest_only: bool = False,
+    include_diagnostics: bool = False,
+    diagnostics: dict[str, Any] | None = None,
     **kwargs: Any,
-) -> tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]:
+) -> (
+    tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]
+    | tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None, dict[str, Any]]
+):
     """System3 candidate generation (drop3d descending ranking).
 
     Args:
@@ -176,10 +186,19 @@ def generate_candidates_system3(
     Returns:
         (Daily candidate dictionary, Integrated candidate DataFrame)
     """
+    if diagnostics is None:
+        diagnostics = {
+            "ranking_source": None,
+            "setup_predicate_count": 0,
+            "final_top_n_count": 0,
+            "predicate_only_pass_count": 0,
+            "mismatch_flag": 0,
+        }
+
     if not prepared_dict:
         if log_callback:
             log_callback("System3: No data provided for candidate generation")
-        return {}, None
+        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
     if top_n is None:
         top_n = 20  # Default value
@@ -193,7 +212,16 @@ def generate_candidates_system3(
                     continue
                 last_row = df.iloc[-1]
                 # 'setup' 列未生成時は通過させる (列存在時のみ False を除外)
-                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
+                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
+                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+
+                pred_val = _s3_pred(last_row)
+                if pred_val:
+                    diagnostics["setup_predicate_count"] += 1
+                if pred_val and not setup_col_val:
+                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["mismatch_flag"] = 1
+                if not setup_col_val:
                     continue
                 drop3d_val = last_row.get("drop3d", 0)
                 try:
@@ -215,7 +243,7 @@ def generate_candidates_system3(
             if not rows:
                 if log_callback:
                     log_callback("System3: latest_only fast-path produced 0 rows")
-                return {}, None
+                return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             try:
                 mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
@@ -223,6 +251,8 @@ def generate_candidates_system3(
             except Exception:
                 pass
             df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
+            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
                 dt = pd.Timestamp(str(dt_raw))
@@ -232,7 +262,7 @@ def generate_candidates_system3(
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
                     payload: dict[str, Any] = {
-                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
                     }
                     symbol_map[sym_val] = payload
                 by_date[dt] = symbol_map
@@ -240,7 +270,11 @@ def generate_candidates_system3(
                 log_callback(
                     f"System3: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
                 )
-            return by_date, df_all.copy()
+            return (
+                (by_date, df_all.copy(), diagnostics)
+                if include_diagnostics
+                else (by_date, df_all.copy())
+            )
         except Exception as e:
             if log_callback:
                 log_callback(f"System3: fast-path failed -> fallback ({e})")
@@ -255,7 +289,7 @@ def generate_candidates_system3(
     if not all_dates_set:
         if log_callback:
             log_callback("System3: No valid dates found in data")
-        return {}, None
+        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
     all_dates = sorted(all_dates_set)
 
     candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
@@ -267,13 +301,20 @@ def generate_candidates_system3(
     # Execute drop3d ranking by date
     for i, date in enumerate(all_dates):
         date_candidates = []
-
         for symbol, df in prepared_dict.items():
             try:
                 if df is None or date not in df.index:
                     continue
                 row = cast(pd.Series, df.loc[date])
-                setup_val = row.get("setup", False)
+                setup_val = bool(row.get("setup", False))
+                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+
+                pred_val = _s3_pred(row)
+                if pred_val:
+                    diagnostics["setup_predicate_count"] += 1
+                if pred_val and not setup_val:
+                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["mismatch_flag"] = 1
                 if not bool(setup_val):
                     continue
                 drop3d_val = cast(Any, row.get("drop3d", 0))
@@ -313,6 +354,12 @@ def generate_candidates_system3(
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
         candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
+        diagnostics["ranking_source"] = "full_scan"
+        try:
+            last_dt = max(candidates_by_date.keys())
+            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_dt, []))
+        except Exception:
+            diagnostics["final_top_n_count"] = 0
     else:
         candidates_df = None
 
@@ -333,7 +380,11 @@ def generate_candidates_system3(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return normalized, candidates_df
+    return (
+        (normalized, candidates_df, diagnostics)
+        if include_diagnostics
+        else (normalized, candidates_df)
+    )
 
 
 def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:

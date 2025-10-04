@@ -47,6 +47,7 @@ from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
 from common.indicator_access import get_indicator, to_float
+from common.notification import notify_zero_trd_all_systems
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
 from common.signal_merge import Signal, merge_signals
@@ -79,6 +80,7 @@ from common.utils_spy import (
 )
 from config.settings import get_settings
 from core.final_allocation import finalize_allocation, load_symbol_system_map
+from core.system1 import summarize_system1_diagnostics
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD
 
 # strategies
@@ -90,6 +92,10 @@ from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from tools.notify_metrics import send_metrics_notification
+from tools.verify_trd_length import (
+    get_expected_max_for_mode,
+    verify_trd_length,
+)
 
 _LOG_CALLBACK = None
 
@@ -508,6 +514,7 @@ class TodayRunContext:
     system_filters: dict[str, list[str]] = field(default_factory=dict)
     per_system_frames: dict[str, pd.DataFrame] = field(default_factory=dict)
     final_signals: pd.DataFrame | None = None
+    system_diagnostics: dict[str, dict[str, Any]] = field(default_factory=dict)
     # テスト高速化オプション
     test_mode: str | None = None  # mini/quick/sample
     skip_external: bool = False  # 外部API呼び出しをスキップ
@@ -695,7 +702,7 @@ def _emit_ui_log(message: str) -> None:
                 _STRUCTURED_LOG_START_TS = _t.time()
             now = _t.time()
             iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-            elapsed_ms = int((now - _STRUCTURED_LOG_START_TS) * 1000)
+            # elapsed_ms was unused; keep timestamp in iso only
             raw_msg = str(message)
             lower = raw_msg.lower()
             # system 抽出: System1..System7 (大文字小文字そのまま想定)
@@ -740,6 +747,7 @@ def _emit_ui_log(message: str) -> None:
                         if last:
                             phase = last
                             phase_status = phase_status or "end"
+
             # v: スキーマバージョン / lvl: 将来のレベル拡張 (現状 INFO 固定)
             obj = {
                 "v": 1,
@@ -747,7 +755,6 @@ def _emit_ui_log(message: str) -> None:
                 "iso": iso,
                 "lvl": "INFO",
                 "msg": raw_msg,
-                "elapsed_ms": elapsed_ms,
             }
             if system:
                 obj["system"] = system
@@ -1071,6 +1078,189 @@ def _log_warning(
 
 def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
+
+
+_SYSTEM1_REASON_LABELS = {
+    "filter": "フィルター条件 (filter)",
+    "setup": "セットアップ条件 (setup)",
+    "roc200": "ROC200≤0",
+}
+
+
+def _log_zero_candidate_diagnostics(
+    system_name: str,
+    candidate_count: int,
+    diag_payload: Mapping[str, Any] | None,
+) -> None:
+    """Emit helpful diagnostics when a system ends up with zero candidates."""
+
+    if str(system_name).strip().lower() != "system1":
+        return
+    if candidate_count != 0:
+        return
+
+    summary = summarize_system1_diagnostics(diag_payload)
+    if not summary:
+        return
+
+    top_n = summary.get("top_n")
+    prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+    message_parts = [
+        f"フィルター通過 {summary.get('filter_pass', 0)} 件",
+        f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件",
+        f"代替判定成立 {summary.get('fallback_pass', 0)} 件",
+        f"ROC200>0 {summary.get('roc200_positive', 0)} 件",
+        f"最終通過 {summary.get('final_pass', 0)} 件",
+    ]
+    detail_line = f"[system1] 候補0件理由: {prefix}{', '.join(message_parts)}。"
+    _log(detail_line)
+
+    reasons = summary.get("exclude_reasons")
+    if isinstance(reasons, Mapping) and reasons:
+        reason_parts: list[str] = []
+        for key, count in reasons.items():
+            if not isinstance(count, int) or count <= 0:
+                continue
+            label = _SYSTEM1_REASON_LABELS.get(str(key), str(key))
+            reason_parts.append(f"{label} {count} 件")
+        if reason_parts:
+            _log("[system1] 候補0件の除外内訳: " + ", ".join(reason_parts))
+
+
+def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | None) -> None:
+    """Export a minimal diagnostics snapshot (JSON) for Phase2 verification.
+
+    - Test modes only (mini/quick/sample)
+    - Output path: <RESULTS_DIR>/diagnostics_test/diagnostics_snapshot_YYYYMMDD_HHMMSS.json
+    - Content: export_date, mode, systems[{system_id, diagnostics, final_candidate_count}]
+    """
+    try:
+        mode = getattr(ctx, "test_mode", None)
+    except Exception:
+        mode = None
+    if not mode:
+        return  # production では出力しない
+
+    try:
+        settings = ctx.settings
+        # test_mode のときは results_csv_test 配下に出力し、運用結果と分離
+        if mode:
+            base_dir = Path("results_csv_test")
+        else:
+            base_dir = Path(getattr(settings, "RESULTS_DIR", Path("results_csv")))
+        out_dir = base_dir / "diagnostics_test"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now()
+        stamp = now.strftime("%Y%m%d_%H%M%S")
+        out_path = out_dir / f"diagnostics_snapshot_{stamp}.json"
+
+        # per-system final candidate counts
+        final_counts: dict[str, int] = {}
+        try:
+            if final_df is not None and not final_df.empty and "system" in final_df.columns:
+                final_counts = (
+                    final_df.groupby("system").size().astype(int).to_dict()  # type: ignore[assignment]
+                )
+        except Exception:
+            final_counts = {}
+
+        systems_payload: list[dict[str, Any]] = []
+        try:
+            diag_map = getattr(ctx, "system_diagnostics", {}) or {}
+            for sys_id in sorted(diag_map.keys()):
+                diag = diag_map.get(sys_id) or {}
+                # そのまま記録（詳細なフォールバックは Phase5 で実施）
+                systems_payload.append(
+                    {
+                        "system_id": sys_id,
+                        "diagnostics": diag,
+                        "final_candidate_count": int(final_counts.get(sys_id, 0)),
+                    }
+                )
+        except Exception:
+            systems_payload = []
+
+        snapshot = {
+            "export_date": now.isoformat(),
+            "mode": mode,
+            "systems": systems_payload,
+        }
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)
+
+        _log(f"🧪 Diagnostics snapshot exported: {out_path.relative_to(base_dir)}", ui=True)
+    except Exception as e:
+        _log_warning(f"diagnostics スナップショットの出力に失敗: {e}", error_code="SNAP-FAIL")
+
+
+def _export_discrepancy_triage(ctx: TodayRunContext) -> None:
+    """Discrepancy triage 結果を JSON ファイルとしてエクスポート。
+
+    - Test modes only (mini/quick/sample)
+    - Output path: <RESULTS_DIR>/diagnostics_test/discrepancy_triage_YYYYMMDD_HHMMSS.json
+    - Content: export_date, mode, triage_results, unexpected_systems
+    """
+    try:
+        mode = getattr(ctx, "test_mode", None)
+    except Exception:
+        mode = None
+    if not mode:
+        return  # production では出力しない
+
+    try:
+        from common.system_diagnostics import (
+            format_triage_summary,
+            get_unexpected_systems,
+            triage_all_systems,
+        )
+
+        settings = ctx.settings
+        base_dir = Path(getattr(settings, "RESULTS_DIR", Path("results_csv")))
+        out_dir = base_dir / "diagnostics_test"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now()
+        stamp = now.strftime("%Y%m%d_%H%M%S")
+        out_path = out_dir / f"discrepancy_triage_{stamp}.json"
+
+        # システム診断情報を取得
+        diag_map = getattr(ctx, "system_diagnostics", {}) or {}
+
+        # Triage 実施
+        triage_results = triage_all_systems(diag_map)
+        unexpected = get_unexpected_systems(triage_results)
+
+        # サマリーログ出力
+        summary_text = format_triage_summary(triage_results)
+        _log("📋 Discrepancy Triage Results:")
+        for line in summary_text.split("\n"):
+            _log(f"  {line}")
+
+        # JSON エクスポート
+        export_payload = {
+            "export_date": now.isoformat(),
+            "mode": mode,
+            "triage_results": triage_results,
+            "unexpected_systems": unexpected,
+            "summary": summary_text,
+        }
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(export_payload, f, indent=2, ensure_ascii=False, default=str)
+
+        _log(f"🧪 Discrepancy triage exported: {out_path.relative_to(base_dir)}", ui=True)
+
+        # Unexpected システムがあれば警告
+        if unexpected:
+            _log_warning(
+                f"⚠️ Unexpected discrepancies detected in: {', '.join(unexpected)}",
+                error_code="TRIAGE-UNEXPECTED",
+            )
+
+    except Exception as e:
+        _log_warning(f"discrepancy triage の出力に失敗: {e}", error_code="TRIAGE-FAIL")
 
 
 # ログ出力から除外するキーワード
@@ -2153,12 +2343,36 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     progress_callback = ctx.progress_callback
     symbol_data = ctx.symbol_data
 
+    # In test modes, allow older rolling caches by widening freshness tolerance
+    # to avoid skipping symbols due to staleness when validating the pipeline.
+    try:
+        test_mode_active = bool(getattr(ctx, "test_mode", None))
+    except Exception:
+        test_mode_active = False
+    freshness_tolerance: int | None = None
+    if test_mode_active:
+        try:
+            # Allow override via env; default to 365 trading days for safety in tests
+            freshness_tolerance = int(os.environ.get("BASIC_DATA_TEST_FRESHNESS_TOLERANCE", "365"))
+        except Exception:
+            freshness_tolerance = 365
+        # Informative warning to make relaxed freshness explicit during tests
+        try:
+            _log_warning(
+                f"テストモード: 基本データの鮮度許容を {freshness_tolerance} 営業日へ緩和します (rolling cache 検証)",
+                error_code="TST-FRESHNESS",
+                ui=True,
+            )
+        except Exception:
+            pass
+
     basic_data = load_basic_data(
         symbols,
         cache_manager,
         settings,
         symbol_data,
         today=ctx.today,
+        freshness_tolerance=freshness_tolerance,
         base_cache=ctx.base_cache,
         log_callback=lambda msg, ui=True: None,  # type: ignore[misc]
         ui_log_callback=lambda msg: None,
@@ -2686,21 +2900,27 @@ def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         s6_total = len(symbols)
         s6_low = 0
         s6_dv = 0
+        s6_hv = 0
         for _sym in symbols:
             _df = basic_data.get(_sym)
             if _df is None or getattr(_df, "empty", True):
                 continue
             try:
-                low_ok, dv_ok = _system6_conditions(_df)
+                low_ok, dv_ok, hv_ok = _system6_conditions(_df)
             except Exception:
                 continue
-            if low_ok:
-                s6_low += 1
-            else:
+            if not low_ok:
                 continue
-            if dv_ok:
-                s6_dv += 1
-        _log("?? system6???????: " + f"??={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
+            s6_low += 1
+            if not dv_ok:
+                continue
+            s6_dv += 1
+            if hv_ok:
+                s6_hv += 1
+        _log(
+            "?? system6???????: "
+            + f"??={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}, HV50 10?40: {s6_hv}"
+        )
     except Exception:
         pass
 
@@ -3910,6 +4130,30 @@ def compute_today_signals(
                 pass
             with _PerfTimer(f"{system_name}.generate_candidates"):
                 candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
+
+            # TRD リスト長の検証（テストモード時の整合性チェック）
+            try:
+                expected_max_trd = get_expected_max_for_mode(ctx.test_mode)
+                trd_result = verify_trd_length(candidates or {}, system_name, expected_max_trd)
+                if not trd_result["valid"]:
+                    _log(f"[{system_name}] {trd_result['message']}")
+                else:
+                    # 既定はコンパクト運用を尊重して DEBUG に留める
+                    # TRD_LOG_OK=1/true/yes/on のときは Info としても出力
+                    _ok_env = (os.environ.get("TRD_LOG_OK") or "").strip().lower()
+                    if _ok_env in {"1", "true", "yes", "on"}:
+                        _log(f"[{system_name}] {trd_result['message']}")
+                    else:
+                        rate_limited_logger = _get_rate_limited_logger()
+                        rate_limited_logger.debug_rate_limited(
+                            trd_result["message"],
+                            message_key=f"trd_verify_{system_name}",
+                            interval=10,
+                        )
+            except Exception as trd_err:
+                # 検証失敗時もエラーで止めない（警告のみ）
+                _log(f"[{system_name}] ⚠️ TRD検証でエラー: {trd_err}")
+
             try:
                 if system_name == "system1":
                     _log(
@@ -3945,6 +4189,14 @@ def compute_today_signals(
                 _log(f"[{system_name}] ✅ {system_name}: {count} 件")
             else:
                 _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
+
+            try:
+                diag_payload = getattr(strategy, "last_diagnostics", None)
+                if isinstance(diag_payload, dict):
+                    ctx.system_diagnostics[system_name] = diag_payload
+                    _log_zero_candidate_diagnostics(system_name, count, diag_payload)
+            except Exception:
+                pass
 
         except Exception as e:
             _log(f"[{system_name}] ⚠️ {system_name}: シグナル抽出に失敗しました: {e}")
@@ -3994,6 +4246,7 @@ def compute_today_signals(
             slots_short=slots_short,
             capital_long=capital_long,
             capital_short=capital_short,
+            system_diagnostics=ctx.system_diagnostics,
         )
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
@@ -4044,6 +4297,24 @@ def compute_today_signals(
             progress_callback(7, 8, "finalize")
         except Exception:
             pass
+
+    # Phase5: Zero TRD escalation notification
+    try:
+        notify_zero_trd_all_systems(ctx, final_df)
+    except Exception:
+        pass
+
+    # Phase2: Export diagnostics snapshot in test modes
+    try:
+        _export_diagnostics_snapshot(ctx, final_df)
+    except Exception:
+        pass
+
+    # Phase4: Discrepancy triage in test modes
+    try:
+        _export_discrepancy_triage(ctx)
+    except Exception:
+        pass
 
     # 戻り値: final_df と AllocationSummary (呼び出し側で dict 化可能)
     return final_df, allocation_summary
@@ -4658,6 +4929,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="性能スナップショット(JSON)を logs/perf_snapshots に保存 (latest_only 切替比較用)",
     )
+    parser.add_argument(
+        "--filter-debug",
+        action="store_true",
+        help="フィルタ段階通過数のFDBGログを有効化 (環境変数 FILTER_DEBUG=1 を内部設定)",
+    )
     return parser
 
 
@@ -4681,6 +4957,13 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
     # latest_only 推定: --full-scan-today 指定で False、それ以外 True (システム毎デフォルトロジックと揃える)
     latest_only_flag = False if getattr(args, "full_scan_today", False) else True
 
+    # フィルタデバッグ要求時に環境変数設定（today_filters 側は環境参照）
+    try:
+        if getattr(args, "filter_debug", False):
+            os.environ.setdefault("FILTER_DEBUG", "1")
+    except Exception:
+        pass
+
     perf = None
     if getattr(args, "perf_snapshot", False):
         try:
@@ -4693,8 +4976,10 @@ def run_signal_pipeline(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
     if perf is not None:
         cm = perf.run(latest_only=latest_only_flag)
     else:
-        # ダミー contextmanager
-        from contextlib import nullcontext as cm  # type: ignore
+        # ダミー contextmanager: 必ずインスタンスを作成 (関数参照をそのまま with しない)
+        from contextlib import nullcontext
+
+        cm = nullcontext()
 
     with cm:  # type: ignore
         result = compute_today_signals(

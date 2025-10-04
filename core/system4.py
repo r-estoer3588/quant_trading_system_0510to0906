@@ -19,6 +19,7 @@ from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM4_REQUIRED_INDICATORS
 from common.utils import get_cached_data
+from common.system_setup_predicates import validate_predicate_equivalence
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -146,7 +147,10 @@ def prepare_data_vectorized_system4(
         skip_callback=skip_callback,
         system_name="System4",
     )
-
+    try:
+        validate_predicate_equivalence(results, "4", log_fn=log_callback)
+    except Exception:
+        pass
     return results
 
 
@@ -157,8 +161,13 @@ def generate_candidates_system4(
     progress_callback: Callable[[str], None] | None = None,
     log_callback: Callable[[str], None] | None = None,
     latest_only: bool = False,
+    include_diagnostics: bool = False,
+    diagnostics: dict[str, Any] | None = None,
     **_unused_kwargs: Any,
-) -> tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]:
+) -> (
+    tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
+    | tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None, dict[str, Any]]
+):
     """System4 candidate generation (RSI4 ascending ranking).
 
     Args:
@@ -170,10 +179,19 @@ def generate_candidates_system4(
     Returns:
         (Daily candidate dictionary, Integrated candidate DataFrame)
     """
+    if diagnostics is None:
+        diagnostics = {
+            "ranking_source": None,
+            "setup_predicate_count": 0,
+            "final_top_n_count": 0,
+            "predicate_only_pass_count": 0,
+            "mismatch_flag": 0,
+        }
+
     if not prepared_dict:
         if log_callback:
             log_callback("System4: No data provided for candidate generation")
-        return {}, None
+        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
     if top_n is None:
         top_n = 20  # Default value
@@ -187,7 +205,16 @@ def generate_candidates_system4(
                     continue
                 last_row = df.iloc[-1]
                 # 'setup' 列が存在する場合のみ判定。無いときは早期除外しない
-                if ("setup" in last_row) and (not bool(last_row.get("setup"))):
+                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
+                from common.system_setup_predicates import system4_setup_predicate as _s4_pred
+
+                pred_val = _s4_pred(last_row)
+                if pred_val:
+                    diagnostics["setup_predicate_count"] += 1
+                if pred_val and not setup_col_val:
+                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["mismatch_flag"] = 1
+                if not setup_col_val:
                     continue
                 rsi4_val = last_row.get("rsi4", 100)
                 try:
@@ -210,7 +237,7 @@ def generate_candidates_system4(
             if not rows:
                 if log_callback:
                     log_callback("System4: latest_only fast-path produced 0 rows")
-                return {}, None
+                return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             try:
                 mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
@@ -218,6 +245,8 @@ def generate_candidates_system4(
             except Exception:
                 pass
             df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(top_n)
+            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
                 dt = pd.Timestamp(str(dt_raw))  # safe cast for mypy (numpy scalar -> str)
@@ -226,14 +255,20 @@ def generate_candidates_system4(
                     sym = rec.get("symbol")
                     if not sym:
                         continue
-                    payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
-                    symbol_map[sym] = payload
+                    payload: dict[str, Any] = {
+                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
+                    symbol_map[str(sym)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
                     f"System4: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
                 )
-            return by_date, df_all.copy()
+            return (
+                (by_date, df_all.copy(), diagnostics)
+                if include_diagnostics
+                else (by_date, df_all.copy())
+            )
         except Exception as e:
             if log_callback:
                 log_callback(f"System4: fast-path failed -> fallback ({e})")
@@ -248,7 +283,7 @@ def generate_candidates_system4(
     if not all_dates_set:
         if log_callback:
             log_callback("System4: No valid dates found in data")
-        return {}, None
+        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
     all_dates = sorted(all_dates_set)
 
     candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
@@ -266,7 +301,15 @@ def generate_candidates_system4(
                 if df is None or date not in df.index:
                     continue
                 row = cast(pd.Series, df.loc[date])
-                setup_val = row.get("setup", False)
+                setup_val = bool(row.get("setup", False))
+                from common.system_setup_predicates import system4_setup_predicate as _s4_pred
+
+                pred_val = _s4_pred(row)
+                if pred_val:
+                    diagnostics["setup_predicate_count"] += 1
+                if pred_val and not setup_val:
+                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["mismatch_flag"] = 1
                 if not bool(setup_val):
                     continue
                 rsi4_val = cast(Any, row.get("rsi4", 100))
@@ -307,6 +350,12 @@ def generate_candidates_system4(
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
         candidates_df = candidates_df.sort_values(["date", "rsi4"], ascending=[True, True])
+        diagnostics["ranking_source"] = "full_scan"
+        try:
+            last_dt = max(candidates_by_date.keys())
+            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_dt, []))
+        except Exception:
+            diagnostics["final_top_n_count"] = 0
     else:
         candidates_df = None
 
@@ -327,7 +376,11 @@ def generate_candidates_system4(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return normalized, candidates_df
+    return (
+        (normalized, candidates_df, diagnostics)
+        if include_diagnostics
+        else (normalized, candidates_df)
+    )
 
 
 def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:

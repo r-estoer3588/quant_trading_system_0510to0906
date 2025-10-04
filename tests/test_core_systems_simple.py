@@ -185,10 +185,12 @@ class TestSystem1CandidateGeneration:
         try:
             result = generate_candidates_system1(prepared_dict, top_n=5)
 
-            # Result should be tuple
+            # Result should be tuple with diagnostics
             if result is not None:
                 assert isinstance(result, tuple)
-                assert len(result) == 2
+                assert len(result) == 3
+                assert isinstance(result[0], dict)
+                assert isinstance(result[2], dict)
 
         except Exception as e:
             # Some missing dependencies are expected in isolated test
@@ -204,6 +206,7 @@ class TestSystem1CandidateGeneration:
             # Should handle empty dict gracefully
             if result is not None:
                 assert isinstance(result, tuple)
+                assert len(result) == 3
 
         except Exception as e:
             # Expected for empty input

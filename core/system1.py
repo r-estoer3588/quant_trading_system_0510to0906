@@ -9,14 +9,18 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+import math
 import os
+from collections import Counter
+from collections.abc import Mapping, Callable
+from dataclasses import dataclass, field
+from typing import Any, cast
 
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM1_REQUIRED_INDICATORS
-from common.utils import get_cached_data
 
 # --- Backward compatibility helpers for legacy direct tests ---
 # Some tests (tests/test_system1_direct.py) expect internal helper functions
@@ -25,6 +29,165 @@ from common.utils import get_cached_data
 # design. These are intentionally minimal and rely only on current imports.
 
 REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
+
+
+@dataclass(slots=True)
+class System1Diagnostics:
+    mode: str
+    top_n: int | None = None
+    symbols_total: int = 0
+    symbols_with_data: int = 0
+    total_symbols: int = 0
+    filter_pass: int = 0
+    setup_flag_true: int = 0
+    fallback_pass: int = 0
+    roc200_positive: int = 0
+    final_pass: int = 0
+    # --- Enrichment (ID8) -------------------------------------------------
+    # predicate による True 判定の総数 (行ベース / latest_only ではシンボルベース)
+    setup_predicate_count: int = 0
+    # 最終 top_n に入った数 (latest_only では単一日候補数)
+    final_top_n_count: int = 0
+    # setup 列 False だが predicate True (ギャップ検知)
+    predicate_only_pass_count: int = 0
+    # mismatch_flag: 1 回でも列 vs predicate 不一致が観測されたら 1
+    mismatch_flag: int = 0
+    # ranking_source: 'latest_only' or 'full_scan'
+    ranking_source: str | None = None
+    exclude_reasons: Counter[str] = field(default_factory=Counter)
+
+    def as_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {
+            "mode": self.mode,
+            "top_n": self.top_n,
+            "symbols_total": self.symbols_total,
+            "symbols_with_data": self.symbols_with_data,
+            "total_symbols": self.total_symbols,
+            "filter_pass": self.filter_pass,
+            "setup_flag_true": self.setup_flag_true,
+            "fallback_pass": self.fallback_pass,
+            "roc200_positive": self.roc200_positive,
+            "final_pass": self.final_pass,
+            "setup_predicate_count": self.setup_predicate_count,
+            "final_top_n_count": self.final_top_n_count,
+            "predicate_only_pass_count": self.predicate_only_pass_count,
+            "mismatch_flag": self.mismatch_flag,
+            "ranking_source": self.ranking_source,
+        }
+        if self.exclude_reasons:
+            data["exclude_reasons"] = dict(self.exclude_reasons)
+        return data
+
+
+def summarize_system1_diagnostics(
+    diag: Mapping[str, Any] | None,
+    *,
+    max_reasons: int = 3,
+) -> dict[str, Any]:
+    """Normalize raw diagnostics payload for display/log output.
+
+    Args:
+        diag: Raw diagnostics mapping emitted by ``generate_candidates_system1``.
+        max_reasons: Maximum number of exclusion reasons to keep.
+
+    Returns:
+        Dictionary containing integer-normalized counters and (optionally)
+        a trimmed ``exclude_reasons`` mapping sorted by descending count.
+    """
+
+    if not isinstance(diag, Mapping):
+        return {}
+
+    def _coerce_int(value: Any) -> int:
+        if value is None:
+            return 0
+        try:
+            return int(value)
+        except Exception:
+            try:
+                return int(float(value))
+            except Exception:
+                return 0
+
+    summary_keys = (
+        "symbols_total",
+        "symbols_with_data",
+        "total_symbols",
+        "filter_pass",
+        "setup_flag_true",
+        "fallback_pass",
+        "roc200_positive",
+        "final_pass",
+        "setup_predicate_count",
+        "final_top_n_count",
+        "predicate_only_pass_count",
+        "mismatch_flag",
+    )
+
+    summary: dict[str, Any] = {key: _coerce_int(diag.get(key)) for key in summary_keys}
+
+    top_n_val = diag.get("top_n")
+    if top_n_val is not None:
+        top_n_int = _coerce_int(top_n_val)
+        if top_n_int > 0:
+            summary["top_n"] = top_n_int
+
+    exclude_raw = diag.get("exclude_reasons")
+    if isinstance(exclude_raw, Mapping):
+        reasons: list[tuple[str, int]] = []
+        for key, value in exclude_raw.items():
+            count = _coerce_int(value)
+            if count <= 0:
+                continue
+            reasons.append((str(key), count))
+        if reasons:
+            reasons.sort(key=lambda item: item[1], reverse=True)
+            if max_reasons >= 0:
+                reasons = reasons[:max_reasons]
+            summary["exclude_reasons"] = {name: count for name, count in reasons}
+
+    return summary
+
+
+def _to_float(value: Any) -> float:
+    try:
+        v = float(value)
+        if math.isnan(v):
+            return math.nan
+        return v
+    except Exception:
+        return math.nan
+
+
+def system1_row_passes_setup(
+    row: pd.Series, *, allow_fallback: bool = True
+) -> tuple[bool, dict[str, bool], str | None]:
+    filter_ok = bool(row.get("filter", True))
+    setup_flag = bool(row.get("setup", False))
+    fallback_ok = False
+    if allow_fallback and not setup_flag:
+        sma25 = _to_float(row.get("sma25"))
+        sma50 = _to_float(row.get("sma50"))
+        fallback_ok = not math.isnan(sma25) and not math.isnan(sma50) and sma25 > sma50
+    roc200_val = _to_float(row.get("roc200"))
+    roc200_positive = not math.isnan(roc200_val) and roc200_val > 0
+
+    passes = filter_ok and roc200_positive and (setup_flag or fallback_ok)
+    reason: str | None = None
+    if not filter_ok:
+        reason = "filter"
+    elif not (setup_flag or fallback_ok):
+        reason = "setup"
+    elif not roc200_positive:
+        reason = "roc200"
+
+    flags = {
+        "filter_ok": filter_ok,
+        "setup_flag": setup_flag,
+        "fallback_ok": fallback_ok,
+        "roc200_positive": roc200_positive,
+    }
+    return passes, flags, reason
 
 
 def _rename_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -112,9 +275,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
     Returns:
         (symbol, processed DataFrame | None)
+
+    Note:
+        This function uses global cache access for batch processing.
+        Indicators must be precomputed.
     """
+    from common.cache_manager import CacheManager
+    from config.settings import get_settings
+
     try:
-        df = get_cached_data(symbol)
+        settings = get_settings()
+        cache_mgr = CacheManager(settings)
+        df = cache_mgr.load_base_cache(symbol)  # type: ignore[attr-defined]
         if df is None or df.empty:
             return symbol, None
 
@@ -141,15 +313,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 def prepare_data_vectorized_system1(
     raw_data_dict: dict[str, pd.DataFrame] | None,
     *,
-    progress_callback=None,
-    log_callback=None,
-    skip_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
+    skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     reuse_indicators: bool = True,
     symbols: list[str] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
-    **_kwargs,
+    **_kwargs: object,
 ) -> dict[str, pd.DataFrame]:
     """System1 data preparation processing (ROC200 momentum strategy).
 
@@ -242,89 +414,82 @@ def prepare_data_vectorized_system1(
 
     return results
 
+    # NOTE: predicate 検証呼び出しは結果返却前に行う設計だが、
+    # 上方で return 済みのため通常経路は到達しない。後続統合時に
+    # fast-path/normal-path の共通ポスト処理へリファクタ予定。
+
 
 def generate_candidates_system1(
-    prepared_dict: dict[str, pd.DataFrame],
+    prepared_dict: dict[str, pd.DataFrame] | None,
     *,
     top_n: int | None = None,
-    progress_callback=None,
-    log_callback=None,
+    progress_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str], None] | None = None,
     batch_size: int | None = None,
     latest_only: bool = False,
-    **kwargs,
-) -> tuple[dict, pd.DataFrame | None]:
+    **kwargs: object,
+) -> tuple[dict, pd.DataFrame | None, dict[str, object]]:
     """System1 candidate generation (ROC200 descending ranking).
 
-    Args:
-        prepared_dict: Prepared data dictionary
-        top_n: Number of top entries to extract
-        progress_callback: Progress reporting callback
-        log_callback: Log output callback
-
-    Returns:
-        (Daily candidate dictionary, Integrated candidate DataFrame)
+    Returns a tuple of (per-date candidates, merged dataframe, diagnostics).
     """
-    if not prepared_dict:
+
+    if not isinstance(prepared_dict, dict) or not prepared_dict:
+        mode = "latest_only" if latest_only else "full_scan"
+        diag = System1Diagnostics(mode=mode, top_n=top_n)
+        diag.symbols_total = len(prepared_dict or {})
+        diag.ranking_source = mode  # 明示的に設定
         if log_callback:
             log_callback("System1: No data provided for candidate generation")
-        return {}, None
+        return {}, None, diag.as_dict()
 
     if top_n is None:
-        top_n = 20  # Default value
+        top_n = 20
 
-    # Fast path: 当日（最新日）だけでランキングする用途 (today run) 向け最適化
-    # full-history が必要なバックテストでは latest_only=False を指定して従来処理を維持
+    mode = "latest_only" if latest_only else "full_scan"
+    diagnostics = System1Diagnostics(mode=mode, top_n=top_n)
+    diagnostics.symbols_total = len(prepared_dict)
+    diagnostics.symbols_with_data = sum(
+        1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
+    )
+
+    # Fast path: evaluate only the most recent bar per symbol
     if latest_only:
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
-            debug_reasons: list[str] = []
-            debug_enabled = (
-                bool(os.environ.get("SYSTEM_DEBUG_VERBOSE")) or True
-            )  # 常に有効(後で削除)
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
-                    if debug_enabled:
-                        debug_reasons.append(f"{sym}:empty")
                     continue
+                diagnostics.total_symbols += 1
                 last_row = df.iloc[-1]
-                # 優先: setup 列が True なら無条件に候補対象
-                setup_flag = bool(last_row.get("setup", True))  # 無い場合 True (緩和)
-                # フォールバック: setup False でも SMA25>SMA50 & filter 条件を満たせば許容
-                if not setup_flag:
-                    try:
-                        sma25_v = last_row.get("sma25")
-                        sma50_v = last_row.get("sma50")
-                        if (
-                            pd.isna(sma25_v)
-                            or pd.isna(sma50_v)
-                            or not (float(sma25_v) > float(sma50_v))
-                        ):
-                            if debug_enabled:
-                                debug_reasons.append(f"{sym}:sma25<=sma50")
-                            continue
-                        # filter 列があれば True を要求（無ければ通す）
-                        if ("filter" in last_row.index) and (not last_row.get("filter", False)):
-                            if debug_enabled:
-                                debug_reasons.append(f"{sym}:filterFalse")
-                            continue
-                    except Exception:
-                        if debug_enabled:
-                            debug_reasons.append(f"{sym}:fallbackException")
-                        continue
-                roc200_val = last_row.get("roc200", 0)
-                try:
-                    if pd.isna(roc200_val) or float(roc200_val) <= 0:
-                        if debug_enabled:
-                            try:
-                                debug_reasons.append(f"{sym}:roc200<=0({roc200_val})")
-                            except Exception:
-                                pass
-                        continue
-                except Exception:
-                    if debug_enabled:
-                        debug_reasons.append(f"{sym}:roc200Err")
+                passed, flags, reason = system1_row_passes_setup(last_row)
+                # 共通 predicate による再評価（fallback を含めない純粋な setup 条件）
+                from common.system_setup_predicates import (
+                    system1_setup_predicate as _s1_pred,
+                )
+
+                pred_val = _s1_pred(last_row)
+                if pred_val:
+                    diagnostics.setup_predicate_count += 1
+                # setup 列 False だが predicate True (System1 では原則稀)
+                if pred_val and not bool(last_row.get("setup", False)):
+                    diagnostics.predicate_only_pass_count += 1
+                    diagnostics.mismatch_flag = 1
+                if flags["filter_ok"]:
+                    diagnostics.filter_pass += 1
+                if flags["setup_flag"]:
+                    diagnostics.setup_flag_true += 1
+                if flags["fallback_ok"]:
+                    diagnostics.fallback_pass += 1
+                if flags["roc200_positive"]:
+                    diagnostics.roc200_positive += 1
+                if not passed:
+                    if reason:
+                        diagnostics.exclude_reasons[reason] += 1
                     continue
+                diagnostics.final_pass += 1
+                roc200_val = last_row.get("roc200", 0)
                 date_val = df.index[-1]
                 date_counter[date_val] = date_counter.get(date_val, 0) + 1
                 rows.append(
@@ -336,15 +501,13 @@ def generate_candidates_system1(
                         "setup": bool(last_row.get("setup", False)),
                     }
                 )
+
             if not rows:
                 if log_callback:
                     log_callback(
-                        "System1: latest_only fast-path produced 0 rows (after gating v2) — will fallback"
+                        "System1: latest_only fast-path produced 0 rows (after gating) — fallback"
                     )
-                    if debug_reasons and log_callback:
-                        # 上位数件のみ
-                        log_callback("System1: exclude_reasons=" + ", ".join(debug_reasons[:12]))
-                # 明示的に通常パスへフォールバック
+                # fall through to full scan
             else:
                 df_all = pd.DataFrame(rows)
                 try:
@@ -353,111 +516,131 @@ def generate_candidates_system1(
                 except Exception:
                     pass
                 df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(top_n)
-                # 期待形式: date -> {symbol: {...各指標...}}
+                diagnostics.final_top_n_count = len(df_all)
+                diagnostics.ranking_source = "latest_only"
                 by_date: dict[pd.Timestamp, dict[str, dict]] = {}
                 for dt, sub in df_all.groupby("date"):
-                    symbol_map: dict[str, dict] = {}
-                    recs = sub.to_dict("records")
-                    for rec in recs:
+                    payload: dict[str, dict] = {}
+                    for rec in sub.to_dict("records"):
                         sym = rec.get("symbol")
                         if not sym:
                             continue
-                        # symbol と date を除き残りを属性辞書に
-                        symbol_map[str(sym)] = {
+                        payload[str(sym)] = {
                             k: v for k, v in rec.items() if k not in {"symbol", "date"}
                         }
-                    by_date[dt] = symbol_map
+                    by_date[dt] = payload
                 if log_callback:
+                    candidate_count = sum(len(v) for v in by_date.values())
                     log_callback(
-                        f"System1: latest_only fast-path -> {sum(len(v) for v in by_date.values())} candidates (symbols={len(rows)})"
+                        f"System1: latest_only -> {candidate_count} candidates (symbols={len(rows)})"
                     )
-                    if debug_enabled:
-                        try:
-                            first_dt = next(iter(by_date))
-                            first_sym, first_payload = next(iter(by_date[first_dt].items()))
-                            log_callback(
-                                f"System1: first_candidate dt={first_dt} sym={first_sym} payload={first_payload}"
-                            )
-                        except Exception:
-                            pass
                 out_df = df_all.copy()
-                return by_date, out_df
+                return by_date, out_df, diagnostics.as_dict()
         except Exception as fast_err:
             if log_callback:
                 log_callback(f"System1: fast-path failed -> fallback ({fast_err})")
-            # 続けて従来パスへ
-            pass
 
-    # Aggregate all dates
-    all_dates = set()
-    for df in prepared_dict.values():
-        if df is not None and not df.empty:
-            all_dates.update(df.index)
+    # Fallback: evaluate full history per date
+    all_dates = sorted(
+        {
+            date
+            for df in prepared_dict.values()
+            if isinstance(df, pd.DataFrame) and not df.empty
+            for date in df.index
+        }
+    )
 
     if not all_dates:
+        diagnostics.ranking_source = "latest_only" if latest_only else "full_scan"
         if log_callback:
             log_callback("System1: No valid dates found in data")
-        return {}, None
+        return {}, None, diagnostics.as_dict()
 
-    all_dates = sorted(all_dates)
+    candidates_by_date: dict[pd.Timestamp, list[dict]] = {}
+    all_candidates: list[dict] = []
 
-    candidates_by_date = {}
-    all_candidates = []
-
+    diag_target_date = all_dates[-1]
     if log_callback:
         log_callback(f"System1: Generating candidates for {len(all_dates)} dates")
 
-    # Execute ROC200 ranking by date
     for i, date in enumerate(all_dates):
-        date_candidates = []
+        date_candidates: list[dict] = []
 
         for symbol, df in prepared_dict.items():
+            if df is None or date not in df.index:
+                continue
             try:
-                if df is None or date not in df.index:
-                    continue
-
                 row = df.loc[date]
-
-                # Check setup conditions
-                if not row.get("setup", False):
-                    continue
-
-                # Get ROC200 value
-                roc200_val = row.get("roc200", 0)
-                if pd.isna(roc200_val) or roc200_val <= 0:
-                    continue
-
-                date_candidates.append(
-                    {
-                        "symbol": symbol,
-                        "date": date,
-                        "roc200": roc200_val,
-                        "close": row.get("Close", 0),
-                    }
-                )
-
             except Exception:
                 continue
 
-        # Sort by ROC200 descending and extract top_n
+            if date == diag_target_date:
+                diagnostics.total_symbols += 1
+                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=False)
+                # 共通 predicate による正式 predicate（fallback 無し）
+                from common.system_setup_predicates import (
+                    system1_setup_predicate as _s1_pred,
+                )
+
+                pred_val = _s1_pred(row)
+                if pred_val:
+                    diagnostics.setup_predicate_count += 1
+                if pred_val and not bool(row.get("setup", False)):
+                    diagnostics.predicate_only_pass_count += 1
+                    diagnostics.mismatch_flag = 1
+                if flags["filter_ok"]:
+                    diagnostics.filter_pass += 1
+                if flags["setup_flag"]:
+                    diagnostics.setup_flag_true += 1
+                if flags["fallback_ok"]:
+                    diagnostics.fallback_pass += 1
+                if flags["roc200_positive"]:
+                    diagnostics.roc200_positive += 1
+                if not passed:
+                    if reason:
+                        diagnostics.exclude_reasons[reason] += 1
+                    continue
+                if passed:
+                    diagnostics.final_pass += 1
+
+            if not row.get("setup", False):
+                continue
+
+            roc200_val = row.get("roc200", 0)
+            if pd.isna(roc200_val) or roc200_val <= 0:
+                continue
+
+            date_candidates.append(
+                {
+                    "symbol": symbol,
+                    "date": date,
+                    "roc200": roc200_val,
+                    "close": row.get("Close", 0),
+                }
+            )
+
         if date_candidates:
             date_candidates.sort(key=lambda x: x["roc200"], reverse=True)
             top_candidates = date_candidates[:top_n]
-
             candidates_by_date[date] = top_candidates
             all_candidates.extend(top_candidates)
 
-        # Progress reporting
         if progress_callback and (i + 1) % max(1, len(all_dates) // 10) == 0:
             progress_callback(f"Processed {i + 1}/{len(all_dates)} dates")
 
-    # Create integrated DataFrame
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
         candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
+        # 最終日の top_n 数を格納
+        last_date = max(candidates_by_date.keys()) if candidates_by_date else None
+        if last_date is not None:
+            diagnostics.final_top_n_count = len(candidates_by_date.get(last_date, []))
+        diagnostics.ranking_source = "full_scan"
     else:
         candidates_df = None
+        # full scan で候補がない場合も ranking_source を設定
+        diagnostics.ranking_source = "latest_only" if latest_only else "full_scan"
 
     if log_callback:
         total_candidates = len(all_candidates)
@@ -466,7 +649,7 @@ def generate_candidates_system1(
             f"System1: Generated {total_candidates} candidates across {unique_dates} dates"
         )
 
-    return candidates_by_date, candidates_df
+    return candidates_by_date, candidates_df, diagnostics.as_dict()
 
 
 def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
@@ -482,7 +665,10 @@ def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
 
 
 def generate_roc200_ranking_system1(
-    data_dict: dict[str, pd.DataFrame], date: str, top_n: int = 20, log_callback=None
+    data_dict: dict[str, pd.DataFrame],
+    date: str,
+    top_n: int = 20,
+    log_callback: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """Generate ROC200-based ranking for a specific date.
 
@@ -533,7 +719,7 @@ def generate_roc200_ranking_system1(
             continue
 
     # Sort by ROC200 descending and take top_n
-    candidates.sort(key=lambda x: x["roc200"], reverse=True)
+    candidates.sort(key=lambda x: cast(float, x["roc200"]), reverse=True)
     result = candidates[:top_n]
 
     if log_callback:
@@ -547,4 +733,7 @@ __all__ = [
     "generate_candidates_system1",
     "get_total_days_system1",
     "generate_roc200_ranking_system1",
+    "system1_row_passes_setup",
+    "System1Diagnostics",
+    "summarize_system1_diagnostics",
 ]

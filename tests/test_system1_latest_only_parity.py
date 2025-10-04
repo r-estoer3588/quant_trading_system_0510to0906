@@ -55,11 +55,11 @@ def test_system1_latest_only_parity_latest_day():
     top_n = 3
 
     # Fast path (latest_only)
-    fast_by_date, fast_df = generate_candidates_system1(prepared, top_n=top_n, latest_only=True)
+    _, fast_df, _ = generate_candidates_system1(prepared, top_n=top_n, latest_only=True)
     assert fast_df is not None, "Fast path returned None unexpectedly"
 
     # Full path
-    full_by_date, full_df = generate_candidates_system1(prepared, top_n=top_n, latest_only=False)
+    full_by_date, full_df, _ = generate_candidates_system1(prepared, top_n=top_n, latest_only=False)
     assert full_df is not None, "Full path returned None unexpectedly"
     assert latest_day in full_by_date, "Full path missing latest day candidates"
 

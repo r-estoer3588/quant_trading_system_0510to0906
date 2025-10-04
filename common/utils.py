@@ -77,8 +77,36 @@ def safe_filename(symbol: str) -> str:
     """
     Windows予約語を避けたファイル名を返す
     """
+    # 環境変数 SAFE_FILENAME_DISABLE=1 でサニタイズ自体を無効化（Linux/macOSで統一したい場合など）
+    try:
+        if os.getenv("SAFE_FILENAME_DISABLE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return symbol
+    except Exception:
+        pass
     if symbol.upper() in RESERVED_WORDS:
         return symbol + "_RESV"
+    return symbol
+
+
+def unsanitize_symbol(symbol: str) -> str:
+    """予約語サフィックスを取り除き元シンボルを推定して返す。
+
+    仕様:
+      - *_RESV で終わる場合に限り候補抽出
+      - 前半部分が予約語集合に該当すれば前半を返す（例: CON_RESV -> CON）
+      - それ以外は入力をそのまま返す
+    """
+    if not symbol or not isinstance(symbol, str):  # defensive
+        return symbol
+    if symbol.endswith("_RESV"):
+        base = symbol[:-5]
+        if base.upper() in RESERVED_WORDS:
+            return base
     return symbol
 
 

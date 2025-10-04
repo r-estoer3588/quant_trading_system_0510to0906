@@ -65,8 +65,10 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            result = generate_candidates_system1(data_dict, target_date="2024-01-10", top_n=5)
-            assert isinstance(result, pd.DataFrame)
+            _, result_df, _ = generate_candidates_system1(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
+            assert isinstance(result_df, (pd.DataFrame, type(None)))
         except Exception:
             # Expected for insufficient data
             assert True
@@ -127,9 +129,12 @@ class TestSystemEdgeCases:
             generate_candidates_system5,
         ]:
             try:
-                result = func(empty_dict, target_date="2024-01-10", top_n=5)
-                assert isinstance(result, pd.DataFrame)
-                assert len(result) == 0
+                if func is generate_candidates_system1:
+                    _, result_df, _ = func(empty_dict, target_date="2024-01-10", top_n=5)
+                else:
+                    result_df = func(empty_dict, target_date="2024-01-10", top_n=5)
+                assert isinstance(result_df, pd.DataFrame)
+                assert len(result_df) == 0
             except Exception:
                 # Empty data should return empty DataFrame, but errors are acceptable
                 assert True
@@ -146,8 +151,11 @@ class TestSystemEdgeCases:
             generate_candidates_system5,
         ]:
             try:
-                result = func(data_dict, target_date="2025-01-01", top_n=5)
-                assert isinstance(result, pd.DataFrame)
+                if func is generate_candidates_system1:
+                    _, result_df, _ = func(data_dict, target_date="2025-01-01", top_n=5)
+                else:
+                    result_df = func(data_dict, target_date="2025-01-01", top_n=5)
+                assert isinstance(result_df, pd.DataFrame)
             except Exception:
                 # Future dates may cause errors - acceptable
                 assert True

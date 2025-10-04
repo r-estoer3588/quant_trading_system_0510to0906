@@ -174,6 +174,7 @@ class AllocationSummary:
     budget_remaining: dict[str, float] | None = None
     capital_long: float | None = None
     capital_short: float | None = None
+    system_diagnostics: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Validate allocation summary after initialization."""
@@ -801,6 +802,7 @@ def finalize_allocation(
     default_capital: float = 100000.0,
     default_long_ratio: float = 0.5,
     default_max_positions: int = 10,
+    system_diagnostics: Mapping[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, AllocationSummary]:
     """Combine per-system candidates into the final trade list.
 
@@ -941,6 +943,17 @@ def finalize_allocation(
             capital_short=short_cap,
         )
 
+    if system_diagnostics:
+        try:
+            summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
+        except Exception:
+            try:
+                summary.system_diagnostics = dict(system_diagnostics)
+            except Exception:
+                summary.system_diagnostics = None
+    else:
+        summary.system_diagnostics = None
+
     if not final_df.empty:
         final_df = _sort_final_frame(final_df)
     else:
@@ -983,6 +996,7 @@ def to_allocation_summary_dict(summary: AllocationSummary | Any) -> dict[str, An
             "budget_remaining",
             "capital_long",
             "capital_short",
+            "system_diagnostics",
         ]
         out: dict[str, Any] = {}
         for f in fields:

@@ -114,9 +114,9 @@ def run_mypy(paths: List[str], limit: int) -> ToolResult:
     cmd = ["mypy", "--hide-error-context", "--no-color-output", *paths]
     code, out, err = run_cmd(cmd)
     text = out + err
-    lines = [l for l in text.splitlines() if l.strip()]
+    lines = [line for line in text.splitlines() if line.strip()]
     # 最終行に summary があるケース: "Found X errors" 等
-    error_lines = [l for l in lines if ": error:" in l or l.endswith(" error")]
+    error_lines = [line for line in lines if ": error:" in line or line.endswith(" error")]
     issues = len(error_lines)
     if code == 0:
         return ToolResult(name="mypy", status="success", issues=0)
@@ -131,9 +131,9 @@ def run_pytest(limit: int) -> ToolResult:
     text = (out + err).strip()
     # pytest は失敗で非 0 だが、短い summary 行を抽出
     summary = None
-    for l in reversed(text.splitlines()):
-        if " failed" in l or " passed" in l:
-            summary = l
+    for line in reversed(text.splitlines()):
+        if " failed" in line or " passed" in line:
+            summary = line
             break
     if code == 0:
         return ToolResult(

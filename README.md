@@ -16,6 +16,61 @@ Streamlit ベースのアプリで 7 つの売買システムを可視化・バ�
 
 ---
 
+## 🎉 新機能: Diagnostics API
+
+Phase0-7 で導入された **Diagnostics API** により、各システムの候補生成プロセスを詳細に追跡できるようになりました。
+
+### 主な診断キー
+
+すべてのシステム(System1-7)で以下の統一キーが取得できます:
+
+- `setup_predicate_count`: Setup 条件を満たした行数
+- `final_top_n_count`: 最終候補件数(ランキング後)
+- `ranking_source`: `"latest_only"` または `"full_scan"`
+
+これにより、候補がどのように絞り込まれたかを明確に把握でき、トラブルシューティングや検証が容易になります。
+
+### 使用例
+
+```python
+from core.system1 import generate_system1_candidates
+
+candidates, diagnostics = generate_system1_candidates(df, current_date, latest_only=True)
+
+print(diagnostics)
+# {
+#   "ranking_source": "latest_only",
+#   "setup_predicate_count": 5,
+#   "final_top_n_count": 3,
+#   ...
+# }
+```
+
+### Snapshot Export
+
+Mini パイプライン実行後に診断情報を JSON 形式でエクスポート可能:
+
+```bash
+python scripts/run_all_systems_today.py --test-mode mini --skip-external
+cat results_csv_test/diagnostics_snapshot_*.json | jq '.systems'
+```
+
+### 差分比較ツール
+
+2 つのスナップショットを比較して、診断情報の変化を検出:
+
+```bash
+python tools/compare_diagnostics_snapshots.py \
+  --baseline baseline.json \
+  --current current.json \
+  --output diff.json \
+  --summary
+```
+
+**詳細は [docs/technical/diagnostics.md](./docs/technical/diagnostics.md) を参照してください。**
+
+---
+
 ## セットアップ
 
 1. 仮想環境を作成し依存関係をインストール:

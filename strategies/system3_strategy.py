@@ -5,6 +5,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_greater_equal,
+)
 from core.system3 import (
     generate_candidates_system3,
     get_total_days_system3,
@@ -60,6 +65,26 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             latest_only=latest_only,
             **kwargs,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diagnostics = result
+            self.last_diagnostics = diagnostics
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                data_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=latest_only,
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="drop3d",
+                    rank_predicate=numeric_greater_equal("drop3d", 0.125),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 

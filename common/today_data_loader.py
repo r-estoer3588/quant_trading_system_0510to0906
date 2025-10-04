@@ -592,6 +592,19 @@ def load_indicator_data(
     start_ts = time.time()
     chunk = 500
 
+    # 個別銘柄ごとの "⛔ rolling未整備" ログは冗長になるため既定で抑制し、
+    # ループ終了後にサマリーのみを出力する方針に変更。
+    # 旧挙動を復活させたい場合は環境変数 ROLLING_MISSING_VERBOSE=1 を設定。
+    missing_symbols: list[str] = []
+    # 理由別カウンタ (生成失敗/長さ不足など) を収集し最終サマリーに載せる
+    missing_reasons: dict[str, int] = {}
+    verbose_missing = os.environ.get("ROLLING_MISSING_VERBOSE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
     for idx, sym in enumerate(symbols, start=1):
         try:
             df = None
@@ -640,6 +653,7 @@ def load_indicator_data(
 
             needs_rebuild = df is None or getattr(df, "empty", True)
             if needs_rebuild:
+                # 理由はまとめて使わないが、将来の詳細集約用途に保持するならタプル拡張可
                 if df is None or getattr(df, "empty", True):
                     reason_desc = "rolling未生成"
                 else:
@@ -647,11 +661,18 @@ def load_indicator_data(
                         reason_desc = f"len={len(df)}/{target_len}"
                     except Exception:
                         reason_desc = "行数不足"
-                if _log:
-                    _log(
-                        f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
-                        ui=False,
-                    )
+                missing_symbols.append(sym)
+                missing_reasons[reason_desc] = missing_reasons.get(reason_desc, 0) + 1
+                if verbose_missing and _log:
+                    from common.cache_warnings import get_rolling_issue_aggregator
+
+                    agg = get_rolling_issue_aggregator()
+                    # CacheManager 側で "missing_rolling" が既に記録されている場合は二重報告を抑止
+                    if not agg.has_issue("missing_rolling", sym):
+                        _log(
+                            f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
+                            ui=False,
+                        )
                 continue
 
             if df is not None and not df.empty:
@@ -697,6 +718,38 @@ def load_indicator_data(
                     _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
                 if _emit_ui_log:
                     _emit_ui_log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
+
+    # ループ終了後に missing のサマリーをバッチ表示
+    if missing_symbols and _log:
+        try:
+            total_missing = len(missing_symbols)
+            # 10%刻み（最低1件）で分割して見やすさ確保
+            batch_size = max(1, int(total_missing * 0.1))
+            for i in range(0, total_missing, batch_size):
+                batch = missing_symbols[i : i + batch_size]
+                symbols_str = ", ".join(batch)
+                _log(
+                    f"⚠️ rolling未整備 ({i+1}〜{min(i+batch_size, total_missing)}/{total_missing}): {symbols_str}",
+                    ui=False,
+                )
+            # 理由別分布を整形
+            if missing_reasons:
+                try:
+                    reason_parts = [
+                        f"{k}={v}"
+                        for k, v in sorted(missing_reasons.items(), key=lambda x: (-x[1], x[0]))
+                    ]
+                    reason_str = " / ".join(reason_parts)
+                except Exception:
+                    reason_str = ""
+            else:
+                reason_str = ""
+            base_summary = f"💡 rolling未整備の計{total_missing}銘柄は自動的にスキップされました（base/full_backupからの再試行は不要）"
+            if reason_str:
+                base_summary += f" | 内訳: {reason_str}"
+            _log(base_summary, ui=False)
+        except Exception:
+            pass
 
     try:
         total_elapsed = max(0.0, time.time() - start_ts)

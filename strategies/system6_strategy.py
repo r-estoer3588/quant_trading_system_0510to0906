@@ -4,6 +4,11 @@ import numpy as np
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
+from common.system_diagnostics import (
+    SystemDiagnosticSpec,
+    build_system_diagnostics,
+    numeric_greater_than,
+)
 from core.system6 import (
     generate_candidates_system6,
     get_total_days_system6,
@@ -65,8 +70,30 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
+            include_diagnostics=True,
             **kwargs,
         )
+        if isinstance(result, tuple) and len(result) == 3:
+            candidates_by_date, merged_df, diag = result
+            self.last_diagnostics = diag
+            result = (candidates_by_date, merged_df)
+        elif isinstance(result, tuple) and len(result) == 2:
+            candidates_by_date, merged_df = result
+            # fallback to computed diagnostics if core didn't return it
+            self.last_diagnostics = build_system_diagnostics(
+                self.SYSTEM_NAME,
+                data_dict,
+                candidates_by_date,
+                top_n=top_n,
+                latest_only=bool(kwargs.get("latest_only", False)),
+                spec=SystemDiagnosticSpec(
+                    rank_metric_name="return_6d",
+                    rank_predicate=numeric_greater_than("return_6d", 0.20),
+                ),
+            )
+            result = (candidates_by_date, merged_df)
+        else:
+            self.last_diagnostics = None
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 

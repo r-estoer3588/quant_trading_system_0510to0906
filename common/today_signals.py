@@ -7,7 +7,7 @@ import time as _t
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,7 @@ from common.utils_spy import (
     get_spy_with_indicators,
 )
 from config.settings import get_settings
+from core.system1 import system1_row_passes_setup
 from core.system5 import DEFAULT_ATR_PCT_THRESHOLD, format_atr_pct_threshold_label
 from strategies.constants import (
     STOP_ATR_MULTIPLE_DEFAULT,
@@ -276,6 +277,7 @@ class CandidateExtraction:
     market_df: pd.DataFrame | None
     early_exit_frame: pd.DataFrame | None = None
     zero_reason: str | None = None
+    diagnostics: dict[str, Any] | None = None
 
 
 @dataclass
@@ -734,24 +736,43 @@ def _generate_candidates_for_system(
     }
     if can_override_top_n:
         call_kwargs["top_n"] = TODAY_TOP_N
+    # request diagnostics when supported by underlying core functions
+    call_kwargs["include_diagnostics"] = True
 
     if needs_market_df and market_df_arg is not None:
         market_df_local = market_df_arg
-        candidates_by_date, _ = gen_fn(
+        result = gen_fn(
             prepared,
             market_df=market_df_arg,
             **call_kwargs,
         )
     elif needs_market_df:
-        candidates_by_date, _ = gen_fn(
+        result = gen_fn(
             prepared,
             **call_kwargs,
         )
     else:
-        candidates_by_date, _ = gen_fn(
+        result = gen_fn(
             prepared,
             **call_kwargs,
         )
+
+    candidates_by_date = None
+    diagnostics_payload: dict[str, Any] | None = None
+
+    if isinstance(result, tuple):
+        if len(result) >= 3:
+            candidates_by_date = result[0]
+            diagnostics_payload = result[2]
+        elif len(result) == 2:
+            candidates_by_date = result[0]
+        elif len(result) == 1:
+            candidates_by_date = result[0]
+    else:
+        candidates_by_date = result
+
+    if diagnostics_payload is None:
+        diagnostics_payload = getattr(strategy, "last_diagnostics", None)
 
     if not candidates_by_date:
         zero_reason = "no_candidates_generated"
@@ -765,11 +786,12 @@ def _generate_candidates_for_system(
             market_df_local,
             None,
             zero_reason,
+            diagnostics_payload,
         )
 
     _log_elapsed(log_callback, "⏱️ セットアップ/候補抽出 完了", t1)
 
-    return CandidateExtraction(candidates_by_date, market_df_local)
+    return CandidateExtraction(candidates_by_date, market_df_local, diagnostics=diagnostics_payload)
 
 
 def _compute_setup_pass(
@@ -779,6 +801,7 @@ def _compute_setup_pass(
     filter_pass: int,
     today: pd.Timestamp,
     log_callback: Callable[[str], None] | None,
+    candidate_diagnostics: dict[str, object] | None = None,
 ) -> int:
     try:
         prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
@@ -824,21 +847,6 @@ def _compute_setup_pass(
                 pass
             latest_rows[str(sym)] = row
 
-        # === STRUCTURE DEBUG (TEMP) ======================================
-        if log_callback:
-            try:
-                sample_row = next(iter(latest_rows.values())) if latest_rows else None
-                log_callback(
-                    f"[DBG latest_rows] keys={list(latest_rows.keys())} count={len(latest_rows)}"
-                )
-                if sample_row is not None:
-                    log_callback(
-                        f"[DBG latest_rows first] index_head={list(sample_row.index)[:25]} has_symbol={'symbol' in sample_row}"
-                    )
-            except Exception:
-                pass
-        # =================================================================
-
         def _count_if(rows: list[pd.Series], fn: Callable[[pd.Series], bool]) -> int:
             cnt = 0
             for row in rows:
@@ -854,115 +862,83 @@ def _compute_setup_pass(
         setup_pass = 0
 
         if name == "system1":
-            # フィルタ列が存在しない (latest_only 高速経路など) 場合は True とみなして除外しない
-            filtered_rows = [r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))]
-            # 強制標準出力デバッグ (一時) --- 開始
-            try:
-                print(
-                    f"PRINT_DBG system1 filtered_rows={len(filtered_rows)} latest_rows_keys={list(latest_rows.keys())}",
-                    flush=True,
-                )
-                # 先頭1行のインデックス
-                if filtered_rows:
-                    first = filtered_rows[0]
-                    try:
-                        print(
-                            "PRINT_DBG system1 first_index_head=",
-                            list(first.index)[:25],
-                            "has_symbol=",
-                            ("symbol" in first),
-                            flush=True,
-                        )
-                    except Exception:
-                        pass
-                for rr in filtered_rows:
-                    symv = rr.get("symbol") or rr.get("Symbol") or rr.get("SYMBOL")
-                    if symv == "AAPL":
-                        print(
-                            "PRINT_DBG system1 AAPL row_keys_head=",
-                            list(rr.index)[:40],
-                            "sma25=",
-                            get_indicator(rr, "sma25"),
-                            "sma50=",
-                            get_indicator(rr, "sma50"),
-                            flush=True,
-                        )
-                        break
-            except Exception:
-                pass
-            # 強制標準出力デバッグ (一時) --- 終了
+            allow_fallback = False
+            if isinstance(candidate_diagnostics, dict):
+                mode = str(candidate_diagnostics.get("mode", "")).lower()
+                allow_fallback = mode == "latest_only"
 
-            # === DEBUG (TEMP) =====================================================
-            # AAPL の最終行指標値を一度ログに出して SMA25/SMA50 判定が常に 0 になる原因を特定する。
-            # 後で必ず削除すること。
-            if log_callback:
-                try:
-                    for r in filtered_rows:
-                        sym = r.get("symbol") or r.get("Symbol") or r.get("SYMBOL")
-                        if sym == "AAPL":
-                            v_sma25 = get_indicator(r, "sma25")
-                            v_sma50 = get_indicator(r, "sma50")
-                            v_close = r.get("Close")
-                            log_callback(
-                                f"[DBG system1 AAPL] sma25={v_sma25} sma50={v_sma50} close={v_close} keys={list(r.keys())[:20]}"
-                            )
-                            break
-                except Exception:
-                    pass
-            # =====================================================================
+            filter_ok_count = 0
+            setup_flag_true = 0
+            fallback_count = 0
+            roc200_positive = 0
+            final_pass_count = 0
+            reason_counts: dict[str, int] = {}
 
-            def _sma_ok(row: pd.Series) -> bool:  # SMA25 > SMA50
-                try:
-                    a = to_float(get_indicator(row, "sma25"))
-                    b = to_float(get_indicator(row, "sma50"))
-                    return (not np.isnan(a)) and (not np.isnan(b)) and a > b
-                except Exception:
-                    return False
+            for symbol, row in latest_rows.items():
+                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=allow_fallback)
+                if flags["filter_ok"]:
+                    filter_ok_count += 1
+                if flags["setup_flag"]:
+                    setup_flag_true += 1
+                if flags["fallback_ok"]:
+                    fallback_count += 1
+                if flags["roc200_positive"]:
+                    roc200_positive += 1
+                if passed:
+                    final_pass_count += 1
+                elif reason:
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
 
-            sma_pass = _count_if(filtered_rows, _sma_ok)
-
-            # SPY gate: Close > SMA100
             try:
                 spy_df = get_spy_with_indicators(market_df if market_df is not None else None)
             except Exception:
                 spy_df = None
-            try:
-                if spy_df is None or getattr(spy_df, "empty", True):
-                    spy_gate: int | None = None
-                else:
-                    last_row = spy_df.iloc[-1]
-                    close_val = to_float(last_row.get("Close"))
-                    sma_val = to_float(get_indicator(last_row, "sma100"))
-                    if np.isnan(close_val) or np.isnan(sma_val):
-                        spy_gate = None
-                    else:
-                        spy_gate = 1 if close_val > sma_val else 0
-            except Exception:
+            spy_gate_bool = _make_spy_gate(spy_df, column="sma100")
+            if spy_gate_bool is True:
+                spy_gate = 1
+            elif spy_gate_bool is False:
+                spy_gate = 0
+            else:
                 spy_gate = None
 
-            setup_pass = sma_pass if spy_gate != 0 else 0
+            setup_pass = final_pass_count if spy_gate != 0 else 0
+
             if log_callback:
                 try:
                     spy_label = "-" if spy_gate is None else str(int(spy_gate))
-                    log_callback(
-                        "🧩 system1セットアップ集計: "
-                        f"フィルタ通過={filter_pass}, SPY>SMA100: {spy_label}, "
-                        f"SMA25>SMA50: {sma_pass}"
-                    )
+                    parts = [
+                        f"フィルタ通過={filter_pass}",
+                        f"再計算フィルタ={filter_ok_count}",
+                        f"setup列True={setup_flag_true}",
+                        f"fallback通過={fallback_count}",
+                        f"ROC200>0={roc200_positive}",
+                        f"最終候補={final_pass_count}",
+                        f"SPY>SMA100: {spy_label}",
+                    ]
+                    if reason_counts:
+                        top_items = sorted(
+                            reason_counts.items(), key=lambda kv: kv[1], reverse=True
+                        )[:2]
+                        parts.append("除外理由=" + ", ".join(f"{k}:{v}" for k, v in top_items))
+                    log_callback("🧩 system1セットアップ集計: " + ", ".join(parts))
                 except Exception:
                     pass
         elif name == "system2":
 
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
-                    vv = to_float(get_indicator(row, "rsi3"))
+                    row_map = cast(Mapping[str, Any], row)
+                    vv = to_float(get_indicator(row_map, "rsi3"))
                     return (not np.isnan(vv)) and vv > 90
                 except Exception:
                     return False
 
             def _two_up_ok(row: pd.Series) -> bool:
                 # 複数エイリアスの OR 判定（指標そのものがブール/数値 いずれでも True 判定）
-                return bool(get_indicator(row, "twodayup") or get_indicator(row, "uptwodays"))
+                row_map = cast(Mapping[str, Any], row)
+                return bool(
+                    get_indicator(row_map, "twodayup") or get_indicator(row_map, "uptwodays")
+                )
 
             filtered_rows = [r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))]
             rsi_pass = _count_if(filtered_rows, _rsi_ok)
@@ -983,14 +959,16 @@ def _compute_setup_pass(
             def _close_ok(row: pd.Series) -> bool:
                 try:
                     c = to_float(row.get("Close"))
-                    s = to_float(get_indicator(row, "sma150"))
+                    row_map = cast(Mapping[str, Any], row)
+                    s = to_float(get_indicator(row_map, "sma150"))
                     return (not np.isnan(c)) and (not np.isnan(s)) and c > s
                 except Exception:
                     return False
 
             def _drop_ok(row: pd.Series) -> bool:
                 try:
-                    d = to_float(get_indicator(row, "drop3d"))
+                    row_map = cast(Mapping[str, Any], row)
+                    d = to_float(get_indicator(row_map, "drop3d"))
                     return (not np.isnan(d)) and d >= 0.125
                 except Exception:
                     return False
@@ -1012,7 +990,8 @@ def _compute_setup_pass(
             def _above_sma(row: pd.Series) -> bool:
                 try:
                     c = to_float(row.get("Close"))
-                    s = to_float(get_indicator(row, "sma200"))
+                    row_map = cast(Mapping[str, Any], row)
+                    s = to_float(get_indicator(row_map, "sma200"))
                     return (
                         (("filter" not in row) or bool(row.get("filter")))
                         and (not np.isnan(c))
@@ -1094,8 +1073,9 @@ def _compute_setup_pass(
             def _price_ok(row: pd.Series) -> bool:
                 try:
                     c = to_float(row.get("Close"))
-                    s = to_float(get_indicator(row, "sma100"))
-                    a = to_float(get_indicator(row, "atr10"))
+                    row_map = cast(Mapping[str, Any], row)
+                    s = to_float(get_indicator(row_map, "sma100"))
+                    a = to_float(get_indicator(row_map, "atr10"))
                     return (
                         (("filter" not in row) or bool(row.get("filter")))
                         and (not np.isnan(c) and not np.isnan(s) and not np.isnan(a))
@@ -1106,14 +1086,16 @@ def _compute_setup_pass(
 
             def _adx_ok(row: pd.Series) -> bool:
                 try:
-                    vv = to_float(get_indicator(row, "adx7"))
+                    row_map = cast(Mapping[str, Any], row)
+                    vv = to_float(get_indicator(row_map, "adx7"))
                     return (not np.isnan(vv)) and vv > 55
                 except Exception:
                     return False
 
             def _rsi_ok(row: pd.Series) -> bool:
                 try:
-                    vv = to_float(get_indicator(row, "rsi3"))
+                    row_map = cast(Mapping[str, Any], row)
+                    vv = to_float(get_indicator(row_map, "rsi3"))
                     return (not np.isnan(vv)) and vv < 50
                 except Exception:
                     return False
@@ -1136,13 +1118,17 @@ def _compute_setup_pass(
 
             def _ret_ok(row: pd.Series) -> bool:
                 try:
-                    vv = to_float(get_indicator(row, "return_6d"))
+                    row_map = cast(Mapping[str, Any], row)
+                    vv = to_float(get_indicator(row_map, "return_6d"))
                     return (not np.isnan(vv)) and vv > 0.20
                 except Exception:
                     return False
 
             def _up_two(row: pd.Series) -> bool:
-                return bool(get_indicator(row, "uptwodays") or get_indicator(row, "twodayup"))
+                row_map = cast(Mapping[str, Any], row)
+                return bool(
+                    get_indicator(row_map, "uptwodays") or get_indicator(row_map, "twodayup")
+                )
 
             ret_pass = _count_if(filtered_rows, _ret_ok)
             up_pass = _count_if(filtered_rows, lambda r: _ret_ok(r) and _up_two(r))
@@ -2457,6 +2443,7 @@ def get_today_signals_for_strategy(
         progress_callback=progress_callback,
         log_callback=log_callback,
     )
+    candidate_diagnostics = candidates.diagnostics
     if candidates.early_exit_frame is not None:
         try:
             if stage_progress:
@@ -2476,6 +2463,7 @@ def get_today_signals_for_strategy(
         filter_pass,
         today_ts,
         log_callback,
+        candidate_diagnostics,
     )
     try:
         setup_pass = int(setup_pass)
@@ -2522,6 +2510,11 @@ def get_today_signals_for_strategy(
         except Exception:
             pass
         empty_frame = _empty_today_signals_frame(setup_zero_reason or "setup_pass_zero")
+        if candidate_diagnostics is not None:
+            try:
+                empty_frame.attrs["candidate_diagnostics"] = candidate_diagnostics
+            except Exception:
+                pass
         return empty_frame
 
     selection = _select_candidate_date(
@@ -2582,6 +2575,12 @@ def get_today_signals_for_strategy(
             )
     except Exception:
         pass
+
+    if candidate_diagnostics is not None and signals_df is not None:
+        try:
+            signals_df.attrs["candidate_diagnostics"] = candidate_diagnostics
+        except Exception:
+            pass
 
     return signals_df
 
