@@ -549,6 +549,7 @@ def append_to_cache(
     *,
     progress_callback: Callable[[int, int, int], None] | None = None,
     progress_step: int = PROGRESS_STEP_DEFAULT,
+    tail_rows: int | None = None,
 ) -> tuple[int, int]:
     """
     取得した1日分のデータを CacheManager の full/rolling にインクリメンタル反映する。
@@ -570,7 +571,8 @@ def append_to_cache(
     }
     # 列名大文字・混在対策
     df = df.copy()
-    df.columns = [str(c).lower() for c in df.columns]
+    # Use rename mapping to keep type information consistent
+    df = df.rename(columns={c: str(c).lower() for c in df.columns})
     df = df.rename(columns={k: v for k, v in cols_map.items() if k in df.columns})
     if "date" not in df.columns:
         return 0, 0
@@ -624,7 +626,8 @@ def append_to_cache(
             if not cols_exist:
                 return 0, 0, sym_norm
             rows = g[cols_exist].copy()
-            rows.columns = [str(c).lower() for c in rows.columns]
+            # Use rename mapping to keep type information consistent
+            rows = rows.rename(columns={c: str(c).lower() for c in rows.columns})
             # グループ内で重複列名がある場合はここで除去
             try:
                 cols_idx = pd.Index(rows.columns)
@@ -637,6 +640,33 @@ def append_to_cache(
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
+
+            # 既存の最終日付以上の新規データが無ければ処理をスキップ（高速化）
+            try:
+                skip_if_no_new = (os.getenv("BULK_SKIP_IF_NO_NEW_DATE") or "1").strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                }
+            except Exception:
+                skip_if_no_new = True
+            if skip_if_no_new:
+                try:
+                    last_old = None
+                    if (
+                        existing_raw is not None
+                        and not existing_raw.empty
+                        and "date" in existing_raw.columns
+                    ):
+                        last_old = pd.to_datetime(existing_raw["date"], errors="coerce").max()
+                    last_new = None
+                    if new_raw is not None and not new_raw.empty and "date" in new_raw.columns:
+                        last_new = pd.to_datetime(new_raw["date"], errors="coerce").max()
+                    if pd.notna(last_old) and pd.notna(last_new) and last_new <= last_old:
+                        return 1, 0, sym_norm
+                except Exception:
+                    pass
             combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
                 return 0, 0, sym_norm
@@ -699,38 +729,57 @@ def append_to_cache(
                         return 0, 0, sym_norm
                 except Exception:
                     pass
-            indicator_source = _prepare_indicator_source(combined)
+            # 指標再計算はテールのみ（必要十分な履歴長を tail_rows で確保）
+            if tail_rows is None or tail_rows <= 0:
+                try:
+                    tail_rows_eff = int(os.getenv("BULK_TAIL_ROWS") or 240)
+                except Exception:
+                    tail_rows_eff = 240
+            else:
+                tail_rows_eff = int(tail_rows)
+
+            # テール抽出（最後の tail_rows_eff 本）
+            combined_tail = combined
+            try:
+                if len(combined) > tail_rows_eff:
+                    combined_tail = combined.iloc[-tail_rows_eff:].reset_index(drop=True)
+            except Exception:
+                pass
+
+            indicator_source = _prepare_indicator_source(combined_tail)
             if indicator_source.empty:
                 return 0, 0, sym_norm
 
             enriched = None
-            # Call add_indicators under a global lock so that if one worker
-            # raises KeyboardInterrupt we can prevent other workers from
-            # attempting the same call (tests expect a single attempt).
+            # 指標計算: テストの決定性を保つため deterministic のときのみロック。
             if stop_event.is_set():
                 return 0, 0, sym_norm
-            with add_indicators_lock:
-                if stop_event.is_set():
-                    return 0, 0, sym_norm
-                try:
+            try:
+                if use_lock:
+                    with add_indicators_lock:
+                        if stop_event.is_set():
+                            return 0, 0, sym_norm
+                        enriched = add_indicators(indicator_source)
+                else:
                     enriched = add_indicators(indicator_source)
-                except KeyboardInterrupt:
-                    stop_event.set()
-                    raise
-                except Exception as exc:
-                    print(f"{sym_norm}: indicator calc error - {exc}")
-                    enriched = indicator_source.copy()
+            except KeyboardInterrupt:
+                stop_event.set()
+                raise
+            except Exception as exc:
+                print(f"{sym_norm}: indicator calc error - {exc}")
+                enriched = indicator_source.copy()
             if enriched is None:
                 enriched = indicator_source.copy()
 
             # cache_daily_data.py に合わせて列は大文字系で保持
-            full_ready = enriched.reset_index().sort_values("Date").reset_index(drop=True)
+            full_tail_ready = enriched.reset_index().sort_values("Date").reset_index(drop=True)
             # Close/AdjClose を相互補完
-            if "Close" not in full_ready.columns and "AdjClose" in full_ready.columns:
-                full_ready["Close"] = full_ready["AdjClose"]
-            if "AdjClose" not in full_ready.columns and "Close" in full_ready.columns:
-                full_ready["AdjClose"] = full_ready["Close"]
-            full_ready = _merge_existing_full(full_ready, existing_full)
+            if "Close" not in full_tail_ready.columns and "AdjClose" in full_tail_ready.columns:
+                full_tail_ready["Close"] = full_tail_ready["AdjClose"]
+            if "AdjClose" not in full_tail_ready.columns and "Close" in full_tail_ready.columns:
+                full_tail_ready["AdjClose"] = full_tail_ready["Close"]
+            # 既存 full とテールをマージ（重複日は新しい方＝テールを優先）
+            full_ready = _merge_existing_full(full_tail_ready, existing_full)
             prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
                 prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
@@ -740,50 +789,28 @@ def append_to_cache(
                 print(f"{sym_norm}: write full error - {exc}")
                 return 1, 0, sym_norm
 
-            # rolling frame
-            rolling_raw = _build_rolling_frame(full_ready, cm)
-            # Build rolling with rich indicators (Return_Pct/Min_50/UpTwoDays 等)。
-            # まず add_indicators を試し、失敗時は compute_base_indicators へフォールバック。
-            try:
-                ind_src_roll = _prepare_indicator_source(rolling_raw)
-                if ind_src_roll is None or getattr(ind_src_roll, "empty", True):
-                    raise ValueError("empty_indicator_source_for_rolling")
-                rolling_ind = add_indicators(ind_src_roll)
-            except Exception as exc_add:
-                try:
-                    # Fallback to base indicator set (previous behaviour)
-                    rolling_ind = compute_base_indicators(rolling_raw)
-                    if rolling_ind is None or getattr(rolling_ind, "empty", True):
-                        raise ValueError("compute_base_indicators_returned_empty")
-                except Exception as exc_base:
-                    msg_add = str(exc_add)
-                    msg_base = str(exc_base)
-                    print(
-                        f"{sym_norm}: rolling indicator error - "
-                        f"add_indicators={msg_add} / base={msg_base}"
-                    )
-                    rolling_ind = None
-
-            if rolling_ind is None or getattr(rolling_ind, "empty", False):
-                rolling_ready = rolling_raw
-            else:
-                try:
-                    rolling_ready = rolling_ind.reset_index()
-                    rolling_ready = rolling_ready.sort_values("Date")
-                    rolling_ready = rolling_ready.reset_index(drop=True)
-                except Exception:
-                    rolling_ready = rolling_raw
+            # rolling frame: full_ready の末尾を切り出すだけで再計算コストを削減
+            rolling_ready = _build_rolling_frame(full_ready, cm)
 
             try:
                 cm.write_atomic(rolling_ready, sym_norm, "rolling")
             except Exception as exc:
                 print(f"{sym_norm}: write rolling error - {exc}")
 
-            try:
-                base_df = compute_base_indicators(full_ready)
-            except Exception as exc:
-                print(f"{sym_norm}: base indicator error - {exc}")
+            skip_base = (os.getenv("BULK_SKIP_BASE_INDICATORS") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            if skip_base:
                 base_df = None
+            else:
+                try:
+                    base_df = compute_base_indicators(full_ready)
+                except Exception as exc:
+                    print(f"{sym_norm}: base indicator error - {exc}")
+                    base_df = None
 
             # Ensure we always produce a base CSV (tests expect it). If
             # indicator computation failed or returned empty, fall back to
@@ -834,8 +861,8 @@ def append_to_cache(
         except Exception:
             cfg_workers = None
         try:
-            env_workers = os.getenv("BULK_UPDATE_WORKERS")
-            env_workers = int(env_workers) if env_workers else None
+            env_workers_str = os.getenv("BULK_UPDATE_WORKERS")
+            env_workers = int(env_workers_str) if env_workers_str else None
         except Exception:
             env_workers = None
         try:
@@ -905,6 +932,8 @@ def append_to_cache(
         # same call (keeps tests deterministic).
         stop_event = threading.Event()
         add_indicators_lock = threading.Lock()
+        # 非決定モードではロックを外して指標計算の同時並列を許可
+        use_lock = deterministic
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
             # Submit up to max_workers tasks and then feed remaining as tasks complete
             pending: set[concurrent.futures.Future] = set()
@@ -992,6 +1021,7 @@ def run_bulk_update(
     progress_callback: Callable[[int, int, int], None] | None = None,
     progress_step: int = PROGRESS_STEP_DEFAULT,
     fetch_universe: bool = True,
+    tail_rows: int | None = None,
 ) -> BulkUpdateStats:
     """Fetch (or reuse) bulk last-day data and upsert into caches."""
 
@@ -1061,6 +1091,7 @@ def run_bulk_update(
         cm,
         progress_callback=progress_callback,
         progress_step=resolved_step,
+        tail_rows=tail_rows,
     )
 
     stats.processed_symbols = total
@@ -1083,6 +1114,28 @@ def main():
         default=None,
         help="カンマ区切りで対象シンボルを指定（例: AAPL,MSFT,GOOGL）",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="ワーカ数を明示指定（環境変数 BULK_UPDATE_WORKERS より優先）",
+    )
+    parser.add_argument(
+        "--skip-base",
+        action="store_true",
+        help="base 指標計算をスキップして保存（高速化）",
+    )
+    parser.add_argument(
+        "--no-skip-date",
+        action="store_true",
+        help="新規日付が無い銘柄も処理（デフォルトは新規日付なしをスキップ）",
+    )
+    parser.add_argument(
+        "--tail-rows",
+        type=int,
+        default=None,
+        help=("指標の再計算に用いるテール行数（未指定時は環境変数 BULK_TAIL_ROWS または 240）"),
+    )
     args = parser.parse_args()
     if not API_KEY:
         print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
@@ -1097,6 +1150,14 @@ def main():
     # 大量の NaN 率ログなどのヘルスチェック出力を抑止して速度重視にする（実行中のみ適用）
     _prev_cache_health_silent = os.environ.get("CACHE_HEALTH_SILENT")
     os.environ["CACHE_HEALTH_SILENT"] = "1"
+
+    # 実行オプションに応じて環境変数をセット（このプロセス内のみ有効）
+    if args.workers is not None and args.workers > 0:
+        os.environ["BULK_UPDATE_WORKERS"] = str(args.workers)
+    if args.skip_base:
+        os.environ["BULK_SKIP_BASE_INDICATORS"] = "1"
+    if args.no_skip_date:
+        os.environ["BULK_SKIP_IF_NO_NEW_DATE"] = "0"
 
     progress_state = {"processed": 0, "total": 0, "updated": 0}
 
@@ -1125,7 +1186,7 @@ def main():
             if total <= 0:
                 total = max(processed, 0)
             print(
-                f"  💓 Heartbeat {now_hb}: {processed}/{total} processed (updated {updated})",
+                (f"  💓 Heartbeat {now_hb}: {processed}/{total} processed " f"(updated {updated})"),
                 flush=True,
             )
 
@@ -1153,6 +1214,7 @@ def main():
             progress_callback=_report_progress,
             progress_step=PROGRESS_STEP_DEFAULT,
             fetch_universe=(universe_limit is None),
+            tail_rows=args.tail_rows,
         )
     except CacheUpdateInterrupted as exc:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
