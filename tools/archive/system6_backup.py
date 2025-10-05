@@ -8,12 +8,7 @@ import pandas as pd
 from ta.volatility import AverageTrueRange
 
 from common.i18n import tr
-from common.utils import (
-    BatchSizeMonitor,
-    get_cached_data,
-    is_today_run,
-    resolve_batch_size,
-)
+from common.utils import BatchSizeMonitor, get_cached_data, is_today_run, resolve_batch_size
 from common.utils_spy import resolve_signal_entry_date
 
 SYSTEM6_BASE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
@@ -297,9 +292,7 @@ def prepare_data_vectorized_system6(
                         x["High"], x["Low"], x["Close"], window=10
                     ).average_true_range()
                 if "dollarvolume50" in df.columns:
-                    x["dollarvolume50"] = pd.to_numeric(
-                        df["dollarvolume50"], errors="coerce"
-                    )
+                    x["dollarvolume50"] = pd.to_numeric(df["dollarvolume50"], errors="coerce")
                 else:
                     x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
                 # 派生（軽量）

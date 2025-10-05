@@ -47,12 +47,52 @@ class CacheFileManager:
             else:
                 return csv_path
 
-    def read_with_fallback(
-        self, path: Path, ticker: str, profile: str
-    ) -> pd.DataFrame | None:
+    def read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
         """指定パスからデータを読み込み、失敗時はフォールバック。"""
         if not path.exists():
             return None
+
+        def _coerce_1d_values(df: pd.DataFrame) -> pd.DataFrame:
+            """セルに配列やSeriesが入っている場合でも1次元スカラーに正規化する。"""
+            if df is None or df.empty:
+                return df
+            out = df.copy()
+            for col in list(out.columns):
+                s = out[col]
+                # DataFrame（同名重複）で来た場合は最後の列を採用
+                if isinstance(s, pd.DataFrame):
+                    try:
+                        last_col = s.columns[-1]
+                        out[col] = s[last_col]
+                        s = out[col]
+                    except Exception:
+                        continue
+                # オブジェクト列で配列/Seriesが混入している場合はスカラー化
+                if pd.api.types.is_object_dtype(s):
+                    try:
+                        sample = s.dropna().head(5).tolist()
+                        needs_flatten = any(
+                            hasattr(v, "ndim") and getattr(v, "ndim", 0) > 0 for v in sample
+                        )
+                        if needs_flatten:
+
+                            def _flatten(v):
+                                try:
+                                    if hasattr(v, "ndim") and getattr(v, "ndim", 0) > 1:
+                                        return v[..., -1]
+                                    if hasattr(v, "__len__") and not isinstance(v, (str, bytes)):
+                                        try:
+                                            return list(v)[-1]
+                                        except Exception:
+                                            return v
+                                    return v
+                                except Exception:
+                                    return v
+
+                            out[col] = s.map(_flatten)
+                    except Exception:
+                        pass
+            return out
 
         try:
             if path.suffix == ".feather":
@@ -65,6 +105,16 @@ class CacheFileManager:
             if df is not None and not df.empty:
                 # 列名を小文字に統一
                 df.columns = [str(col).lower() for col in df.columns]
+                # 重複カラムの除去（古い壊れたキャッシュ対策）
+                try:
+                    df = df.loc[:, ~df.columns.duplicated(keep="last")]
+                except Exception:
+                    pass
+                # セル内の配列/Seriesをスカラーに正規化
+                try:
+                    df = _coerce_1d_values(df)
+                except Exception:
+                    pass
 
             return df
         except Exception as e:
@@ -79,6 +129,14 @@ class CacheFileManager:
                         increment_cache_io("read_csv")
                         if df is not None and not df.empty:
                             df.columns = [str(col).lower() for col in df.columns]
+                            try:
+                                df = df.loc[:, ~df.columns.duplicated(keep="last")]
+                            except Exception:
+                                pass
+                            try:
+                                df = _coerce_1d_values(df)
+                            except Exception:
+                                pass
                         logger.info(f"[{profile}] {ticker}: CSV フォールバック成功")
                         return df
                     except Exception:
@@ -86,9 +144,7 @@ class CacheFileManager:
 
             return None
 
-    def write_atomic(
-        self, df: pd.DataFrame, path: Path, ticker: str, profile: str
-    ) -> None:
+    def write_atomic(self, df: pd.DataFrame, path: Path, ticker: str, profile: str) -> None:
         """データフレームをアトミック書き込みで保存する。"""
         if df is None or df.empty:
             logger.warning(f"[{profile}] {ticker}: 空のDataFrameをスキップ")
@@ -136,17 +192,12 @@ class CacheFileManager:
                             max_val = optimized[col].max()
 
                             # float32で表現可能な範囲内ならダウンキャスト
-                            if (
-                                -3.4e38 <= min_val <= 3.4e38
-                                and -3.4e38 <= max_val <= 3.4e38
-                            ):
+                            if -3.4e38 <= min_val <= 3.4e38 and -3.4e38 <= max_val <= 3.4e38:
                                 optimized[col] = optimized[col].astype("float32")
 
                     # 整数の最適化
                     elif pd.api.types.is_integer_dtype(optimized[col]):
-                        optimized[col] = pd.to_numeric(
-                            optimized[col], downcast="integer"
-                        )
+                        optimized[col] = pd.to_numeric(optimized[col], downcast="integer")
 
                 except Exception:
                     # 最適化に失敗しても元のデータを保持
@@ -166,9 +217,7 @@ class CacheFileManager:
 
         # keep_columns に含まれる列のみ保持
         keep_columns_lower = [col.lower() for col in keep_columns]
-        available_cols = [
-            col for col in df.columns if col.lower() in keep_columns_lower
-        ]
+        available_cols = [col for col in df.columns if col.lower() in keep_columns_lower]
 
         if not available_cols:
             return df

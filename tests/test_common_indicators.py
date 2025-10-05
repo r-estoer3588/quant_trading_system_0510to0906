@@ -4,11 +4,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from common.indicators_common import (
-    _add_indicators_optimized,
-    add_indicators,
-    add_indicators_batch,
-)
+from common.indicators_common import _add_indicators_optimized, add_indicators, add_indicators_batch
 
 
 class TestIndicatorsCommonBasicFunctions:

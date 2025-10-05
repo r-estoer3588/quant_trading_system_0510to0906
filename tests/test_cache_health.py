@@ -11,10 +11,7 @@ import pandas as pd
 import pytest
 
 from common.cache_manager import CacheManager
-from common.system_groups import (
-    analyze_system_symbols_coverage,
-    format_cache_coverage_report,
-)
+from common.system_groups import analyze_system_symbols_coverage, format_cache_coverage_report
 
 
 class TestCacheHealthFunctionality:
@@ -107,9 +104,7 @@ class TestCacheHealthFunctionality:
             # Mock read method for SPY
             def mock_read(ticker, profile):
                 if ticker == "SPY" and profile == "rolling":
-                    return pd.DataFrame(
-                        {"date": pd.date_range("2023-01-01", periods=120)}
-                    )
+                    return pd.DataFrame({"date": pd.date_range("2023-01-01", periods=120)})
                 return None
 
             cache_manager.read = mock_read
@@ -149,9 +144,7 @@ class TestCacheHealthFunctionality:
         assert report_poor["status"] == "🚨 緊急"
         assert report_poor["priority"] == "高"
         assert "緊急" in report_poor["recommendations"][0]
-        assert (
-            len(report_poor["missing_symbols_preview"]) == 11
-        )  # 10 symbols + "... 他XX"
+        assert len(report_poor["missing_symbols_preview"]) == 11  # 10 symbols + "... 他XX"
 
     def test_analyze_system_symbols_coverage(self):
         """Test system symbols coverage analysis."""
@@ -163,9 +156,7 @@ class TestCacheHealthFunctionality:
 
         cache_analysis_results = {"missing_symbols": ["MSFT", "NVDA"]}
 
-        result = analyze_system_symbols_coverage(
-            system_symbols_map, cache_analysis_results
-        )
+        result = analyze_system_symbols_coverage(system_symbols_map, cache_analysis_results)
 
         # Check system1 (1 missing out of 3)
         assert result["by_system"]["system1"]["total_symbols"] == 3

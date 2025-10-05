@@ -101,9 +101,7 @@ class TestSystem4MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system4(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system4(prepared_dict, top_n=5)
 
         assert isinstance(candidates_by_date, dict)
 
@@ -152,9 +150,7 @@ class TestSystem5MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system5(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system5(prepared_dict, top_n=5)
 
         assert isinstance(candidates_by_date, dict)
 
@@ -203,9 +199,7 @@ class TestSystem6MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system6(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system6(prepared_dict, top_n=5)
 
         assert isinstance(candidates_by_date, dict)
 

@@ -203,11 +203,7 @@ def _merge_ohlcv_variants(df: pd.DataFrame) -> pd.DataFrame:
             if (
                 non_null > best_non_null
                 or (non_null == best_non_null and priority > best_priority)
-                or (
-                    non_null == best_non_null
-                    and priority == best_priority
-                    and idx < best_idx
-                )
+                or (non_null == best_non_null and priority == best_priority and idx < best_idx)
             ):
                 best_idx = idx
                 best_series = series.copy()
@@ -304,9 +300,7 @@ def drop_duplicate_columns(
         duplicate_positions.setdefault(label, []).append(pos)
 
     duplicates = {
-        label: positions
-        for label, positions in duplicate_positions.items()
-        if len(positions) > 1
+        label: positions for label, positions in duplicate_positions.items() if len(positions) > 1
     }
     if not duplicates:
         return df
@@ -341,9 +335,7 @@ def drop_duplicate_columns(
         deduped = df.loc[:, ~df.columns.duplicated()].copy()
 
     message_prefix = f"{context}: " if context else ""
-    message = (
-        f"⚠️ {message_prefix}重複カラムを検出し解消しました -> {', '.join(log_details)}"
-    )
+    message = f"⚠️ {message_prefix}重複カラムを検出し解消しました -> {', '.join(log_details)}"
 
     if log_callback is not None:
         try:
@@ -369,9 +361,7 @@ def get_cached_data(symbol: str, folder: str = "data_cache") -> pd.DataFrame | N
     try:
         from common.cache_manager import load_base_cache  # 遅延import
 
-        df = load_base_cache(
-            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
     except Exception:
         df = None
 

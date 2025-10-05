@@ -62,9 +62,7 @@ class TestSystem1MainFunctions:
         with patch("core.system1.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system1(
-                raw_data_dict=mock_data, reuse_indicators=True
-            )
+            result = prepare_data_vectorized_system1(raw_data_dict=mock_data, reuse_indicators=True)
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -167,9 +165,7 @@ class TestSystem1MainFunctions:
             )
         }
 
-        candidates_by_date, candidates_df, _ = generate_candidates_system1(
-            prepared_data, top_n=10
-        )
+        candidates_by_date, candidates_df, _ = generate_candidates_system1(prepared_data, top_n=10)
 
         assert isinstance(candidates_by_date, dict)
         # Should still return dict structure even if no candidates

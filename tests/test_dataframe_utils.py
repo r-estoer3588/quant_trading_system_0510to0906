@@ -143,9 +143,7 @@ class TestNormalizeDateColumn:
 
     def test_normalize_date_column_with_nan(self):
         """Test normalize_date_column with NaN dates"""
-        df = pd.DataFrame(
-            {"date": ["2023-01-01", None, "2023-01-02"], "price": [100, 150, 200]}
-        )
+        df = pd.DataFrame({"date": ["2023-01-01", None, "2023-01-02"], "price": [100, 150, 200]})
         result = normalize_date_column(df)
 
         # Should remove rows with NaN dates
@@ -351,12 +349,8 @@ class TestRoundDataFrame:
 
     def test_round_dataframe_price_columns(self):
         """Test round_dataframe with price columns"""
-        df = pd.DataFrame(
-            {"open": [100.12345], "close": [101.98765], "high": [102.55555]}
-        )
-        result = round_dataframe(
-            df, 4
-        )  # General decimals, but prices should round to 2
+        df = pd.DataFrame({"open": [100.12345], "close": [101.98765], "high": [102.55555]})
+        result = round_dataframe(df, 4)  # General decimals, but prices should round to 2
 
         assert result["open"].iloc[0] == 100.12
         assert result["close"].iloc[0] == 101.99
@@ -381,9 +375,7 @@ class TestRoundDataFrame:
 
     def test_round_dataframe_generic_numeric_columns(self):
         """Test round_dataframe with generic numeric columns"""
-        df = pd.DataFrame(
-            {"custom_metric": [1.23456789], "another_value": [9.87654321]}
-        )
+        df = pd.DataFrame({"custom_metric": [1.23456789], "another_value": [9.87654321]})
         result = round_dataframe(df, 3)
 
         assert result["custom_metric"].iloc[0] == 1.235

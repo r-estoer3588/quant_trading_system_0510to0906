@@ -15,6 +15,7 @@ Design:
   - Resilient: if mypy not installed or command fails, records failure flag
   - Encoding safe for Windows (force utf-8, replacement errors)
 """
+
 from __future__ import annotations
 
 import argparse

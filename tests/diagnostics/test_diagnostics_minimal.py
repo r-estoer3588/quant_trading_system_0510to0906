@@ -23,9 +23,7 @@ def _make_df_system2(pass_setup: bool = True) -> pd.DataFrame:
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
         df["filter"] = (
-            (df["Close"] >= 5.0)
-            & (df["dollarvolume20"] > 25_000_000)
-            & (df["atr_ratio"] > 0.03)
+            (df["Close"] >= 5.0) & (df["dollarvolume20"] > 25_000_000) & (df["atr_ratio"] > 0.03)
         )
         df["setup"] = df["filter"] & (df["rsi3"] > 90.0) & df["twodayup"]
     return df
@@ -37,9 +35,7 @@ def _make_df_system7(pass_setup: bool = True) -> pd.DataFrame:
     min50 = [96.0, 96.0]  # latest low (95) <= min50 (96) -> setup True
     close = [101.0, 96.5]
     atr50 = [2.5, 2.6]
-    df = pd.DataFrame(
-        {"Low": low, "min_50": min50, "Close": close, "ATR50": atr50}, index=dates
-    )
+    df = pd.DataFrame({"Low": low, "min_50": min50, "Close": close, "ATR50": atr50}, index=dates)
     if pass_setup:
         df["setup"] = df["Low"] <= df["min_50"]
     return df
@@ -56,9 +52,7 @@ def _make_df_system3(pass_setup: bool = True) -> pd.DataFrame:
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
         df["filter"] = (
-            (df["Close"] >= 5.0)
-            & (df["dollarvolume20"] > 25_000_000)
-            & (df["atr_ratio"] >= 0.05)
+            (df["Close"] >= 5.0) & (df["dollarvolume20"] > 25_000_000) & (df["atr_ratio"] >= 0.05)
         )
         df["setup"] = df["filter"] & (df["drop3d"] >= 0.125)
     return df
@@ -90,9 +84,7 @@ def _make_df_system5(pass_setup: bool = True) -> pd.DataFrame:
     }
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
-        df["filter"] = (
-            (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
-        )
+        df["filter"] = (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
         df["setup"] = df["filter"]
     return df
 

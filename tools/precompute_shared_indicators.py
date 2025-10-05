@@ -4,6 +4,7 @@ DEPRECATED: precompute_shared_indicators.py
 This tool has been disabled.
 Use scripts/build_rolling_with_indicators.py instead.
 """
+
 import sys
 
 if __name__ == "__main__":

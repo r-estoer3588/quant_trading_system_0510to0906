@@ -53,9 +53,7 @@ class TestSystem3DirectFunctions:
                     "Close": [200, 205, 203],
                 }
             ),
-            "TSLA": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-04"], "Close": [300, 310]}
-            ),
+            "TSLA": pd.DataFrame({"Date": ["2023-01-01", "2023-01-04"], "Close": [300, 310]}),
         }
 
         result = mock_get_total_days_system3(data_dict)
@@ -99,9 +97,7 @@ class TestSystem3DirectFunctions:
             return len(all_dates)
 
         data_dict = {
-            "AAPL": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}
-            ),
+            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}),
             "GOOGL": None,  # None値
             "TSLA": pd.DataFrame({"Date": ["2023-01-03"], "Close": [300]}),
         }
@@ -128,25 +124,19 @@ class TestSystem3DirectFunctions:
 
         # Case 1: "Date" カラム
         data_dict_date = {
-            "AAPL": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]}
-            )
+            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 105]})
         }
         assert mock_get_total_days_system3(data_dict_date) == 2
 
         # Case 2: "date" カラム（小文字）
         data_dict_lowercase = {
-            "GOOGL": pd.DataFrame(
-                {"date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}
-            )
+            "GOOGL": pd.DataFrame({"date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]})
         }
         assert mock_get_total_days_system3(data_dict_lowercase) == 2
 
         # Case 3: index が日付（DatetimeIndex）
         dates_index = pd.to_datetime(["2023-01-01", "2023-01-02"])
-        data_dict_index = {
-            "TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)
-        }
+        data_dict_index = {"TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)}
         assert mock_get_total_days_system3(data_dict_index) == 2
 
     def test_system3_generate_candidates_basic_structure_direct(self):
@@ -245,14 +235,10 @@ class TestSystem3DirectFunctions:
                 processed_df = df.copy()
                 if "Close" in processed_df.columns:
                     # SMA5を計算
-                    processed_df["SMA5"] = (
-                        processed_df["Close"].rolling(window=5).mean()
-                    )
+                    processed_df["SMA5"] = processed_df["Close"].rolling(window=5).mean()
                     # setup シグナルを模擬生成
                     processed_df["setup"] = 0
-                    processed_df.loc[processed_df.index[-1:], "setup"] = (
-                        1  # 最後の行にシグナル
-                    )
+                    processed_df.loc[processed_df.index[-1:], "setup"] = 1  # 最後の行にシグナル
 
                 result_dict[sym] = processed_df
 
@@ -309,9 +295,7 @@ class TestSystem3DirectFunctions:
 
                 processed_df = df.copy()
                 if "Close" in processed_df.columns:
-                    processed_df["SMA5"] = (
-                        processed_df["Close"].rolling(window=5).mean()
-                    )
+                    processed_df["SMA5"] = processed_df["Close"].rolling(window=5).mean()
                     processed_df["setup"] = 0
                     processed_df.loc[processed_df.index[-1:], "setup"] = 1
 
@@ -337,9 +321,7 @@ class TestSystem3DirectFunctions:
 
                 processed_df = df.copy()
                 if "Close" in processed_df.columns:
-                    processed_df["SMA5"] = (
-                        processed_df["Close"].rolling(window=5).mean()
-                    )
+                    processed_df["SMA5"] = processed_df["Close"].rolling(window=5).mean()
                     processed_df["setup"] = 0
                     processed_df.loc[processed_df.index[-1:], "setup"] = 1
 

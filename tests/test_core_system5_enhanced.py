@@ -56,9 +56,7 @@ class TestSystem5Utilities:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert (
-            total_days >= 60
-        )  # Should need at least 60 days for ADX7 and other indicators
+        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""
@@ -374,9 +372,7 @@ class TestSystem5UtilitiesExtended:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert (
-            total_days >= 60
-        )  # Should need at least 60 days for ADX7 and other indicators
+        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""

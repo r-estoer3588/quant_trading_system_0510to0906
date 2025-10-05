@@ -40,11 +40,7 @@ class StrategyBase(ABC):
         if not sys_name:
             parts = module.split(".")
             cand = next(
-                (
-                    p
-                    for p in parts
-                    if p.startswith("system") and any(ch.isdigit() for ch in p)
-                ),
+                (p for p in parts if p.startswith("system") and any(ch.isdigit() for ch in p)),
                 None,
             )
             sys_name = cand or ""
@@ -149,20 +145,14 @@ class StrategyBase(ABC):
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
     # ----------------------------
-    def update_capital_with_exits(
-        self, capital: float, active_positions: list, current_date
-    ):
+    def update_capital_with_exits(self, capital: float, active_positions: list, current_date):
         """
         exit_date == current_date のポジションを決済して損益を反映。
         戻り値: (更新後capital, 未決済active_positions)
         """
-        realized_pnl = sum(
-            p["pnl"] for p in active_positions if p["exit_date"] == current_date
-        )
+        realized_pnl = sum(p["pnl"] for p in active_positions if p["exit_date"] == current_date)
         capital += realized_pnl
-        active_positions = [
-            p for p in active_positions if p["exit_date"] > current_date
-        ]
+        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
         return capital, active_positions
 
     def calculate_position_size(
@@ -269,9 +259,7 @@ class StrategyBase(ABC):
     # リファクタリング用共通メソッド（追加）
     # ----------------------------
 
-    def _resolve_data_params(
-        self, raw_data_or_symbols, use_process_pool=False, **_kwargs
-    ):
+    def _resolve_data_params(self, raw_data_or_symbols, use_process_pool=False, **_kwargs):
         """
         データパラメータの共通解決処理
 
@@ -295,9 +283,7 @@ class StrategyBase(ABC):
     # 共通PnL計算メソッド
     # ----------------------------
 
-    def compute_pnl_long(
-        self, entry_price: float, exit_price: float, shares: int
-    ) -> float:
+    def compute_pnl_long(self, entry_price: float, exit_price: float, shares: int) -> float:
         """
         ロングポジションのPnL計算。
 
@@ -311,9 +297,7 @@ class StrategyBase(ABC):
         """
         return (exit_price - entry_price) * shares
 
-    def compute_pnl_short(
-        self, entry_price: float, exit_price: float, shares: int
-    ) -> float:
+    def compute_pnl_short(self, entry_price: float, exit_price: float, shares: int) -> float:
         """
         ショートポジションのPnL計算。
 
@@ -367,9 +351,7 @@ class StrategyBase(ABC):
         except Exception:
             return min(100, max(10, data_size // 10))
 
-    def _compute_entry_common(
-        self, df, candidate, atr_column="atr20", stop_multiplier=None
-    ):
+    def _compute_entry_common(self, df, candidate, atr_column="atr20", stop_multiplier=None):
         """
         共通エントリー計算（ATRベースのストップロス）
         戻り値: (entry_price, stop_price, entry_idx) または None
@@ -413,9 +395,7 @@ class StrategyBase(ABC):
 
         return entry_price, stop_price, entry_idx
 
-    def _prepare_data_with_fallback(
-        self, core_prepare_func, raw_dict, symbols, **kwargs
-    ):
+    def _prepare_data_with_fallback(self, core_prepare_func, raw_dict, symbols, **kwargs):
         """
         System1用のフォールバック付きprepare_data処理
         """
@@ -456,20 +436,11 @@ class StrategyBase(ABC):
 
         # batch_size の設定（use_process_pool=Falseの時のみ）
         use_process_pool = kwargs.get("use_process_pool", False)
-        if (
-            not use_process_pool
-            and raw_dict is not None
-            and kwargs.get("batch_size") is None
-        ):
+        if not use_process_pool and raw_dict is not None and kwargs.get("batch_size") is None:
             kwargs["batch_size"] = self._get_batch_size_setting(len(raw_dict))
 
         # System1のフォールバック処理
-        if (
-            hasattr(self, "SYSTEM_NAME")
-            and getattr(self, "SYSTEM_NAME", None) == "system1"
-        ):
-            return self._prepare_data_with_fallback(
-                core_prepare_func, raw_dict, symbols, **kwargs
-            )
+        if hasattr(self, "SYSTEM_NAME") and getattr(self, "SYSTEM_NAME", None) == "system1":
+            return self._prepare_data_with_fallback(core_prepare_func, raw_dict, symbols, **kwargs)
         else:
             return core_prepare_func(raw_dict, symbols=symbols, **kwargs)

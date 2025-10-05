@@ -1,3 +1,4 @@
+import argparse
 from collections.abc import Callable, Iterable
 import concurrent.futures
 from dataclasses import dataclass, field
@@ -9,6 +10,7 @@ import threading
 import time
 
 from dotenv import load_dotenv
+import numpy as np
 import pandas as pd
 import requests
 
@@ -27,7 +29,7 @@ from common.cache_manager import (  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 
 try:
-    from common.cache_format import round_dataframe  # type: ignore # noqa: E402
+    from common.cache_format import round_dataframe  # noqa: E402
 except ImportError:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -83,7 +85,7 @@ class BulkUpdateStats:
 
 
 class CacheUpdateInterrupted(
-    Exception
+    Exception,
 ):  # noqa: N801,N818 - keep historical name for callers
     """進捗情報を保持する中断例外。
 
@@ -155,7 +157,7 @@ def _drop_rows_without_price_data(df: pd.DataFrame) -> pd.DataFrame:
     mask = numeric.notna().any(axis=1)
     if mask.all():
         return df
-    return df.loc[mask].reset_index(drop=True)
+    return pd.DataFrame(df.loc[mask].reset_index(drop=True))
 
 
 def _resolve_progress_step(progress_target: int, requested_step: int) -> int:
@@ -255,9 +257,7 @@ def _get_available_memory_mb() -> int | None:
 def _get_configured_rate_limit(cm: CacheManager) -> int | None:
     """Return configured API rate limit (requests per minute) from env or settings."""
     try:
-        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv(
-            "API_RATE_LIMIT_PER_MIN"
-        )
+        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv("API_RATE_LIMIT_PER_MIN")
         if env:
             try:
                 return int(env)
@@ -274,7 +274,15 @@ def _get_configured_rate_limit(cm: CacheManager) -> int | None:
 def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(
-            columns=["date", "open", "high", "low", "close", "adjclose", "volume"]
+            columns=[
+                "date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "adjclose",
+                "volume",
+            ]
         )
     working = df.copy()
     lower_map = {str(col).lower(): col for col in working.columns}
@@ -297,7 +305,19 @@ def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     for alias, target in col_aliases.items():
         src = lower_map.get(alias)
         if src is not None:
-            data[target] = working[src]
+            val = working[src]
+            try:
+                if isinstance(val, pd.DataFrame):
+                    # 重複列名で DataFrame が返る場合は最後の列を採用
+                    val = val.iloc[:, -1]
+                else:
+                    # 2次元の配列ライクは1次元に圧縮
+                    arr = getattr(val, "values", None)
+                    if arr is not None and getattr(arr, "ndim", 1) > 1:
+                        val = pd.Series(arr[:, -1], index=getattr(val, "index", None))
+            except Exception:
+                pass
+            data[target] = val
     frame = pd.DataFrame(data)
     if "adjclose" not in frame.columns and "close" in frame.columns:
         frame["adjclose"] = frame["close"]
@@ -349,7 +369,7 @@ def _build_rolling_frame(full_df: pd.DataFrame, cm: CacheManager) -> pd.DataFram
 
 
 def _concat_excluding_all_na(
-    a: pd.DataFrame | None, b: pd.DataFrame | None, **kwargs
+    a: pd.DataFrame | None, b: pd.DataFrame | None, *, ignore_index: bool = True
 ) -> pd.DataFrame:
     """Concatenate two DataFrames while skipping columns empty in both frames.
 
@@ -395,31 +415,89 @@ def _concat_excluding_all_na(
     else:
         b_cols = [c for c in keep if c in b.columns]
         b_sub = b.loc[:, b_cols]
-    return pd.concat([a_sub, b_sub], ignore_index=kwargs.get("ignore_index", True))
+    return pd.concat([a_sub, b_sub], ignore_index=ignore_index)
 
 
 def _merge_existing_full(
     new_full: pd.DataFrame, existing_full: pd.DataFrame | None
 ) -> pd.DataFrame:
+    """既存データに新規データを追加・更新してマージする。
+
+    既存データをベースとし、新規データで上書き/追加する。
+    これにより既存の指標列も保持される。
+    """
     if existing_full is None or existing_full.empty:
         return new_full
+
+    # 両方をインデックス化（Date / date の両対応）
+    previous = existing_full.copy()
+    new_data = new_full.copy()
+
+    def _ensure_date_index(df: pd.DataFrame) -> pd.DataFrame:
+        if "Date" in df.columns:
+            # 列を信頼し、型を揃えてから index に設定
+            try:
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+            except Exception:
+                pass
+            out = df.set_index("Date", drop=False)
+            return out
+        if "date" in df.columns:
+            try:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            except Exception:
+                pass
+            out = df.set_index("date", drop=False)
+            # 列名を上位仕様の Date に統一
+            if "Date" not in out.columns and "date" in out.columns:
+                out = out.rename(columns={"date": "Date"})
+            return out
+        # フォールバック: 変更せず返す（後段でそのまま結合）
+        return df
+
+    previous = _ensure_date_index(previous)
+    new_data = _ensure_date_index(new_data)
+
+    # concatで結合（新規データを後に配置して重複時は新規優先）
+    combined = pd.concat([previous, new_data])
+
+    # 重複する日付は新規データを優先（最後の値を残す）
+    combined = combined[~combined.index.duplicated(keep="last")]
+
+    # 日付順にソート（DateTimeIndex 以外でも安定ソート）
+    try:
+        combined = combined.sort_index()
+    except Exception:
+        # index が日時でない場合は Date 列でソートを試みる
+        if "Date" in combined.columns:
+            try:
+                combined = combined.sort_values("Date")
+            except Exception:
+                pass
+
+    # 列順を整える（新規データの列を前に、既存の追加列を後ろに）
+    # 大文字小文字違いの重複（例: Close と close）が混在すると後段処理で
+    # 列重複によるエラーの原因になるため、base側の列名(小文字)と衝突する
+    # 既存列は除外する。
     base_columns = list(new_full.columns)
-    merged = new_full.set_index("date")
-    previous = existing_full.copy().set_index("date")
-    for col in previous.columns:
-        if col == "date":
-            continue
-        if col not in merged.columns:
-            merged[col] = previous[col]
-        else:
-            merged[col] = merged[col].combine_first(previous[col])
-    ordered = base_columns + [c for c in previous.columns if c not in base_columns]
-    merged = merged.reset_index()
-    return merged.loc[:, ordered]
+    base_lower = {str(c).lower() for c in base_columns}
+    prev_tail = [
+        c for c in previous.columns if c not in base_columns and str(c).lower() not in base_lower
+    ]
+    ordered = base_columns + prev_tail
+    final_columns = [c for c in ordered if c in combined.columns]
+
+    # インデックスをリセットして返す（Date 列は保持）
+    result = combined.reset_index(drop=True)
+    # 念のため最終的にも列重複を排除（同名があっても最終出現を優先）
+    dedup = result.loc[:, ~result.columns.duplicated(keep="last")]
+    # ordered に存在し、かつ dedup に残っている列を順序維持で返す
+    final = [c for c in final_columns if c in dedup.columns]
+    return dedup[final]
 
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
-    url = f"https://eodhistoricaldata.com/api/eod-bulk-last-day/US?api_token={API_KEY}&fmt=json"
+    url = "https://eodhistoricaldata.com/api/eod-bulk-last-day/US" f"?api_token={API_KEY}&fmt=json"
     try:
         response = requests.get(url, timeout=30)
     except requests.RequestException as exc:
@@ -496,7 +574,8 @@ def append_to_cache(
         except Exception:
             pass
 
-    # Worker function to process one symbol group. Returns (processed_flag, updated_flag)
+    # Worker function to process one symbol group.
+    # Returns (processed_flag, updated_flag)
     def _process_symbol(sym, g):
         try:
             sym_norm = _normalize_symbol(sym)
@@ -517,23 +596,80 @@ def append_to_cache(
                 return 0, 0, sym_norm
             rows = g[cols_exist].copy()
             rows.columns = [str(c).lower() for c in rows.columns]
+            # グループ内で重複列名がある場合はここで除去
+            try:
+                cols_idx = pd.Index(rows.columns)
+                rows = rows.loc[:, ~cols_idx.duplicated(keep="last")]
+            except Exception:
+                pass
             try:
                 existing_full = cm.read(sym_norm, "full")
             except Exception:
                 existing_full = None
             existing_raw = _extract_price_frame(existing_full)
             new_raw = _extract_price_frame(rows)
-            combined = _concat_excluding_all_na(
-                existing_raw, new_raw, ignore_index=True
-            )
+            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
                 return 0, 0, sym_norm
-            combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
+            # 列重複を除去（特に 'date' の重複で Series ではなく DataFrame になるのを防ぐ）
+            try:
+                combined = combined.loc[:, ~combined.columns.duplicated(keep="last")]
+            except Exception:
+                pass
+            # 'Date' / 'date' 候補から1本のSeriesに正規化し、残りは削除
+            date_like_cols = [
+                c for c in combined.columns if str(c).lower() in ("date", "timestamp", "index")
+            ]
+            chosen = None
+            for c in date_like_cols:
+                try:
+                    s = combined[c]
+                    # DataFrame（二重カラム）になっている場合は最後の列を採用
+                    if isinstance(s, pd.DataFrame):
+                        try:
+                            arr2 = s.to_numpy()
+                            if getattr(arr2, "ndim", 1) > 1:
+                                arr2 = arr2[:, -1]
+                            s = pd.Series(arr2, index=s.index)
+                        except Exception:
+                            continue
+                    chosen = s
+                except Exception:
+                    continue
+            if chosen is not None:
+                combined = combined.drop(
+                    columns=[col for col in date_like_cols if col in combined.columns]
+                )
+                # 1次元配列に強制変換してから datetime 変換（2D代入エラー回避）
+                try:
+                    arr = getattr(chosen, "values", None)
+                    if arr is None:
+                        arr = np.array(chosen)
+                    if getattr(arr, "ndim", 1) > 1:
+                        try:
+                            arr = arr[:, -1]
+                        except Exception:
+                            arr = np.ravel(arr)
+                    dates = pd.to_datetime(arr, errors="coerce")
+                except Exception:
+                    dates = pd.to_datetime(chosen, errors="coerce")
+                combined["date"] = dates
             combined = combined.dropna(subset=["date"]).sort_values("date")
             combined = combined.drop_duplicates("date", keep="last")
             combined = combined.reset_index(drop=True)
             if combined.empty:
                 return 0, 0, sym_norm
+            # 価格列が全行でNaN（有効な価格情報なし）の場合はスキップ
+            price_cols = [
+                c for c in ["open", "high", "low", "close", "volume"] if c in combined.columns
+            ]
+            if price_cols:
+                try:
+                    numeric = combined[price_cols].apply(pd.to_numeric, errors="coerce")
+                    if numeric.notna().any(axis=1).sum() == 0:
+                        return 0, 0, sym_norm
+                except Exception:
+                    pass
             indicator_source = _prepare_indicator_source(combined)
             if indicator_source.empty:
                 return 0, 0, sym_norm
@@ -558,28 +694,17 @@ def append_to_cache(
             if enriched is None:
                 enriched = indicator_source.copy()
 
-            full_ready = (
-                enriched.reset_index()
-                .rename(columns=str.lower)
-                .sort_values("date")
-                .reset_index(drop=True)
-            )
-            adjusted_missing = "adjusted_close" not in full_ready.columns
-            has_adjclose = "adjclose" in full_ready.columns
-            if adjusted_missing and has_adjclose:
-                full_ready["adjusted_close"] = full_ready["adjclose"]
-            elif not adjusted_missing and has_adjclose:
-                mask_adj = full_ready["adjusted_close"].isna()
-                if mask_adj.any():
-                    full_ready.loc[mask_adj, "adjusted_close"] = full_ready.loc[
-                        mask_adj, "adjclose"
-                    ]
+            # cache_daily_data.py に合わせて列は大文字系で保持
+            full_ready = enriched.reset_index().sort_values("Date").reset_index(drop=True)
+            # Close/AdjClose を相互補完
+            if "Close" not in full_ready.columns and "AdjClose" in full_ready.columns:
+                full_ready["Close"] = full_ready["AdjClose"]
+            if "AdjClose" not in full_ready.columns and "Close" in full_ready.columns:
+                full_ready["AdjClose"] = full_ready["Close"]
             full_ready = _merge_existing_full(full_ready, existing_full)
             prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
-                prev_full_sorted = (
-                    existing_full.copy().sort_values("date").reset_index(drop=True)
-                )
+                prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
@@ -598,10 +723,7 @@ def append_to_cache(
             else:
                 try:
                     rolling_ready = (
-                        rolling_ind.reset_index()
-                        .rename(columns=str.lower)
-                        .sort_values("date")
-                        .reset_index(drop=True)
+                        rolling_ind.reset_index().sort_values("Date").reset_index(drop=True)
                     )
                 except Exception:
                     rolling_ready = rolling_raw
@@ -625,9 +747,7 @@ def append_to_cache(
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     settings = getattr(cm, "settings", None)
-                    dec = getattr(
-                        getattr(settings, "cache", None), "round_decimals", None
-                    )
+                    dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
                 except Exception:
                     dec = None
 
@@ -636,30 +756,17 @@ def append_to_cache(
                 else:
                     base_reset = round_dataframe(full_ready.reset_index(), dec)
 
-                # Normalize columns to match historical base CSV format used in
-                # tests: ensure 'Date' column exists (capital D) and remove any
-                # transient 'index' column produced by reset_index(). Also ensure
-                # that 'Close' is populated from 'adjusted_close' when available
-                # so that downstream consumers (and tests) see the adjusted price.
+                # cache_daily_data.py の base CSV 形式に合わせる
                 if "index" in base_reset.columns:
                     base_reset = base_reset.drop(columns=["index"])
                 if "date" in base_reset.columns and "Date" not in base_reset.columns:
                     base_reset = base_reset.rename(columns={"date": "Date"})
+                # AdjClose があれば Close をそれで埋める
+                if "AdjClose" in base_reset.columns:
+                    base_reset["Close"] = base_reset["AdjClose"]
 
-                # If adjusted_close exists, prefer it for the 'Close' column
-                if (
-                    "adjusted_close" in base_reset.columns
-                    and "Close" not in base_reset.columns
-                ):
-                    base_reset["Close"] = base_reset["adjusted_close"]
-                elif (
-                    "Close" in base_reset.columns
-                    and "adjusted_close" not in base_reset.columns
-                ):
-                    # ensure column name casing matches expectations
-                    base_reset.rename(columns={"Close": "Close"}, inplace=True)
-
-                # Save base cache using CacheManager's save_base_cache function (now supports feather)
+                # Save base cache using CacheManager's save_base_cache
+                # function (now supports feather)
                 base_path = save_base_cache(sym_norm, base_reset, cm.settings)
             except Exception as exc:
                 print(f"{sym_norm}: write base error - {exc}")
@@ -705,7 +812,8 @@ def append_to_cache(
                 pass
 
         # Consider configured API rate limit (requests per minute)
-        # If specified, convert to approximate concurrent workers to avoid exceeding rate
+        # If specified, convert to approximate concurrent workers to avoid
+        # exceeding rate
         try:
             rate = _get_configured_rate_limit(cm)
             if rate and rate > 0:
@@ -884,6 +992,20 @@ def run_bulk_update(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Bulk last-day updater")
+    parser.add_argument(
+        "--max-symbols",
+        type=int,
+        default=None,
+        help="処理する最大銘柄数（デバッグ用に小さく回す）",
+    )
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        default=None,
+        help="カンマ区切りで対象シンボルを指定（例: AAPL,MSFT,GOOGL）",
+    )
+    args = parser.parse_args()
     if not API_KEY:
         print("EODHD_API_KEY が未設定です (.env を確認)", flush=True)
         return
@@ -910,10 +1032,26 @@ def main():
         )
 
     try:
+        # ユニバース制限の構築
+        universe_limit = None
+        if args.symbols:
+            universe_limit = [s.strip() for s in args.symbols.split(",") if s.strip()]
+
+        if universe_limit is None and args.max_symbols:
+            # 設定からユニバースを取得して小さく制限
+            try:
+                fetched = build_symbol_universe_from_settings(settings)
+                if isinstance(fetched, (list, tuple)):
+                    universe_limit = list(fetched)[: args.max_symbols]
+            except Exception:
+                universe_limit = None
+
         result = run_bulk_update(
             cm,
+            universe=universe_limit,
             progress_callback=_report_progress,
             progress_step=PROGRESS_STEP_DEFAULT,
+            fetch_universe=(universe_limit is None),
         )
     except CacheUpdateInterrupted as exc:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

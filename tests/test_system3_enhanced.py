@@ -92,9 +92,7 @@ class TestSystem3MainFunctions:
 
         prepared_dict = {"AAPL": mock_df, "TSLA": mock_df.copy()}
 
-        candidates_by_date, candidates_df = generate_candidates_system3(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system3(prepared_dict, top_n=5)
 
         assert isinstance(candidates_by_date, dict)
 

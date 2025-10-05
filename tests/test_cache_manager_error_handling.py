@@ -12,12 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from common.cache_manager import (
-    CacheManager,
-    _read_legacy_cache,
-    load_base_cache,
-    save_base_cache,
-)
+from common.cache_manager import CacheManager, _read_legacy_cache, load_base_cache, save_base_cache
 
 # Skip problematic import for now
 # from common.cache_manager_old import _write_dataframe_to_csv
@@ -148,8 +143,7 @@ class TestPermissionErrors:
 
             # エラーログが出力されることを確認
             assert any(
-                "Failed to write formatted CSV" in record.message
-                for record in caplog.records
+                "Failed to write formatted CSV" in record.message for record in caplog.records
             )
 
     def test_rolling_meta_write_permission_error(self, tmp_path):
@@ -178,9 +172,7 @@ class TestCorruptedDataErrors:
         # より深刻な破損CSVファイルを作成（pandas読み取りエラーを引き起こす）
         corrupted_csv = tmp_path / "full" / "CORRUPT.csv"
         corrupted_csv.parent.mkdir(parents=True, exist_ok=True)
-        corrupted_csv.write_text(
-            "date,open\n2024-01-01,invalid_number\n", encoding="utf-8"
-        )
+        corrupted_csv.write_text("date,open\n2024-01-01,invalid_number\n", encoding="utf-8")
 
         # pandas.read_csvを直接モックして確実にエラーを発生させる
         with patch("pandas.read_csv") as mock_read_csv:
@@ -308,7 +300,6 @@ class TestIOErrors:
             patch("os.path.exists") as mock_exists,
             patch("os.remove") as mock_remove,
         ):
-
             mock_move.side_effect = OSError("Move failed")
             mock_exists.return_value = True
             mock_remove.side_effect = OSError("Cannot remove temp file")
@@ -319,8 +310,7 @@ class TestIOErrors:
 
             # エラーログが出力されることを確認
             assert any(
-                "Failed to remove temporary file" in record.message
-                for record in caplog.records
+                "Failed to remove temporary file" in record.message for record in caplog.records
             )
 
     def test_health_check_exception_handling(self, tmp_path, caplog):
@@ -336,9 +326,7 @@ class TestIOErrors:
                 cm._perform_health_check(df, "HEALTH_ERROR", "full")
 
             # エラーが適切にハンドリングされ、ログが出力されることを確認
-            assert any(
-                "健全性チェック失敗" in record.message for record in caplog.records
-            )
+            assert any("健全性チェック失敗" in record.message for record in caplog.records)
 
     def test_indicator_recomputation_error(self, tmp_path, caplog):
         """指標再計算時のエラーハンドリング"""
@@ -357,8 +345,7 @@ class TestIOErrors:
 
             # エラーログが出力されることを確認
             assert any(
-                "Failed to recompute indicators" in record.message
-                for record in caplog.records
+                "Failed to recompute indicators" in record.message for record in caplog.records
             )
 
 

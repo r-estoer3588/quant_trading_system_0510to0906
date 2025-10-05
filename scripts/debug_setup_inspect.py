@@ -12,6 +12,7 @@
 安全:
   - 書き込みなし / ネットワークなし
 """
+
 from __future__ import annotations
 
 import argparse

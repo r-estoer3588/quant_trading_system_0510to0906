@@ -381,9 +381,7 @@ class TestCacheManagerAdvancedFeatures:
 
         # Test rolling meta path handling
         assert isinstance(self.manager.rolling_meta_path, Path)
-        assert str(self.manager.rolling_cfg.meta_file) in str(
-            self.manager.rolling_meta_path
-        )
+        assert str(self.manager.rolling_cfg.meta_file) in str(self.manager.rolling_meta_path)
 
     def test_settings_integration(self):
         """Test settings integration and configuration"""
@@ -394,7 +392,4 @@ class TestCacheManagerAdvancedFeatures:
 
         # Test file format configuration
         original_format = getattr(self.settings.cache, "file_format", "auto")
-        assert (
-            self.manager.file_format == original_format
-            or self.manager.file_format == "auto"
-        )
+        assert self.manager.file_format == original_format or self.manager.file_format == "auto"

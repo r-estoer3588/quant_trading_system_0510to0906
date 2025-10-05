@@ -117,9 +117,7 @@ class TestProgressEventEmitter:
                 emitter.emit_system_start("system1", 100, {"extra": "data"})
 
                 # Test system progress
-                emitter.emit_system_progress(
-                    "system1", 50, 100, {"stage": "processing"}
-                )
+                emitter.emit_system_progress("system1", 50, 100, {"stage": "processing"})
 
                 # Test system complete
                 emitter.emit_system_complete("system1", 95, {"filtered": 5})
@@ -206,9 +204,7 @@ class TestGlobalFunctions:
     def test_global_emit_progress(self, mock_emitter):
         """Test global emit_progress function."""
         emit_progress("global_test", {"data": "test"}, "warning")
-        mock_emitter.emit.assert_called_once_with(
-            "global_test", {"data": "test"}, "warning"
-        )
+        mock_emitter.emit.assert_called_once_with("global_test", {"data": "test"}, "warning")
 
     @patch("common.progress_events._progress_emitter")
     def test_global_reset_progress_log(self, mock_emitter):
@@ -220,9 +216,7 @@ class TestGlobalFunctions:
     def test_global_emit_system_start(self, mock_emitter):
         """Test global emit_system_start function."""
         emit_system_start("system1", 100, extra="data")
-        mock_emitter.emit_system_start.assert_called_once_with(
-            "system1", 100, {"extra": "data"}
-        )
+        mock_emitter.emit_system_start.assert_called_once_with("system1", 100, {"extra": "data"})
 
     @patch("common.progress_events._progress_emitter")
     def test_global_emit_system_progress(self, mock_emitter):
@@ -236,14 +230,10 @@ class TestGlobalFunctions:
     def test_global_emit_system_complete(self, mock_emitter):
         """Test global emit_system_complete function."""
         emit_system_complete("system1", 95, filtered=5)
-        mock_emitter.emit_system_complete.assert_called_once_with(
-            "system1", 95, {"filtered": 5}
-        )
+        mock_emitter.emit_system_complete.assert_called_once_with("system1", 95, {"filtered": 5})
 
     @patch("common.progress_events._progress_emitter")
     def test_global_emit_phase(self, mock_emitter):
         """Test global emit_phase function."""
         emit_phase("allocation", "start", count=7)
-        mock_emitter.emit_phase.assert_called_once_with(
-            "allocation", "start", {"count": 7}
-        )
+        mock_emitter.emit_phase.assert_called_once_with("allocation", "start", {"count": 7})

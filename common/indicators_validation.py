@@ -150,9 +150,7 @@ def validate_precomputed_indicators(
     return validation_passed, missing_report
 
 
-def quick_indicator_check(
-    data_dict: dict[str, pd.DataFrame], log_callback=None
-) -> bool:
+def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None) -> bool:
     """
     高速な指標存在チェック（サンプル銘柄のみ）
 

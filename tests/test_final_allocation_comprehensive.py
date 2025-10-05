@@ -169,9 +169,7 @@ class TestFinalizeAllocation:
                     "close": [150.0, 300.0],
                 }
             ),
-            "system2": pd.DataFrame(
-                {"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}
-            ),
+            "system2": pd.DataFrame({"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}),
         }
 
         try:
@@ -346,9 +344,7 @@ class TestFinalizeAllocationDuplicate:
                     "close": [150.0, 300.0],
                 }
             ),
-            "system2": pd.DataFrame(
-                {"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}
-            ),
+            "system2": pd.DataFrame({"symbol": ["TSLA"], "score": [0.9], "close": [800.0]}),
         }
 
         # Mock active positions
@@ -516,9 +512,7 @@ class TestAllocationErrorHandling:
 
         with patch("core.final_allocation.get_settings"):
             try:
-                finalize_allocation(
-                    candidates=invalid_candidates, active_positions={}, mode="slot"
-                )
+                finalize_allocation(candidates=invalid_candidates, active_positions={}, mode="slot")
                 # Should handle gracefully or raise appropriate exception
             except (TypeError, AttributeError, ValueError):
                 # Expected for invalid input

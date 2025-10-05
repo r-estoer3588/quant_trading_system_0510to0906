@@ -58,11 +58,7 @@ def decide_exit_schedule(
         when_future = "tomorrow_open"
     else:
         when_due = "today_close"
-        when_future = (
-            "tomorrow_close"
-            if system_norm in _TOMORROW_CLOSE_SYSTEMS
-            else "today_close"
-        )
+        when_future = "tomorrow_close" if system_norm in _TOMORROW_CLOSE_SYSTEMS else "today_close"
 
     return is_due, when_due if is_due else when_future
 

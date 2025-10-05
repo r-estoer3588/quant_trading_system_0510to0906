@@ -69,7 +69,10 @@ def benchmark_io_methods():
             available_cols = [c for c in essential_cols if c in sample.columns]
             if available_cols:
                 df = pd.read_csv(
-                    file_path, usecols=available_cols, dtype=dtype_map, low_memory=False  # type: ignore
+                    file_path,
+                    usecols=available_cols,
+                    dtype=dtype_map,
+                    low_memory=False,  # type: ignore
                 )
         except Exception:
             pass
@@ -116,9 +119,7 @@ def benchmark_io_methods():
                 first_line = f.readline().strip()
 
             # 基本的なOHLCVカラムがあるかチェック
-            if any(
-                col in first_line.lower() for col in ["open", "high", "low", "close"]
-            ):
+            if any(col in first_line.lower() for col in ["open", "high", "low", "close"]):
                 sample = pd.read_csv(file_path, nrows=0)
                 available_cols = [c for c in essential_cols if c in sample.columns]
 
@@ -126,9 +127,7 @@ def benchmark_io_methods():
                     df = pd.read_csv(
                         file_path,
                         usecols=available_cols,
-                        dtype={
-                            k: v for k, v in dtype_map.items() if k in available_cols
-                        },
+                        dtype={k: v for k, v in dtype_map.items() if k in available_cols},
                         low_memory=False,
                         engine="c",  # Cエンジン使用
                     )

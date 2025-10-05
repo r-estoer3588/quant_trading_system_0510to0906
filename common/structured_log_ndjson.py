@@ -50,9 +50,7 @@ class NDJSONWriter:
         # バッファ設定
         self._buffer: list[str] = []
         self._buffer_lines = self._env_int("STRUCTURED_LOG_BUFFER_LINES", default=0)
-        self._buffer_flush_ms = self._env_int(
-            "STRUCTURED_LOG_BUFFER_FLUSH_MS", default=0
-        )
+        self._buffer_flush_ms = self._env_int("STRUCTURED_LOG_BUFFER_FLUSH_MS", default=0)
         self._last_flush_time = time.time()
         # ローテーション設定
         self._max_mb = self._env_int("STRUCTURED_LOG_MAX_MB", default=0)
@@ -115,11 +113,7 @@ class NDJSONWriter:
                 sz = self._state.path.stat().st_size
                 if sz >= self._max_mb * 1024 * 1024:
                     size_ok = False
-            lines_ok = (
-                True
-                if self._max_lines <= 0
-                else (self._current_lines < self._max_lines)
-            )
+            lines_ok = True if self._max_lines <= 0 else (self._current_lines < self._max_lines)
             if size_ok and lines_ok:
                 return
         except Exception:

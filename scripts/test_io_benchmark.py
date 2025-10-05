@@ -19,9 +19,7 @@ def test_io_optimization():
     """I/O最適化テスト実行"""
 
     # ロギング設定
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
 
     print("=== 並列I/O最適化ベンチマークテスト ===")
@@ -44,9 +42,7 @@ def test_io_optimization():
 
     try:
         print("\nベンチマーク実行開始...")
-        results = benchmark.run_comprehensive_benchmark(
-            profile=profile, sample_size=sample_size
-        )
+        results = benchmark.run_comprehensive_benchmark(profile=profile, sample_size=sample_size)
 
         if not results:
             print("⚠️ ベンチマーク結果が空です - ファイルが見つからない可能性があります")

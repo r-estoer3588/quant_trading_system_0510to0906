@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import ClassVar
 
 import pandas as pd
@@ -91,29 +92,49 @@ class CacheValidator:
     def __init__(self):
         self._warned = self._GLOBAL_WARNED
 
-    def _warn_once(
-        self, ticker: str, profile: str, category: str, message: str
+    def _log_once(
+        self,
+        level: int,
+        ticker: str,
+        profile: str,
+        category: str,
+        message: str,
     ) -> None:
-        """同じ警告を一度だけ出力する。"""
+        """同じメッセージカテゴリは一度だけ出力する。"""
         key = (ticker, profile, category)
         if key in self._warned:
             return
         self._warned.add(key)
-        logger.warning(message)
+        logger.log(level, message)
+
+    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+        """後方互換のための WARN ラッパー。"""
+        self._log_once(logging.WARNING, ticker, profile, category, message)
 
     def check_nan_rates(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
-        """主要指標のNaN率をチェックし、高い場合は警告を出力する。"""
+        """主要指標のNaN率をチェックし、高い場合は警告を出力する。
+
+        ポリシー:
+        - 行数不足で生じるNaNは想定内として情報レベル(またはデバッグ)へ格下げ。
+        - 行数は十分だがNaN率が極端に高い(>=90%)場合のみ警告。
+        - COMPACT_TODAY_LOGS=1 のときは警告を INFO に格下げしてログノイズを抑制。
+        """
         if df is None or df.empty:
             return
 
-        present_indicators = [
-            col for col in MAIN_INDICATOR_COLUMNS if col in df.columns
-        ]
+        present_indicators = [col for col in MAIN_INDICATOR_COLUMNS if col in df.columns]
         if not present_indicators:
             return
 
         total_rows = len(df)
-        problematic_cols = []
+        severe_cols: list[str] = []
+        expected_cols: list[str] = []
+        compact = str(os.getenv("COMPACT_TODAY_LOGS", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         for col in present_indicators:
             try:
@@ -122,25 +143,42 @@ class CacheValidator:
                 nan_rate = nan_count / total_rows if total_rows > 0 else 0.0
 
                 min_obs = _INDICATOR_MIN_OBSERVATIONS.get(col, 50)
-                valid_count = total_rows - nan_count
 
-                # 警告条件: NaN率60%超過 または 有効観測数不足
-                if nan_rate > 0.6 or valid_count < min_obs:
-                    problematic_cols.append(f"{col}({nan_rate:.1%})")
+                # 行数がそもそも足りないケースは想定内として情報扱い
+                if total_rows < min_obs:
+                    expected_cols.append(f"{col}({nan_rate:.1%})")
+                    continue
+
+                # 行数は十分だがNaNが極端に多いときのみ「重度」として扱う
+                # 例: 計算漏れ・列壊れ等
+                if nan_rate >= 0.9:
+                    severe_cols.append(f"{col}({nan_rate:.1%})")
             except Exception:
-                problematic_cols.append(f"{col}(err)")
+                severe_cols.append(f"{col}(err)")
 
-        if problematic_cols:
-            msg = (
-                f"[{profile}] {ticker}: 指標NaN率が高い列: {', '.join(problematic_cols[:5])}"
-                + (
-                    f" (+{len(problematic_cols)-5})"
-                    if len(problematic_cols) > 5
-                    else ""
-                )
+        # 想定内(行数不足)は詳細ログへ
+        if expected_cols:
+            msg_exp = (
+                f"[{profile}] {ticker}: 指標NaN(データ不足で想定内): "
+                f"{', '.join(expected_cols[:5])}"
+                + (f" (+{len(expected_cols)-5})" if len(expected_cols) > 5 else "")
                 + f" (rows={total_rows})"
             )
-            self._warn_once(ticker, profile, "high_nan", msg)
+            # 既定はDEBUG、コンパクト時はINFOに一段上げる（見たいときだけ見えるように）
+            level = logging.INFO if compact else logging.DEBUG
+            self._log_once(level, ticker, profile, "nan_expected", msg_exp)
+
+        # 重度ケースのみ警告（COMPACT_TODAY_LOGS が有効なら INFO に格下げ）
+        if severe_cols:
+            msg = (
+                f"[{profile}] {ticker}: 指標NaN率が高い列: {', '.join(severe_cols[:5])}"
+                + (f" (+{len(severe_cols)-5})" if len(severe_cols) > 5 else "")
+                + f" (rows={total_rows})"
+            )
+            if compact:
+                self._log_once(logging.INFO, ticker, profile, "high_nan_info", msg)
+            else:
+                self._warn_once(ticker, profile, "high_nan", msg)
 
     def check_column_dtypes(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
         """主要列のデータ型をチェックする。"""
@@ -149,9 +187,7 @@ class CacheValidator:
         dtype_info = describe_dtype(df, max_columns=8)
         logger.debug(f"[{profile}] {ticker}: dtypes={dtype_info}")
 
-    def check_non_positive_prices(
-        self, df: pd.DataFrame, ticker: str, profile: str
-    ) -> None:
+    def check_non_positive_prices(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
         """価格列で非正値の割合をチェックする。"""
         price_cols = ["open", "high", "low", "close"]
         issues = []

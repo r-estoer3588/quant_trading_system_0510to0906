@@ -54,9 +54,7 @@ IMPORT_LINE = "from common.i18n import tr\n"
 
 def find_py_files(base: Path) -> list[Path]:
     return [
-        p
-        for p in base.rglob("*.py")
-        if ".venv" not in str(p) and "site-packages" not in str(p)
+        p for p in base.rglob("*.py") if ".venv" not in str(p) and "site-packages" not in str(p)
     ]
 
 
@@ -124,12 +122,8 @@ def process_file(path: Path, apply: bool = False) -> int:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--path", "-p", required=True, help="target directory (relative to repo root)"
-    )
-    p.add_argument(
-        "--apply", action="store_true", help="apply changes (otherwise dry-run)"
-    )
+    p.add_argument("--path", "-p", required=True, help="target directory (relative to repo root)")
+    p.add_argument("--apply", action="store_true", help="apply changes (otherwise dry-run)")
     args = p.parse_args()
 
     base = Path(args.path)

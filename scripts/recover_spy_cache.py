@@ -78,9 +78,7 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
         if "adjusted_close" in df.columns and "close" in df.columns:
             df["raw_close"] = df["close"]  # 元のclose列を保持
             df = df.drop(columns=["close"])  # 元のclose列を削除
-            df = df.rename(
-                columns={"adjusted_close": "close"}
-            )  # adjusted_closeをcloseに
+            df = df.rename(columns={"adjusted_close": "close"})  # adjusted_closeをcloseに
         else:
             df = df.rename(columns=rename_map)
 
@@ -156,8 +154,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.out or args.group:
-        print(
-            "⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます"
-        )
+        print("⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます")
 
     fetch_and_cache_spy_from_eodhd()

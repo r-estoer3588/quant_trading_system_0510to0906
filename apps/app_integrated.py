@@ -88,9 +88,7 @@ def render_digest_log(log_file_path: Path, container: Any) -> None:
 
         # 最新イベント（強調表示）
         latest_event = recent_events[-1]
-        timestamp = (
-            latest_event.get("timestamp", "").split("T")[-1].split(".")[0]
-        )  # HH:MM:SS
+        timestamp = latest_event.get("timestamp", "").split("T")[-1].split(".")[0]  # HH:MM:SS
         event_type = latest_event.get("event_type", "unknown")
         level = latest_event.get("level", "info")
         data = latest_event.get("data", {})
@@ -127,9 +125,7 @@ def render_digest_log(log_file_path: Path, container: Any) -> None:
                 timestamp = event.get("timestamp", "").split("T")[-1].split(".")[0]
                 event_type = event.get("event_type", "unknown")
                 level = event.get("level", "info")
-                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(
-                    level, "📝"
-                )
+                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(level, "📝")
                 display_lines.append(f"- {level_icon} {timestamp} {event_type}")
 
         # 結合してcontainerに表示

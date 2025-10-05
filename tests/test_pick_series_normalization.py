@@ -4,6 +4,7 @@
 Focus: ensure that lower-case and underscore variants resolve without
 explicitly enumerating every variant in call sites.
 """
+
 from __future__ import annotations
 
 import pandas as pd

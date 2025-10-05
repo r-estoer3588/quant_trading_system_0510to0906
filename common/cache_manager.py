@@ -67,9 +67,7 @@ class CacheManager:
         # 入出力管理
         self.file_manager = CacheFileManager(settings)
 
-    def _read_base_and_tail(
-        self, ticker: str, tail_rows: int = 330
-    ) -> pd.DataFrame | None:
+    def _read_base_and_tail(self, ticker: str, tail_rows: int = 330) -> pd.DataFrame | None:
         """baseキャッシュを読み込み、rolling相当の行数でtail処理を行う。
         baseが見つからない場合はfull_backupからフォールバック。"""
         try:
@@ -116,15 +114,11 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
-        base_renamed = base.rename(
-            columns={k: v for k, v in CASE_MAP.items() if k in base.columns}
-        )
+        base_renamed = base.rename(columns={k: v for k, v in CASE_MAP.items() if k in base.columns})
         base_renamed["Date"] = base_renamed["date"]
 
         # 既存の指標列を削除して強制的に再計算を実行
-        indicator_cols = [
-            col for col in base_renamed.columns if col not in BASIC_COLS_WITH_CASE
-        ]
+        indicator_cols = [col for col in base_renamed.columns if col not in BASIC_COLS_WITH_CASE]
         if indicator_cols:
             base_renamed = base_renamed.drop(columns=indicator_cols)
 
@@ -135,12 +129,9 @@ class CacheManager:
             # enriched = standardize_indicator_columns(enriched)
             # 基本列（date, open, high等）のみ小文字に変換
             enriched.columns = [
-                c.lower() if c.lower() in BASIC_OHLCV_COLS else c
-                for c in enriched.columns
+                c.lower() if c.lower() in BASIC_OHLCV_COLS else c for c in enriched.columns
             ]
-            enriched["date"] = pd.to_datetime(
-                enriched.get("date", base["date"]), errors="coerce"
-            )
+            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
 
             # Overwrite indicator columns with freshly computed values while
             # preserving original OHLCV and date columns. This ensures appended
@@ -176,9 +167,7 @@ class CacheManager:
             # サニタイズ無効化モード時 / あるいは以前のファイル命名互換用に元名探索フォールバック
             if (df is None or df.empty) and ticker != original_ticker:
                 try:
-                    legacy_path = self.file_manager.detect_path(
-                        self.rolling_dir, original_ticker
-                    )
+                    legacy_path = self.file_manager.detect_path(self.rolling_dir, original_ticker)
                     if legacy_path.exists():
                         alt = self.file_manager.read_with_fallback(
                             legacy_path, original_ticker, profile
@@ -199,9 +188,7 @@ class CacheManager:
                         self.file_manager.write_atomic(df, path, ticker, profile)
                         logger.debug(f"Generated rolling cache for {ticker}")
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to save generated rolling for {ticker}: {e}"
-                        )
+                        logger.warning(f"Failed to save generated rolling for {ticker}: {e}")
 
                 return df
 
@@ -268,9 +255,7 @@ class CacheManager:
         else:
             # 既存データの列重複チェックとクリーンアップ
             if existing.columns.duplicated().any():
-                print(
-                    f"[WARNING] Existing data has duplicate columns for {ticker}. Cleaning up..."
-                )
+                print(f"[WARNING] Existing data has duplicate columns for {ticker}. Cleaning up...")
                 existing = existing.loc[:, ~existing.columns.duplicated()]
 
             # new_rows からも指標列を削除して OHLCV データのみを保持
@@ -343,11 +328,7 @@ class CacheManager:
     def _get_reference_date(self, anchor_ticker: str = "SPY") -> pd.Timestamp:
         """基準日付を取得する（SPYの最新日付またはNow）"""
         anchor_df = self.read(anchor_ticker, "rolling")
-        if (
-            anchor_df is not None
-            and not anchor_df.empty
-            and "date" in anchor_df.columns
-        ):
+        if anchor_df is not None and not anchor_df.empty and "date" in anchor_df.columns:
             anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
             reference_date = anchor_df["date"].max()
             if pd.notna(reference_date):
@@ -377,9 +358,7 @@ class CacheManager:
             for file_path in rolling_files:
                 ticker_name = file_path.stem
                 try:
-                    df = self.file_manager.read_with_fallback(
-                        file_path, ticker_name, "rolling"
-                    )
+                    df = self.file_manager.read_with_fallback(file_path, ticker_name, "rolling")
                     if df is None or df.empty or "date" not in df.columns:
                         continue
 
@@ -472,9 +451,7 @@ class CacheManager:
                 "insufficient_list": insufficient_data[:10],
                 "stale_list": stale_data[:10],
                 "reference_date": (
-                    reference_date.strftime("%Y-%m-%d")
-                    if pd.notna(reference_date)
-                    else "N/A"
+                    reference_date.strftime("%Y-%m-%d") if pd.notna(reference_date) else "N/A"
                 ),
             }
 
@@ -503,9 +480,7 @@ class CacheManager:
             for file_path in rolling_files[:20]:  # サンプリング
                 try:
                     ticker = file_path.stem
-                    df = self.file_manager.read_with_fallback(
-                        file_path, ticker, "rolling"
-                    )
+                    df = self.file_manager.read_with_fallback(file_path, ticker, "rolling")
                     if df is not None and not df.empty:
                         readable_files += 1
                         total_rows += len(df)
@@ -527,9 +502,7 @@ class CacheManager:
                 "total_files": total_files,
                 "readable_files": readable_files,
                 "sample_total_rows": total_rows,
-                "avg_rows_per_file": (
-                    total_rows / readable_files if readable_files > 0 else 0
-                ),
+                "avg_rows_per_file": (total_rows / readable_files if readable_files > 0 else 0),
                 "sample_date_ranges": date_range_info,
             }
 
@@ -561,9 +534,7 @@ class CacheManager:
             return symbol, df
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_symbol = {
-                executor.submit(read_single, sym): sym for sym in symbols
-            }
+            future_to_symbol = {executor.submit(read_single, sym): sym for sym in symbols}
 
             for future in as_completed(future_to_symbol):
                 symbol, df = future.result()
@@ -612,27 +583,48 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         x["Date"] = pd.to_datetime(x["Date"], errors="coerce")
         x = x.dropna(subset=["Date"]).sort_values("Date").set_index("Date")
 
-    # Standardize OHLCV column names
-    ohlcv_map = {
-        "open": "Open",
-        "high": "High",
-        "low": "Low",
-        "adjusted_close": "Close",
-        "adj_close": "Close",
-        "adjclose": "Close",
-        "close": "Close",
-        "volume": "Volume",
-        "vol": "Volume",
-    }
-    final_rename = {c: ohlcv_map[c] for c in x.columns if c in ohlcv_map}
-    x = x.rename(columns=final_rename)
+    # Standardize OHLCV column names with priority to avoid duplicates
+    # Priority: adjusted_close > adjclose > close for Close column
+    close_candidates = ["adjusted_close", "adjclose", "close"]
+    close_source = None
+    for candidate in close_candidates:
+        if candidate in x.columns:
+            close_source = candidate
+            break
+
+    # Build rename map without duplicates
+    ohlcv_map = {}
+    if "open" in x.columns:
+        ohlcv_map["open"] = "Open"
+    if "high" in x.columns:
+        ohlcv_map["high"] = "High"
+    if "low" in x.columns:
+        ohlcv_map["low"] = "Low"
+    if close_source:
+        ohlcv_map[close_source] = "Close"
+    if "volume" in x.columns:
+        ohlcv_map["volume"] = "Volume"
+    elif "vol" in x.columns:
+        ohlcv_map["vol"] = "Volume"
+
+    # Rename and drop duplicates
+    x = x.rename(columns=ohlcv_map)
+    # 防御的に列重複を除去（大小文字違いの重複や二重リネーム対策）
+    if getattr(x, "columns", None) is not None:
+        try:
+            x = x.loc[:, ~x.columns.duplicated(keep="last")]
+        except Exception:
+            pass
+
+    # Drop unused close-related columns to prevent duplicates
+    cols_to_drop = [c for c in close_candidates if c in x.columns and c != close_source]
+    if cols_to_drop:
+        x = x.drop(columns=cols_to_drop, errors="ignore")
 
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(
-            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
-        )
+        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}")
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -667,7 +659,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         x[f"RSI{n}"] = _rsi(close, n)
 
     # ROC & HV - 大文字統一
-    x["ROC200"] = close.pct_change(200) * 100.0
+    x["ROC200"] = close.pct_change(200, fill_method=None) * 100.0
     log_ret = (close / close.shift(1)).apply(np.log)
     std_dev = log_ret.rolling(50).std()
     x["HV50"] = std_dev * np.sqrt(252) * 100.0
@@ -747,7 +739,9 @@ def base_cache_path(symbol: str) -> Path:
 
 
 def save_base_cache(
-    symbol: str, df: pd.DataFrame, settings: Settings | None = None
+    symbol: str,
+    df: pd.DataFrame,
+    settings: Settings | None = None,
 ) -> Path:
     """Base キャッシュを feather 形式で保存し、パスを返す。"""
     if settings is None:
@@ -761,9 +755,16 @@ def save_base_cache(
 
     # データ前処理
     df_reset = (
-        df.reset_index() if hasattr(df, "index") and df.index.name is not None else df
+        df.reset_index()
+        if hasattr(df, "index") and getattr(df.index, "name", None) is not None
+        else df
     )
+    # 列名を小文字化し、重複列を排除（Featherは重複列名を許容しない）
     df_reset = df_reset.rename(columns={c: str(c).lower() for c in df_reset.columns})
+    try:
+        df_reset = df_reset.loc[:, ~df_reset.columns.duplicated(keep="last")]
+    except Exception:
+        pass
 
     # 設定に基づく丸め処理
     try:

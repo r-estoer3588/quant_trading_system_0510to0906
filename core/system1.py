@@ -9,33 +9,27 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import math
 import os
-from typing import Any, cast
+from typing import Any, Callable, Mapping, cast
 
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
-from common.system_constants import SYSTEM1_REQUIRED_INDICATORS
+from common.system_constants import REQUIRED_COLUMNS, SYSTEM1_REQUIRED_INDICATORS
 from common.system_setup_predicates import system1_setup_predicate
-
-# --- Backward compatibility helpers for legacy direct tests ---
-# Some tests (tests/test_system1_direct.py) expect internal helper functions
-# that existed in the previous refactored version (see system1_backup.py).
-# We reintroduce lightweight versions here without altering the new fast-path
-# design. These are intentionally minimal and rely only on current imports.
-
-REQUIRED_COLUMNS = ("Open", "High", "Low", "Close", "Volume")
 
 
 @dataclass(slots=True)
 class System1Diagnostics:
-    mode: str
-    top_n: int | None = None
+    """Lightweight diagnostics payload for System1 candidate generation."""
+
+    mode: str = "full_scan"  # or "latest_only"
+    top_n: int = 20
+
+    # counts
     symbols_total: int = 0
     symbols_with_data: int = 0
     total_symbols: int = 0
@@ -44,40 +38,37 @@ class System1Diagnostics:
     fallback_pass: int = 0
     roc200_positive: int = 0
     final_pass: int = 0
-    # --- Enrichment (ID8) -------------------------------------------------
-    # predicate による True 判定の総数 (行ベース / latest_only ではシンボルベース)
     setup_predicate_count: int = 0
-    # 最終 top_n に入った数 (latest_only では単一日候補数)
     final_top_n_count: int = 0
-    # setup 列 False だが predicate True (ギャップ検知)
     predicate_only_pass_count: int = 0
-    # mismatch_flag: 1 回でも列 vs predicate 不一致が観測されたら 1
     mismatch_flag: int = 0
-    # ranking_source: 'latest_only' or 'full_scan'
-    ranking_source: str | None = None
-    exclude_reasons: Counter[str] = field(default_factory=Counter)
 
-    def as_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
+    # ranking source marker
+    ranking_source: str | None = None
+
+    # reason histogram
+    exclude_reasons: dict[str, int] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        # normalize defaultdict to plain dict of ints
+        return {
             "mode": self.mode,
-            "top_n": self.top_n,
-            "symbols_total": self.symbols_total,
-            "symbols_with_data": self.symbols_with_data,
-            "total_symbols": self.total_symbols,
-            "filter_pass": self.filter_pass,
-            "setup_flag_true": self.setup_flag_true,
-            "fallback_pass": self.fallback_pass,
-            "roc200_positive": self.roc200_positive,
-            "final_pass": self.final_pass,
-            "setup_predicate_count": self.setup_predicate_count,
-            "final_top_n_count": self.final_top_n_count,
-            "predicate_only_pass_count": self.predicate_only_pass_count,
-            "mismatch_flag": self.mismatch_flag,
+            "top_n": int(self.top_n),
+            "symbols_total": int(self.symbols_total),
+            "symbols_with_data": int(self.symbols_with_data),
+            "total_symbols": int(self.total_symbols),
+            "filter_pass": int(self.filter_pass),
+            "setup_flag_true": int(self.setup_flag_true),
+            "fallback_pass": int(self.fallback_pass),
+            "roc200_positive": int(self.roc200_positive),
+            "final_pass": int(self.final_pass),
+            "setup_predicate_count": int(self.setup_predicate_count),
+            "final_top_n_count": int(self.final_top_n_count),
+            "predicate_only_pass_count": int(self.predicate_only_pass_count),
+            "mismatch_flag": int(self.mismatch_flag),
             "ranking_source": self.ranking_source,
+            "exclude_reasons": {k: int(v) for k, v in dict(self.exclude_reasons).items()},
         }
-        if self.exclude_reasons:
-            data["exclude_reasons"] = dict(self.exclude_reasons)
-        return data
 
 
 def summarize_system1_diagnostics(
@@ -292,9 +283,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [
-            col for col in SYSTEM1_REQUIRED_INDICATORS if col not in df.columns
-        ]
+        missing_indicators = [col for col in SYSTEM1_REQUIRED_INDICATORS if col not in df.columns]
         if missing_indicators:
             return symbol, None
 
@@ -305,7 +294,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000)
 
         # Setup: Filter + Close>SMA200 + ROC200>0
-        x["setup"] = x["filter"] & (x["Close"] > x["sma200"]) & (x["roc200"] > 0)
+        x["setup"] = x["filter"] & ((x["Close"] > x["sma200"]) & (x["roc200"] > 0))
 
         return symbol, x
 
@@ -375,14 +364,10 @@ def prepare_data_vectorized_system1(
                     x = df.copy()
 
                     # Filter: Close>=5, DollarVolume20>25M
-                    x["filter"] = (x["Close"] >= 5.0) & (
-                        x["dollarvolume20"] > 25_000_000
-                    )
+                    x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000)
 
                     # Setup: Filter + Close>SMA200 + ROC200>0
-                    x["setup"] = (
-                        x["filter"] & (x["Close"] > x["sma200"]) & (x["roc200"] > 0)
-                    )
+                    x["setup"] = x["filter"] & ((x["Close"] > x["sma200"]) & (x["roc200"] > 0))
 
                     prepared_dict[symbol] = x
 
@@ -423,7 +408,11 @@ def prepare_data_vectorized_system1(
     )
     _substep(f"batch processing done ok={len(results)} err={len(error_symbols)}")
 
-    return results
+    # Cast batch results to the expected typed mapping
+    typed_results: dict[str, pd.DataFrame] = (
+        cast(dict[str, pd.DataFrame], results) if isinstance(results, dict) else {}
+    )
+    return typed_results
 
     # NOTE: predicate 検証呼び出しは結果返却前に行う設計だが、
     # 上方で return 済みのため通常経路は到達しない。後続統合時に
@@ -447,17 +436,15 @@ def generate_candidates_system1(
 ):
     """System1 candidate generation (ROC200 descending ranking).
 
-    Returns a tuple of (per-date candidates, merged dataframe, diagnostics when requested).
+    Returns a tuple of (per-date candidates, merged dataframe,
+    diagnostics when requested).
     """
 
     if kwargs and log_callback:
         ignored = ", ".join(sorted(map(str, kwargs.keys())))
         log_callback(f"System1: Ignoring unsupported kwargs -> {ignored}")
 
-    if batch_size is not None and log_callback:
-        log_callback(
-            "System1: batch_size parameter is unused during candidate generation"
-        )
+    # batch_size is unused for candidate generation; silently ignore
 
     resolved_top_n = 20 if top_n is None else top_n
     mode = "latest_only" if latest_only else "full_scan"
@@ -488,11 +475,7 @@ def generate_candidates_system1(
     ):
         diag_payload = diag.as_dict()
         normalized = dict(by_date)
-        return (
-            (normalized, merged, diag_payload)
-            if include_diagnostics
-            else (normalized, merged)
-        )
+        return (normalized, merged, diag_payload) if include_diagnostics else (normalized, merged)
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
         diag.symbols_total = len(prepared_dict or {})
@@ -503,9 +486,7 @@ def generate_candidates_system1(
 
     diag.symbols_total = len(prepared_dict)
     diag.symbols_with_data = sum(
-        1
-        for df in prepared_dict.values()
-        if isinstance(df, pd.DataFrame) and not df.empty
+        1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
     )
 
     # Fast path: evaluate only the most recent bar per symbol
@@ -513,11 +494,37 @@ def generate_candidates_system1(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            # Optional: orchestrator may specify a target trading date fallback
+            target_date = None
+            try:
+                maybe = kwargs.get("latest_mode_date")
+                if maybe is not None:
+                    try:
+                        target_date = pd.Timestamp(str(maybe)).normalize()
+                    except Exception:
+                        td = pd.to_datetime(str(maybe), errors="coerce")
+                        if (td is not None) and not pd.isna(td):
+                            target_date = pd.Timestamp(str(td)).normalize()
+            except Exception:
+                target_date = None
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
                 diag.total_symbols += 1
-                last_row = df.iloc[-1]
+                if target_date is not None:
+                    if target_date in df.index:
+                        row_obj = df.loc[target_date]
+                        if isinstance(row_obj, pd.DataFrame):
+                            last_row = row_obj.iloc[-1]
+                        else:
+                            last_row = row_obj
+                        date_val = target_date
+                    else:
+                        # no bar for target date -> skip symbol
+                        continue
+                else:
+                    last_row = df.iloc[-1]
+                    date_val = pd.Timestamp(str(df.index[-1])).normalize()
                 passed, flags, reason = system1_row_passes_setup(last_row)
                 pred_val = system1_setup_predicate(last_row)
                 if pred_val:
@@ -540,7 +547,6 @@ def generate_candidates_system1(
                 diag.final_pass += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
-                date_val = df.index[-1]
                 date_counter[date_val] = date_counter.get(date_val, 0) + 1
                 rows.append(
                     {
@@ -551,22 +557,24 @@ def generate_candidates_system1(
                         "setup": bool(last_row.get("setup", False)),
                     }
                 )
-
-            if not rows:
                 if log_callback:
                     log_callback(
-                        "System1: latest_only fast-path produced 0 rows (after gating) — fallback"
+                        "System1: latest_only fast-path produced 0 rows "
+                        "(after gating) — fallback"
                     )
             else:
                 df_all = pd.DataFrame(rows)
                 try:
-                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                    df_all = df_all[df_all["date"] == mode_date]
+                    if target_date is not None:
+                        df_all = df_all[df_all["date"] == target_date]
+                    else:
+                        mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                        df_all = df_all[df_all["date"] == mode_date]
                 except Exception:
                     pass
-                df_all = df_all.sort_values(
-                    "roc200", ascending=False, kind="stable"
-                ).head(resolved_top_n)
+                df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(
+                    resolved_top_n
+                )
                 diag.final_top_n_count = len(df_all)
                 diag.ranking_source = "latest_only"
                 by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -585,7 +593,8 @@ def generate_candidates_system1(
                 if log_callback:
                     candidate_count = sum(len(v) for v in by_date.values())
                     log_callback(
-                        f"System1: latest_only -> {candidate_count} candidates (symbols={len(rows)})"
+                        f"System1: latest_only -> {candidate_count} candidates "
+                        f"(symbols={len(rows)})"
                     )
                 out_df = df_all.copy()
                 return finalize(by_date, out_df)
@@ -630,13 +639,11 @@ def generate_candidates_system1(
 
             if isinstance(row_obj, pd.DataFrame):
                 row_obj = row_obj.iloc[-1]
-            row = cast(pd.Series, row_obj)
+            row = row_obj  # expected to be a Series after .loc / .iloc
 
             if date == diag_target_date:
                 diag.total_symbols += 1
-                passed, flags, reason = system1_row_passes_setup(
-                    row, allow_fallback=False
-                )
+                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=False)
                 pred_val = system1_setup_predicate(row)
                 if pred_val:
                     diag.setup_predicate_count += 1
@@ -691,9 +698,7 @@ def generate_candidates_system1(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(
-            ["date", "roc200"], ascending=[True, False]
-        )
+        candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
             diag.final_top_n_count = len(candidates_by_date.get(last_date, []))
@@ -706,7 +711,7 @@ def generate_candidates_system1(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            f"System1: Generated {total_candidates} candidates across {unique_dates} dates"
+            "System1: Generated " f"{total_candidates} candidates across {unique_dates} dates"
         )
 
     return finalize(candidates_by_date, candidates_df)
@@ -721,7 +726,7 @@ def get_total_days_system1(data_dict: dict[str, pd.DataFrame]) -> int:
     Returns:
         Maximum day count
     """
-    return get_total_days(data_dict)
+    return int(get_total_days(data_dict))
 
 
 def generate_roc200_ranking_system1(

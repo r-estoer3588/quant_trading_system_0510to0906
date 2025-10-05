@@ -59,9 +59,7 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float(drawdown.min())
 
 
-def _sharpe_daily(
-    returns: pd.Series, risk_free: float = 0.0, periods: int = 252
-) -> float:
+def _sharpe_daily(returns: pd.Series, risk_free: float = 0.0, periods: int = 252) -> float:
     if returns.empty:
         return 0.0
     r = returns - risk_free / periods
@@ -69,9 +67,7 @@ def _sharpe_daily(
     return float(np.sqrt(periods) * (r.mean() / denom)) if denom > 0 else 0.0
 
 
-def _sortino_daily(
-    returns: pd.Series, risk_free: float = 0.0, periods: int = 252
-) -> float:
+def _sortino_daily(returns: pd.Series, risk_free: float = 0.0, periods: int = 252) -> float:
     if returns.empty:
         return 0.0
     r = returns - risk_free / periods

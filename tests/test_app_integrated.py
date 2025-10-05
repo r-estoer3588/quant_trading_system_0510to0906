@@ -54,9 +54,7 @@ def test_app_integrated_main_runs(monkeypatch):
         ui=SimpleNamespace(default_capital=100000),
         logging=SimpleNamespace(level="INFO"),
     )
-    monkeypatch.setattr(
-        app_integrated, "get_settings", lambda create_dirs=True: settings
-    )
+    monkeypatch.setattr(app_integrated, "get_settings", lambda create_dirs=True: settings)
 
     class DummyLogger:
         def info(self, *args, **kwargs):
@@ -68,12 +66,8 @@ def test_app_integrated_main_runs(monkeypatch):
     monkeypatch.setattr(app_integrated, "setup_logging", lambda s: DummyLogger())
     monkeypatch.setattr(app_integrated, "Notifier", lambda platform="discord": object())
     monkeypatch.setattr(app_integrated, "get_spy_data_cached", lambda: None)
-    monkeypatch.setattr(
-        app_integrated, "render_integrated_tab", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        app_integrated, "render_batch_tab", lambda *args, **kwargs: None
-    )
+    monkeypatch.setattr(app_integrated, "render_integrated_tab", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app_integrated, "render_batch_tab", lambda *args, **kwargs: None)
 
     for i in range(1, 8):
         mod = ModuleType(f"app_system{i}")

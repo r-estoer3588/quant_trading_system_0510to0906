@@ -67,9 +67,7 @@ def mark_sent(sym: str, markers: dict[str, Any]) -> None:
     markers[today_key_for(sym)] = {"when": datetime.now().isoformat()}
 
 
-def build_auto_rows(
-    cfg: dict[str, Any], markers: dict[str, Any]
-) -> list[dict[str, Any]]:
+def build_auto_rows(cfg: dict[str, Any], markers: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     # fetch positions via Alpaca client
     client = ba.get_client()

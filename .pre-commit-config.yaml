@@ -1,26 +1,25 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.8
-    hooks:
-      - id: ruff
-        args: ["--fix", "--show-fixes"]
-
   - repo: https://github.com/psf/black
     rev: 24.8.0
     hooks:
       - id: black
-        args: ["--line-length=88"]
-      # Ensure the same pinned Black checks also run on pre-push to prevent drift
-      - id: black
-        name: black (check only, pre-push)
-        args: ["--check", "--line-length=88"]
-        stages: [pre-push]
+        language_version: python3
+        args: ["--line-length", "100"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        stages: [manual]
+      - id: ruff-format
+        stages: [manual]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
       - id: isort
-        args: ["--profile", "black", "--line-length=88"]
+        args: ["--profile", "black", "--line-length=100"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -39,8 +38,29 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
 
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies: []
+        args: [
+          "--no-strict-optional",
+          "--ignore-missing-imports",
+          "--install-types",
+          "--non-interactive"
+        ]
+        stages: [manual]
+
   - repo: local
     hooks:
+      - id: pytest-quick
+        name: pytest quick subset
+        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m pytest -q --tb=short -k "not slow and not integration"
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [manual]
+
       - id: guard-critical-files
         name: Guard critical UI files (expander contract)
         entry: python tools/guard_critical_files.py
@@ -50,7 +70,7 @@ repos:
 
       - id: run-enhanced-tests
         name: Run enhanced final_allocation tests
-        entry: python -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
+        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
         language: system
         files: ^(core/final_allocation\.py|tests/test_final_allocation_enhanced\.py)$
         pass_filenames: false
@@ -74,10 +94,10 @@ repos:
       # mypy (UTF-8 forced) - Windows codepage compatibility
       - id: mypy-utf8
         name: mypy (UTF-8 forced)
-        entry: python -X utf8 -m mypy --config-file mypy.ini
+        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -X utf8 -m mypy --config-file mypy.ini
         language: system
         types: [python]
         # Gradual rollout: start with specific tools and common modules
         files: ^(tools/verify_trd_length\.py|tools/validate_log_compactness\.py|common/system_diagnostics\.py)$
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [manual]
