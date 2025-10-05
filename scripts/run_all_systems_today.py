@@ -92,8 +92,37 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-from tools.notify_metrics import send_metrics_notification
-from tools.verify_trd_length import get_expected_max_for_mode, verify_trd_length
+from tools.notify_metrics import send_metrics_notification  # noqa: E402
+from tools.verify_trd_length import get_expected_max_for_mode, verify_trd_length  # noqa: E402
+
+# --- Console encoding helpers (to mitigate mojibake on Windows terminals) ---
+_NO_EMOJI_ENV = (
+    os.environ.get("NO_EMOJI") or os.environ.get("DISABLE_EMOJI") or ""
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _console_supports_utf8() -> bool:
+    try:
+        enc = (getattr(sys.stdout, "encoding", None) or "").lower()
+        return "utf-8" in enc or "65001" in enc  # CP65001 is UTF-8 on Windows
+    except Exception:
+        return False
+
+
+def _strip_emojis(text: str) -> str:
+    try:
+        import re as _re
+
+        # Remove characters outside BMP (common emojis etc.)
+        return _re.sub(r"[\U00010000-\U0010FFFF]", "", str(text))
+    except Exception:
+        # Fallback: best-effort ASCII replacement
+        try:
+            enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+            return str(text).encode(enc, errors="ignore").decode(enc, errors="ignore")
+        except Exception:
+            return str(text)
+
 
 _LOG_CALLBACK = None
 
@@ -520,6 +549,8 @@ class TodayRunContext:
     skip_external: bool = False  # 外部API呼び出しをスキップ
     # latest_only グローバル制御: "データ基準日"（例: 週末は金曜、平日は当日）
     signal_base_day: pd.Timestamp | None = None
+    # 実行開始時に確定する「エントリー予定日」（基準日の翌営業日）
+    entry_day: pd.Timestamp | None = None
 
 
 def _get_account_equity() -> float:
@@ -1005,8 +1036,20 @@ def _log(
     except Exception:
         ui_allowed = ui
 
-    # CLI へは整形して出力
-    out = f"{prefix}{msg}"
+    # CLI へは整形して出力（非UTF-8端末では絵文字等を安全化）
+    try:
+        display_msg = str(msg)
+        if _NO_EMOJI_ENV or not _console_supports_utf8():
+            try:
+                import unicodedata as _ud
+
+                display_msg = _strip_emojis(display_msg)
+                display_msg = _ud.normalize("NFKC", display_msg)
+            except Exception:
+                display_msg = _strip_emojis(display_msg)
+    except Exception:
+        display_msg = str(msg)
+    out = f"{prefix}{display_msg}"
     try:
         print(out, flush=True)
     except UnicodeEncodeError:
@@ -2424,7 +2467,7 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
 
 
 def _ensure_cli_logger_configured() -> None:
-    """CLI ???????????????????"""
+    """CLI 実行時のファイルロガー設定を保証する。"""
     try:
         if globals().get("_LOG_FILE_PATH") is None:
             _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
@@ -2434,7 +2477,7 @@ def _ensure_cli_logger_configured() -> None:
 
 
 def _silence_streamlit_cli_warnings() -> None:
-    """CLI ???? Streamlit ? bare mode ????????"""
+    """CLI での実行時、Streamlit の bare mode 警告を抑制する。"""
     try:
         if os.environ.get("STREAMLIT_SERVER_ENABLED"):
             return
@@ -2471,7 +2514,7 @@ def _safe_progress_call(
     total: int,
     label: str,
 ) -> None:
-    """?????????????????"""
+    """UI 進捗コールバックを安全に呼び出す（例外は握りつぶす）。"""
     if not callback:
         return
     try:
@@ -2702,16 +2745,16 @@ def _save_and_notify_phase(
 
 
 def _log_previous_counts_summary(signals_dir: Path) -> None:
-    """?????????????????"""
+    """前回実行のシステム別候補件数を簡易表示する。"""
     try:
         prev = _load_prev_counts(signals_dir)
         if prev:
             for i in range(1, 8):
                 key = f"system{i}"
                 v = int(prev.get(key, 0))
-                icon = "?" if v > 0 else "?"
-                suffix = " ??" if v == 0 else ""
-                _log(f"?? {icon} (????) {key}: {v} ?{suffix}")
+                icon = "✅" if v > 0 else "—"
+                suffix = " (0件)" if v == 0 else ""
+                _log(f"前回 {icon} {key}: {v}{suffix}")
     except Exception:
         pass
 
@@ -2721,7 +2764,7 @@ def _apply_system_filters_and_update_ctx(
     symbols: list[str],
     basic_data: dict[str, pd.DataFrame],
 ) -> dict[str, list[str]]:
-    """????????????????????????"""
+    """システム別のフィルターを適用し、ctx.system_filters を更新する。"""
     system1_syms = filter_system1(symbols, basic_data)
     system2_syms = filter_system2(symbols, basic_data)
     system3_syms = filter_system3(symbols, basic_data)
@@ -2756,7 +2799,7 @@ def _apply_system_filters_and_update_ctx(
 
 
 def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System1 ???????????????????"""
+    """System1 の事前条件ヒット数を表示する。"""
     try:
         s1_total = len(symbols)
         s1_price = 0
@@ -2775,13 +2818,16 @@ def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
                 continue
             if dv_ok:
                 s1_dv += 1
-        _log("?? system1???????: " + f"??={s1_total}, ??>=5: {s1_price}, DV20>=50M: {s1_dv}")
+        _log(
+            "system1 事前条件サマリー: "
+            + f"総数={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}"
+        )
     except Exception:
         pass
 
 
 def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System2 ???????????????????"""
+    """System2 の事前条件ヒット数を表示する。"""
     try:
         s2_total = len(symbols)
         c_price = 0
@@ -2806,15 +2852,15 @@ def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if atr_ok:
                 c_atr += 1
         _log(
-            "?? system2???????: "
-            + f"??={s2_total}, ??>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
+            "system2 事前条件サマリー: "
+            + f"総数={s2_total}, 価格>=5: {c_price}, DV20>=25M: {c_dv}, ATR比率>=3%: {c_atr}"
         )
     except Exception:
         pass
 
 
 def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System3 ???????????????????"""
+    """System3 の事前条件ヒット数を表示する。"""
     try:
         s3_total = len(symbols)
         s3_low = 0
@@ -2839,15 +2885,15 @@ def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if atr_ok:
                 s3_atr += 1
         _log(
-            "?? system3???????: "
-            + f"??={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+            "system3 事前条件サマリー: "
+            + f"総数={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
         )
     except Exception:
         pass
 
 
 def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System4 ???????????????????"""
+    """System4 の事前条件ヒット数を表示する。"""
     try:
         s4_total = len(symbols)
         s4_dv = 0
@@ -2866,13 +2912,16 @@ def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
                 continue
             if hv_ok:
                 s4_hv += 1
-        _log("?? system4???????: " + f"??={s4_total}, DV50>=100M: {s4_dv}, HV50 10?40: {s4_hv}")
+        _log(
+            "system4 事前条件サマリー: "
+            + f"総数={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}"
+        )
     except Exception:
         pass
 
 
 def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System5 ???????????????????"""
+    """System5 の事前条件ヒット数を表示する。"""
     try:
         threshold_label = f"ATR_Pct>{DEFAULT_ATR_PCT_THRESHOLD*100:.1f}%"
         s5_total = len(symbols)
@@ -2898,8 +2947,8 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if atr_ok:
                 s5_atr += 1
         _log(
-            "?? system5???????: "
-            + f"??={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
+            "system5 事前条件サマリー: "
+            + f"総数={s5_total}, AvgVol50>500k: {s5_av}, DV50>2.5M: {s5_dv}"
             + f", {threshold_label}: {s5_atr}"
         )
     except Exception:
@@ -2907,7 +2956,7 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
 
 
 def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
-    """System6 ???????????????????"""
+    """System6 の事前条件ヒット数を表示する。"""
     try:
         s6_total = len(symbols)
         s6_low = 0
@@ -2930,20 +2979,20 @@ def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
             if hv_ok:
                 s6_hv += 1
         _log(
-            "?? system6???????: "
-            + f"??={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}, HV50 10?40: {s6_hv}"
+            "system6 事前条件サマリー: "
+            + f"総数={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}, HV50 10〜40: {s6_hv}"
         )
     except Exception:
         pass
 
 
 def _log_system7_filter_stats(basic_data: dict[str, pd.DataFrame]) -> None:
-    """System7 (SPY) ?????????????????"""
+    """System7 (SPY) の事前条件ヒット数を表示する。"""
     try:
         spyp = (
             1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
         )
-        _log("?? system7???????: SPY?? | SPY??=" + str(spyp))
+        _log("system7 事前条件サマリー: SPYの有無 | SPY=" + str(spyp))
     except Exception:
         pass
 
@@ -2953,8 +3002,8 @@ def _log_system_filter_stats(
     basic_data: dict[str, pd.DataFrame],
     filters: dict[str, list[str]],
 ) -> None:
-    """????????????????????????"""
-    _log("?? ?????????? (system1?system6)?")
+    """各システムの事前条件サマリーとフィルター通過件数を表示する。"""
+    _log("各システムの事前条件サマリー (system1〜system6)")
     _log_system1_filter_stats(symbols, basic_data)
     _log_system2_filter_stats(symbols, basic_data)
     _log_system3_filter_stats(symbols, basic_data)
@@ -2969,13 +3018,13 @@ def _log_system_filter_stats(
     system5_syms = filters.get("system5", [])
     system6_syms = filters.get("system6", [])
     _log(
-        "?? ???????: "
-        + f"system1={len(system1_syms)}?, "
-        + f"system2={len(system2_syms)}?, "
-        + f"system3={len(system3_syms)}?, "
-        + f"system4={len(system4_syms)}?, "
-        + f"system5={len(system5_syms)}?, "
-        + f"system6={len(system6_syms)}?"
+        "フィルター通過件数: "
+        + f"system1={len(system1_syms)}件, "
+        + f"system2={len(system2_syms)}件, "
+        + f"system3={len(system3_syms)}件, "
+        + f"system4={len(system4_syms)}件, "
+        + f"system5={len(system5_syms)}件, "
+        + f"system6={len(system6_syms)}件"
     )
 
 
@@ -3022,10 +3071,10 @@ def _prepare_system2_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
 ) -> tuple[dict[str, pd.DataFrame], int, int, int]:
-    """System2 ???????????????????"""
-    _log("?? ?????????????? (system2)?")
+    """System2 の準備データ（フィルター通過集合など）を構築する。"""
+    _log("System2 準備データの集計")
     raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system2={len(raw_data)}??")
+    _log(f"抽出対象の件数: system2={len(raw_data)}件")
     s2_filter = int(len(system_symbols))
     s2_rsi = 0
     s2_combo = 0
@@ -3051,8 +3100,8 @@ def _prepare_system2_data(
             except Exception:
                 pass
         _log(
-            "?? system2????????: "
-            + f"??????={s2_filter}, RSI3>90: {s2_rsi}, "
+            "system2 セットアップ条件: "
+            + f"候補数={s2_filter}, RSI3>90: {s2_rsi}, "
             + f"TwoDayUp: {s2_combo}"
         )
         try:
@@ -3073,10 +3122,10 @@ def _prepare_system3_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
 ) -> tuple[dict[str, pd.DataFrame], int, int, int]:
-    """System3 ???????????????????"""
-    _log("?? ?????????????? (system3)?")
+    """System3 の準備データ（フィルター通過集合など）を構築する。"""
+    _log("System3 準備データの集計")
     raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system3={len(raw_data)}??")
+    _log(f"抽出対象の件数: system3={len(raw_data)}件")
     s3_filter = int(len(system_symbols))
     s3_close = 0
     s3_combo = 0
@@ -3102,9 +3151,9 @@ def _prepare_system3_data(
             except Exception:
                 pass
         _log(
-            "?? system3????????: "
-            + f"??????={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3????>=12.5%: {s3_combo}"
+            "system3 セットアップ条件: "
+            + f"候補数={s3_filter}, Close>SMA150: {s3_close}, "
+            + f"3日下落>=12.5%: {s3_combo}"
         )
         try:
             _stage(
@@ -3126,10 +3175,10 @@ def _prepare_system4_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
 ) -> tuple[dict[str, pd.DataFrame], int, int]:
-    """System4 ???????????????????"""
-    _log("?? ?????????????? (system4)?")
+    """System4 の準備データ（フィルター通過集合など）を構築する。"""
+    _log("System4 準備データの集計")
     raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system4={len(raw_data)}??")
+    _log(f"抽出対象の件数: system4={len(raw_data)}件")
     s4_filter = int(len(system_symbols))
     s4_close = 0
     try:
@@ -3146,7 +3195,7 @@ def _prepare_system4_data(
                     s4_close += 1
             except Exception:
                 pass
-        _log(f"?? system4????????: ??????={s4_filter}, Close>SMA200: {s4_close}")
+        _log(f"system4 セットアップ条件: 候補数={s4_filter}, Close>SMA200: {s4_close}")
         try:
             _stage(
                 "system4",
@@ -3167,10 +3216,10 @@ def _prepare_system5_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
 ) -> tuple[dict[str, pd.DataFrame], int, int, int, int]:
-    """System5 ???????????????????"""
-    _log("?? ?????????????? (system5)?")
+    """System5 の準備データ（フィルター通過集合など）を構築する。"""
+    _log("System5 準備データの集計")
     raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system5={len(raw_data)}??")
+    _log(f"抽出対象の件数: system5={len(raw_data)}件")
     s5_filter = int(len(system_symbols))
     s5_close = 0
     s5_adx = 0
@@ -3206,8 +3255,8 @@ def _prepare_system5_data(
             except Exception:
                 pass
         _log(
-            "?? system5????????: "
-            + f"??????={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
+            "system5 セットアップ条件: "
+            + f"候補数={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
             + f"ADX7>55: {s5_adx}, RSI3<50: {s5_combo}"
         )
         try:
@@ -3230,10 +3279,10 @@ def _prepare_system6_data(
     basic_data: dict[str, pd.DataFrame],
     system_symbols: list[str],
 ) -> tuple[dict[str, pd.DataFrame], int, int, int]:
-    """System6 ???????????????????"""
-    _log("?? ?????????????? (system6)?")
+    """System6 の準備データ（フィルター通過集合など）を構築する。"""
+    _log("System6 準備データの集計")
     raw_data = _subset_data(basic_data, system_symbols)
-    _log(f"?? ???????: system6={len(raw_data)}??")
+    _log(f"抽出対象の件数: system6={len(raw_data)}件")
     s6_filter = int(len(system_symbols))
     s6_ret = 0
     s6_combo = 0
@@ -3260,8 +3309,8 @@ def _prepare_system6_data(
             except Exception:
                 pass
         _log(
-            "?? system6????????: "
-            + f"??????={s6_filter}, return_6d>20%: {s6_ret}, "
+            "system6 セットアップ条件: "
+            + f"候補数={s6_filter}, return_6d>20%: {s6_ret}, "
             + f"UpTwoDays: {s6_combo}"
         )
         try:
@@ -3281,15 +3330,15 @@ def _prepare_system6_data(
 
 
 def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
-    """SPY ??????????????????"""
+    """SPY の DataFrame を指標付きで取得する。"""
     if "SPY" in basic_data:
         try:
             return get_spy_with_indicators(basic_data["SPY"])
         except Exception:
             return None
     _log(
-        "?? SPY ?????????????? (base/full_backup/rolling ?????????)"
-        + " SPY.csv ? data_cache/base ???? data_cache/full_backup ?????????"
+        "SPY の基礎データが見つかりません (base/full_backup/rolling のいずれにも存在しません)。"
+        + " SPY.csv または data_cache/base ならびに data_cache/full_backup を確認してください。"
     )
     return None
 
@@ -3415,9 +3464,15 @@ def compute_today_signals(
     except Exception:
         pass
 
-    # 対象とするNYSE営業日（まず一度だけ決める）
-    today = get_signal_target_trading_day().normalize()
-    ctx.today = today
+    # 対象とするNYSE営業日（実行開始時に一度だけ確定）
+    entry_day = get_signal_target_trading_day().normalize()
+    ctx.today = entry_day  # 互換のため today フィールドはエントリー予定日を指す
+    ctx.entry_day = entry_day
+    try:
+        prev_trading = get_latest_nyse_trading_day(entry_day - pd.Timedelta(days=1))
+        ctx.signal_base_day = pd.Timestamp(prev_trading).normalize()
+    except Exception:
+        ctx.signal_base_day = entry_day
 
     # Run start banner (CLI only) - 最初に実行開始メッセージを表示
     try:
@@ -3441,7 +3496,19 @@ def compute_today_signals(
     except Exception:
         pass
 
-    _log(f"📅 対象営業日（NYSE）: {today.date()}", no_timestamp=True)
+    try:
+        _log(
+            f"📅 エントリー予定日（NYSE）: {entry_day.date()}",
+            no_timestamp=True,
+        )
+        base_day_disp = getattr(ctx, "signal_base_day", None)
+        if base_day_disp is not None:
+            _log(
+                f"📌 シグナル基準日（前営業日）: {pd.Timestamp(base_day_disp).date()}",
+                no_timestamp=True,
+            )
+    except Exception:
+        pass
     _log(
         "ℹ️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。",
         no_timestamp=True,
@@ -3467,27 +3534,44 @@ def compute_today_signals(
     symbols = _prepare_symbol_universe(ctx, symbols)
     basic_data = _load_universe_basic_data(ctx, symbols)
 
-    # latest_only の基準日はここで一度だけ確定する（全システム共通で使用）
+    # 重要: SPY キャッシュの存在と最低限の健全性を起動直後にチェックし、NGなら即停止
+    try:
+        spy_df_check = basic_data.get("SPY") if isinstance(basic_data, dict) else None
+    except Exception:
+        spy_df_check = None
+    if spy_df_check is None or getattr(spy_df_check, "empty", True):
+        _log(
+            "❌ SPYキャッシュが見つかりません（または空です）。処理を中止します。",
+            ui=False,
+        )
+        _log(
+            "💡 対策: data_cache/rolling または base/full_backup に SPY.csv を配置し、"
+            "必要なら scripts/recover_spy_cache.py で復旧してください。",
+            ui=False,
+        )
+        raise SystemExit(1)
+    try:
+        last_dt = _extract_last_cache_date(spy_df_check)
+    except Exception:
+        last_dt = None
+    if last_dt is None:
+        _log(
+            "❌ SPYキャッシュの日付列（date/Date/index）が解釈できません。処理を中止します。",
+            ui=False,
+        )
+        raise SystemExit(1)
+
+    # latest_only の基準日は開始時に確定済み（ctx.signal_base_day）。SPYキャッシュと相違しても警告のみ。
     try:
         spy_df = basic_data.get("SPY") if isinstance(basic_data, dict) else None
-    except Exception:
-        spy_df = None
-    try:
         anchor_last = _extract_last_cache_date(spy_df) if spy_df is not None else None
-    except Exception:
-        anchor_last = None
-    ctx.signal_base_day = ctx.today
-    try:
-        if anchor_last is not None and pd.Timestamp(anchor_last).normalize() != ctx.today:
-            prev = get_latest_nyse_trading_day(ctx.today - pd.Timedelta(days=1))
-            ctx.signal_base_day = pd.Timestamp(prev).normalize()
-            _log(
-                (
-                    "⚠️ latest_only 基準日を切替: "
-                    f"{ctx.today.date()} → {ctx.signal_base_day.date()}"
-                ),
-                ui=False,
-            )
+        if anchor_last is not None:
+            frozen_base = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+            if pd.Timestamp(anchor_last).normalize() != frozen_base:
+                _log(
+                    "⚠️ SPYキャッシュの最終日が固定したシグナル基準日と異なります: "
+                    f"cache={pd.Timestamp(anchor_last).date()} / frozen={frozen_base.date()}"
+                )
     except Exception:
         pass
 
@@ -3694,6 +3778,9 @@ def compute_today_signals(
                     _spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
         except Exception:
             _spy_ok = None
+        # system1 デバッグ情報（最初の1銘柄分）を一時的に保持し、セットアップ内訳の後にまとめて出力
+        s1_debug_cols_line = None
+        s1_debug_once_line = None
         for _sym, _df in (raw_data_system1 or {}).items():
             if _df is None or getattr(_df, "empty", True):
                 continue
@@ -3701,13 +3788,15 @@ def compute_today_signals(
                 last = _df.iloc[-1]
             except Exception:
                 continue
-            if s1_setup_calc == 0:
+            # 最初の1件だけデバッグ行を準備（すぐに出力せず、内訳ログの後にまとめて出す）
+            if s1_setup_calc == 0 and s1_debug_cols_line is None:
                 try:
-                    print(f"[DEBUG_S1_COLS] sym={_sym} " f"df_cols={list(_df.columns)[:40]}")
+                    s1_debug_cols_line = (
+                        f"[DEBUG_S1_COLS] sym={_sym} df_cols={list(_df.columns)[:40]}"
+                    )
                 except Exception:
-                    pass
-            # DEBUG ONCE: 列状況と SMA25/SMA50 推定値を最初の1銘柄で出力（後で削除）
-            if s1_setup_calc == 0:
+                    s1_debug_cols_line = None
+            if s1_setup_calc == 0 and s1_debug_once_line is None:
                 try:
                     _cols_preview = (
                         list(last.index)
@@ -3719,13 +3808,13 @@ def compute_today_signals(
                 try:
                     _s25_raw = get_indicator(last, "sma25")
                     _s50_raw = get_indicator(last, "sma50")
-                    print(
+                    s1_debug_once_line = (
                         f"[DEBUG_S1_ONCE] sym={_sym} "
                         f"sma25_raw={_s25_raw} sma50_raw={_s50_raw} "
                         f"cols_sample={_cols_preview[:25]}"
                     )
                 except Exception:
-                    print(f"[DEBUG_S1_ONCE] sym={_sym} 取得失敗")
+                    s1_debug_once_line = f"[DEBUG_S1_ONCE] sym={_sym} 取得失敗"
             try:
                 a = to_float(get_indicator(last, "sma25"))
                 b = to_float(get_indicator(last, "sma50"))
@@ -3745,6 +3834,14 @@ def compute_today_signals(
                 f"🧩 system1セットアップ内訳: フィルタ通過={s1_filter}, SPY>SMA100: {_spy_ok}, "
                 f"SMA25>SMA50: {s1_setup}"
             )
+        # セットアップ内訳の後にデバッグ情報を順に出力（交互の美観を崩さないため）
+        try:
+            if s1_debug_cols_line:
+                print(s1_debug_cols_line)
+            if s1_debug_once_line:
+                print(s1_debug_once_line)
+        except Exception:
+            pass
         # UI の STUpass へ反映（50%時点）
         try:
             s1_setup_eff = int(s1_setup)
@@ -4008,23 +4105,20 @@ def compute_today_signals(
             except Exception:
                 continue
             # return_6d>20% 判定（独立）
-            ret_pass = False
             try:
-                r6v = to_float(get_indicator(last, "return_6d"))
+                r6v = float(last.get("return_6d", float("nan")))
                 ret_pass = (not pd.isna(r6v)) and r6v > 0.20
-                if ret_pass:
-                    s6_ret += 1
             except Exception:
-                pass
+                ret_pass = False
+            if ret_pass:
+                s6_ret += 1
             # UpTwoDays 判定（独立）
-            up_pass = False
             try:
-                up = get_indicator(last, "uptwodays") or get_indicator(last, "twodayup")
-                up_pass = bool(up)
-                if up_pass:
-                    s6_uptwo += 1
+                up_pass = bool(last.get("UpTwoDays", False))
             except Exception:
-                pass
+                up_pass = False
+            if up_pass:
+                s6_uptwo += 1
             # 両方満たすセットアップ数
             if ret_pass and up_pass:
                 s6_combo += 1
@@ -4032,7 +4126,7 @@ def compute_today_signals(
         _log(
             "🧩 system6セットアップ内訳: "
             + f"フィルタ通過={s6_filter}, return_6d>20%: {s6_ret}, "
-            + f"UpTwoDays: {s6_uptwo}, 両方満たす: {s6_setup}"
+            + f"UpTwoDays: {s6_uptwo}"
         )
         try:
             _stage(
@@ -4216,14 +4310,8 @@ def compute_today_signals(
             try:
                 if candidate_kwargs.get("latest_only", False):
                     base_day = getattr(ctx, "signal_base_day", None)
-                    # prepared_syms=0 のときだけ full スキャンへ切替（従来互換）
-                    if prepared_data is not None and len(prepared_data) == 0:
-                        candidate_kwargs["latest_only"] = False
-                        _log(
-                            f"[{system_name}] ⚠️ prepared_syms=0 のため full スキャンに切替",
-                            ui=False,
-                        )
-                    elif base_day is not None:
+                    # フルスキャンへのフォールバックは行わず、latest_only を維持する
+                    if base_day is not None:
                         # 全システムにグローバル基準日を注入（system6 も対応済み）
                         candidate_kwargs["latest_mode_date"] = pd.Timestamp(base_day).normalize()
             except Exception:
