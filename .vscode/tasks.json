@@ -9,8 +9,8 @@
     {
       "label": "Quick Test Run",
       "type": "shell",
-      "command": "pytest",
-      "args": ["-q", "--tb=short"],
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "pytest", "-q", "--tb=short"],
       "group": "test",
       "presentation": {
         "echo": true,
@@ -25,7 +25,7 @@
     {
       "label": "Run All Systems Today",
       "type": "shell",
-      "command": "python",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
       "args": ["scripts/run_all_systems_today.py", "--parallel", "--save-csv"],
       "group": "build",
       "presentation": {
@@ -37,7 +37,7 @@
     {
       "label": "Cache Daily Data",
       "type": "shell",
-      "command": "python",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
       "args": ["scripts/cache_daily_data.py"],
       "group": "build",
       "presentation": {
@@ -49,8 +49,8 @@
     {
       "label": "Start Streamlit UI",
       "type": "shell",
-      "command": "streamlit",
-      "args": ["run", "apps/main.py"],
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "streamlit", "run", "apps/main.py"],
       "group": "build",
       "presentation": {
         "echo": true,
@@ -62,8 +62,8 @@
     {
       "label": "Lint & Format",
       "type": "shell",
-      "command": "ruff",
-      "args": ["check", "--fix", "."],
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "ruff", "check", "--fix", "."],
       "group": "build",
       "dependsOrder": "sequence",
       "dependsOn": ["Black Format"],
@@ -76,8 +76,8 @@
     {
       "label": "Black Format",
       "type": "shell",
-      "command": "black",
-      "args": ["."],
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "black", "."],
       "group": "build",
       "presentation": {
         "echo": true,
@@ -88,8 +88,8 @@
     {
       "label": "Full Quality Check",
       "type": "shell",
-      "command": "pre-commit",
-      "args": ["run", "--all-files"],
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "pre_commit", "run", "--all-files"],
       "group": "test",
       "presentation": {
         "echo": true,
@@ -134,8 +134,20 @@
     {
       "label": "Build Rolling Only",
       "type": "shell",
-      "command": "python",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
       "args": ["scripts/build_rolling_with_indicators.py", "--workers", "4"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Bulk Update (Small Sample)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["scripts/update_from_bulk_last_day.py", "--max-symbols", "5"],
       "group": "build",
       "presentation": {
         "echo": true,

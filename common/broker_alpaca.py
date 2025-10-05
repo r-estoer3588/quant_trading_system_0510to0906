@@ -12,12 +12,7 @@ try:  # pragma: no cover - SDK 未導入環境でも壊れないように
     from alpaca.trading.client import TradingClient
 
     try:
-        from alpaca.trading.enums import (
-            OrderClass,
-            OrderSide,
-            QueryOrderStatus,
-            TimeInForce,
-        )
+        from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
     except ImportError:
         from alpaca.trading.models.enums import (
             OrderClass,
@@ -176,7 +171,9 @@ def submit_order(
     order = client.submit_order(order_data=req)
     if log_callback:
         try:
-            msg = f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            msg = (
+                f"Submitted {order_type} order {order.id} {symbol} qty={qty} side={side_enum.name}"
+            )
             log_callback(msg)
         except Exception:
             pass
@@ -470,9 +467,7 @@ def reset_paper_account(
             # 404 の場合: 仕様変更 / エンドポイント無効化 / 誤 URL / リージョン差異
             hint = "endpoint still enabled? correct paper key?"
             if resp.status_code == 404:
-                hint += (
-                    " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
-                )
+                hint += " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
             error_msg = f"reset failed status={resp.status_code} ({hint})"
         elif resp.status_code == 422:
             error_msg = "invalid equity value format"

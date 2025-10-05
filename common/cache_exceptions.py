@@ -26,9 +26,7 @@ class CacheIOError(CacheError):
 class CacheDataError(CacheError):
     """データ処理・変換で発生する例外"""
 
-    def __init__(
-        self, message: str, ticker: str | None = None, data_info: dict | None = None
-    ):
+    def __init__(self, message: str, ticker: str | None = None, data_info: dict | None = None):
         super().__init__(message)
         self.ticker = ticker
         self.data_info = data_info or {}
@@ -37,9 +35,7 @@ class CacheDataError(CacheError):
 class CacheValidationError(CacheError):
     """データの妥当性チェックで発生する例外"""
 
-    def __init__(
-        self, message: str, validation_type: str, failed_checks: list[str] | None = None
-    ):
+    def __init__(self, message: str, validation_type: str, failed_checks: list[str] | None = None):
         super().__init__(message)
         self.validation_type = validation_type
         self.failed_checks = failed_checks or []
@@ -48,9 +44,7 @@ class CacheValidationError(CacheError):
 class CacheHealthError(CacheError):
     """健全性チェックで発見される問題"""
 
-    def __init__(
-        self, message: str, ticker: str, profile: str, issues: dict | None = None
-    ):
+    def __init__(self, message: str, ticker: str, profile: str, issues: dict | None = None):
         super().__init__(message)
         self.ticker = ticker
         self.profile = profile

@@ -55,11 +55,7 @@ def debug_prepare_rolling_frame():
     # Step 3: Date normalization
     work["date"] = pd.to_datetime(work["date"], errors="coerce")
     work = work.dropna(subset=["date"])
-    work = (
-        work.sort_values("date")
-        .drop_duplicates("date", keep="last")
-        .reset_index(drop=True)
-    )
+    work = work.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
     print(f"3️⃣ Date正規化後: {len(work.columns)} 列")
 
     # Step 4: Create calc copy
@@ -86,9 +82,7 @@ def debug_prepare_rolling_frame():
             print(f"   ⚠️  {src} と {dst} 両方存在 -> {src}削除")
             calc = calc.drop(columns=[src])
         else:
-            print(
-                f"   ⏭️ {src}({src in calc.columns}) -> {dst}({dst in calc.columns}) スキップ"
-            )
+            print(f"   ⏭️ {src}({src in calc.columns}) -> {dst}({dst in calc.columns}) スキップ")
 
     print(f"   🔄 変換後: {len(calc.columns)} 列")
     print(f"   📝 列名: {list(calc.columns)}")

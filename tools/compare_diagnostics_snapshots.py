@@ -50,8 +50,7 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict[str, Any]
             "final_top_n_count": {
                 "baseline": b_diag.get("final_top_n_count", -1),
                 "current": c_diag.get("final_top_n_count", -1),
-                "diff": c_diag.get("final_top_n_count", -1)
-                - b_diag.get("final_top_n_count", -1),
+                "diff": c_diag.get("final_top_n_count", -1) - b_diag.get("final_top_n_count", -1),
             },
             "category": _classify_diff(b_diag, c_diag),
         }
@@ -142,9 +141,7 @@ def main():
         base_path, curr_path = _pick_latest_two(args.dir)
     else:
         if not args.baseline or not args.current:
-            raise SystemExit(
-                "--baseline と --current を指定するか、--dir を使用してください"
-            )
+            raise SystemExit("--baseline と --current を指定するか、--dir を使用してください")
         base_path, curr_path = args.baseline, args.current
 
     # スナップショット比較

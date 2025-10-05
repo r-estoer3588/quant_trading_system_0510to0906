@@ -43,9 +43,7 @@ class Signal:
     meta: dict
 
 
-def _score_for_signal(
-    sig: Signal, weights: dict[str, float], regime: MarketRegime
-) -> float:
+def _score_for_signal(sig: Signal, weights: dict[str, float], regime: MarketRegime) -> float:
     meta = sig.meta or {}
     sid = int(sig.system_id)
     if sid == 1:
@@ -83,9 +81,7 @@ def _score_for_signal(
     return clamp01(score)
 
 
-def merge_signals(
-    all_signals: list[list[Signal]], portfolio_state, market_state
-) -> list[dict]:
+def merge_signals(all_signals: list[list[Signal]], portfolio_state, market_state) -> list[dict]:
     """
     Build only an execution queue across systems.
     - Do not filter or block other systems' signals.

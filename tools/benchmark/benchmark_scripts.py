@@ -12,9 +12,7 @@ import subprocess
 import time
 from typing import Any
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).parent
@@ -45,9 +43,7 @@ def measure_execution_time(
 
         success = result.returncode == 0
 
-        logger.info(
-            f"完了: {description} - {duration:.2f}秒 - {'成功' if success else '失敗'}"
-        )
+        logger.info(f"完了: {description} - {duration:.2f}秒 - {'成功' if success else '失敗'}")
 
         return {
             "description": description,
@@ -144,9 +140,7 @@ def main():
 
     for result in results:
         status = "✓" if result["success"] else "✗"
-        print(
-            f"{status} {result['description']:50} {result['duration_seconds']:8.2f}秒"
-        )
+        print(f"{status} {result['description']:50} {result['duration_seconds']:8.2f}秒")
         if not result["success"]:
             if "error" in result:
                 print(f"   エラー: {result.get('error', '不明')}")

@@ -37,9 +37,7 @@ def _make_prepared_frame() -> tuple[pd.DatetimeIndex, pd.DataFrame]:
 def _stub_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = SimpleNamespace(
         risk=SimpleNamespace(max_positions=10),
-        cache=SimpleNamespace(
-            rolling=SimpleNamespace(max_staleness_days=2, max_stale_days=2)
-        ),
+        cache=SimpleNamespace(rolling=SimpleNamespace(max_staleness_days=2, max_stale_days=2)),
         backtest=SimpleNamespace(top_n_rank=10),
         outputs=SimpleNamespace(results_csv_dir="results_csv_test"),
     )

@@ -189,9 +189,7 @@ def main():
         tz = None
     jobs = settings.scheduler.jobs
     if not jobs:
-        logging.warning(
-            "scheduler.jobs が空です。config/config.yaml を確認してください。"
-        )
+        logging.warning("scheduler.jobs が空です。config/config.yaml を確認してください。")
         return 0
 
     compiled = []

@@ -6,6 +6,7 @@ Usage:
 
 Outputs a small markdown-style diff to stdout. Safe if file missing or <2 lines.
 """
+
 from __future__ import annotations
 
 import argparse

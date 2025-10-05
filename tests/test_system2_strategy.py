@@ -33,9 +33,7 @@ class TestSystem2Strategy:
             "SPY": pd.DataFrame({"Close": [400, 401, 402]}),
         }
 
-        with patch(
-            "strategies.system2_strategy.prepare_data_vectorized_system2"
-        ) as mock_prepare:
+        with patch("strategies.system2_strategy.prepare_data_vectorized_system2") as mock_prepare:
             mock_prepare.return_value = {"AAPL": mock_raw_data["AAPL"]}
 
             result = self.strategy.prepare_data(mock_raw_data, use_process_pool=False)
@@ -47,9 +45,7 @@ class TestSystem2Strategy:
         """Test prepare_data fallback on exception"""
         mock_raw_data = {"AAPL": pd.DataFrame({"Close": [100, 101]})}
 
-        with patch(
-            "strategies.system2_strategy.prepare_data_vectorized_system2"
-        ) as mock_prepare:
+        with patch("strategies.system2_strategy.prepare_data_vectorized_system2") as mock_prepare:
             # First call raises exception, second succeeds
             mock_prepare.side_effect = [
                 Exception("Test error"),
@@ -69,9 +65,7 @@ class TestSystem2Strategy:
             "SPY": pd.DataFrame({"Close": [400, 401]}),
         }
 
-        with patch(
-            "strategies.system2_strategy.generate_candidates_system2"
-        ) as mock_generate:
+        with patch("strategies.system2_strategy.generate_candidates_system2") as mock_generate:
             mock_generate.return_value = {"2023-01-01": ["AAPL"]}
 
             result = self.strategy.generate_candidates(mock_data_dict)
@@ -94,14 +88,10 @@ class TestSystem2Strategy:
             }
         )
 
-        with patch(
-            "strategies.system2_strategy.simulate_trades_with_risk"
-        ) as mock_simulate:
+        with patch("strategies.system2_strategy.simulate_trades_with_risk") as mock_simulate:
             mock_simulate.return_value = (mock_trades_df, {})
 
-            result = self.strategy.run_backtest(
-                mock_data_dict, mock_candidates, capital
-            )
+            result = self.strategy.run_backtest(mock_data_dict, mock_candidates, capital)
 
             mock_simulate.assert_called_once()
             assert len(result) == 1
@@ -137,9 +127,7 @@ class TestSystem2Strategy:
         """Test get_total_days method"""
         mock_data_dict = {"AAPL": pd.DataFrame({"Close": [100, 101, 102]})}
 
-        with patch(
-            "strategies.system2_strategy.get_total_days_system2"
-        ) as mock_get_days:
+        with patch("strategies.system2_strategy.get_total_days_system2") as mock_get_days:
             mock_get_days.return_value = 250
 
             result = self.strategy.get_total_days(mock_data_dict)

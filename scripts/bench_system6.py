@@ -188,9 +188,7 @@ def main():  # pragma: no cover
     parser.add_argument(
         "--symbols", nargs="*", help="明示的に利用するシンボル (指定時は探索をスキップ)"
     )
-    parser.add_argument(
-        "--repeat", type=int, default=1, help="各モード繰り返し回数 (平均測定)"
-    )
+    parser.add_argument("--repeat", type=int, default=1, help="各モード繰り返し回数 (平均測定)")
     parser.add_argument(
         "--include",
         nargs="*",
@@ -230,12 +228,8 @@ def main():  # pragma: no cover
         run_list: list[BenchResult] = []
         for i in range(args.repeat):
             t_iter0 = time.perf_counter()
-            res = run_one(
-                mode, raw_dict, ultra_flag=(mode == "ultra"), timeout=args.timeout
-            )
-            print(
-                f"[bench] mode={mode} iter={i} total={(time.perf_counter()-t_iter0):.2f}s"
-            )
+            res = run_one(mode, raw_dict, ultra_flag=(mode == "ultra"), timeout=args.timeout)
+            print(f"[bench] mode={mode} iter={i} total={(time.perf_counter()-t_iter0):.2f}s")
             if res:
                 run_list.append(res)
         if run_list:
@@ -261,15 +255,11 @@ def main():  # pragma: no cover
 
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            ["mode", "prepare_sec", "generate_sec", "symbols", "candidates"]
-        )
+        writer.writerow(["mode", "prepare_sec", "generate_sec", "symbols", "candidates"])
         for r in results:
             writer.writerow(r.to_row())
 
-    runs_detail = {
-        m: [dataclasses.asdict(r) for r in rr] for m, rr in meta_runs.items()
-    }
+    runs_detail = {m: [dataclasses.asdict(r) for r in rr] for m, rr in meta_runs.items()}
     meta = {
         "timestamp": ts,
         "symbols_limit": args.symbols_limit,

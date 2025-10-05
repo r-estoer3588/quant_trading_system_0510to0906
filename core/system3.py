@@ -36,9 +36,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [
-            col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns
-        ]
+        missing_indicators = [col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns]
         if missing_indicators:
             return symbol, None
 
@@ -47,9 +45,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
         # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
         x["filter"] = (
-            (x["Close"] >= 5.0)
-            & (x["dollarvolume20"] > 25_000_000)
-            & (x["atr_ratio"] >= 0.05)
+            (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= 0.05)
         )
 
         # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
@@ -119,9 +115,7 @@ def prepare_data_vectorized_system3(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(
-                        f"System3: Fast-path processed {len(prepared_dict)} symbols"
-                    )
+                    log_callback(f"System3: Fast-path processed {len(prepared_dict)} symbols")
 
                 return prepared_dict
 
@@ -131,9 +125,7 @@ def prepare_data_vectorized_system3(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback(
-                    "System3: Fast-path failed, falling back to normal processing"
-                )
+                log_callback("System3: Fast-path failed, falling back to normal processing")
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -146,9 +138,7 @@ def prepare_data_vectorized_system3(
         return {}
 
     if log_callback:
-        log_callback(
-            f"System3: Starting normal processing for {len(target_symbols)} symbols"
-        )
+        log_callback(f"System3: Starting normal processing for {len(target_symbols)} symbols")
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -167,7 +157,9 @@ def prepare_data_vectorized_system3(
         validate_predicate_equivalence(results, "3", log_fn=log_callback)
     except Exception:
         pass
-    return results
+    from typing import cast as _cast
+
+    return _cast(dict[str, pd.DataFrame], results) if isinstance(results, dict) else {}
 
 
 def generate_candidates_system3(
@@ -217,19 +209,39 @@ def generate_candidates_system3(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            # Optional override of target date (previous trading day fallback)
+            target_date = None
+            try:
+                maybe = kwargs.get("latest_mode_date")
+                if maybe is not None:
+                    try:
+                        target_date = pd.Timestamp(str(maybe)).normalize()
+                    except Exception:
+                        td = pd.to_datetime(str(maybe), errors="coerce")
+                        if (td is not None) and not pd.isna(td):
+                            target_date = pd.Timestamp(str(td)).normalize()
+            except Exception:
+                target_date = None
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
-                last_row = df.iloc[-1]
+                if target_date is not None:
+                    if target_date in df.index:
+                        row_obj = df.loc[target_date]
+                        last_row = row_obj.iloc[-1] if hasattr(row_obj, "iloc") else row_obj
+                        dt = target_date
+                    else:
+                        continue
+                else:
+                    last_row = df.iloc[-1]
+                    dt = pd.Timestamp(str(df.index[-1])).normalize()
                 # 'setup' 列未生成時は通過させる (列存在時のみ False を除外)
-                setup_col_val = (
-                    bool(last_row.get("setup", False)) if "setup" in last_row else True
-                )
-                from common.system_setup_predicates import (
-                    system3_setup_predicate as _s3_pred,
-                )
+                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
+                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
 
-                pred_val = _s3_pred(last_row)
+                if isinstance(last_row, pd.DataFrame):
+                    last_row = last_row.iloc[-1]
+                pred_val = _s3_pred(cast(pd.Series, last_row))
                 if pred_val:
                     diagnostics["setup_predicate_count"] += 1
                 if pred_val and not setup_col_val:
@@ -239,11 +251,14 @@ def generate_candidates_system3(
                     continue
                 drop3d_val = last_row.get("drop3d", 0)
                 try:
-                    if pd.isna(drop3d_val) or float(drop3d_val) < 0.125:
+                    v = float(drop3d_val)
+                except Exception:
+                    continue
+                try:
+                    if pd.isna(v) or v < 0.125:
                         continue
                 except Exception:
                     continue
-                dt = df.index[-1]
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -260,13 +275,14 @@ def generate_candidates_system3(
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             try:
-                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                df_all = df_all[df_all["date"] == mode_date]
+                if target_date is not None:
+                    df_all = df_all[df_all["date"] == target_date]
+                else:
+                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(
-                top_n
-            )
+            df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
             diagnostics["final_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -284,7 +300,8 @@ def generate_candidates_system3(
                 by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
-                    f"System3: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    f"System3: latest_only fast-path -> {len(df_all)} candidates "
+                    f"(symbols={len(rows)})"
                 )
             return (
                 (by_date, df_all.copy(), diagnostics)
@@ -323,9 +340,7 @@ def generate_candidates_system3(
                     continue
                 row = cast(pd.Series, df.loc[date])
                 setup_val = bool(row.get("setup", False))
-                from common.system_setup_predicates import (
-                    system3_setup_predicate as _s3_pred,
-                )
+                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
 
                 pred_val = _s3_pred(row)
                 if pred_val:
@@ -371,9 +386,7 @@ def generate_candidates_system3(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(
-            ["date", "drop3d"], ascending=[True, False]
-        )
+        candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -387,7 +400,7 @@ def generate_candidates_system3(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            f"System3: Generated {total_candidates} candidates across {unique_dates} dates"
+            "System3: Generated " f"{total_candidates} candidates across {unique_dates} dates"
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
@@ -397,8 +410,11 @@ def generate_candidates_system3(
             sym_any = rec.get("symbol")
             if not isinstance(sym_any, str) or not sym_any:
                 continue
-            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
-            out_symbol_map[sym_any] = payload
+                rec_t = cast(dict[str, Any], rec)
+                payload: dict[str, Any] = {
+                    k: v for k, v in rec_t.items() if k not in ("symbol", "date")
+                }
+            out_symbol_map[str(sym_any)] = payload
         normalized[dt] = out_symbol_map
     return (
         (normalized, candidates_df, diagnostics)
@@ -416,7 +432,7 @@ def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:
     Returns:
         Maximum day count
     """
-    return get_total_days(data_dict)
+    return int(get_total_days(data_dict))
 
 
 __all__ = [

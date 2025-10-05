@@ -90,10 +90,7 @@ class TestUtilityFunctions:
     def test_system_common_basic(self):
         """system_common.pyの共通機能"""
         try:
-            from common.system_common import (
-                calculate_position_size,
-                validate_signal_data,
-            )
+            from common.system_common import calculate_position_size, validate_signal_data
 
             # 関数存在確認
             assert callable(calculate_position_size)

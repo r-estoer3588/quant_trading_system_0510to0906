@@ -9,14 +9,14 @@
 
 from __future__ import annotations
 
-import json
-import math
-import os
-import sys
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+import json
+import math
+import os
 from pathlib import Path
+import sys
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -775,9 +775,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
     if not symbol:
         return None
     try:
-        df = load_base_cache(
-            symbol, rebuild_if_missing=False, prefer_precomputed_indicators=True
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=False, prefer_precomputed_indicators=True)
     except Exception:
         df = None
 
@@ -786,9 +784,7 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
             if col not in df.columns:
                 continue
             try:
-                series = (
-                    pd.to_numeric(df[col], errors="coerce").dropna().tail(max_points)
-                )
+                series = pd.to_numeric(df[col], errors="coerce").dropna().tail(max_points)
             except Exception:
                 continue
             if not series.empty:
@@ -822,14 +818,10 @@ def _load_recent_prices(symbol: str, max_points: int = 30) -> list[float] | None
         try:
             df = pd.read_csv(p)
             cols = {c.lower(): c for c in df.columns}
-            close_col = (
-                cols.get("close") or cols.get("adj close") or cols.get("adj_close")
-            )
+            close_col = cols.get("close") or cols.get("adj close") or cols.get("adj_close")
             if close_col is None:
                 continue
-            series = (
-                pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
-            )
+            series = pd.to_numeric(df[close_col], errors="coerce").dropna().tail(max_points)
             if series.empty:
                 continue
             return list(series.values)
@@ -1156,9 +1148,7 @@ def _render_exit_actions(
     # デバッグ情報表示（開発時のみ）
     if DEBUG_MODE:
         st.markdown("**デバッグ情報**")
-        limit_info_df = df[
-            ["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]
-        ].copy()
+        limit_info_df = df[["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]].copy()
         st.dataframe(limit_info_df, width="stretch")
 
     # 上限日数に近いか、すでに到達したポジションを特定
@@ -1233,11 +1223,7 @@ def _render_exit_actions(
                         if qty is None:
                             st.warning(f"{sym}: 決済数量が特定できずスキップしました。")
                             continue
-                        side = (
-                            "long"
-                            if getattr(pos, "side", "").lower() == "long"
-                            else "short"
-                        )
+                        side = "long" if getattr(pos, "side", "").lower() == "long" else "short"
                         apply_pct = int(st.session_state.get("batch_pct", 100))
                         apply_qty = max(1, int(qty * apply_pct / 100))
                         rows.append(
@@ -1252,12 +1238,8 @@ def _render_exit_actions(
                     if rows:
                         try:
                             exit_df = pd.DataFrame(rows)
-                            res = submit_exit_orders_df(
-                                exit_df, paper=True, tif="CLS", notify=True
-                            )
-                            st.success(
-                                f"まとめて決済リクエストを送信しました ({len(res)} 件)"
-                            )
+                            res = submit_exit_orders_df(exit_df, paper=True, tif="CLS", notify=True)
+                            st.success(f"まとめて決済リクエストを送信しました ({len(res)} 件)")
                             sent = st.session_state.setdefault(SENT_MARKER_KEY, {})
                             for r in rows:
                                 _push_order_log(
@@ -1278,9 +1260,7 @@ def _render_exit_actions(
                                 if st.session_state.get("enable_notifications", True):
                                     notifier = Notifier(platform="auto")
                                     syms = ", ".join([r["symbol"] for r in rows])
-                                    notifier.send(
-                                        "まとめて決済実行", f"送信銘柄: {syms}"
-                                    )
+                                    notifier.send("まとめて決済実行", f"送信銘柄: {syms}")
                             except Exception:
                                 pass
                         except Exception as e:
@@ -1301,16 +1281,12 @@ def _render_exit_actions(
 
         position = position_map.get(symbol)
         if position is None:
-            st.warning(
-                f"{symbol}: ポジション情報が見つかりませんでした。手動でご確認ください。"
-            )
+            st.warning(f"{symbol}: ポジション情報が見つかりませんでした。手動でご確認ください。")
             continue
 
         qty = _parse_exit_quantity(position)
         if qty is None:
-            st.warning(
-                f"{symbol}: 決済数量を特定できませんでした。手動で注文してください。"
-            )
+            st.warning(f"{symbol}: 決済数量を特定できませんでした。手動で注文してください。")
             continue
 
         exit_side, side_label = _determine_exit_side(position)
@@ -1356,14 +1332,10 @@ def _render_exit_actions(
             disabled = bool(existing and existing.get("success")) or disabled_sent
             # 部分決済割合（%）
             pct_key = f"partial_pct_{symbol}"
-            pct = st.slider(
-                "割合", min_value=10, max_value=100, value=100, step=10, key=pct_key
-            )
+            pct = st.slider("割合", min_value=10, max_value=100, value=100, step=10, key=pct_key)
             exit_qty = max(1, int(qty * pct / 100))
             button_label = f"{side_label}成行 {exit_qty}株 ({pct}%)"
-            clicked = st.button(
-                button_label, key=f"exit_button_{symbol}", disabled=disabled
-            )
+            clicked = st.button(button_label, key=f"exit_button_{symbol}", disabled=disabled)
             feedback = st.empty()
 
         if clicked:
@@ -1371,9 +1343,7 @@ def _render_exit_actions(
             st.session_state[f"confirm_pending_{symbol}"] = True
         if st.session_state.get(f"confirm_pending_{symbol}"):
             c1, c2 = st.columns([1, 1])
-            st.info(
-                f"{symbol} を {qty} 株、{side_label} 成行で決済します。確認してください。"
-            )
+            st.info(f"{symbol} を {qty} 株、{side_label} 成行で決済します。確認してください。")
             with c1:
                 if st.button("はい、送信する", key=f"confirm_yes_{symbol}"):
                     confirmed = True
@@ -1386,9 +1356,7 @@ def _render_exit_actions(
             if confirmed:
                 try:
                     if client is None:
-                        raise RuntimeError(
-                            "Alpaca クライアントを初期化できませんでした。"
-                        )
+                        raise RuntimeError("Alpaca クライアントを初期化できませんでした。")
                     order = ba.submit_order_with_retry(
                         client,
                         symbol,
@@ -1456,9 +1424,7 @@ def _group_by_system(
     grouped: dict[str, pd.DataFrame] = {}
     for system_value, g in work.groupby("system"):
         cleaned = g[["銘柄", "評価額"]].copy()
-        cleaned["評価額"] = pd.to_numeric(cleaned["評価額"], errors="coerce").fillna(
-            0.0
-        )
+        cleaned["評価額"] = pd.to_numeric(cleaned["評価額"], errors="coerce").fillna(0.0)
         grouped[str(system_value)] = cleaned
     return grouped
 
@@ -1535,9 +1501,7 @@ def main() -> None:
             if st.button("保存", key="save_schedule", width="stretch"):
                 _save_schedule(
                     {
-                        "time": datetime.combine(
-                            datetime.now().date(), run_time
-                        ).isoformat(),
+                        "time": datetime.combine(datetime.now().date(), run_time).isoformat(),
                         "opt_in": bool(opt_in),
                     }
                 )
@@ -1581,9 +1545,7 @@ def main() -> None:
                 key="auto_rule_run_manual_top",
                 type="primary",
             ):
-                st.session_state.setdefault(
-                    "auto_rule_trigger", datetime.now().isoformat()
-                )
+                st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
         with col2:
             last_run = st.session_state.get("last_auto_rule_run")
             st.caption(f"最後の実行: {last_run or '未実行'}")
@@ -1619,9 +1581,7 @@ def main() -> None:
             cond1 = now_local >= scheduled_dt
             cond2 = last_run_dt is None or last_run_dt.date() < now_local.date()
             if cond1 and cond2:
-                st.session_state.setdefault(
-                    "auto_rule_trigger", datetime.now().isoformat()
-                )
+                st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
     except Exception:
         pass
 
@@ -1635,9 +1595,7 @@ def main() -> None:
     # Shortable map: check which symbols are shortable (used for warnings)
     try:
         symbols_for_check = [s.upper() for s in position_map.keys() if s]
-        shortable_map = (
-            ba.get_shortable_map(client, symbols_for_check) if symbols_for_check else {}
-        )
+        shortable_map = ba.get_shortable_map(client, symbols_for_check) if symbols_for_check else {}
     except Exception:
         shortable_map = {}
     st.session_state.setdefault("shortable_map", shortable_map)
@@ -1742,9 +1700,7 @@ def main() -> None:
     tab_summary, tab_pos, tab_alloc = st.tabs(["サマリー", "ポジション", "配分グラフ"])
 
     with tab_pos:
-        st.markdown(
-            "<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='ap-section'>保有ポジション</div>", unsafe_allow_html=True)
 
         # ポジション一覧の表示
         pos_df = _positions_to_df(positions, client)
@@ -1762,18 +1718,12 @@ def main() -> None:
             # ポジション統計サマリ
             total_positions = len(pos_df)
             try:
-                total_pnl = (
-                    pos_df["含み損益"].sum() if "含み損益" in pos_df.columns else 0
-                )
+                total_pnl = pos_df["含み損益"].sum() if "含み損益" in pos_df.columns else 0
                 winning_positions = (
-                    len(pos_df[pos_df["含み損益"] > 0])
-                    if "含み損益" in pos_df.columns
-                    else 0
+                    len(pos_df[pos_df["含み損益"] > 0]) if "含み損益" in pos_df.columns else 0
                 )
                 losing_positions = (
-                    len(pos_df[pos_df["含み損益"] < 0])
-                    if "含み損益" in pos_df.columns
-                    else 0
+                    len(pos_df[pos_df["含み損益"] < 0]) if "含み損益" in pos_df.columns else 0
                 )
             except Exception:
                 total_pnl = 0
@@ -1823,9 +1773,7 @@ def main() -> None:
                         default=systems,
                         key="pos_filter_systems",
                     )
-                    pos_df = pos_df[
-                        pos_df["システム"].astype(str).isin(selected_systems)
-                    ]
+                    pos_df = pos_df[pos_df["システム"].astype(str).isin(selected_systems)]
 
             # 損益フィルタ
             with filter_cols[2]:
@@ -1882,9 +1830,7 @@ def main() -> None:
                 pass
 
             # 表示用データフレームの準備
-            display_df = pos_df.drop(
-                columns=["_limit_days", "_limit_reached"], errors="ignore"
-            )
+            display_df = pos_df.drop(columns=["_limit_days", "_limit_reached"], errors="ignore")
 
             # カラム設定
             col_cfg: dict[str, Any] = {}
@@ -1934,9 +1880,7 @@ def main() -> None:
 
             # 共通データの準備
             try:
-                out_df = pos_df.drop(
-                    columns=["_limit_days", "_limit_reached"], errors="ignore"
-                )
+                out_df = pos_df.drop(columns=["_limit_days", "_limit_reached"], errors="ignore")
             except Exception:
                 out_df = pos_df.copy() if not pos_df.empty else pd.DataFrame()
 
@@ -1977,9 +1921,7 @@ def main() -> None:
                         "losing_positions": losing_positions,
                         "total_pnl": _fmt_money(total_pnl),
                     }
-                    stats_json = json.dumps(
-                        local_stats_data, indent=2, ensure_ascii=False
-                    )
+                    stats_json = json.dumps(local_stats_data, indent=2, ensure_ascii=False)
                     st.download_button(
                         "📈 統計JSON",
                         stats_json,
@@ -2000,9 +1942,7 @@ def main() -> None:
                             "buying_power": buying_power,
                             "last_equity": last_equity,
                         },
-                        "positions": (
-                            out_df.to_dict("records") if not out_df.empty else []
-                        ),
+                        "positions": (out_df.to_dict("records") if not out_df.empty else []),
                         "statistics": local_stats_data,
                     }
                     all_json = json.dumps(all_data, indent=2, ensure_ascii=False)
@@ -2059,12 +1999,8 @@ def main() -> None:
             if auto_rows:
                 try:
                     df_auto = pd.DataFrame(auto_rows)
-                    res = submit_exit_orders_df(
-                        df_auto, paper=True, tif="CLS", notify=True
-                    )
-                    st.success(
-                        f"自動ルールによるまとめて決済を送信しました ({len(res)} 件)"
-                    )
+                    res = submit_exit_orders_df(df_auto, paper=True, tif="CLS", notify=True)
+                    st.success(f"自動ルールによるまとめて決済を送信しました ({len(res)} 件)")
                     for r in auto_rows:
                         _push_order_log(
                             {
@@ -2079,16 +2015,12 @@ def main() -> None:
                         if st.session_state.get("enable_notifications", True):
                             notifier = Notifier(platform="auto")
                             syms = ", ".join([r["symbol"] for r in auto_rows])
-                            notifier.send(
-                                "自動ルール: まとめて決済実行", f"送信銘柄: {syms}"
-                            )
+                            notifier.send("自動ルール: まとめて決済実行", f"送信銘柄: {syms}")
                     except Exception:
                         pass
                     # 記録: 最終自動実行時刻
                     try:
-                        st.session_state["last_auto_rule_run"] = (
-                            datetime.now().isoformat()
-                        )
+                        st.session_state["last_auto_rule_run"] = datetime.now().isoformat()
                     except Exception:
                         pass
                 except Exception as e:
@@ -2158,12 +2090,8 @@ def main() -> None:
                     try:
                         # 自動判定で送信試行
                         notifier = Notifier(platform="auto")
-                        notifier.send(
-                            "通知テスト", "Alpacaダッシュボードからのテスト通知です。"
-                        )
-                        st.success(
-                            "テスト通知を送信しました。Slack/Discordを確認してください。"
-                        )
+                        notifier.send("通知テスト", "Alpacaダッシュボードからのテスト通知です。")
+                        st.success("テスト通知を送信しました。Slack/Discordを確認してください。")
                     except Exception as e:
                         st.error(f"通知送信に失敗: {e}")
             else:
@@ -2226,9 +2154,7 @@ def main() -> None:
         st.session_state.setdefault("auto_rule_trigger", datetime.now().isoformat())
 
     with tab_summary:
-        st.markdown(
-            "<div class='ap-section'>📊 サマリー指標</div>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='ap-section'>📊 サマリー指標</div>", unsafe_allow_html=True)
         try:
             total_positions = len(positions)
         except Exception:
@@ -2259,11 +2185,7 @@ def main() -> None:
             )
         with col3:
             delta_display = _fmt_money(delta) if delta is not None else "-"
-            color = (
-                "green"
-                if delta and delta > 0
-                else "red" if delta and delta < 0 else "gray"
-            )
+            color = "green" if delta and delta > 0 else "red" if delta and delta < 0 else "gray"
             st.markdown(
                 f"""
                 <div class='ap-card'>
@@ -2275,26 +2197,18 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
         st.markdown("---")
-        st.markdown(
-            "<div class='ap-section'>📈 ポジション統計</div>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='ap-section'>📈 ポジション統計</div>", unsafe_allow_html=True)
         # 統計計算
         try:
             # 損益率(%)列が存在しない場合は計算
-            if (
-                pos_df is not None
-                and not pos_df.empty
-                and "損益率(%)" not in pos_df.columns
-            ):
+            if pos_df is not None and not pos_df.empty and "損益率(%)" not in pos_df.columns:
                 try:
                     # 損益率 = (含み損益 / (平均取得単価 * 数量)) * 100
                     pos_df_copy = pos_df.copy()
                     pos_df_copy["平均取得単価"] = pd.to_numeric(
                         pos_df_copy["平均取得単価"], errors="coerce"
                     )
-                    pos_df_copy["数量"] = pd.to_numeric(
-                        pos_df_copy["数量"], errors="coerce"
-                    )
+                    pos_df_copy["数量"] = pd.to_numeric(pos_df_copy["数量"], errors="coerce")
                     pos_df_copy["含み損益"] = pd.to_numeric(
                         pos_df_copy["含み損益"], errors="coerce"
                     )
@@ -2303,9 +2217,9 @@ def main() -> None:
                     investment = pos_df_copy["平均取得単価"] * pos_df_copy["数量"]
 
                     # 損益率 = (含み損益 / 投資額) * 100
-                    pos_df_copy["損益率(%)"] = (
-                        pos_df_copy["含み損益"] / investment * 100
-                    ).fillna(0.0)
+                    pos_df_copy["損益率(%)"] = (pos_df_copy["含み損益"] / investment * 100).fillna(
+                        0.0
+                    )
 
                     # 元のpos_dfに追加
                     pos_df = pos_df_copy
@@ -2313,11 +2227,7 @@ def main() -> None:
                     st.warning(f"損益率計算エラー: {calc_error}")
                     pos_df["損益率(%)"] = 0.0
 
-            if (
-                pos_df is not None
-                and not pos_df.empty
-                and "損益率(%)" in pos_df.columns
-            ):
+            if pos_df is not None and not pos_df.empty and "損益率(%)" in pos_df.columns:
                 winners = int((pos_df["損益率(%)"] > 0).sum())
                 losers = int((pos_df["損益率(%)"] <= 0).sum())
                 avg_ret = float(pos_df["損益率(%)"].mean())
@@ -2375,9 +2285,7 @@ def main() -> None:
 
             # アラート機能
             st.markdown("---")
-            st.markdown(
-                "<div class='ap-section'>🚨 アラート</div>", unsafe_allow_html=True
-            )
+            st.markdown("<div class='ap-section'>🚨 アラート</div>", unsafe_allow_html=True)
 
             alerts = []
             if pos_df is not None and not pos_df.empty:
@@ -2385,9 +2293,7 @@ def main() -> None:
                 try:
                     large_loss_threshold = -15  # -15%以上の損失
                     if "損益率(%)" in pos_df.columns:
-                        large_losses = pos_df[
-                            pos_df["損益率(%)"] <= large_loss_threshold
-                        ]
+                        large_losses = pos_df[pos_df["損益率(%)"] <= large_loss_threshold]
                         if not large_losses.empty:
                             symbols = ", ".join(large_losses["銘柄"].astype(str))
                             alerts.append(
@@ -2404,9 +2310,7 @@ def main() -> None:
 
                     # 長期保有アラート
                     if "保有日数" in pos_df.columns:
-                        long_holds = pos_df[
-                            pd.to_numeric(pos_df["保有日数"], errors="coerce") > 30
-                        ]
+                        long_holds = pos_df[pd.to_numeric(pos_df["保有日数"], errors="coerce") > 30]
                         if not long_holds.empty:
                             symbols = ", ".join(long_holds["銘柄"].astype(str))
                             alerts.append(
@@ -2425,9 +2329,7 @@ def main() -> None:
                             pos_df_temp["平均取得単価"], errors="coerce"
                         ) * pd.to_numeric(pos_df_temp["数量"], errors="coerce")
                         concentration_threshold = equity_value * 0.2
-                        concentrated = pos_df_temp[
-                            pos_df_temp["投資額"] > concentration_threshold
-                        ]
+                        concentrated = pos_df_temp[pos_df_temp["投資額"] > concentration_threshold]
                         if not concentrated.empty:
                             symbols = ", ".join(concentrated["銘柄"].astype(str))
                             alerts.append(
@@ -2443,11 +2345,7 @@ def main() -> None:
 
             if alerts:
                 for alert in alerts:
-                    alert_class = (
-                        "ap-alert-critical"
-                        if alert["type"] == "critical"
-                        else "ap-alert"
-                    )
+                    alert_class = "ap-alert-critical" if alert["type"] == "critical" else "ap-alert"
                     st.markdown(
                         f"""
                     <div class='{alert_class}'>
@@ -2463,9 +2361,7 @@ def main() -> None:
             st.error(f"統計計算エラー: {e}")
 
     with tab_alloc:
-        st.markdown(
-            "<div class='ap-section'>システム別 配分</div>", unsafe_allow_html=True
-        )
+        st.markdown("<div class='ap-section'>システム別 配分</div>", unsafe_allow_html=True)
         mapping_path = Path("data/symbol_system_map.json")
         pos_df = _positions_to_df(positions, client)
 

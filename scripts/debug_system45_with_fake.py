@@ -16,6 +16,7 @@ Usage:
 Environment flags respected:
   DEBUG_SYSTEM_FILTERS=1  (will cause today_filters debug prints if filters invoked elsewhere; here we print explicitly)
 """
+
 from __future__ import annotations
 
 import pandas as pd

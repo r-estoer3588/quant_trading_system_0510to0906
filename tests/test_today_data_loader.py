@@ -109,9 +109,7 @@ class TestTodayDataLoader:
             assert isinstance(result, pd.DataFrame)
         except Exception:
             # If function doesn't exist or has different signature, skip test
-            pytest.skip(
-                "_normalize_ohlcv function not available or different signature"
-            )
+            pytest.skip("_normalize_ohlcv function not available or different signature")
 
     def test_load_basic_data_with_callbacks(self, sample_data, mock_settings):
         """Test loading data with callbacks."""

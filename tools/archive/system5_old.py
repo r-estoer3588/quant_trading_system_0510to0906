@@ -139,10 +139,7 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
         & (x["ATR_Pct"] > DEFAULT_ATR_PCT_THRESHOLD)
     )
     x["setup"] = (
-        x["filter"]
-        & (x["Close"] > x["sma100"] + x["atr10"])
-        & (x["adx7"] > 55)
-        & (x["rsi3"] < 50)
+        x["filter"] & (x["Close"] > x["sma100"] + x["atr10"]) & (x["adx7"] > 55) & (x["rsi3"] < 50)
     ).astype(int)
     return x
 
@@ -172,9 +169,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
     # Early exit: check required precomputed indicators exist
     required_indicators = ["sma100", "atr10", "adx7", "rsi3"]
-    missing_indicators = [
-        col for col in required_indicators if col not in prepared.columns
-    ]
+    missing_indicators = [col for col in required_indicators if col not in prepared.columns]
     if missing_indicators:
         raise RuntimeError(
             f"IMMEDIATE_STOP: System5 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
@@ -291,9 +286,7 @@ def prepare_data_vectorized_system5(
     batch_monitor = BatchSizeMonitor(batch_size)
     batch_start = time.time()
 
-    def _on_symbol_done(
-        symbol: str | None = None, *, include_in_buffer: bool = False
-    ) -> None:
+    def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
         nonlocal processed, batch_size, batch_start
         if include_in_buffer and symbol:
             buffer.append(symbol)
@@ -344,9 +337,7 @@ def prepare_data_vectorized_system5(
 
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            base_cols = [
-                c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns
-            ]
+            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
             if base_cols:
                 base_nan_rate = df[base_cols].isnull().mean().mean()
             else:
@@ -373,9 +364,7 @@ def prepare_data_vectorized_system5(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(
-                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
-                    )
+                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
@@ -452,9 +441,7 @@ def prepare_data_vectorized_system5(
 
             # Check required precomputed indicators - early exit
             required_indicators = ["sma100", "atr10", "adx7", "rsi3"]
-            missing_indicators = [
-                col for col in required_indicators if col not in x.columns
-            ]
+            missing_indicators = [col for col in required_indicators if col not in x.columns]
             if missing_indicators:
                 raise RuntimeError(
                     f"IMMEDIATE_STOP: System5 missing precomputed indicators {missing_indicators} for {sym}. Daily signal execution must be stopped."
@@ -465,11 +452,7 @@ def prepare_data_vectorized_system5(
                 x["DollarVolume50"] = x["dollarvolume50"]
             elif "DollarVolume50" not in x.columns:
                 try:
-                    vol = (
-                        x["Volume"]
-                        if "Volume" in x.columns
-                        else pd.Series(0, index=x.index)
-                    )
+                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
                     x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
                 except Exception:
                     pass
@@ -478,11 +461,7 @@ def prepare_data_vectorized_system5(
                 x["AvgVolume50"] = x["avgvolume50"]
             elif "AvgVolume50" not in x.columns:
                 try:
-                    vol = (
-                        x["Volume"]
-                        if "Volume" in x.columns
-                        else pd.Series(0, index=x.index)
-                    )
+                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
                     x["AvgVolume50"] = vol.rolling(50).mean()
                 except Exception:
                     pass
@@ -571,11 +550,7 @@ def prepare_data_vectorized_system5(
                         key=lambda x: x[1],
                         reverse=True,
                     )[:3]
-                    details = (
-                        ", ".join([f"{k}:{v}" for k, v in top_missing])
-                        if top_missing
-                        else ""
-                    )
+                    details = ", ".join([f"{k}:{v}" for k, v in top_missing]) if top_missing else ""
                     log_callback(
                         f"  ├─ 必須列欠落: {skipped_missing_cols} 件"
                         + (f" ({details})" if details else "")

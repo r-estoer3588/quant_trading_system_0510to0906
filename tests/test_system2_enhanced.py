@@ -108,9 +108,7 @@ class TestSystem2MainFunctions:
 
         prepared_dict = {"AAPL": mock_df, "TSLA": mock_df.copy()}
 
-        candidates_by_date, candidates_df = generate_candidates_system2(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system2(prepared_dict, top_n=5)
 
         assert isinstance(candidates_by_date, dict)
         assert len(candidates_by_date) > 0
@@ -137,9 +135,7 @@ class TestSystem2MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system2(
-            prepared_dict, top_n=5
-        )
+        candidates_by_date, candidates_df = generate_candidates_system2(prepared_dict, top_n=5)
 
         # Should still return structure, but potentially empty
         assert isinstance(candidates_by_date, dict)

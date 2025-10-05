@@ -112,9 +112,7 @@ class TestSystem1DirectFunctions:
 
     def test_normalize_index_invalid_dates(self):
         """_normalize_index の無効日付処理"""
-        df = pd.DataFrame(
-            {"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]}
-        )
+        df = pd.DataFrame({"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]})
 
         # 無効日付はNaTとなり、dropnaで除去される
         result = _normalize_index(df)
@@ -255,9 +253,7 @@ class TestSystem1DirectFunctions:
                         # 簡易ROCスコア計算
                         close_prices = df["Close"]
                         if len(close_prices) >= 2:
-                            roc_score = (
-                                close_prices.iloc[-1] / close_prices.iloc[0] - 1
-                            ) * 100
+                            roc_score = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) * 100
                             candidates.append(
                                 {
                                     "symbol": symbol,
@@ -288,9 +284,7 @@ class TestSystem1DirectFunctions:
         data_dict = {
             "AAPL": pd.DataFrame({"Close": [150, 151, 152, 153, 154, 155]}),
             "MSFT": pd.DataFrame({"Close": [300, 302, 304, 306, 308, 310]}),
-            "GOOGL": pd.DataFrame(
-                {"Close": [2000, 1990, 1980, 1970, 1960, 1950]}
-            ),  # 下降トレンド
+            "GOOGL": pd.DataFrame({"Close": [2000, 1990, 1980, 1970, 1960, 1950]}),  # 下降トレンド
         }
 
         # mock実装でテスト

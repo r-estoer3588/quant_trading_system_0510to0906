@@ -114,7 +114,6 @@ class TestCacheManager:
             patch.object(manager.file_manager, "detect_path") as mock_detect,
             patch.object(manager.file_manager, "read_with_fallback") as mock_read,
         ):
-
             mock_path = Mock()
             mock_path.exists.return_value = True
             mock_detect.return_value = mock_path
@@ -268,9 +267,7 @@ class TestStandaloneFunctions:
 
         # Check for common indicators (depending on implementation)
         potential_indicators = ["SMA_20", "RSI_14", "ATR_20", "adx7"]
-        found_indicators = [
-            col for col in potential_indicators if col in result.columns
-        ]
+        found_indicators = [col for col in potential_indicators if col in result.columns]
         assert len(found_indicators) > 0  # Should have at least some indicators
 
     def test_get_indicator_column_flexible(self, sample_data):

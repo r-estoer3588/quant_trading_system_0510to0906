@@ -26,9 +26,7 @@ def test_update_trailing_stops(monkeypatch):
     monkeypatch.setattr(
         "scripts.update_trailing_stops.ba.cancel_all_orders", fake_cancel_all_orders
     )
-    monkeypatch.setattr(
-        "scripts.update_trailing_stops.ba.submit_order", fake_submit_order
-    )
+    monkeypatch.setattr("scripts.update_trailing_stops.ba.submit_order", fake_submit_order)
 
     mapping = {"AAPL": 25.0, "TSLA": 20.0}
     update_trailing_stops(symbol_trail_pct=mapping)

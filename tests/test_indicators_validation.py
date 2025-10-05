@@ -75,9 +75,7 @@ def create_test_data_with_indicators(
 
 def test_validate_precomputed_indicators_success():
     """指標が十分にある場合の成功テスト"""
-    test_data = create_test_data_with_indicators(
-        ["AAPL", "GOOGL", "MSFT"], include_indicators=True
-    )
+    test_data = create_test_data_with_indicators(["AAPL", "GOOGL", "MSFT"], include_indicators=True)
 
     # 全てのシステムで検証
     passed, missing_report = validate_precomputed_indicators(
@@ -90,9 +88,7 @@ def test_validate_precomputed_indicators_success():
 
 def test_validate_precomputed_indicators_missing():
     """指標が不足している場合のテスト"""
-    test_data = create_test_data_with_indicators(
-        ["AAPL", "GOOGL"], include_indicators=False
-    )
+    test_data = create_test_data_with_indicators(["AAPL", "GOOGL"], include_indicators=False)
 
     # strict_mode=False で警告のみ
     passed, missing_report = validate_precomputed_indicators(
@@ -123,9 +119,7 @@ def test_validate_precomputed_indicators_strict_mode():
 
 def test_quick_indicator_check_success():
     """高速指標チェックの成功テスト"""
-    test_data = create_test_data_with_indicators(
-        ["AAPL", "GOOGL"], include_indicators=True
-    )
+    test_data = create_test_data_with_indicators(["AAPL", "GOOGL"], include_indicators=True)
 
     result = quick_indicator_check(test_data)
     assert result is True

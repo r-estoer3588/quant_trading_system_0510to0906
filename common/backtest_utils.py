@@ -79,9 +79,7 @@ def _compute_exit(
 ) -> tuple[float | None, pd.Timestamp | None]:
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_calc = strategy.compute_exit(
-                df, entry_idx, entry_price, stop_loss_price
-            )
+            exit_calc = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
         except Exception:
             return None, None
         return exit_calc if exit_calc else (None, None)
@@ -166,9 +164,7 @@ def simulate_trades_with_risk(
 
         if available_slots > 0:
             day_candidates = [
-                c
-                for c in candidates
-                if c["symbol"] not in {p["symbol"] for p in active_positions}
+                c for c in candidates if c["symbol"] not in {p["symbol"] for p in active_positions}
             ][:available_slots]
 
             for c in day_candidates:

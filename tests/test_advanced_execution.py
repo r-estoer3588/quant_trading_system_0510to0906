@@ -41,9 +41,7 @@ class TestAdvancedDataOperations:
         )
 
         rolling_stats = (
-            df.set_index("date")["price"]
-            .rolling(window=10)
-            .agg(["mean", "std", "min", "max"])
+            df.set_index("date")["price"].rolling(window=10).agg(["mean", "std", "min", "max"])
         )
 
         # 結果検証
@@ -112,16 +110,11 @@ class TestCommonModulesDeepExecution:
 
             # モジュール内の全属性取得
             all_attrs = dir(system_constants)
-            constants = [
-                attr
-                for attr in all_attrs
-                if not attr.startswith("_") and attr.isupper()
-            ]
+            constants = [attr for attr in all_attrs if not attr.startswith("_") and attr.isupper()]
             functions = [
                 attr
                 for attr in all_attrs
-                if callable(getattr(system_constants, attr))
-                and not attr.startswith("_")
+                if callable(getattr(system_constants, attr)) and not attr.startswith("_")
             ]
 
             # データ型確認
@@ -172,8 +165,7 @@ class TestCommonModulesDeepExecution:
             cache_validation_funcs = [
                 attr
                 for attr in dir(cache_validation)
-                if callable(getattr(cache_validation, attr))
-                and not attr.startswith("_")
+                if callable(getattr(cache_validation, attr)) and not attr.startswith("_")
             ]
 
             # 存在確認
@@ -209,9 +201,7 @@ class TestStrategiesDeepDive:
                 # モジュール属性確認
                 attrs = dir(strategy_module)
                 classes = [
-                    attr
-                    for attr in attrs
-                    if not attr.startswith("_") and "Strategy" in attr
+                    attr for attr in attrs if not attr.startswith("_") and "Strategy" in attr
                 ]
 
                 if classes:
@@ -229,14 +219,11 @@ class TestStrategiesDeepDive:
             from strategies import base_strategy
 
             # クラス定義の詳細確認
-            strategy_classes = [
-                attr for attr in dir(base_strategy) if not attr.startswith("_")
-            ]
+            strategy_classes = [attr for attr in dir(base_strategy) if not attr.startswith("_")]
             methods = [
                 attr
                 for attr in dir(base_strategy)
-                if callable(getattr(base_strategy, attr, None))
-                and not attr.startswith("_")
+                if callable(getattr(base_strategy, attr, None)) and not attr.startswith("_")
             ]
 
             assert len(strategy_classes) >= 0
@@ -276,10 +263,7 @@ class TestComplexDataStructures:
         )
 
         avg_sharpe = np.mean(
-            [
-                system["performance"]["sharpe"]
-                for system in complex_data["systems"].values()
-            ]
+            [system["performance"]["sharpe"] for system in complex_data["systems"].values()]
         )
 
         # 検証

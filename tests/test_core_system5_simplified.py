@@ -134,9 +134,7 @@ class TestSystem5DataPreparation:
         """Test with batch processing parameters."""
         sample_data = {"TEST": self.create_test_data_with_indicators("TEST")}
 
-        result = prepare_data_vectorized_system5(
-            sample_data, batch_size=50, use_process_pool=False
-        )
+        result = prepare_data_vectorized_system5(sample_data, batch_size=50, use_process_pool=False)
 
         assert isinstance(result, dict)
 
@@ -174,9 +172,7 @@ class TestSystem5CandidateGeneration:
         """Test basic generate_candidates_system5 functionality."""
         prepared_data = self.create_prepared_data_dict()
 
-        candidates_by_date, candidates_df = generate_candidates_system5(
-            prepared_data, top_n=3
-        )
+        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=3)
 
         assert isinstance(candidates_by_date, dict)
         assert isinstance(candidates_df, pd.DataFrame) or candidates_df is None
@@ -208,9 +204,7 @@ class TestSystem5CandidateGeneration:
         """Test with top_n=None."""
         prepared_data = self.create_prepared_data_dict()
 
-        candidates_by_date, candidates_df = generate_candidates_system5(
-            prepared_data, top_n=None
-        )
+        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=None)
 
         assert isinstance(candidates_by_date, dict)
 
@@ -267,9 +261,7 @@ class TestSystem5Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_by_date, candidates_df = generate_candidates_system5(
-            prepared_data, top_n=3
-        )
+        candidates_by_date, candidates_df = generate_candidates_system5(prepared_data, top_n=3)
 
         assert isinstance(candidates_by_date, dict)
         assert isinstance(candidates_df, pd.DataFrame) or candidates_df is None

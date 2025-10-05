@@ -35,9 +35,7 @@ class TestCacheManagerCriticalMethods:
         self.mock_settings.cache.rolling.buffer_days = 50
         self.mock_settings.cache.file_format = "csv"
 
-        with patch(
-            "common.cache_manager.get_settings", return_value=self.mock_settings
-        ):
+        with patch("common.cache_manager.get_settings", return_value=self.mock_settings):
             self.manager = CacheManager(self.mock_settings)
 
     def teardown_method(self):

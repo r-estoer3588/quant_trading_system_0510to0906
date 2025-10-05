@@ -73,9 +73,7 @@ class TestGetTotalDaysSystem7:
     def test_get_total_days_with_overlapping_dates(self):
         """Test get_total_days_system7 with overlapping dates"""
         data_dict = {
-            "SPY": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}
-            ),
+            "SPY": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}),
             "AAPL": pd.DataFrame(
                 {
                     "Date": ["2023-01-01", "2023-01-02"],
@@ -188,9 +186,7 @@ class TestGenerateCandidatesSystem7:
         prepared_dict = {"SPY": spy_df}
 
         # Limit to top 2
-        candidates_by_date, summary_df = generate_candidates_system7(
-            prepared_dict, top_n=2
-        )
+        candidates_by_date, summary_df = generate_candidates_system7(prepared_dict, top_n=2)
 
         # Should only have 1 date with 2 candidates (limited by top_n)
         assert len(candidates_by_date) == 1
@@ -204,16 +200,12 @@ class TestGenerateCandidatesSystem7:
         """Test generate_candidates_system7 with top_n=0"""
         mock_resolve_date.return_value = pd.Timestamp("2023-01-10")
 
-        spy_df = pd.DataFrame(
-            {"setup": [1, 1], "ATR50": [1.0, 1.1], "Close": [100, 101]}
-        )
+        spy_df = pd.DataFrame({"setup": [1, 1], "ATR50": [1.0, 1.1], "Close": [100, 101]})
         spy_df.index = pd.to_datetime(["2023-01-01", "2023-01-02"])
 
         prepared_dict = {"SPY": spy_df}
 
-        candidates_by_date, summary_df = generate_candidates_system7(
-            prepared_dict, top_n=0
-        )
+        candidates_by_date, summary_df = generate_candidates_system7(prepared_dict, top_n=0)
 
         # top_n=0 should result in no candidates
         assert candidates_by_date == {}
@@ -230,9 +222,7 @@ class TestGenerateCandidatesSystem7:
         prepared_dict = {"SPY": spy_df}
 
         # Test with string top_n (should be treated as None)
-        candidates_by_date, summary_df = generate_candidates_system7(
-            prepared_dict, top_n="invalid"
-        )
+        candidates_by_date, summary_df = generate_candidates_system7(prepared_dict, top_n="invalid")
 
         # Should work without limit
         assert len(candidates_by_date) == 1
@@ -256,9 +246,7 @@ class TestGenerateCandidatesSystem7:
 
     def test_generate_candidates_with_callbacks(self):
         """Test generate_candidates_system7 with callbacks"""
-        spy_df = pd.DataFrame(
-            {"setup": [0], "ATR50": [1.0], "Close": [100]}
-        )  # No setup signals
+        spy_df = pd.DataFrame({"setup": [0], "ATR50": [1.0], "Close": [100]})  # No setup signals
         spy_df.index = pd.to_datetime(["2023-01-01"])
 
         prepared_dict = {"SPY": spy_df}

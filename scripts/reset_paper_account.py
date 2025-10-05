@@ -13,6 +13,7 @@
   - Paper 環境のみ。Live キーでは 403/404 になります。
   - API の仕様変更で失敗する可能性があります (best-effort)。
 """
+
 from __future__ import annotations
 
 import argparse

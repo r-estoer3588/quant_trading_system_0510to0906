@@ -119,9 +119,7 @@ class TestSystem2DirectFunctions:
                 {"Close": [200, 201]},
                 index=pd.date_range("2023-01-02", "2023-01-03", freq="D"),
             ),
-            "GOOGL": pd.DataFrame(
-                {"Close": [1000]}, index=pd.date_range("2023-01-01", periods=1)
-            ),
+            "GOOGL": pd.DataFrame({"Close": [1000]}, index=pd.date_range("2023-01-01", periods=1)),
         }
 
         result = get_total_days_system2(data_dict)
@@ -160,9 +158,7 @@ class TestSystem2DirectFunctions:
                         close_prices = df["Close"]
                         if len(close_prices) >= 2:
                             # RSIが高い（売られ過ぎでないが上昇し過ぎた）状況を模擬
-                            short_score = (
-                                close_prices.iloc[-1] / close_prices.iloc[0] * 100
-                            )
+                            short_score = close_prices.iloc[-1] / close_prices.iloc[0] * 100
                             if short_score > 105:  # 上昇しすぎたものをショート候補に
                                 candidates.append(
                                     {
@@ -191,15 +187,11 @@ class TestSystem2DirectFunctions:
             "MSFT": pd.DataFrame(
                 {"Close": [300, 290, 280, 270, 260]}  # 下降トレンド（ショート対象外）
             ),
-            "GOOGL": pd.DataFrame(
-                {"Close": [2000, 2050, 2100, 2150, 2200]}
-            ),  # 上昇トレンド
+            "GOOGL": pd.DataFrame({"Close": [2000, 2050, 2100, 2150, 2200]}),  # 上昇トレンド
         }
 
         # mock実装でテスト
-        candidates_by_date, merged_df = mock_generate_candidates_system2(
-            prepared_dict, top_n=2
-        )
+        candidates_by_date, merged_df = mock_generate_candidates_system2(prepared_dict, top_n=2)
 
         # 戻り値構造検証
         assert isinstance(candidates_by_date, dict)

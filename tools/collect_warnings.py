@@ -16,6 +16,7 @@ Design constraints:
   - No heavy deps; use stdlib only
   - Safe when log missing (warn + exit code 0)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,9 +33,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Collect warnings summary from log")
     p.add_argument("--log", required=True, help="Path to pytest warnings log file")
     p.add_argument("--out", required=True, help="JSONL output file path")
-    p.add_argument(
-        "--top", type=int, default=20, help="Show top-N categories on stdout"
-    )
+    p.add_argument("--top", type=int, default=20, help="Show top-N categories on stdout")
     return p.parse_args()
 
 

@@ -16,11 +16,7 @@ from core.system6 import (
 )
 
 from .base_strategy import StrategyBase
-from .constants import (
-    MAX_HOLD_DAYS_DEFAULT,
-    PROFIT_TAKE_PCT_DEFAULT_5,
-    STOP_ATR_MULTIPLE_DEFAULT,
-)
+from .constants import MAX_HOLD_DAYS_DEFAULT, PROFIT_TAKE_PCT_DEFAULT_5, STOP_ATR_MULTIPLE_DEFAULT
 
 
 class System6Strategy(AlpacaOrderMixin, StrategyBase):
@@ -40,9 +36,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         # パフォーマンス最適化: プロセスプール使用制御
         import os
 
-        use_process_pool = (
-            os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
-        )
+        use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
 
         # System6専用のパフォーマンス設定
         kwargs.setdefault("use_process_pool", use_process_pool)
@@ -140,23 +134,17 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         # ショート戦略: ストップロスはエントリー価格より上に設定される
         if stop_price <= entry_price:
             return None
         return entry_price, stop_price
 
-    def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float
-    ):
+    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
-        profit_take_pct = float(
-            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5)
-        )
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
         max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         last_idx = len(df) - 1
 
