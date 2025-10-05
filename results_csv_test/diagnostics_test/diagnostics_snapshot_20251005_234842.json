@@ -1,0 +1,108 @@
+{
+  "export_date": "2025-10-05T23:48:42.990165",
+  "mode": "mini",
+  "systems": [
+    {
+      "system_id": "system2",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system3",
+      "diagnostics": {
+        "ranking_source": "unknown",
+        "setup_predicate_count": -1,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": -1,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system4",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system5",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system6",
+      "diagnostics": {
+        "ranking_source": "full_scan",
+        "setup_predicate_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system7",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    }
+  ]
+}

@@ -4548,14 +4548,13 @@ def _safe_stage_int(value: object | None) -> int:
             return int(float(txt))
         except Exception:
             return 0
-    # 最後のフォールバック: __int__ 実装のみ許容
-    if hasattr(value, "__int__"):
-        try:
-            v2 = value.__int__()
-            if isinstance(v2, int):
-                return v2
-        except Exception:
-            return 0
+    # 最後のフォールバック: int() での暗黙変換を試みる
+    try:
+        v2 = int(value)  # type: ignore[arg-type]
+        if isinstance(v2, int):
+            return v2
+    except Exception:
+        return 0
     return 0
 
 
