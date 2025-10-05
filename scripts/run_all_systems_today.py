@@ -518,6 +518,8 @@ class TodayRunContext:
     # テスト高速化オプション
     test_mode: str | None = None  # mini/quick/sample
     skip_external: bool = False  # 外部API呼び出しをスキップ
+    # latest_only グローバル制御: "データ基準日"（例: 週末は金曜、平日は当日）
+    signal_base_day: pd.Timestamp | None = None
 
 
 def _get_account_equity() -> float:
@@ -1879,43 +1881,10 @@ def _load_indicator_data(
                 df = None
             if df is None or df.empty:
                 df = cache_manager.read(sym, "rolling")
-            target_len = int(
-                settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
-            )
             needs_rebuild = df is None or getattr(df, "empty", True)
             if needs_rebuild:
-                if df is None or getattr(df, "empty", True):
-                    reason_desc = "rolling未生成"
-                else:
-                    try:
-                        reason_desc = f"len={len(df)}/{target_len}"
-                    except Exception:
-                        reason_desc = "行数不足"
-                # 詳細な rolling 未整備ログは COMPACT_TODAY_LOGS=1 で抑制し、
-                # 終盤の集約サマリ (⚠️ rolling未整備: ...) のみ残す。
-                # ノイズ削減により大量新規/不足銘柄出現時のログ可読性を向上。
-                try:
-                    compact = os.environ.get("COMPACT_TODAY_LOGS", "").strip().lower()
-                    suppress_verbose = compact in {"1", "true", "yes", "on"}
-                except Exception:
-                    suppress_verbose = False
-                if not suppress_verbose:
-                    _log(
-                        f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
-                        ui=False,
-                    )
-                else:
-                    # 抑制時は DEBUG レベルで最小限残す (開発デバッグ用)
-                    try:
-                        import logging
-
-                        logging.getLogger(__name__).debug(
-                            "suppress rolling_missing verbose: %s (%s)",
-                            sym,
-                            reason_desc,
-                        )
-                    except Exception:
-                        pass
+                # 個別銘柄ごとの "⛔ rolling未整備" ログは冗長なため完全に削除。
+                # ループ終了後のサマリーログ（⚠️ rolling未整備）で一括表示されます。
                 continue
             if df is not None and not df.empty:
                 try:
@@ -3434,7 +3403,7 @@ def compute_today_signals(
     except Exception:
         pass
 
-    # 対象とするNYSE営業日
+    # 対象とするNYSE営業日（まず一度だけ決める）
     today = get_signal_target_trading_day().normalize()
     ctx.today = today
 
@@ -3485,6 +3454,30 @@ def compute_today_signals(
 
     symbols = _prepare_symbol_universe(ctx, symbols)
     basic_data = _load_universe_basic_data(ctx, symbols)
+
+    # latest_only の基準日はここで一度だけ確定する（全システム共通で使用）
+    try:
+        spy_df = basic_data.get("SPY") if isinstance(basic_data, dict) else None
+    except Exception:
+        spy_df = None
+    try:
+        anchor_last = _extract_last_cache_date(spy_df) if spy_df is not None else None
+    except Exception:
+        anchor_last = None
+    ctx.signal_base_day = ctx.today
+    try:
+        if anchor_last is not None and pd.Timestamp(anchor_last).normalize() != ctx.today:
+            prev = get_latest_nyse_trading_day(ctx.today - pd.Timedelta(days=1))
+            ctx.signal_base_day = pd.Timestamp(prev).normalize()
+            _log(
+                (
+                    "⚠️ latest_only 基準日を切替: "
+                    f"{ctx.today.date()} → {ctx.signal_base_day.date()}"
+                ),
+                ui=False,
+            )
+    except Exception:
+        pass
 
     # ✨ NEW: 指標事前計算チェック（不足時は即座停止）
     try:
@@ -3598,7 +3591,10 @@ def compute_today_signals(
         s3_atr = stats3.get("atr_pass", 0)
         _log(
             "🧪 system3内訳: "
-            + f"元={s3_total}, Low>=1: {s3_low}, AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+            + (
+                f"元={s3_total}, Low>=1: {s3_low}, "
+                f"AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+            )
         )
     except Exception:
         pass
@@ -3695,7 +3691,7 @@ def compute_today_signals(
                 continue
             if s1_setup_calc == 0:
                 try:
-                    print(f"[DEBUG_S1_COLS] sym={_sym} df_cols={list(_df.columns)[:40]}")
+                    print(f"[DEBUG_S1_COLS] sym={_sym} " f"df_cols={list(_df.columns)[:40]}")
                 except Exception:
                     pass
             # DEBUG ONCE: 列状況と SMA25/SMA50 推定値を最初の1銘柄で出力（後で削除）
@@ -3712,7 +3708,9 @@ def compute_today_signals(
                     _s25_raw = get_indicator(last, "sma25")
                     _s50_raw = get_indicator(last, "sma50")
                     print(
-                        f"[DEBUG_S1_ONCE] sym={_sym} sma25_raw={_s25_raw} sma50_raw={_s50_raw} cols_sample={_cols_preview[:25]}"
+                        f"[DEBUG_S1_ONCE] sym={_sym} "
+                        f"sma25_raw={_s25_raw} sma50_raw={_s50_raw} "
+                        f"cols_sample={_cols_preview[:25]}"
                     )
                 except Exception:
                     print(f"[DEBUG_S1_ONCE] sym={_sym} 取得失敗")
@@ -3934,8 +3932,11 @@ def compute_today_signals(
                 cval = to_float(last.get("Close"))
                 sval = to_float(get_indicator(last, "sma100"))
                 aval = to_float(get_indicator(last, "atr10"))
-                price_pass = (not pd.isna(cval) and not pd.isna(sval) and not pd.isna(aval)) and (
-                    cval > sval + aval
+                price_pass = (
+                    (not pd.isna(cval))
+                    and (not pd.isna(sval))
+                    and (not pd.isna(aval))
+                    and (cval > sval + aval)
                 )
             except Exception:
                 price_pass = False
@@ -4169,68 +4170,21 @@ def compute_today_signals(
                 }:
                     candidate_kwargs.setdefault("latest_only", True)
 
-            # 自動フォールバック: 当日バー欠落時は latest_only の対象日を前営業日に変更
+            # ここから: latest_only 対象日はグローバルに一度だけ決めた ctx.signal_base_day を使用
             try:
                 if candidate_kwargs.get("latest_only", False):
-                    try:
-                        anchor_df = basic_data.get("SPY") if isinstance(basic_data, dict) else None
-                    except Exception:
-                        anchor_df = None
-
-                    anchor_last = (
-                        _extract_last_cache_date(anchor_df) if anchor_df is not None else None
-                    )
-                    _target_day = (
-                        pd.Timestamp(ctx.today).normalize()
-                        if getattr(ctx, "today", None) is not None
-                        else None
-                    )
-
-                    fallback_day: pd.Timestamp | None = None
-                    reason: str | None = None
-                    if _target_day is None:
-                        reason = "target_day_missing"
-                    elif anchor_last is None:
-                        reason = "anchor_missing"
-                    else:
-                        if pd.Timestamp(anchor_last).normalize() != _target_day:
-                            # 当日が欠落 → その一営業日前へ
-                            prev = get_latest_nyse_trading_day(_target_day - pd.Timedelta(days=1))
-                            fallback_day = pd.Timestamp(prev).normalize()
-                            reason = (
-                                f"anchor_stale({pd.Timestamp(anchor_last).date()} != "
-                                f"{_target_day.date()})"
-                            )
-
-                    # prepared_syms=0 なら最終手段として full スキャンへ
-                    try:
-                        if reason is None and (prepared_data is None or len(prepared_data) == 0):
-                            reason = "prepared_syms_zero"
-                    except Exception:
-                        pass
-
-                    if fallback_day is not None:
-                        candidate_kwargs["latest_mode_date"] = fallback_day
-                        try:
-                            msg1 = (
-                                f"[{system_name}] ⚠️ latest_only ターゲット切替: "
-                                f"{_target_day.date()} → {fallback_day.date()}"
-                            )
-                            msg2 = f" (理由: {reason})" if reason else ""
-                            _log(msg1 + msg2, ui=False)
-                        except Exception:
-                            pass
-                    elif reason == "prepared_syms_zero":
+                    base_day = getattr(ctx, "signal_base_day", None)
+                    # prepared_syms=0 のときだけ full スキャンへ切替（従来互換）
+                    if prepared_data is not None and len(prepared_data) == 0:
                         candidate_kwargs["latest_only"] = False
-                        try:
-                            _log(
-                                f"[{system_name}] ⚠️ prepared_syms=0 のため full スキャンに切替",
-                                ui=False,
-                            )
-                        except Exception:
-                            pass
+                        _log(
+                            f"[{system_name}] ⚠️ prepared_syms=0 のため full スキャンに切替",
+                            ui=False,
+                        )
+                    elif base_day is not None:
+                        # 全システムにグローバル基準日を注入（system6 も対応済み）
+                        candidate_kwargs["latest_mode_date"] = pd.Timestamp(base_day).normalize()
             except Exception:
-                # 例外時はそのまま（latest_only 設定に従う）
                 pass
             # DEBUG: latest_only フラグと top_n 相当をログ（system1のみ冗長）
             try:
@@ -4288,7 +4242,11 @@ def compute_today_signals(
                                     "symbol": symbol,
                                     "entry_date": date_key,
                                     "side": (
-                                        "long" if int(system_name[-1]) in [1, 3, 4, 5] else "short"
+                                        (
+                                            "long"
+                                            if int(system_name[-1]) in [1, 3, 4, 5]
+                                            else "short"
+                                        )
                                     ),
                                     **data,
                                 }
@@ -4382,7 +4340,11 @@ def compute_today_signals(
         if not final_df.empty and "system" in final_df.columns:
             # system番号抽出 (system4 等)
             final_df["_system_no"] = (
-                final_df["system"].astype(str).str.extract(r"(\d+)").fillna(0).astype(int)
+                final_df["system"]
+                .astype(str)
+                .str.extract(r"(\d+)", expand=False)
+                .fillna("0")
+                .astype(int)
             )
             final_df = final_df.sort_values(["side", "_system_no"], kind="stable")
             final_df = final_df.drop(columns=["_system_no"], errors="ignore")
@@ -4869,9 +4831,11 @@ def _run_strategy_with_proper_scope(
 
 
 def _run_strategy(name: str, _stg: object) -> tuple[str, pd.DataFrame, str, list[str]]:
-    """Wrapper function for _run_strategy_with_proper_scope with appropriate defaults."""
+    """
+    Wrapper function for _run_strategy_with_proper_scope with appropriate defaults.
+    """
     try:
-        # This is a simplified wrapper - the actual implementation would depend on the complete context
+        # This is a simplified wrapper - actual implementation depends on full context
         # For now, return a basic result structure
         df = pd.DataFrame()  # Empty dataframe as placeholder
         msg = f"📊 {name}: 0 件 (placeholder)"

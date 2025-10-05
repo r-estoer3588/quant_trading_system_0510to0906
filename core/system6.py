@@ -1,6 +1,7 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
 from collections.abc import Callable
+import math
 import time
 from typing import Any, cast
 
@@ -230,6 +231,7 @@ def generate_candidates_system6(
     skip_callback: Callable[[str, str], None] | None = None,
     batch_size: int | None = None,
     latest_only: bool = False,
+    latest_mode_date: pd.Timestamp | None = None,
     include_diagnostics: bool = False,
     diagnostics: dict[str, Any] | None = None,
 ) -> (
@@ -262,22 +264,68 @@ def generate_candidates_system6(
         try:
             rows: list[dict[str, Any]] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            # 正規化した基準日（指定があればそれを優先）
+            target_dt: pd.Timestamp | None = None
+            if latest_mode_date is not None:
+                try:
+                    target_dt = pd.Timestamp(latest_mode_date).normalize()
+                except Exception:
+                    target_dt = None
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
                 if "setup" not in df.columns:
                     continue
-                last_row = df.iloc[-1]
+                # 対象日を選択（指定があればその日、なければ最終行）
+                if target_dt is not None:
+                    # インデックスは normalize 済み前提
+                    try:
+                        if target_dt in df.index:
+                            last_row = df.loc[target_dt]
+                            # loc で Series 以外が来たら最終要素へ
+                            if hasattr(last_row, "iloc") and getattr(last_row, "ndim", 1) > 1:
+                                last_row = last_row.iloc[-1]
+                            dt = target_dt
+                        else:
+                            # 対象日のデータが無ければスキップ
+                            continue
+                    except Exception:
+                        continue
+                else:
+                    last_row = df.iloc[-1]
+                    try:
+                        # 安全にスカラー日時へ変換（型検査対策で文字列経由）
+                        idx_last = df.index[-1]
+                        parsed = pd.to_datetime(str(idx_last), errors="coerce")
+                        if pd.isna(parsed):
+                            continue
+                        dt = pd.Timestamp(parsed).normalize()
+                    except Exception:
+                        continue
                 if bool(last_row.get("setup")):
                     diagnostics["setup_predicate_count"] += 1
                 else:
                     continue
                 # 必要指標取得 (存在しない場合はスキップ)
-                return_6d = last_row.get("return_6d")
-                if return_6d is None or pd.isna(return_6d):
+                # return_6d はスカラーに正規化してから float へ
+                try:
+                    val = last_row["return_6d"]  # 型: Any（Series ではなくスカラー想定）
+                except Exception:
+                    continue
+                # to_numeric で Series になる可能性を排除するため 1 要素 Series 経由で取得
+                try:
+                    _tmp = pd.Series([val], dtype="object")
+                    coerced = pd.to_numeric(_tmp, errors="coerce").iloc[0]
+                except Exception:
+                    continue
+                # float へ強制変換
+                try:
+                    return_6d = float(coerced)
+                except Exception:
+                    continue
+                if math.isnan(return_6d):
                     continue
                 atr10 = last_row.get("atr10", None)
-                dt = df.index[-1]
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 entry_price = last_row.get("Close") if "Close" in df else None
                 rows.append(
@@ -292,12 +340,15 @@ def generate_candidates_system6(
             if not rows:
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
-            # 最頻日で揃える（欠落シンボル耐性）
-            try:
-                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                df_all = df_all[df_all["date"] == mode_date]
-            except Exception:
-                pass
+            # 指定があればその日で揃え、無ければ最頻日で揃える（欠落シンボル耐性）
+            if target_dt is not None:
+                df_all = df_all[df_all["date"] == target_dt]
+            else:
+                try:
+                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    df_all = df_all[df_all["date"] == mode_date]
+                except Exception:
+                    pass
             df_all = df_all.sort_values("return_6d", ascending=False, kind="stable")
             df_all = df_all.head(int(top_n)) if top_n else df_all
             # rank 付与（従来互換）
@@ -309,20 +360,20 @@ def generate_candidates_system6(
                 dt = pd.Timestamp(str(dt_raw))
                 symbol_map: dict[str, dict[str, Any]] = {}
                 for rec in sub.to_dict("records"):
-                    # ensure record and payload types are precise for mypy
-                    rec = cast(dict[str, Any], rec)
+                    # ensure record and payload keys are strings for type-checkers
                     sym_val = rec.get("symbol")
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
                     payload: dict[str, Any] = {
-                        k: v for k, v in rec.items() if k not in ("symbol", "date")
+                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
                     }
                     symbol_map[sym_val] = payload
                 normalized[dt] = symbol_map
             if log_callback:
                 try:
                     log_callback(
-                        f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                        "System6: latest_only fast-path -> "
+                        f"{len(df_all)} candidates (symbols={len(rows)})"
                     )
                 except Exception:
                     pass
@@ -387,9 +438,15 @@ def generate_candidates_system6(
 
         # 統計計算：フィルター通過数とセットアップ通過数をカウント（累積日数）
         if "filter" in df.columns:
-            filter_passed += df["filter"].sum()  # 全期間でフィルター条件を満たした日数
+            try:
+                filter_passed += int(df["filter"].sum())
+            except Exception:
+                pass
         if "setup" in df.columns:
-            setup_passed += df["setup"].sum()  # 全期間でセットアップ条件を満たした日数
+            try:
+                setup_passed += int(df["setup"].sum())
+            except Exception:
+                pass
 
         try:
             if "setup" not in df.columns or not df["setup"].any():
@@ -407,9 +464,10 @@ def generate_candidates_system6(
                     # 安全な型のみ受け付ける（文字列 / 日付 / 数値インデックス想定）
                     if isinstance(date, (str, int, float)) or hasattr(date, "__str__"):
                         try:
-                            entry_date = pd.to_datetime(str(date), errors="coerce")
-                            if pd.isna(entry_date):
+                            maybe_date = pd.to_datetime(str(date), errors="coerce")
+                            if pd.isna(maybe_date):
                                 continue
+                            entry_date = pd.Timestamp(maybe_date).normalize()
                         except Exception:
                             continue
                     else:
@@ -544,7 +602,7 @@ def generate_candidates_system6(
             if not isinstance(sym_val, str) or not sym_val:
                 continue
             # rec may contain entry_date; unify key name 'date' for DF compatibility
-            payload = {k: v for k, v in rec.items() if k not in ("symbol", "entry_date")}
+            payload = {str(k): v for k, v in rec.items() if k not in ("symbol", "entry_date")}
             # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
             payload["entry_date"] = rec.get("entry_date")
             symbol_dict[sym_val] = payload
