@@ -167,9 +167,11 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
             # This shouldn't happen as we normalized date earlier
             calc["Date"] = pd.to_datetime(calc.index, errors="coerce").normalize()
 
-    # Only convert columns if PascalCase versions don't already exist
-    # This handles both new data (from cache_daily_data.py with PascalCase)
-    # and legacy data (with lowercase columns)
+    # Only convert columns if PascalCase versions don't already exist,
+    # and proactively drop lowercase duplicates if TitleCase already
+    # exists. This handles both new data (from cache_daily_data.py with
+    # PascalCase) and legacy data (with lowercase columns), minimizing
+    # later duplicate cleanup.
     col_pairs = (
         ("open", "Open"),
         ("high", "High"),
@@ -180,17 +182,32 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     for src, dst in col_pairs:
         if src in calc.columns and dst not in calc.columns:
             calc[dst] = calc[src]
-            # Remove the source column immediately to avoid duplication
+            calc = calc.drop(columns=[src])
+        # If both exist (e.g., legacy artifacts), drop the lowercase
+        # source to avoid duplicate groups
+        elif src in calc.columns and dst in calc.columns:
             calc = calc.drop(columns=[src])
 
-    # Handle AdjClose conversion
-    if "AdjClose" not in calc.columns:
-        for cand in ("adjusted_close", "adj_close", "adjclose"):
+    # Handle AdjClose conversion and de-duplication comprehensively
+    adj_synonyms = ("adjusted_close", "adj_close", "adjclose")
+    if "AdjClose" in calc.columns:
+        # If TitleCase exists, drop any lowercase/underscore synonyms to
+        # avoid duplicate groups
+        drop_src = [c for c in adj_synonyms if c in calc.columns]
+        if drop_src:
+            calc = calc.drop(columns=drop_src)
+    else:
+        # Create AdjClose from the first available synonym and drop all
+        # synonyms afterwards
+        for cand in adj_synonyms:
             if cand in calc.columns:
                 calc["AdjClose"] = calc[cand]
-                # Remove the source column immediately to avoid duplication
-                calc = calc.drop(columns=[cand])
                 break
+        # Drop any remaining synonyms (including the source) to ensure a
+        # single canonical column
+        drop_src = [c for c in adj_synonyms if c in calc.columns]
+        if drop_src:
+            calc = calc.drop(columns=drop_src)
 
     required = {"Open", "High", "Low", "Close"}
     if required - set(calc.columns):
@@ -232,7 +249,7 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
 
 
 def _clean_duplicate_columns(df: pd.DataFrame, skip_cleanup: bool = False) -> pd.DataFrame:
-    """Remove duplicate columns comprehensively, keeping PascalCase/uppercase versions."""
+    """Remove duplicate columns, keeping PascalCase/uppercase versions."""
     if df is None or df.empty:
         return df
 
@@ -505,7 +522,8 @@ def extract_rolling_from_full(
     )
 
     try:
-        # tests may provide a SimpleNamespace without nested attributes; fall back safely
+        # tests may provide a SimpleNamespace without nested attributes;
+        # fall back safely
         round_decimals = getattr(
             getattr(cache_manager, "rolling_cfg", None), "round_decimals", None
         )
