@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -227,8 +229,18 @@ class CacheManager:
 
         path = self.file_manager.detect_path(dir_path, ticker)
 
-        # 健全性チェック
-        perform_cache_health_check(df, ticker, profile)
+        # 健全性チェック（環境変数で抑制可能）
+        try:
+            _silent = (os.getenv("CACHE_HEALTH_SILENT") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        except Exception:
+            _silent = False
+        if not _silent:
+            perform_cache_health_check(df, ticker, profile)
 
         # メモリ最適化
         optimized_df = self.file_manager.optimize_dataframe_memory(df)

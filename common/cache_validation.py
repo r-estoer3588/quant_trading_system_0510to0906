@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 import os
+from pathlib import Path
 from typing import ClassVar
 
 import pandas as pd
@@ -91,6 +93,60 @@ class CacheValidator:
 
     def __init__(self):
         self._warned = self._GLOBAL_WARNED
+        # 出力方針（環境変数で制御）
+        # - COMPACT_TODAY_LOGS=1 のときは既定でファイル集約（CLI抑制）
+        # - CACHE_VALIDATION_TO_FILE=1 でもファイル集約（CLI抑制）
+        # - CACHE_VALIDATION_LOG_PATH で出力先を指定可能（未指定は logs/cache_validation_warnings.log）
+        # - CACHE_VALIDATION_SILENT_CLI=1 でCLI出力を強制的に抑制
+        try:
+            compact = (os.getenv("COMPACT_TODAY_LOGS") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        except Exception:
+            compact = False
+        try:
+            to_file = (os.getenv("CACHE_VALIDATION_TO_FILE") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        except Exception:
+            to_file = False
+
+        self._aggregate_to_file = bool(compact or to_file)
+        try:
+            self._silent_cli = self._aggregate_to_file or (
+                (os.getenv("CACHE_VALIDATION_SILENT_CLI") or "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
+        except Exception:
+            self._silent_cli = self._aggregate_to_file
+
+        # ログ保存先
+        try:
+            custom_path = (os.getenv("CACHE_VALIDATION_LOG_PATH") or "").strip()
+        except Exception:
+            custom_path = ""
+        if custom_path:
+            self._aggregate_path = Path(custom_path)
+        else:
+            self._aggregate_path = Path("logs") / "cache_validation_warnings.log"
+
+    def _append_file(self, message: str) -> None:
+        """検証メッセージをログファイルへ追記する（失敗は握りつぶす）。"""
+        try:
+            path = self._aggregate_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{ts} | {message}\n")
+        except Exception:
+            # ファイル書き込みに失敗しても処理は継続
+            pass
 
     def _log_once(
         self,
@@ -105,9 +161,20 @@ class CacheValidator:
         if key in self._warned:
             return
         self._warned.add(key)
-        logger.log(level, message)
+        # ファイル集約（必要なら）
+        if self._aggregate_to_file:
+            self._append_file(message)
+        # CLI 出力（必要なときだけ）
+        if not self._silent_cli:
+            logger.log(level, message)
 
-    def _warn_once(self, ticker: str, profile: str, category: str, message: str) -> None:
+    def _warn_once(
+        self,
+        ticker: str,
+        profile: str,
+        category: str,
+        message: str,
+    ) -> None:
         """後方互換のための WARN ラッパー。"""
         self._log_once(logging.WARNING, ticker, profile, category, message)
 
@@ -187,7 +254,12 @@ class CacheValidator:
         dtype_info = describe_dtype(df, max_columns=8)
         logger.debug(f"[{profile}] {ticker}: dtypes={dtype_info}")
 
-    def check_non_positive_prices(self, df: pd.DataFrame, ticker: str, profile: str) -> None:
+    def check_non_positive_prices(
+        self,
+        df: pd.DataFrame,
+        ticker: str,
+        profile: str,
+    ) -> None:
         """価格列で非正値の割合をチェックする。"""
         price_cols = ["open", "high", "low", "close"]
         issues = []
