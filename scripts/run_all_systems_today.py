@@ -1722,19 +1722,31 @@ def _load_basic_data(
             remain = max(0, total_syms - done)
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
-            msg = f"📦 基礎データロード進捗: {done}/{total_syms} | ETA {m}分{s}秒"
+            # 固定幅整形（桁数揺れ対策）
+            w = max(1, len(str(total_syms)))
+            cur_s = f"{done:>{w}d}"
+            tot_s = f"{total_syms:>{w}d}"
+            mm = f"{m:02d}"
+            ss = f"{s:02d}"
+            msg = f"📦 基礎データロード進捗: {cur_s}/{tot_s} | ETA {mm}分{ss}秒"
 
             # 進捗ログはDEBUGレベルでレート制限適用
             rate_logger = _get_rate_limited_logger()
             rate_logger.debug_rate_limited(
-                f"📦 基礎データロード進捗: {done}/{total_syms}",
+                f"📦 基礎データロード進捗: {cur_s}/{tot_s}",
                 interval=2.0,
                 message_key="基礎データ進捗",
             )
             _emit_ui_log(msg)
         except Exception:
-            _log(f"📦 基礎データロード進捗: {done}/{total_syms}", ui=False)
-            _emit_ui_log(f"📦 基礎データロード進捗: {done}/{total_syms}")
+            try:
+                w = max(1, len(str(total_syms)))
+                cur_s = f"{done:>{w}d}"
+                tot_s = f"{total_syms:>{w}d}"
+            except Exception:
+                cur_s, tot_s = str(done), str(total_syms)
+            _log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}", ui=False)
+            _emit_ui_log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}")
 
     processed = 0
     if use_parallel and max_workers and total_syms > 1:
@@ -4033,6 +4045,36 @@ def compute_today_signals(
             )
         except Exception:
             pass
+    except Exception:
+        pass
+    # まとめ: セットアップ結果（system1〜system6）を一行で出力
+    try:
+        # system1 は SPY ゲート適用後の実効値を優先
+        try:
+            _s1_base = (
+                s1_setup_eff
+                if ("s1_setup_eff" in locals() and s1_setup_eff is not None)
+                else (s1_setup or 0)
+            )  # type: ignore[name-defined]
+            s1_val = int(_s1_base)
+        except Exception:
+            s1_val = int(s1_setup or 0)  # type: ignore[name-defined]
+        s2_val = int(s2_setup or 0) if "s2_setup" in locals() else 0
+        s3_val = int(s3_setup or 0) if "s3_setup" in locals() else 0
+        # system4 は Close>SMA200 件数（s4_close）をセットアップ相当として扱う
+        s4_val = int(locals().get("s4_close", 0) or 0)
+        s5_val = int(s5_setup or 0) if "s5_setup" in locals() else 0
+        s6_val = int(s6_setup or 0) if "s6_setup" in locals() else 0
+
+        _log(
+            "🧩 セットアップ結果: "
+            + f"system1={s1_val}件, "
+            + f"system2={s2_val}件, "
+            + f"system3={s3_val}件, "
+            + f"system4={s4_val}件, "
+            + f"system5={s5_val}件, "
+            + f"system6={s6_val}件"
+        )
     except Exception:
         pass
     if progress_callback:

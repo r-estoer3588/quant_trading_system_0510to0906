@@ -680,7 +680,7 @@ def _log_manual_rebuild_notice(
         "on",
     }
     suppress_default_flag = os.getenv(
-        "ROLLING_MANUAL_REBUILD_SUPPRESS_PER_SYMBOL", "1"
+        "ROLLING_MANUAL_REBUILD_SUPPRESS_PER_SYMBOL", "0"
     ).strip().lower() in {
         "1",
         "true",
@@ -688,10 +688,12 @@ def _log_manual_rebuild_notice(
         "on",
     }
     # compact_mode: True => 集約（per-symbolログ抑制）
+    # 既定: COMPACT_TODAY_LOGS=1 のとき抑制。明示 suppress 環境変数で強制抑制。
+    # ROLLING_MANUAL_REBUILD_VERBOSE=1 が指定されれば、COMPACT でも詳細を出す。
     if suppress_default_flag:
         compact_mode = True
     else:
-        compact_mode = (os.getenv("COMPACT_TODAY_LOGS") == "1") or not verbose_flag
+        compact_mode = (os.getenv("COMPACT_TODAY_LOGS") == "1") and (not verbose_flag)
 
     # compact モード時は既存 aggregator + 共通 aggregator の二段構え
     if compact_mode:
@@ -878,10 +880,19 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
-            log_fn(f"📦 基礎データロード進捗: {current}/{total} | 経過 {minutes}分{seconds}秒")
+            # 桁数揺れを避けるため固定幅で整形
+            w = max(1, len(str(total)))
+            cur_s = f"{current:>{w}d}"
+            tot_s = f"{total:>{w}d}"
+            mm = f"{minutes:02d}"
+            ss = f"{seconds:02d}"
+            log_fn(f"📦 基礎データロード進捗: {cur_s}/{tot_s} | 経過 {mm}分{ss}秒")
         except Exception:
             try:
-                log_fn(f"📦 基礎データロード進捗: {current}/{total}")
+                w = max(1, len(str(total)))
+                cur_s = f"{current:>{w}d}"
+                tot_s = f"{total:>{w}d}"
+                log_fn(f"📦 基礎データロード進捗: {cur_s}/{tot_s}")
             except Exception:
                 pass
 
@@ -936,11 +947,23 @@ def _collect_symbol_data(
         if detail is not None:
             with missing_lock:
                 missing_details.append(detail)
-        if manual_msg and log_fn and not debug_scan:
+        # per-symbol の "⛔ rolling未整備" は既定で抑制し、必要時のみ詳細表示。
+        # 直接ログ出力せず、専用関数で集約・抑制ロジックを適用する。
+        if (
+            detail
+            and log_fn
+            and not debug_scan
+            and detail.get("action") == "manual_rebuild_required"
+        ):
             try:
-                log_fn(manual_msg)
+                _log_manual_rebuild_notice(sym, detail, log_fn=log_fn)
             except Exception:
-                pass
+                # フォールバックとして元のメッセージを出せる場合のみ最小限で出力
+                if manual_msg:
+                    try:
+                        log_fn(manual_msg)
+                    except Exception:
+                        pass
         with progress_lock:
             processed += 1
             _emit_progress(processed)
@@ -1698,7 +1721,7 @@ class UILogger:
                                 try:
                                     rel_elapsed = max(0, (ts_val / 1000.0) - self.start_time)
                                     mm, ss = divmod(int(rel_elapsed), 60)
-                                    rel_prefix = f"{mm}分{ss}秒"
+                                    rel_prefix = f"{mm:02d}分{ss:02d}秒"
                                 except Exception:
                                     pass
                 except Exception:
@@ -1738,7 +1761,7 @@ class UILogger:
                         rel_prefix = _format_rel_compact(_elapsed)
                     else:
                         mm, ss = divmod(int(_elapsed), 60)
-                        rel_prefix = f"{mm}分{ss}秒"
+                        rel_prefix = f"{mm:02d}分{ss:02d}秒"
                 except Exception:
                     rel_prefix = "0分0秒"
             line = f"[{iso_ts} | {rel_prefix}] {parsed_msg}"
@@ -1761,13 +1784,12 @@ class UILogger:
                     line = f"[{now_txt} | {rel_prefix}] {msg}"
                 else:
                     try:
-                        # m,s が計算済みでないケースは再計算
-                        if "m" not in locals() or "s" not in locals():
-                            _m, _s = divmod(int(max(0, time.time() - self.start_time)), 60)
-                            m, s = _m, _s
-                        line = f"[{now_txt} | {m}分{s}秒] {msg}"
+                        # 非コンパクト時は常に m,s を計算
+                        _elapsed2 = max(0, time.time() - self.start_time)
+                        m, s = divmod(int(_elapsed2), 60)
+                        line = f"[{now_txt} | {m:02d}分{s:02d}秒] {msg}"
                     except Exception:
-                        line = f"[{now_txt} | 0分0秒] {msg}"
+                        line = f"[{now_txt} | 00分00秒] {msg}"
         self.log_lines.append(line)
         if _has_st_ctx() and self.progress_ui.show_overall:
             if self._should_display(str(msg)):
