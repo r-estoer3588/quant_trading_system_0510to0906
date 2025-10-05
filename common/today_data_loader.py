@@ -427,13 +427,19 @@ def load_basic_data(
             remain = max(0, total_syms - done)
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
-            msg = f"📦 基礎データロード進捗: {done}/{total_syms} | ETA {m}分{s}秒"
+            # 固定幅整形（桁数揺れ対策）
+            w = max(1, len(str(total_syms)))
+            cur_s = f"{done:>{w}d}"
+            tot_s = f"{total_syms:>{w}d}"
+            mm = f"{m:02d}"
+            ss = f"{s:02d}"
+            msg = f"📦 基礎データロード進捗: {cur_s}/{tot_s} | ETA {mm}分{ss}秒"
 
             # 進捗ログはDEBUGレベルでレート制限適用
             try:
                 rate_logger = _get_rate_limited_logger()
                 rate_logger.debug_rate_limited(
-                    f"📦 基礎データロード進捗: {done}/{total_syms}",
+                    f"📦 基礎データロード進捗: {cur_s}/{tot_s}",
                     interval=2.0,
                     message_key="基礎データ進捗",
                 )
@@ -442,10 +448,17 @@ def load_basic_data(
             if _emit_ui_log:
                 _emit_ui_log(msg)
         except Exception:
+            # フォールバック時も整形を適用
+            try:
+                w = max(1, len(str(total_syms)))
+                cur_s = f"{done:>{w}d}"
+                tot_s = f"{total_syms:>{w}d}"
+            except Exception:
+                cur_s, tot_s = str(done), str(total_syms)
             if _log:
-                _log(f"📦 基礎データロード進捗: {done}/{total_syms}", ui=False)
+                _log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}", ui=False)
             if _emit_ui_log:
-                _emit_ui_log(f"📦 基礎データロード進捗: {done}/{total_syms}")
+                _emit_ui_log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}")
 
     processed = 0
     if use_parallel and max_workers and total_syms > 1:
@@ -598,7 +611,8 @@ def load_indicator_data(
     missing_symbols: list[str] = []
     # 理由別カウンタ (生成失敗/長さ不足など) を収集し最終サマリーに載せる
     missing_reasons: dict[str, int] = {}
-    verbose_missing = os.environ.get("ROLLING_MISSING_VERBOSE", "").strip().lower() in {
+    # 旧挙動復活のための環境変数は解析段階で参照する（ここでは未使用）
+    _ = os.environ.get("ROLLING_MISSING_VERBOSE", "").strip().lower() in {
         "1",
         "true",
         "yes",
