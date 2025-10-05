@@ -423,9 +423,16 @@ class CacheManager:
             for symbol in system_symbols:
                 try:
                     df = self.read(symbol, "rolling")
-                    validation_result = self._validate_symbol_data(
-                        symbol, df, reference_date, min_required_rows, max_stale_days
-                    )
+                    if df is None:
+                        validation_result = "missing"
+                    else:
+                        validation_result = self._validate_symbol_data(
+                            symbol,
+                            df,
+                            reference_date,
+                            min_required_rows,
+                            max_stale_days,
+                        )
 
                     if validation_result is None:
                         healthy_count += 1
@@ -461,22 +468,18 @@ class CacheManager:
     def get_rolling_health_summary(self) -> dict:
         """Rolling cache の健康状態サマリーを取得。"""
         try:
+            logger.info("Rolling health summary: start")
+
+            # ローリングファイル一覧
             rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
                 self.rolling_dir.glob("*.feather")
             )
-
-            if not rolling_files:
-                return {
-                    "status": "success",
-                    "total_files": 0,
-                    "message": "Rolling cache ファイルが存在しません",
-                }
-
             total_files = len(rolling_files)
+
+            # 既存の集計（後方互換用）
             readable_files = 0
             total_rows = 0
-            date_range_info = {}
-
+            date_range_info: dict[str, dict] = {}
             for file_path in rolling_files[:20]:  # サンプリング
                 try:
                     ticker = file_path.stem
@@ -484,7 +487,6 @@ class CacheManager:
                     if df is not None and not df.empty:
                         readable_files += 1
                         total_rows += len(df)
-
                         if "date" in df.columns:
                             df["date"] = pd.to_datetime(df["date"], errors="coerce")
                             valid_dates = df["date"].dropna()
@@ -497,14 +499,84 @@ class CacheManager:
                 except Exception:
                     continue
 
-            return {
+            # UI 期待キー: メタファイル情報
+            meta_exists = bool(self.rolling_meta_path.exists())
+            meta_content = None
+            if meta_exists:
+                try:
+                    import json
+
+                    with self.rolling_meta_path.open("r", encoding="utf-8") as fh:
+                        meta_content = json.load(fh)
+                except Exception as e:
+                    logger.warning(
+                        "Corrupt or unreadable rolling meta file: %s err=%s",
+                        self.rolling_meta_path,
+                        e,
+                    )
+                    meta_content = None
+
+            # 目標データ長（属性名の互換: base_lookback_days or lookback_days）
+            target_length = getattr(self.rolling_cfg, "base_lookback_days", None)
+            if target_length is None:
+                target_length = getattr(self.rolling_cfg, "lookback_days", None)
+            if target_length is None:
+                target_length = 250  # フォールバック
+
+            # アンカー銘柄（SPY）状況
+            anchor_df: pd.DataFrame | None = None
+            try:
+                anchor_df = self.read("SPY", "rolling")
+            except Exception:
+                anchor_df = None
+            anchor_exists = bool(
+                isinstance(anchor_df, pd.DataFrame) and not getattr(anchor_df, "empty", True)
+            )
+            anchor_rows = int(len(anchor_df)) if isinstance(anchor_df, pd.DataFrame) else 0
+            latest_date_str = None
+            if isinstance(anchor_df, pd.DataFrame) and "date" in anchor_df.columns:
+                try:
+                    ad = anchor_df.copy()
+                    ad["date"] = pd.to_datetime(ad["date"], errors="coerce")
+                    latest = ad["date"].dropna().max()
+                    if pd.notna(latest):
+                        latest_date_str = latest.strftime("%Y-%m-%d")
+                except Exception:
+                    latest_date_str = None
+
+            anchor_symbol_status = {
+                "symbol": "SPY",
+                "exists": anchor_exists,
+                "rows": anchor_rows,
+                "latest": latest_date_str,
+                "meets_target": bool(anchor_rows >= int(target_length or 0)),
+            }
+
+            # UI 互換: rolling_files_count を提供
+            rolling_files_count = total_files
+
+            # 返却（UI期待 + 既存メトリクス）
+            result = {
                 "status": "success",
+                # 既存キー（互換保持）
                 "total_files": total_files,
                 "readable_files": readable_files,
                 "sample_total_rows": total_rows,
                 "avg_rows_per_file": (total_rows / readable_files if readable_files > 0 else 0),
                 "sample_date_ranges": date_range_info,
+                # UI 期待キー
+                "meta_exists": meta_exists,
+                "meta_content": meta_content,
+                "rolling_files_count": rolling_files_count,
+                "anchor_symbol_status": anchor_symbol_status,
+                "target_length": int(target_length),
             }
+
+            if total_files == 0:
+                result["message"] = "Rolling cache ファイルが存在しません"
+
+            logger.info("Rolling health summary: done", extra={"total_files": total_files})
+            return result
 
         except Exception as e:
             return {"status": "error", "message": f"健康状態チェック中にエラー: {e}"}
