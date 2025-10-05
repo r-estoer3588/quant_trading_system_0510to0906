@@ -111,22 +111,50 @@ python scripts/scheduled_daily_update.py --force-individual
 
 毎日朝 6 時に自動実行する設定:
 
-```powershell
-schtasks /create /tn "QuantTradingDailyUpdate" ^
-  /tr "C:\Repos\quant_trading_system\venv\Scripts\python.exe C:\Repos\quant_trading_system\scripts\scheduled_daily_update.py" ^
-  /sc daily /st 06:00 /ru SYSTEM
+#### コマンドプロンプト（CMD）で実行する場合
+
+**1 行で実行（推奨）：**
+
+```cmd
+schtasks /create /tn "QuantTradingDailyUpdate" /tr "C:\Repos\quant_trading_system\venv\Scripts\python.exe C:\Repos\quant_trading_system\scripts\scheduled_daily_update.py" /sc daily /st 06:00
 ```
 
-#### タスク削除
+**複数行に分ける場合（キャレット ^ を使用）：**
+
+```cmd
+schtasks /create /tn "QuantTradingDailyUpdate" ^
+  /tr "C:\Repos\quant_trading_system\venv\Scripts\python.exe C:\Repos\quant_trading_system\scripts\scheduled_daily_update.py" ^
+  /sc daily /st 06:00
+```
+
+#### PowerShell で実行する場合
+
+**バッククォート ` を使用：**
 
 ```powershell
+schtasks /create /tn "QuantTradingDailyUpdate" `
+  /tr "C:\Repos\quant_trading_system\venv\Scripts\python.exe C:\Repos\quant_trading_system\scripts\scheduled_daily_update.py" `
+  /sc daily /st 06:00
+```
+
+#### タスク管理コマンド
+
+**タスク削除：**
+
+```cmd
 schtasks /delete /tn "QuantTradingDailyUpdate" /f
 ```
 
-#### タスク実行状況確認
+**タスク実行状況確認：**
 
-```powershell
+```cmd
 schtasks /query /tn "QuantTradingDailyUpdate" /fo list /v
+```
+
+**手動実行（テスト用）：**
+
+```cmd
+schtasks /run /tn "QuantTradingDailyUpdate"
 ```
 
 ### Linux/Mac (cron)
