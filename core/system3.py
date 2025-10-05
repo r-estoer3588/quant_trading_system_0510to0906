@@ -206,41 +206,71 @@ def generate_candidates_system3(
         top_n = 20  # Default value
 
     if latest_only:
+        # latest_only の高速経路を堅牢化: シンボル単位で例外を握りつぶし、全体フォールバックを避ける
+        rows: list[dict] = []
+        date_counter: dict[pd.Timestamp, int] = {}
+
+        # Optional override of target date (previous trading day fallback)
+        target_date = None
         try:
-            rows: list[dict] = []
-            date_counter: dict[pd.Timestamp, int] = {}
-            # Optional override of target date (previous trading day fallback)
+            maybe = kwargs.get("latest_mode_date")
+            if maybe is not None:
+                try:
+                    target_date = pd.Timestamp(str(maybe)).normalize()
+                except Exception:
+                    td = pd.to_datetime(str(maybe), errors="coerce")
+                    if (td is not None) and not pd.isna(td):
+                        target_date = pd.Timestamp(str(td)).normalize()
+        except Exception:
             target_date = None
+
+        from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+
+        def _to_series(obj: Any) -> pd.Series | None:
             try:
-                maybe = kwargs.get("latest_mode_date")
-                if maybe is not None:
-                    try:
-                        target_date = pd.Timestamp(str(maybe)).normalize()
-                    except Exception:
-                        td = pd.to_datetime(str(maybe), errors="coerce")
-                        if (td is not None) and not pd.isna(td):
-                            target_date = pd.Timestamp(str(td)).normalize()
+                if obj is None:
+                    return None
+                if isinstance(obj, pd.DataFrame):
+                    # 重複日付時は末尾を採用
+                    return obj.iloc[-1]
+                if isinstance(obj, pd.Series):
+                    return obj
+                return None
             except Exception:
-                target_date = None
-            for sym, df in prepared_dict.items():
+                return None
+
+        for sym, df in prepared_dict.items():
+            try:
                 if df is None or df.empty:
                     continue
                 if target_date is not None:
-                    if target_date in df.index:
-                        row_obj = df.loc[target_date]
-                        last_row = row_obj.iloc[-1] if hasattr(row_obj, "iloc") else row_obj
-                        dt = target_date
-                    else:
+                    if target_date not in df.index:
                         continue
+                    row_obj = df.loc[target_date]
+                    last_row = _to_series(row_obj)
+                    dt = target_date
                 else:
-                    last_row = df.iloc[-1]
+                    last_row = _to_series(df.iloc[-1])
                     dt = pd.Timestamp(str(df.index[-1])).normalize()
-                # 'setup' 列未生成時は通過させる (列存在時のみ False を除外)
-                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
 
-                if isinstance(last_row, pd.DataFrame):
-                    last_row = last_row.iloc[-1]
+                if last_row is None:
+                    continue
+
+                # 'setup' 列未生成時は通過 (列がある場合のみ False を除外)
+                setup_col_val = True
+                try:
+                    if "setup" in last_row.index:
+                        raw = last_row.get("setup", False)
+                        # NaN -> False、数値/真偽値以外は bool() に頼らず False 扱い
+                        if pd.isna(raw):
+                            setup_col_val = False
+                        elif isinstance(raw, (bool, int, float)):
+                            setup_col_val = bool(raw)
+                        else:
+                            setup_col_val = bool(raw)  # スカラ想定
+                except Exception:
+                    setup_col_val = False
+
                 pred_val = _s3_pred(cast(pd.Series, last_row))
                 if pred_val:
                     diagnostics["setup_predicate_count"] += 1
@@ -249,16 +279,15 @@ def generate_candidates_system3(
                     diagnostics["mismatch_flag"] = 1
                 if not setup_col_val:
                     continue
+
                 drop3d_val = last_row.get("drop3d", 0)
                 try:
                     v = float(drop3d_val)
-                except Exception:
-                    continue
-                try:
                     if pd.isna(v) or v < 0.125:
                         continue
                 except Exception:
                     continue
+
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -269,49 +298,54 @@ def generate_candidates_system3(
                         "close": last_row.get("Close", 0),
                     }
                 )
-            if not rows:
-                if log_callback:
-                    log_callback("System3: latest_only fast-path produced 0 rows")
-                return ({}, None, diagnostics) if include_diagnostics else ({}, None)
-            df_all = pd.DataFrame(rows)
-            try:
-                if target_date is not None:
-                    df_all = df_all[df_all["date"] == target_date]
-                else:
-                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                    df_all = df_all[df_all["date"] == mode_date]
             except Exception:
-                pass
-            df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
-            diagnostics["final_top_n_count"] = len(df_all)
-            diagnostics["ranking_source"] = "latest_only"
-            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
-            for dt_raw, sub in df_all.groupby("date"):
-                dt = pd.Timestamp(str(dt_raw))
-                symbol_map: dict[str, dict[str, Any]] = {}
-                for rec in sub.to_dict("records"):
-                    sym_val = rec.get("symbol")
-                    if not isinstance(sym_val, str) or not sym_val:
-                        continue
-                    payload: dict[str, Any] = {
-                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
-                    }
-                    symbol_map[sym_val] = payload
-                by_date[dt] = symbol_map
+                # シンボル単位でスキップ（全体フォールバックはしない）
+                continue
+
+        if not rows:
             if log_callback:
-                log_callback(
-                    f"System3: latest_only fast-path -> {len(df_all)} candidates "
-                    f"(symbols={len(rows)})"
-                )
-            return (
-                (by_date, df_all.copy(), diagnostics)
-                if include_diagnostics
-                else (by_date, df_all.copy())
-            )
-        except Exception as e:
-            if log_callback:
-                log_callback(f"System3: fast-path failed -> fallback ({e})")
+                log_callback("System3: latest_only fast-path produced 0 rows")
+            return ({}, None, diagnostics) if include_diagnostics else ({}, None)
+
+        df_all = pd.DataFrame(rows)
+        try:
+            if target_date is not None:
+                df_all = df_all[df_all["date"] == target_date]
+            else:
+                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                df_all = df_all[df_all["date"] == mode_date]
+        except Exception:
             pass
+
+        df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
+        diagnostics["final_top_n_count"] = len(df_all)
+        diagnostics["ranking_source"] = "latest_only"
+
+        by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+        for dt_raw, sub in df_all.groupby("date"):
+            dt = pd.Timestamp(str(dt_raw))
+            symbol_map: dict[str, dict[str, Any]] = {}
+            for rec in sub.to_dict("records"):
+                sym_val = rec.get("symbol")
+                if not isinstance(sym_val, str) or not sym_val:
+                    continue
+                payload: dict[str, Any] = {
+                    str(k): v for k, v in rec.items() if k not in ("symbol", "date")
+                }
+                symbol_map[sym_val] = payload
+            by_date[dt] = symbol_map
+
+        if log_callback:
+            log_callback(
+                f"System3: latest_only fast-path -> {len(df_all)} candidates "
+                f"(symbols={len(rows)})"
+            )
+
+        return (
+            (by_date, df_all.copy(), diagnostics)
+            if include_diagnostics
+            else (by_date, df_all.copy())
+        )
 
     # Aggregate all dates
     all_dates_set: set[pd.Timestamp] = set()

@@ -663,16 +663,8 @@ def load_indicator_data(
                         reason_desc = "行数不足"
                 missing_symbols.append(sym)
                 missing_reasons[reason_desc] = missing_reasons.get(reason_desc, 0) + 1
-                if verbose_missing and _log:
-                    from common.cache_warnings import get_rolling_issue_aggregator
-
-                    agg = get_rolling_issue_aggregator()
-                    # CacheManager 側で "missing_rolling" が既に記録されている場合は二重報告を抑止
-                    if not agg.has_issue("missing_rolling", sym):
-                        _log(
-                            f"⛔ rolling未整備: {sym} ({reason_desc}) → 手動更新を実行してください",
-                            ui=False,
-                        )
+                # 個別銘柄ごとの "⛔ rolling未整備" ログは冗長なため完全に削除。
+                # ループ終了後のサマリーログ（⚠️ rolling未整備）で一括表示されます。
                 continue
 
             if df is not None and not df.empty:

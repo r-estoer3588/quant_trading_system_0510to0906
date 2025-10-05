@@ -3979,11 +3979,12 @@ def compute_today_signals(
     _log("🧮 指標計算用データロード中 (system6)…")
     raw_data_system6 = _subset_data(basic_data, system6_syms)
     _log(f"🧮 指標データ: system6={len(raw_data_system6)}銘柄")
-    # System6 セットアップ内訳: フィルタ通過, return_6d>20%, UpTwoDays
+    # System6 セットアップ内訳: 各条件を独立カウント
     s6_setup = None
     try:
         s6_filter = int(len(system6_syms))
         s6_ret = 0
+        s6_uptwo = 0
         s6_combo = 0
         for _sym in system6_syms or []:
             _df = raw_data_system6.get(_sym)
@@ -3993,25 +3994,32 @@ def compute_today_signals(
                 last = _df.iloc[-1]
             except Exception:
                 continue
+            # return_6d>20% 判定（独立）
+            ret_pass = False
             try:
                 r6v = to_float(get_indicator(last, "return_6d"))
                 ret_pass = (not pd.isna(r6v)) and r6v > 0.20
-            except Exception:
-                ret_pass = False
-            if not ret_pass:
-                continue
-            s6_ret += 1
-            try:
-                up = get_indicator(last, "uptwodays") or get_indicator(last, "twodayup")
-                if bool(up):
-                    s6_combo += 1
+                if ret_pass:
+                    s6_ret += 1
             except Exception:
                 pass
+            # UpTwoDays 判定（独立）
+            up_pass = False
+            try:
+                up = get_indicator(last, "uptwodays") or get_indicator(last, "twodayup")
+                up_pass = bool(up)
+                if up_pass:
+                    s6_uptwo += 1
+            except Exception:
+                pass
+            # 両方満たすセットアップ数
+            if ret_pass and up_pass:
+                s6_combo += 1
         s6_setup = int(s6_combo)
         _log(
             "🧩 system6セットアップ内訳: "
             + f"フィルタ通過={s6_filter}, return_6d>20%: {s6_ret}, "
-            + f"UpTwoDays: {s6_setup}"
+            + f"UpTwoDays: {s6_uptwo}, 両方満たす: {s6_setup}"
         )
         try:
             _stage(
