@@ -1094,6 +1094,10 @@ def main():
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
 
+    # 大量の NaN 率ログなどのヘルスチェック出力を抑止して速度重視にする（実行中のみ適用）
+    _prev_cache_health_silent = os.environ.get("CACHE_HEALTH_SILENT")
+    os.environ["CACHE_HEALTH_SILENT"] = "1"
+
     progress_state = {"processed": 0, "total": 0, "updated": 0}
 
     def _report_progress(
@@ -1108,6 +1112,25 @@ def main():
             f"  ⏳ 処理中: {processed}/{total_symbols} 銘柄 (更新 {updated_count})",
             flush=True,
         )
+
+    # 20 秒ごとのハートビート（進捗が停滞しても稼働中と分かるようにする）
+    _stop_hb = threading.Event()
+
+    def _heartbeat() -> None:
+        while not _stop_hb.wait(20.0):
+            now_hb = datetime.now().strftime("%H:%M:%S")
+            processed = progress_state.get("processed", 0)
+            total = progress_state.get("total", 0)
+            updated = progress_state.get("updated", 0)
+            if total <= 0:
+                total = max(processed, 0)
+            print(
+                f"  💓 Heartbeat {now_hb}: {processed}/{total} processed (updated {updated})",
+                flush=True,
+            )
+
+    _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
+    _hb_thread.start()
 
     try:
         # ユニバース制限の構築
@@ -1140,6 +1163,19 @@ def main():
             f" 銘柄 / 更新済み: {exc.updated} 銘柄",
             flush=True,
         )
+        # ハートビート停止と環境変数の復元
+        _stop_hb.set()
+        try:
+            _hb_thread.join(timeout=2.0)
+        except Exception:
+            pass
+        if _prev_cache_health_silent is None:
+            try:
+                del os.environ["CACHE_HEALTH_SILENT"]
+            except Exception:
+                pass
+        else:
+            os.environ["CACHE_HEALTH_SILENT"] = _prev_cache_health_silent
         return
     except KeyboardInterrupt:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1155,10 +1191,36 @@ def main():
             f" 銘柄 / 更新済み: {updated_count} 銘柄",
             flush=True,
         )
+        # ハートビート停止と環境変数の復元
+        _stop_hb.set()
+        try:
+            _hb_thread.join(timeout=2.0)
+        except Exception:
+            pass
+        if _prev_cache_health_silent is None:
+            try:
+                del os.environ["CACHE_HEALTH_SILENT"]
+            except Exception:
+                pass
+        else:
+            os.environ["CACHE_HEALTH_SILENT"] = _prev_cache_health_silent
         return
 
     if not result.has_payload:
         print("No data to update.", flush=True)
+        # ハートビート停止と環境変数の復元
+        _stop_hb.set()
+        try:
+            _hb_thread.join(timeout=2.0)
+        except Exception:
+            pass
+        if _prev_cache_health_silent is None:
+            try:
+                del os.environ["CACHE_HEALTH_SILENT"]
+            except Exception:
+                pass
+        else:
+            os.environ["CACHE_HEALTH_SILENT"] = _prev_cache_health_silent
         return
 
     print(f"📦 取得件数(未フィルタ): {result.fetched_rows} 行", flush=True)
@@ -1242,6 +1304,20 @@ def main():
         f"{result.updated_symbols} 銘柄（full/rolling へ反映）",
         flush=True,
     )
+
+    # 正常終了時のハートビート停止と環境変数の復元
+    _stop_hb.set()
+    try:
+        _hb_thread.join(timeout=2.0)
+    except Exception:
+        pass
+    if _prev_cache_health_silent is None:
+        try:
+            del os.environ["CACHE_HEALTH_SILENT"]
+        except Exception:
+            pass
+    else:
+        os.environ["CACHE_HEALTH_SILENT"] = _prev_cache_health_silent
 
 
 if __name__ == "__main__":
