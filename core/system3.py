@@ -333,7 +333,7 @@ def generate_candidates_system3(
 
     # Execute drop3d ranking by date
     for i, date in enumerate(all_dates):
-        date_candidates = []
+        date_candidates: list[dict[str, Any]] = []
         for symbol, df in prepared_dict.items():
             try:
                 if df is None or date not in df.index:
@@ -406,15 +406,15 @@ def generate_candidates_system3(
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
     for dt, recs in candidates_by_date.items():
         out_symbol_map: dict[str, dict[str, Any]] = {}
-        for rec in recs:
-            sym_any = rec.get("symbol")
+        for rec_any in recs:
+            rec_t: dict[str, Any] = rec_any
+            sym_any = rec_t.get("symbol")
             if not isinstance(sym_any, str) or not sym_any:
                 continue
-                rec_t = cast(dict[str, Any], rec)
-                payload: dict[str, Any] = {
-                    k: v for k, v in rec_t.items() if k not in ("symbol", "date")
-                }
-            out_symbol_map[str(sym_any)] = payload
+            item_payload: dict[str, Any] = {
+                str(k): v for k, v in rec_t.items() if k not in ("symbol", "date")
+            }
+            out_symbol_map[str(sym_any)] = item_payload
         normalized[dt] = out_symbol_map
     return (
         (normalized, candidates_df, diagnostics)
