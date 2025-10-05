@@ -53,17 +53,16 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     for col in ("date", "Date"):
         if col in df.columns:
             try:
-                values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
-                values = values.dropna()
-                if not values.empty:
-                    return pd.Timestamp(values[-1]).normalize()
+                series = pd.to_datetime(df[col], errors="coerce").dropna()
+                if not series.empty:
+                    return pd.Timestamp(series.iloc[-1]).normalize()
             except Exception:
                 continue
     try:
-        idx = pd.to_datetime(df.index.to_numpy(), errors="coerce")
-        mask = ~pd.isna(idx)
-        if mask.any():
-            return pd.Timestamp(idx[mask][-1]).normalize()
+        idx = pd.to_datetime(pd.Index(df.index), errors="coerce")
+        valid = idx[~pd.isna(idx)]
+        if len(valid) > 0:
+            return pd.Timestamp(valid[-1]).normalize()
     except Exception:
         pass
     return None
@@ -77,9 +76,9 @@ def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.T
         from common.utils_spy import get_latest_nyse_trading_day
     except ImportError:
         # フォールバック: 単純な日付減算
-        dates = []
+        dates: list[pd.Timestamp] = []
         current = pd.Timestamp(today).normalize()
-        for _i in range(max_back + 1):
+        for _ in range(max_back + 1):
             dates.append(current)
             current = current - pd.Timedelta(days=1)
         return dates
@@ -116,11 +115,16 @@ def _build_rolling_from_base(
         work = base_df
     if work.index.name is not None:
         work = work.reset_index()
-    if "Date" in work.columns:
-        work["date"] = pd.to_datetime(work["Date"].to_numpy(), errors="coerce")
-    elif "date" in work.columns:
-        work["date"] = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
-    else:
+    # 日付列を正規化して "date" に集約
+    try:
+        if "Date" in work.columns:
+            date_values = pd.to_datetime(work["Date"].to_numpy(), errors="coerce")
+        elif "date" in work.columns:
+            date_values = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
+        else:
+            date_values = pd.to_datetime(work.index.to_numpy(), errors="coerce")
+        work["date"] = date_values
+    except Exception:
         return None
     work = work.dropna(subset=["date"]).sort_values("date")
     col_map = {
@@ -215,7 +219,12 @@ def load_basic_data(
     data: dict[str, pd.DataFrame] = {}
     total_syms = len(symbols)
     start_ts = time.perf_counter()
-    chunk = 500
+    # 進捗更新間隔（件数）。環境変数 TODAY_PROGRESS_CHUNK で上書き可能（既定 500）
+    try:
+        _chunk_raw = (os.environ.get("TODAY_PROGRESS_CHUNK") or "").strip()
+        chunk = int(_chunk_raw) if _chunk_raw else 500
+    except Exception:
+        chunk = 500
 
     if freshness_tolerance is None:
         try:
@@ -298,7 +307,9 @@ def load_basic_data(
         except Exception:
             return None
 
-    def _normalize_loaded(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    def _normalize_loaded(
+        df: pd.DataFrame | None,
+    ) -> pd.DataFrame | None:
         if df is None or getattr(df, "empty", True):
             return None
         try:
@@ -399,7 +410,7 @@ def load_basic_data(
                         and last_seen_date not in recent_allowed
                     ):
                         rebuild_reason = "stale"
-                        # gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
+                        # gap_days 計算は簡素化のため省略
                         needs_rebuild = True
             if needs_rebuild:
                 # 個別ログを抑制（サマリー表示に統合）
@@ -427,13 +438,33 @@ def load_basic_data(
             remain = max(0, total_syms - done)
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
+            # 表示オプション
+            use_thousands = os.environ.get("TODAY_PROGRESS_THOUSANDS") == "1"
+            style = (os.environ.get("TODAY_PROGRESS_STYLE") or "both").lower()
             # 固定幅整形（桁数揺れ対策）
-            w = max(1, len(str(total_syms)))
-            cur_s = f"{done:>{w}d}"
-            tot_s = f"{total_syms:>{w}d}"
-            mm = f"{m:02d}"
-            ss = f"{s:02d}"
-            msg = f"📦 基礎データロード進捗: {cur_s}/{tot_s} | ETA {mm}分{ss}秒"
+            if use_thousands:
+                tot_txt = f"{total_syms:,}"
+                done_txt = f"{done:,}"
+                w = max(1, len(tot_txt))
+                cur_s = f"{done_txt:>{w}s}"
+                tot_s = f"{tot_txt:>{w}s}"
+            else:
+                w = max(1, len(str(total_syms)))
+                cur_s = f"{done:>{w}d}"
+                tot_s = f"{total_syms:>{w}d}"
+            # 経過時間（分秒）
+            em, es = divmod(int(elapsed), 60)
+            em_s = f"{em:02d}"
+            es_s = f"{es:02d}"
+            # ETA 文言
+            eta_s = f"{m:02d}分{s:02d}秒"
+            if style == "elapsed":
+                tail = f"経過 {em_s}分{es_s}秒"
+            elif style == "eta":
+                tail = f"ETA {eta_s}"
+            else:
+                tail = f"経過 {em_s}分{es_s}秒 | ETA {eta_s}"
+            msg = f"📦 基礎データロード進捗: {cur_s}/{tot_s} | {tail}"
 
             # 進捗ログはDEBUGレベルでレート制限適用
             try:
@@ -445,7 +476,7 @@ def load_basic_data(
                 )
             except Exception:
                 pass
-            if _emit_ui_log:
+            if ui_log_callback:
                 _emit_ui_log(msg)
         except Exception:
             # フォールバック時も整形を適用
@@ -455,54 +486,15 @@ def load_basic_data(
                 tot_s = f"{total_syms:>{w}d}"
             except Exception:
                 cur_s, tot_s = str(done), str(total_syms)
-            if _log:
+            if log_callback:
                 _log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}", ui=False)
-            if _emit_ui_log:
+            if ui_log_callback:
                 _emit_ui_log(f"📦 基礎データロード進捗: {cur_s}/{tot_s}")
 
+    # 実データ読み込みループ（並列/直列）
     processed = 0
-    if use_parallel and max_workers and total_syms > 1:
-        # 新しい並列バッチ読み込みを使用（Phase2最適化）
+    if use_parallel and max_workers:
         try:
-            if _log:
-                _log(f"🚀 並列バッチ読み込み開始: {total_syms}シンボル, workers={max_workers}")
-
-            def progress_callback_internal(loaded, total):
-                nonlocal processed
-                processed = loaded
-                _report_progress(processed)
-
-            # CacheManagerの並列読み込み機能を活用
-            parallel_data = cache_manager.read_batch_parallel(
-                symbols=symbols,
-                profile="rolling",
-                max_workers=max_workers,
-                fallback_profile="full",
-                progress_callback=progress_callback_internal,
-            )
-
-            # 結果を既存のデータフォーマットに合わせて処理
-            for sym, df in parallel_data.items():
-                if df is not None and not getattr(df, "empty", True):
-                    # 既存の_normalize_loadedと同様の処理を適用
-                    normalized = _normalize_loaded(df)
-                    if normalized is not None and not getattr(normalized, "empty", True):
-                        data[sym] = normalized
-                        _record_stat("rolling")
-                    else:
-                        _record_stat("failed")
-                else:
-                    _record_stat("failed")
-
-            if _log:
-                _log(f"✅ 並列バッチ読み込み完了: {len(data)}/{total_syms}件成功")
-
-        except Exception as e:
-            # 並列処理失敗時はフォールバック
-            if _log:
-                _log(f"⚠️ 並列バッチ読み込み失敗、従来処理にフォールバック: {e}")
-            data.clear()
-            processed = 0
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(_load_one, sym): sym for sym in symbols}
                 for fut in as_completed(futures):
@@ -514,6 +506,18 @@ def load_basic_data(
                         data[sym] = df
                     processed += 1
                     _report_progress(processed)
+        except Exception as e:
+            # 並列処理失敗時は直列処理へフォールバック
+            if log_callback:
+                _log("⚠️ 並列バッチ読み込み失敗、従来処理にフォールバック: " f"{e}")
+            data.clear()
+            processed = 0
+            for sym in symbols:
+                sym, df = _load_one(sym)
+                if df is not None and not getattr(df, "empty", True):
+                    data[sym] = df
+                processed += 1
+                _report_progress(processed)
     else:
         for sym in symbols:
             sym, df = _load_one(sym)
@@ -529,14 +533,14 @@ def load_basic_data(
         done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒" + (
             " | 並列=ON" if use_parallel and max_workers else " | 並列=OFF"
         )
-        if _log:
+        if log_callback:
             _log(done_msg)
-        if _emit_ui_log:
+        if ui_log_callback:
             _emit_ui_log(done_msg)
     except Exception:
-        if _log:
+        if log_callback:
             _log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
-        if _emit_ui_log:
+        if ui_log_callback:
             _emit_ui_log(f"📦 基礎データロード完了: {len(data)}/{total_syms}")
 
     try:
@@ -603,7 +607,11 @@ def load_indicator_data(
     data: dict[str, pd.DataFrame] = {}
     total_syms = len(symbols)
     start_ts = time.time()
-    chunk = 500
+    try:
+        _chunk_raw2 = (os.environ.get("TODAY_PROGRESS_CHUNK") or "").strip()
+        chunk = int(_chunk_raw2) if _chunk_raw2 else 500
+    except Exception:
+        chunk = 500
 
     # 個別銘柄ごとの "⛔ rolling未整備" ログは冗長になるため既定で抑制し、
     # ループ終了後にサマリーのみを出力する方針に変更。
@@ -717,16 +725,16 @@ def load_indicator_data(
                     )
                 except Exception:
                     pass
-                if _emit_ui_log:
+                if ui_log_callback:
                     _emit_ui_log(msg)
             except Exception:
-                if _log:
+                if log_callback:
                     _log(f"🧮 指標データロード進捗: {idx}/{total_syms}", ui=False)
-                if _emit_ui_log:
+                if ui_log_callback:
                     _emit_ui_log(f"🧮 指標データロード進捗: {idx}/{total_syms}")
 
     # ループ終了後に missing のサマリーをバッチ表示
-    if missing_symbols and _log:
+    if missing_symbols and log_callback:
         try:
             total_missing = len(missing_symbols)
             # 10%刻み（最低1件）で分割して見やすさ確保
@@ -735,7 +743,11 @@ def load_indicator_data(
                 batch = missing_symbols[i : i + batch_size]
                 symbols_str = ", ".join(batch)
                 _log(
-                    f"⚠️ rolling未整備 ({i+1}〜{min(i+batch_size, total_missing)}/{total_missing}): {symbols_str}",
+                    (
+                        f"⚠️ rolling未整備 ("
+                        f"{i+1}〜{min(i+batch_size, total_missing)}/{total_missing}"
+                        f"): {symbols_str}"
+                    ),
                     ui=False,
                 )
             # 理由別分布を整形
@@ -750,7 +762,11 @@ def load_indicator_data(
                     reason_str = ""
             else:
                 reason_str = ""
-            base_summary = f"💡 rolling未整備の計{total_missing}銘柄は自動的にスキップされました（base/full_backupからの再試行は不要）"
+            base_summary = (
+                "💡 rolling未整備の計"
+                f"{total_missing}銘柄は自動的にスキップされました（"
+                "base/full_backupからの再試行は不要）"
+            )
             if reason_str:
                 base_summary += f" | 内訳: {reason_str}"
             _log(base_summary, ui=False)
@@ -762,14 +778,14 @@ def load_indicator_data(
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
         done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
-        if _log:
+        if log_callback:
             _log(done_msg)
-        if _emit_ui_log:
+        if ui_log_callback:
             _emit_ui_log(done_msg)
     except Exception:
-        if _log:
+        if log_callback:
             _log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
-        if _emit_ui_log:
+        if ui_log_callback:
             _emit_ui_log(f"🧮 指標データロード完了: {len(data)}/{total_syms}")
 
     return data

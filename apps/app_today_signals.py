@@ -871,6 +871,12 @@ def _collect_symbol_data(
     malformed_lock = Lock()
     progress_lock = Lock()
     processed = 0
+    # 進捗の表示間隔（デフォルト total/20）。環境変数 TODAY_PROGRESS_STEP で上書き可。
+    try:
+        _env_step_raw = (os.environ.get("TODAY_PROGRESS_STEP") or "").strip()
+        step = int(_env_step_raw) if _env_step_raw else max(1, total // 20)
+    except Exception:
+        step = max(1, total // 20)
 
     def _emit_progress(current: int) -> None:
         if log_fn is None:
@@ -880,18 +886,54 @@ def _collect_symbol_data(
         try:
             elapsed = int(max(0, time.time() - start_ts))
             minutes, seconds = divmod(elapsed, 60)
+            # 表示オプション
+            use_thousands = os.environ.get("TODAY_PROGRESS_THOUSANDS") == "1"
+            style = (os.environ.get("TODAY_PROGRESS_STYLE") or "both").lower()
             # 桁数揺れを避けるため固定幅で整形
-            w = max(1, len(str(total)))
-            cur_s = f"{current:>{w}d}"
-            tot_s = f"{total:>{w}d}"
-            mm = f"{minutes:02d}"
-            ss = f"{seconds:02d}"
-            log_fn(f"📦 基礎データロード進捗: {cur_s}/{tot_s} | 経過 {mm}分{ss}秒")
-        except Exception:
-            try:
+            if use_thousands:
+                tot_txt = f"{total:,}"
+                cur_txt = f"{current:,}"
+                w = max(1, len(tot_txt))
+                cur_s = f"{cur_txt:>{w}s}"
+                tot_s = f"{tot_txt:>{w}s}"
+            else:
                 w = max(1, len(str(total)))
                 cur_s = f"{current:>{w}d}"
                 tot_s = f"{total:>{w}d}"
+            mm = f"{minutes:02d}"
+            ss = f"{seconds:02d}"
+            # ETA（単純推定）
+            eta_txt = None
+            if current > 0:
+                try:
+                    rate = elapsed / current if current > 0 else 0.0
+                    remain = max(0, total - current)
+                    eta = int(remain * rate)
+                    em, es = divmod(eta, 60)
+                    eta_txt = f"{em:02d}分{es:02d}秒"
+                except Exception:
+                    eta_txt = None
+            # スタイル選択
+            if style == "elapsed":
+                tail = f"経過 {mm}分{ss}秒"
+            elif style == "eta" and eta_txt is not None:
+                tail = f"ETA {eta_txt}"
+            else:
+                tail = f"経過 {mm}分{ss}秒" + (f" | ETA {eta_txt}" if eta_txt else "")
+            log_fn(f"📦 基礎データロード進捗: {cur_s}/{tot_s} | {tail}")
+        except Exception:
+            try:
+                use_thousands = os.environ.get("TODAY_PROGRESS_THOUSANDS") == "1"
+                if use_thousands:
+                    tot_txt = f"{total:,}"
+                    cur_txt = f"{current:,}"
+                    w = max(1, len(tot_txt))
+                    cur_s = f"{cur_txt:>{w}s}"
+                    tot_s = f"{tot_txt:>{w}s}"
+                else:
+                    w = max(1, len(str(total)))
+                    cur_s = f"{current:>{w}d}"
+                    tot_s = f"{total:>{w}d}"
                 log_fn(f"📦 基礎データロード進捗: {cur_s}/{tot_s}")
             except Exception:
                 pass

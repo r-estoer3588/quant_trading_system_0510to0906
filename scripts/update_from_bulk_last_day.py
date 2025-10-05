@@ -309,7 +309,26 @@ def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
             try:
                 if isinstance(val, pd.DataFrame):
                     # 重複列名で DataFrame が返る場合は最後の列を採用
-                    val = val.iloc[:, -1]
+                    try:
+                        last_col = val.columns[-1]
+                        series_or_df = val[last_col]
+                        # 万一 MultiIndex 等で DataFrame のまま返った場合に備える
+                        if isinstance(series_or_df, pd.DataFrame):
+                            try:
+                                last_c = series_or_df.columns[-1]
+                                series_or_df = series_or_df.get(last_c)
+                            except Exception:
+                                series_or_df = pd.Series(
+                                    series_or_df.to_numpy().ravel(),
+                                    index=getattr(series_or_df, "index", None),
+                                )
+                        val = series_or_df
+                    except Exception:
+                        # 最終手段: 値配列を 1 次元化
+                        val = pd.Series(
+                            getattr(val, "to_numpy", lambda: np.array(val))().ravel(),
+                            index=getattr(val, "index", None),
+                        )
                 else:
                     # 2次元の配列ライクは1次元に圧縮
                     arr = getattr(val, "values", None)
@@ -317,6 +336,16 @@ def _extract_price_frame(df: pd.DataFrame | None) -> pd.DataFrame:
                         val = pd.Series(arr[:, -1], index=getattr(val, "index", None))
             except Exception:
                 pass
+            # 値を Series に正規化してから格納（None や DataFrame を排除）
+            try:
+                if not isinstance(val, pd.Series):
+                    arr = getattr(val, "values", None)
+                    if arr is None:
+                        arr = np.array(val)
+                    val = pd.Series(arr, index=getattr(val, "index", None))
+            except Exception:
+                # 型が合わなければスキップ
+                continue
             data[target] = val
     frame = pd.DataFrame(data)
     if "adjclose" not in frame.columns and "close" in frame.columns:
@@ -713,18 +742,35 @@ def append_to_cache(
 
             # rolling frame
             rolling_raw = _build_rolling_frame(full_ready, cm)
+            # Build rolling with rich indicators (Return_Pct/Min_50/UpTwoDays 等)。
+            # まず add_indicators を試し、失敗時は compute_base_indicators へフォールバック。
             try:
-                rolling_ind = compute_base_indicators(rolling_raw)
-            except Exception as exc:
-                print(f"{sym_norm}: rolling base indicator error - {exc}")
-                rolling_ind = None
+                ind_src_roll = _prepare_indicator_source(rolling_raw)
+                if ind_src_roll is None or getattr(ind_src_roll, "empty", True):
+                    raise ValueError("empty_indicator_source_for_rolling")
+                rolling_ind = add_indicators(ind_src_roll)
+            except Exception as exc_add:
+                try:
+                    # Fallback to base indicator set (previous behaviour)
+                    rolling_ind = compute_base_indicators(rolling_raw)
+                    if rolling_ind is None or getattr(rolling_ind, "empty", True):
+                        raise ValueError("compute_base_indicators_returned_empty")
+                except Exception as exc_base:
+                    msg_add = str(exc_add)
+                    msg_base = str(exc_base)
+                    print(
+                        f"{sym_norm}: rolling indicator error - "
+                        f"add_indicators={msg_add} / base={msg_base}"
+                    )
+                    rolling_ind = None
+
             if rolling_ind is None or getattr(rolling_ind, "empty", False):
                 rolling_ready = rolling_raw
             else:
                 try:
-                    rolling_ready = (
-                        rolling_ind.reset_index().sort_values("Date").reset_index(drop=True)
-                    )
+                    rolling_ready = rolling_ind.reset_index()
+                    rolling_ready = rolling_ready.sort_values("Date")
+                    rolling_ready = rolling_ready.reset_index(drop=True)
                 except Exception:
                     rolling_ready = rolling_raw
 
@@ -747,7 +793,8 @@ def append_to_cache(
                 base_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     settings = getattr(cm, "settings", None)
-                    dec = getattr(getattr(settings, "cache", None), "round_decimals", None)
+                    cache_obj = getattr(settings, "cache", None)
+                    dec = getattr(cache_obj, "round_decimals", None)
                 except Exception:
                     dec = None
 
@@ -825,18 +872,26 @@ def append_to_cache(
             pass
 
         max_workers = env_workers or cfg_workers or default_workers
-        # For deterministic behavior in tests (especially when an
-        # indicator routine may raise KeyboardInterrupt), limit to a single
-        # worker to avoid race conditions where multiple threads attempt
-        # heavy work concurrently. This keeps behavior deterministic.
+        # Deterministic mode: single worker under tests or when requested
+        deterministic = False
         try:
-            max_workers = 1
+            if os.environ.get("PYTEST_CURRENT_TEST"):
+                deterministic = True
         except Exception:
-            max_workers = 1
+            pass
         try:
-            max_workers = max(1, int(max_workers))
+            det_env = (os.getenv("BULK_UPDATE_DETERMINISTIC") or "").strip().lower()
+            if det_env in {"1", "true", "yes", "on"}:
+                deterministic = True
         except Exception:
-            max_workers = default_workers
+            pass
+        try:
+            if deterministic:
+                max_workers = 1
+            else:
+                max_workers = max(1, int(max_workers or default_workers))
+        except Exception:
+            max_workers = max(1, default_workers)
 
         # Log explicitly the chosen worker count so users can verify
         try:
@@ -851,39 +906,62 @@ def append_to_cache(
         stop_event = threading.Event()
         add_indicators_lock = threading.Lock()
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
-            # Submit and wait for each task sequentially to avoid races
-            # where multiple threads may call add_indicators concurrently.
-            for sym, g in grouped:
-                fut = exe.submit(_process_symbol, sym, g)
+            # Submit up to max_workers tasks and then feed remaining as tasks complete
+            pending: set[concurrent.futures.Future] = set()
+            # Iterator over grouped to avoid materializing entire groups in memory
+            grouped_iter = iter(grouped)
+
+            def _submit_next() -> bool:
                 try:
-                    proc_flag, upd_flag, symname = fut.result()
-                except BaseException as exc:
-                    if isinstance(exc, KeyboardInterrupt):
-                        total += 1
-                        stop_event.set()
-                        # no more tasks should be started
-                        raise
-                    print(f"symbol task failed: {exc}")
-                    proc_flag, upd_flag = 0, 0
-                total += int(proc_flag)
-                updated += int(upd_flag)
-                if progress_callback:
-                    effective_target = max(progress_target, total)
-                    now = time.monotonic()
-                    time_elapsed = now - last_report_time
-                    should_report = (
-                        total == effective_target
-                        or total - last_report >= step
-                        or total == 1
-                        or time_elapsed >= 2.0
-                    )
-                    if should_report:
-                        try:
-                            progress_callback(total, effective_target, updated)
-                        except Exception:
-                            pass
-                        last_report = total
-                        last_report_time = now
+                    sym_next, g_next = next(grouped_iter)
+                except StopIteration:
+                    return False
+                fut_next = exe.submit(_process_symbol, sym_next, g_next)
+                pending.add(fut_next)
+                return True
+
+            # Prime initial batch
+            for _ in range(max_workers):
+                if not _submit_next():
+                    break
+
+            while pending:
+                done, pending = concurrent.futures.wait(
+                    pending, return_when=concurrent.futures.FIRST_COMPLETED
+                )
+                for fut in done:
+                    try:
+                        proc_flag, upd_flag, symname = fut.result()
+                    except BaseException as exc:
+                        if isinstance(exc, KeyboardInterrupt):
+                            total += 1
+                            stop_event.set()
+                            # drain without starting new tasks
+                            pending.clear()
+                            raise
+                        print(f"symbol task failed: {exc}")
+                        proc_flag, upd_flag = 0, 0
+                    total += int(proc_flag)
+                    updated += int(upd_flag)
+                    if progress_callback:
+                        effective_target = max(progress_target, total)
+                        now = time.monotonic()
+                        time_elapsed = now - last_report_time
+                        should_report = (
+                            total == effective_target
+                            or total - last_report >= step
+                            or total == 1
+                            or time_elapsed >= 2.0
+                        )
+                        if should_report:
+                            try:
+                                progress_callback(total, effective_target, updated)
+                            except Exception:
+                                pass
+                            last_report = total
+                            last_report_time = now
+                    # backfill: submit the next task for each completed one
+                    _submit_next()
     except KeyboardInterrupt:  # pragma: no cover - 手動中断
         if progress_callback and total and total != last_report:
             effective_target = max(progress_target, total)
