@@ -2,7 +2,8 @@
 
 High ADX mean-reversion strategy:
 - Indicators: adx7, atr10, dollarvolume20, atr_pct (precomputed only)
-- Setup conditions: Close>=5, AvgVol50>500k, DV50>2.5M, ATR_Pct>2.5%, Close>SMA100+ATR10, ADX7>55, RSI3<50
+- Setup conditions: Close>=5, AvgVol50>500k, DV50>2.5M, ATR_Pct>2.5%,
+  Close>SMA100+ATR10, ADX7>55, RSI3<50
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -118,7 +119,8 @@ def prepare_data_vectorized_system5(
                         & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
                     )
 
-                    # Setup: Same as filter for System5 (simple high ADX trend selection)
+                    # Setup: Same as filter for System5
+                    # (simple high ADX trend selection)
                     x["setup"] = x["filter"]
 
                     prepared_dict[symbol] = x
@@ -223,25 +225,16 @@ def generate_candidates_system5(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                # 'setup' 列が未生成ならスキップせず、存在する場合のみ False を除外
-                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-                from common.system_setup_predicates import system5_setup_predicate as _s5_pred
-
-                pred_val = _s5_pred(last_row)
-                if pred_val:
-                    diagnostics["setup_predicate_count"] += 1
-                if pred_val and not setup_col_val:
-                    diagnostics["predicate_only_pass_count"] += 1
-                    diagnostics["mismatch_flag"] = 1
-                if not setup_col_val:
+                # setup==True のみ採用（列が無ければ不採用）
+                if not bool(last_row.get("setup", False)):
                     continue
-                adx7_val = last_row.get("adx7", 0)
+                adx7_val = last_row.get("adx7", None)
                 try:
-                    if pd.isna(adx7_val) or float(adx7_val) <= 35.0:
+                    if adx7_val is None or pd.isna(adx7_val):
                         continue
                 except Exception:
                     continue
-                dt = df.index[-1]
+                dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -254,6 +247,38 @@ def generate_candidates_system5(
                 )
             if not rows:
                 if log_callback:
+                    try:
+                        samples: list[str] = []
+                        taken = 0
+                        for s_sym, s_df in prepared_dict.items():
+                            if s_df is None or getattr(s_df, "empty", True):
+                                continue
+                            try:
+                                s_last = s_df.iloc[-1]
+                                s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                                s_setup = bool(s_last.get("setup", False))
+                                s_adx = s_last.get("adx7", float("nan"))
+                                try:
+                                    s_adx_f = float(s_adx)
+                                except Exception:
+                                    s_adx_f = float("nan")
+                                samples.append(
+                                    (
+                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} "
+                                        f"adx7={s_adx_f:.4f}"
+                                    )
+                                )
+                                taken += 1
+                                if taken >= 2:
+                                    break
+                            except Exception:
+                                continue
+                        if samples:
+                            log_callback(
+                                ("System5: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                            )
+                    except Exception:
+                        pass
                     log_callback("System5: latest_only fast-path produced 0 rows")
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
@@ -280,7 +305,10 @@ def generate_candidates_system5(
                 by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
-                    f"System5: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    (
+                        "System5: latest_only fast-path -> "
+                        f"{len(df_all)} candidates (symbols={len(rows)})"
+                    )
                 )
             return (
                 (by_date, df_all.copy(), diagnostics)
@@ -380,7 +408,7 @@ def generate_candidates_system5(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            f"System5: Generated {total_candidates} candidates across {unique_dates} dates"
+            ("System5: Generated " f"{total_candidates} candidates across {unique_dates} dates")
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

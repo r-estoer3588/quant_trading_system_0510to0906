@@ -261,6 +261,25 @@ def generate_candidates_system7(
                         else (normalized, df_fast)
                     )
             # no setup today
+            if log_callback:
+                try:
+                    # DEBUGサンプリング: SPY最終行の状態を出力
+                    s_dt = pd.to_datetime(str(df.index[-1])).normalize()
+                    s_setup = bool(last_row.get("setup", False))
+                    s_close = last_row.get("Close", float("nan"))
+                    try:
+                        s_close_f = float(s_close)
+                    except Exception:
+                        s_close_f = float("nan")
+                    log_callback(
+                        (
+                            "System7: DEBUG latest_only 0 candidates. "
+                            f"SPY: date={s_dt.date()} setup={s_setup} "
+                            f"close={s_close_f:.2f}"
+                        )
+                    )
+                except Exception:
+                    pass
             if progress_callback:
                 try:
                     progress_callback(1, 1)
@@ -356,7 +375,10 @@ def generate_candidates_system7(
         diagnostics["ranking_source"] = "full_scan"
     except Exception:
         pass
-    return (normalized_full, None, diagnostics) if include_diagnostics else (normalized_full, None)
+    if include_diagnostics:
+        return (normalized_full, None, diagnostics)
+    else:
+        return (normalized_full, None)
 
 
 def get_total_days_system7(data_dict: dict[str, pd.DataFrame]) -> int:

@@ -208,25 +208,16 @@ def generate_candidates_system4(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                # 'setup' 列が存在する場合のみ判定。無いときは早期除外しない
-                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-                from common.system_setup_predicates import system4_setup_predicate as _s4_pred
-
-                pred_val = _s4_pred(last_row)
-                if pred_val:
-                    diagnostics["setup_predicate_count"] += 1
-                if pred_val and not setup_col_val:
-                    diagnostics["predicate_only_pass_count"] += 1
-                    diagnostics["mismatch_flag"] = 1
-                if not setup_col_val:
+                # setup==True のみ採用（列が無ければ不採用）
+                if not bool(last_row.get("setup", False)):
                     continue
-                rsi4_val = last_row.get("rsi4", 100)
+                rsi4_val = last_row.get("rsi4", None)
                 try:
-                    if pd.isna(rsi4_val) or float(rsi4_val) >= 30.0:
+                    if rsi4_val is None or pd.isna(rsi4_val):
                         continue
                 except Exception:
                     continue
-                dt = df.index[-1]
+                dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -240,6 +231,38 @@ def generate_candidates_system4(
                 )
             if not rows:
                 if log_callback:
+                    try:
+                        samples: list[str] = []
+                        taken = 0
+                        for s_sym, s_df in prepared_dict.items():
+                            if s_df is None or getattr(s_df, "empty", True):
+                                continue
+                            try:
+                                s_last = s_df.iloc[-1]
+                                s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                                s_setup = bool(s_last.get("setup", False))
+                                s_rsi = s_last.get("rsi4", float("nan"))
+                                try:
+                                    s_rsi_f = float(s_rsi)
+                                except Exception:
+                                    s_rsi_f = float("nan")
+                                samples.append(
+                                    (
+                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} "
+                                        f"rsi4={s_rsi_f:.4f}"
+                                    )
+                                )
+                                taken += 1
+                                if taken >= 2:
+                                    break
+                            except Exception:
+                                continue
+                        if samples:
+                            log_callback(
+                                ("System4: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                            )
+                    except Exception:
+                        pass
                     log_callback("System4: latest_only fast-path produced 0 rows")
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
@@ -253,7 +276,8 @@ def generate_candidates_system4(
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
-                dt = pd.Timestamp(str(dt_raw))  # safe cast for mypy (numpy scalar -> str)
+                # safe cast for mypy (numpy scalar -> str)
+                dt = pd.Timestamp(str(dt_raw))
                 symbol_map: dict[str, dict[str, Any]] = {}
                 for rec in sub.to_dict("records"):
                     sym = rec.get("symbol")
@@ -266,7 +290,10 @@ def generate_candidates_system4(
                 by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
-                    f"System4: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    (
+                        "System4: latest_only fast-path -> "
+                        f"{len(df_all)} candidates (symbols={len(rows)})"
+                    )
                 )
             return (
                 (by_date, df_all.copy(), diagnostics)
@@ -367,7 +394,7 @@ def generate_candidates_system4(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            f"System4: Generated {total_candidates} candidates across {unique_dates} dates"
+            ("System4: Generated " f"{total_candidates} candidates across {unique_dates} dates")
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

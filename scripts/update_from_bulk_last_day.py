@@ -527,19 +527,35 @@ def _merge_existing_full(
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
     url = "https://eodhistoricaldata.com/api/eod-bulk-last-day/US" f"?api_token={API_KEY}&fmt=json"
+    masked_url = url
+    try:
+        if API_KEY:
+            masked_url = url.replace(str(API_KEY), "***")
+    except Exception:
+        masked_url = url
+    print(f"[DEBUG] Bulk API URL: {masked_url}", flush=True)
     try:
         response = requests.get(url, timeout=30)
+        print(f"[DEBUG] Bulk API status: {response.status_code}", flush=True)
     except requests.RequestException as exc:
-        print("Error fetching bulk data:", exc)
+        print("Error fetching bulk data:", exc, flush=True)
         return None
     if response.status_code != 200:
-        print("Error fetching bulk data:", response.status_code)
+        print("Error fetching bulk data:", response.status_code, flush=True)
         return None
     try:
         payload = response.json()
     except ValueError as exc:
-        print("Error parsing bulk data:", exc)
+        print("Error parsing bulk data:", exc, flush=True)
         return None
+    row_count = len(payload) if isinstance(payload, list) else 0
+    print(f"[DEBUG] Bulk API rows: {row_count}", flush=True)
+    if row_count:
+        try:
+            sample_codes = [item.get("code", "") for item in payload[:5]]
+            print(f"[DEBUG] Bulk API sample codes: {sample_codes}", flush=True)
+        except Exception:
+            pass
     return pd.DataFrame(payload)
 
 
@@ -1029,9 +1045,11 @@ def run_bulk_update(
 
     working = data if data is not None else fetch_bulk_last_day()
     if working is None or working.empty:
+        print("[DEBUG] Bulk payload is empty (fetch failure or no rows)", flush=True)
         return stats
 
     stats.fetched_rows = len(working)
+    print(f"[DEBUG] Raw bulk rows: {stats.fetched_rows}", flush=True)
 
     target_universe: list[str] | None = None
     if universe is not None:
@@ -1042,6 +1060,10 @@ def run_bulk_update(
             trimmed = sym.strip()
             if trimmed:
                 target_universe.append(trimmed)
+        print(
+            f"[DEBUG] CLI-provided universe count: {len(target_universe)}",
+            flush=True,
+        )
     elif fetch_universe:
         try:
             settings = getattr(cm, "settings", None)
@@ -1055,15 +1077,28 @@ def run_bulk_update(
                     if trimmed:
                         cleaned.append(trimmed)
                 target_universe = cleaned
+                print(
+                    f"[DEBUG] Universe from settings: {len(target_universe)}",
+                    flush=True,
+                )
         except Exception as exc:
             stats.universe_error = True
             stats.universe_error_message = str(exc)
+            print(f"[DEBUG] Universe fetch error: {exc}", flush=True)
             target_universe = None
 
     filtered = working
     filter_stats: dict[str, int | bool]
     if target_universe:
         filtered, filter_stats = _filter_bulk_data_by_universe(working, target_universe)
+        print(
+            "[DEBUG] Filtered rows by universe: "
+            f"{filter_stats.get('matched_rows', 0)} / {len(working)}",
+            flush=True,
+        )
+        missing = filter_stats.get("missing_symbols", 0)
+        if missing:
+            print(f"[DEBUG] Missing symbols in universe: {missing}", flush=True)
     else:
         has_code = _resolve_code_series(working) is not None
         filter_stats = {
@@ -1077,9 +1112,16 @@ def run_bulk_update(
 
     stats.filter_stats = filter_stats
     stats.filtered_rows = len(filtered)
+    print(f"[DEBUG] Rows after drop-empty-universe: {stats.filtered_rows}", flush=True)
 
     prepared = _drop_rows_without_price_data(filtered)
+    print(
+        "[DEBUG] Rows after price-column check: "
+        f"{len(prepared)} (removed {len(filtered) - len(prepared)})",
+        flush=True,
+    )
     if prepared.empty:
+        print("[DEBUG] No rows with price data; aborting bulk update", flush=True)
         return stats
 
     original_count, normalized_count = _estimate_symbol_counts(prepared)

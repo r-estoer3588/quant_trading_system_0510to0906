@@ -9,16 +9,17 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 import math
 import os
-from typing import Any, Callable, Mapping, cast
+from typing import Any, Callable, DefaultDict, Mapping, cast
 
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
-from common.system_constants import REQUIRED_COLUMNS, SYSTEM1_REQUIRED_INDICATORS
+from common.system_constants import REQUIRED_COLUMNS
 from common.system_setup_predicates import system1_setup_predicate
 
 
@@ -42,12 +43,13 @@ class System1Diagnostics:
     final_top_n_count: int = 0
     predicate_only_pass_count: int = 0
     mismatch_flag: int = 0
+    date_fallback_count: int = 0
 
     # ranking source marker
     ranking_source: str | None = None
 
     # reason histogram
-    exclude_reasons: dict[str, int] = field(default_factory=dict)
+    exclude_reasons: DefaultDict[str, int] = field(default_factory=lambda: defaultdict(int))
 
     def as_dict(self) -> dict[str, Any]:
         # normalize defaultdict to plain dict of ints
@@ -66,6 +68,7 @@ class System1Diagnostics:
             "final_top_n_count": int(self.final_top_n_count),
             "predicate_only_pass_count": int(self.predicate_only_pass_count),
             "mismatch_flag": int(self.mismatch_flag),
+            "date_fallback_count": int(self.date_fallback_count),
             "ranking_source": self.ranking_source,
             "exclude_reasons": {k: int(v) for k, v in dict(self.exclude_reasons).items()},
         }
@@ -114,6 +117,7 @@ def summarize_system1_diagnostics(
         "final_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
+        "date_fallback_count",
     )
 
     summary: dict[str, Any] = {key: _coerce_int(diag.get(key)) for key in summary_keys}
@@ -282,19 +286,39 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         if df is None or df.empty:
             return symbol, None
 
-        # Check for required indicators
-        missing_indicators = [col for col in SYSTEM1_REQUIRED_INDICATORS if col not in df.columns]
-        if missing_indicators:
+        # Only require 'roc200' for ranking; other indicators are optional here.
+        if "roc200" not in df.columns:
             return symbol, None
 
-        # Apply System1-specific filters and setup
+        # Apply System1-specific filters and setup (best-effort). If required
+        # columns are missing, set conservative defaults (False) to avoid
+        # accidental passes while still keeping the symbol in prepared data
+        # for ranking by roc200.
         x = df.copy()
 
         # Filter: Close>=5, DollarVolume20>25M
-        x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000)
+        try:
+            filt = (x["Close"] >= 5.0) & (
+                x.get("dollarvolume20", pd.Series(index=x.index, dtype=float)) > 25_000_000
+            )
+        except Exception:
+            # If columns not available, mark filter False
+            filt = pd.Series(False, index=x.index)
+        x["filter"] = filt
 
         # Setup: Filter + Close>SMA200 + ROC200>0
-        x["setup"] = x["filter"] & ((x["Close"] > x["sma200"]) & (x["roc200"] > 0))
+        try:
+            setup = (
+                filt
+                & (
+                    x.get("Close", pd.Series(index=x.index, dtype=float))
+                    > x.get("sma200", pd.Series(index=x.index, dtype=float))
+                )
+                & (x["roc200"] > 0)
+            )
+        except Exception:
+            setup = pd.Series(False, index=x.index)
+        x["setup"] = setup
 
         return symbol, x
 
@@ -352,9 +376,9 @@ def prepare_data_vectorized_system1(
     if reuse_indicators and raw_data_dict:
         _substep("fast-path check start")
         try:
-            # Early check - verify required indicators exist
+            # Early check - verify required indicators exist (roc200 のみ必須)
             valid_data_dict, error_symbols = check_precomputed_indicators(
-                raw_data_dict, SYSTEM1_REQUIRED_INDICATORS, "System1", skip_callback
+                raw_data_dict, ["roc200"], "System1", skip_callback
             )
 
             if valid_data_dict:
@@ -363,11 +387,23 @@ def prepare_data_vectorized_system1(
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
 
-                    # Filter: Close>=5, DollarVolume20>25M
-                    x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000)
+                    # Filter: Close>=5, DollarVolume20>25M（欠損は安全側に False）
+                    try:
+                        dv = x.get("dollarvolume20", pd.Series(index=x.index, dtype=float))
+                        filt = (x["Close"] >= 5.0) & (dv > 25_000_000)
+                    except Exception:
+                        filt = pd.Series(False, index=x.index)
+                    x["filter"] = filt
 
-                    # Setup: Filter + Close>SMA200 + ROC200>0
-                    x["setup"] = x["filter"] & ((x["Close"] > x["sma200"]) & (x["roc200"] > 0))
+                    # Setup: Filter + Close>SMA200 + ROC200>0（欠損は False）
+                    try:
+                        close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
+                        sma200_s = x.get("sma200", pd.Series(index=x.index, dtype=float))
+                        roc_ok = x.get("roc200", pd.Series(index=x.index, dtype=float)) > 0
+                        setup = filt & (close_s > sma200_s) & roc_ok
+                    except Exception:
+                        setup = pd.Series(False, index=x.index)
+                    x["setup"] = setup
 
                     prepared_dict[symbol] = x
 
@@ -392,6 +428,11 @@ def prepare_data_vectorized_system1(
         return {}
 
     _substep(f"normal path start symbols={len(target_symbols)}")
+    if log_callback:
+        try:
+            log_callback(f"System1: Starting normal processing for {len(target_symbols)} symbols")
+        except Exception:
+            pass
 
     # Execute batch processing
     _substep("batch processing start")
@@ -475,7 +516,10 @@ def generate_candidates_system1(
     ):
         diag_payload = diag.as_dict()
         normalized = dict(by_date)
-        return (normalized, merged, diag_payload) if include_diagnostics else (normalized, merged)
+        if include_diagnostics:
+            return normalized, merged, diag_payload
+        # Maintain backward compatibility: always include diagnostics payload
+        return normalized, merged, diag_payload
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
         diag.symbols_total = len(prepared_dict or {})
@@ -507,43 +551,87 @@ def generate_candidates_system1(
                             target_date = pd.Timestamp(str(td)).normalize()
             except Exception:
                 target_date = None
+            max_date_lag_days = 1
+            lag_override = kwargs.get("max_date_lag_days")
+            if lag_override is not None:
+                try:
+                    max_date_lag_days = max(0, int(float(str(lag_override))))
+                except Exception:
+                    pass
+
+            def _ensure_series(obj: Any) -> pd.Series | None:
+                if obj is None:
+                    return None
+                if isinstance(obj, pd.DataFrame):
+                    try:
+                        return obj.iloc[-1]
+                    except Exception:
+                        return None
+                if isinstance(obj, pd.Series):
+                    return obj
+                return None
+
+            fallback_log_remaining = 5
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
                 diag.total_symbols += 1
+                row_obj: pd.Series | pd.DataFrame | None
+                date_val: pd.Timestamp | None
+                row_obj = None
+                date_val = None
+                fallback_used = False
                 if target_date is not None:
                     if target_date in df.index:
                         row_obj = df.loc[target_date]
-                        if isinstance(row_obj, pd.DataFrame):
-                            last_row = row_obj.iloc[-1]
-                        else:
-                            last_row = row_obj
                         date_val = target_date
                     else:
-                        # no bar for target date -> skip symbol
-                        continue
+                        latest_idx_raw = df.index[-1]
+                        latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
+                        lag_days: int | None = None
+                        try:
+                            lag_delta = target_date - latest_idx_norm
+                            lag_days = int(lag_delta.days)
+                        except Exception:
+                            lag_days = None
+                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
+                            try:
+                                row_obj = df.loc[latest_idx_raw]
+                            except Exception:
+                                row_obj = None
+                            date_val = latest_idx_norm
+                            fallback_used = True
+                            diag.date_fallback_count += 1
+                            if fallback_used and log_callback and fallback_log_remaining > 0:
+                                try:
+                                    msg = (
+                                        "System1: latest_only missing target bar -> "
+                                        f"fallback to {latest_idx_norm.date()} "
+                                        f"for {sym}"
+                                    )
+                                    log_callback(msg)
+                                except Exception:
+                                    pass
+                                fallback_log_remaining -= 1
+                        else:
+                            diag.exclude_reasons["missing_date"] += 1
+                            continue
                 else:
-                    last_row = df.iloc[-1]
-                    date_val = pd.Timestamp(str(df.index[-1])).normalize()
-                passed, flags, reason = system1_row_passes_setup(last_row)
-                pred_val = system1_setup_predicate(last_row)
-                if pred_val:
-                    diag.setup_predicate_count += 1
-                if pred_val and not bool(last_row.get("setup", False)):
-                    diag.predicate_only_pass_count += 1
-                    diag.mismatch_flag = 1
-                if flags["filter_ok"]:
-                    diag.filter_pass += 1
-                if flags["setup_flag"]:
-                    diag.setup_flag_true += 1
-                if flags["fallback_ok"]:
-                    diag.fallback_pass += 1
-                if flags["roc200_positive"]:
-                    diag.roc200_positive += 1
-                if not passed:
-                    if reason:
-                        diag.exclude_reasons[reason] += 1
+                    latest_idx_raw = df.index[-1]
+                    date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
+                    try:
+                        row_obj = df.loc[latest_idx_raw]
+                    except Exception:
+                        row_obj = None
+                last_row = _ensure_series(row_obj)
+                if last_row is None or date_val is None:
+                    diag.exclude_reasons["invalid_row"] += 1
                     continue
+                # latest_only: シンプルに setup==True のみで候補化（診断は最小限）
+                if not bool(last_row.get("setup", False)):
+                    diag.exclude_reasons["setup"] += 1
+                    continue
+                diag.setup_flag_true += 1
                 diag.final_pass += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
@@ -557,11 +645,6 @@ def generate_candidates_system1(
                         "setup": bool(last_row.get("setup", False)),
                     }
                 )
-                if log_callback:
-                    log_callback(
-                        "System1: latest_only fast-path produced 0 rows "
-                        "(after gating) — fallback"
-                    )
             else:
                 df_all = pd.DataFrame(rows)
                 try:
@@ -578,6 +661,36 @@ def generate_candidates_system1(
                 diag.final_top_n_count = len(df_all)
                 diag.ranking_source = "latest_only"
                 by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+                # If no candidates, emit 1-2 sample rows for quick triage (DEBUG-like)
+                if diag.final_top_n_count == 0 and log_callback:
+                    try:
+                        samples: list[str] = []
+                        count = 0
+                        for s_sym, s_df in prepared_dict.items():
+                            if s_df is None or getattr(s_df, "empty", True):
+                                continue
+                            try:
+                                s_last = s_df.iloc[-1]
+                                s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                                s_setup = bool(s_last.get("setup", False))
+                                s_roc = _to_float(s_last.get("roc200"))
+                                samples.append(
+                                    (
+                                        f"{s_sym}: date={s_dt.date()} "
+                                        f"setup={s_setup} roc200={s_roc:.4f}"
+                                    )
+                                )
+                                count += 1
+                                if count >= 2:
+                                    break
+                            except Exception:
+                                continue
+                        if samples:
+                            log_callback(
+                                ("System1: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                            )
+                    except Exception:
+                        pass
                 for dt_any, sub in df_all.groupby("date"):
                     assert isinstance(dt_any, pd.Timestamp)
                     dt = dt_any
@@ -639,7 +752,9 @@ def generate_candidates_system1(
 
             if isinstance(row_obj, pd.DataFrame):
                 row_obj = row_obj.iloc[-1]
-            row = row_obj  # expected to be a Series after .loc / .iloc
+            if not isinstance(row_obj, pd.Series):
+                continue
+            row = cast(pd.Series, row_obj)
 
             if date == diag_target_date:
                 diag.total_symbols += 1
@@ -711,7 +826,7 @@ def generate_candidates_system1(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            "System1: Generated " f"{total_candidates} candidates across {unique_dates} dates"
+            ("System1: Generated " f"{total_candidates} candidates across {unique_dates} dates")
         )
 
     return finalize(candidates_by_date, candidates_df)

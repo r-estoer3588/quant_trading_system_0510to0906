@@ -18,6 +18,8 @@ strategies:
     atr_period: 20
     take_profit_rr: 2.0
     stop_loss_rr: 1.0
+    # 当日抽出の上限（System1のみ10件に絞る）
+    top_n_rank: 10
   system2:
     fast_sma: 20
     slow_sma: 50
@@ -27,6 +29,8 @@ strategies:
     profit_take_pct: 0.04
     max_hold_days: 2 # 書籍通り: 2日後に利益目標に到達しないときは翌日に手仕舞い
     stop_atr_multiple: 3.0
+    # 当日抽出の上限
+    top_n_rank: 10
   system3:
     ema_short: 12
     ema_long: 26
@@ -36,24 +40,32 @@ strategies:
     stop_atr_multiple: 2.5
     profit_take_pct: 0.04
     max_hold_days: 3 # 書籍通り: 3日後に利益目標に到達しないときは翌日に手仕舞い
+    # 当日抽出の上限
+    top_n_rank: 10
   system4:
     # System4 は主にSPY依存のフィルタとATRを用いた短期売り戦略
     stop_atr_multiple: 1.5
     trailing_pct: 0.20
     entry_price_ratio_vs_prev_close: 1.00
     # top_n 等は backtest.top_n_rank を利用するためここでは不要
+    # 当日抽出の上限（backtest.top_n_rank を上書き）
+    top_n_rank: 10
   system5:
     # System5: ロング戦略。エントリー基準とATRベースのターゲット/ストップ
     entry_price_ratio_vs_prev_close: 0.97
     stop_atr_multiple: 3.0
     target_atr_multiple: 1.0
     fallback_exit_after_days: 6 # 書籍通り: 6日後に到達しないときは翌日に手仕舞い
+    # 当日抽出の上限
+    top_n_rank: 10
   system6:
     # System6: ショート戦略。利確・損切り・保持期間に関するパラメータ
     entry_price_ratio_vs_prev_close: 1.05
     stop_atr_multiple: 3.0
     profit_take_pct: 0.05
     profit_take_max_days: 3 # 書籍通り: 3日後には手仕舞い
+    # 当日抽出の上限
+    top_n_rank: 10
   system7:
     # System7: SPY 専用ヘッジ。ATR50 等を使うため最小限の上書き
     stop_atr_multiple: 3.0
@@ -62,6 +74,8 @@ strategies:
     risk_pct: 0.02
     max_pct: 0.20
     single_mode: false
+    # 当日抽出の上限（SPY 単一想定だが整合性のため設定）
+    top_n_rank: 10
 
 data:
   vendor: EODHD

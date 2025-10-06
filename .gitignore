@@ -27,7 +27,7 @@ codacy_report/
 .tmp_*
 
 #Ignore vscode AI rules
-.github\instructions\codacy.instructions.md
+.github/instructions/codacy.instructions.md
 temp_test_cache
 
 # === Reorganization Additions ===
@@ -71,3 +71,5 @@ logs/archive/
 venv/
 env/
 .wslvenv/
+
+results_csv_test/
