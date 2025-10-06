@@ -52,19 +52,8 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         prepared_dict = data_dict
-        top_n = kwargs.pop("top_n", None)
-        if top_n is None:
-            try:
-                from config.settings import get_settings
-
-                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                top_n = max(0, int(top_n))
-            except Exception:
-                top_n = 10
+        # 共通ロジックで上限件数を決定（明示指定 > strategies.<system>.top_n_rank > backtest.top_n_rank）
+        top_n = self._get_top_n_setting(kwargs.pop("top_n", None))
 
         if batch_size is None:
             try:

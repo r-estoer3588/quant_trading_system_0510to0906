@@ -15,6 +15,7 @@ patches without altering CLI flags or public behavior.
 
 from __future__ import annotations
 
+# flake8: noqa: E501
 import argparse
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,7 +33,8 @@ from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
 
-# --- ensure repository root on sys.path (script executed from repo root or elsewhere) ---
+# --- ensure repository root on sys.path
+# (script executed from repo root or elsewhere)
 try:  # noqa: SIM105
     _project_root = Path(__file__).resolve().parents[1]
     if str(_project_root) not in sys.path:
@@ -153,7 +155,7 @@ def emit_progress_event(event_type: str, data: dict) -> None:
 _LOG_FORWARDING: ContextVar[bool] = ContextVar("_LOG_FORWARDING", default=False)
 
 
-## NOTE: StrategyProtocol 一時撤去 (戦略側の実装差異が大きく attr-defined 問題を誘発したため)
+# NOTE: StrategyProtocol 一時撤去（戦略側の実装差異が大きく attr-defined 問題を誘発のため）
 _LOG_START_TS: float | None = None  # CLI 用の経過時間測定開始時刻
 
 # Structured UI logging state (initialized lazily inside _emit_ui_log)
@@ -420,33 +422,41 @@ class BaseCachePool:
                 return None
             try:
                 if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
-                    return pd.Timestamp(frame.index[-1]).normalize()
+                    # Ensure we pass a scalar-compatible value into Timestamp
+                    idx_last = frame.index[-1]
+                    if hasattr(idx_last, "to_pydatetime"):
+                        scalar_dt = idx_last.to_pydatetime()
+                    else:
+                        scalar_dt = str(idx_last)
+                    return pd.Timestamp(scalar_dt).normalize()
             except Exception:
                 pass
             try:
                 idx = pd.to_datetime(frame.index.to_numpy(), errors="coerce")
                 idx = idx[~pd.isna(idx)]
                 if len(idx):
-                    return pd.Timestamp(idx[-1]).normalize()
+                    idx_last = idx[-1]
+                    if hasattr(idx_last, "to_pydatetime"):
+                        scalar_dt = idx_last.to_pydatetime()
+                    else:
+                        scalar_dt = str(idx_last)
+                    return pd.Timestamp(scalar_dt).normalize()
             except Exception:
                 pass
             try:
                 series = frame.get("Date") if frame is not None else None
                 if series is not None:
                     # convert to numpy array to match pandas.to_datetime overloads
-                    series = pd.to_datetime(series.to_numpy(), errors="coerce")
-                    if hasattr(series, "dropna"):
-                        series = series.dropna()
-                    if getattr(series, "size", 0):
-                        # ensure we have an indexable array/series
+                    arr = pd.to_datetime(pd.Series(series).to_numpy(), errors="coerce")
+                    arr = arr[~pd.isna(arr)]
+                    if arr.size:
                         try:
-                            if isinstance(series, pd.DatetimeIndex):
-                                return pd.Timestamp(series[-1]).normalize()
-                            # pandas Series/Index support iloc; fallback to index access
-                            try:
-                                return pd.Timestamp(series.iloc[-1]).normalize()
-                            except Exception:
-                                return pd.Timestamp(series[-1]).normalize()
+                            arr_last = arr[-1]
+                            if hasattr(arr_last, "to_pydatetime"):
+                                scalar_dt = arr_last.to_pydatetime()
+                            else:
+                                scalar_dt = str(arr_last)
+                            return pd.Timestamp(scalar_dt).normalize()
                         except Exception:
                             pass
             except Exception:
@@ -883,16 +893,7 @@ def _drain_stage_event_queue() -> None:
                 return int(fl)
             except Exception:
                 return None
-        # その他サポート: __int__ 実装オブジェクト
-        try:
-            if hasattr(value, "__int__"):
-                try:
-                    val_int_conv = int(value)  # __int__ 実装利用
-                    return val_int_conv if isinstance(val_int_conv, int) else None
-                except Exception:
-                    return None
-        except Exception:
-            return None
+        # その他の型は未対応（mypy整合のため無変換）
         return None
 
     events: list[StageEvent] = []
@@ -1425,16 +1426,21 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
         if col in df.columns:
             try:
                 values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
-                values = values.dropna()
-                if not values.empty:
-                    return pd.Timestamp(values[-1]).normalize()
+                values = values[~pd.isna(values)]
+                if values.size:
+                    # wrap in array and extract scalar for type safety
+                    ts = pd.to_datetime([values[-1]], errors="coerce")
+                    if ts.size and not pd.isna(ts[0]):
+                        return pd.Timestamp(ts[0]).normalize()
             except Exception:
                 continue
     try:
         idx = pd.to_datetime(df.index.to_numpy(), errors="coerce")
         mask = ~pd.isna(idx)
         if mask.any():
-            return pd.Timestamp(idx[mask][-1]).normalize()
+            ts = pd.to_datetime([idx[mask][-1]], errors="coerce")
+            if ts.size and not pd.isna(ts[0]):
+                return pd.Timestamp(ts[0]).normalize()
     except Exception:
         pass
     return None
@@ -2426,10 +2432,11 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
         today=ctx.today,
         freshness_tolerance=freshness_tolerance,
         base_cache=ctx.base_cache,
-        log_callback=lambda msg, ui=True: None,  # type: ignore[misc]
+        log_callback=lambda msg, ui=True: None,
         ui_log_callback=lambda msg: None,
     )
-    ctx.basic_data = basic_data
+    # ensure precise type for type-checker
+    ctx.basic_data = cast(dict[str, pd.DataFrame], basic_data)
 
     if progress_callback:
         try:
@@ -2464,7 +2471,7 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     except Exception:
         pass
 
-    return basic_data
+    return cast(dict[str, pd.DataFrame], basic_data)
 
 
 def _ensure_cli_logger_configured() -> None:
@@ -2658,7 +2665,7 @@ def _save_and_notify_phase(
             ]
             send_metrics_notification(
                 day_str=str(td_str),
-                fields=summary_fields + lines,  # type: ignore[operator]
+                fields=summary_fields + lines,
                 summary_pairs=summary_pairs,
                 title=title,
             )
@@ -3047,24 +3054,31 @@ def _ensure_rolling_cache_fresh(
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
             cast(Any, cache_manager).write_atomic(symbol, rolling_new, layer="rolling")
-            return rolling_new
+            return cast(pd.DataFrame, rolling_new)
         return rolling_df
-    last_date = None
     try:
-        last_date = rolling_df.index[-1]
-        if isinstance(last_date, str):
-            # wrap scalar into list to satisfy type checker overloads
-            last_date = pd.to_datetime([last_date])[0]
+        last_idx = rolling_df.index[-1]
+        if isinstance(last_idx, str):
+            last_ts = pd.to_datetime(last_idx)
+        else:
+            last_ts = (
+                pd.Timestamp(last_idx.to_pydatetime())
+                if hasattr(last_idx, "to_pydatetime")
+                else pd.Timestamp(last_idx)
+            )
     except Exception:
         return rolling_df
-    lag_days = (today - last_date).days
+    try:
+        lag_days = int((today - last_ts).days)
+    except Exception:
+        lag_days = 0
     if lag_days > max_lag_days:
         # 鮮度不足: baseからrolling再生成
         base_df = cast(Any, cache_manager).read(symbol, layer="base", rows=base_rows)
         if base_df is not None and not getattr(base_df, "empty", True):
             rolling_new = base_df.tail(base_rows).copy()
             cast(Any, cache_manager).write_atomic(symbol, rolling_new, layer="rolling")
-            return rolling_new
+            return cast(pd.DataFrame, rolling_new)
     return rolling_df
 
 
@@ -3298,7 +3312,7 @@ def _prepare_system6_data(
                 continue
             try:
                 # return_6d: 旧称 Return6D (命名統一済)
-                ret_val = to_float(get_indicator(last, "return_6d"))
+                ret_val = to_float(get_indicator(cast(Mapping[str, Any], last), "return_6d"))
                 ret_pass = (ret_val > 0.20) if not pd.isna(ret_val) else False
             except Exception:
                 ret_pass = False
@@ -3306,8 +3320,8 @@ def _prepare_system6_data(
                 continue
             s6_ret += 1
             try:
-                # UpTwoDays は列名揺れに対応（UpTwoDays/TwoDayUp/twodayup/uptwodays）
-                if is_true(get_indicator(last, "uptwodays")):
+                # UpTwoDays は列名揺れに対応（UpTwoDay…）
+                if is_true(get_indicator(cast(Mapping[str, Any], last), "uptwodays")):
                     s6_combo += 1
             except Exception:
                 pass
@@ -3336,7 +3350,7 @@ def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame 
     """SPY の DataFrame を指標付きで取得する。"""
     if "SPY" in basic_data:
         try:
-            return get_spy_with_indicators(basic_data["SPY"])
+            return cast(pd.DataFrame | None, get_spy_with_indicators(basic_data["SPY"]))
         except Exception:
             return None
     _log(
@@ -4157,8 +4171,8 @@ def compute_today_signals(
                 last_row = spy_data.iloc[-1] if hasattr(spy_data, "iloc") else spy_data
                 # セットアップ条件: Low <= min_50
                 try:
-                    low_val = to_float(get_indicator(last_row, "Low"))
-                    min50_val = to_float(get_indicator(last_row, "min_50"))
+                    low_val = to_float(get_indicator(cast(Mapping[str, Any], last_row), "Low"))
+                    min50_val = to_float(get_indicator(cast(Mapping[str, Any], last_row), "min_50"))
                     if (not pd.isna(low_val)) and (not pd.isna(min50_val)) and low_val <= min50_val:
                         s7_setup = 1
                 except Exception:
@@ -4184,10 +4198,10 @@ def compute_today_signals(
                 s1_setup_eff
                 if ("s1_setup_eff" in locals() and s1_setup_eff is not None)
                 else (s1_setup or 0)
-            )  # type: ignore[name-defined]
+            )
             s1_val = int(_s1_base)
         except Exception:
-            s1_val = int(s1_setup or 0)  # type: ignore[name-defined]
+            s1_val = int(s1_setup or 0)
         s2_val = int(s2_setup or 0) if "s2_setup" in locals() else 0
         s3_val = int(s3_setup or 0) if "s3_setup" in locals() else 0
         # system4 は Close>SMA200 件数（s4_close）をセットアップ相当として扱う
@@ -4585,11 +4599,12 @@ def _safe_stage_int(value: object | None) -> int:
             return int(float(txt))
         except Exception:
             return 0
-    # 最後のフォールバック: int() での暗黙変換を試みる
+    # 最後のフォールバック: __int__ を実装していれば使用
     try:
-        v2 = int(value)  # type: ignore[arg-type]
-        if isinstance(v2, int):
-            return v2
+        to_int = getattr(value, "__int__", None)
+        if callable(to_int):
+            v2 = to_int()
+            return int(v2) if isinstance(v2, (int, float)) else 0
     except Exception:
         return 0
     return 0

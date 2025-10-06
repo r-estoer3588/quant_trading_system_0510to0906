@@ -50,24 +50,14 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         prepared_dict = data_dict
-        top_n = kwargs.pop("top_n", None)
+        # 他システム(system1-3)と同様に共通の取得ロジックを使用
+        top_n = self._get_top_n_setting(kwargs.pop("top_n", None))
         # market_df 未指定時は prepared_dict から SPY を使用（後方互換）
         if market_df is None:
             market_df = prepared_dict.get("SPY")
         if market_df is None or getattr(market_df, "empty", False):
             raise ValueError("System4 には SPYデータ (market_df) が必要です")
-        if top_n is None:
-            try:
-                from config.settings import get_settings
-
-                top_n = int(get_settings(create_dirs=False).backtest.top_n_rank)
-            except Exception:
-                top_n = 10
-        else:
-            try:
-                top_n = max(0, int(top_n))
-            except Exception:
-                top_n = 10
+        # top_n は上で確定（明示指定 > strategies.<system>.top_n_rank > backtest.top_n_rank）
         if batch_size is None:
             try:
                 from config.settings import get_settings
