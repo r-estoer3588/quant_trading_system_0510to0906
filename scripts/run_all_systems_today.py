@@ -420,45 +420,23 @@ class BaseCachePool:
         def _detect_last(frame: pd.DataFrame | None) -> pd.Timestamp | None:
             if frame is None or getattr(frame, "empty", True):
                 return None
+            # 優先: index から推定
             try:
-                if isinstance(frame.index, pd.DatetimeIndex) and len(frame.index):
-                    # Ensure we pass a scalar-compatible value into Timestamp
-                    idx_last = frame.index[-1]
-                    if hasattr(idx_last, "to_pydatetime"):
-                        scalar_dt = idx_last.to_pydatetime()
-                    else:
-                        scalar_dt = str(idx_last)
-                    return pd.Timestamp(scalar_dt).normalize()
+                idx_dt = pd.to_datetime(frame.index, errors="coerce")
+                if isinstance(idx_dt, pd.DatetimeIndex) and len(idx_dt):
+                    last_val = idx_dt[-1]
+                    return pd.Timestamp(cast(Any, last_val)).normalize()
             except Exception:
                 pass
-            try:
-                idx = pd.to_datetime(frame.index.to_numpy(), errors="coerce")
-                idx = idx[~pd.isna(idx)]
-                if len(idx):
-                    idx_last = idx[-1]
-                    if hasattr(idx_last, "to_pydatetime"):
-                        scalar_dt = idx_last.to_pydatetime()
-                    else:
-                        scalar_dt = str(idx_last)
-                    return pd.Timestamp(scalar_dt).normalize()
-            except Exception:
-                pass
+            # 次点: Date/date 列から推定
             try:
                 series = frame.get("Date") if frame is not None else None
+                if series is None and frame is not None and "date" in frame.columns:
+                    series = frame.get("date")
                 if series is not None:
-                    # convert to numpy array to match pandas.to_datetime overloads
-                    arr = pd.to_datetime(pd.Series(series).to_numpy(), errors="coerce")
-                    arr = arr[~pd.isna(arr)]
-                    if arr.size:
-                        try:
-                            arr_last = arr[-1]
-                            if hasattr(arr_last, "to_pydatetime"):
-                                scalar_dt = arr_last.to_pydatetime()
-                            else:
-                                scalar_dt = str(arr_last)
-                            return pd.Timestamp(scalar_dt).normalize()
-                        except Exception:
-                            pass
+                    ser_dt = pd.to_datetime(series, errors="coerce").dropna()
+                    if len(ser_dt):
+                        return pd.Timestamp(cast(Any, ser_dt.iloc[-1])).normalize()
             except Exception:
                 pass
             return None
@@ -1425,22 +1403,16 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     for col in ("date", "Date"):
         if col in df.columns:
             try:
-                values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
-                values = values[~pd.isna(values)]
-                if values.size:
-                    # wrap in array and extract scalar for type safety
-                    ts = pd.to_datetime([values[-1]], errors="coerce")
-                    if ts.size and not pd.isna(ts[0]):
-                        return pd.Timestamp(ts[0]).normalize()
+                ser_dt = pd.to_datetime(df[col], errors="coerce").dropna()
+                if len(ser_dt):
+                    last_val = ser_dt.iloc[-1]
+                    return pd.Timestamp(cast(Any, last_val)).normalize()
             except Exception:
                 continue
     try:
-        idx = pd.to_datetime(df.index.to_numpy(), errors="coerce")
-        mask = ~pd.isna(idx)
-        if mask.any():
-            ts = pd.to_datetime([idx[mask][-1]], errors="coerce")
-            if ts.size and not pd.isna(ts[0]):
-                return pd.Timestamp(ts[0]).normalize()
+        idx_dt = pd.to_datetime(df.index, errors="coerce")
+        if isinstance(idx_dt, pd.DatetimeIndex) and len(idx_dt):
+            return pd.Timestamp(cast(Any, idx_dt[-1])).normalize()
     except Exception:
         pass
     return None
@@ -3060,12 +3032,11 @@ def _ensure_rolling_cache_fresh(
         last_idx = rolling_df.index[-1]
         if isinstance(last_idx, str):
             last_ts = pd.to_datetime(last_idx)
+        elif hasattr(last_idx, "to_pydatetime"):
+            last_ts = pd.Timestamp(last_idx.to_pydatetime())
         else:
-            last_ts = (
-                pd.Timestamp(last_idx.to_pydatetime())
-                if hasattr(last_idx, "to_pydatetime")
-                else pd.Timestamp(last_idx)
-            )
+            # Cast to Any to satisfy Timestamp's accepted overloads
+            last_ts = pd.Timestamp(cast(Any, last_idx))
     except Exception:
         return rolling_df
     try:
@@ -3361,7 +3332,7 @@ def _resolve_spy_dataframe(basic_data: dict[str, pd.DataFrame]) -> pd.DataFrame 
 
 
 @no_type_check
-def compute_today_signals(
+def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues]
     symbols: list[str] | None,
     *,
     slots_long: int | None = None,
@@ -5340,7 +5311,7 @@ def maybe_run_planned_exits(args: argparse.Namespace) -> None:
     try:
         from schedulers.next_day_exits import submit_planned_exits as _run_planned
     except Exception:
-        _run_planned = None  # type: ignore[assignment]
+        _run_planned = None
     env_run = os.environ.get("RUN_PLANNED_EXITS", "").lower()
     run_mode = (
         args.run_planned_exits
