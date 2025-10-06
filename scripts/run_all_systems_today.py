@@ -3727,17 +3727,12 @@ def compute_today_signals(
         _log("🧪 system6内訳: " + f"元={s6_total}, Low>=5: {s6_low}, DV50>10M: {s6_dv}")
     except Exception:
         pass
-    # System7 は SPY 固定（参考情報のみ）
+    # System7 フィルター内訳（SPY固定）
     try:
         spyp = (
             1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
         )
-        rate_limited_logger = _get_rate_limited_logger()
-        rate_limited_logger.debug_rate_limited(
-            f"🧪 system7内訳: SPY固定 | SPY存在={spyp}",
-            message_key="system7_detail",
-            interval=10,
-        )
+        _log(f"🧪 system7内訳: SPY固定 | SPY存在={spyp}")
     except Exception:
         pass
     _log(
@@ -3747,7 +3742,8 @@ def compute_today_signals(
         + f"system3={len(system3_syms)}件, "
         + f"system4={len(system4_syms)}件, "
         + f"system5={len(system5_syms)}件, "
-        + f"system6={len(system6_syms)}件"
+        + f"system6={len(system6_syms)}件, "
+        + f"system7={spyp}件"
     )
     if progress_callback:
         try:
@@ -3835,11 +3831,13 @@ def compute_today_signals(
                 f"SMA25>SMA50: {s1_setup}"
             )
         # セットアップ内訳の後にデバッグ情報を順に出力（交互の美観を崩さないため）
+        # COMPACT_TODAY_LOGS=1の場合はDEBUGログを抑制
         try:
-            if s1_debug_cols_line:
-                print(s1_debug_cols_line)
-            if s1_debug_once_line:
-                print(s1_debug_once_line)
+            if not os.getenv("COMPACT_TODAY_LOGS"):
+                if s1_debug_cols_line:
+                    print(s1_debug_cols_line)
+                if s1_debug_once_line:
+                    print(s1_debug_once_line)
         except Exception:
             pass
         # UI の STUpass へ反映（50%時点）
@@ -4141,7 +4139,38 @@ def compute_today_signals(
             pass
     except Exception:
         pass
-    # まとめ: セットアップ結果（system1〜system6）を一行で出力
+    # System7 セットアップ内訳（SPY固定: Low <= min_50）
+    s7_filter = 0
+    s7_setup = 0
+    try:
+        if "SPY" in basic_data:
+            s7_filter = 1
+            spy_data = basic_data["SPY"]
+            if not spy_data.empty:
+                # 最新行を取得
+                last_row = spy_data.iloc[-1] if hasattr(spy_data, "iloc") else spy_data
+                # セットアップ条件: Low <= min_50
+                try:
+                    low_val = to_float(get_indicator(last_row, "Low"))
+                    min50_val = to_float(get_indicator(last_row, "min_50"))
+                    if (not pd.isna(low_val)) and (not pd.isna(min50_val)) and low_val <= min50_val:
+                        s7_setup = 1
+                except Exception:
+                    pass
+        _log(f"🧩 system7セットアップ内訳: フィルタ通過={s7_filter}, Low<=min_50: {s7_setup}")
+        try:
+            _stage(
+                "system7",
+                50,
+                filter_count=int(s7_filter),
+                setup_count=int(s7_setup),
+                candidate_count=None,
+                entry_count=None,
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
     try:
         # system1 は SPY ゲート適用後の実効値を優先
         try:
@@ -4159,6 +4188,7 @@ def compute_today_signals(
         s4_val = int(locals().get("s4_close", 0) or 0)
         s5_val = int(s5_setup or 0) if "s5_setup" in locals() else 0
         s6_val = int(s6_setup or 0) if "s6_setup" in locals() else 0
+        s7_val = int(s7_setup or 0) if "s7_setup" in locals() else 0
 
         _log(
             "🧩 セットアップ結果: "
@@ -4167,7 +4197,8 @@ def compute_today_signals(
             + f"system3={s3_val}件, "
             + f"system4={s4_val}件, "
             + f"system5={s5_val}件, "
-            + f"system6={s6_val}件"
+            + f"system6={s6_val}件, "
+            + f"system7={s7_val}件"
         )
     except Exception:
         pass
