@@ -277,7 +277,6 @@ class BulkDataVerifier:
         # 信頼性スコアの算出
         verified_count = results["verified"]
         issue_count = len(results["issues"])
-        missing_count = len(results["missing"])
 
         if verified_count > 0:
             reliability_score = (verified_count - issue_count) / results["total_symbols"]

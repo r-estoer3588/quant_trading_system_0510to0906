@@ -338,6 +338,39 @@ def generate_candidates_system6(
                     }
                 )
             if not rows:
+                if log_callback:
+                    try:
+                        samples: list[str] = []
+                        taken = 0
+                        for s_sym, s_df in prepared_dict.items():
+                            if s_df is None or getattr(s_df, "empty", True):
+                                continue
+                            try:
+                                s_last = s_df.iloc[-1]
+                                s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                                s_setup = bool(s_last.get("setup", False))
+                                s_ret = s_last.get("return_6d", float("nan"))
+                                try:
+                                    s_ret_f = float(s_ret)
+                                except Exception:
+                                    s_ret_f = float("nan")
+                                samples.append(
+                                    (
+                                        f"{s_sym}: date={s_dt.date()} "
+                                        f"setup={s_setup} return_6d={s_ret_f:.4f}"
+                                    )
+                                )
+                                taken += 1
+                                if taken >= 2:
+                                    break
+                            except Exception:
+                                continue
+                        if samples:
+                            log_callback(
+                                ("System6: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                            )
+                    except Exception:
+                        pass
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             # 指定があればその日で揃え、無ければ最頻日で揃える（欠落シンボル耐性）
@@ -617,7 +650,10 @@ def generate_candidates_system6(
     except Exception:
         diagnostics["final_top_n_count"] = 0
 
-    return (normalized_full, None, diagnostics) if include_diagnostics else (normalized_full, None)
+    if include_diagnostics:
+        return (normalized_full, None, diagnostics)
+    else:
+        return (normalized_full, None)
 
 
 def get_total_days_system6(data_dict: dict[str, pd.DataFrame]) -> int:

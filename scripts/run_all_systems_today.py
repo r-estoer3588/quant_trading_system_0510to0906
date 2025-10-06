@@ -46,7 +46,7 @@ from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
-from common.indicator_access import get_indicator, to_float
+from common.indicator_access import get_indicator, is_true, to_float
 from common.notification import notify_zero_trd_all_systems
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
@@ -1006,7 +1006,8 @@ def _log(
             now = _t.strftime("%H:%M:%S")
             elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
             m, s = divmod(int(elapsed), 60)
-            prefix = f"[{now} | {m}分{s}秒] "
+            # 秒は2桁ゼロ埋めで整形（例: 0分05秒）
+            prefix = f"[{now} | {m}分{s:02d}秒] "
 
         # エラーレベルとコードを含むプレフィックス
         if level != "INFO":
@@ -3297,14 +3298,16 @@ def _prepare_system6_data(
                 continue
             try:
                 # return_6d: 旧称 Return6D (命名統一済)
-                ret_pass = float(last.get("return_6d", 0)) > 0.20
+                ret_val = to_float(get_indicator(last, "return_6d"))
+                ret_pass = (ret_val > 0.20) if not pd.isna(ret_val) else False
             except Exception:
                 ret_pass = False
             if not ret_pass:
                 continue
             s6_ret += 1
             try:
-                if bool(last.get("UpTwoDays", False)):
+                # UpTwoDays は列名揺れに対応（UpTwoDays/TwoDayUp/twodayup/uptwodays）
+                if is_true(get_indicator(last, "uptwodays")):
                     s6_combo += 1
             except Exception:
                 pass
@@ -4104,22 +4107,25 @@ def compute_today_signals(
                 continue
             # return_6d>20% 判定（独立）
             try:
-                r6v = float(last.get("return_6d", float("nan")))
-                ret_pass = (not pd.isna(r6v)) and r6v > 0.20
+                # 指標アクセスAPIで列名揺れに対応（return_6d/RETURN_6D）
+                r6v = to_float(get_indicator(last, "return_6d"))
+                ret_pass = (not pd.isna(r6v)) and (r6v > 0.20)
             except Exception:
                 ret_pass = False
             if ret_pass:
                 s6_ret += 1
             # UpTwoDays 判定（独立）
             try:
-                up_pass = bool(last.get("UpTwoDays", False))
+                # 列名揺れに対応（UpTwoDays/TwoDayUp/twodayup/uptwodays）
+                up_pass = bool(is_true(get_indicator(last, "uptwodays")))
             except Exception:
                 up_pass = False
             if up_pass:
                 s6_uptwo += 1
-            # 両方満たすセットアップ数
+            # AND 条件（return_6d>20% かつ UpTwoDays）
             if ret_pass and up_pass:
                 s6_combo += 1
+        # セットアップ結果は AND 条件で集計
         s6_setup = int(s6_combo)
         _log(
             "🧩 system6セットアップ内訳: "

@@ -212,25 +212,17 @@ def generate_candidates_system2(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                # setup 列 (存在しないなら True 扱い: 事前生成前呼び出し耐性)
-                setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-                from common.system_setup_predicates import system2_setup_predicate as _s2_pred
-
-                pred_val = _s2_pred(last_row)
-                if pred_val:
-                    diagnostics["setup_predicate_count"] += 1
-                if pred_val and not setup_col_val:
-                    diagnostics["predicate_only_pass_count"] += 1
-                    diagnostics["mismatch_flag"] = 1
-                if not setup_col_val:
+                # setup==True のみ採用（列が無い場合は不採用）
+                setup_ok = bool(last_row.get("setup", False))
+                if not setup_ok:
                     continue
-                adx7_val = last_row.get("adx7", 0)
+                adx7_val = last_row.get("adx7", None)
                 try:
-                    if pd.isna(adx7_val) or float(adx7_val) <= 0:
+                    if adx7_val is None or pd.isna(adx7_val):
                         continue
                 except Exception:
                     continue
-                dt = df.index[-1]
+                dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -255,6 +247,36 @@ def generate_candidates_system2(
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
             diagnostics["final_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
+            # 候補0件なら代表サンプルを1-2件だけDEBUGログ出力
+            if diagnostics.get("final_top_n_count", 0) == 0 and log_callback:
+                try:
+                    samples: list[str] = []
+                    taken = 0
+                    for s_sym, s_df in prepared_dict.items():
+                        if s_df is None or getattr(s_df, "empty", True):
+                            continue
+                        try:
+                            s_last = s_df.iloc[-1]
+                            s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                            s_setup = bool(s_last.get("setup", False))
+                            s_adx = s_last.get("adx7", float("nan"))
+                            samples.append(
+                                (
+                                    f"{s_sym}: date={s_dt.date()} "
+                                    f"setup={s_setup} adx7={float(s_adx):.4f}"
+                                )
+                            )
+                            taken += 1
+                            if taken >= 2:
+                                break
+                        except Exception:
+                            continue
+                    if samples:
+                        log_callback(
+                            "System2: DEBUG latest_only 0 candidates. " + " | ".join(samples)
+                        )
+                except Exception:
+                    pass
             # Orchestrator expects: {date: {symbol: {field: value}}}
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
@@ -272,7 +294,10 @@ def generate_candidates_system2(
                 by_date[dt] = symbol_map
             if log_callback:
                 log_callback(
-                    f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    (
+                        "System2: latest_only fast-path -> "
+                        f"{len(df_all)} candidates (symbols={len(rows)})"
+                    )
                 )
             return (
                 (by_date, df_all.copy(), diagnostics)
@@ -371,7 +396,7 @@ def generate_candidates_system2(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            f"System2: Generated {total_candidates} candidates across {unique_dates} dates"
+            ("System2: Generated " f"{total_candidates} candidates across {unique_dates} dates")
         )
 
     # Normalize to {date: {symbol: payload}}

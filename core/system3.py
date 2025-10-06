@@ -206,32 +206,25 @@ def generate_candidates_system3(
         top_n = 20  # Default value
 
     if latest_only:
-        # latest_only の高速経路を堅牢化: シンボル単位で例外を握りつぶし、全体フォールバックを避ける
+        # 最新日のみ対象。setup==True の銘柄を drop3d 降順で上位抽出
         rows: list[dict] = []
         date_counter: dict[pd.Timestamp, int] = {}
 
-        # Optional override of target date (previous trading day fallback)
         target_date = None
         try:
             maybe = kwargs.get("latest_mode_date")
             if maybe is not None:
-                try:
-                    target_date = pd.Timestamp(str(maybe)).normalize()
-                except Exception:
-                    td = pd.to_datetime(str(maybe), errors="coerce")
-                    if (td is not None) and not pd.isna(td):
-                        target_date = pd.Timestamp(str(td)).normalize()
+                td = pd.to_datetime(str(maybe), errors="coerce")
+                if (td is not None) and not pd.isna(td):
+                    target_date = pd.Timestamp(td).normalize()
         except Exception:
             target_date = None
-
-        from common.system_setup_predicates import system3_setup_predicate as _s3_pred
 
         def _to_series(obj: Any) -> pd.Series | None:
             try:
                 if obj is None:
                     return None
                 if isinstance(obj, pd.DataFrame):
-                    # 重複日付時は末尾を採用
                     return obj.iloc[-1]
                 if isinstance(obj, pd.Series):
                     return obj
@@ -246,8 +239,7 @@ def generate_candidates_system3(
                 if target_date is not None:
                     if target_date not in df.index:
                         continue
-                    row_obj = df.loc[target_date]
-                    last_row = _to_series(row_obj)
+                    last_row = _to_series(df.loc[target_date])
                     dt = target_date
                 else:
                     last_row = _to_series(df.iloc[-1])
@@ -256,34 +248,13 @@ def generate_candidates_system3(
                 if last_row is None:
                     continue
 
-                # 'setup' 列未生成時は通過 (列がある場合のみ False を除外)
-                setup_col_val = True
-                try:
-                    if "setup" in last_row.index:
-                        raw = last_row.get("setup", False)
-                        # NaN -> False、数値/真偽値以外は bool() に頼らず False 扱い
-                        if pd.isna(raw):
-                            setup_col_val = False
-                        elif isinstance(raw, (bool, int, float)):
-                            setup_col_val = bool(raw)
-                        else:
-                            setup_col_val = bool(raw)  # スカラ想定
-                except Exception:
-                    setup_col_val = False
-
-                pred_val = _s3_pred(cast(pd.Series, last_row))
-                if pred_val:
-                    diagnostics["setup_predicate_count"] += 1
-                if pred_val and not setup_col_val:
-                    diagnostics["predicate_only_pass_count"] += 1
-                    diagnostics["mismatch_flag"] = 1
-                if not setup_col_val:
+                # setup==True のみ
+                if not bool(last_row.get("setup", False)):
                     continue
 
-                drop3d_val = last_row.get("drop3d", 0)
+                drop3d_val = last_row.get("drop3d", None)
                 try:
-                    v = float(drop3d_val)
-                    if pd.isna(v) or v < 0.125:
+                    if drop3d_val is None or pd.isna(float(drop3d_val)):
                         continue
                 except Exception:
                     continue
@@ -299,11 +270,43 @@ def generate_candidates_system3(
                     }
                 )
             except Exception:
-                # シンボル単位でスキップ（全体フォールバックはしない）
                 continue
 
         if not rows:
             if log_callback:
+                try:
+                    # 代表サンプルを 1-2 件だけ出力して切り分けを容易にする
+                    samples: list[str] = []
+                    taken = 0
+                    for s_sym, s_df in prepared_dict.items():
+                        if s_df is None or getattr(s_df, "empty", True):
+                            continue
+                        try:
+                            s_last = s_df.iloc[-1]
+                            s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
+                            s_setup = bool(s_last.get("setup", False))
+                            s_drop = s_last.get("drop3d", float("nan"))
+                            try:
+                                s_drop_f = float(s_drop)
+                            except Exception:
+                                s_drop_f = float("nan")
+                            samples.append(
+                                (
+                                    f"{s_sym}: date={s_dt.date()} setup={s_setup} "
+                                    f"drop3d={s_drop_f:.4f}"
+                                )
+                            )
+                            taken += 1
+                            if taken >= 2:
+                                break
+                        except Exception:
+                            continue
+                    if samples:
+                        log_callback(
+                            ("System3: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                        )
+                except Exception:
+                    pass
                 log_callback("System3: latest_only fast-path produced 0 rows")
             return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
@@ -337,8 +340,10 @@ def generate_candidates_system3(
 
         if log_callback:
             log_callback(
-                f"System3: latest_only fast-path -> {len(df_all)} candidates "
-                f"(symbols={len(rows)})"
+                (
+                    "System3: latest_only fast-path -> "
+                    f"{len(df_all)} candidates (symbols={len(rows)})"
+                )
             )
 
         return (
@@ -434,7 +439,7 @@ def generate_candidates_system3(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            "System3: Generated " f"{total_candidates} candidates across {unique_dates} dates"
+            ("System3: Generated " f"{total_candidates} candidates across {unique_dates} dates")
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

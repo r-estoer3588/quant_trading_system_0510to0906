@@ -324,7 +324,17 @@ class StrategyBase(ABC):
         try:
             from config.settings import get_settings
 
-            return get_settings(create_dirs=False).backtest.top_n_rank
+            s = get_settings(create_dirs=False)
+            # システム固有の top_n_rank を優先（未設定なら backtest.top_n_rank）
+            sys_name = getattr(self, "SYSTEM_NAME", None)
+            if sys_name and isinstance(s.strategies, dict):
+                try:
+                    per = s.strategies.get(sys_name, {})
+                    if isinstance(per, dict) and "top_n_rank" in per:
+                        return max(0, int(per.get("top_n_rank", s.backtest.top_n_rank)))
+                except Exception:
+                    pass
+            return s.backtest.top_n_rank
         except Exception:
             return 10
 
@@ -411,7 +421,8 @@ class StrategyBase(ABC):
             if log_callback:
                 try:
                     log_callback(
-                        f"⚠️ {getattr(self, 'SYSTEM_NAME', 'unknown')}: prepare_data 失敗のためフォールバック再試行"
+                        f"⚠️ {getattr(self, 'SYSTEM_NAME', 'unknown')}: "
+                        "prepare_data 失敗のためフォールバック再試行"
                         "（非プール・再計算）: "
                         f"{e}"
                     )
