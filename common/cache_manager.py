@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-from collections.abc import Iterable
+# flake8: noqa: E501
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -91,7 +93,8 @@ class CacheManager:
                 return None
 
             # tail処理でrolling相当のサイズに
-            return df.tail(tail_rows)
+            tail_df = df.tail(tail_rows)
+            return cast(pd.DataFrame, tail_df)
 
         except Exception as e:
             logger.warning(f"Failed to read base and tail for {ticker}: {e}")
@@ -192,7 +195,7 @@ class CacheManager:
                     except Exception as e:
                         logger.warning(f"Failed to save generated rolling for {ticker}: {e}")
 
-                return df
+                return cast(pd.DataFrame | None, df)
 
             # データサイズチェック（ただし上場間もない銘柄は正常なケースとして扱う）
             if len(df) < self.rolling_cfg.base_lookback_days:
@@ -209,11 +212,14 @@ class CacheManager:
                         f"rows={len(df)}, expected>={self.rolling_cfg.base_lookback_days}",
                     )
 
-            return df
+            return cast(pd.DataFrame | None, df)
 
         elif profile == "full":
             path = self.file_manager.detect_path(self.full_dir, ticker)
-            return self.file_manager.read_with_fallback(path, ticker, profile)
+            return cast(
+                pd.DataFrame | None,
+                self.file_manager.read_with_fallback(path, ticker, profile),
+            )
 
         else:
             raise ValueError(f"Unsupported profile: {profile}")
@@ -344,7 +350,7 @@ class CacheManager:
             anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
             reference_date = anchor_df["date"].max()
             if pd.notna(reference_date):
-                return reference_date
+                return pd.Timestamp(reference_date)
         return pd.Timestamp.now().normalize()
 
     def prune_rolling_if_needed(self, anchor_ticker: str = "SPY") -> dict:
@@ -435,6 +441,7 @@ class CacheManager:
             for symbol in system_symbols:
                 try:
                     df = self.read(symbol, "rolling")
+                    validation_result: str | None = None
                     if df is None:
                         validation_result = "missing"
                     else:
@@ -599,7 +606,7 @@ class CacheManager:
         profile: str = "rolling",
         max_workers: int | None = None,
         fallback_profile: str | None = "full",
-        progress_callback=None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """複数銘柄のデータを並列で読み込む。"""
         if not symbols:
@@ -633,13 +640,13 @@ class CacheManager:
 
     def optimize_dataframe_memory(self, df: pd.DataFrame) -> pd.DataFrame:
         """DataFrameのメモリ使用量を最適化する（委譲）。"""
-        return self.file_manager.optimize_dataframe_memory(df)
+        return cast(pd.DataFrame, self.file_manager.optimize_dataframe_memory(df))
 
     def remove_unnecessary_columns(
         self, df: pd.DataFrame, keep_columns: list[str] | None = None
     ) -> pd.DataFrame:
         """不要な列を除去する（委譲）。"""
-        return self.file_manager.remove_unnecessary_columns(df, keep_columns)
+        return cast(pd.DataFrame, self.file_manager.remove_unnecessary_columns(df, keep_columns))
 
 
 def _base_dir() -> Path:
@@ -737,7 +744,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         gain = delta.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
         loss = -delta.clip(upper=0).ewm(alpha=1 / n, adjust=False).mean()
         rs = gain / loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        return cast(pd.Series, 100 - (100 / (1 + rs)))
 
     for n in [3, 4, 14]:
         x[f"RSI{n}"] = _rsi(close, n)
