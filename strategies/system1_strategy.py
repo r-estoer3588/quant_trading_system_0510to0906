@@ -8,6 +8,8 @@ extension example, Alpaca 発注処理も組み込み、バックテストと実
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pandas as pd
 
 from common.alpaca_order import AlpacaOrderMixin
@@ -27,13 +29,21 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
     def __init__(self) -> None:
         super().__init__()
 
-    def prepare_data(self, raw_data_or_symbols, reuse_indicators: bool | None = None, **kwargs):
+    def prepare_data(
+        self,
+        raw_data_or_symbols: dict | list[str],
+        reuse_indicators: bool | None = None,
+        **kwargs: Any,
+    ) -> dict:
         """System1のデータ準備（共通テンプレート + フォールバック対応）"""
-        return self._prepare_data_template(
-            raw_data_or_symbols,
-            prepare_data_vectorized_system1,
-            reuse_indicators=reuse_indicators,
-            **kwargs,
+        return cast(
+            dict,
+            self._prepare_data_template(
+                raw_data_or_symbols,
+                prepare_data_vectorized_system1,
+                reuse_indicators=reuse_indicators,
+                **kwargs,
+            ),
         )
 
     def generate_candidates(self, data_dict, market_df=None, **kwargs):
@@ -54,12 +64,26 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
                 _perf.mark_system_start(self.SYSTEM_NAME)
         except Exception:  # pragma: no cover
             pass
+        # 未知の追加キーワード（latest_mode_date / max_date_lag_days 等）もコアへ透過
+        # ただし、明示引数として渡すキーは衝突を避けるため除外
+        extra_kwargs = dict(kwargs)
+        for k in (
+            "latest_only",
+            "top_n",
+            "progress_callback",
+            "on_progress",
+            "log_callback",
+            "on_log",
+        ):
+            if k in extra_kwargs:
+                extra_kwargs.pop(k, None)
         result = generate_candidates_system1(
             data_dict,
             top_n=top_n,
             latest_only=latest_only,
             progress_callback=progress_callback,
             log_callback=log_callback,
+            **extra_kwargs,
         )
         if isinstance(result, tuple) and len(result) == 3:
             candidates_by_date, merged_df, diagnostics = result
@@ -72,7 +96,8 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             result_tuple = (candidates_by_date, merged_df)
         else:  # Fallback for unexpected shapes
             self.last_diagnostics = None
-            result_tuple = result  # type: ignore[assignment]
+            # 型が想定外の場合はそのまま返す（呼び出し側が安全に扱う）
+            result_tuple = result
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -88,7 +113,12 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result_tuple
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+    def compute_entry(
+        self,
+        df: pd.DataFrame,
+        candidate: dict,
+        _current_capital: float,
+    ) -> tuple[float, float] | None:
         """
         翌日寄り付きで成行仕掛けし、ATR20×5 を損切りに設定。
 
@@ -112,11 +142,15 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
         return entry_price, stop_price
 
     def get_total_days(self, data_dict: dict) -> int:
-        return get_total_days_system1(data_dict)
+        return int(get_total_days_system1(data_dict))
 
     def compute_exit(
-        self, df: pd.DataFrame, entry_idx: int, _entry_price: float, stop_price: float
-    ):
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        _entry_price: float,
+        stop_price: float,
+    ) -> tuple[float, pd.Timestamp]:
         """
         Day-based exit for System1 (long):
         - Stop hit: if Low <= stop -> exit same day at stop_price
@@ -144,8 +178,8 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             row = df.iloc[idx]
             try:
                 if float(row["Low"]) <= float(stop_price):
-                    return float(stop_price), df.index[idx]
+                    return float(stop_price), pd.Timestamp(str(df.index[idx]))
             except Exception:
                 pass
         exit_idx = min(entry_idx + max_hold_days, n - 1)
-        return float(df.iloc[exit_idx]["Close"]), df.index[exit_idx]
+        return float(df.iloc[exit_idx]["Close"]), pd.Timestamp(str(df.index[exit_idx]))

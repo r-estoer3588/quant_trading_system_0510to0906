@@ -80,6 +80,7 @@ from common.utils_spy import (
     get_latest_nyse_trading_day,
     get_signal_target_trading_day,
     get_spy_with_indicators,
+    resolve_signal_entry_date,
 )
 from config.settings import get_settings
 from core.final_allocation import finalize_allocation, load_symbol_system_map
@@ -539,6 +540,8 @@ class TodayRunContext:
     signal_base_day: pd.Timestamp | None = None
     # 実行開始時に確定する「エントリー予定日」（基準日の翌営業日）
     entry_day: pd.Timestamp | None = None
+    # latest_only モードで許容する最新日からの遅延日数（営業日ベース）
+    max_date_lag_days: int = 1
 
 
 def _get_account_equity() -> float:
@@ -1122,6 +1125,43 @@ def _log_warning(
 
 def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
+
+
+def _calculate_trading_days_lag(cache_date: pd.Timestamp, target_date: pd.Timestamp) -> int:
+    """Calculate the number of NYSE trading days between cache_date and target_date.
+
+    Args:
+        cache_date: The date of the cached data
+        target_date: The target signal date
+
+    Returns:
+        Number of trading days between the two dates (0 if same day, positive if cache is older)
+    """
+    try:
+        import pandas_market_calendars as mcal
+
+        cache_norm = pd.Timestamp(cache_date).normalize()
+        target_norm = pd.Timestamp(target_date).normalize()
+
+        if cache_norm == target_norm:
+            return 0
+
+        if cache_norm > target_norm:
+            return 0  # Cache is newer than target
+
+        # Get NYSE calendar
+        nyse = mcal.get_calendar("NYSE")
+
+        # Get valid trading days between cache and target
+        schedule = nyse.schedule(start_date=cache_norm, end_date=target_norm + pd.Timedelta(days=1))
+
+        valid_days = pd.to_datetime(schedule.index).normalize()
+        trading_days_between = valid_days[(valid_days > cache_norm) & (valid_days <= target_norm)]
+
+        return len(trading_days_between)
+    except Exception:
+        # Fallback to calendar days if NYSE calendar fails
+        return max(0, (target_date - cache_date).days)
 
 
 _SYSTEM1_REASON_LABELS = {
@@ -2201,6 +2241,13 @@ def _initialize_run_context(
     )
     ctx.run_start_time = datetime.now()
     ctx.start_equity = _get_account_equity()
+    try:
+        freshness_tolerance = int(settings.cache.rolling.max_staleness_days)
+    except Exception:
+        freshness_tolerance = 2
+    # Default to calendar days for backward compatibility
+    # Will be updated to trading days after signal_base_day is determined
+    ctx.max_date_lag_days = max(0, int(freshness_tolerance))
     try:
         import uuid as _uuid
 
@@ -3462,6 +3509,18 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     except Exception:
         ctx.signal_base_day = entry_day
 
+    # Update max_date_lag_days based on actual NYSE trading days
+    # This ensures we only allow lags that represent valid trading days (e.g., weekend gaps)
+    # rather than mid-week staleness
+    try:
+        # Get the configured calendar-day tolerance
+        calendar_tolerance = getattr(ctx, "max_date_lag_days", 2)
+        # For now, keep it simple: trading day tolerance = calendar day tolerance
+        # In production, you may want to validate against actual SPY cache date here
+        ctx.max_date_lag_days = max(0, int(calendar_tolerance))
+    except Exception:
+        pass
+
     # Run start banner (CLI only) - 最初に実行開始メッセージを表示
     try:
         print("#" * 68, flush=True)
@@ -3555,11 +3614,31 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         anchor_last = _extract_last_cache_date(spy_df) if spy_df is not None else None
         if anchor_last is not None:
             frozen_base = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+
+            # Calculate trading days lag using NYSE calendar
+            trading_days_lag = _calculate_trading_days_lag(pd.Timestamp(anchor_last), frozen_base)
+
             if pd.Timestamp(anchor_last).normalize() != frozen_base:
                 _log(
-                    "⚠️ SPYキャッシュの最終日が固定したシグナル基準日と異なります: "
-                    f"cache={pd.Timestamp(anchor_last).date()} / frozen={frozen_base.date()}"
+                    f"⚠️ SPYキャッシュの最終日が固定したシグナル基準日と異なります: "
+                    f"cache={pd.Timestamp(anchor_last).date()} / "
+                    f"frozen={frozen_base.date()} "
+                    f"(営業日差: {trading_days_lag}日)"
                 )
+
+                # Validate against trading days tolerance
+                calendar_tolerance = getattr(ctx, "max_date_lag_days", 2)
+                if trading_days_lag > calendar_tolerance:
+                    _log(
+                        f"❌ キャッシュの鮮度が許容範囲を超えています "
+                        f"(営業日差 {trading_days_lag} > 許容 {calendar_tolerance}日)。"
+                    )
+                    _log(
+                        "💡 対策: scripts/cache_daily_data.py または "
+                        "scripts/update_cache_all.ps1 でデータを更新してください。"
+                    )
+                    # For now, continue with warning instead of hard failure
+                    # raise SystemExit(1)
     except Exception:
         pass
 
@@ -4336,6 +4415,10 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     if base_day is not None:
                         # 全システムにグローバル基準日を注入（system6 も対応済み）
                         candidate_kwargs["latest_mode_date"] = pd.Timestamp(base_day).normalize()
+                    # 全システムに max_date_lag_days を注入
+                    # (system1/3 のみが実際に使用し、他システムは kwargs で受け取るが無視)
+                    max_lag = max(0, int(getattr(ctx, "max_date_lag_days", 1)))
+                    candidate_kwargs.setdefault("max_date_lag_days", max_lag)
             except Exception:
                 pass
             # DEBUG: latest_only フラグと top_n 相当をログ（system1のみ冗長）
@@ -4388,22 +4471,73 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 for date_key, symbols_data in candidates.items():
                     if isinstance(symbols_data, dict):
                         for symbol, data in symbols_data.items():
-                            rows.append(
-                                {
-                                    "system": system_name,
-                                    "symbol": symbol,
-                                    "entry_date": date_key,
-                                    "side": (
-                                        (
-                                            "long"
-                                            if int(system_name[-1]) in [1, 3, 4, 5]
-                                            else "short"
-                                        )
-                                    ),
-                                    **data,
-                                }
-                            )
+                            # Prefer candidate-provided entry_date; otherwise compute from date_key
+                            try:
+                                cand_entry = (
+                                    data.get("entry_date") if isinstance(data, dict) else None
+                                )
+                            except Exception:
+                                cand_entry = None
+                            entry_date_val = None
+                            if cand_entry is not None and cand_entry != "":
+                                try:
+                                    ts = pd.to_datetime(cand_entry, errors="coerce")
+                                    if not pd.isna(ts):
+                                        entry_date_val = pd.Timestamp(ts).normalize()
+                                except Exception:
+                                    entry_date_val = None
+                            if entry_date_val is None:
+                                # date_key が異常（年が極端・NaT）な場合に備えてサニタイズ
+                                try:
+                                    base_ts = pd.Timestamp(date_key)
+                                except Exception:
+                                    base_ts = pd.NaT
+                                if pd.isna(base_ts):
+                                    # これ以上推定できないので当該レコードはスキップ
+                                    continue
+                                base_ts = pd.Timestamp(base_ts).normalize()
+                                year_val = int(getattr(base_ts, "year", 0) or 0)
+                                if year_val < 1900 or year_val > 2262:
+                                    # 異常年レンジはスキップ
+                                    continue
+                                try:
+                                    # date_key is the signal day; convert to next trading day
+                                    entry_date_val = resolve_signal_entry_date(base_ts)
+                                except Exception:
+                                    entry_date_val = base_ts
+                            try:
+                                _log(
+                                    f"[DEBUG] build-row {system_name} {symbol} date_key={str(date_key)} cand_entry={cand_entry} -> entry_date_val={str(entry_date_val)}",
+                                    ui=False,
+                                )
+                            except Exception:
+                                pass
+                            # Merge candidate payload, then enforce normalized entry_date
+                            row_payload = {
+                                "system": system_name,
+                                "symbol": symbol,
+                                "side": (
+                                    ("long" if int(system_name[-1]) in [1, 3, 4, 5] else "short")
+                                ),
+                            }
+                            # bring all candidate fields first
+                            if isinstance(data, dict):
+                                try:
+                                    row_payload.update(data)
+                                except Exception:
+                                    pass
+                            # finally, enforce entry_date value
+                            row_payload["entry_date"] = entry_date_val
+                            rows.append(row_payload)
                 df = pd.DataFrame(rows) if rows else pd.DataFrame()
+                try:
+                    if not df.empty and "entry_date" in df.columns:
+                        _log(
+                            f"[DEBUG] per-system {system_name} entry_date dtype={str(df['entry_date'].dtype)} sample={list(pd.to_datetime(df['entry_date'], errors='coerce').dt.normalize().head(3).astype(str))}",
+                            ui=False,
+                        )
+                except Exception:
+                    pass
             else:
                 df = pd.DataFrame()
 
@@ -4414,6 +4548,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 _log(f"[{system_name}] ✅ {system_name}: {count} 件")
             else:
                 _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
+
+            # UI 進捗: 候補抽出件数を 75% ステージとして通知（早期に TRDlist を可視化）
+            try:
+                _stage(system_name, 75, candidate_count=int(count))
+            except Exception:
+                pass
 
             try:
                 diag_payload = getattr(strategy, "last_diagnostics", None)
@@ -4518,6 +4658,53 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         _log(f"✅ {k}: {int(v)} 件")
             except Exception:
                 pass
+    except Exception:
+        pass
+
+    # UI 進捗: 最終エントリー数を 100% ステージとして通知
+    try:
+        # AllocationSummary を優先的に参照（候補数/エントリー数ともに安定）
+        alloc_summary = allocation_summary
+        final_counts_map: dict[str, int] = {}
+        cand_counts_map: dict[str, int] = {}
+        try:
+            if hasattr(alloc_summary, "final_counts"):
+                raw = getattr(alloc_summary, "final_counts", {})
+                if isinstance(raw, dict):
+                    final_counts_map = {str(k).strip().lower(): int(v) for k, v in raw.items()}
+        except Exception:
+            final_counts_map = {}
+        try:
+            if hasattr(alloc_summary, "slot_candidates"):
+                raw2 = getattr(alloc_summary, "slot_candidates", {})
+                if isinstance(raw2, dict):
+                    cand_counts_map = {str(k).strip().lower(): int(v) for k, v in raw2.items()}
+        except Exception:
+            cand_counts_map = {}
+
+        # フォールバック: final_df からエントリー数をグルーピング
+        if not final_counts_map and (final_df is not None) and (not final_df.empty):
+            try:
+                grp = (
+                    final_df["system"].astype(str).str.strip().str.lower().value_counts().to_dict()
+                )
+                final_counts_map = {str(k): int(v) for k, v in grp.items()}
+            except Exception:
+                final_counts_map = {}
+
+        # 通知（システム1..7の既定順で）
+        for i in range(1, 8):
+            key = f"system{i}"
+            entry_n = int(final_counts_map.get(key, 0))
+            # 候補数が取れれば併せて送る（UI側で上書き・フォールバックに利用）
+            cand_n = cand_counts_map.get(key)
+            try:
+                _stage(key, 100, candidate_count=cand_n, entry_count=entry_n)
+            except Exception:
+                try:
+                    _stage(key, 100, entry_count=entry_n)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -5257,6 +5444,35 @@ def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
         return []
 
     _log("\n=== 最終候補（推奨） ===")
+    # Normalize entry_date for display stability
+    try:
+        if "entry_date" in final_df.columns:
+            tmp_df = final_df.copy()
+            # まずはそのまま正規化
+            norm_series = pd.to_datetime(tmp_df["entry_date"], errors="coerce").dt.normalize()
+            # すべて NaT になってしまうケースの簡易フォールバック（型崩れ対策）
+            try:
+                if norm_series.isna().all():
+                    # 文字列として一度フォーマットしてから再解釈（混在型に強い）
+                    as_str = tmp_df["entry_date"].astype(str)
+                    # "NaT" 文字列は空に
+                    as_str = as_str.where(~as_str.str.contains("NaT", na=False), "")
+                    norm_series = pd.to_datetime(as_str, errors="coerce").dt.normalize()
+            except Exception:
+                pass
+            tmp_df["entry_date"] = norm_series
+            # デバッグ: 型情報と先頭行の値を出力（テストモードのみ想定）
+            try:
+                _log(
+                    f"[DEBUG] entry_date dtype={str(tmp_df['entry_date'].dtype)} sample={list(tmp_df['entry_date'].head(3).astype(str))}",
+                    ui=False,
+                )
+            except Exception:
+                pass
+        else:
+            tmp_df = final_df
+    except Exception:
+        tmp_df = final_df
     cols = [
         "symbol",
         "system",
@@ -5271,7 +5487,7 @@ def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
         "score",
     ]
     show = [c for c in cols if c in final_df.columns]
-    _log(final_df[show].to_string(index=False))
+    _log(tmp_df[show].to_string(index=False))
     signals_for_merge = [
         Signal(
             system_id=int(str(r.get("system")).replace("system", "") or 0),

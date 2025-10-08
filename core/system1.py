@@ -572,6 +572,12 @@ def generate_candidates_system1(
                 return None
 
             fallback_log_remaining = 5
+            # trading-day based lag helper
+            try:
+                from common.utils_spy import calculate_trading_days_lag as _td_lag  # noqa: WPS433
+            except Exception:  # fallback: calendar days
+                _td_lag = None
+
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
@@ -590,8 +596,11 @@ def generate_candidates_system1(
                         latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
                         lag_days: int | None = None
                         try:
-                            lag_delta = target_date - latest_idx_norm
-                            lag_days = int(lag_delta.days)
+                            if _td_lag is not None:
+                                lag_days = int(_td_lag(latest_idx_norm, target_date))
+                            else:
+                                lag_delta = target_date - latest_idx_norm
+                                lag_days = int(lag_delta.days)
                         except Exception:
                             lag_days = None
                         if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
@@ -627,19 +636,94 @@ def generate_candidates_system1(
                 if last_row is None or date_val is None:
                     diag.exclude_reasons["invalid_row"] += 1
                     continue
-                # latest_only: シンプルに setup==True のみで候補化（診断は最小限）
-                if not bool(last_row.get("setup", False)):
-                    diag.exclude_reasons["setup"] += 1
+                # latest_only: setup 列が不正/欠損でも predicate が通れば許容
+                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
+                try:
+                    from common.system_setup_predicates import system1_setup_predicate as _s1_pred
+                except Exception:
+                    _s1_pred = None
+                pred_ok = False
+                try:
+                    if _s1_pred is not None:
+                        pred_ok = bool(_s1_pred(last_row))
+                except Exception:
+                    pred_ok = False
+                # 有効通過条件を簡素化:
+                #   1) predicate が True → 合格
+                #   2) predicate が False → fallback_ok かつ ROC200>0 で合格
+                roc200_pos = bool(flags.get("roc200_positive", False))
+                effective_ok = bool(pred_ok) or (
+                    bool(flags.get("fallback_ok", False)) and roc200_pos
+                )
+                # reason を上書き（必要に応じ）
+                if not effective_ok and pred_ok and not flags.get("setup_flag"):
+                    reason = "predicate_only"
+                passed = effective_ok
+                if not passed:
+                    if reason:
+                        diag.exclude_reasons[reason] += 1
                     continue
-                diag.setup_flag_true += 1
+                if flags.get("filter_ok"):
+                    diag.filter_pass += 1
+                if flags.get("setup_flag"):
+                    diag.setup_flag_true += 1
+                if flags.get("fallback_ok"):
+                    diag.fallback_pass += 1
+                if flags.get("roc200_positive"):
+                    diag.roc200_positive += 1
+                if _s1_pred is not None:
+                    try:
+                        if pred_ok:
+                            diag.setup_predicate_count += 1
+                        if pred_ok and not bool(flags.get("setup_flag")):
+                            diag.predicate_only_pass_count += 1
+                            diag.mismatch_flag = 1
+                    except Exception:
+                        pass
                 diag.final_pass += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
-                date_counter[date_val] = date_counter.get(date_val, 0) + 1
+                # fallback時は target_date ラベルで集計（フィルタ時に消えないように）
+                raw_label_dt = (
+                    target_date if (fallback_used and (target_date is not None)) else date_val
+                )
+                # 異常年（例: 8237年）や NaT を除去する安全サニタイズ
+
+                def _sanitize_signal_date(
+                    dt_obj: object, fallback: pd.Timestamp | None
+                ) -> pd.Timestamp | None:
+                    try:
+                        ts = pd.Timestamp(str(dt_obj)).normalize()
+                    except Exception:
+                        return fallback
+                    if pd.isna(ts):
+                        return fallback
+                    y = int(getattr(ts, "year", 0) or 0)
+                    if y < 1900 or y > 2262:
+                        return fallback
+                    return ts
+
+                label_dt = _sanitize_signal_date(raw_label_dt, fallback=date_val)
+                if label_dt is None:
+                    # ラベル日付が解決できない場合は除外（診断カウント）
+                    try:
+                        diag.exclude_reasons["invalid_date_label"] += 1
+                    except Exception:
+                        pass
+                    continue
+                # 明示エントリー日（翌営業日）
+                try:
+                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+
+                    entry_dt = _resolve_entry(label_dt)
+                except Exception:
+                    entry_dt = None
+                date_counter[label_dt] = date_counter.get(label_dt, 0) + 1
                 rows.append(
                     {
                         "symbol": sym,
-                        "date": date_val,
+                        "date": label_dt,
+                        "entry_date": entry_dt,
                         "roc200": roc200_val,
                         "close": 0.0 if math.isnan(close_val) else close_val,
                         "setup": bool(last_row.get("setup", False)),
@@ -647,6 +731,13 @@ def generate_candidates_system1(
                 )
             else:
                 df_all = pd.DataFrame(rows)
+                # 日付列の最終サニタイズ（dtype揃え + 範囲外除外）
+                try:
+                    df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce").dt.normalize()
+                    # pandas サポート外レンジは NaT になるため除外
+                    df_all = df_all.dropna(subset=["date"]).copy()
+                except Exception:
+                    pass
                 try:
                     if target_date is not None:
                         df_all = df_all[df_all["date"] == target_date]
@@ -795,6 +886,11 @@ def generate_candidates_system1(
                 {
                     "symbol": symbol,
                     "date": date,
+                    "entry_date": (
+                        __import__(
+                            "common.utils_spy", fromlist=["resolve_signal_entry_date"]
+                        ).resolve_signal_entry_date(date)
+                    ),
                     "roc200": roc200_val,
                     "close": 0.0 if math.isnan(close_val) else close_val,
                     "sma200": 0.0 if math.isnan(sma200_val) else sma200_val,
@@ -813,6 +909,10 @@ def generate_candidates_system1(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
+        try:
+            candidates_df["entry_date"] = pd.to_datetime(candidates_df["entry_date"])
+        except Exception:
+            pass
         candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:

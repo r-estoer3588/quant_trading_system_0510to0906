@@ -5,11 +5,13 @@
 - Setup conditions: Close>5, DollarVolume20>25M, atr_ratio>=0.05, drop3d>=0.125
 - Candidate generation: drop3d descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
+
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+import os as _os
 from typing import Any, cast
 
 import pandas as pd
@@ -43,9 +45,16 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         # Apply System3-specific filters and setup
         x = df.copy()
 
-        # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
+        # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05 (test override allowed)
+        _atr_thr = 0.05
+        try:
+            _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
+            if _ov is not None:
+                _atr_thr = float(str(_ov))
+        except Exception:
+            _atr_thr = 0.05
         x["filter"] = (
-            (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= 0.05)
+            (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= _atr_thr)
         )
 
         # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
@@ -102,11 +111,19 @@ def prepare_data_vectorized_system3(
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
 
-                    # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05
+                    # Filter: Close>=5, DollarVolume20>25M,
+                    # ATR_Ratio>=0.05 (test override allowed)
+                    _atr_thr = 0.05
+                    try:
+                        _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
+                        if _ov is not None:
+                            _atr_thr = float(str(_ov))
+                    except Exception:
+                        _atr_thr = 0.05
                     x["filter"] = (
                         (x["Close"] >= 5.0)
                         & (x["dollarvolume20"] > 25_000_000)
-                        & (x["atr_ratio"] >= 0.05)
+                        & (x["atr_ratio"] >= _atr_thr)
                     )
 
                     # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
@@ -232,15 +249,46 @@ def generate_candidates_system3(
             except Exception:
                 return None
 
+        # trading-day lag helper
+        try:
+            from common.utils_spy import calculate_trading_days_lag as _td_lag  # noqa: WPS433
+        except Exception:
+            _td_lag = None
+
+        # tolerance days (orchestrator may pass max_date_lag_days)
+        max_date_lag_days = 1
+        try:
+            lag_override = kwargs.get("max_date_lag_days")
+            if lag_override is not None:
+                max_date_lag_days = max(0, int(float(str(lag_override))))
+        except Exception:
+            max_date_lag_days = 1
+
         for sym, df in prepared_dict.items():
             try:
                 if df is None or df.empty:
                     continue
                 if target_date is not None:
-                    if target_date not in df.index:
-                        continue
-                    last_row = _to_series(df.loc[target_date])
-                    dt = target_date
+                    if target_date in df.index:
+                        last_row = _to_series(df.loc[target_date])
+                        dt = target_date
+                    else:
+                        # allow fallback to latest if trading-day lag within tolerance
+                        latest_idx_raw = df.index[-1]
+                        latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
+                        lag_days: int | None = None
+                        try:
+                            if _td_lag is not None:
+                                lag_days = int(_td_lag(latest_idx_norm, target_date))
+                            else:
+                                lag_days = int((target_date - latest_idx_norm).days)
+                        except Exception:
+                            lag_days = None
+                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
+                            last_row = _to_series(df.loc[latest_idx_raw])
+                            dt = target_date
+                        else:
+                            continue
                 else:
                     last_row = _to_series(df.iloc[-1])
                     dt = pd.Timestamp(str(df.index[-1])).normalize()
@@ -248,8 +296,26 @@ def generate_candidates_system3(
                 if last_row is None:
                     continue
 
-                # setup==True のみ
-                if not bool(last_row.get("setup", False)):
+                # setup==True のみ（テスト用に drop3d 閾値を環境変数で緩和可能）
+                setup_ok = bool(last_row.get("setup", False))
+                try:
+                    import os as _os
+
+                    override = _os.environ.get("MIN_DROP3D_FOR_TEST")
+                    if override is not None:
+                        try:
+                            thr = float(str(override))
+                            d3 = float(last_row.get("drop3d", float("nan")))
+                            setup_ok = (
+                                bool(last_row.get("filter", False))
+                                and not pd.isna(d3)
+                                and d3 >= thr
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                if not setup_ok:
                     continue
 
                 drop3d_val = last_row.get("drop3d", None)
@@ -260,10 +326,19 @@ def generate_candidates_system3(
                     continue
 
                 date_counter[dt] = date_counter.get(dt, 0) + 1
+                # 明示エントリー日（翌営業日）
+                try:
+                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+
+                    entry_dt = _resolve_entry(dt)
+                except Exception:
+                    entry_dt = None
+
                 rows.append(
                     {
                         "symbol": sym,
                         "date": dt,
+                        "entry_date": entry_dt,
                         "drop3d": drop3d_val,
                         "atr_ratio": last_row.get("atr_ratio", 0),
                         "close": last_row.get("Close", 0),

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
+
+# ruff: noqa: E402
+# flake8: noqa: E402
 import importlib
 import json
 import logging
@@ -50,33 +53,42 @@ try:
 except Exception:
     pass
 
-from common import broker_alpaca as ba
-from common.alpaca_order import submit_orders_df
-from common.cache_format import round_dataframe
-from common.cache_manager import CacheManager
-from common.data_loader import load_price
-from common.exit_planner import decide_exit_schedule
-from common.notifier import create_notifier
-from common.position_age import fetch_entry_dates_from_alpaca, load_entry_dates, save_entry_dates
-from common.profit_protection import evaluate_positions
-from common.stage_metrics import (
+from common import broker_alpaca as ba  # noqa: E402
+from common.alpaca_order import submit_orders_df  # noqa: E402
+from common.cache_format import round_dataframe  # noqa: E402
+from common.cache_manager import CacheManager  # noqa: E402
+from common.data_loader import load_price  # noqa: E402
+from common.exit_planner import decide_exit_schedule  # noqa: E402
+from common.notifier import create_notifier  # noqa: E402
+from common.position_age import (  # noqa: E402
+    fetch_entry_dates_from_alpaca,
+    load_entry_dates,
+    save_entry_dates,
+)
+from common.profit_protection import evaluate_positions  # noqa: E402
+from common.stage_metrics import (  # noqa: E402
     DEFAULT_SYSTEM_ORDER,
     GLOBAL_STAGE_METRICS,
     StageMetricsStore,
     StageSnapshot,
 )
-from common.system_groups import format_group_counts, format_group_counts_and_values
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS
-from common.today_signals import run_all_systems_today as compute_today_signals
-from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
-from config.settings import get_settings
-from core.system1 import summarize_system1_diagnostics
-from strategies.system1_strategy import System1Strategy
-from strategies.system2_strategy import System2Strategy
-from strategies.system3_strategy import System3Strategy
-from strategies.system4_strategy import System4Strategy
-from strategies.system5_strategy import System5Strategy
-from strategies.system6_strategy import System6Strategy
+from common.system_groups import format_group_counts, format_group_counts_and_values  # noqa: E402
+from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
+from common.today_signals import run_all_systems_today as compute_today_signals  # noqa: E402
+from common.utils_spy import (  # noqa: E402
+    calculate_trading_days_lag,
+    describe_trading_gap,
+    get_latest_nyse_trading_day,
+    get_signal_target_trading_day,
+)
+from config.settings import get_settings  # noqa: E402
+from core.system1 import summarize_system1_diagnostics  # noqa: E402
+from strategies.system1_strategy import System1Strategy  # noqa: E402
+from strategies.system2_strategy import System2Strategy  # noqa: E402
+from strategies.system3_strategy import System3Strategy  # noqa: E402
+from strategies.system4_strategy import System4Strategy  # noqa: E402
+from strategies.system5_strategy import System5Strategy  # noqa: E402
+from strategies.system6_strategy import System6Strategy  # noqa: E402
 
 # 条件付きインポート - alpaca.trading.requests は実行時のみ必要
 AlpacaTradingRequests: Any | None = None
@@ -121,10 +133,18 @@ def _running_in_streamlit() -> bool:
 
 _IS_STREAMLIT_RUNTIME = _running_in_streamlit()
 
+# manual_rebuild ログ集約用のモジュール変数（解析器対策として事前定義）
+_MANUAL_REBUILD_VERBOSE_LIMIT: int | None = None
+_MANUAL_REBUILD_VERBOSE_COUNT: int = 0
+_MANUAL_REBUILD_SUPPRESSED: int = 0
+_MANUAL_REBUILD_ATEXIT_REGISTERED: bool = False
+_MANUAL_REBUILD_AGG = None
+
 if not _IS_STREAMLIT_RUNTIME:
     if __name__ == "__main__":
         print(
-            "このスクリプトはStreamlitで実行してください: `streamlit run apps/dashboards/app_today_signals.py`"
+            "このスクリプトはStreamlitで実行してください: "
+            "`streamlit run apps/dashboards/app_today_signals.py`"
         )
         raise SystemExit
 
@@ -181,6 +201,69 @@ settings = get_settings(create_dirs=True)
 notifier = create_notifier(platform="slack", fallback=True)
 # この実行ループで結果を表示したかのフラグ（保存ボタン等でのリラン対策）
 st.session_state.setdefault("today_shown_this_run", False)
+
+
+def _render_freshness_panel() -> None:
+    try:
+        # 基準日（前営業日）と SPY キャッシュ最終日を推定
+        base_day = get_latest_nyse_trading_day(
+            get_signal_target_trading_day() - pd.Timedelta(days=1)
+        )
+        # SPY キャッシュ最終日は utils_spy 側の軽量表示に依存せず、CacheManager経由で取得
+        cm = CacheManager(settings)
+        spy_df = cm.read("SPY", profile="rolling") or cm.read("SPY", profile="full")
+        last_cache = None
+        if isinstance(spy_df, pd.DataFrame) and not spy_df.empty:
+            try:
+                if "Date" in spy_df.columns:
+                    last_cache = pd.to_datetime(spy_df["Date"], errors="coerce").max()
+                elif "date" in spy_df.columns:
+                    last_cache = pd.to_datetime(spy_df["date"], errors="coerce").max()
+                else:
+                    last_cache = pd.to_datetime(spy_df.index, errors="coerce").max()
+            except Exception:
+                last_cache = None
+        # 許容営業日数（設定値）
+        try:
+            allowed = int(settings.cache.rolling.max_staleness_days)
+        except Exception:
+            allowed = 2
+
+        col1, col2, col3, col4 = st.columns([1.2, 1.2, 1.2, 2.4])
+        with col1:
+            st.caption("基準日（前営業日）")
+            st.write(str(pd.Timestamp(base_day).date()))
+        with col2:
+            st.caption("SPYキャッシュ最終日")
+            st.write("—" if last_cache is None else str(pd.Timestamp(last_cache).date()))
+        with col3:
+            st.caption("営業日差")
+            if last_cache is None:
+                st.write("—")
+                lag_days = None
+            else:
+                lag_days = calculate_trading_days_lag(
+                    pd.Timestamp(last_cache), pd.Timestamp(base_day)
+                )
+                st.write(f"{lag_days} 日")
+        with col4:
+            st.caption("許容営業日数 / 理由")
+            if last_cache is None:
+                st.write("—")
+            else:
+                reason = describe_trading_gap(pd.Timestamp(last_cache), pd.Timestamp(base_day))
+                st.write(f"{allowed} 日 / {reason}")
+        st.divider()
+    except Exception:
+        # UIは失敗しても致命的でない
+        pass
+
+
+# 先頭に鮮度パネルを表示（安全な try/except 内）
+try:
+    _render_freshness_panel()
+except Exception:
+    pass
 
 
 def _reset_shown_flag() -> None:
@@ -710,20 +793,29 @@ def _log_manual_rebuild_notice(
                 agg.has_issue("manual_rebuild", symbol) or agg.has_issue("missing_rolling", symbol)
             ):
                 report_rolling_issue("manual_rebuild", symbol, status)
-            # 共通 aggregator: グローバルに1つ保持し、必要なら後工程で flush 可能
+            # 共通 aggregator: 簡易ローカル実装（存在しない依存を避ける）
             try:
-                from common.rolling_issue_logging import RollingIssueAggregator  # type: ignore
+
+                class _LocalIssueAgg:
+                    def __init__(self) -> None:
+                        self.items: set[tuple[str, str]] = set()
+
+                    def add(self, sym: str, st: str) -> None:
+                        try:
+                            self.items.add((str(sym), str(st)))
+                        except Exception:
+                            pass
 
                 global _MANUAL_REBUILD_AGG
                 if "_MANUAL_REBUILD_AGG" not in globals():
-                    _MANUAL_REBUILD_AGG = RollingIssueAggregator(
-                        category="rolling未整備",
-                        verbose=verbose_flag,
-                        batch_fraction=0.1,
-                    )
-                # 同上: 未報告の場合のみ追加
-                if not agg.has_issue("manual_rebuild", symbol):
-                    _MANUAL_REBUILD_AGG.add(symbol, status)
+                    _MANUAL_REBUILD_AGG = _LocalIssueAgg()
+                if (not agg.has_issue("manual_rebuild", symbol)) and (
+                    _MANUAL_REBUILD_AGG is not None
+                ):
+                    try:
+                        _MANUAL_REBUILD_AGG.add(symbol, status)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
             except Exception:
                 pass
         except Exception:
@@ -736,7 +828,8 @@ def _log_manual_rebuild_notice(
 
     # 非コンパクトモード: 大量発生時は環境変数で抑制
     # ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT: 0 または未設定=無制限, N>0 で最初の N 件のみ詳細出力し残りはサマリーへ集約
-    global _MANUAL_REBUILD_VERBOSE_LIMIT, _MANUAL_REBUILD_VERBOSE_COUNT, _MANUAL_REBUILD_SUPPRESSED, _MANUAL_REBUILD_ATEXIT_REGISTERED
+    global _MANUAL_REBUILD_VERBOSE_LIMIT, _MANUAL_REBUILD_VERBOSE_COUNT
+    global _MANUAL_REBUILD_SUPPRESSED, _MANUAL_REBUILD_ATEXIT_REGISTERED
     try:  # 初期化 (例外あっても致命的でない)
         if "_MANUAL_REBUILD_VERBOSE_LIMIT" not in globals():  # 初回
             _MANUAL_REBUILD_VERBOSE_LIMIT = None
@@ -756,7 +849,8 @@ def _log_manual_rebuild_notice(
 
             def _flush_manual_rebuild_summary() -> None:  # atexit フラッシュ
                 try:
-                    if _MANUAL_REBUILD_SUPPRESSED > 0 and _MANUAL_REBUILD_VERBOSE_LIMIT > 0:
+                    limit_val = _MANUAL_REBUILD_VERBOSE_LIMIT or 0
+                    if _MANUAL_REBUILD_SUPPRESSED > 0 and limit_val > 0:
                         # 抑制件数の最終サマリー (WARNING でなく INFO 相当が妥当だが log_fn のレベル制御不明なのでそのまま)
                         if log_fn:
                             # 参考として missing_rolling 件数を括弧追加（既報カテゴリの全体感）
@@ -764,12 +858,19 @@ def _log_manual_rebuild_notice(
                                 from common.cache_warnings import get_rolling_issue_aggregator
 
                                 _agg_summary = get_rolling_issue_aggregator()
-                                missing_cnt = len(getattr(_agg_summary, "_issues", {}).get("missing_rolling", []))  # type: ignore[attr-defined]
+                                _issues_map = getattr(_agg_summary, "_issues", {})
+                                _missing_list = _issues_map.get("missing_rolling", [])
+                                missing_cnt = len(_missing_list)  # type: ignore[arg-type]
                             except Exception:
                                 missing_cnt = 0
                             extra = f" missing_rolling:{missing_cnt}件" if missing_cnt else ""
                             log_fn(
-                                f"💡 rolling未整備 追加{_MANUAL_REBUILD_SUPPRESSED}件 (閾値{_MANUAL_REBUILD_VERBOSE_LIMIT}超過分) は省略されました{extra}"
+                                (
+                                    "💡 rolling未整備 追加"
+                                    f"{_MANUAL_REBUILD_SUPPRESSED}件 "
+                                    f"(閾値{limit_val}超過分) は省略されました"
+                                    f"{extra}"
+                                )
                             )
                 except Exception:
                     pass
@@ -789,7 +890,11 @@ def _log_manual_rebuild_notice(
             if _MANUAL_REBUILD_SUPPRESSED == 1 and log_fn:
                 try:
                     log_fn(
-                        f"… (以降 rolling未整備 詳細は抑制中: 閾値{limit}件を超過。環境変数 ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT で変更可能)"
+                        (
+                            "… (以降 rolling未整備 詳細は抑制中: "
+                            f"閾値{limit}件を超過。環境変数 "
+                            "ROLLING_MANUAL_REBUILD_VERBOSE_LIMIT で変更可能)"
+                        )
                     )
                 except Exception:
                     pass
@@ -1046,7 +1151,10 @@ def _collect_symbol_data(
                 s for s in manual_symbols if len(s) <= 4 and s.isalpha()
             ]  # 新規上場の可能性
             try:
-                base_msg = f"⚠️ rolling未整備: {len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
+                base_msg = (
+                    "⚠️ rolling未整備: "
+                    f"{len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
+                )
                 if new_listings:
                     base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
                 log_fn(base_msg)
@@ -1537,6 +1645,27 @@ class StageTracker:
     def finalize_counts(
         self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
     ) -> None:  # noqa: E501
+        # AllocationSummary が dict で同梱されている場合、slot_candidates を候補数のフォールバックに使用する
+        alloc_slot_candidates: dict[str, int] | None = None
+        try:
+            if isinstance(per_system, dict):
+                alloc_dict = per_system.get("__allocation_summary__")  # type: ignore[assignment]
+            else:
+                alloc_dict = None
+            if isinstance(alloc_dict, dict):
+                cand_map = alloc_dict.get("slot_candidates")
+                if isinstance(cand_map, dict):
+                    # 正規化: keyは小文字system名に統一し、値はint化
+                    alloc_slot_candidates = {}
+                    for k, v in cand_map.items():
+                        try:
+                            key = str(k).strip().lower()
+                            val = int(v) if v is not None else 0
+                            alloc_slot_candidates[key] = max(0, val)
+                        except Exception:
+                            continue
+        except Exception:
+            alloc_slot_candidates = None
         for name, counts in self.stage_counts.items():
             snapshot: StageSnapshot | None
             try:
@@ -1586,11 +1715,21 @@ class StageTracker:
             system_series = pd.Series(dtype=str)
         for name, counts in self.stage_counts.items():
             if counts.get("cand") is None:
-                df_sys = per_system.get(name)
-                if df_sys is None or df_sys.empty:
-                    counts["cand"] = 0
-                else:
-                    counts["cand"] = self._clamp_trdlist(len(df_sys))
+                # 1) AllocationSummary の slot_candidates からフォールバック
+                used = False
+                try:
+                    if alloc_slot_candidates is not None and name in alloc_slot_candidates:
+                        counts["cand"] = self._clamp_trdlist(alloc_slot_candidates.get(name))
+                        used = True
+                except Exception:
+                    used = False
+                # 2) per_system の DataFrame 件数にフォールバック
+                if not used:
+                    df_sys = per_system.get(name)
+                    if df_sys is None or not isinstance(df_sys, pd.DataFrame) or df_sys.empty:
+                        counts["cand"] = 0
+                    else:
+                        counts["cand"] = self._clamp_trdlist(len(df_sys))
             if counts.get("entry") is None and not system_series.empty:
                 try:
                     counts["entry"] = int((system_series == name).sum())

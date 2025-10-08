@@ -234,6 +234,7 @@ def generate_candidates_system6(
     latest_mode_date: pd.Timestamp | None = None,
     include_diagnostics: bool = False,
     diagnostics: dict[str, Any] | None = None,
+    **kwargs: Any,
 ) -> (
     tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
     | tuple[

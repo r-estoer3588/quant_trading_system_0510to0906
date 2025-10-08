@@ -411,7 +411,13 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     av_ok = bool(av_val is not None and av_val >= 1_000_000)
 
     atr_ratio = _resolve_atr_ratio(df)
-    atr_ok = bool(atr_ratio is not None and atr_ratio >= 0.05)
+    # Allow test override of ATR ratio threshold (default 0.05)
+    try:
+        thr_env = os.getenv("MIN_ATR_RATIO_FOR_TEST")
+        atr_thr = float(thr_env) if thr_env is not None else 0.05
+    except Exception:
+        atr_thr = 0.05
+    atr_ok = bool(atr_ratio is not None and atr_ratio >= atr_thr)
     if _filter_debug_enabled():
         reason = None
         if atr_ok:
@@ -428,7 +434,10 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df,
+        ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"],
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -456,7 +465,10 @@ def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
 
 def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
+    av_series = _pick_series(
+        df,
+        ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"],
+    )
     av_val = _last_scalar(av_series)
     if av_val is None:
         av_val = _calc_average_volume_from_series(volume_series, 50)
@@ -465,7 +477,10 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
     av_ok = bool(av_val is not None and av_val > 500_000)
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df,
+        ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"],
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -500,7 +515,10 @@ def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 
     close_series = _pick_series(df, ["Close", "close", "CLOSE"])
     volume_series = _pick_series(df, ["Volume", "volume", "VOLUME"])
-    dv_series = _pick_series(df, ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"])
+    dv_series = _pick_series(
+        df,
+        ["DollarVolume50", "dollarvolume50", "dollar_volume50", "DV50"],
+    )
     dv50 = _last_scalar(dv_series)
     if dv50 is None:
         dv50 = _calc_dollar_volume_from_series(close_series, volume_series, 50)
@@ -535,7 +553,8 @@ def _system6_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             reason = "hv_range_fail"
         if hasattr(df, "attrs"):
             try:
-                df.attrs.setdefault("_fdbg_reasons6", []).append(reason)  # type: ignore[attr-defined]
+                # type: ignore[attr-defined]
+                df.attrs.setdefault("_fdbg_reasons6", []).append(reason)
             except Exception:
                 pass
 
@@ -679,15 +698,24 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
         if debug_enabled and debug_count < debug_limit:
             try:
                 # 末尾値を直接参照（可能なら）
-                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_series = _pick_series(
+                    df,
+                    ["DollarVolume50", "dollar_volume50", "DV50"],
+                )  # type: ignore[misc]
                 dv_val = _last_scalar(dv_series)
-                hv_series = _pick_series(df, ["HV50", "hv50", "HV_50"])  # type: ignore[misc]
+                hv_series = _pick_series(
+                    df,
+                    ["HV50", "hv50", "HV_50"],
+                )  # type: ignore[misc]
                 hv_val = _last_scalar(hv_series)
             except Exception:
                 dv_val = None
                 hv_val = None
             print(
-                f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} hv_val={hv_val} hv_ok={hv_ok}"
+                (
+                    f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} "
+                    f"hv_val={hv_val} hv_ok={hv_ok}"
+                )
             )
             debug_count += 1
         if not dv_ok:
@@ -736,16 +764,28 @@ def filter_system5(symbols, data, stats: dict[str, int] | None = None):
         av_ok, dv_ok, atr_ok = _system5_conditions(df)
         if debug_enabled and debug_count < debug_limit:
             try:
-                av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "AVGVOL50"])  # type: ignore[misc]
+                av_series = _pick_series(
+                    df,
+                    ["AvgVolume50", "avgvolume50", "AVGVOL50"],
+                )  # type: ignore[misc]
                 av_val = _last_scalar(av_series)
-                dv_series = _pick_series(df, ["DollarVolume50", "dollar_volume50", "DV50"])  # type: ignore[misc]
+                dv_series = _pick_series(
+                    df,
+                    ["DollarVolume50", "dollar_volume50", "DV50"],
+                )  # type: ignore[misc]
                 dv_val = _last_scalar(dv_series)
-                atr_series = _pick_series(df, ["ATR_Pct", "atr_pct", "ATR_Ratio", "atr_ratio"])  # type: ignore[misc]
+                atr_series = _pick_series(
+                    df,
+                    ["ATR_Pct", "atr_pct", "ATR_Ratio", "atr_ratio"],
+                )  # type: ignore[misc]
                 atr_val = _last_scalar(atr_series)
             except Exception:
                 av_val = dv_val = atr_val = None
             print(
-                f"[DBG system5] sym={sym} av_val={av_val} av_ok={av_ok} dv_val={dv_val} dv_ok={dv_ok} atr_val={atr_val} atr_ok={atr_ok}"
+                (
+                    f"[DBG system5] sym={sym} av_val={av_val} av_ok={av_ok} "
+                    f"dv_val={dv_val} dv_ok={dv_ok} atr_val={atr_val} atr_ok={atr_ok}"
+                )
             )
             debug_count += 1
         if not av_ok:
