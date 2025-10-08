@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 import argparse
 from collections.abc import Callable, Iterable
 import concurrent.futures
@@ -52,7 +53,31 @@ from common.indicators_common import add_indicators  # noqa: E402
 from common.symbol_universe import build_symbol_universe_from_settings  # noqa: E402
 from common.utils import safe_filename  # noqa: E402
 
-load_dotenv()
+# NOTE: Scheduler 実行時は CWD がリポジトリ直下でないことが多く、
+# デフォルトの load_dotenv() だと .env を拾えないケースがあります。
+# ここではプロジェクトルート優先で .env を読み込み、
+# 併せて現在の CWD 側の .env も（存在すれば）読み込みます。
+_env_loaded = False
+try:
+    candidates = [ROOT / ".env", Path.cwd() / ".env"]
+    for cand in candidates:
+        try:
+            if cand.exists():
+                # override=False で既存環境変数を優先（スケジューラ注入を壊さない）
+                load_dotenv(dotenv_path=str(cand), override=False)
+                _env_loaded = True
+        except Exception:
+            # 片方の候補読み込みが失敗しても他方を試す
+            pass
+    # 最後にデフォルト探索でもう一度（念のため）
+    try:
+        load_dotenv(override=False)
+    except Exception:
+        pass
+except Exception:
+    # .env 読み込みの例外は致命ではないため握る
+    pass
+
 API_KEY = os.getenv("EODHD_API_KEY")
 PROGRESS_STEP_DEFAULT = 0
 
@@ -444,7 +469,17 @@ def _concat_excluding_all_na(
     else:
         b_cols = [c for c in keep if c in b.columns]
         b_sub = b.loc[:, b_cols]
-    return pd.concat([a_sub, b_sub], ignore_index=ignore_index)
+    # pandas FutureWarning 回避: 空/全NAのフレームは除外して concat
+    frames: list[pd.DataFrame] = []
+    if not (a_sub is None or a_sub.empty):
+        frames.append(a_sub)
+    if not (b_sub is None or b_sub.empty):
+        frames.append(b_sub)
+    if not frames:
+        return pd.DataFrame(columns=keep)
+    if len(frames) == 1:
+        return frames[0].reset_index(drop=True) if ignore_index else frames[0]
+    return pd.concat(frames, ignore_index=ignore_index)
 
 
 def _merge_existing_full(
@@ -488,7 +523,18 @@ def _merge_existing_full(
     new_data = _ensure_date_index(new_data)
 
     # concatで結合（新規データを後に配置して重複時は新規優先）
-    combined = pd.concat([previous, new_data])
+    # pandas FutureWarning 回避: 空フレームは事前に除外
+    concat_parts: list[pd.DataFrame] = []
+    if previous is not None and not previous.empty:
+        concat_parts.append(previous)
+    if new_data is not None and not new_data.empty:
+        concat_parts.append(new_data)
+    if not concat_parts:
+        return new_full
+    if len(concat_parts) == 1:
+        combined = concat_parts[0]
+    else:
+        combined = pd.concat(concat_parts)
 
     # 重複する日付は新規データを優先（最後の値を残す）
     combined = combined[~combined.index.duplicated(keep="last")]

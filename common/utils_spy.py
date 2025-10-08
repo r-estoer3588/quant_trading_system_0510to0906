@@ -5,6 +5,7 @@ from datetime import time as dtime
 import os
 from pathlib import Path
 import sys
+from typing import overload
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -15,6 +16,12 @@ from ta.trend import SMAIndicator
 from common.dataframe_utils import round_dataframe
 from common.i18n import tr
 from config.settings import get_settings
+
+# Optional type for NaT (pandas doesn't expose a stable public type alias)
+try:  # pragma: no cover - best-effort import
+    from pandas._libs.tslibs.nattype import NaTType  # type: ignore[attr-defined]
+except Exception:  # fallback alias
+    NaTType = type(pd.NaT)
 
 _NY_TIMEZONE = ZoneInfo("America/New_York")
 
@@ -181,7 +188,8 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
         today = pd.Timestamp.today().normalize()
         latest_trading_day = get_latest_nyse_trading_day(today)
         try:
-            _st_emit("write", tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date())))
+            msg = tr("🗓️ 直近のNYSE営業日: {d}", d=str(latest_trading_day.date()))
+            _st_emit("write", msg)
         except Exception:
             pass
 
@@ -334,30 +342,95 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
     return pd.Timestamp(target).normalize()
 
 
-try:
-    from pandas._libs.tslibs.nattype import NaTType  # type: ignore
-except Exception:  # pragma: no cover
-    NaTType = type(pd.NaT)  # fallback alias
-except ImportError:
-    pass  # type: ignore
+# --- Lightweight NYSE calendar memoization and helpers ---
+_NYSE_SCHEDULE_CACHE: dict[tuple[pd.Timestamp, pd.Timestamp], pd.DatetimeIndex] = {}
 
 
-from typing import overload
+def get_nyse_valid_days(
+    start: pd.Timestamp, end: pd.Timestamp, use_cache: bool = True
+) -> pd.DatetimeIndex:
+    """Return normalized NYSE trading days between [start, end].
+
+    Caches results per (start,end) to avoid repeated calendar queries in a single run.
+    """
+    start_n = pd.Timestamp(start).normalize()
+    end_n = pd.Timestamp(end).normalize()
+    key = (start_n, end_n)
+    if use_cache and key in _NYSE_SCHEDULE_CACHE:
+        return _NYSE_SCHEDULE_CACHE[key]
+    try:
+        import pandas_market_calendars as mcal
+
+        nyse = mcal.get_calendar("NYSE")
+        sched = nyse.schedule(start_date=start_n, end_date=end_n)
+        valid = pd.to_datetime(sched.index).normalize()
+    except Exception:
+        # Fallback: empty valid days if calendar fails
+        valid = pd.DatetimeIndex([])
+    if use_cache:
+        _NYSE_SCHEDULE_CACHE[key] = valid
+    return valid
+
+
+def calculate_trading_days_lag(cache_date: pd.Timestamp, target_date: pd.Timestamp) -> int:
+    """Calculate trading-day lag from cache_date to target_date (0 if same/younger)."""
+    cache_n = pd.Timestamp(cache_date).normalize()
+    target_n = pd.Timestamp(target_date).normalize()
+    if cache_n >= target_n:
+        return 0
+    valid = get_nyse_valid_days(cache_n, target_n)
+    # Count trading days strictly after cache_n up to and including target_n
+    between = valid[(valid > cache_n) & (valid <= target_n)]
+    return int(len(between))
+
+
+def describe_trading_gap(cache_date: pd.Timestamp, target_date: pd.Timestamp) -> str:
+    """Explain the gap between cache_date and target_date in human terms.
+
+    Returns a short reason like: "理由: 週末 2日, 祝日 1日 → 営業日差 1日"
+    """
+    cache_n = pd.Timestamp(cache_date).normalize()
+    target_n = pd.Timestamp(target_date).normalize()
+    try:
+        # Calendar range inclusive of endpoints
+        all_days = pd.date_range(cache_n, target_n, freq="D")
+        valid = set(get_nyse_valid_days(cache_n, target_n).date)
+        weekend = 0
+        holiday = 0
+        for d in all_days:
+            if d.normalize() == cache_n:
+                continue
+            if d.date() not in valid:
+                if d.weekday() >= 5:
+                    weekend += 1
+                else:
+                    holiday += 1
+        lag = calculate_trading_days_lag(cache_n, target_n)
+        parts = []
+        if weekend:
+            parts.append(f"週末 {weekend}日")
+        if holiday:
+            parts.append(f"祝日 {holiday}日")
+        cause = ", ".join(parts) if parts else "非営業日あり"
+        return f"理由: {cause} → 営業日差 {lag}日"
+    except Exception:
+        delta = max(0, int((target_n - cache_n).days))
+    return f"理由: 暦日差 {delta}日（営業日判定に失敗）"
 
 
 @overload
-def resolve_signal_entry_date(base_date: None) -> pd.NaTType: ...
+def resolve_signal_entry_date(base_date: None) -> pd.Timestamp: ...
 
 
 @overload
 def resolve_signal_entry_date(
     base_date: int | float | str | pd.Timestamp,
-) -> pd.Timestamp | pd.NaTType: ...
+) -> pd.Timestamp: ...
 
 
 def resolve_signal_entry_date(
     base_date: int | float | str | pd.Timestamp | None,
-) -> pd.Timestamp | pd.NaTType:
+) -> pd.Timestamp:
     """シグナル日から翌営業日（取引予定日）を算出する。
 
     - base_date が欠損・変換不可の場合は NaT を返す。
@@ -497,7 +570,10 @@ def get_spy_with_indicators(spy_df=None):
             flattened_cols: list[str] = []
             for col in spy_df.columns:
                 if isinstance(col, tuple):
-                    flattened = next((part for part in col if part not in (None, "")), None)
+                    flattened = next(
+                        (part for part in col if part not in (None, "")),
+                        None,
+                    )
                     if flattened is None:
                         flattened = col[-1] if col else ""
                     flattened_cols.append(flattened)
