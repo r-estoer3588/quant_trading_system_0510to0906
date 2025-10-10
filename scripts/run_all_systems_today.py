@@ -2741,6 +2741,40 @@ def _save_and_notify_phase(
             out_df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
 
+        # --- TRDlist validation and report export (non-intrusive) ---
+        try:
+            from common.trdlist_validator import build_validation_report
+
+            report = build_validation_report(final_df, dict(per_system))
+            try:
+                _test_mode_val = getattr(ctx, "test_mode", None)
+            except Exception:
+                _test_mode_val = None
+            try:
+                base_dir = (
+                    Path("results_csv_test")
+                    if _test_mode_val
+                    else Path(getattr(ctx.settings, "RESULTS_DIR", "results_csv"))
+                )
+            except Exception:
+                base_dir = Path("results_csv")
+            out_dir = base_dir / "validation"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with open(out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+            if int(report.get("summary", {}).get("errors", 0)) > 0:
+                _log_warning(
+                    f"検証エラーあり: validation_report_{suffix}.json を確認してください",
+                    error_code="VALIDATE-ERR",
+                )
+            else:
+                _log(
+                    f"検証OK: validation_report_{suffix}.json に詳細を保存しました",
+                    ui=False,
+                )
+        except Exception as e:
+            _log_warning(f"バリデーション出力に失敗: {e}", error_code="VALIDATE-FAIL", ui=False)
+
     _safe_progress_call(progress_callback, 8, 8, "done")
 
     try:

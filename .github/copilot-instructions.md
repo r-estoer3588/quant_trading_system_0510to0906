@@ -25,6 +25,12 @@
 - 直接 CSV 読み禁止: すべて `common/cache_manager.py::CacheManager` 経由 (Feather 優先, CSV フォールバック)。
 - 指標キャッシュ: `data_cache/indicators_systemX_cache/`。
 
+**重要な実装詳細**:
+
+- `CacheManager._read_base_and_tail()`: base→full_backup のフォールバック + tail(330 行) で rolling 相当を生成。
+- デュアルフォーマット: Feather 優先（74% サイズ削減）、CSV 自動フォールバック (`CacheFileManager`)。
+- 重複列除去済み: `open/Open/OPEN` などの冗長列は PascalCase に統一（58→35 列）。
+
 ## 3. システム特性 / 不変条件
 
 - ロング: 1,3,4,5 / ショート: 2,6,7。System7 = SPY 固定 (変更禁止)。
@@ -32,10 +38,30 @@
 - 主なランキングキー例: S1=ROC200, S2=ADX7, S3=3 日下落, S4=RSI4 低, S5=ADX7, S6=6 日上昇。
 - 配分: スロット/金額制 + `data/symbol_system_map.json`。`DEFAULT_ALLOCATIONS` を壊さない。
 
+**Two-Phase 処理の実装**:
+
+1. `common/today_filters.py`: `filter_systemX()` が Filter 列を生成・保存。
+2. `common/system_setup_predicates.py`: `systemX_setup_predicate()` が Setup 条件を関数化。
+3. `core/systemX.py`: `generate_systemX_candidates()` が Setup predicate でランキング対象を抽出。
+4. `latest_only=True`: 当日シグナルは最終行のみ判定（O(銘柄数)）、backtest は全履歴走査。
+
+**Diagnostics API (Phase0-7 導入)**:
+
+- 全システム共通キー: `ranking_source`, `setup_predicate_count`, `final_top_n_count`。
+- 候補生成関数は `(candidates, diagnostics)` タプルを返す。
+- Snapshot export: `--test-mode mini` で `results_csv_test/diagnostics_snapshot_*.json` に出力。
+- アクセス: `common/system_diagnostics.py::get_diagnostics_with_fallback()` で安全取得。
+
 ## 4. 設定 & 環境
 
 - 優先順位: JSON > YAML > .env (`config/settings.py::get_settings`)。新規出力は `get_settings(create_dirs=True)` が返すパス配下のみ。
 - 主要環境例: `COMPACT_TODAY_LOGS`, `ENABLE_PROGRESS_EVENTS`, `ROLLING_ISSUES_VERBOSE_HEAD`。
+
+**設定読み込みの仕組み**:
+
+- `get_settings()`: `@lru_cache` でシングルトン化、YAML/JSON/.env を統合。
+- 検証: `config/schemas.py::validate_config_dict()` で JSON Schema バリデーション（オプション）。
+- カスタマイズ: `config.yaml` をベース、秘匿値は `.env`、CI/テスト用は JSON 上書き。
 
 ## 5. 開発ワークフロー (必須コマンド)
 
@@ -48,6 +74,13 @@ pytest -q                                   # 決定性テスト
 pre-commit run --files <changed_files>
 ```
 
+**テスト戦略**:
+
+- `--test-mode mini`: 10 銘柄（超高速、2 秒）/ `quick`: 50 銘柄 / `sample`: 100 銘柄。
+- `--skip-external`: NASDAQ Trader / pandas_market_calendars API をスキップ。
+- `--benchmark`: パフォーマンス計測 JSON を `results_csv_test/` に出力。
+- 決定性: `common/testing.py::set_test_determinism()` でシード固定 + freezegun 日時固定。
+
 ## 6. 守るべき禁止事項 / ガードレール
 
 1. Public API / 既存 CLI フラグ / System7 SPY / DEFAULT_ALLOCATIONS を破壊変更しない。
@@ -55,16 +88,45 @@ pre-commit run --files <changed_files>
 3. キャッシュ直接 I/O 禁止（必ず CacheManager）。
 4. 新規巨大依存追加は避け、パフォーマンス影響はベンチマーク (`--benchmark`) で確認。
 
+**具体例**:
+
+- ❌ `pd.read_csv("data_cache/rolling/AAPL.csv")` → ⭕ `cache_manager.load_rolling("AAPL")`
+- ❌ `core/system7.py` で SPY 以外の銘柄を許可 → ⭕ SPY 固定を維持
+- ❌ テストに `requests.get()` 追加 → ⭕ キャッシュ済みデータで再現
+
 ## 7. 実装パターン
 
 - Two-Phase: `today_filters.py` → Setup ラベル生成 → `today_signals.py` が抽出。
 - ログ最適化: `COMPACT_TODAY_LOGS=1` で詳細を DEBUG へ。進捗は `ENABLE_PROGRESS_EVENTS=1` + `logs/progress_today.jsonl`。
 - DataFrame 操作は重複列を増やさない (冗長列除去済み方針)。
 
+**戦略パターン (Strategy/Core 分離)**:
+
+- `core/systemX.py`: 純粋関数ロジック（候補生成・指標計算なし）。
+- `strategies/systemX_strategy.py`: `StrategyBase` 継承、`generate_candidates()` で core を呼び出し。
+- `common/integrated_backtest.py`: 全システム統合 BT、`DEFAULT_ALLOCATIONS` で資金配分。
+
+**配分ロジック (`core/final_allocation.py`)**:
+
+- `finalize_allocation()`: スロット/金額制を統合、`data/symbol_system_map.json` でシステム固定銘柄を管理。
+- Long/Short バケツ別配分: `DEFAULT_LONG_ALLOCATIONS` (S1/3/4/5) + `DEFAULT_SHORT_ALLOCATIONS` (S2/6/7)。
+- ポジションサイズ: ATR ベース + `risk_pct=0.02` / `max_pct=0.10` 上限。
+
 ## 8. コードスタイル / 品質
 
 - snake_case / PascalCase / 型ヒント推奨。`ruff` + `black`。決定性: `common/testing.py` 利用。
 - 変更後: fast pipeline mini モード + `pytest -q` を想定。
+
+**pre-commit フック**:
+
+- pre-commit: `ruff` / `black` / `isort` / 基本チェック (trailing whitespace)。
+- pre-push: mini パイプライン (core/common 変更時) + 品質集計 + **black 厳格チェック**。
+- バイパス禁止: `--no-verify` は使わない（CI で失敗する）。
+
+**型チェック (Windows UTF-8 対応)**:
+
+- `tools/mypy_utf8_runner.py`: Windows cp932 エンコード例外を回避（UTF-8 強制）。
+- 実行例: `python tools/mypy_utf8_runner.py core/system1.py --no-incremental`。
 
 ## 9. 追加時のチェックリスト (PR 前)
 
@@ -73,5 +135,13 @@ pre-commit run --files <changed_files>
 - [ ] mini テスト 2 秒パス / pytest パス
 - [ ] 新規出力パスは settings 管理下
 - [ ] ログ量増加なし / 必要なら COMPACT 対応コメント
+- [ ] Diagnostics API: 候補生成関数が統一キー (`ranking_source`, `setup_predicate_count`, `final_top_n_count`) を返すか
+- [ ] 重複列を増やしていないか（OHLCV は PascalCase 統一）
+
+**デバッグヒント**:
+
+- 候補数不一致: `VALIDATE_SETUP_PREDICATE=1` で predicate vs Setup 列の差分ログを確認。
+- キャッシュ問題: `ROLLING_ISSUES_VERBOSE_HEAD=5` で rolling キャッシュ問題の詳細を表示。
+- 進捗監視: `ENABLE_PROGRESS_EVENTS=1` + Streamlit UI「当日シグナル」タブでリアルタイム追跡。
 
 不明点や曖昧な規約は PR 説明に背景を記述し合意形成してください。
