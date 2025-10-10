@@ -730,7 +730,14 @@ def generate_candidates_system1(
                     }
                 )
             else:
+                if log_callback:
+                    log_callback(f"[DEBUG_S1] Collected rows={len(rows)}")
                 df_all = pd.DataFrame(rows)
+                # top-off用に元の全候補を保持
+                df_all_original = df_all.copy()
+                if log_callback:
+                    log_callback(f"[DEBUG_S1] df_all created: {len(df_all)} rows")
+
                 # 日付列の最終サニタイズ（dtype揃え + 範囲外除外）
                 try:
                     df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce").dt.normalize()
@@ -738,17 +745,96 @@ def generate_candidates_system1(
                     df_all = df_all.dropna(subset=["date"]).copy()
                 except Exception:
                     pass
+                # まずは target_date を優先して抽出
                 try:
+                    filtered = df_all
+                    final_label_date: pd.Timestamp | None = None
                     if target_date is not None:
-                        df_all = df_all[df_all["date"] == target_date]
+                        filtered = df_all[df_all["date"] == target_date]
+                        final_label_date = target_date
+                        # まれに比較のズレで 0 件になる場合があるため、安全フォールバック
+                        if filtered.empty and len(df_all) > 0:
+                            try:
+                                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                            except Exception:
+                                mode_date = None
+                            if mode_date is not None:
+                                filtered = df_all[df_all["date"] == mode_date]
+                                final_label_date = mode_date
+                            # それでも 0 件なら、全件を対象にしつつ、date を target_date に上書き
+                            if filtered.empty:
+                                tmp = df_all.copy()
+                                tmp.loc[:, "date"] = target_date
+                                try:
+                                    from common.utils_spy import (
+                                        resolve_signal_entry_date as _resolve_entry_dt,
+                                    )
+
+                                    tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
+                                except Exception:
+                                    tmp.loc[:, "entry_date"] = target_date
+                                filtered = tmp
+                                final_label_date = target_date
                     else:
                         mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                        df_all = df_all[df_all["date"] == mode_date]
+                        filtered = df_all[df_all["date"] == mode_date]
+                        final_label_date = mode_date
                 except Exception:
-                    pass
-                df_all = df_all.sort_values("roc200", ascending=False, kind="stable").head(
-                    resolved_top_n
-                )
+                    filtered = df_all
+                    final_label_date = None
+
+                # ランキング・切り詰め
+                ranked = filtered.sort_values("roc200", ascending=False, kind="stable").copy()
+                top_cut = ranked.head(resolved_top_n)
+
+                # 不足を df_all_original から補完（top-off）。date/entry_date は最終ラベル日に正規化。
+                missing = max(0, resolved_top_n - len(top_cut))
+                if log_callback:
+                    log_callback(
+                        f"[DEBUG_S1_TOPOFF] filtered={len(filtered)} top_cut={len(top_cut)} "
+                        f"missing={missing} df_all_orig={len(df_all_original)}"
+                    )
+                if missing > 0 and len(df_all_original) > 0:
+                    try:
+                        # 既存に含まれないシンボルを上位から補完
+                        exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                        extras_pool = (
+                            df_all_original.sort_values("roc200", ascending=False, kind="stable")
+                            .loc[~df_all_original["symbol"].astype(str).isin(exists)]
+                            .copy()
+                        )
+                        if not extras_pool.empty:
+                            if final_label_date is None:
+                                try:
+                                    final_label_date = (
+                                        target_date
+                                        if target_date is not None
+                                        else max(date_counter.items(), key=lambda kv: kv[1])[0]
+                                    )
+                                except Exception:
+                                    final_label_date = None
+                            if final_label_date is not None:
+                                extras_pool.loc[:, "date"] = final_label_date
+                                try:
+                                    from common.utils_spy import (
+                                        resolve_signal_entry_date as _resolve_entry_dt2,
+                                    )
+
+                                    extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(
+                                        final_label_date
+                                    )
+                                except Exception:
+                                    extras_pool.loc[:, "entry_date"] = final_label_date
+                            extras_take = extras_pool.head(missing)
+                            top_cut = (
+                                pd.concat([top_cut, extras_take], ignore_index=True)
+                                .drop_duplicates(subset=["symbol"], keep="first")
+                                .head(resolved_top_n)
+                            )
+                    except Exception:
+                        pass
+
+                df_all = top_cut
                 diag.final_top_n_count = len(df_all)
                 diag.ranking_source = "latest_only"
                 by_date: dict[pd.Timestamp, dict[str, dict]] = {}

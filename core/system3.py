@@ -226,6 +226,8 @@ def generate_candidates_system3(
         # 最新日のみ対象。setup==True の銘柄を drop3d 降順で上位抽出
         rows: list[dict] = []
         date_counter: dict[pd.Timestamp, int] = {}
+        # 許容営業日ラグを超えて target_date に一致しない銘柄を救済用に一時保持
+        lagged_rows: list[dict] = []
 
         target_date = None
         try:
@@ -248,6 +250,52 @@ def generate_candidates_system3(
                 return None
             except Exception:
                 return None
+
+        def _evaluate_row(
+            row: pd.Series | None,
+        ) -> tuple[bool, bool, bool, float, float, bool]:
+            if row is None:
+                return False, False, False, float("nan"), float("nan"), False
+
+            setup_flag = bool(row.get("setup", False))
+
+            try:
+                drop_val = float(row.get("drop3d", float("nan")))
+            except Exception:
+                drop_val = float("nan")
+
+            try:
+                atr_val = float(row.get("atr_ratio", float("nan")))
+            except Exception:
+                atr_val = float("nan")
+
+            filter_flag = bool(row.get("filter", False))
+            final_flag = setup_flag
+
+            try:
+                override_drop = _os.environ.get("MIN_DROP3D_FOR_TEST")
+                if (
+                    not final_flag
+                    and override_drop is not None
+                    and filter_flag
+                    and not pd.isna(drop_val)
+                ):
+                    thr = float(str(override_drop))
+                    if drop_val >= thr:
+                        final_flag = True
+            except Exception:
+                pass
+
+            # predicate_flag はウォーターフォール順を維持するため setup_flag と同一扱い
+            predicate_flag = setup_flag
+            return (
+                setup_flag,
+                predicate_flag,
+                final_flag,
+                drop_val,
+                atr_val,
+                filter_flag,
+            )
 
         # trading-day lag helper
         try:
@@ -288,6 +336,45 @@ def generate_candidates_system3(
                             last_row = _to_series(df.loc[latest_idx_raw])
                             dt = target_date
                         else:
+                            # 許容超過: rows には入れず、後段の不足補完用に保存
+                            last_row = _to_series(df.loc[latest_idx_raw])
+                            dt = target_date
+                            if last_row is None:
+                                continue
+                            (
+                                setup_col_ex,
+                                _predicate_ex,
+                                final_ok_ex,
+                                drop_val_ex,
+                                atr_val_ex,
+                                _filter_ex,
+                            ) = _evaluate_row(last_row)
+                            if setup_col_ex:
+                                diagnostics["setup_predicate_count"] += 1
+                            if final_ok_ex and not setup_col_ex:
+                                diagnostics["predicate_only_pass_count"] += 1
+                                diagnostics["mismatch_flag"] = 1
+                            if (not final_ok_ex) or pd.isna(drop_val_ex):
+                                continue
+                            try:
+                                from common.utils_spy import (
+                                    resolve_signal_entry_date as _resolve_entry_ex,
+                                )
+
+                                entry_dt_ex = _resolve_entry_ex(dt)
+                            except Exception:
+                                entry_dt_ex = None
+                            atr_payload_ex = 0 if pd.isna(atr_val_ex) else atr_val_ex
+                            lagged_rows.append(
+                                {
+                                    "symbol": sym,
+                                    "date": dt,
+                                    "entry_date": entry_dt_ex,
+                                    "drop3d": drop_val_ex,
+                                    "atr_ratio": atr_payload_ex,
+                                    "close": last_row.get("Close", 0),
+                                }
+                            )
                             continue
                 else:
                     last_row = _to_series(df.iloc[-1])
@@ -296,33 +383,24 @@ def generate_candidates_system3(
                 if last_row is None:
                     continue
 
-                # setup==True のみ（テスト用に drop3d 閾値を環境変数で緩和可能）
-                setup_ok = bool(last_row.get("setup", False))
-                try:
-                    import os as _os
+                (
+                    setup_col,
+                    _predicate_flag,
+                    final_ok,
+                    drop_val,
+                    atr_val,
+                    _filter_flag,
+                ) = _evaluate_row(last_row)
 
-                    override = _os.environ.get("MIN_DROP3D_FOR_TEST")
-                    if override is not None:
-                        try:
-                            thr = float(str(override))
-                            d3 = float(last_row.get("drop3d", float("nan")))
-                            setup_ok = (
-                                bool(last_row.get("filter", False))
-                                and not pd.isna(d3)
-                                and d3 >= thr
-                            )
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                if not setup_ok:
+                if setup_col:
+                    diagnostics["setup_predicate_count"] += 1
+                if final_ok and not setup_col:
+                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["mismatch_flag"] = 1
+
+                if not final_ok:
                     continue
-
-                drop3d_val = last_row.get("drop3d", None)
-                try:
-                    if drop3d_val is None or pd.isna(float(drop3d_val)):
-                        continue
-                except Exception:
+                if pd.isna(drop_val):
                     continue
 
                 date_counter[dt] = date_counter.get(dt, 0) + 1
@@ -334,13 +412,15 @@ def generate_candidates_system3(
                 except Exception:
                     entry_dt = None
 
+                atr_payload = 0 if pd.isna(atr_val) else atr_val
+
                 rows.append(
                     {
                         "symbol": sym,
                         "date": dt,
                         "entry_date": entry_dt,
-                        "drop3d": drop3d_val,
-                        "atr_ratio": last_row.get("atr_ratio", 0),
+                        "drop3d": drop_val,
+                        "atr_ratio": atr_payload,
                         "close": last_row.get("Close", 0),
                     }
                 )
@@ -359,16 +439,20 @@ def generate_candidates_system3(
                         try:
                             s_last = s_df.iloc[-1]
                             s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
-                            s_setup = bool(s_last.get("setup", False))
-                            s_drop = s_last.get("drop3d", float("nan"))
-                            try:
-                                s_drop_f = float(s_drop)
-                            except Exception:
-                                s_drop_f = float("nan")
+                            (
+                                s_setup,
+                                _s_predicate,
+                                s_final,
+                                s_drop_val,
+                                _s_atr,
+                                _s_filter,
+                            ) = _evaluate_row(s_last)
+                            drop_txt = f"{s_drop_val:.4f}" if not pd.isna(s_drop_val) else "nan"
                             samples.append(
                                 (
-                                    f"{s_sym}: date={s_dt.date()} setup={s_setup} "
-                                    f"drop3d={s_drop_f:.4f}"
+                                    f"{s_sym}: date={s_dt.date()} "
+                                    f"setup_col={s_setup} final={s_final} "
+                                    f"drop3d={drop_txt}"
                                 )
                             )
                             taken += 1
@@ -386,16 +470,110 @@ def generate_candidates_system3(
             return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
         df_all = pd.DataFrame(rows)
+        # top-off用に元の全候補を保持
+        df_all_original = df_all.copy()
+        if log_callback:
+            log_callback(f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}")
+
+        # target_date 優先でフィルタ。0件/不足時は安全フォールバックで補充する
         try:
+            filtered = df_all
+            final_label_date: pd.Timestamp | None = None
             if target_date is not None:
-                df_all = df_all[df_all["date"] == target_date]
+                filtered = df_all[df_all["date"] == target_date]
+                final_label_date = target_date
+                if filtered.empty and len(df_all) > 0:
+                    # 最頻日の採用を試みる
+                    try:
+                        mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    except Exception:
+                        mode_date = None
+                    if mode_date is not None:
+                        filtered = df_all[df_all["date"] == mode_date]
+                        final_label_date = mode_date
+                    # それでも 0 件なら、全件を対象にして date を target_date へ上書き
+                    if filtered.empty:
+                        tmp = df_all.copy()
+                        tmp.loc[:, "date"] = target_date
+                        try:
+                            from common.utils_spy import (
+                                resolve_signal_entry_date as _resolve_entry_dt,
+                            )
+
+                            tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
+                        except Exception:
+                            tmp.loc[:, "entry_date"] = target_date
+                        filtered = tmp
+                        final_label_date = target_date
             else:
                 mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                df_all = df_all[df_all["date"] == mode_date]
+                filtered = df_all[df_all["date"] == mode_date]
+                final_label_date = mode_date
         except Exception:
-            pass
+            filtered = df_all
+            final_label_date = None
 
-        df_all = df_all.sort_values("drop3d", ascending=False, kind="stable").head(top_n)
+        # ランキングして上位を確定
+        ranked = filtered.sort_values("drop3d", ascending=False, kind="stable").copy()
+        top_cut = ranked.head(top_n)
+
+        # 足りない分を df_all_original + lagged_rows から補完（top-off）。date/entry_date を正規化。
+        missing = max(0, int(top_n) - len(top_cut))
+        if log_callback:
+            log_callback(
+                (
+                    "[DEBUG_S3_TOPOFF] "
+                    f"filtered={len(filtered)} top_cut={len(top_cut)} "
+                    f"missing={missing} "
+                    f"df_all_orig={len(df_all_original)} "
+                    f"lagged={len(lagged_rows)}"
+                )
+            )
+        # df_all_original または lagged_rows に補完候補がある場合に top-off を実行
+        if missing > 0 and (len(df_all_original) > 0 or lagged_rows):
+            try:
+                exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                extras_pool = (
+                    df_all_original.sort_values("drop3d", ascending=False, kind="stable")
+                    .loc[~df_all_original["symbol"].astype(str).isin(exists)]
+                    .copy()
+                )
+                # 許容ラグ超過の救済候補もプールに追加（重複symbolは除外）
+                if lagged_rows:
+                    lag_df = pd.DataFrame(lagged_rows)
+                    if not lag_df.empty:
+                        lag_df = lag_df.loc[~lag_df["symbol"].astype(str).isin(exists)]
+                        extras_pool = pd.concat([extras_pool, lag_df], ignore_index=True)
+                if not extras_pool.empty:
+                    if final_label_date is None:
+                        try:
+                            final_label_date = (
+                                target_date
+                                if target_date is not None
+                                else max(date_counter.items(), key=lambda kv: kv[1])[0]
+                            )
+                        except Exception:
+                            final_label_date = None
+                    if final_label_date is not None:
+                        extras_pool.loc[:, "date"] = final_label_date
+                        try:
+                            from common.utils_spy import (
+                                resolve_signal_entry_date as _resolve_entry_dt2,
+                            )
+
+                            extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(final_label_date)
+                        except Exception:
+                            extras_pool.loc[:, "entry_date"] = final_label_date
+                    extras_take = extras_pool.head(missing)
+                    top_cut = (
+                        pd.concat([top_cut, extras_take], ignore_index=True)
+                        .drop_duplicates(subset=["symbol"], keep="first")
+                        .head(top_n)
+                    )
+            except Exception:
+                pass
+
+        df_all = top_cut
         diagnostics["final_top_n_count"] = len(df_all)
         diagnostics["ranking_source"] = "latest_only"
 
