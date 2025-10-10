@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
+import io
 import json
 import logging
 import multiprocessing
@@ -42,6 +43,27 @@ try:  # noqa: SIM105
 except Exception:  # pragma: no cover - defensive; failure is non-fatal
     pass
 
+# Windows スケジューラー実行時の cp932 エンコードエラーを回避
+if sys.platform == "win32":
+    try:
+        # reconfigure が利用可能な Python のみ直接切り替え
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, io.UnsupportedOperation):
+        # Fallback: Windows cp932 を回避するために UTF-8 ラッパを被せる
+        import codecs
+
+        try:
+            sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "replace")
+        except Exception:
+            pass
+        try:
+            sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "replace")
+        except Exception:
+            pass
+
 import pandas as pd
 
 from common import broker_alpaca as ba
@@ -49,6 +71,7 @@ from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
 from common.indicator_access import get_indicator, is_true, to_float
+from common.latest_day_validator import save_excluded_symbols_csv, validate_latest_trading_day
 from common.notification import notify_zero_trd_all_systems
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
@@ -3432,6 +3455,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     parallel: bool = False,
     test_mode: str | None = None,
     skip_external: bool = False,
+    skip_latest_check: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """当日シグナル抽出＋配分の本体。
 
@@ -3615,6 +3639,88 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     symbols = _prepare_symbol_universe(ctx, symbols)
     basic_data = _load_universe_basic_data(ctx, symbols)
 
+    # ✨ NEW: Phase 0 - 最新営業日チェック（rolling cache の鮮度確認）
+    if not skip_latest_check:
+        try:
+            expected_base_day = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+
+            _log(
+                f"🔍 Phase 0: rolling キャッシュの最新営業日チェック中 "
+                f"(期待日: {expected_base_day.date()})..."
+            )
+
+            valid_symbols, stale_details = validate_latest_trading_day(
+                symbols=symbols,
+                expected_date=expected_base_day,
+                cache_manager=ctx.cache_manager,
+                log_callback=_log,
+                rolling_data=basic_data if isinstance(basic_data, dict) else None,
+            )
+
+            # 除外銘柄の詳細を CSV 保存
+            if stale_details:
+                try:
+                    excluded_csv = save_excluded_symbols_csv(
+                        stale_details, expected_base_day, output_dir="logs"
+                    )
+                    if excluded_csv:
+                        _log(f"📄 除外銘柄の詳細: {excluded_csv}")
+                except Exception as e:
+                    _log(f"⚠️  除外銘柄 CSV 保存エラー: {e}")
+
+                # 理由別サマリー
+                reason_counts = get_exclusion_stats(stale_details)
+
+                _log("📊 除外理由の内訳:")
+                for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1]):
+                    _log(f"   - {reason}: {count} 銘柄")
+
+            # symbols リストを valid_symbols で上書き
+            if not valid_symbols:
+                _log("❌ すべての銘柄が最新営業日チェックで除外されました。処理中止。")
+                raise SystemExit(1)
+
+            symbols = valid_symbols
+            excluded_count = len(stale_details)
+            total_symbols = len(symbols) + excluded_count
+
+            _log(
+                f"✅ Phase 0 完了: {len(symbols)} 銘柄が処理対象（" f"{excluded_count} 銘柄を除外）"
+            )
+
+            # 進捗イベント送出（Streamlit UI で可視化）
+            if stale_details:
+                try:
+                    progress_emitter = ProgressEventEmitter()
+                    progress_emitter.emit(
+                        event_type="phase0_exclusion_stats",
+                        data={
+                            "total_symbols": total_symbols,
+                            "valid_symbols": len(symbols),
+                            "excluded_count": excluded_count,
+                            "expected_date": expected_base_day.date().isoformat(),
+                            "reason_breakdown": reason_counts,
+                        },
+                        level="info",
+                    )
+                except Exception as e:
+                    _log(f"⚠️  進捗イベント送出エラー: {e}")
+
+            # basic_data も valid_symbols のみに絞り込み
+            if isinstance(basic_data, dict):
+                basic_data = {
+                    sym: df
+                    for sym, df in basic_data.items()
+                    if sym in valid_symbols or sym == "SPY"
+                }
+
+        except SystemExit:
+            raise
+        except Exception as e:
+            _log(f"⚠️  最新営業日チェックでエラー: {e}。スキップして継続します。")
+    else:
+        _log("⏭️  Phase 0: 最新営業日チェックをスキップしました (--skip-latest-check)")
+
     # 重要: SPY キャッシュの存在と最低限の健全性を起動直後にチェックし、NGなら即停止
     try:
         spy_df_check = basic_data.get("SPY") if isinstance(basic_data, dict) else None
@@ -3671,8 +3777,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         "💡 対策: scripts/cache_daily_data.py または "
                         "scripts/update_cache_all.ps1 でデータを更新してください。"
                     )
-                    # For now, continue with warning instead of hard failure
-                    # raise SystemExit(1)
+                    # Hard failure when SPY cache exceeds freshness threshold
+                    raise SystemExit(1)
     except Exception:
         pass
 
@@ -5391,6 +5497,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="フィルタ段階通過数のFDBGログを有効化 (環境変数 FILTER_DEBUG=1 を内部設定)",
     )
+    parser.add_argument(
+        "--skip-latest-check",
+        action="store_true",
+        help="Phase 0 の最新営業日チェックをスキップ (デバッグ用)",
+    )
     return parser
 
 
@@ -5455,6 +5566,7 @@ def run_signal_pipeline(
             parallel=args.parallel,
             test_mode=getattr(args, "test_mode", None),
             skip_external=getattr(args, "skip_external", False),
+            skip_latest_check=getattr(args, "skip_latest_check", False),
         )
     # 戻り値がNoneの場合のフォールバック
     if result is None:

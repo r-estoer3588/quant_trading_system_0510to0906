@@ -8,11 +8,24 @@ Bulk APIを試み、品質チェックで問題があれば個別APIにフォー
 from __future__ import annotations
 
 from datetime import datetime
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import time
+
+# Windows スケジューラー実行時の cp932 エンコードエラーを回避
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, io.UnsupportedOperation):
+        # Python < 3.7 または reconfigure 不可の場合
+        import codecs
+
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "replace")  # type: ignore
+        sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "replace")  # type: ignore
 
 # プロジェクトルートをPYTHONPATHに追加
 ROOT = Path(__file__).resolve().parents[1]
