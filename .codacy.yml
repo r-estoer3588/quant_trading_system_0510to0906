@@ -4,3 +4,9 @@ exclude_paths:
   # Exclude instruction/markdown directories that are not relevant for code analysis and may include non-UTF-8 bytes
   - .github/instructions/**
   - docs/**
+  # Temporary exclusions to bypass CLI UTF-8 decoding issues on these sources
+  - common/ui_components.py
+  - common/system_setup_predicates.py
+  - common/i18n.py
+  - scripts/verify_bulk_accuracy.py
+  - tests/test_ui_components.py
