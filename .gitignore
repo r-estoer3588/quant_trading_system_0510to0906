@@ -21,6 +21,8 @@ codacy_report/
 # temp files
 *.tmp
 *.temp
+temp_*.txt
+temp_*.py
 .env
 *.env
 .coverage

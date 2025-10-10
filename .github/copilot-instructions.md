@@ -63,6 +63,29 @@
 - 検証: `config/schemas.py::validate_config_dict()` で JSON Schema バリデーション（オプション）。
 - カスタマイズ: `config.yaml` をベース、秘匿値は `.env`、CI/テスト用は JSON 上書き。
 
+**環境変数の統一管理** (2025 年 10 月 10 日導入):
+
+- **完全リスト**: [docs/technical/environment_variables.md](docs/technical/environment_variables.md) - 全 40+環境変数の詳細（デフォルト値・使用例・警告）
+- **型安全アクセス**: `config/environment.py::EnvironmentConfig` - dataclass で型安全な環境変数管理
+- **使用パターン**:
+
+  ```python
+  from config.environment import get_env_config
+
+  env = get_env_config()  # シングルトン
+  if env.compact_logs:
+      logger.setLevel(logging.WARNING)
+
+  # バリデーション（危険な設定を検出）
+  errors = env.validate()
+  if errors:
+      for err in errors:
+          logger.warning(err)
+  ```
+
+- **禁止**: `os.environ.get()` の直接使用 → 必ず `get_env_config()` 経由でアクセス
+- **機密情報**: `APCA_API_KEY_ID`, `SLACK_BOT_TOKEN` 等は `.env` で管理、リポジトリにコミット禁止
+
 ## 5. 開発ワークフロー (必須コマンド)
 
 ```powershell
@@ -99,6 +122,21 @@ pre-commit run --files <changed_files>
 - Two-Phase: `today_filters.py` → Setup ラベル生成 → `today_signals.py` が抽出。
 - ログ最適化: `COMPACT_TODAY_LOGS=1` で詳細を DEBUG へ。進捗は `ENABLE_PROGRESS_EVENTS=1` + `logs/progress_today.jsonl`。
 - DataFrame 操作は重複列を増やさない (冗長列除去済み方針)。
+
+**統一ログ出力パターン (2025 年 10 月 10 日導入)**:
+
+- **推奨**: `common/logging_utils.py::SystemLogger` を使用
+
+  ```python
+  from common.logging_utils import SystemLogger
+
+  sys_logger = SystemLogger.create("System3", logger=logger, log_callback=log_callback)
+  sys_logger.info("処理開始", symbol_count=100)
+  sys_logger.error("エラー発生", symbol="AAPL")
+  ```
+
+- **代替**: `common/error_handling.py::SystemErrorHandler` も同等の機能を提供
+- **非推奨**: `logger.error()` のみ、`log_callback()` のみ、`print()` の直接使用
 
 **戦略パターン (Strategy/Core 分離)**:
 
@@ -137,11 +175,15 @@ pre-commit run --files <changed_files>
 - [ ] ログ量増加なし / 必要なら COMPACT 対応コメント
 - [ ] Diagnostics API: 候補生成関数が統一キー (`ranking_source`, `setup_predicate_count`, `final_top_n_count`) を返すか
 - [ ] 重複列を増やしていないか（OHLCV は PascalCase 統一）
+- [ ] 環境変数を追加した場合: `config/environment.py::EnvironmentConfig` と `docs/technical/environment_variables.md` の両方に追記
+- [ ] `os.environ.get()` の直接使用を避け、`get_env_config()` 経由でアクセスしているか
 
 **デバッグヒント**:
 
 - 候補数不一致: `VALIDATE_SETUP_PREDICATE=1` で predicate vs Setup 列の差分ログを確認。
 - キャッシュ問題: `ROLLING_ISSUES_VERBOSE_HEAD=5` で rolling キャッシュ問題の詳細を表示。
 - 進捗監視: `ENABLE_PROGRESS_EVENTS=1` + Streamlit UI「当日シグナル」タブでリアルタイム追跡。
+- 環境変数確認: `python -c "from config.environment import get_env_config; env = get_env_config(); env.print_env_summary()"` で現在の設定を表示。
+- 本番環境警告: `env.validate()` が返すエラーリストで、テスト用設定（`MIN_DROP3D_FOR_TEST` 等）が本番で有効になっていないか確認。
 
 不明点や曖昧な規約は PR 説明に背景を記述し合意形成してください。

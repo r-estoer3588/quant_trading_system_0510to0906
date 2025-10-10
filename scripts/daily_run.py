@@ -2,7 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+import io
 import logging
+import sys
+
+# Windows スケジューラー実行時の cp932 エンコードエラーを回避
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, io.UnsupportedOperation):
+        # Python < 3.7 または reconfigure 不可の場合
+        import codecs
+
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "replace")  # type: ignore
+        sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "replace")  # type: ignore
 
 from common.logging_utils import setup_logging
 from config.settings import Settings, get_settings
