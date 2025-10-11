@@ -369,14 +369,14 @@ git commit -m "Phase0-7: Diagnostics API & Setup Predicates Unification
 
 ## 📊 完了条件
 
-- [ ] Diagnostics API ドキュメント作成（`docs/technical/diagnostics.md`）
-- [ ] README 更新（Diagnostics セクション追加）
-- [ ] CHANGELOG 記録（Phase0-7 変更内容）
-- [ ] mypy 静的型チェック実行・修正
-- [ ] GitHub Actions 品質自動化設定（`.github/workflows/quality-check.yml`）
-- [ ] 最終受け入れテスト全項目 Pass
-- [ ] 不要ファイル削除
-- [ ] Git commit 完了
+- [x] Diagnostics API ドキュメント作成（`docs/technical/diagnostics.md`）
+- [x] README 更新（Diagnostics セクション追加）
+- [x] CHANGELOG 記録（Phase0-7 変更内容）
+- [x] mypy 静的型チェック実行・修正（Warning のみ、許容範囲）
+- [x] GitHub Actions 品質自動化設定（`.github/workflows/quality-check.yml`）
+- [x] 最終受け入れテスト全項目 Pass
+- [x] 不要ファイル削除（Codacy 関連全削除完了）
+- [x] Git commit 完了（2025-10-11 コミット: 0f8b0ab）
 
 ## 🔗 関連ドキュメント
 
