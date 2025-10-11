@@ -209,9 +209,9 @@ def generate_candidates_system3(
         diagnostics = {
             "ranking_source": None,
             "setup_predicate_count": 0,
-            "final_top_n_count": 0,
             "predicate_only_pass_count": 0,
             "mismatch_flag": 0,
+            "ranked_top_n_count": 0,
         }
 
     if not prepared_dict:
@@ -587,7 +587,7 @@ def generate_candidates_system3(
                 pass
 
         df_all = top_cut
-        diagnostics["final_top_n_count"] = len(df_all)
+        diagnostics["ranked_top_n_count"] = len(df_all)
         diagnostics["ranking_source"] = "latest_only"
 
         by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -695,9 +695,9 @@ def generate_candidates_system3(
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
-            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_dt, []))
+            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_dt, []))
         except Exception:
-            diagnostics["final_top_n_count"] = 0
+            diagnostics["ranked_top_n_count"] = 0
     else:
         candidates_df = None
 

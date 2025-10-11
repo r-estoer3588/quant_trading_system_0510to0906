@@ -5,6 +5,7 @@ Focus on the main pipeline functions and integration tests
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -13,13 +14,17 @@ import pytest
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
+generate_candidates_system4: Any = None
+get_total_days_system4: Any = None
+prepare_data_vectorized_system4: Any = None
 try:
-    from core.system4 import (
-        generate_candidates_system4,
-        get_total_days_system4,
-        prepare_data_vectorized_system4,
-    )
+    from core.system4 import generate_candidates_system4 as _gc4
+    from core.system4 import get_total_days_system4 as _gt4
+    from core.system4 import prepare_data_vectorized_system4 as _prep4
 
+    generate_candidates_system4 = _gc4
+    get_total_days_system4 = _gt4
+    prepare_data_vectorized_system4 = _prep4
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -65,7 +70,10 @@ class TestSystem4MainFunctions:
         with patch("core.system4.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system4(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system4(
+                raw_data_dict=mock_data,
+                reuse_indicators=True,
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -133,9 +141,15 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        candidates, df, diagnostics = generate_candidates_system4(
+        res = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            candidates, df, diagnostics = res
+        else:
+            candidates, df = res
+            diagnostics = {}
 
         # Check basic structure
         assert isinstance(candidates, dict)
@@ -144,13 +158,13 @@ class TestSystem4MainFunctions:
         # Check diagnostics keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # Verify ranking_source
         assert diagnostics["ranking_source"] == "latest_only"
 
         # Check that candidates were generated
-        assert diagnostics["final_top_n_count"] >= 0
+        assert diagnostics["ranked_top_n_count"] >= 0
 
     def test_generate_candidates_system4_full_scan_mode(self):
         """Test candidate generation in full scan mode"""
@@ -166,9 +180,15 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        candidates, df, diagnostics = generate_candidates_system4(
+        res = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=False, include_diagnostics=True
         )
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            candidates, df, diagnostics = res
+        else:
+            candidates, df = res
+            diagnostics = {}
 
         # Check basic structure
         assert isinstance(candidates, dict)
@@ -179,13 +199,17 @@ class TestSystem4MainFunctions:
 
     def test_generate_candidates_system4_empty_data(self):
         """Test candidate generation with empty data"""
-        candidates, df, diagnostics = generate_candidates_system4(
-            {}, top_n=10, include_diagnostics=True
-        )
+        res = generate_candidates_system4({}, top_n=10, include_diagnostics=True)
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            candidates, df, diagnostics = res
+        else:
+            candidates, df = res
+            diagnostics = {}
 
         assert candidates == {}
         assert df is None
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
 
     def test_generate_candidates_system4_no_setup(self):
         """Test candidate generation when no symbols meet setup条件"""
@@ -201,9 +225,15 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        candidates, df, diagnostics = generate_candidates_system4(
+        res = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            candidates, df, diagnostics = res
+        else:
+            candidates, df = res
+            diagnostics = {}
 
         # Should return empty results
         assert len(candidates) == 0 or all(len(v) == 0 for v in candidates.values())
@@ -232,9 +262,14 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        _candidates, df, _diagnostics = generate_candidates_system4(
+        res = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            _candidates, df, _ = res
+        else:
+            _candidates, df = res
 
         if df is not None and not df.empty:
             # First candidate should have lower RSI
@@ -273,18 +308,30 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        _candidates1, _df1, diagnostics1 = generate_candidates_system4(
+        res1 = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res1, tuple)
+        if len(res1) == 3:
+            _candidates1, _df1, diagnostics1 = res1
+        else:
+            _candidates1, _df1 = res1
+            diagnostics1 = {}
 
-        _candidates2, _df2, diagnostics2 = generate_candidates_system4(
+        res2 = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res2, tuple)
+        if len(res2) == 3:
+            _candidates2, _df2, diagnostics2 = res2
+        else:
+            _candidates2, _df2 = res2
+            diagnostics2 = {}
 
         # Diagnostics should be consistent
         assert diagnostics1["ranking_source"] == diagnostics2["ranking_source"]
         assert diagnostics1["setup_predicate_count"] == diagnostics2["setup_predicate_count"]
-        assert diagnostics1["final_top_n_count"] == diagnostics2["final_top_n_count"]
+        assert diagnostics1["ranked_top_n_count"] == diagnostics2["ranked_top_n_count"]
 
 
 class TestSystem4EdgeCases:
@@ -310,7 +357,10 @@ class TestSystem4EdgeCases:
         with patch("core.system4.check_precomputed_indicators") as mock_check:
             mock_check.return_value = ({}, ["AAPL"])  # Indicate failure
 
-            result = prepare_data_vectorized_system4(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system4(
+                raw_data_dict=mock_data,
+                reuse_indicators=True,
+            )
 
         # Should return empty or partial results
         assert isinstance(result, dict)
@@ -330,9 +380,15 @@ class TestSystem4EdgeCases:
         }
 
         # Should handle NaN values gracefully
-        candidates, df, diagnostics = generate_candidates_system4(
+        res = generate_candidates_system4(
             prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
         )
+        assert isinstance(res, tuple)
+        if len(res) == 3:
+            candidates, df, diagnostics = res
+        else:
+            candidates, df = res
+            diagnostics = {}
 
         assert isinstance(candidates, dict)
         assert isinstance(diagnostics, dict)

@@ -35,7 +35,6 @@ exclude = [
   "logs",
   "htmlcov",
   "tools/archive",
-  "codacy_report",
   # アーカイブされた壊れたテスト群は完全除外
   "tests/experimental/system7_archive",
   "tests\\experimental\\system7_archive",

@@ -1649,6 +1649,8 @@ class StageTracker:
         # AllocationSummary が dict で同梱されている場合、slot_candidates を候補数のフォールバックに使用する
         alloc_slot_candidates: dict[str, int] | None = None
         alloc_final_counts: dict[str, int] | None = None
+        system_diagnostics_map: dict[str, dict] | None = None
+
         try:
             if isinstance(per_system, dict):
                 alloc_dict = per_system.get("__allocation_summary__")  # type: ignore[assignment]
@@ -1678,9 +1680,21 @@ class StageTracker:
                             alloc_final_counts[key] = max(0, val)
                         except Exception:
                             continue
+                # system_diagnostics 取得（setup_predicate_count用）
+                diag_map = alloc_dict.get("system_diagnostics")
+                if isinstance(diag_map, dict):
+                    system_diagnostics_map = {}
+                    for k, v in diag_map.items():
+                        try:
+                            key = str(k).strip().lower()
+                            if isinstance(v, dict):
+                                system_diagnostics_map[key] = v
+                        except Exception:
+                            continue
         except Exception:
             alloc_slot_candidates = None
             alloc_final_counts = None
+            system_diagnostics_map = None
         for name, counts in self.stage_counts.items():
             snapshot: StageSnapshot | None
             try:
@@ -1729,6 +1743,17 @@ class StageTracker:
         except Exception:
             system_series = pd.Series(dtype=str)
         for name, counts in self.stage_counts.items():
+            # diagnosticsからsetup_predicate_countを取得して設定
+            if counts.get("setup") is None and system_diagnostics_map:
+                try:
+                    diag = system_diagnostics_map.get(name)
+                    if isinstance(diag, dict):
+                        setup_count = diag.get("setup_predicate_count")
+                        if isinstance(setup_count, (int, float)) and setup_count >= 0:
+                            counts["setup"] = int(setup_count)
+                except Exception:
+                    pass
+
             if counts.get("cand") is None:
                 # 1) AllocationSummary の slot_candidates からフォールバック
                 used = False
@@ -2683,16 +2708,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
         return debug_result
     total_elapsed = max(0.0, time.time() - start_time)
 
-    # AllocationSummary を抽出して stage_tracker に渡す
-    allocation_summary = None
-    try:
-        if isinstance(meta, dict):
-            alloc_dict = meta.get("__allocation_summary__")
-            if isinstance(alloc_dict, dict):
-                allocation_summary = alloc_dict
-    except Exception:
-        allocation_summary = None
-
+    # AllocationSummary を抽出して stage_tracker に渡す（不要な変数削除）
     stage_tracker.finalize_counts(final_df, per_system)
     _store_run_results(final_df, per_system)
     return RunArtifacts(
@@ -3542,7 +3558,8 @@ def _render_system_details(
                 return None
 
         setup_cnt = _get_int(diag_payload, "setup_predicate_count", 0)
-        final_topn = _get_int(diag_payload, "final_top_n_count", 0)
+        # Read unified key only
+        ranked_topn = _get_int(diag_payload, "ranked_top_n_count", 0)
         only_pass = _get_int(diag_payload, "predicate_only_pass_count", 0)
         mismatch = _get_bool(diag_payload, "mismatch_flag")
         ranking_src = str(diag_payload.get("ranking_source", "-") or "-")
@@ -3557,7 +3574,7 @@ def _render_system_details(
             "乖離あり" if mismatch is True else ("乖離なし" if mismatch is False else "乖離不明")
         )
         reason_line = (
-            f"候補0件理由: {prefix}セットアップ成立 {setup_cnt} 件, 最終TopN {final_topn} 件, "
+            f"候補0件理由: {prefix}セットアップ成立 {setup_cnt} 件, 最終TopN {ranked_topn} 件, "
             f"セットアップのみ通過 {only_pass} 件, ランキング {ranking_src}, {mismatch_txt}。"
         )
         return reason_line, None

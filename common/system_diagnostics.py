@@ -22,7 +22,8 @@ RowPredicate = Callable[[pd.Series], bool]
 # --- Diagnostics keys (shared across systems) ---
 DIAG_RANKING_SOURCE = "ranking_source"
 DIAG_SETUP_PRED_COUNT = "setup_predicate_count"
-DIAG_FINAL_TOPN_COUNT = "final_top_n_count"
+# Ranked result count after TopN ranking (single source of truth)
+DIAG_RANKED_TOPN_COUNT = "ranked_top_n_count"
 DIAG_PRED_ONLY_PASS = "predicate_only_pass_count"
 DIAG_MISMATCH_FLAG = "mismatch_flag"
 
@@ -232,7 +233,8 @@ def build_system_diagnostics(
             if isinstance(symbol_map, Mapping):
                 final_count += sum(1 for _ in symbol_map.keys())
     payload["final_pass"] = final_count
-    payload["final_top_n_count"] = final_count
+    # Single source of truth: write only ranked_top_n_count
+    payload["ranked_top_n_count"] = final_count
 
     if spec.rank_metric_name:
         payload["rank_metric_name"] = spec.rank_metric_name
@@ -273,10 +275,15 @@ def get_diagnostics_with_fallback(diag: dict | None, system_id: str) -> dict:
             pass
         diag = {}
 
+    # Read the unified key only
+    ranked_val = int(diag.get(DIAG_RANKED_TOPN_COUNT, -1))
+
     return {
         DIAG_RANKING_SOURCE: diag.get(DIAG_RANKING_SOURCE, "unknown"),
         DIAG_SETUP_PRED_COUNT: int(diag.get(DIAG_SETUP_PRED_COUNT, -1)),
-        DIAG_FINAL_TOPN_COUNT: int(diag.get(DIAG_FINAL_TOPN_COUNT, -1)),
+        DIAG_RANKED_TOPN_COUNT: ranked_val,
+        # Keep legacy field in normalized view for transitional compatibility
+        "final_top_n_count": ranked_val,
         DIAG_PRED_ONLY_PASS: int(diag.get(DIAG_PRED_ONLY_PASS, -1)),
         DIAG_MISMATCH_FLAG: bool(diag.get(DIAG_MISMATCH_FLAG, False)),
         # System1 専用キー（他システムでは -1 でフォールバック）
@@ -301,7 +308,7 @@ def triage_candidate_discrepancy(diag: dict[str, Any]) -> dict[str, Any]:
     Args:
         diag: システム診断情報の辞書
             - setup_predicate_count: Setup 条件通過数
-            - final_top_n_count: 最終候補数
+            - ranked_top_n_count: 最終候補数（ランキング後）
 
     Returns:
         トリアージ結果の辞書:
@@ -315,13 +322,17 @@ def triage_candidate_discrepancy(diag: dict[str, Any]) -> dict[str, Any]:
 
     Example:
         >>> # 完全一致のケース
-        >>> diag = {"setup_predicate_count": 5, "final_top_n_count": 5}
+    >>> diag = {"setup_predicate_count": 5, "ranked_top_n_count": 5}
         >>> result = triage_candidate_discrepancy(diag)
         >>> result["category"]
         'exact_match'
     """
     setup_count = int(diag.get("setup_predicate_count", 0))
-    final_count = int(diag.get("final_top_n_count", 0))
+    # Single key: ranked_top_n_count
+    try:
+        final_count = int(diag.get("ranked_top_n_count", 0))
+    except Exception:
+        final_count = 0
     diff = setup_count - final_count
 
     if setup_count == final_count:

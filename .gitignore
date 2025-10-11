@@ -11,14 +11,19 @@ logs/images/
 .mypy_cache/
 .ruff_cache/
 
+# スナップショット（テスト用、大量生成される）
+snapshots/
+
+# UI スクリーンショット（テスト用）
+results_images/
+test_screenshot.png
+screenshots/
+
 # 新しい整理されたディレクトリ内の出力ファイル
 docs/internal/output/
 tools/debug/*.log
 tools/benchmark/*.log
 htmlcov/
-codacy_report/
-.codacy*
-codacy-analysis-cli*
 ruff_report.json
 
 # temp files
@@ -30,10 +35,6 @@ temp_*.py
 *.env
 .coverage
 .tmp_*
-
-#Ignore vscode AI rules
-.github/instructions/codacy.instructions.md
-temp_test_cache
 
 # === Reorganization Additions ===
 
@@ -78,7 +79,3 @@ env/
 .wslvenv/
 
 results_csv_test/
-
-
-#Ignore vscode AI rules
-.github\instructions\codacy.instructions.md

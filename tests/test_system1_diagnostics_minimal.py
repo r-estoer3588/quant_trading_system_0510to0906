@@ -52,7 +52,7 @@ class TestSystem1DiagnosticsMinimal:
         # Assert required diagnostic keys are present
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # Assert ranking_source is set correctly
         assert diagnostics["ranking_source"] in ["latest_only", "full_scan", None]
@@ -60,8 +60,8 @@ class TestSystem1DiagnosticsMinimal:
         # Assert counts are non-negative integers
         assert isinstance(diagnostics["setup_predicate_count"], int)
         assert diagnostics["setup_predicate_count"] >= 0
-        assert isinstance(diagnostics["final_top_n_count"], int)
-        assert diagnostics["final_top_n_count"] >= 0
+        assert isinstance(diagnostics["ranked_top_n_count"], int)
+        assert diagnostics["ranked_top_n_count"] >= 0
 
     def test_diagnostics_keys_present_full_scan(self):
         """Verify diagnostics keys are present in full_scan mode"""
@@ -86,7 +86,7 @@ class TestSystem1DiagnosticsMinimal:
         # Assert required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # Assert ranking_source reflects full_scan
         assert diagnostics["ranking_source"] in ["full_scan", "latest_only", None]
@@ -101,11 +101,11 @@ class TestSystem1DiagnosticsMinimal:
         assert isinstance(diagnostics, dict)
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # With empty data, counts should be 0
         assert diagnostics["setup_predicate_count"] == 0
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
 
     def test_diagnostics_no_setup_conditions(self):
         """Verify diagnostics when no setup conditions are met"""
@@ -130,7 +130,7 @@ class TestSystem1DiagnosticsMinimal:
         # Diagnostics should still be present
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # No candidates expected
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0

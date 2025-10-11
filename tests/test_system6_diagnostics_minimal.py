@@ -5,14 +5,18 @@ Validates that generate_candidates_system6 returns required diagnostic keys.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
 from common.testing import set_test_determinism
 
+generate_candidates_system6: Any = None
 try:
-    from core.system6 import generate_candidates_system6
+    from core.system6 import generate_candidates_system6 as _gc6
 
+    generate_candidates_system6 = _gc6
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -52,7 +56,7 @@ class TestSystem6DiagnosticsMinimal:
         # Assert required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # Assert ranking_source is set
         assert diagnostics["ranking_source"] in ["latest_only", "full_scan", None]
@@ -60,8 +64,8 @@ class TestSystem6DiagnosticsMinimal:
         # Assert counts are valid
         assert isinstance(diagnostics["setup_predicate_count"], int)
         assert diagnostics["setup_predicate_count"] >= 0
-        assert isinstance(diagnostics["final_top_n_count"], int)
-        assert diagnostics["final_top_n_count"] >= 0
+        assert isinstance(diagnostics["ranked_top_n_count"], int)
+        assert diagnostics["ranked_top_n_count"] >= 0
 
     def test_diagnostics_keys_present_full_scan(self):
         """Verify diagnostics keys are present in full_scan mode"""
@@ -87,7 +91,7 @@ class TestSystem6DiagnosticsMinimal:
         # Assert required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
     def test_diagnostics_empty_data(self):
         """Verify diagnostics are returned even with empty data"""
@@ -99,11 +103,11 @@ class TestSystem6DiagnosticsMinimal:
         assert isinstance(diagnostics, dict)
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # With empty data, counts should be 0
         assert diagnostics["setup_predicate_count"] == 0
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
 
     def test_diagnostics_no_setup_conditions(self):
         """Verify diagnostics when no setup conditions are met"""
@@ -129,7 +133,7 @@ class TestSystem6DiagnosticsMinimal:
         # Diagnostics should still be present
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # No candidates expected
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
