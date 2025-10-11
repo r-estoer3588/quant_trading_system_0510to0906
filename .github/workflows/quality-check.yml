@@ -1,0 +1,72 @@
+# 品質チェック＆自動修正（GitHub Actions）
+# push時に自動実行され、問題があれば自動修正してコミット
+
+name: Auto Fix Quality
+
+on:
+  push:
+    branches: [branch0906, main]
+
+jobs:
+  auto-fix-and-test:
+    name: Auto Fix & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 自動コミットに必要
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt') }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Auto-fix with ruff
+        run: |
+          python -m ruff check . --select=F,E,W --ignore=E501,E402 --fix
+        continue-on-error: true
+
+      - name: Auto-format with black
+        run: |
+          python -m black core common strategies scripts
+        continue-on-error: true
+
+      - name: Commit fixes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "style: auto-fix with ruff/black [skip ci]"
+            git push
+          fi
+
+      - name: Verify code quality
+        run: |
+          python -m ruff check . --select=F,E,W --ignore=E501,E402
+          python -m black --check core common strategies scripts
+
+      - name: Run mini pipeline test
+        run: |
+          python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
+        env:
+          COMPACT_TODAY_LOGS: "1"
+          SKIP_NASDAQ_TRADER: "1"

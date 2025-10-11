@@ -2,7 +2,7 @@
 
 ## 🎯 目的
 
-Diagnostics API のドキュメント整備、README 更新、CHANGELOG 記録、品質ゲート（mypy, Codacy CI）の適用、最終受け入れテストを実施。
+Diagnostics API のドキュメント整備、README 更新、CHANGELOG 記録、品質ゲート（mypy, GitHub Actions）の適用、最終受け入れテストを実施。
 
 ## 📋 前提条件（Phase2–6 完了済み）
 
@@ -220,9 +220,9 @@ mypy --config-file mypy.ini common/system_setup_predicates.py core/system1.py
 
 ---
 
-#### Task 8.2: Codacy CLI 検証（優先度: 中）
+#### Task 8.2: 品質チェック自動化（優先度: 中）
 
-**目的**: Codacy ルールに違反していないか検証
+**目的**: コード品質を継続的に維持
 
 **対象**:
 
@@ -230,31 +230,36 @@ mypy --config-file mypy.ini common/system_setup_predicates.py core/system1.py
 
 **実装手順**:
 
-1. **Codacy CLI 実行**:
+1. **GitHub Actions自動化**:
+
+GitHub Actionsが自動的にruff/blackで品質チェックと修正を実行します（`.github/workflows/quality-check.yml`）。
+
+2. **ローカル検証**:
 
 ```bash
-codacy-analysis-cli analyze --directory . --tool ruff --format json > codacy_report/results.sarif
+# チェックのみ
+python -m ruff check . --select=F,E,W --ignore=E501,E402
+python -m black --check core common strategies scripts
+
+# 自動修正
+python -m ruff check . --fix
+python -m black core common strategies scripts
 ```
 
-2. **結果確認**:
+3. **pre-commitフック**:
 
-   - Security issues（脆弱性）: ゼロを維持
-   - Code smells: 可能な範囲で修正
-   - Complexity: 複雑度 10 以下を目指す
-
-3. **修正適用**:
+コミット前に自動実行されます：
 
 ```bash
-ruff check --fix common/ core/ scripts/ tools/
-black common/ core/ scripts/ tools/
+pre-commit run --all-files
 ```
 
 **検証**:
 
 ```bash
-# Codacy レポート確認
-cat codacy_report/results.sarif | jq '.runs[0].results | length'
-# 0 または低い値が理想
+# ローカルで品質チェック結果を確認
+python -m ruff check . --statistics
+# 0 errors が理想
 ```
 
 ---
@@ -368,7 +373,7 @@ git commit -m "Phase0-7: Diagnostics API & Setup Predicates Unification
 - [ ] README 更新（Diagnostics セクション追加）
 - [ ] CHANGELOG 記録（Phase0-7 変更内容）
 - [ ] mypy 静的型チェック実行・修正
-- [ ] Codacy CLI 検証・修正
+- [ ] GitHub Actions 品質自動化設定（`.github/workflows/quality-check.yml`）
 - [ ] 最終受け入れテスト全項目 Pass
 - [ ] 不要ファイル削除
 - [ ] Git commit 完了
@@ -394,8 +399,9 @@ code CHANGELOG.md
 # mypy 実行
 mypy --config-file mypy.ini common/ core/ scripts/ tools/
 
-# Codacy CLI
-codacy-analysis-cli analyze --directory . --tool ruff
+# 品質チェック
+python -m ruff check . --select=F,E,W --ignore=E501,E402
+python -m black --check core common strategies scripts
 
 # 最終受け入れテスト
 pytest -q --tb=short
@@ -409,7 +415,7 @@ git status
 ## 📝 注意事項
 
 - **mypy エラーは Critical のみ必須修正**（Warning は許容）
-- **Codacy の Security issues はゼロを維持**
+- **ruff/black で自動修正可能な問題は修正**
 - **最終受け入れテストで Exit Code 0 が必須**
 - **Commit メッセージは簡潔に（Phase0-7 の要約）**
 - **不要ファイルは削除前に念のためバックアップ推奨**

@@ -49,7 +49,7 @@ def test_system3_topoff():
         log_callback=log_cb,
     )
 
-    candidates, entry_map = result[0], result[1]
+    candidates = result[0]
 
     print(f"\nResult: {len(candidates)} candidates")
     print("Expected: 10 (if STUpass >= 10)")

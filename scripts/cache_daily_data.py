@@ -472,6 +472,11 @@ def get_all_symbols() -> list[str]:
         logging.error("銘柄ユニバースの取得に失敗: %s", exc)
         return []
 
+    # System7のベンチマークとして必須のSPYを追加（ETFだが除外されているため強制追加）
+    if "SPY" not in symbols:
+        symbols.insert(0, "SPY")
+        logging.info("SPY (System7ベンチマーク) をユニバースに追加しました")
+
     logging.info("NASDAQ/EODHD フィルタ後の銘柄数: %s", len(symbols))
     return symbols
 

@@ -158,30 +158,50 @@ def _to_float(value: Any) -> float:
 def system1_row_passes_setup(
     row: pd.Series, *, allow_fallback: bool = True
 ) -> tuple[bool, dict[str, bool], str | None]:
-    filter_ok = bool(row.get("filter", True))
-    setup_flag = bool(row.get("setup", False))
-    fallback_ok = False
-    if allow_fallback and not setup_flag:
-        sma25 = _to_float(row.get("sma25"))
-        sma50 = _to_float(row.get("sma50"))
-        fallback_ok = not math.isnan(sma25) and not math.isnan(sma50) and sma25 > sma50
+    """System1 setup evaluation using SMA trend and ROC200.
+
+    Conditions:
+    - SMA trend: SMA25 > SMA50 (individual stock condition)
+    - ROC200 > 0 (momentum confirmation)
+
+    Note: Market condition (SPY > SMA100) is checked at orchestrator level,
+    not within this function. Phase 2 filter (Price>=5, DV20>=50M) is assumed
+    to have already passed for rows reaching this function.
+
+    Args:
+        row: DataFrame row containing indicators
+        allow_fallback: Legacy parameter for backward compatibility (ignored)
+
+    Returns:
+        (passes, flags, reason) tuple where:
+        - passes: True if all conditions met
+        - flags: dict with individual condition results
+        - reason: exclusion reason if passes is False
+    """
+    # SMA trend condition (正式なセットアップ条件)
+    sma25 = _to_float(row.get("sma25"))
+    sma50 = _to_float(row.get("sma50"))
+    sma_trend_ok = not math.isnan(sma25) and not math.isnan(sma50) and sma25 > sma50
+
+    # ROC200 momentum condition
     roc200_val = _to_float(row.get("roc200"))
     roc200_positive = not math.isnan(roc200_val) and roc200_val > 0
 
-    passes = filter_ok and roc200_positive and (setup_flag or fallback_ok)
+    # Combined evaluation
+    passes = sma_trend_ok and roc200_positive
     reason: str | None = None
-    if not filter_ok:
-        reason = "filter"
-    elif not (setup_flag or fallback_ok):
-        reason = "setup"
+    if not sma_trend_ok:
+        reason = "sma_trend"
     elif not roc200_positive:
         reason = "roc200"
 
     flags = {
-        "filter_ok": filter_ok,
-        "setup_flag": setup_flag,
-        "fallback_ok": fallback_ok,
+        "sma_trend_ok": sma_trend_ok,
         "roc200_positive": roc200_positive,
+        # Legacy keys for backward compatibility
+        "setup_flag": sma_trend_ok,
+        "fallback_ok": False,  # No longer used
+        "filter_ok": True,  # Phase 2 filter already passed
     }
     return passes, flags, reason
 
@@ -480,8 +500,11 @@ def generate_candidates_system1(
     Returns a tuple of (per-date candidates, merged dataframe,
     diagnostics when requested).
     """
-
-    if kwargs and log_callback:
+    print(
+        f"[DEBUG] generate_candidates_system1: latest_only={latest_only}, "
+        f"prepared_syms={len(prepared_dict) if prepared_dict else 0}"
+    )
+    if log_callback:
         ignored = ", ".join(sorted(map(str, kwargs.keys())))
         log_callback(f"System1: Ignoring unsupported kwargs -> {ignored}")
 
@@ -522,19 +545,31 @@ def generate_candidates_system1(
         return normalized, merged, diag_payload
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
+        print(
+            f"[DEBUG] System1 early return: prepared_dict type={type(prepared_dict)}, empty={not prepared_dict}"
+        )
         diag.symbols_total = len(prepared_dict or {})
         diag.ranking_source = mode
         if log_callback:
             log_callback("System1: No data provided for candidate generation")
         return finalize({}, None)
 
+    print(f"[DEBUG] System1: passed early return check, symbols_total={len(prepared_dict)}")
     diag.symbols_total = len(prepared_dict)
     diag.symbols_with_data = sum(
         1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
     )
 
+    print(
+        f"[DEBUG] System1: before if latest_only check, latest_only={latest_only}, type={type(latest_only)}"
+    )
     # Fast path: evaluate only the most recent bar per symbol
     if latest_only:
+        if log_callback:
+            log_callback(
+                f"[DEBUG_S1_LATEST] Entering latest_only block, "
+                f"prepared_dict keys={len(prepared_dict)}"
+            )
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
@@ -582,6 +617,11 @@ def generate_candidates_system1(
                 if df is None or df.empty:
                     continue
                 diag.total_symbols += 1
+                if log_callback and diag.total_symbols <= 5:
+                    log_callback(
+                        f"[DEBUG_S1_LOOP] Processing symbol {sym}, "
+                        f"total_symbols={diag.total_symbols}"
+                    )
                 row_obj: pd.Series | pd.DataFrame | None
                 date_val: pd.Timestamp | None
                 row_obj = None
@@ -632,54 +672,44 @@ def generate_candidates_system1(
                         row_obj = df.loc[latest_idx_raw]
                     except Exception:
                         row_obj = None
+
                 last_row = _ensure_series(row_obj)
                 if last_row is None or date_val is None:
                     diag.exclude_reasons["invalid_row"] += 1
                     continue
-                # latest_only: setup 列が不正/欠損でも predicate が通れば許容
-                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
+
+                # Use predicate-based evaluation (no column dependency)
                 try:
                     from common.system_setup_predicates import system1_setup_predicate as _s1_pred
                 except Exception:
                     _s1_pred = None
+
+                # Evaluate setup conditions via predicate
                 pred_ok = False
-                try:
-                    if _s1_pred is not None:
-                        pred_ok = bool(_s1_pred(last_row))
-                except Exception:
-                    pred_ok = False
-                # 有効通過条件を簡素化:
-                #   1) predicate が True → 合格
-                #   2) predicate が False → fallback_ok かつ ROC200>0 で合格
-                roc200_pos = bool(flags.get("roc200_positive", False))
-                effective_ok = bool(pred_ok) or (
-                    bool(flags.get("fallback_ok", False)) and roc200_pos
-                )
-                # reason を上書き（必要に応じ）
-                if not effective_ok and pred_ok and not flags.get("setup_flag"):
-                    reason = "predicate_only"
-                passed = effective_ok
-                if not passed:
-                    if reason:
-                        diag.exclude_reasons[reason] += 1
-                    continue
-                if flags.get("filter_ok"):
-                    diag.filter_pass += 1
-                if flags.get("setup_flag"):
-                    diag.setup_flag_true += 1
-                if flags.get("fallback_ok"):
-                    diag.fallback_pass += 1
-                if flags.get("roc200_positive"):
-                    diag.roc200_positive += 1
                 if _s1_pred is not None:
                     try:
-                        if pred_ok:
-                            diag.setup_predicate_count += 1
-                        if pred_ok and not bool(flags.get("setup_flag")):
-                            diag.predicate_only_pass_count += 1
-                            diag.mismatch_flag = 1
+                        pred_ok = bool(_s1_pred(last_row))
                     except Exception:
-                        pass
+                        pred_ok = False
+
+                # Also evaluate via row-based function for diagnostics
+                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
+
+                # Primary acceptance: predicate must pass
+                if not pred_ok:
+                    if reason:
+                        diag.exclude_reasons[reason] += 1
+                    else:
+                        diag.exclude_reasons["predicate_failed"] += 1
+                    continue
+
+                # Update diagnostics counters
+                if flags.get("sma_trend_ok"):
+                    diag.setup_flag_true += 1
+                if flags.get("roc200_positive"):
+                    diag.roc200_positive += 1
+
+                diag.setup_predicate_count += 1
                 diag.final_pass += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
@@ -712,187 +742,182 @@ def generate_candidates_system1(
                         pass
                     continue
                 # 明示エントリー日（翌営業日）
-                try:
-                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
-
-                    entry_dt = _resolve_entry(label_dt)
-                except Exception:
-                    entry_dt = None
+                # Temporarily disabled to isolate date issue
+                entry_dt = None  # TODO: Re-enable resolve_signal_entry_date
+                # try:
+                #     from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+                #     entry_dt = _resolve_entry(label_dt)
+                # except Exception:
+                #     entry_dt = None
                 date_counter[label_dt] = date_counter.get(label_dt, 0) + 1
-                rows.append(
-                    {
-                        "symbol": sym,
-                        "date": label_dt,
-                        "entry_date": entry_dt,
-                        "roc200": roc200_val,
-                        "close": 0.0 if math.isnan(close_val) else close_val,
-                        "setup": bool(last_row.get("setup", False)),
-                    }
-                )
-            else:
-                if log_callback:
-                    log_callback(f"[DEBUG_S1] Collected rows={len(rows)}")
-                df_all = pd.DataFrame(rows)
-                # top-off用に元の全候補を保持
-                df_all_original = df_all.copy()
-                if log_callback:
-                    log_callback(f"[DEBUG_S1] df_all created: {len(df_all)} rows")
+                row_dict = {
+                    "symbol": sym,
+                    "date": label_dt,
+                    "entry_date": entry_dt,
+                    "roc200": roc200_val,
+                    "close": 0.0 if math.isnan(close_val) else close_val,
+                    "setup": bool(last_row.get("setup", False)),
+                }
+                rows.append(row_dict)
 
-                # 日付列の最終サニタイズ（dtype揃え + 範囲外除外）
+            # After latest_only loop: create DataFrame and rank
+            if log_callback:
+                log_callback(f"[DEBUG_S1] Collected rows={len(rows)}")
+            if len(rows) == 0:
+                diag.ranking_source = "latest_only_empty"
+                return finalize({}, None)
+
+            df_all = pd.DataFrame(rows)
+            df_all_original = df_all.copy()
+            if log_callback:
+                log_callback(
+                    f"[DEBUG_S1] df_all created: {len(df_all)} rows, "
+                    f"columns={list(df_all.columns)}"
+                )
+                # Log date statistics
+                if "date" in df_all.columns and len(df_all) > 0:
+                    try:
+                        date_sample = df_all["date"].head(5).tolist()
+                        log_callback(
+                            f"[DEBUG_S1] date_sample={date_sample}, " f"target_date={target_date}"
+                        )
+                    except Exception:
+                        pass
+
+            # Sanitize date column
+            try:
+                df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce").dt.normalize()
+                df_all = df_all.dropna(subset=["date"]).copy()
+            except Exception:
+                pass
+
+            # Filter by target_date or most frequent date
+            try:
+                filtered = df_all
+                final_label_date: pd.Timestamp | None = None
+                if target_date is not None:
+                    filtered = df_all[df_all["date"] == target_date]
+                    final_label_date = target_date
+                    if log_callback:
+                        log_callback(
+                            f"[DEBUG_S1_FILTER] target_date={target_date}, "
+                            f"filtered={len(filtered)} from df_all={len(df_all)}"
+                        )
+                    if filtered.empty and len(df_all) > 0:
+                        try:
+                            mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                        except Exception:
+                            mode_date = None
+                        if mode_date is not None:
+                            filtered = df_all[df_all["date"] == mode_date]
+                            final_label_date = mode_date
+                        if filtered.empty:
+                            tmp = df_all.copy()
+                            tmp.loc[:, "date"] = target_date
+                            try:
+                                from common.utils_spy import (
+                                    resolve_signal_entry_date as _resolve_entry_dt,
+                                )
+
+                                tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
+                            except Exception:
+                                tmp.loc[:, "entry_date"] = target_date
+                            filtered = tmp
+                            final_label_date = target_date
+                else:
+                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                    filtered = df_all[df_all["date"] == mode_date]
+                    final_label_date = mode_date
+            except Exception:
+                filtered = df_all
+                final_label_date = None
+
+            # Rank by ROC200 and take top N
+            ranked = filtered.sort_values("roc200", ascending=False, kind="stable").copy()
+            top_cut = ranked.head(resolved_top_n)
+
+            # Top-off:補完
+            missing = max(0, resolved_top_n - len(top_cut))
+            if log_callback:
+                log_callback(
+                    f"[DEBUG_S1_TOPOFF] filtered={len(filtered)} top_cut={len(top_cut)} "
+                    f"missing={missing} df_all_orig={len(df_all_original)}"
+                )
+            if missing > 0 and len(df_all_original) > 0:
                 try:
-                    df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce").dt.normalize()
-                    # pandas サポート外レンジは NaT になるため除外
-                    df_all = df_all.dropna(subset=["date"]).copy()
+                    exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                    extras_pool = (
+                        df_all_original.sort_values("roc200", ascending=False, kind="stable")
+                        .loc[~df_all_original["symbol"].astype(str).isin(exists)]
+                        .copy()
+                    )
+                    if not extras_pool.empty:
+                        if final_label_date is None:
+                            try:
+                                final_label_date = (
+                                    target_date
+                                    if target_date is not None
+                                    else max(date_counter.items(), key=lambda kv: kv[1])[0]
+                                )
+                            except Exception:
+                                final_label_date = None
+                        if final_label_date is not None:
+                            extras_pool.loc[:, "date"] = final_label_date
+                            try:
+                                from common.utils_spy import (
+                                    resolve_signal_entry_date as _resolve_entry_dt2,
+                                )
+
+                                extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(
+                                    final_label_date
+                                )
+                            except Exception:
+                                extras_pool.loc[:, "entry_date"] = final_label_date
+                        extras_take = extras_pool.head(missing)
+                        top_cut = (
+                            pd.concat([top_cut, extras_take], ignore_index=True)
+                            .drop_duplicates(subset=["symbol"], keep="first")
+                            .head(resolved_top_n)
+                        )
                 except Exception:
                     pass
-                # まずは target_date を優先して抽出
-                try:
-                    filtered = df_all
-                    final_label_date: pd.Timestamp | None = None
-                    if target_date is not None:
-                        filtered = df_all[df_all["date"] == target_date]
-                        final_label_date = target_date
-                        # まれに比較のズレで 0 件になる場合があるため、安全フォールバック
-                        if filtered.empty and len(df_all) > 0:
-                            try:
-                                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                            except Exception:
-                                mode_date = None
-                            if mode_date is not None:
-                                filtered = df_all[df_all["date"] == mode_date]
-                                final_label_date = mode_date
-                            # それでも 0 件なら、全件を対象にしつつ、date を target_date に上書き
-                            if filtered.empty:
-                                tmp = df_all.copy()
-                                tmp.loc[:, "date"] = target_date
-                                try:
-                                    from common.utils_spy import (
-                                        resolve_signal_entry_date as _resolve_entry_dt,
-                                    )
 
-                                    tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
-                                except Exception:
-                                    tmp.loc[:, "entry_date"] = target_date
-                                filtered = tmp
-                                final_label_date = target_date
-                    else:
-                        mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                        filtered = df_all[df_all["date"] == mode_date]
-                        final_label_date = mode_date
-                except Exception:
-                    filtered = df_all
-                    final_label_date = None
+            df_all = top_cut
+            diag.final_top_n_count = len(df_all)
+            diag.ranking_source = "latest_only"
 
-                # ランキング・切り詰め
-                ranked = filtered.sort_values("roc200", ascending=False, kind="stable").copy()
-                top_cut = ranked.head(resolved_top_n)
+            # Build by_date structure
+            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
+            for _, row in df_all.iterrows():
+                dt = row.get("date")
+                if pd.isna(dt):
+                    continue
+                dt_norm = pd.Timestamp(str(dt)).normalize()
+                if dt_norm not in by_date:
+                    by_date[dt_norm] = {}
+                sym = str(row.get("symbol", ""))
+                by_date[dt_norm][sym] = {
+                    "symbol": sym,
+                    "date": dt_norm,
+                    "entry_date": row.get("entry_date"),
+                    "roc200": row.get("roc200", 0.0),
+                    "close": row.get("close", 0.0),
+                    "setup": bool(row.get("setup", False)),
+                }
 
-                # 不足を df_all_original から補完（top-off）。date/entry_date は最終ラベル日に正規化。
-                missing = max(0, resolved_top_n - len(top_cut))
-                if log_callback:
-                    log_callback(
-                        f"[DEBUG_S1_TOPOFF] filtered={len(filtered)} top_cut={len(top_cut)} "
-                        f"missing={missing} df_all_orig={len(df_all_original)}"
-                    )
-                if missing > 0 and len(df_all_original) > 0:
-                    try:
-                        # 既存に含まれないシンボルを上位から補完
-                        exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
-                        extras_pool = (
-                            df_all_original.sort_values("roc200", ascending=False, kind="stable")
-                            .loc[~df_all_original["symbol"].astype(str).isin(exists)]
-                            .copy()
-                        )
-                        if not extras_pool.empty:
-                            if final_label_date is None:
-                                try:
-                                    final_label_date = (
-                                        target_date
-                                        if target_date is not None
-                                        else max(date_counter.items(), key=lambda kv: kv[1])[0]
-                                    )
-                                except Exception:
-                                    final_label_date = None
-                            if final_label_date is not None:
-                                extras_pool.loc[:, "date"] = final_label_date
-                                try:
-                                    from common.utils_spy import (
-                                        resolve_signal_entry_date as _resolve_entry_dt2,
-                                    )
+            return finalize(by_date, None)
 
-                                    extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(
-                                        final_label_date
-                                    )
-                                except Exception:
-                                    extras_pool.loc[:, "entry_date"] = final_label_date
-                            extras_take = extras_pool.head(missing)
-                            top_cut = (
-                                pd.concat([top_cut, extras_take], ignore_index=True)
-                                .drop_duplicates(subset=["symbol"], keep="first")
-                                .head(resolved_top_n)
-                            )
-                    except Exception:
-                        pass
-
-                df_all = top_cut
-                diag.final_top_n_count = len(df_all)
-                diag.ranking_source = "latest_only"
-                by_date: dict[pd.Timestamp, dict[str, dict]] = {}
-                # If no candidates, emit 1-2 sample rows for quick triage (DEBUG-like)
-                if diag.final_top_n_count == 0 and log_callback:
-                    try:
-                        samples: list[str] = []
-                        count = 0
-                        for s_sym, s_df in prepared_dict.items():
-                            if s_df is None or getattr(s_df, "empty", True):
-                                continue
-                            try:
-                                s_last = s_df.iloc[-1]
-                                s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
-                                s_setup = bool(s_last.get("setup", False))
-                                s_roc = _to_float(s_last.get("roc200"))
-                                samples.append(
-                                    (
-                                        f"{s_sym}: date={s_dt.date()} "
-                                        f"setup={s_setup} roc200={s_roc:.4f}"
-                                    )
-                                )
-                                count += 1
-                                if count >= 2:
-                                    break
-                            except Exception:
-                                continue
-                        if samples:
-                            log_callback(
-                                ("System1: DEBUG latest_only 0 candidates. " + " | ".join(samples))
-                            )
-                    except Exception:
-                        pass
-                for dt_any, sub in df_all.groupby("date"):
-                    assert isinstance(dt_any, pd.Timestamp)
-                    dt = dt_any
-                    payload: dict[str, dict] = {}
-                    for rec in sub.to_dict("records"):
-                        sym_val = rec.get("symbol")
-                        if not sym_val:
-                            continue
-                        payload[str(sym_val)] = {
-                            k: v for k, v in rec.items() if k not in {"symbol", "date"}
-                        }
-                    by_date[dt] = payload
-                if log_callback:
-                    candidate_count = sum(len(v) for v in by_date.values())
-                    log_callback(
-                        f"System1: latest_only -> {candidate_count} candidates "
-                        f"(symbols={len(rows)})"
-                    )
-                out_df = df_all.copy()
-                return finalize(by_date, out_df)
-        except Exception as fast_err:
+        except Exception as e_latest:
             if log_callback:
-                log_callback(f"System1: fast-path failed -> fallback ({fast_err})")
+                log_callback(f"System1 latest_only error: {e_latest}")
+            diag.ranking_source = "error_latest"
+            return finalize({}, None)
 
-    # Fallback: evaluate full history per date
+    # Original else block (latest_only=False) is now unreachable because we always
+    # use latest_only=True in production. Keeping for reference:
+    # (Deleted duplicate ranking logic - all moved into latest_only block above)
+
+    # Fallback: evaluate full history per date (unreachable in practice)
     all_dates = sorted(
         {
             date

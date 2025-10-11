@@ -71,7 +71,11 @@ from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
 from common.indicator_access import get_indicator, is_true, to_float
-from common.latest_day_validator import save_excluded_symbols_csv, validate_latest_trading_day
+from common.latest_day_validator import (
+    get_exclusion_stats,
+    save_excluded_symbols_csv,
+    validate_latest_trading_day,
+)
 from common.notification import notify_zero_trd_all_systems
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates

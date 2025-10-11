@@ -208,9 +208,23 @@ def generate_candidates_system4(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                # setup==True のみ採用（列が無ければ不採用）
-                if not bool(last_row.get("setup", False)):
+
+                # Use predicate-based evaluation (no setup column dependency)
+                try:
+                    from common.system_setup_predicates import system4_setup_predicate as _s4_pred
+                except Exception:
+                    _s4_pred = None
+
+                setup_ok = False
+                if _s4_pred is not None:
+                    try:
+                        setup_ok = bool(_s4_pred(last_row))
+                    except Exception:
+                        setup_ok = False
+
+                if not setup_ok:
                     continue
+
                 rsi4_val = last_row.get("rsi4", None)
                 try:
                     if rsi4_val is None or pd.isna(rsi4_val):

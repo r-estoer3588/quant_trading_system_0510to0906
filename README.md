@@ -323,9 +323,13 @@ ruff check .
 ruff check --fix .
 ```
 
-### Codacy について
+### 品質チェックの自動化
 
-Windows ネイティブで Codacy CLI が動作しない場合は WSL 経由での実行、または `ruff + mypy` の組み合わせを暫定利用します。
+プロジェクトはGitHub Actionsで自動品質チェックと修正を行います：
+
+- **push時に自動実行**: ruff/blackで自動修正してコミット
+- **ローカル開発**: pre-commitフックで即座にチェック
+- **詳細**: `.github/workflows/quality-check.yml` を参照
 
 ## 当日シグナル高速化 (latest_only 最適化)
 

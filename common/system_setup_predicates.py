@@ -35,6 +35,10 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import pandas as pd
 
+# Indicator access helper for case-insensitive column lookup
+from common.indicator_access import get_indicator
+from common.indicator_access import to_float as indicator_to_float
+
 # System5 の ATR% 閾値: core/system5.DEFAULT_ATR_PCT_THRESHOLD と揃える (循環依存回避のため再定義)
 DEFAULT_ATR_PCT_THRESHOLD: float = 0.025
 
@@ -43,14 +47,12 @@ DEFAULT_ATR_PCT_THRESHOLD: float = 0.025
 
 
 def _to_float(value: Any) -> float:
-    """安全な float 変換 (失敗 / NaN は math.nan)。"""
-    try:
-        v = float(value)
-        if math.isnan(v):
-            return math.nan
-        return v
-    except Exception:
-        return math.nan
+    """安全な float 変換 (失敗 / NaN は math.nan)。
+
+    Note: This is a legacy wrapper. For indicator values, prefer using
+    get_indicator() + indicator_to_float() for case-insensitive access.
+    """
+    return indicator_to_float(value)
 
 
 def _all_not_nan(values: list[float]) -> bool:
@@ -58,19 +60,28 @@ def _all_not_nan(values: list[float]) -> bool:
 
 
 # --- System1 -----------------------------------------------------------------
-# 条件: Close>=5, dollarvolume20>25M, Close>sma200, roc200>0
-# (filter + setup を 1 つに合成: 元コードでの filter & setup 連鎖と同値)
+# Phase 2 filter: Close>=5, dollarvolume20>=50M
+# Phase 6 setup: SMA25>SMA50, ROC200>0
+# This predicate combines both for complete evaluation
 
 
 def system1_setup_predicate(row: pd.Series) -> bool:
     try:
-        close = _to_float(row.get("Close"))
-        dv20 = _to_float(row.get("dollarvolume20"))
-        sma200 = _to_float(row.get("sma200"))
-        roc200 = _to_float(row.get("roc200"))
-        if not _all_not_nan([close, dv20, sma200, roc200]):
+        # Phase 2 filter (redundant safety check) - use case-insensitive access
+        close = indicator_to_float(get_indicator(row, "Close"))  # type: ignore[arg-type]
+        dv20 = indicator_to_float(get_indicator(row, "dollarvolume20"))  # type: ignore[arg-type]
+        if math.isnan(close) or math.isnan(dv20):
             return False
-        return (close >= 5.0) and (dv20 > 25_000_000) and (close > sma200) and (roc200 > 0.0)
+        if not (close >= 5.0 and dv20 >= 50_000_000):
+            return False
+
+        # Phase 6 setup (SMA trend + ROC200 momentum)
+        sma25 = indicator_to_float(get_indicator(row, "sma25"))  # type: ignore[arg-type]
+        sma50 = indicator_to_float(get_indicator(row, "sma50"))  # type: ignore[arg-type]
+        roc200 = indicator_to_float(get_indicator(row, "roc200"))  # type: ignore[arg-type]
+        if math.isnan(sma25) or math.isnan(sma50) or math.isnan(roc200):
+            return False
+        return (sma25 > sma50) and (roc200 > 0.0)
     except Exception:
         return False
 
@@ -163,6 +174,19 @@ def system7_setup_predicate(row: pd.Series) -> bool:
         return False
 
 
+# --- System6 (Short momentum) ------------------------------------------------
+# 条件: return_6d > 0.20 and uptwodays == True
+def system6_setup_predicate(row: pd.Series) -> bool:
+    try:
+        return_6d = _to_float(row.get("return_6d"))
+        uptwo = bool(row.get("uptwodays") or row.get("UpTwoDays"))
+        if math.isnan(return_6d):
+            return False
+        return (return_6d > 0.20) and uptwo
+    except Exception:
+        return False
+
+
 # --- 取得ヘルパ --------------------------------------------------------------
 SETUP_PREDICATES: Mapping[str, Callable[..., bool]] = {
     # 名前 / ID どちらでも取り出せるよう重複キーを用意
@@ -176,6 +200,8 @@ SETUP_PREDICATES: Mapping[str, Callable[..., bool]] = {
     "System4": system4_setup_predicate,
     "5": system5_setup_predicate,
     "System5": system5_setup_predicate,
+    "6": system6_setup_predicate,
+    "System6": system6_setup_predicate,
     "7": system7_setup_predicate,
     "System7": system7_setup_predicate,
 }
@@ -196,6 +222,7 @@ __all__ = [
     "system3_setup_predicate",
     "system4_setup_predicate",
     "system5_setup_predicate",
+    "system6_setup_predicate",
     "system7_setup_predicate",
     "get_system_setup_predicate",
     "SETUP_PREDICATES",
