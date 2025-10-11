@@ -240,18 +240,28 @@ def validate_predicate_equivalence(
 ) -> None:
     """`setup` 列と新 predicate の一致をサンプリング検証。
 
-    環境変数 VALIDATE_SETUP_PREDICATE が "1" 系以外なら何もしない。
+    環境変数 VALIDATE_SETUP_PREDICATE が有効でない場合は何もしない。
     速度影響を避けるため最大 sample_max 行までランダム抽出。
 
     ログ形式 (不一致時):
         [SystemX] setup predicate mismatch: mismatches=N sample=[SYM1,SYM2,...]
     """
-    if os.environ.get("VALIDATE_SETUP_PREDICATE", "").lower() not in {
-        "1",
-        "true",
-        "yes",
-    }:
-        return
+    # 型安全な環境変数アクセスに統一
+    try:
+        from config.environment import get_env_config  # 遅延 import で循環を避ける
+
+        env = get_env_config()
+        if not getattr(env, "validate_setup_predicate", False):
+            return
+    except Exception:
+        # 環境設定取得に失敗しても、従来互換のフォールバックで制御
+        if os.environ.get("VALIDATE_SETUP_PREDICATE", "").lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return
 
     pred_fn = get_system_setup_predicate(system_id)
 
@@ -299,7 +309,9 @@ def validate_predicate_equivalence(
     if mismatches and log_fn:
         try:
             log_fn(
-                f"[{system_id}] setup predicate mismatch: mismatches={len(mismatches)} sample={mismatches}"
+                f"[{system_id}] setup predicate mismatch: "
+                f"mismatches={len(mismatches)} "
+                f"sample={mismatches}"
             )
         except Exception:
             pass

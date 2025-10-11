@@ -11,6 +11,7 @@ from ta.volatility import AverageTrueRange
 from common.batch_processing import process_symbols_batch
 from common.i18n import tr
 from common.structured_logging import MetricsCollector
+from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import resolve_batch_size
 
 # System6 configuration constants
@@ -218,6 +219,9 @@ def prepare_data_vectorized_system6(
         skip_callback=skip_callback,
         system_name="System6",
     )
+
+    # Validate setup column vs predicate equivalence
+    validate_predicate_equivalence(results, "System6", log_fn=log_callback)
 
     return cast(dict[str, pd.DataFrame], results)
 

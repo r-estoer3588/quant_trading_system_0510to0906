@@ -12,7 +12,6 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 import math
-import os
 from typing import Any, Callable, DefaultDict, Mapping, cast
 
 import pandas as pd
@@ -20,7 +19,7 @@ import pandas as pd
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import REQUIRED_COLUMNS
-from common.system_setup_predicates import system1_setup_predicate
+from common.system_setup_predicates import system1_setup_predicate, validate_predicate_equivalence
 
 
 @dataclass(slots=True)
@@ -382,13 +381,13 @@ def prepare_data_vectorized_system1(
         if not log_callback:
             return
         try:
-            if (os.environ.get("ENABLE_SUBSTEP_LOGS") or "").lower() in {
-                "1",
-                "true",
-                "yes",
-            }:
+            # 型安全な環境変数アクセスに統一
+            from config.environment import get_env_config  # 遅延importで循環回避
+
+            if getattr(get_env_config(), "enable_substep_logs", False):
                 log_callback(f"System1: {msg}")
         except Exception:
+            # 失敗時は静かに無視（従来挙動と同等の安全側）
             pass
 
     _substep("enter prepare_data")
@@ -437,6 +436,9 @@ def prepare_data_vectorized_system1(
 
                 _substep(f"fast-path processed symbols={len(prepared_dict)}")
 
+                # Validate setup column vs predicate equivalence
+                validate_predicate_equivalence(prepared_dict, "System1", log_fn=log_callback)
+
                 return prepared_dict
 
         except RuntimeError:
@@ -481,6 +483,10 @@ def prepare_data_vectorized_system1(
     typed_results: dict[str, pd.DataFrame] = (
         cast(dict[str, pd.DataFrame], results) if isinstance(results, dict) else {}
     )
+
+    # Validate setup column vs predicate equivalence
+    validate_predicate_equivalence(typed_results, "System1", log_fn=log_callback)
+
     return typed_results
 
     # NOTE: predicate 検証呼び出しは結果返却前に行う設計だが、

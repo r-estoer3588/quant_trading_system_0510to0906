@@ -19,6 +19,7 @@ htmlcov/
 codacy_report/
 .codacy*
 codacy-analysis-cli*
+ruff_report.json
 
 # temp files
 *.tmp

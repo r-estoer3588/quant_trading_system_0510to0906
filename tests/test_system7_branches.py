@@ -10,7 +10,7 @@ Focus on:
 import numpy as np
 import pandas as pd
 
-from core.system7 import generate_candidates_system7
+from core.system7 import generate_candidates_system7, prepare_data_vectorized_system7
 
 
 class TestSystem7LatestOnlyBranches:
@@ -290,26 +290,44 @@ class TestSystem7NormalizationBranches:
     """Test normalization and ranking branches."""
 
     def create_spy_for_ranking(self):
-        """Create SPY data suitable for ranking tests."""
-        dates = pd.date_range("2023-01-01", periods=100, freq="D")
-        prices = np.linspace(400, 450, 100)
-        lows = [p * 0.992 for p in prices]
-        highs = [p * 1.008 for p in prices]
+        """Create SPY data suitable for ranking tests.
 
-        df_temp = pd.DataFrame({"Low": lows, "High": highs}, index=dates)
+        Designed so prepare_data_vectorized_system7 will generate real setup=True rows
+        based on Low <= min_50 condition.
+        """
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
+
+        # Use CONSTANT prices for first 60 days to stabilize min_50
+        prices = [450.0] * 60 + list(np.linspace(450, 400, 40))
+
+        # Normal lows for first 60 days
+        lows = [p * 0.995 for p in prices[:60]]
+
+        # Last 40 days: aggressive drop to guarantee Low < min_50
+        for i in range(60, 100):
+            # Start from 445 and go down to 390 (below 400)
+            lows.append(445 - (i - 60) * 1.5)
+
+        highs = [p * 1.005 for p in prices]
+
+        # Calculate rolling indicators
+        df_temp = pd.DataFrame({"Close": prices, "Low": lows, "High": highs}, index=dates)
         min_50 = df_temp["Low"].rolling(window=50, min_periods=1).min()
         max_70 = df_temp["High"].rolling(window=70, min_periods=1).max()
-
-        setup_vals = [False] * 90 + [True] * 10
 
         return pd.DataFrame(
             {
                 "Close": prices,
+                "Low": lows,
+                "High": highs,
+                # Required precomputed indicators
                 "atr50": [p * 0.02 for p in prices],
                 "ATR50": [p * 0.02 for p in prices],
                 "min_50": min_50.values,
+                "Min_50": min_50.values,
                 "max_70": max_70.values,
-                "setup": setup_vals,
+                "Max_70": max_70.values,
+                # setup will be recalculated by prepare_data
             },
             index=dates,
         )
@@ -317,7 +335,10 @@ class TestSystem7NormalizationBranches:
     def test_normalization_payload_construction(self):
         """Test payload construction in normalization (lines 373-379)."""
         spy_data = self.create_spy_for_ranking()
-        data_dict = {"SPY": spy_data}
+        raw_dict = {"SPY": spy_data}
+
+        # Prepare data first
+        data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
         normalized = result_tuple[0]
@@ -335,7 +356,10 @@ class TestSystem7NormalizationBranches:
     def test_ranking_columns_added(self):
         """Test rank and rank_total columns are added (lines 385-386)."""
         spy_data = self.create_spy_for_ranking()
-        data_dict = {"SPY": spy_data}
+        raw_dict = {"SPY": spy_data}
+
+        # Prepare data first
+        data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
         df_result = result_tuple[1]
@@ -348,7 +372,16 @@ class TestSystem7NormalizationBranches:
     def test_diagnostics_ranking_source_full_scan(self):
         """Test ranking_source is set to full_scan (line 394)."""
         spy_data = self.create_spy_for_ranking()
-        data_dict = {"SPY": spy_data}
+        raw_dict = {"SPY": spy_data}
+
+        # Prepare data first (let exception propagate if it fails)
+        data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+
+        # Verify setup rows exist after prepare_data
+        spy_prepared = data_dict.get("SPY")
+        assert spy_prepared is not None, f"SPY missing. Keys: {list(data_dict.keys())}"
+        setup_rows = spy_prepared[spy_prepared["setup"]]
+        assert len(setup_rows) > 0, f"No setup rows after prepare (count={len(setup_rows)})"
 
         # Explicitly use full_scan mode (latest_only=False)
         result_tuple = generate_candidates_system7(
