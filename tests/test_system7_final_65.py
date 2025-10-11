@@ -18,7 +18,7 @@ class TestSystem7FullScanNormalization:
 
     def create_spy_with_multiple_dates(self):
         """Create SPY data with setups on multiple dates.
-        
+
         Setup condition for System7: Low <= min_50
         """
         dates = pd.date_range("2023-01-01", periods=150, freq="D")
@@ -56,9 +56,7 @@ class TestSystem7FullScanNormalization:
         raw_data = {"SPY": spy_data}
 
         # Prepare data first
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         # Generate candidates with full_scan mode and diagnostics
         result_tuple = generate_candidates_system7(
@@ -85,9 +83,7 @@ class TestSystem7FullScanNormalization:
         spy_data = self.create_spy_with_multiple_dates()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(
             prepared_data, top_n=3, latest_only=False, include_diagnostics=False
@@ -137,9 +133,7 @@ class TestSystem7FullScanNormalization:
         )
 
         raw_data = {"SPY": spy_data}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(
             prepared_data, top_n=5, latest_only=False, include_diagnostics=True
@@ -159,7 +153,7 @@ class TestSystem7LatestOnlyLogCallback:
 
     def create_spy_for_latest_only_with_setup(self):
         """Create SPY data with setup on last day.
-        
+
         Setup condition for System7: Low <= min_50
         """
         dates = pd.date_range("2023-01-01", periods=100, freq="D")
@@ -217,7 +211,7 @@ class TestSystem7LatestOnlyDataConstruction:
 
     def create_spy_for_data_construction(self):
         """Create SPY data for testing data construction details.
-        
+
         Setup condition for System7: Low <= min_50
         """
         dates = pd.date_range("2023-01-01", periods=100, freq="D")
@@ -252,9 +246,7 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(
             prepared_data, top_n=5, latest_only=True, include_diagnostics=False
@@ -283,13 +275,9 @@ class TestSystem7LatestOnlyDataConstruction:
             spy_data = spy_data.drop(columns=["ATR50"])
 
         raw_data = {"SPY": spy_data}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True)
 
         candidates_dict = result_tuple[0]
 
@@ -306,9 +294,7 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         result_tuple = generate_candidates_system7(
             prepared_data, top_n=5, latest_only=True, include_diagnostics=True
@@ -329,13 +315,9 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True)
 
         candidates_dict = result_tuple[0]
         date_key = list(candidates_dict.keys())[0]

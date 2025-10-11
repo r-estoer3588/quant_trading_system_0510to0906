@@ -18,6 +18,8 @@
 
 ### 🔧 [技術文書](#technical-docs)
 
+- [キャッシュインデックス要件](./technical/cache_index_requirements.md) - Feather 形式の制約と日付インデックス変換
+- [候補数ゼロガイド](./technical/zero_candidates_guide.md) - System6 等で候補が出ない理由(正常動作)
 - [環境変数一覧](./technical/environment_variables.md) - 既定値と用途
 - [SPY/取引日ユーティリティ](./technical/spy_utils.md) - 営業日ヘルパの仕様
 

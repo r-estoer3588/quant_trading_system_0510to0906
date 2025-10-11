@@ -407,6 +407,14 @@ def prepare_data_vectorized_system1(
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
 
+                    # Ensure date index (if not already set)
+                    if "date" in x.columns and not isinstance(x.index, pd.DatetimeIndex):
+                        try:
+                            x["date"] = pd.to_datetime(x["date"])
+                            x = x.set_index("date", drop=False)
+                        except Exception:
+                            pass  # Keep original index if conversion fails
+
                     # Filter: Close>=5, DollarVolume20>25M（欠損は安全側に False）
                     try:
                         dv = x.get("dollarvolume20", pd.Series(index=x.index, dtype=float))
@@ -500,11 +508,7 @@ def generate_candidates_system1(
     Returns a tuple of (per-date candidates, merged dataframe,
     diagnostics when requested).
     """
-    print(
-        f"[DEBUG] generate_candidates_system1: latest_only={latest_only}, "
-        f"prepared_syms={len(prepared_dict) if prepared_dict else 0}"
-    )
-    if log_callback:
+    if kwargs and log_callback:
         ignored = ", ".join(sorted(map(str, kwargs.keys())))
         log_callback(f"System1: Ignoring unsupported kwargs -> {ignored}")
 
@@ -545,27 +549,19 @@ def generate_candidates_system1(
         return normalized, merged, diag_payload
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
-        print(
-            f"[DEBUG] System1 early return: prepared_dict type={type(prepared_dict)}, empty={not prepared_dict}"
-        )
         diag.symbols_total = len(prepared_dict or {})
         diag.ranking_source = mode
         if log_callback:
             log_callback("System1: No data provided for candidate generation")
         return finalize({}, None)
 
-    print(f"[DEBUG] System1: passed early return check, symbols_total={len(prepared_dict)}")
     diag.symbols_total = len(prepared_dict)
     diag.symbols_with_data = sum(
         1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
     )
 
-    print(
-        f"[DEBUG] System1: before if latest_only check, latest_only={latest_only}, type={type(latest_only)}"
-    )
     # Fast path: evaluate only the most recent bar per symbol
     if latest_only:
-        print("[DEBUG_S1_LATEST] ★★★ ENTERED latest_only block ★★★")
         if log_callback:
             log_callback(
                 f"[DEBUG_S1_LATEST] Entering latest_only block, "
@@ -634,7 +630,11 @@ def generate_candidates_system1(
                         date_val = target_date
                     else:
                         latest_idx_raw = df.index[-1]
-                        latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
+                        try:
+                            latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
+                        except Exception:
+                            diag.exclude_reasons["invalid_date"] += 1
+                            continue
                         lag_days: int | None = None
                         try:
                             if _td_lag is not None:
@@ -670,9 +670,7 @@ def generate_candidates_system1(
                     latest_idx_raw = df.index[-1]
                     try:
                         date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
-                    except Exception as e_date:
-                        print(f"[ERROR] Symbol {sym}: Failed to parse date from index[-1]={latest_idx_raw}, type={type(latest_idx_raw)}, str={str(latest_idx_raw)}")
-                        print(f"       Error: {e_date}")
+                    except Exception:
                         diag.exclude_reasons["invalid_date"] += 1
                         continue
                     try:
@@ -915,9 +913,6 @@ def generate_candidates_system1(
             return finalize(by_date, None)
 
         except Exception as e_latest:
-            import traceback
-            print(f"[ERROR] System1 latest_only exception: {e_latest}")
-            traceback.print_exc()
             if log_callback:
                 log_callback(f"System1 latest_only error: {e_latest}")
             diag.ranking_source = "error_latest"

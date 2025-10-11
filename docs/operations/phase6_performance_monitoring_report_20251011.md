@@ -1,7 +1,7 @@
 # Phase 6: パフォーマンス測定拡充 - 実装報告
 
-**実施日時**: 2025年10月11日 14:00 - 14:30  
-**実施内容**: メモリ・CPU・ディスクI/O詳細測定機能の追加
+**実施日時**: 2025 年 10 月 11 日 14:00 - 14:30  
+**実施内容**: メモリ・CPU・ディスク I/O 詳細測定機能の追加
 
 ---
 
@@ -9,24 +9,27 @@
 
 ### 1. PerformanceMonitor クラスの実装
 
-**新規ファイル**: `common/performance_monitor.py` (約360行)
+**新規ファイル**: `common/performance_monitor.py` (約 360 行)
 
 #### 主な機能
 
 1. **リソーススナップショット**:
+
    - メモリ使用量（RSS, VMS, 使用率%）
-   - CPU使用率（プロセス単位）
-   - ディスクI/O（読み込み/書き込みバイト数）
+   - CPU 使用率（プロセス単位）
+   - ディスク I/O（読み込み/書き込みバイト数）
    - スレッド数
 
 2. **フェーズごとの測定**:
+
    - コンテキストマネージャー `with monitor.measure("phase_name")` で簡単測定
    - 開始時と終了時のリソース差分を自動計算
    - duration_sec, memory_delta_mb, cpu_avg_percent, io_read_delta_mb, io_write_delta_mb
 
 3. **レポート生成**:
-   - JSON形式で詳細レポート出力
-   - システム情報（CPU数、総メモリ等）を記録
+
+   - JSON 形式で詳細レポート出力
+   - システム情報（CPU 数、総メモリ等）を記録
    - フェーズ別詳細とサマリー集計
 
 4. **psutil 依存**:
@@ -66,7 +69,7 @@ monitor.print_summary()
 
 ### 2. テストの実装
 
-**新規ファイル**: `tests/test_performance_monitor.py` (約180行)
+**新規ファイル**: `tests/test_performance_monitor.py` (約 180 行)
 
 #### テスト内容
 
@@ -76,10 +79,10 @@ monitor.print_summary()
 - ✅ 複数フェーズ測定テスト
 - ✅ レポート生成テスト
 - ✅ レポート保存テスト
-- ✅ メモリトラッキングテスト（10MB割り当てで検証）
+- ✅ メモリトラッキングテスト（10MB 割り当てで検証）
 - ✅ グローバルモニターテスト
-- ✅ psutil未インストール時の動作テスト
-- ✅ ResourceSnapshotテスト
+- ✅ psutil 未インストール時の動作テスト
+- ✅ ResourceSnapshot テスト
 
 #### テスト結果
 
@@ -98,27 +101,27 @@ Coverage: 73% (common/performance_monitor.py)
 - システム別実行時間
 - シンボル数
 - 候補数
-- キャッシュI/O回数（read_feather, read_csv, write_feather, write_csv）
+- キャッシュ I/O 回数（read_feather, read_csv, write_feather, write_csv）
 
 ### 新規（performance_monitor.py）
 
-| カテゴリ | メトリクス | 単位 | 説明 |
-|---------|----------|------|------|
-| **メモリ** | memory_rss_mb | MB | 物理メモリ使用量（Resident Set Size） |
-|  | memory_vms_mb | MB | 仮想メモリ使用量 |
-|  | memory_percent | % | メモリ使用率 |
-|  | memory_delta_mb | MB | フェーズ前後のメモリ増減 |
-|  | memory_peak_mb | MB | ピークメモリ使用量 |
-| **CPU** | cpu_percent | % | CPU使用率（プロセス単位） |
-|  | cpu_avg_percent | % | フェーズ平均CPU使用率 |
-| **ディスクI/O** | io_read_bytes | バイト | 累積読み込みバイト数 |
-|  | io_write_bytes | バイト | 累積書き込みバイト数 |
-|  | io_read_delta_mb | MB | フェーズ中の読み込み量 |
-|  | io_write_delta_mb | MB | フェーズ中の書き込み量 |
-| **プロセス** | num_threads | 個 | スレッド数 |
-| **システム** | cpu_count_logical | 個 | 論理CPU数 |
-|  | cpu_count_physical | 個 | 物理CPU数 |
-|  | total_memory_gb | GB | システム総メモリ |
+| カテゴリ         | メトリクス         | 単位   | 説明                                  |
+| ---------------- | ------------------ | ------ | ------------------------------------- |
+| **メモリ**       | memory_rss_mb      | MB     | 物理メモリ使用量（Resident Set Size） |
+|                  | memory_vms_mb      | MB     | 仮想メモリ使用量                      |
+|                  | memory_percent     | %      | メモリ使用率                          |
+|                  | memory_delta_mb    | MB     | フェーズ前後のメモリ増減              |
+|                  | memory_peak_mb     | MB     | ピークメモリ使用量                    |
+| **CPU**          | cpu_percent        | %      | CPU 使用率（プロセス単位）            |
+|                  | cpu_avg_percent    | %      | フェーズ平均 CPU 使用率               |
+| **ディスク I/O** | io_read_bytes      | バイト | 累積読み込みバイト数                  |
+|                  | io_write_bytes     | バイト | 累積書き込みバイト数                  |
+|                  | io_read_delta_mb   | MB     | フェーズ中の読み込み量                |
+|                  | io_write_delta_mb  | MB     | フェーズ中の書き込み量                |
+| **プロセス**     | num_threads        | 個     | スレッド数                            |
+| **システム**     | cpu_count_logical  | 個     | 論理 CPU 数                           |
+|                  | cpu_count_physical | 個     | 物理 CPU 数                           |
+|                  | total_memory_gb    | GB     | システム総メモリ                      |
 
 ---
 
@@ -146,7 +149,7 @@ parser.add_argument(
 - `phase3_filters`: フィルタ処理（Two-Phase）
 - `phase4_signals`: シグナル生成
 - `phase5_allocation`: 配分計算
-- `phase6_save`: CSV保存・通知
+- `phase6_save`: CSV 保存・通知
 
 ### Phase 6.3: レポート出力（次のタスク）
 
@@ -158,16 +161,16 @@ parser.add_argument(
 
 ## 🎯 達成状況
 
-| タスク | 状態 | 備考 |
-|--------|------|------|
-| PerformanceMonitor クラス実装 | ✅ 完了 | 360行、psutil依存 |
-| テスト実装 | ✅ 完了 | 11テスト、73%カバレッジ |
-| psutil未インストール対応 | ✅ 完了 | 自動無効化＋テスト |
-| レポートJSON出力 | ✅ 完了 | システム情報＋フェーズ詳細＋サマリー |
-| コンソールサマリー出力 | ✅ 完了 | print_summary() メソッド |
-| run_all_systems_today.py 統合 | ⏳ 次タスク | --detailed-perf フラグ追加 |
-| パイプライン各フェーズ測定 | ⏳ 次タスク | 主要6フェーズで測定 |
-| ドキュメント作成 | ✅ 完了 | 本レポート |
+| タスク                        | 状態        | 備考                                 |
+| ----------------------------- | ----------- | ------------------------------------ |
+| PerformanceMonitor クラス実装 | ✅ 完了     | 360 行、psutil 依存                  |
+| テスト実装                    | ✅ 完了     | 11 テスト、73%カバレッジ             |
+| psutil 未インストール対応     | ✅ 完了     | 自動無効化＋テスト                   |
+| レポート JSON 出力            | ✅ 完了     | システム情報＋フェーズ詳細＋サマリー |
+| コンソールサマリー出力        | ✅ 完了     | print_summary() メソッド             |
+| run_all_systems_today.py 統合 | ⏳ 次タスク | --detailed-perf フラグ追加           |
+| パイプライン各フェーズ測定    | ⏳ 次タスク | 主要 6 フェーズで測定                |
+| ドキュメント作成              | ✅ 完了     | 本レポート                           |
 
 ---
 
@@ -183,22 +186,22 @@ pip install psutil
 
 ### 2. パフォーマンスオーバーヘッド
 
-- **CPU測定**: 各スナップショットで0.1秒間隔のCPU測定実施（軽微なオーバーヘッド）
+- **CPU 測定**: 各スナップショットで 0.1 秒間隔の CPU 測定実施（軽微なオーバーヘッド）
 - **メモリ測定**: ほぼオーバーヘッドなし
-- **ディスクI/O**: プラットフォーム依存（Windows/Linux/macOSで挙動が異なる）
+- **ディスク I/O**: プラットフォーム依存（Windows/Linux/macOS で挙動が異なる）
 
 ### 3. プラットフォーム互換性
 
-- **Windows**: 完全サポート（ディスクI/O含む）
+- **Windows**: 完全サポート（ディスク I/O 含む）
 - **Linux**: 完全サポート
-- **macOS**: 基本サポート（一部I/Oカウンター未対応の可能性）
+- **macOS**: 基本サポート（一部 I/O カウンター未対応の可能性）
 
 ### 4. 既存の perf_snapshot との併用
 
 両方を同時に有効化可能：
 
-- `--perf-snapshot`: 既存の軽量測定（実行時間、キャッシュI/O回数）
-- `--detailed-perf`: 新規の詳細測定（メモリ、CPU、ディスクI/O）
+- `--perf-snapshot`: 既存の軽量測定（実行時間、キャッシュ I/O 回数）
+- `--detailed-perf`: 新規の詳細測定（メモリ、CPU、ディスク I/O）
 
 ---
 
@@ -207,26 +210,28 @@ pip install psutil
 ### 即座に実施可能
 
 1. **run_all_systems_today.py への統合**:
+
    - `--detailed-perf` フラグ追加
    - 各フェーズで `monitor.measure()` 実行
    - レポート自動保存
 
 2. **ベンチマークスクリプト作成**:
-   - Mini/Quick/Sample モードでパフォーマンス比較
-   - メモリ使用量の推移グラフ生成（Matplotlib等）
 
-3. **CI/CD統合**:
+   - Mini/Quick/Sample モードでパフォーマンス比較
+   - メモリ使用量の推移グラフ生成（Matplotlib 等）
+
+3. **CI/CD 統合**:
    - GitHub Actions でパフォーマンス回帰テスト
-   - PRごとにメモリ使用量の変化を自動レポート
+   - PR ごとにメモリ使用量の変化を自動レポート
 
 ---
 
 ## 📊 Phase 6 完了条件
 
 - [x] PerformanceMonitor クラス実装
-- [x] テスト実装（カバレッジ70%以上）
+- [x] テスト実装（カバレッジ 70%以上）
 - [x] psutil 未インストール対応
-- [x] レポートJSON出力機能
+- [x] レポート JSON 出力機能
 - [x] コンソールサマリー出力
 - [ ] run_all_systems_today.py 統合
 - [ ] パイプライン各フェーズ測定
@@ -240,8 +245,8 @@ pip install psutil
 
 ✅ **Phase 6 の基礎実装が完了しました**
 
-- PerformanceMonitor クラス: メモリ・CPU・ディスクI/Oの詳細測定機能を提供
-- 包括的なテスト: 11テスト全てPass、73%カバレッジ
+- PerformanceMonitor クラス: メモリ・CPU・ディスク I/O の詳細測定機能を提供
+- 包括的なテスト: 11 テスト全て Pass、73%カバレッジ
 - psutil 依存の適切な処理: 未インストール時も安全に動作
 
 次のタスクは `run_all_systems_today.py` への統合で、実際のパイプラインで測定を開始できます。
@@ -250,4 +255,4 @@ pip install psutil
 
 **実施者**: GitHub Copilot AI Agent  
 **完了日時**: 2025-10-11 14:30  
-**所要時間**: 約30分
+**所要時間**: 約 30 分

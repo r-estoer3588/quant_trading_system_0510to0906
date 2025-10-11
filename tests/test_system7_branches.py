@@ -350,7 +350,13 @@ class TestSystem7NormalizationBranches:
         spy_data = self.create_spy_for_ranking()
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        # Explicitly use full_scan mode (latest_only=False)
+        result_tuple = generate_candidates_system7(
+            data_dict,
+            top_n=5,
+            include_diagnostics=True,
+            latest_only=False,
+        )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         # Should indicate full_scan mode

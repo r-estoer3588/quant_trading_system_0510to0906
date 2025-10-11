@@ -230,9 +230,9 @@ mypy --config-file mypy.ini common/system_setup_predicates.py core/system1.py
 
 **実装手順**:
 
-1. **GitHub Actions自動化**:
+1. **GitHub Actions 自動化**:
 
-GitHub Actionsが自動的にruff/blackで品質チェックと修正を実行します（`.github/workflows/quality-check.yml`）。
+GitHub Actions が自動的に ruff/black で品質チェックと修正を実行します（`.github/workflows/quality-check.yml`）。
 
 2. **ローカル検証**:
 
@@ -246,7 +246,7 @@ python -m ruff check . --fix
 python -m black core common strategies scripts
 ```
 
-3. **pre-commitフック**:
+3. **pre-commit フック**:
 
 コミット前に自動実行されます：
 

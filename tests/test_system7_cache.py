@@ -184,11 +184,10 @@ class TestSystem7LatestOnlyEdgeCases:
         from core.system7 import generate_candidates_system7
 
         spy_data = self.create_spy_data_minimal(setup_today=True).copy()
-        # Remove ATR50 columns if they exist
-        if "atr50" in spy_data.columns:
-            spy_data = spy_data.drop(columns=["atr50"])
-        if "ATR50" in spy_data.columns:
-            spy_data = spy_data.drop(columns=["ATR50"])
+        # Remove ATR50 columns by creating new DataFrame without them
+        spy_data = pd.DataFrame(
+            {col: spy_data[col] for col in spy_data.columns if col not in ["atr50", "ATR50"]}
+        )
 
         data_dict = {"SPY": spy_data}
 
@@ -206,9 +205,8 @@ class TestSystem7LatestOnlyEdgeCases:
         from core.system7 import generate_candidates_system7
 
         spy_data = self.create_spy_data_minimal(setup_today=True).copy()
-        # Remove Close column if it exists
-        if "Close" in spy_data.columns:
-            spy_data = spy_data.drop(columns=["Close"])
+        # Remove Close column by creating new DataFrame without it
+        spy_data = pd.DataFrame({col: spy_data[col] for col in spy_data.columns if col != "Close"})
 
         data_dict = {"SPY": spy_data}
 

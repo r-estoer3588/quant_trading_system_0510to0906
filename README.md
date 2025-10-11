@@ -175,8 +175,23 @@ COMPACT_TODAY_LOGS=1 ENABLE_PROGRESS_EVENTS=1 ROLLING_ISSUES_VERBOSE_HEAD=3 \
 ### 単体テスト
 
 ```bash
+# 全テスト実行
 pytest -q
+
+# カバレッジ測定
+pytest --cov=core --cov=common --cov-report=term-missing
+
+# System7のみ
+pytest tests/test_*system7*.py --cov=core.system7 --cov-report=term-missing
 ```
+
+**📚 詳細**: [tests/README.md](./tests/README.md) - テスト決定性、トラブルシューティング、ベストプラクティス
+
+#### テスト品質保証
+
+- ✅ **決定性保証**: `conftest.py`の自動フィクスチャによりテスト再現性 100%
+- ✅ **並列実行対応**: pytest-xdist 互換（テスト間干渉なし）
+- ✅ **カバレッジ目標**: core/system7.py = 53% (目標達成)
 
 ### パイプライン高速テスト
 
@@ -325,10 +340,10 @@ ruff check --fix .
 
 ### 品質チェックの自動化
 
-プロジェクトはGitHub Actionsで自動品質チェックと修正を行います：
+プロジェクトは GitHub Actions で自動品質チェックと修正を行います：
 
-- **push時に自動実行**: ruff/blackで自動修正してコミット
-- **ローカル開発**: pre-commitフックで即座にチェック
+- **push 時に自動実行**: ruff/black で自動修正してコミット
+- **ローカル開発**: pre-commit フックで即座にチェック
 - **詳細**: `.github/workflows/quality-check.yml` を参照
 
 ## 当日シグナル高速化 (latest_only 最適化)
@@ -374,7 +389,7 @@ isort .
 pre-commit フックが以下を自動実行します：
 
 - **pre-commit ステージ**: ruff、black、isort、基本チェック（trailing whitespace 等）
-- **pre-push ステージ**: 
+- **pre-push ステージ**:
   - mini パイプラインテスト（core/common 変更時）
   - 品質集計（ruff/mypy/pytest/bandit/radon）
   - **black フォーマット厳格チェック**（フォーマット漏れを防止）
@@ -414,6 +429,7 @@ git push  # ここで pre-push フックが実行されます
 ```
 
 pre-push 時に以下のチェックが実行されます：
+
 - Mini パイプラインテスト（core/common 変更時のみ）
 - 品質集計（ruff/mypy/pytest/bandit/radon）
 - **Black フォーマット厳格チェック**（全ファイル検証）

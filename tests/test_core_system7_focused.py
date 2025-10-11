@@ -131,10 +131,25 @@ class TestSystem7DataPreparation:
         spy_data = self.create_valid_spy_data()
         raw_data = {"SPY": spy_data}
 
-        result = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
+        # Debug: capture skip messages
+        skip_messages = []
+
+        def capture_skip(msg):
+            skip_messages.append(msg)
+
+        result = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False, skip_callback=capture_skip
+        )
+
+        # Debug: print skip messages if result is empty
+        if not result or "SPY" not in result:
+            print(f"DEBUG: skip_messages = {skip_messages}")
+            print(f"DEBUG: spy_data.columns = {list(spy_data.columns)}")
+            print(f"DEBUG: spy_data shape = {spy_data.shape}")
+            print(f"DEBUG: spy_data.index = {spy_data.index[:5]}")
 
         assert isinstance(result, dict)
-        assert "SPY" in result
+        assert "SPY" in result, f"SPY not in result. Skip messages: {skip_messages}"
         assert isinstance(result["SPY"], pd.DataFrame)
 
         # Check required columns are present

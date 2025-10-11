@@ -6,6 +6,9 @@
 
 ### Added
 
+- **System1-7 Predicate Integration**: `common/system_setup_predicates.py` に全システムの Setup predicate 関数を実装し、`core/system{1-7}.py` で統合
+- **System1 DatetimeIndex Fix**: `cache_manager.load_base()` 返却データを DatetimeIndex に明示変換し、"year 10312" エラーを解決
+- **Technical Documentation**: Feather フォーマット要件 (`docs/technical/cache_index_requirements.md`) と System6 閾値ガイド (`docs/technical/zero_candidates_guide.md`) を追加
 - **Diagnostics API**: 統一キー（`setup_predicate_count`, `final_top_n_count`, `ranking_source`）を全システム(System1-7)に導入
 - **Setup Predicates**: `common/system_setup_predicates.py` に共通 predicate 関数を実装
 - **Snapshot Export**: `tools/export_diagnostics_snapshot.py` で診断情報を JSON 出力
@@ -15,21 +18,32 @@
 
 ### Changed
 
+- **System1-7 Setup Validation**: 全システムで predicate 関数による Setup 判定に統一（DRY 原則、テスト容易性向上）
+- **System7 Code Cleanup**: `core/system7.py` から pytest-cov 非互換コード（lines 124-128）を削除
 - **Test Mode Freshness**: Mini/Quick/Sample モード時のデータ鮮度許容を 365 日に緩和（`scripts/run_all_systems_today.py`）
 - **System6 Filter**: HV50 条件を two-phase フィルタに統合
 - **Diagnostics Enrichment**: Systems 1-7 で統一キーを出力（System6 は別タスクで統合予定）
 
 ### Fixed
 
+- **System1 "year 10312" Error**: `core/system1.py` で DatetimeIndex への明示変換を追加（lines 411-418）
+- **pytest-cov Compatibility**: `tests/test_system7_cache.py` で pandas `.reindex()` を使用し、NumPy `_NoValueType` エラーを回避
 - **SPY Rolling Cache**: テストモードで SPY が読み込まれない問題を修正（freshness_tolerance 緩和）
 
 ### Tests
 
+- **System7 Coverage Improvement**: 52% → 61% カバレッジ向上（44 テスト全 PASS）
+- **Pytest-cov Issue Resolution**: カバレッジ測定時のテスト失敗を修正（推奨: `pytest -q` でカバレッジなし実行）
 - **Parametric Diagnostics Tests**: `tests/diagnostics/test_diagnostics_param_all_systems.py` で Systems 1-7 を網羅
 - **Minimal Diagnostics Tests**: 個別システムの diagnostics 形式を検証
 
 ### Documentation
 
+- **Cache Index Requirements**: `docs/technical/cache_index_requirements.md` で Feather フォーマット制約と DatetimeIndex 要件を解説
+- **Zero Candidates Guide**: `docs/technical/zero_candidates_guide.md` で System6 閾値問題とテスト環境設定を説明
+- **System6 Threshold Warning**: `docs/systems/システム6.txt` にテスト環境閾値の警告を追加
+- **Technical README**: `docs/technical/README.md` と `docs/README.md` に新規ドキュメントリンクを追加
+- **Implementation Review**: `TASK/implementation_review_report_20251011.md` で System1-7 Predicate Integration の包括的レビューを記録
 - **Diagnostics API**: `docs/technical/diagnostics.md` に仕様と使用例を追加
 - **README**: Diagnostics 機能の紹介セクション追加
 - **CHANGELOG**: Phase0-7 の変更内容を記録
