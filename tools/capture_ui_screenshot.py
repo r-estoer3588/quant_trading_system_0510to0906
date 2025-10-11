@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 import sys
 import time
+from typing import Literal
 
 
 def capture_streamlit_screenshot(
@@ -19,6 +20,8 @@ def capture_streamlit_screenshot(
     wait_after_click: int = 15,
     scroll_to_bottom: bool = True,
     headless: bool = True,
+    wait_for_user: bool = False,
+    color_scheme: Literal["dark", "light", "no-preference"] = "dark",
 ) -> bool:
     """Streamlit UI のスクリーンショットを取得。
 
@@ -30,6 +33,8 @@ def capture_streamlit_screenshot(
         wait_after_click: ボタンクリック後の待機時間（秒）
         scroll_to_bottom: 最下部までスクロールするか（デフォルト: True）
         headless: ヘッドレスモード（False でブラウザ表示）
+        wait_for_user: ユーザーが Enter を押すまで待機
+        color_scheme: ブラウザのカラースキーム（'dark' または 'light'）
 
     Returns:
         成功した場合 True
@@ -45,11 +50,40 @@ def capture_streamlit_screenshot(
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
-            page = browser.new_page(viewport={"width": 1920, "height": 1080})
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},  # 標準的なビューポート
+                color_scheme=color_scheme,
+            )
+            page = context.new_page()
 
             print(f"Loading: {url}")
             page.goto(url, wait_until="networkidle", timeout=30000)
             time.sleep(wait_seconds)
+
+            # Streamlit の CSS とコンポーネントの読み込みを待機
+            print("Waiting for Streamlit to fully render...")
+            try:
+                # 1. Streamlit のメインコンテナが表示されるまで待機
+                page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=10000)
+
+                # 2. すべてのリソースとネットワーク読み込み完了を待機
+                page.wait_for_load_state("load")
+                page.wait_for_load_state("networkidle")
+
+                # 3. Streamlit の columns 要素がレンダリングされるまで待機
+                # （columns はページの主要なレイアウト要素）
+                print("Waiting for Streamlit columns to render...")
+                page.wait_for_selector('[data-testid="column"]', timeout=5000)
+
+                # 4. Streamlit の内部 JavaScript とレイアウト計算完了
+                # Streamlit は React ベースで非同期レンダリングするため
+                # 十分な時間を確保
+                time.sleep(5)
+
+            except Exception as e:
+                print(f"Warning: Streamlit component detection failed: {e}")
+                # フォールバック：さらに長く待機
+                time.sleep(8)
 
             # ボタンクリック（オプション）
             if click_button:
@@ -58,26 +92,49 @@ def capture_streamlit_screenshot(
                     # Streamlit のボタンを探してクリック
                     button = page.get_by_role("button", name=click_button).first
                     button.click()
-                    print(f"Waiting {wait_after_click}s for results...")
 
-                    # 進行状況バーが消えるまで待機
-                    page.wait_for_selector(
-                        '[data-testid="stStatusWidget"]',
-                        state="hidden",
-                        timeout=wait_after_click * 1000,
-                    )
-                    time.sleep(2)  # 追加の安定化待機
+                    if wait_for_user:
+                        print("\n" + "=" * 60)
+                        print("ボタンをクリックしました。")
+                        print("処理が完了したら Enter キーを押してください...")
+                        print("=" * 60)
+                        input()
+
+                        # ユーザー入力後も Streamlit の再レンダリングを待機
+                        print("Waiting for Streamlit to re-render...")
+                        time.sleep(3)
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                        time.sleep(2)
+
+                    else:
+                        print(f"Waiting {wait_after_click}s for results...")
+                        # 進行状況バーが消えるまで待機
+                        page.wait_for_selector(
+                            '[data-testid="stStatusWidget"]',
+                            state="hidden",
+                            timeout=wait_after_click * 1000,
+                        )
+                        # Streamlit の結果表示後の再レンダリング完了を待機
+                        time.sleep(3)
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                        time.sleep(2)
 
                 except Exception as e:
                     print(f"Button click warning: {e}")
                     # ボタンが見つからなくてもスクリーンショットは撮る
-                    time.sleep(wait_after_click)
+                    if not wait_for_user:
+                        time.sleep(wait_after_click)
 
             # 最下部までスクロール（オプション）
             if scroll_to_bottom:
                 print("Scrolling to bottom...")
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(1)
+
+            # コンテンツの実際のサイズを取得
+            content_width = page.evaluate("document.body.scrollWidth")
+            content_height = page.evaluate("document.body.scrollHeight")
+            print(f"Content size: {content_width}x{content_height} px " f"(viewport: 1920x1080)")
 
             # フルページスクリーンショット
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +187,16 @@ def main() -> None:
         action="store_true",
         help="Show browser window (headful mode for debugging)",
     )
+    parser.add_argument(
+        "--wait-for-user",
+        action="store_true",
+        help="Wait for user to press Enter before taking screenshot",
+    )
+    parser.add_argument(
+        "--light-mode",
+        action="store_true",
+        help="Use light color scheme (default is dark)",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[1]
@@ -143,6 +210,8 @@ def main() -> None:
         args.wait_after_click,
         not args.no_scroll,
         headless=not args.show_browser,
+        wait_for_user=args.wait_for_user,
+        color_scheme="light" if args.light_mode else "dark",
     )
     sys.exit(0 if success else 1)
 

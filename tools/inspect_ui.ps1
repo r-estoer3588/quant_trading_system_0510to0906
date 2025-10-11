@@ -40,10 +40,14 @@ import time
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)
-    page = browser.new_page(viewport={'width': 1920, 'height': 1080})
+    context = browser.new_context(
+        viewport={'width': 1920, 'height': 1080},
+        color_scheme='dark'
+    )
+    page = context.new_page()
     page.goto('$Url')
 
-    print('Inspector が開きました。調査が終わったらブラウザを閉じてください。')
+    print('Inspector が開きました（ダークモード、1920x1080）。調査が終わったらブラウザを閉じてください。')
     page.pause()  # Inspector を開く
 
     browser.close()
