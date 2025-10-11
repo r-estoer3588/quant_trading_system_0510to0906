@@ -5482,6 +5482,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="パイプライン全体のフェーズ別実行時間を計測し logs/perf にレポート保存",
     )
     parser.add_argument(
+        "--detailed-perf",
+        action="store_true",
+        help="詳細パフォーマンス測定（メモリ、CPU、ディスクI/O）を有効化し logs/perf に保存",
+    )
+    parser.add_argument(
         "--test-mode",
         choices=["mini", "quick", "sample", "test_symbols"],
         help="テスト用モード: mini=10銘柄 / quick=50銘柄 / sample=100銘柄 / test_symbols=架空銘柄",
@@ -5538,6 +5543,18 @@ def run_signal_pipeline(
     except Exception:
         pass
 
+    # PerformanceMonitor の初期化（--detailed-perf 指定時のみ有効化）
+    perf_monitor = None
+    if getattr(args, "detailed_perf", False):
+        try:
+            from common.performance_monitor import enable_global_monitor
+
+            perf_monitor = enable_global_monitor()
+            _log("📊 詳細パフォーマンス測定を有効化しました")
+        except Exception as e:  # pragma: no cover - 安全フォールバック
+            _log(f"⚠️ PerformanceMonitor初期化失敗: {e}")
+            perf_monitor = None
+
     perf = None
     if getattr(args, "perf_snapshot", False):
         try:
@@ -5548,30 +5565,56 @@ def run_signal_pipeline(
             perf = None
 
     from typing import ContextManager
+    from contextlib import nullcontext
 
     cm: ContextManager[Any]
     if perf is not None:
         cm = perf.run(latest_only=latest_only_flag)
     else:
         # ダミー contextmanager: 必ずインスタンスを作成 (関数参照をそのまま with しない)
-        from contextlib import nullcontext
-
         cm = nullcontext()
 
     with cm:
-        result = compute_today_signals(
-            args.symbols,
-            slots_long=args.slots_long,
-            slots_short=args.slots_short,
-            capital_long=args.capital_long,
-            capital_short=args.capital_short,
-            save_csv=args.save_csv,
-            csv_name_mode=args.csv_name_mode,
-            parallel=args.parallel,
-            test_mode=getattr(args, "test_mode", None),
-            skip_external=getattr(args, "skip_external", False),
-            skip_latest_check=getattr(args, "skip_latest_check", False),
-        )
+        # PerformanceMonitor でパイプライン全体を測定
+        perf_cm: ContextManager[Any]
+        if perf_monitor is not None:
+            perf_cm = perf_monitor.measure("pipeline_overall")
+        else:
+            perf_cm = nullcontext()
+
+        with perf_cm:
+            result = compute_today_signals(
+                args.symbols,
+                slots_long=args.slots_long,
+                slots_short=args.slots_short,
+                capital_long=args.capital_long,
+                capital_short=args.capital_short,
+                save_csv=args.save_csv,
+                csv_name_mode=args.csv_name_mode,
+                parallel=args.parallel,
+                test_mode=getattr(args, "test_mode", None),
+                skip_external=getattr(args, "skip_external", False),
+                skip_latest_check=getattr(args, "skip_latest_check", False),
+            )
+
+    # PerformanceMonitor のレポート保存とサマリー出力
+    if perf_monitor is not None:
+        try:
+            from datetime import datetime
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            perf_dir = Path("logs/perf")
+            perf_dir.mkdir(parents=True, exist_ok=True)
+            report_path = perf_dir / f"detailed_metrics_{timestamp}.json"
+
+            perf_monitor.save_report(str(report_path))
+            _log(f"📊 詳細パフォーマンスレポート保存: {report_path}")
+
+            # コンソールにサマリー出力
+            perf_monitor.print_summary()
+        except Exception as e:
+            _log(f"⚠️ PerformanceMonitorレポート保存失敗: {e}")
+
     # 戻り値がNoneの場合のフォールバック
     if result is None:
         return pd.DataFrame(), {}
