@@ -147,7 +147,7 @@ cd C:\Repos\quant_trading_system
 - **Slack/Discord 通知**: 失敗時の自動通知
 - **scheduled_daily_update.py 統一**: 既存スクリプトから新ラッパーを呼ぶ
 - **祝日カレンダー対応**: 米国祝日の正確な判定
-- **GitHub Actions拡張**: セキュリティスキャン（Trivy等）の追加
+- **GitHub Actions 拡張**: セキュリティスキャン（Trivy 等）の追加
 
 ## トラブルシューティング
 

@@ -121,11 +121,6 @@ def prepare_data_vectorized_system7(
                     result_df.reset_index().to_feather(cache_path)
             except Exception:
                 pass
-        # 原データに max_70 が含まれている場合はそれを最優先で反映（テスト互換のため）
-        if "max_70" in df.columns and not df["max_70"].isna().all():
-            common_idx = df.index.intersection(result_df.index)
-            if len(common_idx) > 0:
-                result_df.loc[common_idx, "max_70"] = df.loc[common_idx, "max_70"]
         # テスト互換: 返却範囲は入力 df のインデックスに厳密一致させる
         try:
             result_df = result_df.reindex(df.index)

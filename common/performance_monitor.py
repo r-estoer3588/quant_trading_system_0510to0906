@@ -8,12 +8,12 @@ Phase 6で導入。既存のperf_snapshotに加えて、以下を測定：
 
 使用例:
     from common.performance_monitor import PerformanceMonitor
-    
+
     monitor = PerformanceMonitor(enabled=True)
     with monitor.measure("phase_name"):
         # 処理実行
         pass
-    
+
     # 結果取得
     report = monitor.get_report()
     monitor.save_report("logs/perf/detailed_metrics.json")
@@ -21,14 +21,14 @@ Phase 6で導入。既存のperf_snapshotに加えて、以下を測定：
 
 from __future__ import annotations
 
-import json
-import os
-import platform
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+import os
 from pathlib import Path
+import platform
+import time
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 if TYPE_CHECKING:
@@ -77,17 +77,11 @@ class PhaseMetrics:
 
     def finalize(self) -> None:
         """終了スナップショットから計算値を導出。"""
-        if (
-            self.end_time is None
-            or self.start_snapshot is None
-            or self.end_snapshot is None
-        ):
+        if self.end_time is None or self.start_snapshot is None or self.end_snapshot is None:
             return
 
         self.duration_sec = self.end_time - self.start_time
-        self.memory_delta_mb = (
-            self.end_snapshot.memory_rss_mb - self.start_snapshot.memory_rss_mb
-        )
+        self.memory_delta_mb = self.end_snapshot.memory_rss_mb - self.start_snapshot.memory_rss_mb
         self.memory_peak_mb = max(
             self.start_snapshot.memory_rss_mb, self.end_snapshot.memory_rss_mb
         )
@@ -98,12 +92,8 @@ class PhaseMetrics:
         ) / 2.0
 
         # I/O差分（MB単位）
-        io_read_delta = (
-            self.end_snapshot.io_read_bytes - self.start_snapshot.io_read_bytes
-        )
-        io_write_delta = (
-            self.end_snapshot.io_write_bytes - self.start_snapshot.io_write_bytes
-        )
+        io_read_delta = self.end_snapshot.io_read_bytes - self.start_snapshot.io_read_bytes
+        io_write_delta = self.end_snapshot.io_write_bytes - self.start_snapshot.io_write_bytes
         self.io_read_delta_mb = io_read_delta / (1024 * 1024)
         self.io_write_delta_mb = io_write_delta / (1024 * 1024)
 

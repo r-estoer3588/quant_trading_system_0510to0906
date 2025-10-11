@@ -398,8 +398,9 @@ class TestSystem7DateGroupingDetailedBranches:
     def test_date_grouping_atr_val_exception_handling(self):
         """Test ATR value exception handling (lines 331-333)."""
         spy_data = self.create_spy_multiple_dates(setup_count=3)
-        # Remove ATR columns to trigger exception path
-        spy_data = spy_data.drop(columns=["ATR50", "atr50"], errors="ignore")
+        # Remove ATR columns to trigger exception path (pandas 2.x compatible)
+        cols_to_keep = [c for c in spy_data.columns if c not in ["ATR50", "atr50"]]
+        spy_data = pd.DataFrame(spy_data, columns=cols_to_keep)
 
         data_dict = {"SPY": spy_data}
 

@@ -48,9 +48,9 @@ if sys.platform == "win32":
     try:
         # reconfigure が利用可能な Python のみ直接切り替え
         if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]  # hasattr() でチェック済み
         if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+            sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]  # hasattr() でチェック済み
     except (AttributeError, io.UnsupportedOperation):
         # Fallback: Windows cp932 を回避するために UTF-8 ラッパを被せる
         import codecs
@@ -3482,6 +3482,20 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     _log("🔧 デバッグ: compute_today_signals開始")
 
+    # PerformanceMonitor のグローバルインスタンスを取得（--detailed-perf有効時のみ存在）
+    perf_monitor = None
+    try:
+        from common.performance_monitor import get_global_monitor
+
+        perf_monitor = get_global_monitor()
+    except Exception:
+        pass
+
+    # Phase 0: 初期化・設定ロード
+    _phase0_measure = perf_monitor.measure("phase0_initialization") if perf_monitor else None
+    if _phase0_measure:
+        _phase0_measure.__enter__()
+
     ctx = _initialize_run_context(
         slots_long=slots_long,
         slots_short=slots_short,
@@ -3511,6 +3525,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
     except Exception:
         pass
+
+    if _phase0_measure:
+        _phase0_measure.__exit__(None, None, None)
 
     _run_id = ctx.run_id
     # settings = ctx.settings  # Unused variable removed
@@ -3640,8 +3657,25 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         except Exception:
             pass
 
+    # Phase 1: シンボルユニバース構築
+    _phase1_measure = perf_monitor.measure("phase1_symbol_universe") if perf_monitor else None
+    if _phase1_measure:
+        _phase1_measure.__enter__()
+
     symbols = _prepare_symbol_universe(ctx, symbols)
+
+    if _phase1_measure:
+        _phase1_measure.__exit__(None, None, None)
+
+    # Phase 2: データロード（rolling cache）
+    _phase2_measure = perf_monitor.measure("phase2_data_loading") if perf_monitor else None
+    if _phase2_measure:
+        _phase2_measure.__enter__()
+
     basic_data = _load_universe_basic_data(ctx, symbols)
+
+    if _phase2_measure:
+        _phase2_measure.__exit__(None, None, None)
 
     # ✨ NEW: Phase 0 - 最新営業日チェック（rolling cache の鮮度確認）
     if not skip_latest_check:
@@ -3695,17 +3729,15 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             # 進捗イベント送出（Streamlit UI で可視化）
             if stale_details:
                 try:
-                    progress_emitter = ProgressEventEmitter()
-                    progress_emitter.emit(
-                        event_type="phase0_exclusion_stats",
-                        data={
+                    emit_progress_event(
+                        "phase0_exclusion_stats",
+                        {
                             "total_symbols": total_symbols,
                             "valid_symbols": len(symbols),
                             "excluded_count": excluded_count,
                             "expected_date": expected_base_day.date().isoformat(),
                             "reason_breakdown": reason_counts,
                         },
-                        level="info",
                     )
                 except Exception as e:
                     _log(f"⚠️  進捗イベント送出エラー: {e}")
@@ -3811,6 +3843,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         _log(f"⚠️  指標チェック処理でエラー: {e}")
         # チェック処理自体のエラーは継続（後方互換性）
 
+    # Phase 3: Two-Phaseフィルタリング
+    _phase3_measure = perf_monitor.measure("phase3_filtering") if perf_monitor else None
+    if _phase3_measure:
+        _phase3_measure.__enter__()
+
     _log("🧪 事前フィルター実行中 (system1〜system6)…")
 
     # フィルター開始前に各システムの進捗を0%にリセット
@@ -3850,6 +3887,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         "system5": system5_syms,
         "system6": system6_syms,
     }
+
+    if _phase3_measure:
+        _phase3_measure.__exit__(None, None, None)
 
     # フィルター処理完了後に各システムの進捗を25%に更新
     try:
@@ -4444,6 +4484,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     ]
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
 
+    # Phase 4: シグナル生成（System 1-7）
+    _phase4_measure = perf_monitor.measure("phase4_signal_generation") if perf_monitor else None
+    if _phase4_measure:
+        _phase4_measure.__enter__()
+
     # 各システムの当日シグナル抽出を並列実行
     _log("🚀 各システムの当日シグナル抽出を開始")
 
@@ -4734,6 +4779,15 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     ctx.per_system_frames = dict(per_system)
     # メトリクス概要計算
 
+    # Phase 4測定終了
+    if _phase4_measure:
+        _phase4_measure.__exit__(None, None, None)
+
+    # Phase 5: 配分計算
+    _phase5_measure = perf_monitor.measure("phase5_allocation") if perf_monitor else None
+    if _phase5_measure:
+        _phase5_measure.__enter__()
+
     # === Allocation & Final Assembly ===
     # ここで per_system から最終候補 (final_df) を構築し AllocationSummary を取得する。
     try:
@@ -4857,6 +4911,10 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             progress_callback(7, 8, "finalize")
         except Exception:
             pass
+
+    # Phase 5測定終了
+    if _phase5_measure:
+        _phase5_measure.__exit__(None, None, None)
 
     # Phase5: Zero TRD escalation notification
     try:
@@ -5544,16 +5602,14 @@ def run_signal_pipeline(
         pass
 
     # PerformanceMonitor の初期化（--detailed-perf 指定時のみ有効化）
-    perf_monitor = None
     if getattr(args, "detailed_perf", False):
         try:
             from common.performance_monitor import enable_global_monitor
 
-            perf_monitor = enable_global_monitor()
+            _perf_monitor = enable_global_monitor()  # noqa: F841 - グローバルモニター初期化のみ
             _log("📊 詳細パフォーマンス測定を有効化しました")
         except Exception as e:  # pragma: no cover - 安全フォールバック
             _log(f"⚠️ PerformanceMonitor初期化失敗: {e}")
-            perf_monitor = None
 
     perf = None
     if getattr(args, "perf_snapshot", False):
@@ -5564,8 +5620,8 @@ def run_signal_pipeline(
         except Exception:  # pragma: no cover - 安全フォールバック
             perf = None
 
-    from typing import ContextManager
     from contextlib import nullcontext
+    from typing import ContextManager
 
     cm: ContextManager[Any]
     if perf is not None:
@@ -5575,45 +5631,19 @@ def run_signal_pipeline(
         cm = nullcontext()
 
     with cm:
-        # PerformanceMonitor でパイプライン全体を測定
-        perf_cm: ContextManager[Any]
-        if perf_monitor is not None:
-            perf_cm = perf_monitor.measure("pipeline_overall")
-        else:
-            perf_cm = nullcontext()
-
-        with perf_cm:
-            result = compute_today_signals(
-                args.symbols,
-                slots_long=args.slots_long,
-                slots_short=args.slots_short,
-                capital_long=args.capital_long,
-                capital_short=args.capital_short,
-                save_csv=args.save_csv,
-                csv_name_mode=args.csv_name_mode,
-                parallel=args.parallel,
-                test_mode=getattr(args, "test_mode", None),
-                skip_external=getattr(args, "skip_external", False),
-                skip_latest_check=getattr(args, "skip_latest_check", False),
-            )
-
-    # PerformanceMonitor のレポート保存とサマリー出力
-    if perf_monitor is not None:
-        try:
-            from datetime import datetime
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            perf_dir = Path("logs/perf")
-            perf_dir.mkdir(parents=True, exist_ok=True)
-            report_path = perf_dir / f"detailed_metrics_{timestamp}.json"
-
-            perf_monitor.save_report(str(report_path))
-            _log(f"📊 詳細パフォーマンスレポート保存: {report_path}")
-
-            # コンソールにサマリー出力
-            perf_monitor.print_summary()
-        except Exception as e:
-            _log(f"⚠️ PerformanceMonitorレポート保存失敗: {e}")
+        result = compute_today_signals(
+            args.symbols,
+            slots_long=args.slots_long,
+            slots_short=args.slots_short,
+            capital_long=args.capital_long,
+            capital_short=args.capital_short,
+            save_csv=args.save_csv,
+            csv_name_mode=args.csv_name_mode,
+            parallel=args.parallel,
+            test_mode=getattr(args, "test_mode", None),
+            skip_external=getattr(args, "skip_external", False),
+            skip_latest_check=getattr(args, "skip_latest_check", False),
+        )
 
     # 戻り値がNoneの場合のフォールバック
     if result is None:
@@ -5761,11 +5791,50 @@ def main():
     if getattr(args, "full_scan_today", False):
         # 環境変数で明示しておくと将来他コンポーネントでも利用可能
         os.environ.setdefault("FULL_SCAN_TODAY", "1")
+
     final_df, _per_system = run_signal_pipeline(args)
+
+    # Phase 6: CSV保存・通知・注文送信
+    perf_monitor = None
+    if getattr(args, "detailed_perf", False):
+        try:
+            from common.performance_monitor import get_global_monitor
+
+            perf_monitor = get_global_monitor()
+        except Exception:
+            pass
+
+    _phase6_measure = perf_monitor.measure("phase6_save_notify") if perf_monitor else None
+    if _phase6_measure:
+        _phase6_measure.__enter__()
+
     signals_for_merge = log_final_candidates(final_df)
     merge_signals_for_cli(signals_for_merge)
     maybe_submit_orders(final_df, args)
+
+    if _phase6_measure:
+        _phase6_measure.__exit__(None, None, None)
+
     maybe_run_planned_exits(args)
+
+    # PerformanceMonitor のレポート保存とサマリー出力(全フェーズ測定完了後)
+    if getattr(args, "detailed_perf", False) and perf_monitor is not None:
+        try:
+            from datetime import datetime
+            from pathlib import Path
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            perf_dir = Path("logs/perf")
+            perf_dir.mkdir(parents=True, exist_ok=True)
+            report_path = perf_dir / f"detailed_metrics_{timestamp}.json"
+
+            perf_monitor.save_report(str(report_path))
+            _log(f"📊 詳細パフォーマンスレポート保存: {report_path}")
+
+            # コンソールにサマリー出力
+            perf_monitor.print_summary()
+        except Exception as e:
+            _log(f"⚠️ PerformanceMonitorレポート保存失敗: {e}")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 from pathlib import Path
+import shutil
 import sys
+from unittest import mock
 
 import pandas as pd
 import pytest
@@ -8,6 +10,62 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from common.testing import set_test_determinism
+
+# ========== Test Determinism: Ensure reproducible results ==========
+
+
+@pytest.fixture(autouse=True, scope="function")
+def ensure_test_determinism(request):
+    """
+    全テストで決定性を確保するため、各テスト前に乱数シードをリセット。
+
+    並列実行時（pytest-xdist）でも各ワーカーで独立してシードが設定されるため、
+    テスト間の干渉を防止する。
+    """
+    # 各テストで固定シードを設定（テスト名によって異なるシードも可能）
+    test_name = request.node.name
+    # Use hash of test name for unique but deterministic seed per test
+    seed = abs(hash(test_name)) % (2**31)  # Keep within int32 range
+    set_test_determinism(seed=seed)
+    yield
+
+
+# ========== Test Isolation: Clean System7 Cache & Mocks ==========
+
+
+@pytest.fixture(autouse=True, scope="function")
+def cleanup_system7_cache():
+    """
+    System7テスト間の状態汚染を防ぐため、各テスト前後にクリーンアップを実行。
+
+    このフィクスチャは全テストに自動適用される (autouse=True)。
+    - テスト実行前: キャッシュディレクトリ削除 + mock停止
+    - テスト実行後: 同様のクリーンアップ
+    """
+    # テスト実行前: クリーンアップ
+    cache_dir = ROOT / "data_cache" / "indicators_system7_cache"
+    if cache_dir.exists():
+        try:
+            shutil.rmtree(cache_dir)
+        except Exception:
+            pass
+
+    # すべてのmockを停止 (前のテストから残留している可能性)
+    mock.patch.stopall()
+
+    yield  # テスト実行
+
+    # テスト実行後: 同様のクリーンアップ
+    if cache_dir.exists():
+        try:
+            shutil.rmtree(cache_dir)
+        except Exception:
+            pass
+
+    # テスト後もmockを停止
+    mock.patch.stopall()
 
 
 # ========== Minimal DataFrame Fixtures for System 1-7 ==========
@@ -180,10 +238,19 @@ def minimal_system7_df():
         dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
         low = [100.0, 95.0]
         min50 = [96.0, 96.0]  # latest low (95) <= min50 (96) -> setup True
+        max70 = [105.0, 104.0]  # Required by System7
         close = [101.0, 96.5]
-        atr50 = [2.5, 2.6]
+        atr50_val = [2.5, 2.6]
         df = pd.DataFrame(
-            {"Low": low, "min_50": min50, "Close": close, "ATR50": atr50}, index=dates
+            {
+                "Low": low,
+                "min_50": min50,
+                "max_70": max70,  # lowercase (required by System7)
+                "Close": close,
+                "atr50": atr50_val,  # lowercase (required by System7)
+                "ATR50": atr50_val,  # uppercase (backward compat)
+            },
+            index=dates,
         )
         if pass_setup:
             df["setup"] = df["Low"] <= df["min_50"]

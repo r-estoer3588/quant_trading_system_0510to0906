@@ -39,6 +39,13 @@
 
 ## 🗃️ データ管理
 
+### [キャッシュインデックス要件](./cache_index_requirements.md)
+
+- Feather 形式の制約と DatetimeIndex 変換
+- Fast-path 最適化の落とし穴
+- Silent Exception 診断手法
+- インデックス型保証のベストプラクティス
+
 ### キャッシュ階層
 
 - **rolling**: 直近 300 日（今日用）
@@ -51,6 +58,13 @@
 - **backtest**: base → full_backup
 
 ## 🔧 開発・テスト
+
+### [候補数ゼロガイド](./zero_candidates_guide.md)
+
+- 各システムで候補が出ない理由(正常動作)
+- System6 の厳しい閾値(return_6d > 20%)の説明
+- エラーとの区別方法
+- テストモードでの期待値
 
 ### [テスト文書](../testing.md)
 

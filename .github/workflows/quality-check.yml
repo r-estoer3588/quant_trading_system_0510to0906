@@ -12,7 +12,7 @@ jobs:
     name: Auto Fix & Test
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 自動コミットに必要
+      contents: write # 自動コミットに必要
 
     steps:
       - name: Checkout code
