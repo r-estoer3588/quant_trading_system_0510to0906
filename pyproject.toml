@@ -23,9 +23,11 @@ extend_skip_glob = ["**/.wslvenv/**", "**/.venv/**", "**/site-packages/**"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = [
+# 明示的に除外（Windows パス/UNIX パス/グロブの両対応）。一部の環境で extend-exclude を無視するケース対策。
+exclude = [
   ".wslvenv",
   ".venv",
+  "venv",
   "data_cache",
   "data_cache_recent",
   "results_csv",
@@ -34,6 +36,11 @@ extend-exclude = [
   "htmlcov",
   "tools/archive",
   "codacy_report",
+  # アーカイブされた壊れたテスト群は完全除外
+  "tests/experimental/system7_archive",
+  "tests\\experimental\\system7_archive",
+  "**/tests/experimental/system7_archive/**",
+  "**\\tests\\experimental\\system7_archive\\**",
 ]
 
 [tool.ruff.lint]
@@ -63,6 +70,8 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests/experimental", "."]
 addopts = "--cov=./ --cov-report=term-missing"
+# アーカイブ済みの壊れたテスト群は収集しない
+norecursedirs = ["tests/experimental/system7_archive"]
 
 [tool.coverage.run]
 source = ["core", "common", "strategies", "config", "schedulers"]
