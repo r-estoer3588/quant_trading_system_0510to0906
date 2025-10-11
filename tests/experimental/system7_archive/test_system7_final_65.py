@@ -74,9 +74,9 @@ class TestSystem7FullScanNormalization:
         # Lines 378-379: diagnostics["ranking_source"] should be "full_scan"
         assert diagnostics.get("ranking_source") == "full_scan"
 
-        # Line 378: final_top_n_count should be set
-        assert "final_top_n_count" in diagnostics
-        assert diagnostics["final_top_n_count"] >= 0
+        # Line 378: ranked_top_n_count should be set
+        assert "ranked_top_n_count" in diagnostics
+        assert diagnostics["ranked_top_n_count"] >= 0
 
     def test_full_scan_normalization_loop_details(self):
         """Test normalization loop details (lines 367-374)."""
@@ -306,9 +306,9 @@ class TestSystem7LatestOnlyDataConstruction:
 
         # Line 241-242: If setup condition is met, should have candidate
         if len(candidates_dict) > 0:
-            assert diagnostics.get("final_top_n_count") == 1
+            assert diagnostics.get("ranked_top_n_count") == 1
         # Diagnostics should always be returned even if no candidates
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
     def test_latest_only_symbol_payload_construction(self):
         """Test symbol_payload construction (line 246-250)."""

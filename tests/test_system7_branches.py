@@ -127,7 +127,7 @@ class TestSystem7LatestOnlyBranches:
         # Check expected diagnostics keys
         assert isinstance(diagnostics, dict)
         # When setup=True today, should have these keys
-        if diagnostics.get("final_top_n_count", 0) > 0:
+        if diagnostics.get("ranked_top_n_count", 0) > 0:
             assert "ranking_source" in diagnostics
             assert diagnostics.get("ranking_source") == "latest_only"
 

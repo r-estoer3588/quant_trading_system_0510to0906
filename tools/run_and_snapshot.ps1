@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     1. Playwright で「▶ 本日のシグナル実行」ボタンをクリック
-    2. 実行完了を待機（デフォルト30秒）
+    2. 実行完了を待機（デフォルト60秒）
     3. フルページスクリーンショットを撮影
     4. results_csv, logs, results_images をスナップショット
 
@@ -13,7 +13,10 @@
     Streamlit アプリのURL（デフォルト: http://localhost:8501）
 
 .PARAMETER WaitAfterClick
-    ボタンクリック後の待機時間（秒）（デフォルト: 30）
+    ボタンクリック後の待機時間（秒）（デフォルト: 60）
+
+.PARAMETER ShowBrowser
+    ブラウザウィンドウを表示（デバッグ用）
 
 .PARAMETER SkipSnapshot
     スナップショット作成をスキップ
@@ -23,13 +26,18 @@
     デフォルト設定で実行
 
 .EXAMPLE
-    .\tools\run_and_snapshot.ps1 -WaitAfterClick 60
-    実行完了まで60秒待機
+    .\tools\run_and_snapshot.ps1 -WaitAfterClick 120
+    実行完了まで120秒待機
+
+.EXAMPLE
+    .\tools\run_and_snapshot.ps1 -ShowBrowser
+    ブラウザを表示して実行過程を確認
 #>
 
 param(
     [string]$Url = "http://localhost:8501",
-    [int]$WaitAfterClick = 30,
+    [int]$WaitAfterClick = 60,
+    [switch]$ShowBrowser,
     [switch]$SkipSnapshot
 )
 
@@ -41,11 +49,20 @@ Push-Location $ProjectRoot
 try {
     Write-Host "=== Step 1: Clicking '▶ 本日のシグナル実行' and capturing screenshot ===" -ForegroundColor Cyan
 
-    & $VenvPython tools/capture_ui_screenshot.py `
-        --url $Url `
-        --output results_images/today_signals_complete.png `
-        --click-button "▶ 本日のシグナル実行" `
-        --wait-after-click $WaitAfterClick
+    $CaptureArgs = @(
+        "tools/capture_ui_screenshot.py",
+        "--url", $Url,
+        "--output", "results_images/today_signals_complete.png",
+        "--click-button", "▶ 本日のシグナル実行",
+        "--wait-after-click", $WaitAfterClick
+    )
+
+    if ($ShowBrowser) {
+        $CaptureArgs += "--show-browser"
+        Write-Host "ブラウザウィンドウを表示します（デバッグモード）" -ForegroundColor Yellow
+    }
+
+    & $VenvPython @CaptureArgs
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Screenshot failed"

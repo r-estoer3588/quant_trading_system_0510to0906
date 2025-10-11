@@ -1294,9 +1294,9 @@ class TestSystem6ErrorHandling:
         )
 
         assert isinstance(result, dict)
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
         # Should be 0 or handle exception gracefully
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
 
 
 class TestSystem6MetricsRecording:

@@ -33,7 +33,7 @@
 **追加内容**:
 
 - 「🎉 新機能: Diagnostics API」セクション
-- 主な診断キー（`setup_predicate_count`, `final_top_n_count`, `ranking_source`）の説明
+- 主な診断キー（`setup_predicate_count`, `ranked_top_n_count`, `ranking_source`）の説明
 - 使用例コード（`generate_system1_candidates`）
 - Snapshot export コマンド例
 - 差分比較ツールのコマンド例

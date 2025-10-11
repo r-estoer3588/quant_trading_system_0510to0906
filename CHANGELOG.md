@@ -9,7 +9,7 @@
 - **System1-7 Predicate Integration**: `common/system_setup_predicates.py` に全システムの Setup predicate 関数を実装し、`core/system{1-7}.py` で統合
 - **System1 DatetimeIndex Fix**: `cache_manager.load_base()` 返却データを DatetimeIndex に明示変換し、"year 10312" エラーを解決
 - **Technical Documentation**: Feather フォーマット要件 (`docs/technical/cache_index_requirements.md`) と System6 閾値ガイド (`docs/technical/zero_candidates_guide.md`) を追加
-- **Diagnostics API**: 統一キー（`setup_predicate_count`, `final_top_n_count`, `ranking_source`）を全システム(System1-7)に導入
+- **Diagnostics API**: 統一キー（`setup_predicate_count`, `ranked_top_n_count`, `ranking_source`）を全システム(System1-7)に導入
 - **Setup Predicates**: `common/system_setup_predicates.py` に共通 predicate 関数を実装
 - **Snapshot Export**: `tools/export_diagnostics_snapshot.py` で診断情報を JSON 出力
 - **Diff Comparison**: `tools/compare_diagnostics_snapshots.py` でスナップショット差分比較

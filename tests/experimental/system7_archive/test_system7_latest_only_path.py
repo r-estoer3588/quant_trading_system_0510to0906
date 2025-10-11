@@ -66,7 +66,7 @@ class TestSystem7LatestOnlyFastPath:
         # fast-path が実行されたことを確認
         ranking_src = diagnostics.get("ranking_source")
         assert ranking_src == "latest_only", f"Expected 'latest_only', got {ranking_src}"
-        assert diagnostics.get("final_top_n_count") == 1, "latest_only should return 1 candidate"
+        assert diagnostics.get("ranked_top_n_count") == 1, "latest_only should return 1 candidate"
 
         # normalized に SPY が含まれる
         assert len(normalized) > 0, "Should have at least one date"
@@ -196,7 +196,7 @@ class TestSystem7LatestOnlyFastPath:
 
         # setup が False なので候補なし
         assert (
-            diagnostics.get("final_top_n_count") == 0
+            diagnostics.get("ranked_top_n_count") == 0
         ), "Should have 0 candidates when setup=False"
         assert (
             diagnostics.get("ranking_source") is None

@@ -82,7 +82,7 @@ class TestSystem7LatestOnlyFastPath:
         # Check diagnostics
         if diagnostics:
             assert diagnostics.get("setup_predicate_count", 0) >= 1
-            assert diagnostics.get("final_top_n_count") == 1
+            assert diagnostics.get("ranked_top_n_count") == 1
             assert diagnostics.get("ranking_source") == "latest_only"
 
     def test_latest_only_no_setup_today(self):
@@ -339,5 +339,5 @@ class TestSystem7EdgeCases:
 
         if diagnostics and isinstance(diagnostics, dict):
             assert "setup_predicate_count" in diagnostics
-            assert "final_top_n_count" in diagnostics
+            assert "ranked_top_n_count" in diagnostics
             assert "ranking_source" in diagnostics

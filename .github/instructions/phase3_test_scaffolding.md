@@ -7,7 +7,7 @@
 ## 📋 前提条件（Phase2 完了済み）
 
 - ✅ 共通 setup predicate 実装済み（`common/system_setup_predicates.py`）
-- ✅ Diagnostics 統一キー導入済み（ranking_source, setup_predicate_count, final_top_n_count, predicate_only_pass_count, mismatch_flag）
+- ✅ Diagnostics 統一キー導入済み（ranking_source, setup_predicate_count, ranked_top_n_count, predicate_only_pass_count, mismatch_flag）
 - ✅ パラメトリックテスト実装済み（`tests/diagnostics/test_diagnostics_param_all_systems.py`）
 
 ## 🔧 実装タスク
