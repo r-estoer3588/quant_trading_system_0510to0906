@@ -6,8 +6,8 @@ psutil が利用可能な環境でのみ実行。
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
+import time
 
 import pytest
 

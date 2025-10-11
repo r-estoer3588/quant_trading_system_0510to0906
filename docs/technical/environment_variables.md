@@ -439,6 +439,25 @@ PROCESS_POOL_WORKERS=4
 
 ⚠️ **注意**: `.env` ファイルは `.gitignore` に含めること！
 
+### 3. コードからの参照（型安全・推奨）
+
+環境変数は直接 `os.environ.get()` で参照せず、型安全なアクセサを使用してください。
+
+```python
+from config.environment import get_env_config
+
+env = get_env_config()  # シングルトン
+if env.validate_setup_predicate:
+  # Setup/Predicate 検証を有効にする処理
+  ...
+```
+
+理由:
+
+- 値のパース（真偽・数値・None 可など）とデフォルトの一元管理
+- ドキュメント整合（真偽値は "1"/"true"/"yes"/"on" などを許容）
+- 将来の設定項目追加時の影響範囲を最小化
+
 ### 3. VS Code `launch.json`（デバッグ時）
 
 ```json

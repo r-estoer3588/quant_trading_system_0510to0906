@@ -9,6 +9,7 @@ from typing import Any, Callable, Tuple
 
 import pandas as pd
 
+from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils_spy import resolve_signal_entry_date
 
 
@@ -144,8 +145,11 @@ def prepare_data_vectorized_system7(
             progress_callback(1, 1)
         except Exception:
             pass
+
+    # Validate setup column vs predicate equivalence (SPY single symbol)
+    validate_predicate_equivalence(prepared_dict, "System7", log_fn=log_callback)
+
     return prepared_dict
-    # 検証呼び出し (SPY 単一だが他システムとインタフェース統一)
 
 
 def generate_candidates_system7(
@@ -367,13 +371,17 @@ def generate_candidates_system7(
             payload = {k: v for k, v in rec.items() if k not in ("symbol",)}
             payload_map["SPY"] = payload
         normalized_full[pd.Timestamp(dt)] = payload_map
-    # full scan: final_top_n_count は最新 entry_date の件数
-    try:
-        last_dt = max(normalized_full.keys())
-        diagnostics["final_top_n_count"] = len(normalized_full.get(last_dt, {}))
-        diagnostics["ranking_source"] = "full_scan"
-    except Exception:
-        pass
+    # full scan: diagnostics を安定して更新
+    diagnostics["ranking_source"] = "full_scan"
+    if normalized_full:
+        try:
+            last_dt = max(normalized_full.keys())
+            diagnostics["final_top_n_count"] = len(normalized_full.get(last_dt, {}))
+        except Exception:
+            # 想定外の比較エラーなどでも最終件数0として扱う
+            diagnostics["final_top_n_count"] = 0
+    else:
+        diagnostics["final_top_n_count"] = 0
     if include_diagnostics:
         return (normalized_full, None, diagnostics)
     else:

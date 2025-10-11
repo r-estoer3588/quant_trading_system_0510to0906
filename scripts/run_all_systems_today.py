@@ -195,6 +195,70 @@ _STRUCTURED_LAST_PHASE: dict[str, str] | None = None  # {system: last_phase}
 _rate_limited_logger = None
 
 
+# --- Lightweight Benchmark (--benchmark flag) --------------------------------------------
+class LightweightBenchmark:
+    """軽量ベンチマーク（時間計測のみ、--benchmark フラグで有効化）。"""
+
+    def __init__(self, enabled: bool = False):
+        self.enabled = enabled
+        self.phases: dict[str, dict[str, float]] = {}
+        self._current_phase: str | None = None
+        self._start_time: float | None = None
+        self._global_start: float | None = None
+
+    def start_phase(self, phase_name: str) -> None:
+        """フェーズ開始時刻を記録。"""
+        if not self.enabled:
+            return
+        import time
+
+        if self._global_start is None:
+            self._global_start = time.perf_counter()
+        self._current_phase = phase_name
+        self._start_time = time.perf_counter()
+
+    def end_phase(self) -> None:
+        """フェーズ終了時刻を記録。"""
+        if not self.enabled or self._current_phase is None or self._start_time is None:
+            return
+        import time
+
+        end_time = time.perf_counter()
+        duration = end_time - self._start_time
+        self.phases[self._current_phase] = {
+            "start": self._start_time - (self._global_start or 0.0),
+            "end": end_time - (self._global_start or 0.0),
+            "duration_sec": round(duration, 6),
+        }
+        self._current_phase = None
+        self._start_time = None
+
+    def get_report(self) -> dict[str, Any]:
+        """ベンチマークレポートを取得。"""
+        if not self.enabled:
+            return {"enabled": False, "phases": {}, "total_duration_sec": 0.0}
+
+        total_duration = sum(p["duration_sec"] for p in self.phases.values())
+        return {
+            "enabled": True,
+            "timestamp": datetime.now().isoformat(),
+            "phases": self.phases,
+            "total_duration_sec": round(total_duration, 6),
+        }
+
+    def save_report(self, output_path: str | Path) -> None:
+        """レポートをJSONで保存。"""
+        if not self.enabled:
+            return
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(self.get_report(), f, ensure_ascii=False, indent=2)
+
+
+_LIGHTWEIGHT_BENCHMARK: LightweightBenchmark | None = None
+
+
 # --- stage progress bridging helpers -----------------------------------------------------
 
 _PER_SYSTEM_STAGE = None
@@ -3492,6 +3556,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         pass
 
     # Phase 0: 初期化・設定ロード
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase0_initialization")
     _phase0_measure = perf_monitor.measure("phase0_initialization") if perf_monitor else None
     if _phase0_measure:
         _phase0_measure.__enter__()
@@ -3528,6 +3594,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     if _phase0_measure:
         _phase0_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     _run_id = ctx.run_id
     # settings = ctx.settings  # Unused variable removed
@@ -3658,6 +3726,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             pass
 
     # Phase 1: シンボルユニバース構築
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase1_symbol_universe")
     _phase1_measure = perf_monitor.measure("phase1_symbol_universe") if perf_monitor else None
     if _phase1_measure:
         _phase1_measure.__enter__()
@@ -3666,8 +3736,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     if _phase1_measure:
         _phase1_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # Phase 2: データロード（rolling cache）
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase2_data_loading")
     _phase2_measure = perf_monitor.measure("phase2_data_loading") if perf_monitor else None
     if _phase2_measure:
         _phase2_measure.__enter__()
@@ -3676,6 +3750,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     if _phase2_measure:
         _phase2_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # ✨ NEW: Phase 0 - 最新営業日チェック（rolling cache の鮮度確認）
     if not skip_latest_check:
@@ -3844,6 +3920,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # チェック処理自体のエラーは継続（後方互換性）
 
     # Phase 3: Two-Phaseフィルタリング
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase3_filtering")
     _phase3_measure = perf_monitor.measure("phase3_filtering") if perf_monitor else None
     if _phase3_measure:
         _phase3_measure.__enter__()
@@ -3890,6 +3968,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     if _phase3_measure:
         _phase3_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # フィルター処理完了後に各システムの進捗を25%に更新
     try:
@@ -4485,6 +4565,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
 
     # Phase 4: シグナル生成（System 1-7）
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase4_signal_generation")
     _phase4_measure = perf_monitor.measure("phase4_signal_generation") if perf_monitor else None
     if _phase4_measure:
         _phase4_measure.__enter__()
@@ -4782,8 +4864,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 4測定終了
     if _phase4_measure:
         _phase4_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # Phase 5: 配分計算
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase5_allocation")
     _phase5_measure = perf_monitor.measure("phase5_allocation") if perf_monitor else None
     if _phase5_measure:
         _phase5_measure.__enter__()
@@ -4915,6 +5001,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 5測定終了
     if _phase5_measure:
         _phase5_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # Phase5: Zero TRD escalation notification
     try:
@@ -5611,6 +5699,14 @@ def run_signal_pipeline(
         except Exception as e:  # pragma: no cover - 安全フォールバック
             _log(f"⚠️ PerformanceMonitor初期化失敗: {e}")
 
+    # Lightweight Benchmark の初期化（--benchmark 指定時のみ有効化）
+    global _LIGHTWEIGHT_BENCHMARK
+    if getattr(args, "benchmark", False):
+        _LIGHTWEIGHT_BENCHMARK = LightweightBenchmark(enabled=True)
+        _log("⏱️  軽量ベンチマーク（時間計測）を有効化しました")
+    else:
+        _LIGHTWEIGHT_BENCHMARK = None
+
     perf = None
     if getattr(args, "perf_snapshot", False):
         try:
@@ -5795,6 +5891,8 @@ def main():
     final_df, _per_system = run_signal_pipeline(args)
 
     # Phase 6: CSV保存・通知・注文送信
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.start_phase("phase6_save_notify")
     perf_monitor = None
     if getattr(args, "detailed_perf", False):
         try:
@@ -5814,6 +5912,8 @@ def main():
 
     if _phase6_measure:
         _phase6_measure.__exit__(None, None, None)
+    if _LIGHTWEIGHT_BENCHMARK:
+        _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     maybe_run_planned_exits(args)
 
@@ -5835,6 +5935,33 @@ def main():
             perf_monitor.print_summary()
         except Exception as e:
             _log(f"⚠️ PerformanceMonitorレポート保存失敗: {e}")
+
+    # Lightweight Benchmark のレポート保存（--benchmark 指定時）
+    if getattr(args, "benchmark", False) and _LIGHTWEIGHT_BENCHMARK is not None:
+        try:
+            from datetime import datetime
+            from pathlib import Path
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            test_mode_suffix = f"_{getattr(args, 'test_mode', 'full')}"
+            bench_dir = Path(
+                "results_csv_test" if getattr(args, "test_mode", None) else "results_csv"
+            )
+            bench_dir.mkdir(parents=True, exist_ok=True)
+            report_path = bench_dir / f"benchmark{test_mode_suffix}_{timestamp}.json"
+
+            _LIGHTWEIGHT_BENCHMARK.save_report(str(report_path))
+            _log(f"⏱️  ベンチマークレポート保存: {report_path}")
+
+            # コンソールにサマリー出力
+            report = _LIGHTWEIGHT_BENCHMARK.get_report()
+            total_duration = report.get("total_duration_sec", 0.0)
+            _log(f"⏱️  総実行時間: {total_duration:.2f} 秒")
+            for phase_name, phase_data in report.get("phases", {}).items():
+                duration = phase_data.get("duration_sec", 0.0)
+                _log(f"    {phase_name}: {duration:.2f} 秒")
+        except Exception as e:
+            _log(f"⚠️ ベンチマークレポート保存失敗: {e}")
 
 
 if __name__ == "__main__":

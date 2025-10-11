@@ -33,10 +33,17 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
-        # パフォーマンス最適化: プロセスプール使用制御
-        import os
+        # パフォーマンス最適化: プロセスプール使用制御（型安全な環境アクセス）
+        try:
+            from config.environment import get_env_config  # 遅延importで循環回避
 
-        use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+            env = get_env_config()
+            use_process_pool = bool(getattr(env, "system6_use_process_pool", False))
+        except Exception:
+            # フォールバック（互換性維持）
+            import os  # noqa: WPS433
+
+            use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
 
         # System6専用のパフォーマンス設定
         kwargs.setdefault("use_process_pool", use_process_pool)
