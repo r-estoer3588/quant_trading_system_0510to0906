@@ -57,8 +57,8 @@ class TestSystem7NormalizationAndDiagnostics:
         for key in normalized_dict.keys():
             assert isinstance(key, pd.Timestamp)
 
-    def test_diagnostics_final_top_n_count_full_scan(self):
-        """Test final_top_n_count in full_scan mode (lines 378-380)."""
+    def test_diagnostics_ranked_top_n_count_full_scan(self):
+        """Test ranked_top_n_count in full_scan mode (lines 378-380)."""
         raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
         prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
@@ -67,11 +67,11 @@ class TestSystem7NormalizationAndDiagnostics:
         )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
-        # Lines 378-380: diagnostics["final_top_n_count"] = len(...)
+        # Lines 378-380: diagnostics["ranked_top_n_count"] = len(...)
         if diagnostics:
-            assert "final_top_n_count" in diagnostics
+            assert "ranked_top_n_count" in diagnostics
             # Should be integer
-            assert isinstance(diagnostics.get("final_top_n_count"), int)
+            assert isinstance(diagnostics.get("ranked_top_n_count"), int)
 
     def test_diagnostics_ranking_source_full_scan(self):
         """Test ranking_source is set to 'full_scan' (line 381)."""

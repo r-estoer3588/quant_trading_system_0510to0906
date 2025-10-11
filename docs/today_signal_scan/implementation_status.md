@@ -121,7 +121,7 @@
 
 - `ranking_source`: "latest_only" | "full_scan" | None
 - `setup_predicate_count`: Setup 条件を満たした銘柄数
-- `final_top_n_count`: 最終的にランキング上位に残った銘柄数
+- `ranked_top_n_count`: 最終的にランキング上位に残った銘柄数
 
 **検証結果**:
 
@@ -302,7 +302,7 @@
 2. ~~**Diagnostics API の完全統一（System4-6）**~~ ✅ **検証完了（2025 年 10 月 10 日）**
 
    - ~~System4-6 で必須 3 キーの実装が不完全~~
-   - **検証結果**: System4-6 は既に完全実装済み（`ranking_source`, `setup_predicate_count`, `final_top_n_count` すべて含む）
+   - **検証結果**: System4-6 は既に完全実装済み（`ranking_source`, `setup_predicate_count`, `ranked_top_n_count` すべて含む）
    - コード確認: `core/system4.py` (L187-190, L275-276, L340, L384-389)
    - コード確認: `core/system5.py` (L204-207, L291-292, L355, L398-403)
    - コード確認: `core/system6.py` (L253-256, L307, L414-415, L520, L645-652)

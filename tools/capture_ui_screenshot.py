@@ -18,6 +18,7 @@ def capture_streamlit_screenshot(
     click_button: str | None = None,
     wait_after_click: int = 15,
     scroll_to_bottom: bool = True,
+    headless: bool = True,
 ) -> bool:
     """Streamlit UI のスクリーンショットを取得。
 
@@ -28,6 +29,7 @@ def capture_streamlit_screenshot(
         click_button: クリックするボタンのテキスト（例: "Run Today Signals"）
         wait_after_click: ボタンクリック後の待機時間（秒）
         scroll_to_bottom: 最下部までスクロールするか（デフォルト: True）
+        headless: ヘッドレスモード（False でブラウザ表示）
 
     Returns:
         成功した場合 True
@@ -42,7 +44,7 @@ def capture_streamlit_screenshot(
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=headless)
             page = browser.new_page(viewport={"width": 1920, "height": 1080})
 
             print(f"Loading: {url}")
@@ -123,6 +125,11 @@ def main() -> None:
         action="store_true",
         help="Do not scroll to bottom before screenshot",
     )
+    parser.add_argument(
+        "--show-browser",
+        action="store_true",
+        help="Show browser window (headful mode for debugging)",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[1]
@@ -135,6 +142,7 @@ def main() -> None:
         args.click_button,
         args.wait_after_click,
         not args.no_scroll,
+        headless=not args.show_browser,
     )
     sys.exit(0 if success else 1)
 

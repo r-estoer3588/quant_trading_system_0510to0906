@@ -144,7 +144,7 @@ python tools/validate_log_compactness.py --verbose logs/mini_verbose.log --compa
 
 ### Task 4.3: Discrepancy Triage（優先度: 低）
 
-**目的**: setup_predicate_count と final_top_n_count の差分を分類し、原因をトリアージ
+**目的**: setup_predicate_count と ranked_top_n_count の差分を分類し、原因をトリアージ
 
 **対象**:
 
@@ -167,7 +167,7 @@ def triage_candidate_discrepancy(diag: dict) -> dict:
         {category, setup_count, final_count, diff, message}
     """
     setup_count = int(diag.get("setup_predicate_count", 0))
-    final_count = int(diag.get("final_top_n_count", 0))
+    final_count = int(diag.get("ranked_top_n_count", 0))
     diff = setup_count - final_count
 
     if setup_count == final_count:

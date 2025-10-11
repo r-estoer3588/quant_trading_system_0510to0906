@@ -318,10 +318,10 @@ class TestSystem7LatestOnlyPath:
             diagnostics["ranking_source"] == "latest_only"
         ), f"Expected 'latest_only', got {diagnostics['ranking_source']}"
 
-        # Should have final_top_n_count
-        assert "final_top_n_count" in diagnostics
-        assert isinstance(diagnostics["final_top_n_count"], int)
-        assert diagnostics["final_top_n_count"] >= 1, "Should have at least 1 candidate"
+        # Should have ranked_top_n_count
+        assert "ranked_top_n_count" in diagnostics
+        assert isinstance(diagnostics["ranked_top_n_count"], int)
+        assert diagnostics["ranked_top_n_count"] >= 1, "Should have at least 1 candidate"
 
     def test_latest_only_returns_dataframe(self):
         """Test latest_only returns DataFrame as second element (line 256)."""
@@ -412,7 +412,7 @@ class TestSystem7LatestOnlyPath:
 
         # Verify results
         assert diagnostics.get("ranking_source") == "latest_only"
-        assert diagnostics.get("final_top_n_count") == 1
+        assert diagnostics.get("ranked_top_n_count") == 1
 
     @patch("core.system7.resolve_signal_entry_date")
     def test_latest_only_with_failing_callbacks(self, mock_resolve):
@@ -445,5 +445,5 @@ class TestSystem7LatestOnlyPath:
 
         # Results should still be valid despite callback failures
         assert diagnostics.get("ranking_source") == "latest_only"
-        assert diagnostics.get("final_top_n_count") == 1
+        assert diagnostics.get("ranked_top_n_count") == 1
         assert len(normalized) >= 1

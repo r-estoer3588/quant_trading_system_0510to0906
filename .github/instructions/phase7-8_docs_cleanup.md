@@ -39,7 +39,7 @@ Diagnostics API のドキュメント整備、README 更新、CHANGELOG 記録�
 | ----------------------- | --- | ---------------------------- | ------------- |
 | `ranking_source`        | str | "latest_only" / "full_scan"  | "latest_only" |
 | `setup_predicate_count` | int | Setup 条件を満たした行数     | 5             |
-| `final_top_n_count`     | int | 最終候補件数（ランキング後） | 3             |
+| `ranked_top_n_count`    | int | 最終候補件数（ランキング後） | 3             |
 
 ### System1 専用
 
@@ -66,7 +66,7 @@ print(diagnostics)
 # {
 #   "ranking_source": "latest_only",
 #   "setup_predicate_count": 5,
-#   "final_top_n_count": 3,
+#   "ranked_top_n_count": 3,
 #   "predicate_only_pass_count": 5,
 #   "mismatch_flag": False,
 #   ...
@@ -119,7 +119,7 @@ safe_diag = get_diagnostics_with_fallback(raw_diagnostics, "system1")
 
 ### 主な診断キー
 - `setup_predicate_count`: Setup 条件通過件数
-- `final_top_n_count`: 最終候補件数
+- `ranked_top_n_count`: 最終候補件数
 - `ranking_source`: "latest_only" or "full_scan"
 
 詳細は [docs/technical/diagnostics.md](docs/technical/diagnostics.md) を参照。
@@ -158,7 +158,7 @@ python tools/compare_diagnostics_snapshots.py \
 ## [Unreleased]
 
 ### Added
-- **Diagnostics API**: 統一キー（`setup_predicate_count`, `final_top_n_count`, `ranking_source`）を全システムに導入
+- **Diagnostics API**: 統一キー（`setup_predicate_count`, `ranked_top_n_count`, `ranking_source`）を全システムに導入
 - **Setup Predicates**: `common/system_setup_predicates.py` に共通 predicate 関数を実装
 - **Snapshot Export**: `tools/export_diagnostics_snapshot.py` で診断情報を JSON 出力
 - **Diff Comparison**: `tools/compare_diagnostics_snapshots.py` でスナップショット差分比較
@@ -355,7 +355,7 @@ git diff
 git add .
 git commit -m "Phase0-7: Diagnostics API & Setup Predicates Unification
 
-- Added unified diagnostics keys (setup_predicate_count, final_top_n_count, ranking_source)
+- Added unified diagnostics keys (setup_predicate_count, ranked_top_n_count, ranking_source)
 - Implemented shared setup predicates in common/system_setup_predicates.py
 - Integrated predicates into Systems 1-7 (System6 separate task)
 - Added snapshot export and diff comparison tools

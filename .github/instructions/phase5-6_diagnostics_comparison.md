@@ -6,7 +6,7 @@ Diagnostics が欠損・異常値の際のフォールバック処理を実装�
 
 ## 📋 前提条件（Phase2–4 完了済み）
 
-- ✅ Diagnostics 統一キー導入済み（ranking_source, setup_predicate_count, final_top_n_count など）
+- ✅ Diagnostics 統一キー導入済み（ranking_source, setup_predicate_count, ranked_top_n_count など）
 - ✅ Mini パイプライン検証済み
 - ✅ TRD リスト長検証ツール実装済み
 
@@ -96,7 +96,7 @@ def get_diagnostics_with_fallback(diag: dict | None, system_id: str) -> dict:
     return {
         "ranking_source": diag.get("ranking_source", "unknown"),
         "setup_predicate_count": int(diag.get("setup_predicate_count", -1)),
-        "final_top_n_count": int(diag.get("final_top_n_count", -1)),
+        "ranked_top_n_count": int(diag.get("ranked_top_n_count", -1)),
         "predicate_only_pass_count": int(diag.get("predicate_only_pass_count", -1)),
         "mismatch_flag": bool(diag.get("mismatch_flag", False)),
         # System1 専用キー（他システムでは -1 でフォールバック）
@@ -235,12 +235,14 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict:
             "setup_predicate_count": {
                 "baseline": b_diag.get("setup_predicate_count", -1),
                 "current": c_diag.get("setup_predicate_count", -1),
-                "diff": c_diag.get("setup_predicate_count", -1) - b_diag.get("setup_predicate_count", -1),
+                "diff": c_diag.get("setup_predicate_count", -1)
+                - b_diag.get("setup_predicate_count", -1),
             },
-            "final_top_n_count": {
-                "baseline": b_diag.get("final_top_n_count", -1),
-                "current": c_diag.get("final_top_n_count", -1),
-                "diff": c_diag.get("final_top_n_count", -1) - b_diag.get("final_top_n_count", -1),
+            "ranked_top_n_count": {
+                "baseline": b_diag.get("ranked_top_n_count", -1),
+                "current": c_diag.get("ranked_top_n_count", -1),
+                "diff": c_diag.get("ranked_top_n_count", -1)
+                - b_diag.get("ranked_top_n_count", -1),
             },
             "category": _classify_diff(b_diag, c_diag),
         }
@@ -252,10 +254,11 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict:
         "diffs": diffs,
     }
 
+
 def _classify_diff(baseline: dict, current: dict) -> str:
     """差分をカテゴリ分類（no_change, increase, decrease, new, removed）。"""
-    b_final = baseline.get("final_top_n_count", -1)
-    c_final = current.get("final_top_n_count", -1)
+    b_final = baseline.get("ranked_top_n_count", -1)
+    c_final = current.get("ranked_top_n_count", -1)
 
     if b_final == -1 and c_final >= 0:
         return "new"
