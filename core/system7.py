@@ -188,7 +188,7 @@ def generate_candidates_system7(
         diagnostics = {
             "ranking_source": None,
             "setup_predicate_count": 0,
-            "final_top_n_count": 0,
+            "ranked_top_n_count": 0,
             "predicate_only_pass_count": 0,
             "mismatch_flag": 0,
         }
@@ -216,7 +216,7 @@ def generate_candidates_system7(
 
             if setup_ok:
                 diagnostics["setup_predicate_count"] += 1
-                diagnostics["final_top_n_count"] = 1
+                diagnostics["ranked_top_n_count"] = 1
 
                 setup_date = df.index[-1]
                 entry_date = resolve_signal_entry_date(setup_date)
@@ -251,7 +251,7 @@ def generate_candidates_system7(
                             log_callback("System7: latest_only fast-path -> 1 candidate")
                         except Exception:
                             pass
-                    diagnostics["final_top_n_count"] = 1
+                    diagnostics["ranked_top_n_count"] = 1
                     diagnostics["ranking_source"] = "latest_only"
                     if progress_callback:
                         try:
@@ -376,12 +376,11 @@ def generate_candidates_system7(
     if normalized_full:
         try:
             last_dt = max(normalized_full.keys())
-            diagnostics["final_top_n_count"] = len(normalized_full.get(last_dt, {}))
+            diagnostics["ranked_top_n_count"] = len(normalized_full.get(last_dt, {}))
         except Exception:
-            # 想定外の比較エラーなどでも最終件数0として扱う
-            diagnostics["final_top_n_count"] = 0
+            diagnostics["ranked_top_n_count"] = 0
     else:
-        diagnostics["final_top_n_count"] = 0
+        diagnostics["ranked_top_n_count"] = 0
     if include_diagnostics:
         return (normalized_full, None, diagnostics)
     else:

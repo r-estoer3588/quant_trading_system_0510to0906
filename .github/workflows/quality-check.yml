@@ -1,11 +1,12 @@
 # 品質チェック＆自動修正（GitHub Actions）
 # push時に自動実行され、問題があれば自動修正してコミット
 
-name: Auto Fix Quality
+name: Auto Fix Quality (retired)
 
+# このワークフローは ci-unified.yml に統合されたため自動トリガーを停止しました。
+# 必要に応じて他のワークフローから呼び出して再利用可能にします。
 on:
-  push:
-    branches: [branch0906, main]
+  workflow_call:
 
 jobs:
   auto-fix-and-test:

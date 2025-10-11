@@ -107,14 +107,14 @@ def test_system2_diagnostics_latest_only_shape():
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag
     assert diag["ranking_source"] == "latest_only"
     # with setup True, expect at least one candidate and count >= 1
-    assert int(diag["final_top_n_count"]) >= 1
+    assert int(diag["ranked_top_n_count"]) >= 1
 
 
 def test_system7_diagnostics_latest_only_shape():
@@ -133,13 +133,13 @@ def test_system7_diagnostics_latest_only_shape():
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag
     assert diag["ranking_source"] == "latest_only"
-    assert int(diag["final_top_n_count"]) >= 1
+    assert int(diag["ranked_top_n_count"]) >= 1
 
 
 def test_system3_diagnostics_latest_only_shape():
@@ -158,13 +158,13 @@ def test_system3_diagnostics_latest_only_shape():
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag
     assert diag["ranking_source"] == "latest_only"
-    assert int(diag["final_top_n_count"]) >= 1
+    assert int(diag["ranked_top_n_count"]) >= 1
 
 
 def test_system4_diagnostics_latest_only_shape():
@@ -183,13 +183,13 @@ def test_system4_diagnostics_latest_only_shape():
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag
     assert diag["ranking_source"] == "latest_only"
-    assert int(diag["final_top_n_count"]) >= 1
+    assert int(diag["ranked_top_n_count"]) >= 1
 
 
 def test_system5_diagnostics_latest_only_shape():
@@ -208,10 +208,10 @@ def test_system5_diagnostics_latest_only_shape():
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag
     assert diag["ranking_source"] == "latest_only"
-    assert int(diag["final_top_n_count"]) >= 1
+    assert int(diag["ranked_top_n_count"]) >= 1

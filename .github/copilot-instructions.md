@@ -47,7 +47,7 @@
 
 **Diagnostics API (Phase0-7 導入)**:
 
-- 全システム共通キー: `ranking_source`, `setup_predicate_count`, `final_top_n_count`。
+- 全システム共通キー: `ranking_source`, `setup_predicate_count`, `ranked_top_n_count`。
 - 候補生成関数は `(candidates, diagnostics)` タプルを返す。
 - Snapshot export: `--test-mode mini` で `results_csv_test/diagnostics_snapshot_*.json` に出力。
 - アクセス: `common/system_diagnostics.py::get_diagnostics_with_fallback()` で安全取得。
@@ -173,7 +173,7 @@ pre-commit run --files <changed_files>
 - [ ] mini テスト 2 秒パス / pytest パス
 - [ ] 新規出力パスは settings 管理下
 - [ ] ログ量増加なし / 必要なら COMPACT 対応コメント
-- [ ] Diagnostics API: 候補生成関数が統一キー (`ranking_source`, `setup_predicate_count`, `final_top_n_count`) を返すか
+- [ ] Diagnostics API: 候補生成関数が統一キー (`ranking_source`, `setup_predicate_count`, `ranked_top_n_count`) を返すか
 - [ ] 重複列を増やしていないか（OHLCV は PascalCase 統一）
 - [ ] 環境変数を追加した場合: `config/environment.py::EnvironmentConfig` と `docs/technical/environment_variables.md` の両方に追記
 - [ ] `os.environ.get()` の直接使用を避け、`get_env_config()` 経由でアクセスしているか

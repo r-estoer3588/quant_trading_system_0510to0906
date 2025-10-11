@@ -18,13 +18,13 @@ Phase0-7 で導入した統一キーにより、すべてのシステムで共�
 | ----------------------- | --- | -------------------------- | ------------------------------ |
 | `ranking_source`        | str | ランキング対象データ       | `"latest_only"`, `"full_scan"` |
 | `setup_predicate_count` | int | Setup 条件を満たした行数   | `5`, `0`, `-1`(未実装)         |
-| `final_top_n_count`     | int | 最終候補件数(ランキング後) | `3`, `0`                       |
+| `ranked_top_n_count`    | int | 最終候補件数(ランキング後) | `3`, `0`                       |
 
 **キーの意味**:
 
 - `ranking_source`: 候補を探すときに「最新の 1 行だけ」を見たか(`latest_only`)、全データをスキャンしたか(`full_scan`)を示します。
 - `setup_predicate_count`: Setup 条件(predicate 関数)を満たした行の総数です。これが多ければフィルタが広く、少なければ狭いことを意味します。
-- `final_top_n_count`: ランキングを経て最終的に候補として選ばれた銘柄の件数です。
+- `ranked_top_n_count`: ランキングを経て最終的に候補として選ばれた銘柄の件数です。
 
 ### System1 専用キー
 
@@ -59,7 +59,7 @@ print(diagnostics)
 # {
 #   "ranking_source": "latest_only",
 #   "setup_predicate_count": 5,
-#   "final_top_n_count": 3,
+#   "ranked_top_n_count": 3,
 #   "predicate_only_pass_count": 5,
 #   "mismatch_flag": False,
 #   "count_a": 10,
@@ -101,7 +101,7 @@ cat results_csv_test/diagnostics_snapshot_*.json | jq '.systems'
       "diagnostics": {
         "ranking_source": "latest_only",
         "setup_predicate_count": 5,
-        "final_top_n_count": 3,
+  "ranked_top_n_count": 3,
         ...
       }
     },
@@ -124,7 +124,7 @@ cat results_csv_test/diagnostics_snapshot_*.json | jq '.systems'
 **原因**: Setup 列(`setup_system1` など)と shared predicate 関数の結果が一致していません。  
 **対処**: 環境変数 `VALIDATE_SETUP_PREDICATE=1` を設定して詳細ログを確認し、predicate ロジックを修正してください。
 
-### `final_top_n_count` が `0` になる
+### `ranked_top_n_count` が `0` になる
 
 **原因**: 候補がランキング前の段階で存在しなかったか、ランキング後にすべて除外されました。  
 **対処**:

@@ -4,8 +4,8 @@
 
 現在 3 つのワークフローが存在し、一部機能が重複:
 
-1. **ci.yml** - 基本的なリント＋テスト＋ Codacy
-2. **ci_quality.yml** - 品質ゲート（mypy, pytest, 警告集計, Codacy）
+1. **ci.yml** - 基本的なリント＋テスト（Codacy は不使用）
+2. **ci_quality.yml** - 品質ゲート（mypy, pytest, 警告集計。Codacy は不使用）
 3. **quality-check.yml** - 自動修正＋コミット
 4. **coverage-report.yml** (NEW) - カバレッジ計測＋レポート
 
@@ -22,7 +22,7 @@
 ├── ci-unified.yml          # 統合CI（リント＋テスト＋カバレッジ）
 ├── quality-gate.yml        # 品質ゲート（mypy＋警告集計）
 ├── auto-fix.yml            # 自動修正（push時）
-└── codacy.yml              # Codacy分析（分離）
+└── codacy.yml              # （退役）Codacy 分析は不使用
 ```
 
 **実装**:
@@ -63,7 +63,7 @@
 ├── test.yml                # テスト（pytest）
 ├── coverage.yml            # カバレッジ計測
 ├── type-check.yml          # 型チェック（mypy）
-├── security.yml            # セキュリティ（Codacy, bandit）
+├── security.yml            # セキュリティ（bandit 等。Codacy は不使用）
 └── auto-fix.yml            # 自動修正
 ```
 

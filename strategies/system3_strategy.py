@@ -63,6 +63,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             top_n=top_n,
             batch_size=batch_size,
             latest_only=latest_only,
+            include_diagnostics=True,
             **kwargs,
         )
         if isinstance(result, tuple) and len(result) == 3:

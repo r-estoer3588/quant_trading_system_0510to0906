@@ -189,7 +189,8 @@ def generate_candidates_system2(
         diagnostics = {
             "ranking_source": None,
             "setup_predicate_count": 0,
-            "final_top_n_count": 0,
+            # single-source-of-truth: ranked_top_n_count only
+            "ranked_top_n_count": 0,
             "predicate_only_pass_count": 0,
             "mismatch_flag": 0,
         }
@@ -208,6 +209,7 @@ def generate_candidates_system2(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            setup_pass_count = 0  # カウンター追加
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
@@ -229,6 +231,8 @@ def generate_candidates_system2(
                 if not setup_ok:
                     continue
 
+                setup_pass_count += 1  # setup通過カウント
+
                 adx7_val = last_row.get("adx7", None)
                 try:
                     if adx7_val is None or pd.isna(adx7_val):
@@ -246,6 +250,9 @@ def generate_candidates_system2(
                         "close": last_row.get("Close", 0),
                     }
                 )
+
+            diagnostics["setup_predicate_count"] = setup_pass_count  # 記録
+
             if not rows:
                 if log_callback:
                     log_callback("System2: latest_only fast-path produced 0 rows")
@@ -258,10 +265,10 @@ def generate_candidates_system2(
             except Exception:
                 pass
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
-            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             # 候補0件なら代表サンプルを1-2件だけDEBUGログ出力
-            if diagnostics.get("final_top_n_count", 0) == 0 and log_callback:
+            if diagnostics.get("ranked_top_n_count", 0) == 0 and log_callback:
                 try:
                     samples: list[str] = []
                     taken = 0
@@ -400,7 +407,7 @@ def generate_candidates_system2(
         candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
-            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_date, []))
+            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_date, []))
         diagnostics["ranking_source"] = "full_scan"
     else:
         candidates_df = None

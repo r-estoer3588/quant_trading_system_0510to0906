@@ -1,6 +1,5 @@
 # Quant Trading System (Streamlit)
 
-![CI Status](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/CI/badge.svg)
 ![CI Unified](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/CI%20Unified/badge.svg)
 ![Coverage Report](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/Coverage%20Report/badge.svg)
 ![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)
@@ -31,7 +30,7 @@ Phase0-7 で導入された **Diagnostics API** により、各システムの�
 すべてのシステム(System1-7)で以下の統一キーが取得できます:
 
 - `setup_predicate_count`: Setup 条件を満たした行数
-- `final_top_n_count`: 最終候補件数(ランキング後)
+- `ranked_top_n_count`: 最終候補件数(ランキング後)
 - `ranking_source`: `"latest_only"` または `"full_scan"`
 
 これにより、候補がどのように絞り込まれたかを明確に把握でき、トラブルシューティングや検証が容易になります。
@@ -47,7 +46,7 @@ print(diagnostics)
 # {
 #   "ranking_source": "latest_only",
 #   "setup_predicate_count": 5,
-#   "final_top_n_count": 3,
+#   "ranked_top_n_count": 3,
 #   ...
 # }
 ```
@@ -413,11 +412,11 @@ ruff check --fix .
 
 ### 品質チェックの自動化
 
-プロジェクトは GitHub Actions で自動品質チェックと修正を行います：
+プロジェクトは GitHub Actions で自動品質チェックを行います：
 
-- **push 時に自動実行**: ruff/black で自動修正してコミット
-- **ローカル開発**: pre-commit フックで即座にチェック
-- **詳細**: `.github/workflows/quality-check.yml` を参照
+- **CI Unified**: lint(format)/test/coverage を一本化（`.github/workflows/ci-unified.yml`）
+- **Coverage Report**: カバレッジ詳細レポートと PR コメント（`.github/workflows/coverage-report.yml`）
+- 旧ワークフロー（CI / CI Quality Gate / Auto Fix Quality）は退役し、呼び出し専用に変更しました。
 
 ## 当日シグナル高速化 (latest_only 最適化)
 

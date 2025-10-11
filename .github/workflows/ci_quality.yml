@@ -1,111 +1,85 @@
-name: CI Quality Gate
+name: CI Quality Gate (retired)
 
+# このワークフローは ci-unified.yml に統合されたため自動トリガーを停止しました。
+# 必要に応じて他のワークフローから呼び出して再利用可能にします。
 on:
-    push:
-        branches: [main, master, develop, branch0906]
-    pull_request:
-        branches: [main, master, develop, branch0906]
+  workflow_call:
 
 jobs:
-    quality:
-        runs-on: ubuntu-latest
-        timeout-minutes: 25
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.11"
-                  cache: "pip"
-            - name: Install system deps
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y libatlas-base-dev libopenblas-dev
-            - name: Install Python deps
-              run: |
-                  pip install --upgrade pip
-                  pip install -r requirements.txt
-                  if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-                  pip install ruff mypy
-            - name: Ruff Lint
-              run: ruff check . --output-format=github
-            - name: Type Check (mypy)
-              run: |
-                  mypy --python-version 3.11 --show-error-codes 2>&1 | tee mypy_output.log || true
-            - name: Summarize mypy errors
-              run: |
-                  ERRORS=$(grep -E "error: " -c mypy_output.log || true)
-                  echo "mypy error count: ${ERRORS}" >> $GITHUB_STEP_SUMMARY
-                  echo "MYPY_ERROR_COUNT=${ERRORS}" >> $GITHUB_ENV
-            - name: Upload mypy artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: mypy-output
-                  path: mypy_output.log
-                  if-no-files-found: ignore
-            - name: Pytest (mini fast path)
-              env:
-                  PYTEST_USE_FAKE_SYMBOLS: "1"
-                  TODAY_SYMBOL_LIMIT: "20"
-                  COMPACT_TODAY_LOGS: "1"
-                  ENABLE_PROGRESS_EVENTS: "0"
-              run: |
-                  pytest -q --maxfail=1 --disable-warnings
-            - name: Collect Warnings (non-fail)
-              env:
-                  PYTEST_USE_FAKE_SYMBOLS: "1"
-                  TODAY_SYMBOL_LIMIT: "20"
-              run: |
-                  set -o pipefail
-                  pytest -q -W default | tee pytest_warnings.log || true
-                  python tools/collect_warnings.py --log pytest_warnings.log --out logs/warnings_summary.jsonl || true
-                  echo '--- Warning Categories (top 20) ---' >> $GITHUB_STEP_SUMMARY
-                  grep -E 'Warning:' -o pytest_warnings.log | sort | uniq -c | sort -nr | head -20 >> $GITHUB_STEP_SUMMARY || true
-            - name: Upload warnings artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: pytest-warnings
-                  path: |
-                      pytest_warnings.log
-                      logs/warnings_summary.jsonl
-                  if-no-files-found: ignore
-            - name: Warning Delta Report
-              if: always()
-              run: |
-                  if [ -f logs/warnings_summary.jsonl ]; then \
-                      python tools/aggregate_warning_deltas.py --file logs/warnings_summary.jsonl || true; \
-                      python tools/aggregate_warning_deltas.py --file logs/warnings_summary.jsonl | sed 's/^/# /' >> $GITHUB_STEP_SUMMARY || true; \
-                  else \
-                      echo 'No warnings_summary.jsonl present' >> $GITHUB_STEP_SUMMARY; \
-                  fi
-            - name: Codacy Analysis (SARIF)
-              if: ${{ github.event_name == 'pull_request' && secrets.CODACY_PROJECT_TOKEN != '' }}
-              # NOTE: Supply‑chain hardening: replace @v1 with a fixed commit SHA after verifying integrity.
-              # HOW TO PIN (run locally or in a secure environment):
-              #   1) List tags:      git ls-remote https://github.com/codacy/codacy-analysis-cli-action.git | grep refs/tags
-              #   2) (Option A) Pick latest stable tag (e.g. v1.4.0) then resolve its commit:
-              #        git ls-remote https://github.com/codacy/codacy-analysis-cli-action.git refs/tags/v1.4.0
-              #      (Option B) Use GitHub API (needs gh CLI):
-              #        gh api repos/codacy/codacy-analysis-cli-action/tags --jq '.[0].commit.sha'
-              #   3) Replace line below with: uses: codacy/codacy-analysis-cli-action@<resolved-commit-sha>
-              #   4) Add a comment containing date + short SHA for audit trail.
-              #   5) Re-run workflow; if it fails due to action metadata mismatch, re-verify tag origin.
-              # (Leave @v1 when rapid updates are desired; prefer pinning before a release freeze.)
-              uses: codacy/codacy-analysis-cli-action@v1
-              with:
-                  project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-                  upload: true
-                  format: sarif
-                  output: codacy.sarif
-              env:
-                  CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
-            - name: Upload Codacy SARIF
-              if: ${{ github.event_name == 'pull_request' && secrets.CODACY_PROJECT_TOKEN != '' }}
-              uses: github/codeql-action/upload-sarif@v3
-              with:
-                  sarif_file: codacy.sarif
-            - name: Summary
-              if: always()
-              run: |
-                  echo 'Completed CI Quality Gate' >> $GITHUB_STEP_SUMMARY
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatlas-base-dev libopenblas-dev
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install ruff mypy
+      - name: Ruff Lint
+        run: ruff check . --output-format=github
+      - name: Type Check (mypy)
+        run: |
+          mypy --python-version 3.11 --show-error-codes 2>&1 | tee mypy_output.log || true
+      - name: Summarize mypy errors
+        run: |
+          ERRORS=$(grep -E "error: " -c mypy_output.log || true)
+          echo "mypy error count: ${ERRORS}" >> $GITHUB_STEP_SUMMARY
+          echo "MYPY_ERROR_COUNT=${ERRORS}" >> $GITHUB_ENV
+      - name: Upload mypy artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-output
+          path: mypy_output.log
+          if-no-files-found: ignore
+      - name: Pytest (mini fast path)
+        env:
+          PYTEST_USE_FAKE_SYMBOLS: "1"
+          TODAY_SYMBOL_LIMIT: "20"
+          COMPACT_TODAY_LOGS: "1"
+          ENABLE_PROGRESS_EVENTS: "0"
+        run: |
+          pytest -q --maxfail=1 --disable-warnings
+      - name: Collect Warnings (non-fail)
+        env:
+          PYTEST_USE_FAKE_SYMBOLS: "1"
+          TODAY_SYMBOL_LIMIT: "20"
+        run: |
+          set -o pipefail
+          pytest -q -W default | tee pytest_warnings.log || true
+          python tools/collect_warnings.py --log pytest_warnings.log --out logs/warnings_summary.jsonl || true
+          echo '--- Warning Categories (top 20) ---' >> $GITHUB_STEP_SUMMARY
+          grep -E 'Warning:' -o pytest_warnings.log | sort | uniq -c | sort -nr | head -20 >> $GITHUB_STEP_SUMMARY || true
+      - name: Upload warnings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-warnings
+          path: |
+            pytest_warnings.log
+            logs/warnings_summary.jsonl
+          if-no-files-found: ignore
+      - name: Warning Delta Report
+        if: always()
+        run: |
+          if [ -f logs/warnings_summary.jsonl ]; then \
+              python tools/aggregate_warning_deltas.py --file logs/warnings_summary.jsonl || true; \
+              python tools/aggregate_warning_deltas.py --file logs/warnings_summary.jsonl | sed 's/^/# /' >> $GITHUB_STEP_SUMMARY || true; \
+          else \
+              echo 'No warnings_summary.jsonl present' >> $GITHUB_STEP_SUMMARY; \
+          fi
+      # Codacy は利用停止済みのため、関連ステップを削除
+      - name: Summary
+        if: always()
+        run: |
+          echo 'Completed CI Quality Gate' >> $GITHUB_STEP_SUMMARY

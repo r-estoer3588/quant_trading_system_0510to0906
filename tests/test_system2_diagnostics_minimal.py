@@ -5,14 +5,18 @@ Validates that generate_candidates_system2 returns required diagnostic keys.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
 from common.testing import set_test_determinism
 
+generate_candidates_system2: Any = None
 try:
-    from core.system2 import generate_candidates_system2
+    from core.system2 import generate_candidates_system2 as _gc2
 
+    generate_candidates_system2 = _gc2
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -44,14 +48,19 @@ class TestSystem2DiagnosticsMinimal:
             )
         }
 
-        _candidates, _df, diagnostics = generate_candidates_system2(
+        res = generate_candidates_system2(
             prepared_dict, top_n=5, latest_only=True, include_diagnostics=True
         )
+        if isinstance(res, tuple) and len(res) == 3:
+            _candidates, _df, diagnostics = res
+        else:
+            _candidates, _df = res
+            diagnostics = {}
 
         # Assert required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # Assert ranking_source is set
         assert diagnostics["ranking_source"] in ["latest_only", "full_scan", None]
@@ -59,8 +68,8 @@ class TestSystem2DiagnosticsMinimal:
         # Assert counts are valid
         assert isinstance(diagnostics["setup_predicate_count"], int)
         assert diagnostics["setup_predicate_count"] >= 0
-        assert isinstance(diagnostics["final_top_n_count"], int)
-        assert diagnostics["final_top_n_count"] >= 0
+        assert isinstance(diagnostics["ranked_top_n_count"], int)
+        assert diagnostics["ranked_top_n_count"] >= 0
 
     def test_diagnostics_keys_present_full_scan(self):
         """Verify diagnostics keys are present in full_scan mode"""
@@ -79,30 +88,38 @@ class TestSystem2DiagnosticsMinimal:
             )
         }
 
-        _candidates, _df, diagnostics = generate_candidates_system2(
+        res = generate_candidates_system2(
             prepared_dict, top_n=5, latest_only=False, include_diagnostics=True
         )
+        if isinstance(res, tuple) and len(res) == 3:
+            _candidates, _df, diagnostics = res
+        else:
+            _candidates, _df = res
+            diagnostics = {}
 
         # Assert required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
     def test_diagnostics_empty_data(self):
         """Verify diagnostics are returned even with empty data"""
-        _candidates, _df, diagnostics = generate_candidates_system2(
-            {}, top_n=5, include_diagnostics=True
-        )
+        res = generate_candidates_system2({}, top_n=5, include_diagnostics=True)
+        if isinstance(res, tuple) and len(res) == 3:
+            _candidates, _df, diagnostics = res
+        else:
+            _candidates, _df = res
+            diagnostics = {}
 
         # Diagnostics should still be a dict
         assert isinstance(diagnostics, dict)
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # With empty data, counts should be 0
         assert diagnostics["setup_predicate_count"] == 0
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0
 
     def test_diagnostics_no_setup_conditions(self):
         """Verify diagnostics when no setup conditions are met"""
@@ -121,14 +138,17 @@ class TestSystem2DiagnosticsMinimal:
             )
         }
 
-        _candidates, _df, diagnostics = generate_candidates_system2(
-            prepared_dict, top_n=5, include_diagnostics=True
-        )
+        res = generate_candidates_system2(prepared_dict, top_n=5, include_diagnostics=True)
+        if isinstance(res, tuple) and len(res) == 3:
+            _candidates, _df, diagnostics = res
+        else:
+            _candidates, _df = res
+            diagnostics = {}
 
         # Diagnostics should still be present
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
         # No candidates expected
-        assert diagnostics["final_top_n_count"] == 0
+        assert diagnostics["ranked_top_n_count"] == 0

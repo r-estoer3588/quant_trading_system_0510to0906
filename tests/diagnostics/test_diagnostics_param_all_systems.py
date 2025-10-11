@@ -1,10 +1,10 @@
 """Parametric diagnostics shape tests for Systems 1–7.
 
 This test validates that each system, when invoked with latest_only=True and
-include_diagnostics=True, returns a diagnostics payload with unified keys:
+ include_diagnostics=True, returns a diagnostics payload with unified keys:
  - ranking_source
  - setup_predicate_count
- - final_top_n_count
+ - ranked_top_n_count
  - predicate_only_pass_count
  - mismatch_flag
 
@@ -88,14 +88,14 @@ def test_diagnostics_shape_latest_only(
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:
         assert k in diag, f"missing diagnostics key {k} for {system_id}"
     assert diag["ranking_source"] == "latest_only"
     # we expect >= 1 candidates when setup is True for latest_only; allow 0 only for unexpected paths
-    assert int(diag["final_top_n_count"]) >= 0
+    assert int(diag["ranked_top_n_count"]) >= 0
 
 
 @pytest.mark.parametrize(
@@ -187,7 +187,7 @@ def test_diagnostics_shape_full_scan(
     for k in [
         "ranking_source",
         "setup_predicate_count",
-        "final_top_n_count",
+        "ranked_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
     ]:

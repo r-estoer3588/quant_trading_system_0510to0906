@@ -16,7 +16,7 @@
 
 後続 (ID8 diagnostics enrichment) で以下カウンタに利用予定:
     - setup_predicate_count
-    - final_top_n_count
+    - ranked_top_n_count
     - mismatch_flag
 
 注意:

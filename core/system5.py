@@ -204,7 +204,7 @@ def generate_candidates_system5(
         diagnostics = {
             "ranking_source": None,
             "setup_predicate_count": 0,
-            "final_top_n_count": 0,
+            "ranked_top_n_count": 0,
             "predicate_only_pass_count": 0,
             "mismatch_flag": 0,
         }
@@ -221,6 +221,7 @@ def generate_candidates_system5(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            setup_pass_count = 0  # カウンター追加
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
@@ -242,6 +243,8 @@ def generate_candidates_system5(
                 if not setup_ok:
                     continue
 
+                setup_pass_count += 1  # setup通過カウント
+
                 adx7_val = last_row.get("adx7", None)
                 try:
                     if adx7_val is None or pd.isna(adx7_val):
@@ -259,6 +262,8 @@ def generate_candidates_system5(
                         "close": last_row.get("Close", 0),
                     }
                 )
+
+            diagnostics["setup_predicate_count"] = setup_pass_count  # 記録
             if not rows:
                 if log_callback:
                     try:
@@ -302,7 +307,7 @@ def generate_candidates_system5(
             except Exception:
                 pass
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
-            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
@@ -412,9 +417,9 @@ def generate_candidates_system5(
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
-            diagnostics["final_top_n_count"] = len(candidates_by_date.get(last_dt, []))
+            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_dt, []))
         except Exception:
-            diagnostics["final_top_n_count"] = 0
+            diagnostics["ranked_top_n_count"] = 0
     else:
         candidates_df = None
 

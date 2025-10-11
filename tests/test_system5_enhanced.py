@@ -5,6 +5,7 @@ Focus on the main pipeline functions and integration tests.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -13,15 +14,23 @@ import pytest
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
+generate_candidates_system5: Any = None
+get_total_days_system5: Any = None
+prepare_data_vectorized_system5: Any = None
+format_atr_pct_threshold_label: Any = None
+DEFAULT_ATR_PCT_THRESHOLD: Any = None
 try:
-    from core.system5 import (
-        DEFAULT_ATR_PCT_THRESHOLD,
-        format_atr_pct_threshold_label,
-        generate_candidates_system5,
-        get_total_days_system5,
-        prepare_data_vectorized_system5,
-    )
+    from core.system5 import DEFAULT_ATR_PCT_THRESHOLD as _def_atr
+    from core.system5 import format_atr_pct_threshold_label as _fmt_atr
+    from core.system5 import generate_candidates_system5 as _gc5
+    from core.system5 import get_total_days_system5 as _gt5
+    from core.system5 import prepare_data_vectorized_system5 as _prep5
 
+    generate_candidates_system5 = _gc5
+    get_total_days_system5 = _gt5
+    prepare_data_vectorized_system5 = _prep5
+    format_atr_pct_threshold_label = _fmt_atr
+    DEFAULT_ATR_PCT_THRESHOLD = _def_atr
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -218,7 +227,7 @@ class TestSystem5MainFunctions:
         # Check for required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
     def test_generate_candidates_system5_empty_prepared_dict(self):
         """Test handling of empty prepared_dict"""

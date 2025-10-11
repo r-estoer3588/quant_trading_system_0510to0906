@@ -257,7 +257,7 @@ def generate_candidates_system6(
         diagnostics = {
             "ranking_source": None,
             "setup_predicate_count": 0,
-            "final_top_n_count": 0,
+            "ranked_top_n_count": 0,
             "predicate_only_pass_count": 0,
             "mismatch_flag": 0,
         }
@@ -447,7 +447,7 @@ def generate_candidates_system6(
                     )
                 except Exception:
                     pass
-            diagnostics["final_top_n_count"] = len(df_all)
+            diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             return (
                 (normalized, df_all.copy(), diagnostics)
@@ -681,11 +681,11 @@ def generate_candidates_system6(
     diagnostics["ranking_source"] = diagnostics.get("ranking_source") or "full_scan"
     try:
         last_dt = max(normalized_full.keys()) if normalized_full else None
-        diagnostics["final_top_n_count"] = (
+        diagnostics["ranked_top_n_count"] = (
             len(normalized_full.get(last_dt, {})) if last_dt is not None else 0
         )
     except Exception:
-        diagnostics["final_top_n_count"] = 0
+        diagnostics["ranked_top_n_count"] = 0
 
     if include_diagnostics:
         return (normalized_full, None, diagnostics)

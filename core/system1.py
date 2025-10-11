@@ -39,7 +39,7 @@ class System1Diagnostics:
     roc200_positive: int = 0
     final_pass: int = 0
     setup_predicate_count: int = 0
-    final_top_n_count: int = 0
+    ranked_top_n_count: int = 0
     predicate_only_pass_count: int = 0
     mismatch_flag: int = 0
     date_fallback_count: int = 0
@@ -64,7 +64,7 @@ class System1Diagnostics:
             "roc200_positive": int(self.roc200_positive),
             "final_pass": int(self.final_pass),
             "setup_predicate_count": int(self.setup_predicate_count),
-            "final_top_n_count": int(self.final_top_n_count),
+            "ranked_top_n_count": int(self.ranked_top_n_count),
             "predicate_only_pass_count": int(self.predicate_only_pass_count),
             "mismatch_flag": int(self.mismatch_flag),
             "date_fallback_count": int(self.date_fallback_count),
@@ -113,7 +113,6 @@ def summarize_system1_diagnostics(
         "roc200_positive",
         "final_pass",
         "setup_predicate_count",
-        "final_top_n_count",
         "predicate_only_pass_count",
         "mismatch_flag",
         "date_fallback_count",
@@ -894,7 +893,7 @@ def generate_candidates_system1(
                     pass
 
             df_all = top_cut
-            diag.final_top_n_count = len(df_all)
+            diag.ranked_top_n_count = len(df_all)
             diag.ranking_source = "latest_only"
 
             # Build by_date structure
@@ -1038,7 +1037,7 @@ def generate_candidates_system1(
         candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
-            diag.final_top_n_count = len(candidates_by_date.get(last_date, []))
+            diag.ranked_top_n_count = len(candidates_by_date.get(last_date, []))
         diag.ranking_source = "full_scan"
     else:
         candidates_df = None

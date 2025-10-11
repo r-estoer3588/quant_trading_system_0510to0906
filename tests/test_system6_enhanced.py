@@ -5,23 +5,37 @@ Focus on the main pipeline functions and integration tests.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
 from common.testing import set_test_determinism
 
 # Import functions directly to avoid dependency issues
+generate_candidates_system6: Any = None
+get_total_days_system6: Any = None
+prepare_data_vectorized_system6: Any = None
+HV50_BOUNDS_FRACTION: Any = None
+HV50_BOUNDS_PERCENT: Any = None
+MIN_DOLLAR_VOLUME_50: Any = None
+MIN_PRICE: Any = None
 try:
-    from core.system6 import (
-        HV50_BOUNDS_FRACTION,
-        HV50_BOUNDS_PERCENT,
-        MIN_DOLLAR_VOLUME_50,
-        MIN_PRICE,
-        generate_candidates_system6,
-        get_total_days_system6,
-        prepare_data_vectorized_system6,
-    )
+    from core.system6 import HV50_BOUNDS_FRACTION as _hv_frac
+    from core.system6 import HV50_BOUNDS_PERCENT as _hv_pct
+    from core.system6 import MIN_DOLLAR_VOLUME_50 as _min_dv
+    from core.system6 import MIN_PRICE as _min_p
+    from core.system6 import generate_candidates_system6 as _gc6
+    from core.system6 import get_total_days_system6 as _gt6
+    from core.system6 import prepare_data_vectorized_system6 as _prep6
 
+    generate_candidates_system6 = _gc6
+    get_total_days_system6 = _gt6
+    prepare_data_vectorized_system6 = _prep6
+    HV50_BOUNDS_FRACTION = _hv_frac
+    HV50_BOUNDS_PERCENT = _hv_pct
+    MIN_DOLLAR_VOLUME_50 = _min_dv
+    MIN_PRICE = _min_p
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -165,7 +179,7 @@ class TestSystem6MainFunctions:
         # Check for required diagnostic keys
         assert "ranking_source" in diagnostics
         assert "setup_predicate_count" in diagnostics
-        assert "final_top_n_count" in diagnostics
+        assert "ranked_top_n_count" in diagnostics
 
     def test_generate_candidates_system6_empty_prepared_dict(self):
         """Test handling of empty prepared_dict"""

@@ -39,18 +39,23 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict[str, Any]
         b_diag = baseline_systems.get(sys_id, {}).get("diagnostics", {})
         c_diag = current_systems.get(sys_id, {}).get("diagnostics", {})
 
+        # Unified key only
+        b_final = b_diag.get("ranked_top_n_count", -1)
+        c_final = c_diag.get("ranked_top_n_count", -1)
         diff = {
             "system_id": sys_id,
             "setup_predicate_count": {
                 "baseline": b_diag.get("setup_predicate_count", -1),
                 "current": c_diag.get("setup_predicate_count", -1),
-                "diff": c_diag.get("setup_predicate_count", -1)
-                - b_diag.get("setup_predicate_count", -1),
+                "diff": (
+                    c_diag.get("setup_predicate_count", -1)
+                    - b_diag.get("setup_predicate_count", -1)
+                ),
             },
-            "final_top_n_count": {
-                "baseline": b_diag.get("final_top_n_count", -1),
-                "current": c_diag.get("final_top_n_count", -1),
-                "diff": c_diag.get("final_top_n_count", -1) - b_diag.get("final_top_n_count", -1),
+            "ranked_top_n_count": {
+                "baseline": b_final,
+                "current": c_final,
+                "diff": c_final - b_final,
             },
             "category": _classify_diff(b_diag, c_diag),
         }
@@ -65,8 +70,8 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict[str, Any]
 
 def _classify_diff(baseline: dict, current: dict) -> str:
     """差分をカテゴリ分類（no_change, increase, decrease, new, removed）。"""
-    b_final = baseline.get("final_top_n_count", -1)
-    c_final = current.get("final_top_n_count", -1)
+    b_final = baseline.get("ranked_top_n_count", -1)
+    c_final = current.get("ranked_top_n_count", -1)
 
     if b_final == -1 and c_final >= 0:
         return "new"
@@ -169,7 +174,7 @@ def main():
         for d in changed_systems:
             print(f"\nSystem: {d['system_id']} ({d['category']})")
             print(f"  setup_predicate_count: {d['setup_predicate_count']}")
-            print(f"  final_top_n_count: {d['final_top_n_count']}")
+            print(f"  ranked_top_n_count: {d['ranked_top_n_count']}")
     else:
         print("\n=== No Changes Detected ===")
 
