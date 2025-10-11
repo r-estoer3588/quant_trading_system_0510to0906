@@ -146,9 +146,12 @@ class TestSystem7LatestOnlyDetailedConstruction:
 
     def test_latest_only_entry_price_extraction(self):
         """Test entry_price extraction from Close (lines 230-231)."""
-        data = self.create_spy_for_latest_only(setup_today=True)
+        raw_data = self.create_spy_for_latest_only(setup_today=True)
+        # Step 1: Prepare data with indicators
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
+        # Step 2: Generate candidates
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
         )
         candidates_dict = result_tuple[0]
 
@@ -157,9 +160,12 @@ class TestSystem7LatestOnlyDetailedConstruction:
 
     def test_latest_only_atr_extraction_variants(self):
         """Test ATR extraction with case variants (lines 233-234)."""
-        data = self.create_spy_for_latest_only(setup_today=True)
+        raw_data = self.create_spy_for_latest_only(setup_today=True)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
         )
 
         # Lines 233-234: atr_val handling
@@ -167,9 +173,12 @@ class TestSystem7LatestOnlyDetailedConstruction:
 
     def test_latest_only_df_fast_construction(self):
         """Test df_fast DataFrame construction (lines 236-246)."""
-        data = self.create_spy_for_latest_only(setup_today=True)
+        raw_data = self.create_spy_for_latest_only(setup_today=True)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
         )
         candidates_df = result_tuple[1]
 
@@ -181,9 +190,12 @@ class TestSystem7LatestOnlyDetailedConstruction:
 
     def test_latest_only_normalized_dict_construction(self):
         """Test normalized dict construction (lines 247-254)."""
-        data = self.create_spy_for_latest_only(setup_today=True)
+        raw_data = self.create_spy_for_latest_only(setup_today=True)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
         )
         candidates_dict = result_tuple[0]
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
@@ -195,8 +207,13 @@ class TestSystem7LatestOnlyDetailedConstruction:
 
     def test_latest_only_symbol_payload_construction(self):
         """Test symbol_payload dict comprehension (lines 249-251)."""
-        data = self.create_spy_for_latest_only(setup_today=True)
-        _ = generate_candidates_system7(data, top_n=5, latest_only=True, include_diagnostics=True)
+        raw_data = self.create_spy_for_latest_only(setup_today=True)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
+        _ = generate_candidates_system7(
+            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
+        )
 
         # Line 249-251: symbol_payload = {k: v for ...}
         assert True
@@ -234,9 +251,12 @@ class TestSystem7DateGroupingDetailedBranches:
 
     def test_date_grouping_limit_n_zero_branch(self):
         """Test limit_n == 0 branch (line 324)."""
-        data = self.create_spy_with_multiple_setups(num_setups=0, total_periods=50)
+        raw_data = self.create_spy_with_multiple_setups(num_setups=0, total_periods=50)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=0, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=0, latest_only=False, include_diagnostics=True
         )
 
         # Line 324: if limit_n == 0: continue
@@ -244,9 +264,12 @@ class TestSystem7DateGroupingDetailedBranches:
 
     def test_date_grouping_close_column_check(self):
         """Test Close column presence check (lines 327-329)."""
-        data = self.create_spy_with_multiple_setups(num_setups=10)
+        raw_data = self.create_spy_with_multiple_setups(num_setups=10)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=False, include_diagnostics=True
         )
 
         # Lines 327-329: if "Close" in df.columns and not df["Close"].empty
@@ -254,9 +277,12 @@ class TestSystem7DateGroupingDetailedBranches:
 
     def test_date_grouping_atr_val_extraction(self):
         """Test ATR value extraction with try/except (lines 331-333)."""
-        data = self.create_spy_with_multiple_setups(num_setups=10)
+        raw_data = self.create_spy_with_multiple_setups(num_setups=10)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=5, latest_only=False, include_diagnostics=True
         )
 
         # Lines 331-333: atr_val_full extraction
@@ -264,9 +290,12 @@ class TestSystem7DateGroupingDetailedBranches:
 
     def test_date_grouping_bucket_limit_check(self):
         """Test bucket limit check (lines 342-343)."""
-        data = self.create_spy_with_multiple_setups(num_setups=20)
+        raw_data = self.create_spy_with_multiple_setups(num_setups=20)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         result_tuple = generate_candidates_system7(
-            data, top_n=1, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=1, latest_only=False, include_diagnostics=True
         )
 
         # Lines 342-343: if limit_n is not None and len(bucket) >= limit_n
@@ -274,15 +303,18 @@ class TestSystem7DateGroupingDetailedBranches:
 
     def test_date_grouping_window_size_calculation(self):
         """Test window_size calculation (line 352)."""
-        data = self.create_spy_with_multiple_setups(num_setups=15)
+        raw_data = self.create_spy_with_multiple_setups(num_setups=15)
 
         logs = []
 
         def log_callback(msg):
             logs.append(msg)
 
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         _ = generate_candidates_system7(
-            data,
+            prepared_data,
             top_n=5,
             latest_only=False,
             include_diagnostics=True,

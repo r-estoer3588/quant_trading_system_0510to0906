@@ -43,10 +43,13 @@ class TestSystem7NormalizationAndDiagnostics:
 
     def test_normalized_full_dict_construction(self):
         """Test normalized_full dict construction (lines 369-377)."""
-        data = self.create_spy_with_setups(num_dates=5, periods=100)
+        raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
 
         result_tuple = generate_candidates_system7(
-            data, top_n=3, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
         )
         normalized_dict = result_tuple[0]
 
@@ -58,10 +61,13 @@ class TestSystem7NormalizationAndDiagnostics:
 
     def test_diagnostics_final_top_n_count_full_scan(self):
         """Test final_top_n_count in full_scan mode (lines 378-380)."""
-        data = self.create_spy_with_setups(num_dates=5, periods=100)
+        raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
 
         result_tuple = generate_candidates_system7(
-            data, top_n=3, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
         )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
@@ -73,10 +79,13 @@ class TestSystem7NormalizationAndDiagnostics:
 
     def test_diagnostics_ranking_source_full_scan(self):
         """Test ranking_source is set to 'full_scan' (line 381)."""
-        data = self.create_spy_with_setups(num_dates=5, periods=100)
+        raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
 
         result_tuple = generate_candidates_system7(
-            data, top_n=3, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
         )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
@@ -105,10 +114,13 @@ class TestSystem7NormalizationAndDiagnostics:
             },
             index=dates,
         )
-        data = {"SPY": df}
+        raw_data = {"SPY": df}
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
 
         result_tuple = generate_candidates_system7(
-            data, top_n=3, latest_only=False, include_diagnostics=True
+            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
         )
 
         # Lines 374-375: if sym_val != "SPY": continue
@@ -133,9 +145,14 @@ class TestSystem7NormalizationAndDiagnostics:
             },
             index=dates,
         )
-        data = {"SPY": df}
+        raw_data = {"SPY": df}
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
 
-        _ = generate_candidates_system7(data, top_n=3, latest_only=False, include_diagnostics=True)
+        _ = generate_candidates_system7(
+            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
+        )
 
         # Line 382-383: Exception handling for max(normalized_full.keys())
         assert True  # Function executed without crash
@@ -222,15 +239,18 @@ class TestSystem7ProgressCallback:
 
     def test_progress_callback_execution(self):
         """Test progress_callback is called (lines 361-364)."""
-        data = self.create_spy_for_progress()
+        raw_data = self.create_spy_for_progress()
         callback_called = False
 
         def progress_cb(current, total):
             nonlocal callback_called
             callback_called = True
 
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         _ = generate_candidates_system7(
-            data,
+            prepared_data,
             top_n=3,
             latest_only=False,
             include_diagnostics=True,
@@ -242,13 +262,16 @@ class TestSystem7ProgressCallback:
 
     def test_progress_callback_exception_handling(self):
         """Test progress_callback exception is handled (line 363-364)."""
-        data = self.create_spy_for_progress()
+        raw_data = self.create_spy_for_progress()
 
         def failing_progress_cb(current, total):
             raise ValueError("Simulated callback error")
 
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         _ = generate_candidates_system7(
-            data,
+            prepared_data,
             top_n=3,
             latest_only=False,
             include_diagnostics=True,

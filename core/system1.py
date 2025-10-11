@@ -565,6 +565,7 @@ def generate_candidates_system1(
     )
     # Fast path: evaluate only the most recent bar per symbol
     if latest_only:
+        print("[DEBUG_S1_LATEST] ★★★ ENTERED latest_only block ★★★")
         if log_callback:
             log_callback(
                 f"[DEBUG_S1_LATEST] Entering latest_only block, "
@@ -667,7 +668,13 @@ def generate_candidates_system1(
                             continue
                 else:
                     latest_idx_raw = df.index[-1]
-                    date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
+                    try:
+                        date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
+                    except Exception as e_date:
+                        print(f"[ERROR] Symbol {sym}: Failed to parse date from index[-1]={latest_idx_raw}, type={type(latest_idx_raw)}, str={str(latest_idx_raw)}")
+                        print(f"       Error: {e_date}")
+                        diag.exclude_reasons["invalid_date"] += 1
+                        continue
                     try:
                         row_obj = df.loc[latest_idx_raw]
                     except Exception:
@@ -908,6 +915,9 @@ def generate_candidates_system1(
             return finalize(by_date, None)
 
         except Exception as e_latest:
+            import traceback
+            print(f"[ERROR] System1 latest_only exception: {e_latest}")
+            traceback.print_exc()
             if log_callback:
                 log_callback(f"System1 latest_only error: {e_latest}")
             diag.ranking_source = "error_latest"

@@ -183,9 +183,12 @@ class TestSystem7LatestOnlyEdgeCases:
         """Test latest_only when ATR50 is missing (line 233-235)."""
         from core.system7 import generate_candidates_system7
 
-        spy_data = self.create_spy_data_minimal(setup_today=True)
-        # Remove ATR50 columns
-        spy_data = spy_data.drop(columns=["atr50", "ATR50"], errors="ignore")
+        spy_data = self.create_spy_data_minimal(setup_today=True).copy()
+        # Remove ATR50 columns if they exist
+        if "atr50" in spy_data.columns:
+            spy_data = spy_data.drop(columns=["atr50"])
+        if "ATR50" in spy_data.columns:
+            spy_data = spy_data.drop(columns=["ATR50"])
 
         data_dict = {"SPY": spy_data}
 
@@ -202,9 +205,10 @@ class TestSystem7LatestOnlyEdgeCases:
         """Test latest_only when Close column is missing (line 230-232)."""
         from core.system7 import generate_candidates_system7
 
-        spy_data = self.create_spy_data_minimal(setup_today=True)
-        # Remove Close column
-        spy_data = spy_data.drop(columns=["Close"], errors="ignore")
+        spy_data = self.create_spy_data_minimal(setup_today=True).copy()
+        # Remove Close column if it exists
+        if "Close" in spy_data.columns:
+            spy_data = spy_data.drop(columns=["Close"])
 
         data_dict = {"SPY": spy_data}
 
