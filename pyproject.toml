@@ -63,3 +63,54 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests/experimental", "."]
 addopts = "--cov=./ --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["core", "common", "strategies", "config", "schedulers"]
+omit = [
+  "*/tests/*",
+  "*/test_*.py",
+  "*/__pycache__/*",
+  "*/site-packages/*",
+  "*/.venv/*",
+  "*/.wslvenv/*",
+  "*/data_cache/*",
+  "*/data_cache_recent/*",
+  "*/results_csv/*",
+  "*/results_csv_test/*",
+  "*/logs/*",
+  "*/htmlcov/*",
+  "*/tools/archive/*",
+]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+precision = 2
+skip_empty = true
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if __name__ == .__main__.:",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "if typing.TYPE_CHECKING:",
+  "@abstractmethod",
+  "@abc.abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"
+
+# カバレッジ目標値（参考）
+# core/system7.py: 66% (達成済み)
+# core/system1-6.py: 60-65% (目標)
+# common/*.py: 70% (目標)
+# strategies/*.py: 65% (目標)
