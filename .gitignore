@@ -78,3 +78,7 @@ env/
 .wslvenv/
 
 results_csv_test/
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md
