@@ -11,6 +11,11 @@ import sys
 import time
 from typing import Literal
 
+try:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+except ImportError:  # pragma: no cover - handled later when playwright import fails
+    PlaywrightTimeoutError = Exception
+
 
 def capture_streamlit_screenshot(
     url: str,
@@ -59,6 +64,43 @@ def capture_streamlit_screenshot(
             print(f"Loading: {url}")
             page.goto(url, wait_until="networkidle", timeout=30000)
             time.sleep(wait_seconds)
+
+            def locate_system5():
+                """System5 の要素を探し、中央表示とバウンディングボックスを返す。"""
+
+                candidate_texts = [
+                    "System5",
+                    "System 5",
+                    "システム5",
+                    "System5 ",  # 末尾にスペースが付くケース
+                    "System 5 ",
+                ]
+
+                for text in candidate_texts:
+                    locator = page.get_by_text(text, exact=False).first
+                    try:
+                        locator.wait_for(state="visible", timeout=4000)
+                        locator.evaluate(
+                            "el => el.scrollIntoView({behavior: 'instant', "
+                            "block: 'center', inline: 'center'})"
+                        )
+                        time.sleep(0.2)
+                        box = locator.bounding_box()
+                        if box:
+                            print(
+                                "System5 element bounding box: "
+                                f"x={box['x']:.1f}, y={box['y']:.1f}, "
+                                f"w={box['width']:.1f}, h={box['height']:.1f}"
+                            )
+                            return locator, box
+                    except PlaywrightTimeoutError:
+                        continue
+                    except Exception as locator_error:  # pragma: no cover
+                        print(f"System5 locator warning: {locator_error}")
+                        continue
+
+                print("Warning: System5 element not located; layout may differ.")
+                return None, None
 
             # Streamlit の CSS とコンポーネントの読み込みを待機
             print("Waiting for Streamlit to fully render...")
@@ -132,9 +174,72 @@ def capture_streamlit_screenshot(
                 time.sleep(1)
 
             # コンテンツの実際のサイズを取得
-            content_width = page.evaluate("document.body.scrollWidth")
-            content_height = page.evaluate("document.body.scrollHeight")
-            print(f"Content size: {content_width}x{content_height} px " f"(viewport: 1920x1080)")
+            content_width = int(page.evaluate("document.body.scrollWidth") or 0)
+            content_height = int(page.evaluate("document.body.scrollHeight") or 0)
+            vp = page.viewport_size or {"width": 1920, "height": 1080}
+            print(
+                f"Content size: {content_width}x{content_height} px "
+                f"(viewport: {vp['width']}x{vp['height']})"
+            )
+
+            # 横方向の見切れ回避: コンテンツ幅がビューポートを超える場合は一時的に拡張
+            # 安全上限（ユーザー画面に過度にならない範囲）を設定
+            MAX_VIEWPORT_WIDTH = 2300
+            if content_width and vp and content_width > int(vp.get("width", 1920)):
+                new_width = min(int(content_width), MAX_VIEWPORT_WIDTH)
+                if new_width > vp["width"]:
+                    print(
+                        "Expanding viewport width: "
+                        f"{vp['width']} -> {new_width} "
+                        "to avoid horizontal cutoff"
+                    )
+                    page.set_viewport_size(
+                        {
+                            "width": new_width,
+                            "height": vp["height"],
+                        }
+                    )
+                    # レイアウト再計算待機
+                    time.sleep(0.5)
+                    # 再度サイズ取得（高さが変わる可能性がある）
+                    content_height = int(
+                        page.evaluate("document.body.scrollHeight") or content_height
+                    )
+                    vp = page.viewport_size or vp
+                    print(
+                        f"Adjusted content: {content_width}x{content_height} px "
+                        f"(viewport: {vp['width']}x{vp['height']})"
+                    )
+
+            # System5 の位置を記録し、見切れを検出
+            locator, box = locate_system5()
+            if box:
+                vp = page.viewport_size or {"width": 1920, "height": 1080}
+                viewport_width = int(vp.get("width", 1920))
+                right_edge = box["x"] + box["width"]
+
+                if right_edge > viewport_width and viewport_width < MAX_VIEWPORT_WIDTH:
+                    new_width = min(int(right_edge) + 40, MAX_VIEWPORT_WIDTH)
+                    if new_width > viewport_width:
+                        print("Expanding viewport for System5: " f"{viewport_width} -> {new_width}")
+                        page.set_viewport_size(
+                            {
+                                "width": new_width,
+                                "height": vp["height"],
+                            }
+                        )
+                        time.sleep(0.5)
+                        locator, box = locate_system5()
+                        vp = page.viewport_size or vp
+                        viewport_width = int(vp.get("width", viewport_width))
+
+                if box:
+                    print(
+                        "Final System5 bounding box: "
+                        f"x={box['x']:.1f}, y={box['y']:.1f}, "
+                        f"w={box['width']:.1f}, h={box['height']:.1f} "
+                        f"(viewport width {viewport_width})"
+                    )
 
             # フルページスクリーンショット
             output_path.parent.mkdir(parents=True, exist_ok=True)
