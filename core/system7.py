@@ -205,16 +205,20 @@ def generate_candidates_system7(
     if latest_only:
         try:
             last_row = df.iloc[-1]
+
+            # Use predicate-based evaluation (no setup column dependency)
             from common.system_setup_predicates import system7_setup_predicate as _s7_pred
 
-            setup_col_val = bool(last_row.get("setup", False)) if "setup" in last_row else True
-            pred_val = _s7_pred(last_row)
-            if pred_val:
+            setup_ok = False
+            try:
+                setup_ok = bool(_s7_pred(last_row))
+            except Exception:
+                setup_ok = False
+
+            if setup_ok:
                 diagnostics["setup_predicate_count"] += 1
-            if pred_val and not setup_col_val:
-                diagnostics["predicate_only_pass_count"] += 1
-                diagnostics["mismatch_flag"] = 1
-            if bool(last_row.get("setup")):
+                diagnostics["final_top_n_count"] = 1
+
                 setup_date = df.index[-1]
                 entry_date = resolve_signal_entry_date(setup_date)
                 if not pd.isna(entry_date):

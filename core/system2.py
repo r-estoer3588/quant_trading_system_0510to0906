@@ -212,10 +212,23 @@ def generate_candidates_system2(
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
-                # setup==True のみ採用（列が無い場合は不採用）
-                setup_ok = bool(last_row.get("setup", False))
+
+                # Use predicate-based evaluation (no setup column dependency)
+                try:
+                    from common.system_setup_predicates import system2_setup_predicate as _s2_pred
+                except Exception:
+                    _s2_pred = None
+
+                setup_ok = False
+                if _s2_pred is not None:
+                    try:
+                        setup_ok = bool(_s2_pred(last_row))
+                    except Exception:
+                        setup_ok = False
+
                 if not setup_ok:
                     continue
+
                 adx7_val = last_row.get("adx7", None)
                 try:
                     if adx7_val is None or pd.isna(adx7_val):

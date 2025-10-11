@@ -90,7 +90,7 @@ class TestSystem7DataPreparation:
     """Test System7 data preparation functions."""
 
     def create_valid_spy_data(self, periods=100):
-        """Create valid SPY data with required atr50 indicator."""
+        """Create valid SPY data with required indicators."""
         dates = pd.date_range("2023-01-01", periods=periods, freq="D")
 
         # Generate realistic SPY-like data
@@ -100,15 +100,28 @@ class TestSystem7DataPreparation:
         np.random.seed(42)
         returns = np.random.normal(0, volatility, periods)
         prices = base_price * np.exp(np.cumsum(returns))
+        lows = [p * 0.992 for p in prices]
+        highs = [p * 1.008 for p in prices]
+
+        # Calculate min_50 and max_70 (simplified rolling calculations)
+        df_temp = pd.DataFrame({"Low": lows, "High": highs}, index=dates)
+        win_50 = min(50, len(df_temp))
+        win_70 = min(70, len(df_temp))
+        min_50 = df_temp["Low"].rolling(window=win_50, min_periods=1).min()
+        max_70 = df_temp["High"].rolling(window=win_70, min_periods=1).max()
+
+        volumes = [50000000 + np.random.randint(-5000000, 5000000) for _ in range(periods)]
 
         return pd.DataFrame(
             {
                 "Open": [p * 0.998 for p in prices],
-                "High": [p * 1.008 for p in prices],
-                "Low": [p * 0.992 for p in prices],
+                "High": highs,
+                "Low": lows,
                 "Close": prices,
-                "Volume": [50000000 + np.random.randint(-5000000, 5000000) for _ in range(periods)],
-                "atr50": [p * 0.02 for p in prices],  # Realistic ATR50 values
+                "Volume": volumes,
+                "atr50": [p * 0.02 for p in prices],
+                "min_50": min_50.values,
+                "max_70": max_70.values,
             },
             index=dates,
         )
@@ -141,6 +154,11 @@ class TestSystem7DataPreparation:
         # Mock cache existence and data
         mock_exists.return_value = True
         cached_data = spy_data.copy()
+        # Ensure all required indicators are present
+        if "min_50" not in cached_data.columns:
+            cached_data["min_50"] = spy_data["min_50"]
+        if "max_70" not in cached_data.columns:
+            cached_data["max_70"] = spy_data["max_70"]
         cached_data.reset_index(inplace=True)
         cached_data.rename(columns={"index": "Date"}, inplace=True)
         mock_read_feather.return_value = cached_data
@@ -197,7 +215,9 @@ class TestSystem7CandidateGeneration:
         """Test basic candidate generation."""
         prepared_data = self.create_prepared_spy_data()
 
-        candidates_dict, candidates_df = generate_candidates_system7(prepared_data, top_n=5)
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5)
+        candidates_dict = result_tuple[0]
+        candidates_df = result_tuple[1]
 
         assert isinstance(candidates_dict, dict)
         assert candidates_df is None or isinstance(candidates_df, pd.DataFrame)
@@ -208,9 +228,11 @@ class TestSystem7CandidateGeneration:
 
     def test_generate_candidates_system7_empty_data(self):
         """Test candidate generation with empty data."""
-        empty_data = {}
+        empty_data: dict[str, pd.DataFrame] = {}
 
-        candidates_dict, candidates_df = generate_candidates_system7(empty_data, top_n=5)
+        result_tuple = generate_candidates_system7(empty_data, top_n=5)
+        candidates_dict = result_tuple[0]
+        _ = result_tuple[1]  # candidates_df not checked in this test
 
         assert isinstance(candidates_dict, dict)
         assert len(candidates_dict) == 0
@@ -220,9 +242,11 @@ class TestSystem7CandidateGeneration:
         prepared_data = self.create_prepared_spy_data()
         progress_mock = Mock()
 
-        candidates_dict, candidates_df = generate_candidates_system7(
-            prepared_data, top_n=3, progress_callback=progress_mock
+        result_tuple = generate_candidates_system7(
+            prepared_data, top_n=5, log_callback=progress_mock
         )
+        candidates_dict = result_tuple[0]
+        _ = result_tuple[1]  # candidates_df not checked
 
         assert isinstance(candidates_dict, dict)
 
@@ -243,7 +267,7 @@ class TestSystem7Integration:
         for i in range(150):
             if crash_start <= i <= crash_end:
                 # Simulate market crash
-                crash_factor = 0.98 ** (i - crash_start + 1)  # 2% daily decline
+                crash_factor = 0.98 ** (i - crash_start + 1)
                 prices.append(base_price * crash_factor)
             elif i > crash_end:
                 # Recovery period
@@ -253,15 +277,27 @@ class TestSystem7Integration:
                 # Normal market
                 prices.append(base_price + 0.1 * i)
 
+        lows = [p * 0.995 for p in prices]
+        highs = [p * 1.005 for p in prices]
+
+        # Calculate required indicators
+        df_temp = pd.DataFrame({"Low": lows, "High": highs}, index=dates)
+        win_50 = min(50, len(df_temp))
+        win_70 = min(70, len(df_temp))
+        min_50 = df_temp["Low"].rolling(window=win_50, min_periods=1).min()
+        max_70 = df_temp["High"].rolling(window=win_70, min_periods=1).max()
+
         return {
             "SPY": pd.DataFrame(
                 {
                     "Open": [p * 0.998 for p in prices],
-                    "High": [p * 1.005 for p in prices],
-                    "Low": [p * 0.995 for p in prices],
+                    "High": highs,
+                    "Low": lows,
                     "Close": prices,
                     "Volume": [60000000] * 150,
-                    "atr50": [max(5.0, p * 0.015) for p in prices],  # Realistic ATR
+                    "atr50": [max(5.0, p * 0.015) for p in prices],
+                    "min_50": min_50.values,
+                    "max_70": max_70.values,
                 },
                 index=dates,
             )
@@ -277,7 +313,9 @@ class TestSystem7Integration:
         assert "SPY" in prepared_data
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system7(prepared_data, top_n=1)
+        result_tuple = generate_candidates_system7(prepared_data, top_n=1)
+        candidates_dict = result_tuple[0]
+        _ = result_tuple[1]  # candidates_df not checked
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days
@@ -289,10 +327,12 @@ class TestSystem7Integration:
         # Test with empty data (empty_data removed)
         # Empty data test removed
 
-        # prepared_empty = prepare_data_vectorized_system7(empty_data) if False else {}  # removed
+        # prepare_data removed (not needed for empty input test)
         # Note: prepare_data_vectorized_system7({}) should raise ValueError
 
-        candidates_dict, candidates_df = generate_candidates_system7({}, top_n=1)
+        result_tuple = generate_candidates_system7({}, top_n=1)
+        candidates_dict = result_tuple[0]
+        _ = result_tuple[1]  # candidates_df not checked
         assert isinstance(candidates_dict, dict)
         assert len(candidates_dict) == 0
 
@@ -304,8 +344,14 @@ class TestSystem7Integration:
         # Verify System7 only processes SPY and rejects other symbols
         dates = pd.date_range("2023-01-01", periods=3, freq="D")
         multi_symbol_data = {
-            "SPY": pd.DataFrame({"Close": [400, 401, 402], "atr50": [8.0, 8.1, 8.2]}, index=dates),
-            "QQQ": pd.DataFrame({"Close": [300, 301, 302], "atr50": [6.0, 6.1, 6.2]}, index=dates),
+            "SPY": pd.DataFrame(
+                {"Close": [400, 401, 402], "atr50": [8.0, 8.1, 8.2]},
+                index=dates,
+            ),
+            "QQQ": pd.DataFrame(
+                {"Close": [300, 301, 302], "atr50": [6.0, 6.1, 6.2]},
+                index=dates,
+            ),
         }
 
         # System7 should only process SPY

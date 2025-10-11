@@ -254,10 +254,22 @@ def generate_candidates_system3(
         def _evaluate_row(
             row: pd.Series | None,
         ) -> tuple[bool, bool, bool, float, float, bool]:
+            """Evaluate System3 setup conditions using predicate (no column dependency)."""
             if row is None:
                 return False, False, False, float("nan"), float("nan"), False
 
-            setup_flag = bool(row.get("setup", False))
+            # Use predicate for setup evaluation
+            try:
+                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+            except Exception:
+                _s3_pred = None
+
+            setup_flag = False
+            if _s3_pred is not None:
+                try:
+                    setup_flag = bool(_s3_pred(row))
+                except Exception:
+                    setup_flag = False
 
             try:
                 drop_val = float(row.get("drop3d", float("nan")))
@@ -269,7 +281,8 @@ def generate_candidates_system3(
             except Exception:
                 atr_val = float("nan")
 
-            filter_flag = bool(row.get("filter", False))
+            # Phase 2 filter already passed, no need to check filter column
+            filter_flag = True
             final_flag = setup_flag
 
             try:
@@ -286,7 +299,7 @@ def generate_candidates_system3(
             except Exception:
                 pass
 
-            # predicate_flag はウォーターフォール順を維持するため setup_flag と同一扱い
+            # predicate_flag is now same as setup_flag
             predicate_flag = setup_flag
             return (
                 setup_flag,

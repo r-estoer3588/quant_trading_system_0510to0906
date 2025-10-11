@@ -17,6 +17,8 @@ tools/debug/*.log
 tools/benchmark/*.log
 htmlcov/
 codacy_report/
+.codacy*
+codacy-analysis-cli*
 
 # temp files
 *.tmp

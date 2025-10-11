@@ -275,7 +275,7 @@ def generate_candidates_system6(
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
-                if "setup" not in df.columns:
+                if "return_6d" not in df.columns:
                     continue
                 # 対象日を選択（指定があればその日、なければ最終行）
                 if target_dt is not None:
@@ -303,10 +303,42 @@ def generate_candidates_system6(
                         dt = pd.Timestamp(parsed).normalize()
                     except Exception:
                         continue
-                if bool(last_row.get("setup")):
+
+                # Ensure last_row is a Series (not DataFrame)
+                if not isinstance(last_row, pd.Series):
+                    if isinstance(last_row, pd.DataFrame) and not last_row.empty:
+                        last_row = last_row.iloc[-1]
+                    else:
+                        continue
+
+                # Use predicate-based evaluation (no setup column dependency)
+                try:
+                    from common.system_setup_predicates import system6_setup_predicate as _s6_pred
+                except Exception:
+                    _s6_pred = None
+
+                setup_ok = False
+                if _s6_pred is not None:
+                    try:
+                        setup_ok = bool(_s6_pred(last_row))
+                    except Exception:
+                        setup_ok = False
+                else:
+                    # Fallback: manual evaluation if predicate not available
+                    try:
+                        ret_6d_val = last_row.get("return_6d")
+                        if ret_6d_val is not None:
+                            ret_6d_float = float(ret_6d_val)
+                            uptwo = bool(last_row.get("uptwodays") or last_row.get("UpTwoDays"))
+                            setup_ok = (ret_6d_float > 0.20) and uptwo
+                    except Exception:
+                        setup_ok = False
+
+                if setup_ok:
                     diagnostics["setup_predicate_count"] += 1
                 else:
                     continue
+
                 # 必要指標取得 (存在しない場合はスキップ)
                 # return_6d はスカラーに正規化してから float へ
                 try:
