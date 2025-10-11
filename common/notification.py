@@ -21,6 +21,20 @@ def notify_zero_trd_all_systems(
         ctx: TodayRunContext（通知設定を含む）
         final_df: compute_today_signals() が返す最終 DataFrame
     """
+    # 判定基準を変更: per_system ベースでトレード候補の有無を判定
+    # final_df は配分・フィルター後の結果なので、TRDlist 段階では存在する場合がある
+    per_system = getattr(ctx, "per_system_frames", {})
+    has_any_candidates = False
+    if isinstance(per_system, dict):
+        for df in per_system.values():
+            if df is not None and (hasattr(df, "empty") and not df.empty):
+                has_any_candidates = True
+                break
+
+    # per_system に候補がある場合はアラート不要（配分段階でフィルターされた可能性）
+    if has_any_candidates:
+        return
+
     # final_df が空の場合（全システムで候補ゼロ）
     if final_df is None or (hasattr(final_df, "empty") and final_df.empty):
         # モードとテスト設定を取得

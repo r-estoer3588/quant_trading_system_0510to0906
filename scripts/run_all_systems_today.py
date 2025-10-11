@@ -4776,11 +4776,13 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                                     entry_date_val = resolve_signal_entry_date(base_ts)
                                 except Exception:
                                     entry_date_val = base_ts
+                            # DEBUGログ: コンパクトモードでは抑制
                             try:
-                                _log(
-                                    f"[DEBUG] build-row {system_name} {symbol} date_key={str(date_key)} cand_entry={cand_entry} -> entry_date_val={str(entry_date_val)}",
-                                    ui=False,
-                                )
+                                if not _COMPACT_LOG:
+                                    _log(
+                                        f"[DEBUG] build-row {system_name} {symbol} date_key={str(date_key)} cand_entry={cand_entry} -> entry_date_val={str(entry_date_val)}",
+                                        ui=False,
+                                    )
                             except Exception:
                                 pass
                             # Merge candidate payload, then enforce normalized entry_date
@@ -4801,8 +4803,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                             row_payload["entry_date"] = entry_date_val
                             rows.append(row_payload)
                 df = pd.DataFrame(rows) if rows else pd.DataFrame()
+                # DEBUGログ: コンパクトモードでは抑制
                 try:
-                    if not df.empty and "entry_date" in df.columns:
+                    if not _COMPACT_LOG and not df.empty and "entry_date" in df.columns:
                         _log(
                             f"[DEBUG] per-system {system_name} entry_date dtype={str(df['entry_date'].dtype)} sample={list(pd.to_datetime(df['entry_date'], errors='coerce').dt.normalize().head(3).astype(str))}",
                             ui=False,

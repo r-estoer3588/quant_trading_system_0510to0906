@@ -1645,14 +1645,17 @@ class StageTracker:
     def finalize_counts(
         self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
     ) -> None:  # noqa: E501
+        """最終化：残った候補/エントリー数を補完し、全バーを100%にする。"""
         # AllocationSummary が dict で同梱されている場合、slot_candidates を候補数のフォールバックに使用する
         alloc_slot_candidates: dict[str, int] | None = None
+        alloc_final_counts: dict[str, int] | None = None
         try:
             if isinstance(per_system, dict):
                 alloc_dict = per_system.get("__allocation_summary__")  # type: ignore[assignment]
             else:
                 alloc_dict = None
             if isinstance(alloc_dict, dict):
+                # slot_candidates 取得
                 cand_map = alloc_dict.get("slot_candidates")
                 if isinstance(cand_map, dict):
                     # 正規化: keyは小文字system名に統一し、値はint化
@@ -1664,8 +1667,20 @@ class StageTracker:
                             alloc_slot_candidates[key] = max(0, val)
                         except Exception:
                             continue
+                # final_counts 取得（エントリー数の最終確定値）
+                final_map = alloc_dict.get("final_counts")
+                if isinstance(final_map, dict):
+                    alloc_final_counts = {}
+                    for k, v in final_map.items():
+                        try:
+                            key = str(k).strip().lower()
+                            val = int(v) if v is not None else 0
+                            alloc_final_counts[key] = max(0, val)
+                        except Exception:
+                            continue
         except Exception:
             alloc_slot_candidates = None
+            alloc_final_counts = None
         for name, counts in self.stage_counts.items():
             snapshot: StageSnapshot | None
             try:
@@ -1734,7 +1749,13 @@ class StageTracker:
                 try:
                     counts["entry"] = int((system_series == name).sum())
                 except Exception:
-                    counts["entry"] = counts.get("entry")
+                    counts["entry"] = 0
+            # AllocationSummary.final_counts からの上書き（優先）
+            if alloc_final_counts and name in alloc_final_counts:
+                try:
+                    counts["entry"] = int(alloc_final_counts[name])
+                except Exception:
+                    pass
             if counts.get("target") is None:
                 if self.universe_total is not None:
                     counts["target"] = self.universe_total
@@ -2661,6 +2682,17 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     if debug_result is not None:
         return debug_result
     total_elapsed = max(0.0, time.time() - start_time)
+
+    # AllocationSummary を抽出して stage_tracker に渡す
+    allocation_summary = None
+    try:
+        if isinstance(meta, dict):
+            alloc_dict = meta.get("__allocation_summary__")
+            if isinstance(alloc_dict, dict):
+                allocation_summary = alloc_dict
+    except Exception:
+        allocation_summary = None
+
     stage_tracker.finalize_counts(final_df, per_system)
     _store_run_results(final_df, per_system)
     return RunArtifacts(

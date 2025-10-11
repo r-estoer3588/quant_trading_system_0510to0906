@@ -1,5 +1,11 @@
 # Quant Trading System (Streamlit)
 
+![CI Status](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/CI/badge.svg)
+![CI Unified](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/CI%20Unified/badge.svg)
+![Coverage Report](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/Coverage%20Report/badge.svg)
+![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)
+![License](https://img.shields.io/badge/license-Private-red.svg)
+
 Streamlit ベースのアプリで 7 つの売買システムを可視化・バックテストします。
 
 ## 📚 ドキュメント
@@ -68,6 +74,73 @@ python tools/compare_diagnostics_snapshots.py \
 ```
 
 **詳細は [docs/technical/diagnostics.md](./docs/technical/diagnostics.md) を参照してください。**
+
+---
+
+## 📊 テストカバレッジ
+
+プロジェクトのコード品質を維持するため、テストカバレッジを継続的に計測・改善しています。
+
+### カバレッジ目標と現状
+
+| モジュール          | 目標   | 現状    | ステータス             |
+| ------------------- | ------ | ------- | ---------------------- |
+| `core/system7.py`   | 65%    | **66%** | ✅ 達成済み (41 tests) |
+| `core/system1-6.py` | 60-65% | -       | 🎯 計画中              |
+| `common/*.py`       | 70%    | -       | 🎯 計画中              |
+| `strategies/*.py`   | 65%    | -       | 🎯 計画中              |
+
+### System7 カバレッジ達成 (2025 年 10 月 11 日)
+
+- **開始時**: 53% (132/247 lines)
+- **最終**: 66% (162/247 lines)
+- **改善**: +13 ポイント
+- **テスト構成**: 4 つの公式テストファイル、合計 41 テスト
+  - `test_system7_branches.py`: 16 tests, 89% coverage
+  - `test_system7_latest_only.py`: 10 tests, 87% coverage
+  - `test_system7_error_cases.py`: 9 tests, 96% coverage
+  - `test_system7_full_scan.py`: 6 tests, 98% coverage
+
+### カバレッジレポートの確認方法
+
+#### ローカルでの確認
+
+```bash
+# HTMLレポート生成
+pytest --cov=core --cov=common --cov=strategies \
+  --cov-report=html:htmlcov \
+  --cov-report=term-missing
+
+# ブラウザで確認
+open htmlcov/index.html  # macOS/Linux
+start htmlcov/index.html # Windows
+```
+
+#### CI/CD での自動生成
+
+PR 作成時に自動的にカバレッジレポートが生成され、以下が実行されます:
+
+1. **カバレッジ計測**: pytest-cov で全モジュールを計測
+2. **HTML レポート**: アーティファクトとしてアップロード（30 日間保持）
+3. **PR コメント**: カバレッジサマリーを自動投稿
+4. **しきい値チェック**: System7 が 66% 以上を維持しているか確認
+
+#### GitHub Actions アーティファクト
+
+各 PR ビルドで以下のアーティファクトをダウンロード可能:
+
+- `coverage-report-html`: HTML 形式の詳細レポート
+- `coverage-report-xml`: XML 形式（CI 統合用）
+- `coverage-cache`: main ブランチのカバレッジ履歴
+
+### カバレッジ設定
+
+カバレッジの詳細設定は `pyproject.toml` の `[tool.coverage.*]` セクションで管理されています:
+
+- **対象**: `core/`, `common/`, `strategies/`, `config/`, `schedulers/`
+- **除外**: テストファイル、キャッシュ、生成ファイル
+- **ブランチカバレッジ**: 有効
+- **並列実行**: サポート
 
 ---
 

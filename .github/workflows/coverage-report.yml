@@ -1,0 +1,140 @@
+# カバレッジレポート生成＆アップロード
+# PR時にカバレッジを計測し、コメントで結果を報告
+
+name: Coverage Report
+
+on:
+  pull_request:
+    branches: [main, branch0906]
+  push:
+    branches: [main, branch0906]
+
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Generate Coverage Report
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # PR コメント投稿に必要
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatlas-base-dev libopenblas-dev
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pytest-cov coverage[toml]
+
+      - name: Run tests with coverage
+        env:
+          COMPACT_TODAY_LOGS: "1"
+          ENABLE_PROGRESS_EVENTS: "0"
+          PYTEST_USE_FAKE_SYMBOLS: "1"
+        run: |
+          pytest -q \
+            --cov=core \
+            --cov=common \
+            --cov=strategies \
+            --cov-report=term-missing \
+            --cov-report=html:htmlcov \
+            --cov-report=xml:coverage.xml \
+            --cov-report=json:coverage.json
+
+      - name: Coverage Summary (Markdown)
+        run: |
+          echo "## 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          coverage report --skip-empty >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Extract System7 coverage
+        id: system7_cov
+        run: |
+          SYSTEM7_COV=$(coverage report | grep "core/system7.py" | awk '{print $4}' | sed 's/%//')
+          echo "system7_coverage=${SYSTEM7_COV}" >> $GITHUB_OUTPUT
+          echo "System7 Coverage: ${SYSTEM7_COV}%" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check System7 coverage threshold
+        run: |
+          SYSTEM7_COV="${{ steps.system7_cov.outputs.system7_coverage }}"
+          THRESHOLD=66
+          if [ -z "$SYSTEM7_COV" ]; then
+            echo "⚠️ System7 coverage not found"
+            exit 0
+          fi
+          if (( $(echo "$SYSTEM7_COV < $THRESHOLD" | bc -l) )); then
+            echo "❌ System7 coverage ($SYSTEM7_COV%) is below threshold ($THRESHOLD%)"
+            echo "::warning::System7 coverage dropped below 66%"
+            # exit 1  # 警告のみ、失敗させない場合はコメントアウト
+          else
+            echo "✅ System7 coverage ($SYSTEM7_COV%) meets threshold ($THRESHOLD%)"
+          fi
+
+      - name: Upload coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-xml
+          path: coverage.xml
+          retention-days: 30
+
+      - name: Generate coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: cicirello/jacoco-badge-generator@v2
+        with:
+          badges-directory: badges
+          generate-branches-badge: true
+          generate-summary: true
+          coverage-badge-filename: coverage.svg
+          coverage-label: coverage
+          jacoco-csv-file: coverage.xml
+
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 70
+          MINIMUM_ORANGE: 50
+          ANNOTATE_MISSING_LINES: true
+          ANNOTATION_TYPE: warning
+
+      - name: Store coverage for comparison
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p .coverage_cache
+          cp coverage.json .coverage_cache/coverage_main.json
+          coverage report --format=markdown > .coverage_cache/coverage_main.md
+
+      - name: Upload coverage cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-cache
+          path: .coverage_cache/
+          retention-days: 90

@@ -4,9 +4,13 @@ Test coverage for System7 latest_only fast path (Lines 214-257).
 This module tests the optimized path taken when latest_only=True,
 which processes only the most recent setup signal instead of scanning
 all historical setup days.
+
+NOTE: pytest-cov causes pandas_market_calendars to return NaT, so we
+mock resolve_signal_entry_date to return a fixed date for testing.
 """
 
 import os
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -93,8 +97,13 @@ class TestSystem7LatestOnlyPath:
             index=dates,
         )
 
-    def test_latest_only_takes_fast_path(self):
+    @patch("core.system7.resolve_signal_entry_date")
+    def test_latest_only_takes_fast_path(self, mock_resolve):
         """Test latest_only=True executes fast path (lines 200-259)."""
+        # Mock resolve_signal_entry_date to avoid pytest-cov interference
+        # with pandas_market_calendars
+        mock_resolve.return_value = pd.Timestamp("2025-04-11")
+
         spy_data = self.create_spy_with_recent_setup(setup_on_last_day=True)
         raw_dict = {"SPY": spy_data}
 
@@ -126,6 +135,20 @@ class TestSystem7LatestOnlyPath:
                 f"Min_50={last_row.get('Min_50')}, "
                 f"setup={last_row.get('setup')}"
             )
+
+            # Debug: Test entry_date calculation directly
+            print(f"DEBUG: setup_date (last index): {spy_df.index[-1]}")
+            import traceback
+
+            from common.utils_spy import resolve_signal_entry_date
+
+            try:
+                test_entry = resolve_signal_entry_date(spy_df.index[-1])
+                print(f"DEBUG: entry_date result: {test_entry}")
+                print(f"DEBUG: entry_date is NaT: {pd.isna(test_entry)}")
+            except Exception as e:
+                print(f"DEBUG: resolve_signal_entry_date EXCEPTION: {e}")
+                traceback.print_exc()
 
         # Call with latest_only=True
         result_tuple = generate_candidates_system7(
@@ -241,8 +264,12 @@ class TestSystem7LatestOnlyPath:
             if spy_payload:
                 assert "symbol" not in spy_payload, "Payload should exclude 'symbol' key"
 
-    def test_latest_only_with_top_n_limit(self):
+    @patch("core.system7.resolve_signal_entry_date")
+    def test_latest_only_with_top_n_limit(self, mock_resolve):
         """Test latest_only with top_n=0 (edge case, line 287-288)."""
+        # Mock to avoid pytest-cov interference
+        mock_resolve.return_value = pd.Timestamp("2025-04-11")
+
         spy_data = self.create_spy_with_recent_setup(setup_on_last_day=True)
         raw_dict = {"SPY": spy_data}
 
@@ -265,8 +292,12 @@ class TestSystem7LatestOnlyPath:
         # Diagnostics should indicate latest_only path
         assert diagnostics.get("ranking_source") == "latest_only"
 
-    def test_latest_only_diagnostics_structure(self):
+    @patch("core.system7.resolve_signal_entry_date")
+    def test_latest_only_diagnostics_structure(self, mock_resolve):
         """Test diagnostics includes expected keys for latest_only (line 251-254)."""
+        # Mock to avoid pytest-cov interference
+        mock_resolve.return_value = pd.Timestamp("2025-04-11")
+
         spy_data = self.create_spy_with_recent_setup(setup_on_last_day=True)
         raw_dict = {"SPY": spy_data}
 
@@ -338,3 +369,81 @@ class TestSystem7LatestOnlyPath:
 
         # Verify results are valid
         assert isinstance(normalized, dict)
+
+    @patch("core.system7.resolve_signal_entry_date")
+    def test_latest_only_with_callbacks(self, mock_resolve):
+        """Test latest_only with log_callback and progress_callback (lines 250-260)."""
+        # Mock to avoid pytest-cov interference
+        mock_resolve.return_value = pd.Timestamp("2025-04-11")
+
+        spy_data = self.create_spy_with_recent_setup(setup_on_last_day=True)
+        raw_dict = {"SPY": spy_data}
+
+        data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+
+        # Track callback invocations
+        log_messages = []
+        progress_calls = []
+
+        def test_log_callback(msg):
+            log_messages.append(msg)
+
+        def test_progress_callback(current, total):
+            progress_calls.append((current, total))
+
+        result_tuple = generate_candidates_system7(
+            data_dict,
+            latest_only=True,
+            include_diagnostics=True,
+            log_callback=test_log_callback,
+            progress_callback=test_progress_callback,
+        )
+
+        normalized, df_fast, diagnostics = result_tuple
+
+        # Verify callbacks were invoked
+        assert len(log_messages) > 0, "log_callback should be invoked"
+        assert any(
+            "latest_only" in msg for msg in log_messages
+        ), "Should log latest_only fast-path message"
+
+        assert len(progress_calls) > 0, "progress_callback should be invoked"
+        assert progress_calls[-1] == (1, 1), "Should call progress_callback(1, 1)"
+
+        # Verify results
+        assert diagnostics.get("ranking_source") == "latest_only"
+        assert diagnostics.get("final_top_n_count") == 1
+
+    @patch("core.system7.resolve_signal_entry_date")
+    def test_latest_only_with_failing_callbacks(self, mock_resolve):
+        """Test latest_only handles callback exceptions (lines 252-253, 259-260)."""
+        # Mock to avoid pytest-cov interference
+        mock_resolve.return_value = pd.Timestamp("2025-04-11")
+
+        spy_data = self.create_spy_with_recent_setup(setup_on_last_day=True)
+        raw_dict = {"SPY": spy_data}
+
+        data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+
+        # Callbacks that raise exceptions
+        def failing_log_callback(msg):
+            raise RuntimeError("Log callback failed")
+
+        def failing_progress_callback(current, total):
+            raise ValueError("Progress callback failed")
+
+        # Should not raise despite callback failures
+        result_tuple = generate_candidates_system7(
+            data_dict,
+            latest_only=True,
+            include_diagnostics=True,
+            log_callback=failing_log_callback,
+            progress_callback=failing_progress_callback,
+        )
+
+        normalized, df_fast, diagnostics = result_tuple
+
+        # Results should still be valid despite callback failures
+        assert diagnostics.get("ranking_source") == "latest_only"
+        assert diagnostics.get("final_top_n_count") == 1
+        assert len(normalized) >= 1

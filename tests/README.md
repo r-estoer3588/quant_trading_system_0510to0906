@@ -7,12 +7,32 @@
 ```
 tests/
 ├── conftest.py                       # 共通フィクスチャと設定
-├── test_core_system7_focused.py      # System7 コア機能テスト
-├── test_system7_branches.py          # System7 分岐カバレッジテスト
-├── test_system7_cache.py             # System7 キャッシュ機能テスト
-├── test_system7_coverage_boost.py    # System7 追加カバレッジテスト
+├── test_system7_branches.py          # System7 分岐網羅テスト (16テスト)
+├── test_system7_latest_only.py       # System7 当日シグナル高速パス (10テスト)
+├── test_system7_error_cases.py       # System7 エラーハンドリング (9テスト)
+├── test_system7_full_scan.py         # System7 履歴スキャンモード (6テスト)
+├── experimental/
+│   └── system7_archive/              # System7旧テストファイル (16ファイル)
 └── ... (その他のテストファイル)
 ```
+
+### System7 公式テスト構成 (66%カバレッジ達成)
+
+**統合結果** (2025 年 10 月 11 日更新):
+
+- **総テスト数**: 41 テスト (全てパス)
+- **達成カバレッジ**: 66% (162/247 行)
+- **目標**: 65% → **超過達成** ✅
+
+| ファイル名                  | テスト数 | カバレッジ | カバー範囲                        |
+| --------------------------- | -------- | ---------- | --------------------------------- |
+| test_system7_branches.py    | 16       | 89%        | 分岐条件、エッジケース            |
+| test_system7_latest_only.py | 10       | 87%        | Lines 219-262 (latest_only=True)  |
+| test_system7_error_cases.py | 9        | 96%        | エラー処理、ATR50 フォールバック  |
+| test_system7_full_scan.py   | 6        | 98%        | Lines 275-401 (latest_only=False) |
+
+**アーカイブファイル**: 16 個の古い実験的ファイルは `experimental/system7_archive/` に移動済み。
+詳細は [system7_archive/README.md](experimental/system7_archive/README.md) を参照。
 
 ## 🎯 テスト実行方法
 
@@ -32,11 +52,11 @@ python -m pytest --cov=core --cov=common --cov-report=term-missing
 ### 特定システムのテスト
 
 ```powershell
-# System7のみ
-python -m pytest tests/test_core_system7_focused.py tests/test_system7_branches.py tests/test_system7_cache.py tests/test_system7_coverage_boost.py
+# System7のみ (公式4ファイル)
+python -m pytest tests/test_system7_branches.py tests/test_system7_latest_only.py tests/test_system7_error_cases.py tests/test_system7_full_scan.py
 
-# カバレッジ測定
-python -m pytest tests/test_*system7*.py --cov=core.system7 --cov-report=term-missing
+# カバレッジ測定 (66%達成確認)
+python -m pytest tests/test_system7_branches.py tests/test_system7_latest_only.py tests/test_system7_error_cases.py tests/test_system7_full_scan.py --cov=core.system7 --cov-report=term-missing -q
 ```
 
 ### 高速実行（並列）
@@ -93,11 +113,18 @@ def cleanup_system7_cache():
 
 ## 📊 カバレッジ目標
 
-| モジュール              | 目標カバレッジ | 現在    | 状態      |
-| ----------------------- | -------------- | ------- | --------- |
-| core/system7.py         | 57-62%         | **53%** | ✅ 達成   |
-| common/cache_manager.py | 70%+           | -       | 📝 計画中 |
-| core/system1-6.py       | 60%+           | -       | 📝 計画中 |
+| モジュール              | 目標カバレッジ | 現在    | 状態                |
+| ----------------------- | -------------- | ------- | ------------------- |
+| core/system7.py         | 65%            | **66%** | ✅ 達成 (41 テスト) |
+| common/cache_manager.py | 70%+           | -       | 📝 計画中           |
+| core/system1-6.py       | 60%+           | -       | 📝 計画中           |
+
+**System7 達成詳細** (2025 年 10 月 11 日):
+
+- 開始: 53% (132/247 行)
+- 最終: 66% (162/247 行)
+- 改善: +13 ポイント
+- 公式テストファイル: 4 ファイル、41 テスト
 
 ## 🐛 トラブルシューティング
 
