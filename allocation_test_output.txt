@@ -1,0 +1,53 @@
+2025-10-11 23:43:26,384 - INFO - 噫 邁｡蜊倥↑驟榊・繝・せ繝磯幕蟋・
+2025-10-11 23:43:26,384 - INFO - 菅 ALLOCATION_DEBUG=1 險ｭ螳・
+2025-10-11 23:43:26,399 - INFO - 投 TRDlist邱丈ｻｶ謨ｰ: 9莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system1: 2莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system2: 1莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system3: 2莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system4: 1莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system5: 1莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system6: 1莉ｶ
+2025-10-11 23:43:26,399 - INFO -   system7: 1莉ｶ
+2025-10-11 23:43:26,903 - INFO - 笨・謌ｦ逡･繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ菴懈・: ['system1', 'system2', 'system3', 'system4', 'system5', 'system6', 'system7']
+2025-10-11 23:43:26,903 - INFO -
+識 驟榊・繝励Ο繧ｻ繧ｹ螳溯｡・
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] Starting capital allocation: side=long, total_budget=$100,000
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] System weights: {'system1': 0.25, 'system3': 0.25, 'system4': 0.25, 'system5': 0.25}
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] System budgets: {'system1': 25000.0, 'system3': 25000.0, 'system4': 25000.0, 'system5': 25000.0}
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] Active positions: {}
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] system1: 2 candidates loaded
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] system3: 2 candidates loaded
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] system4: 1 candidates loaded
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] system5: 1 candidates loaded
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] Max positions available: {'system1': 10, 'system3': 10, 'system4': 10, 'system5': 10}
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] === ALLOCATION SUMMARY (long) ===
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] Total allocated: 5 positions
+2025-10-11 23:43:26,903 - INFO - [ALLOC_DEBUG] Budget used: $11,450 / $100,000
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] System counts: {'system1': 2, 'system3': 2, 'system4': 1, 'system5': 0}
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] Remaining budgets: {'system1': 20500.0, 'system3': 20500.0, 'system4': 22550.0, 'system5': 25000.0}
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] Starting capital allocation: side=short, total_budget=$50,000
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] System weights: {'system2': 0.4, 'system6': 0.4, 'system7': 0.2}
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] System budgets: {'system2': 20000.0, 'system6': 20000.0, 'system7': 10000.0}
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] Active positions: {}
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] system2: 1 candidates loaded
+2025-10-11 23:43:26,913 - INFO - [ALLOC_DEBUG] system6: 1 candidates loaded
+2025-10-11 23:43:26,914 - INFO - [ALLOC_DEBUG] system7: 1 candidates loaded
+2025-10-11 23:43:26,914 - INFO - [ALLOC_DEBUG] Max positions available: {'system2': 10, 'system6': 10, 'system7': 10}
+2025-10-11 23:43:26,915 - INFO - [ALLOC_DEBUG] === ALLOCATION SUMMARY (short) ===
+2025-10-11 23:43:26,915 - INFO - [ALLOC_DEBUG] Total allocated: 3 positions
+2025-10-11 23:43:26,915 - INFO - [ALLOC_DEBUG] Budget used: $5,800 / $50,000
+2025-10-11 23:43:26,915 - INFO - [ALLOC_DEBUG] System counts: {'system2': 1, 'system6': 1, 'system7': 1}
+2025-10-11 23:43:26,915 - INFO - [ALLOC_DEBUG] Remaining budgets: {'system2': 18000.0, 'system6': 18000.0, 'system7': 8200.0}
+2025-10-11 23:43:26,921 - INFO - 笨・Entry譛邨ゆｻｶ謨ｰ: 8莉ｶ
+2025-10-11 23:43:26,921 - INFO -
+搭 Entry隧ｳ邏ｰ:
+2025-10-11 23:43:26,921 - INFO -   AAPL (system1, long) - $0
+2025-10-11 23:43:26,921 - INFO -   MSFT (system1, long) - $0
+2025-10-11 23:43:26,922 - INFO -   NVDA (system3, long) - $0
+2025-10-11 23:43:26,922 - INFO -   GOOGL (system3, long) - $0
+2025-10-11 23:43:26,922 - INFO -   META (system4, long) - $0
+2025-10-11 23:43:26,922 - INFO -   TSLA (system2, short) - $0
+2025-10-11 23:43:26,922 - INFO -   NFLX (system6, short) - $0
+2025-10-11 23:43:26,922 - INFO -   SPY (system7, short) - $0
+2025-10-11 23:43:26,922 - INFO -
+笨・繝・せ繝亥ｮ御ｺ・

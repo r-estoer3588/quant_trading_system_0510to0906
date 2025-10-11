@@ -568,8 +568,20 @@ def _allocate_by_capital(
     side: str,
     active_positions: Mapping[str, int],
 ) -> CapitalAllocationResult:
+    import os
+
+    debug_mode = os.environ.get("ALLOCATION_DEBUG") == "1"
+
     budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
     remaining = budgets.copy()
+
+    if debug_mode:
+        logger.info(
+            f"[ALLOC_DEBUG] Starting capital allocation: side={side}, total_budget=${total_budget:,.0f}"
+        )
+        logger.info(f"[ALLOC_DEBUG] System weights: {dict(weights)}")
+        logger.info(f"[ALLOC_DEBUG] System budgets: {dict(budgets)}")
+        logger.info(f"[ALLOC_DEBUG] Active positions: {dict(active_positions)}")
 
     # stable ordering
     order = [f"system{i}" for i in range(1, 8)]
@@ -585,6 +597,10 @@ def _allocate_by_capital(
         calc_fn = getattr(stg, "calculate_position_size", None)
         if not callable(calc_fn):
             calc_fn = None
+            if debug_mode:
+                logger.warning(f"[ALLOC_DEBUG] {name}: calculate_position_size not found")
+
+        # リスク設定の読み込み
         try:
             risk_pct = float(config.get("risk_pct", 0.02))
         except (TypeError, ValueError):
@@ -603,9 +619,13 @@ def _allocate_by_capital(
             max_pct=max_pct,
             max_positions=max_positions,
         )
+
+        # 候補データの準備
         df = per_system.get(name)
         if df is None or getattr(df, "empty", True):
             candidates[name] = []
+            if debug_mode:
+                logger.info(f"[ALLOC_DEBUG] {name}: No candidates")
         else:
             records = df.to_dict("records")
             # 正規化: dict[Hashable, Any] -> dict[str, Any]
@@ -616,6 +636,8 @@ def _allocate_by_capital(
                 except Exception:
                     norm_records.append({str(k): rec.get(k) for k in rec})
             candidates[name] = norm_records
+            if debug_mode:
+                logger.info(f"[ALLOC_DEBUG] {name}: {len(norm_records)} candidates loaded")
         index_map[name] = 0
 
     counts = {name: 0 for name in ordered_names}
@@ -623,6 +645,9 @@ def _allocate_by_capital(
         name: max(0, meta_map[name].max_positions - int(active_positions.get(name, 0)))
         for name in ordered_names
     }
+
+    if debug_mode:
+        logger.info(f"[ALLOC_DEBUG] Max positions available: {dict(max_pos_map)}")
 
     chosen: list[dict[str, Any]] = []
     chosen_symbols: set[str] = set()
@@ -633,9 +658,30 @@ def _allocate_by_capital(
         except (TypeError, ValueError):
             return 0
 
+    # システム別の処理統計
+    processed_stats = {
+        name: {
+            "processed": 0,
+            "skipped_no_symbol": 0,
+            "skipped_duplicate": 0,
+            "skipped_price": 0,
+            "skipped_calc_fn": 0,
+            "skipped_shares": 0,
+            "skipped_cash": 0,
+            "allocated": 0,
+        }
+        for name in ordered_names
+    }
+
     still = True
+    round_num = 0
     while still:
         still = False
+        round_num += 1
+
+        if debug_mode and round_num <= 3:  # 最初の3ラウンドのみログ
+            logger.debug(f"[ALLOC_DEBUG] === Round {round_num} ===")
+
         for name in ordered_names:
             rows = candidates.get(name, [])
             if (
@@ -644,6 +690,21 @@ def _allocate_by_capital(
                 or counts.get(name, 0) >= max_pos_map.get(name, 0)
                 or index_map.get(name, 0) >= len(rows)
             ):
+                # スキップ理由の診断
+                if debug_mode and round_num <= 3:
+                    skip_reasons = []
+                    if not rows:
+                        skip_reasons.append("no_rows")
+                    if remaining.get(name, 0.0) <= 0.0:
+                        skip_reasons.append(f"no_budget({remaining.get(name, 0.0):.0f})")
+                    if counts.get(name, 0) >= max_pos_map.get(name, 0):
+                        skip_reasons.append(
+                            f"max_pos({counts.get(name, 0)}/{max_pos_map.get(name, 0)})"
+                        )
+                    if index_map.get(name, 0) >= len(rows):
+                        skip_reasons.append(f"exhausted({index_map.get(name, 0)}/{len(rows)})")
+                    if skip_reasons:
+                        logger.debug(f"[ALLOC_DEBUG] {name} skipped: {','.join(skip_reasons)}")
                 continue
 
             meta = meta_map[name]
@@ -656,39 +717,79 @@ def _allocate_by_capital(
 
                 sym = str(row.get("symbol", "")).upper()
                 if not sym or sym in chosen_symbols:
+                    if debug_mode and round_num <= 2:
+                        if not sym:
+                            logger.debug(f"[ALLOC_DEBUG] {name}: Skipping row with missing symbol")
+                        else:
+                            logger.debug(f"[ALLOC_DEBUG] {name} {sym}: Already selected")
                     continue
 
                 entry = _safe_positive_float(row.get("entry_price"), allow_zero=False)
                 stop = _safe_positive_float(row.get("stop_price"), allow_zero=False)
                 if entry is None or stop is None or entry <= 0:
+                    if debug_mode and round_num <= 2:
+                        logger.debug(
+                            f"[ALLOC_DEBUG] {name} {sym}: Invalid prices entry={entry} stop={stop}"
+                        )
                     continue
 
                 desired_shares = 0
                 if meta.calc_fn is not None:
                     try:
-                        desired_shares = _normalize_shares(
-                            meta.calc_fn(
-                                budgets[name],
-                                entry,
-                                stop,
-                                risk_pct=meta.risk_pct,
-                                max_pct=meta.max_pct,
-                            )
+                        # 正しい引数で calculate_position_size を呼び出し
+                        entry_price = (
+                            _safe_positive_float(row.get("entry_price"), allow_zero=False) or entry
                         )
-                    except Exception:
+                        stop_price = (
+                            _safe_positive_float(row.get("stop_price"), allow_zero=False) or stop
+                        )
+
+                        if entry_price and stop_price and entry_price > 0:
+                            desired_shares = _normalize_shares(
+                                meta.calc_fn(
+                                    remaining[name],  # available capital
+                                    entry_price,  # entry_price
+                                    stop_price,  # stop_price
+                                    risk_pct=meta.risk_pct,
+                                    max_pct=meta.max_pct,
+                                )
+                            )
+                        else:
+                            if debug_mode and round_num <= 2:
+                                logger.debug(
+                                    f"[ALLOC_DEBUG] {name} {sym}: Invalid entry/stop prices"
+                                )
+                    except Exception as e:
                         desired_shares = 0
+                        if debug_mode and round_num <= 2:
+                            logger.debug(f"[ALLOC_DEBUG] {name} {sym}: calc_fn error {e}")
+                else:
+                    if debug_mode and round_num <= 2:
+                        logger.debug(f"[ALLOC_DEBUG] {name} {sym}: No calc_fn available")
+
                 if desired_shares <= 0:
+                    if debug_mode and round_num <= 2:
+                        logger.debug(f"[ALLOC_DEBUG] {name} {sym}: Invalid shares {desired_shares}")
                     continue
 
                 max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
                 shares = min(desired_shares, max_by_cash)
                 if shares <= 0:
+                    if debug_mode and round_num <= 2:
+                        logger.debug(
+                            f"[ALLOC_DEBUG] {name} {sym}: No cash shares={shares} (desired={desired_shares}, max_cash={max_by_cash}, remaining=${remaining[name]:.0f})"
+                        )
                     continue
 
                 position_value = shares * abs(entry)
                 if position_value <= 0:
+                    if debug_mode and round_num <= 2:
+                        logger.debug(
+                            f"[ALLOC_DEBUG] {name} {sym}: Invalid position_value {position_value}"
+                        )
                     continue
 
+                # 成功 - ポジション追加
                 record = dict(row)
                 record["shares"] = int(shares)
                 record["position_value"] = float(round(position_value, 2))
@@ -702,12 +803,39 @@ def _allocate_by_capital(
                 remaining[name] -= position_value
                 counts[name] = counts.get(name, 0) + 1
                 still = True
+
+                if debug_mode:
+                    logger.debug(
+                        f"[ALLOC_DEBUG] {name} {sym}: ALLOCATED shares={shares} value=${position_value:.0f} remaining=${remaining_after:.0f}"
+                    )
                 break
 
     if chosen:
         frame = pd.DataFrame(chosen)
     else:
         frame = pd.DataFrame()
+
+    # デバッグサマリー
+    if debug_mode:
+        total_allocated = len(chosen)
+        total_budget_used = sum(budgets[name] - remaining.get(name, 0) for name in budgets)
+        logger.info(f"[ALLOC_DEBUG] === ALLOCATION SUMMARY ({side}) ===")
+        logger.info(f"[ALLOC_DEBUG] Total allocated: {total_allocated} positions")
+        logger.info(f"[ALLOC_DEBUG] Budget used: ${total_budget_used:,.0f} / ${total_budget:,.0f}")
+        logger.info(f"[ALLOC_DEBUG] System counts: {dict(counts)}")
+        logger.info(f"[ALLOC_DEBUG] Remaining budgets: {dict(remaining)}")
+
+        if total_allocated == 0:
+            logger.warning("[ALLOC_DEBUG] ⚠️ NO POSITIONS ALLOCATED! Check:")
+            for name in ordered_names:
+                cand_count = len(candidates.get(name, []))
+                calc_fn_available = meta_map[name].calc_fn is not None
+                budget_available = remaining.get(name, 0) > 0
+                max_pos_available = max_pos_map.get(name, 0) > 0
+                logger.warning(
+                    f"[ALLOC_DEBUG]   {name}: candidates={cand_count}, calc_fn={calc_fn_available}, budget=${remaining.get(name, 0):.0f}, max_pos={max_pos_map.get(name, 0)}"
+                )
+
     return CapitalAllocationResult(
         frame=frame,
         budgets=budgets,
