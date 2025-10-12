@@ -159,8 +159,14 @@ def _strip_emojis(text: str) -> str:
 
 _LOG_CALLBACK = None
 
-# Progress event settings
-ENABLE_PROGRESS_EVENTS = os.getenv("ENABLE_PROGRESS_EVENTS", "false").lower() == "true"
+# Progress event settings (EnvironmentConfig 経由に寄せる)
+try:
+    from config.environment import get_env_config
+
+    ENABLE_PROGRESS_EVENTS = bool(get_env_config().enable_progress_events)
+except Exception:
+    # フォールバック: 有効にする（UI 同期用途）。必要に応じて .env で無効化可。
+    ENABLE_PROGRESS_EVENTS = True
 
 # Global log file variables (initialized by setup_logging)
 _LOG_FILE_PATH: Path | None = None
@@ -171,16 +177,20 @@ _GLOBAL_METRICS = MetricsCollector()
 
 
 def emit_progress_event(event_type: str, data: dict) -> None:
-    """Emit a progress event with given type and data."""
+    """Emit a progress event with given type and data to JSONL."""
     if not ENABLE_PROGRESS_EVENTS:
         return
-
     try:
-        logger = logging.getLogger(__name__)
-        # Use lazy logging formatting to avoid building the string when DEBUG disabled
-        logger.debug("Progress event [%s]: %s", event_type, data)
+        from common.progress_events import emit_progress  # lazy import to avoid cycles
+
+        emit_progress(event_type, data)
     except Exception:
-        pass
+        # 失敗してもパイプラインは止めない
+        try:
+            logger = logging.getLogger(__name__)
+            logger.debug("(fallback) Progress event [%s]: %s", event_type, data)
+        except Exception:
+            pass
 
 
 _LOG_FORWARDING: ContextVar[bool] = ContextVar("_LOG_FORWARDING", default=False)
@@ -379,7 +389,9 @@ def _ensure_stage_event_pump(interval: float | None = None) -> None:
     stop_event = threading.Event()
     globals()["_STAGE_EVENT_PUMP_STOP"] = stop_event
 
-    base_interval = float(interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL)
+    base_interval = float(
+        interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL
+    )
 
     def _pump() -> None:
         current_interval = base_interval
@@ -394,7 +406,9 @@ def _ensure_stage_event_pump(interval: float | None = None) -> None:
                 if queue_obj is not None:
                     try:
                         # キューサイズの概算（実際には非破壊的にチェック不可）
-                        queue_size = queue_obj.qsize() if hasattr(queue_obj, "qsize") else 0
+                        queue_size = (
+                            queue_obj.qsize() if hasattr(queue_obj, "qsize") else 0
+                        )
                     except Exception:
                         queue_size = 0
 
@@ -665,7 +679,9 @@ def _get_account_equity() -> float:
         return 0.0
 
 
-def _configure_today_logger(*, mode: str = "single", _run_id: str | None = None) -> None:
+def _configure_today_logger(
+    *, mode: str = "single", _run_id: str | None = None
+) -> None:
     """today_signals 用のロガーファイルを構成する。
 
     mode:
@@ -701,7 +717,9 @@ def _configure_today_logger(*, mode: str = "single", _run_id: str | None = None)
         logger = logging.getLogger("today_signals")
         for h in list(logger.handlers):
             try:
-                if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None):
+                if isinstance(h, logging.FileHandler) and getattr(
+                    h, "baseFilename", None
+                ):
                     if Path(h.baseFilename) != _LOG_FILE_PATH:
                         logger.removeHandler(h)
                         try:
@@ -740,7 +758,9 @@ def _get_today_logger() -> logging.Logger:
         # 環境変数でも日付別ログ指定を許可（UI 実行など main() を経ない場合）
         if globals().get("_LOG_FILE_PATH") is None:
             try:
-                _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
+                _mode_env = (
+                    (get_env_config().today_signals_log_mode or "").strip().lower()
+                )
                 if _mode_env == "dated":
                     try:
                         _jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
@@ -756,7 +776,9 @@ def _get_today_logger() -> logging.Logger:
                         _log_dir.mkdir(parents=True, exist_ok=True)
                     except Exception:
                         pass
-                    globals()["_LOG_FILE_PATH"] = _log_dir / f"today_signals_{_stamp}.log"
+                    globals()["_LOG_FILE_PATH"] = (
+                        _log_dir / f"today_signals_{_stamp}.log"
+                    )
             except Exception:
                 pass
 
@@ -791,7 +813,9 @@ def _get_today_logger() -> logging.Logger:
     if not has_handler:
         try:
             fh = logging.FileHandler(str(log_path), encoding="utf-8")
-            fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+            fmt = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
+            )
             fh.setFormatter(fmt)
             logger.addHandler(fh)
         except Exception:
@@ -861,7 +885,9 @@ def _emit_ui_log(message: str) -> None:
             if phase:
                 if _re.search(r"\b(start|begin|開始)\b", lower):
                     phase_status = "start"
-                elif _re.search(r"\b(done|complete|completed|終了|end|finished)\b", lower):
+                elif _re.search(
+                    r"\b(done|complete|completed|終了|end|finished)\b", lower
+                ):
                     phase_status = "end"
 
             # 前回 phase の補強: system 単位で直前 phase を覚え、end/done だけのメッセージにも付与
@@ -873,7 +899,9 @@ def _emit_ui_log(message: str) -> None:
                     _STRUCTURED_LAST_PHASE[system] = phase
                 else:
                     # 明示 phase なし かつ done/complete 語があれば直前を参照
-                    if _re.search(r"\b(done|complete|completed|終了|end|finished)\b", lower):
+                    if _re.search(
+                        r"\b(done|complete|completed|終了|end|finished)\b", lower
+                    ):
                         last = _STRUCTURED_LAST_PHASE.get(system)
                         if last:
                             phase = last
@@ -1115,7 +1143,9 @@ def _log(
             "📊 指標計算",
             "🧮 共有指標",
         )
-        _skip_all = _GLOBAL_SKIP_KEYWORDS + (_indicator_skip if _hide_indicator_logs else ())
+        _skip_all = _GLOBAL_SKIP_KEYWORDS + (
+            _indicator_skip if _hide_indicator_logs else ()
+        )
         if any(k in str(msg) for k in _skip_all):
             return
         ui_allowed = ui and not any(k in str(msg) for k in _UI_ONLY_SKIP_KEYWORDS)
@@ -1141,11 +1171,15 @@ def _log(
     except UnicodeEncodeError:
         try:
             encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
-            safe = out.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            safe = out.encode(encoding, errors="replace").decode(
+                encoding, errors="replace"
+            )
             print(safe, flush=True)
         except Exception:
             try:
-                safe = out.encode("ascii", errors="replace").decode("ascii", errors="replace")
+                safe = out.encode("ascii", errors="replace").decode(
+                    "ascii", errors="replace"
+                )
                 print(safe, flush=True)
             except Exception:
                 pass
@@ -1210,7 +1244,9 @@ class _PerfTimer:
         return False
 
 
-def _log_error(msg: str, error_code: str, ui: bool = True, phase_id: str | None = None) -> None:
+def _log_error(
+    msg: str, error_code: str, ui: bool = True, phase_id: str | None = None
+) -> None:
     """エラーログの簡便関数。"""
     _log(msg, ui=ui, phase_id=phase_id, level="ERROR", error_code=error_code)
 
@@ -1229,7 +1265,9 @@ def _asc_by_score_key(score_key: str | None) -> bool:
     return bool(score_key and score_key.upper() in {"RSI4"})
 
 
-def _calculate_trading_days_lag(cache_date: pd.Timestamp, target_date: pd.Timestamp) -> int:
+def _calculate_trading_days_lag(
+    cache_date: pd.Timestamp, target_date: pd.Timestamp
+) -> int:
     """Calculate the number of NYSE trading days between cache_date and target_date.
 
     Args:
@@ -1255,10 +1293,14 @@ def _calculate_trading_days_lag(cache_date: pd.Timestamp, target_date: pd.Timest
         nyse = mcal.get_calendar("NYSE")
 
         # Get valid trading days between cache and target
-        schedule = nyse.schedule(start_date=cache_norm, end_date=target_norm + pd.Timedelta(days=1))
+        schedule = nyse.schedule(
+            start_date=cache_norm, end_date=target_norm + pd.Timedelta(days=1)
+        )
 
         valid_days = pd.to_datetime(schedule.index).normalize()
-        trading_days_between = valid_days[(valid_days > cache_norm) & (valid_days <= target_norm)]
+        trading_days_between = valid_days[
+            (valid_days > cache_norm) & (valid_days <= target_norm)
+        ]
 
         return len(trading_days_between)
     except Exception:
@@ -1313,7 +1355,9 @@ def _log_zero_candidate_diagnostics(
             _log("[system1] 候補0件の除外内訳: " + ", ".join(reason_parts))
 
 
-def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | None) -> None:
+def _export_diagnostics_snapshot(
+    ctx: TodayRunContext, final_df: pd.DataFrame | None
+) -> None:
     """Export a minimal diagnostics snapshot (JSON) for Phase2 verification.
 
     - Test modes only (mini/quick/sample)
@@ -1344,7 +1388,11 @@ def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | 
         # per-system final candidate counts
         final_counts: dict[str, int] = {}
         try:
-            if final_df is not None and not final_df.empty and "system" in final_df.columns:
+            if (
+                final_df is not None
+                and not final_df.empty
+                and "system" in final_df.columns
+            ):
                 final_counts = final_df.groupby("system").size().astype(int).to_dict()
         except Exception:
             final_counts = {}
@@ -1380,7 +1428,9 @@ def _export_diagnostics_snapshot(ctx: TodayRunContext, final_df: pd.DataFrame | 
             ui=True,
         )
     except Exception as e:
-        _log_warning(f"diagnostics スナップショットの出力に失敗: {e}", error_code="SNAP-FAIL")
+        _log_warning(
+            f"diagnostics スナップショットの出力に失敗: {e}", error_code="SNAP-FAIL"
+        )
 
 
 def _export_discrepancy_triage(ctx: TodayRunContext) -> None:
@@ -1438,7 +1488,9 @@ def _export_discrepancy_triage(ctx: TodayRunContext) -> None:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(export_payload, f, indent=2, ensure_ascii=False, default=str)
 
-        _log(f"🧪 Discrepancy triage exported: {out_path.relative_to(base_dir)}", ui=True)
+        _log(
+            f"🧪 Discrepancy triage exported: {out_path.relative_to(base_dir)}", ui=True
+        )
 
         # Unexpected システムがあれば警告
         if unexpected:
@@ -1506,10 +1558,13 @@ def _load_prev_counts(signals_dir: Path) -> dict[str, int]:
         return {}
 
 
-def _save_prev_counts(signals_dir: Path, per_system_map: dict[str, pd.DataFrame]) -> None:
+def _save_prev_counts(
+    signals_dir: Path, per_system_map: dict[str, pd.DataFrame]
+) -> None:
     try:
         counts = {
-            k: (0 if (v is None or v.empty) else int(len(v))) for k, v in per_system_map.items()
+            k: (0 if (v is None or v.empty) else int(len(v)))
+            for k, v in per_system_map.items()
         }
         data = {"timestamp": datetime.utcnow().isoformat() + "Z", "counts": counts}
         fp = _prev_counts_path(signals_dir)
@@ -1560,7 +1615,9 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     return None
 
 
-def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.Timestamp]:
+def _recent_trading_days(
+    today: pd.Timestamp | None, max_back: int
+) -> list[pd.Timestamp]:
     if today is None:
         return []
     out: list[pd.Timestamp] = []
@@ -1655,7 +1712,8 @@ def _load_basic_data(
 
     try:
         target_len = int(
-            settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+            settings.cache.rolling.base_lookback_days
+            + settings.cache.rolling.buffer_days
         )
     except Exception:
         target_len = 0
@@ -1745,17 +1803,25 @@ def _load_basic_data(
             if "Date" not in df.columns:
                 work = df.copy()
                 if "date" in work.columns:
-                    work["Date"] = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
+                    work["Date"] = pd.to_datetime(
+                        work["date"].to_numpy(), errors="coerce"
+                    )
                 else:
-                    work["Date"] = pd.to_datetime(work.index.to_numpy(), errors="coerce")
+                    work["Date"] = pd.to_datetime(
+                        work.index.to_numpy(), errors="coerce"
+                    )
                 df = work
-            df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
+            df["Date"] = pd.to_datetime(
+                df["Date"].to_numpy(), errors="coerce"
+            ).normalize()
         except Exception:
             pass
         normalized = _normalize_ohlcv(df)
         try:
             fill_cols = [
-                c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns
+                c
+                for c in ("Open", "High", "Low", "Close", "Volume")
+                if c in normalized.columns
             ]
             if fill_cols:
                 normalized = normalized.copy()
@@ -1855,7 +1921,9 @@ def _load_basic_data(
                         and last_seen_date not in recent_allowed
                     ):
                         rebuild_reason = "stale"
-                        gap_days = _estimate_gap_days(pd.Timestamp(today), last_seen_date)
+                        gap_days = _estimate_gap_days(
+                            pd.Timestamp(today), last_seen_date
+                        )
                         # 日付が古いがデータが存在する場合は、警告のみで処理を継続
                         # フィルター段階で各システムが必要な条件をチェックする
                         _log(
@@ -1919,7 +1987,9 @@ def _load_basic_data(
     if use_parallel and max_workers and total_syms > 1:
         # 新しい並列バッチ読み込みを使用（Phase2最適化）
         try:
-            _log(f"🚀 並列バッチ読み込み開始: {total_syms}シンボル, workers={max_workers}")
+            _log(
+                f"🚀 並列バッチ読み込み開始: {total_syms}シンボル, workers={max_workers}"
+            )
 
             def progress_callback_internal(loaded, _total):
                 nonlocal processed
@@ -1940,7 +2010,9 @@ def _load_basic_data(
                 if df is not None and not getattr(df, "empty", True):
                     # 既存の_normalize_loadedと同様の処理を適用
                     normalized = _normalize_loaded(df)
-                    if normalized is not None and not getattr(normalized, "empty", True):
+                    if normalized is not None and not getattr(
+                        normalized, "empty", True
+                    ):
                         data[sym] = normalized
                         _record_stat("rolling")
                     else:
@@ -1978,8 +2050,9 @@ def _load_basic_data(
         total_elapsed = max(0.0, perf_counter() - start_ts)
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
-        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒" + (
-            " | 並列=ON" if use_parallel and max_workers else " | 並列=OFF"
+        done_msg = (
+            f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            + (" | 並列=ON" if use_parallel and max_workers else " | 並列=OFF")
         )
         _log(done_msg)
         _emit_ui_log(done_msg)
@@ -1995,7 +2068,9 @@ def _load_basic_data(
             "failed": "失敗",
         }
         summary_parts = [
-            f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
+            f"{label}={stats.get(key, 0)}"
+            for key, label in summary_map.items()
+            if stats.get(key)
         ]
         if summary_parts:
             rate_logger = _get_rate_limited_logger()
@@ -2033,9 +2108,13 @@ def _load_indicator_data(
                         if x.index.name is not None:
                             x = x.reset_index()
                         if "date" in x.columns:
-                            x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
+                            x["date"] = pd.to_datetime(
+                                x["date"].to_numpy(), errors="coerce"
+                            )
                         elif "Date" in x.columns:
-                            x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
+                            x["date"] = pd.to_datetime(
+                                x["Date"].to_numpy(), errors="coerce"
+                            )
                         col_map = {
                             "Open": "open",
                             "High": "high",
@@ -2070,11 +2149,17 @@ def _load_indicator_data(
                     if "Date" not in df.columns:
                         if "date" in df.columns:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df["date"].to_numpy(), errors="coerce")
+                            df["Date"] = pd.to_datetime(
+                                df["date"].to_numpy(), errors="coerce"
+                            )
                         else:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df.index.to_numpy(), errors="coerce")
-                    df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
+                            df["Date"] = pd.to_datetime(
+                                df.index.to_numpy(), errors="coerce"
+                            )
+                    df["Date"] = pd.to_datetime(
+                        df["Date"].to_numpy(), errors="coerce"
+                    ).normalize()
                 except Exception:
                     pass
                 df = _normalize_ohlcv(df)
@@ -2109,7 +2194,9 @@ def _load_indicator_data(
     try:
         total_elapsed = int(max(0, _t.time() - start_ts))
         m, s = divmod(total_elapsed, 60)
-        done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        done_msg = (
+            f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        )
         _log(done_msg)
         _emit_ui_log(done_msg)
     except Exception:
@@ -2118,7 +2205,9 @@ def _load_indicator_data(
     return data
 
 
-def _subset_data(basic_data: dict[str, pd.DataFrame], keys: list[str]) -> dict[str, pd.DataFrame]:
+def _subset_data(
+    basic_data: dict[str, pd.DataFrame], keys: list[str]
+) -> dict[str, pd.DataFrame]:
     out = {}
     for s in keys or []:
         v = basic_data.get(s)
@@ -2379,7 +2468,9 @@ def _initialize_run_context(
     return ctx
 
 
-def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | None) -> list[str]:
+def _prepare_symbol_universe(
+    ctx: TodayRunContext, initial_symbols: list[str] | None
+) -> list[str]:
     """Determine today's symbol universe and emit initial run banners."""
 
     cache_dir = ctx.cache_dir
@@ -2412,14 +2503,18 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
                     )
                 else:
                     _log(f"❌ 架空銘柄ディレクトリが見つかりません: {test_symbols_dir}")
-                    _log("先に 'python tools/generate_test_symbols.py' を実行してください")
+                    _log(
+                        "先に 'python tools/generate_test_symbols.py' を実行してください"
+                    )
             except Exception as exc:
                 _log(f"❌ 架空銘柄読み込みエラー: {exc}")
                 fetched = []
         if not fetched:  # 通常経路
             try:
                 if skip_external:
-                    _log("⚡ 外部API呼び出しをスキップ - キャッシュから銘柄リストを構築")
+                    _log(
+                        "⚡ 外部API呼び出しをスキップ - キャッシュから銘柄リストを構築"
+                    )
                     fetched = []
                 else:
                     fetched = build_symbol_universe_from_settings(settings, logger=log)
@@ -2531,7 +2626,10 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     _log(f"🎯 対象シンボル数: {len(symbols)} | 銘柄数：{universe_total}")
     # ヘッダー部分に追加で銘柄数を表示
     _log(f"# 📊 銘柄数：{universe_total}", ui=False, no_timestamp=True)
-    _log(f"📋 サンプル: {', '.join(symbols[:10])}" f"{'...' if len(symbols) > 10 else ''}")
+    _log(
+        f"📋 サンプル: {', '.join(symbols[:10])}"
+        f"{'...' if len(symbols) > 10 else ''}"
+    )
 
     if log_callback:
         try:
@@ -2547,7 +2645,9 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
     return symbols
 
 
-def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[str, pd.DataFrame]:
+def _load_universe_basic_data(
+    ctx: TodayRunContext, symbols: list[str]
+) -> dict[str, pd.DataFrame]:
     """Load rolling cache data for the prepared universe and ensure coverage."""
 
     cache_manager = ctx.cache_manager
@@ -2565,7 +2665,9 @@ def _load_universe_basic_data(ctx: TodayRunContext, symbols: list[str]) -> dict[
     if test_mode_active:
         try:
             # Allow override via env; default to 365 trading days for safety in tests
-            freshness_tolerance = int(os.environ.get("BASIC_DATA_TEST_FRESHNESS_TOLERANCE", "365"))
+            freshness_tolerance = int(
+                os.environ.get("BASIC_DATA_TEST_FRESHNESS_TOLERANCE", "365")
+            )
         except Exception:
             freshness_tolerance = 365
         # Informative warning to make relaxed freshness explicit during tests
@@ -2633,7 +2735,9 @@ def _ensure_cli_logger_configured() -> None:
     try:
         if globals().get("_LOG_FILE_PATH") is None:
             _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
-            _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
+            _configure_today_logger(
+                mode=("single" if _mode_env == "single" else "dated")
+            )
     except Exception:
         pass
 
@@ -2728,7 +2832,9 @@ def _save_and_notify_phase(
             cand_cnt = None
         if cand_cnt is None:
             df_sys = per_system.get(name)
-            cand_cnt = int(0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys))
+            cand_cnt = int(
+                0 if df_sys is None or getattr(df_sys, "empty", True) else len(df_sys)
+            )
         final_cnt = int(final_counts.get(name, 0))
         try:
             _stage(name, 100, None, None, cand_cnt, final_cnt)
@@ -2761,16 +2867,16 @@ def _save_and_notify_phase(
                 try:
                     df_trd = per_system.get(sys_name, pd.DataFrame())
                     trd = int(
-                        0 if df_trd is None or getattr(df_trd, "empty", True) else len(df_trd)
+                        0
+                        if df_trd is None or getattr(df_trd, "empty", True)
+                        else len(df_trd)
                     )
                 except Exception:
                     trd = 0
                 ent = int(final_counts.get(sys_name, 0))
                 exv = exit_counts_map.get(sys_name)
                 ex_txt = "-" if exv is None else str(int(exv))
-                value = (
-                    f"Tgt {tgt} / FIL {fil} / STU {stu} / TRD {trd} / Entry {ent} / Exit {ex_txt}"
-                )
+                value = f"Tgt {tgt} / FIL {fil} / STU {stu} / TRD {trd} / Entry {ent} / Exit {ex_txt}"
                 lines.append({"name": sys_name, "value": value})
             title = "📈 本日の最終メトリクス（system別）"
             td = ctx.today
@@ -2789,12 +2895,16 @@ def _save_and_notify_phase(
             except Exception:
                 total_entries = 0
             try:
-                total_exits = int(sum(int(v) for v in exit_counts_map.values() if v is not None))
+                total_exits = int(
+                    sum(int(v) for v in exit_counts_map.values() if v is not None)
+                )
             except Exception:
                 total_exits = 0
             start_time_str = run_start_time.strftime("%H:%M:%S")
             end_time_str = run_end_time.strftime("%H:%M:%S")
-            duration_seconds = max(0, int((run_end_time - run_start_time).total_seconds()))
+            duration_seconds = max(
+                0, int((run_end_time - run_start_time).total_seconds())
+            )
             hours, remainder = divmod(duration_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
@@ -2815,7 +2925,8 @@ def _save_and_notify_phase(
                 ("利益額/損失額", f"${profit_amt:,.2f} / ${loss_amt:,.2f}"),
             ]
             summary_fields: list[dict[str, str | bool]] = [
-                {"name": key, "value": value, "inline": True} for key, value in summary_pairs
+                {"name": key, "value": value, "inline": True}
+                for key, value in summary_pairs
             ]
             send_metrics_notification(
                 day_str=str(td_str),
@@ -2852,7 +2963,9 @@ def _save_and_notify_phase(
         out_all = signals_dir / f"signals_final_{suffix}.csv"
         try:
             try:
-                round_dec = getattr(get_settings(create_dirs=True).cache, "round_decimals", None)
+                round_dec = getattr(
+                    get_settings(create_dirs=True).cache, "round_decimals", None
+                )
             except Exception:
                 round_dec = None
             out_df = round_dataframe(final_df, round_dec)
@@ -2895,7 +3008,9 @@ def _save_and_notify_phase(
                 base_dir = Path("results_csv")
             out_dir = base_dir / "validation"
             out_dir.mkdir(parents=True, exist_ok=True)
-            with open(out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8") as f:
+            with open(
+                out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8"
+            ) as f:
                 json.dump(report, f, ensure_ascii=False, indent=2, default=str)
             if int(report.get("summary", {}).get("errors", 0)) > 0:
                 _log_warning(
@@ -2908,7 +3023,9 @@ def _save_and_notify_phase(
                     ui=False,
                 )
         except Exception as e:
-            _log_warning(f"バリデーション出力に失敗: {e}", error_code="VALIDATE-FAIL", ui=False)
+            _log_warning(
+                f"バリデーション出力に失敗: {e}", error_code="VALIDATE-FAIL", ui=False
+            )
 
     _safe_progress_call(progress_callback, 8, 8, "done")
 
@@ -2994,7 +3111,9 @@ def _apply_system_filters_and_update_ctx(
     return filters
 
 
-def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system1_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System1 の事前条件ヒット数を表示する。"""
     try:
         s1_total = len(symbols)
@@ -3022,7 +3141,9 @@ def _log_system1_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         pass
 
 
-def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system2_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System2 の事前条件ヒット数を表示する。"""
     try:
         s2_total = len(symbols)
@@ -3055,7 +3176,9 @@ def _log_system2_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         pass
 
 
-def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system3_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System3 の事前条件ヒット数を表示する。"""
     try:
         s3_total = len(symbols)
@@ -3088,7 +3211,9 @@ def _log_system3_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         pass
 
 
-def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system4_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System4 の事前条件ヒット数を表示する。"""
     try:
         s4_total = len(symbols)
@@ -3116,7 +3241,9 @@ def _log_system4_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         pass
 
 
-def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system5_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System5 の事前条件ヒット数を表示する。"""
     try:
         threshold_label = f"ATR_Pct>{DEFAULT_ATR_PCT_THRESHOLD*100:.1f}%"
@@ -3151,7 +3278,9 @@ def _log_system5_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataF
         pass
 
 
-def _log_system6_filter_stats(symbols: list[str], basic_data: dict[str, pd.DataFrame]) -> None:
+def _log_system6_filter_stats(
+    symbols: list[str], basic_data: dict[str, pd.DataFrame]
+) -> None:
     """System6 の事前条件ヒット数を表示する。"""
     try:
         s6_total = len(symbols)
@@ -3186,7 +3315,12 @@ def _log_system7_filter_stats(basic_data: dict[str, pd.DataFrame]) -> None:
     """System7 (SPY) の事前条件ヒット数を表示する。"""
     try:
         spyp = (
-            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+            1
+            if (
+                "SPY" in basic_data
+                and not getattr(basic_data.get("SPY"), "empty", True)
+            )
+            else 0
         )
         _log("system7 事前条件サマリー: SPYの有無 | SPY=" + str(spyp))
     except Exception:
@@ -3341,7 +3475,9 @@ def _prepare_system3_data(
             except Exception:
                 continue
             try:
-                close_pass = float(last.get("Close", 0)) > float(last.get("SMA150", float("inf")))
+                close_pass = float(last.get("Close", 0)) > float(
+                    last.get("SMA150", float("inf"))
+                )
             except Exception:
                 close_pass = False
             if not close_pass:
@@ -3393,7 +3529,9 @@ def _prepare_system4_data(
             except Exception:
                 continue
             try:
-                if float(last.get("Close", 0)) > float(last.get("SMA200", float("inf"))):
+                if float(last.get("Close", 0)) > float(
+                    last.get("SMA200", float("inf"))
+                ):
                     s4_close += 1
             except Exception:
                 pass
@@ -3436,9 +3574,9 @@ def _prepare_system5_data(
             except Exception:
                 continue
             try:
-                price_pass = float(last.get("Close", 0)) > float(last.get("SMA100", 0)) + float(
-                    last.get("ATR10", 0)
-                )
+                price_pass = float(last.get("Close", 0)) > float(
+                    last.get("SMA100", 0)
+                ) + float(last.get("ATR10", 0))
             except Exception:
                 price_pass = False
             if not price_pass:
@@ -3499,7 +3637,9 @@ def _prepare_system6_data(
                 continue
             try:
                 # return_6d: 旧称 Return6D (命名統一済)
-                ret_val = to_float(get_indicator(cast(Mapping[str, Any], last), "return_6d"))
+                ret_val = to_float(
+                    get_indicator(cast(Mapping[str, Any], last), "return_6d")
+                )
                 ret_pass = (ret_val > 0.20) if not pd.isna(ret_val) else False
             except Exception:
                 ret_pass = False
@@ -3590,6 +3730,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     _log("🔧 デバッグ: compute_today_signals開始")
 
+    # Phase5（当日シグナル抽出）では Phase0-4 で十分なフィルター/セットアップ内訳を
+    # すでに出しているため、重複ログを抑制する無音ログ関数を用意する。
+    def _quiet_log_for_phase5(_msg: str) -> None:  # noqa: ANN001 - simple sink
+        return
+
     # PerformanceMonitor のグローバルインスタンスを取得（--detailed-perf有効時のみ存在）
     perf_monitor = None
     try:
@@ -3602,9 +3747,17 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 0: 初期化・設定ロード
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.start_phase("phase0_initialization")
-    _phase0_measure = perf_monitor.measure("phase0_initialization") if perf_monitor else None
+    _phase0_measure = (
+        perf_monitor.measure("phase0_initialization") if perf_monitor else None
+    )
     if _phase0_measure:
         _phase0_measure.__enter__()
+
+    # Progress: phase0 initialization start
+    try:
+        emit_progress_event("phase0_initialization_start", {})
+    except Exception:
+        pass
 
     ctx = _initialize_run_context(
         slots_long=slots_long,
@@ -3632,7 +3785,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     try:
         if globals().get("_LOG_FILE_PATH") is None:
             _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
-            _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
+            _configure_today_logger(
+                mode=("single" if _mode_env == "single" else "dated")
+            )
     except Exception:
         pass
 
@@ -3640,6 +3795,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         _phase0_measure.__exit__(None, None, None)
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.end_phase()
+
+    # Progress: phase0 initialization complete
+    try:
+        emit_progress_event("phase0_initialization_complete", {})
+    except Exception:
+        pass
 
     _run_id = ctx.run_id
     # settings = ctx.settings  # Unused variable removed
@@ -3794,12 +3955,28 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 1: シンボルユニバース構築
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.start_phase("phase1_symbol_universe")
-    _phase1_measure = perf_monitor.measure("phase1_symbol_universe") if perf_monitor else None
+    _phase1_measure = (
+        perf_monitor.measure("phase1_symbol_universe") if perf_monitor else None
+    )
     if _phase1_measure:
         _phase1_measure.__enter__()
 
+    # Progress: phase1 start
+    try:
+        emit_progress_event("phase1_symbol_universe_start", {})
+    except Exception:
+        pass
+
     symbols = _prepare_symbol_universe(ctx, symbols)
 
+    # Progress: phase1 complete
+    try:
+        emit_progress_event(
+            "phase1_symbol_universe_complete",
+            {"symbols": int(len(symbols) if symbols is not None else 0)},
+        )
+    except Exception:
+        pass
     if _phase1_measure:
         _phase1_measure.__exit__(None, None, None)
     if _LIGHTWEIGHT_BENCHMARK:
@@ -3808,12 +3985,33 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 2: データロード（rolling cache）
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.start_phase("phase2_data_loading")
-    _phase2_measure = perf_monitor.measure("phase2_data_loading") if perf_monitor else None
+    _phase2_measure = (
+        perf_monitor.measure("phase2_data_loading") if perf_monitor else None
+    )
     if _phase2_measure:
         _phase2_measure.__enter__()
 
+    # Progress: phase2 start
+    try:
+        emit_progress_event(
+            "phase2_data_loading_start",
+            {"target_symbols": int(len(symbols) if symbols is not None else 0)},
+        )
+    except Exception:
+        pass
+
     basic_data = _load_universe_basic_data(ctx, symbols)
 
+    # Progress: phase2 complete
+    try:
+        loaded = 0
+        if isinstance(basic_data, dict):
+            loaded = sum(1 for _k, _v in basic_data.items() if _v is not None)
+        emit_progress_event(
+            "phase2_data_loading_complete", {"loaded_assets": int(loaded)}
+        )
+    except Exception:
+        pass
     if _phase2_measure:
         _phase2_measure.__exit__(None, None, None)
     if _LIGHTWEIGHT_BENCHMARK:
@@ -3822,12 +4020,32 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # ✨ NEW: Phase 0 - 最新営業日チェック（rolling cache の鮮度確認）
     if not skip_latest_check:
         try:
-            expected_base_day = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+            expected_base_day = pd.Timestamp(
+                getattr(ctx, "signal_base_day", None)
+            ).normalize()
 
             _log(
                 f"🔍 Phase 0: rolling キャッシュの最新営業日チェック中 "
                 f"(期待日: {expected_base_day.date()})..."
             )
+
+            # Progress: phase0 latest check start
+            try:
+                emit_progress_event(
+                    "phase0_latest_check_start",
+                    {
+                        "expected_date": (
+                            expected_base_day.date().isoformat()
+                            if expected_base_day is not None
+                            else None
+                        ),
+                        "precheck_total_symbols": int(
+                            len(symbols) if symbols is not None else 0
+                        ),
+                    },
+                )
+            except Exception:
+                pass
 
             valid_symbols, stale_details = validate_latest_trading_day(
                 symbols=symbols,
@@ -3865,7 +4083,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             total_symbols = len(symbols) + excluded_count
 
             _log(
-                f"✅ Phase 0 完了: {len(symbols)} 銘柄が処理対象（" f"{excluded_count} 銘柄を除外）"
+                f"✅ Phase 0 完了: {len(symbols)} 銘柄が処理対象（"
+                f"{excluded_count} 銘柄を除外）"
             )
 
             # 進捗イベント送出（Streamlit UI で可視化）
@@ -3883,6 +4102,24 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     )
                 except Exception as e:
                     _log(f"⚠️  進捗イベント送出エラー: {e}")
+
+            # Progress: phase0 latest check complete
+            try:
+                emit_progress_event(
+                    "phase0_latest_check_complete",
+                    {
+                        "total_symbols": int(total_symbols),
+                        "valid_symbols": int(len(symbols)),
+                        "excluded_count": int(excluded_count),
+                        "expected_date": (
+                            expected_base_day.date().isoformat()
+                            if expected_base_day is not None
+                            else None
+                        ),
+                    },
+                )
+            except Exception:
+                pass
 
             # basic_data も valid_symbols のみに絞り込み
             if isinstance(basic_data, dict):
@@ -3931,10 +4168,14 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         spy_df = basic_data.get("SPY") if isinstance(basic_data, dict) else None
         anchor_last = _extract_last_cache_date(spy_df) if spy_df is not None else None
         if anchor_last is not None:
-            frozen_base = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+            frozen_base = pd.Timestamp(
+                getattr(ctx, "signal_base_day", None)
+            ).normalize()
 
             # Calculate trading days lag using NYSE calendar
-            trading_days_lag = _calculate_trading_days_lag(pd.Timestamp(anchor_last), frozen_base)
+            trading_days_lag = _calculate_trading_days_lag(
+                pd.Timestamp(anchor_last), frozen_base
+            )
 
             if pd.Timestamp(anchor_last).normalize() != frozen_base:
                 _log(
@@ -4059,7 +4300,10 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         s1_total = stats1.get("total", len(symbols or []))
         s1_price = stats1.get("price_pass", 0)
         s1_dv = stats1.get("dv_pass", 0)
-        _log("🧪 system1内訳: " + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}")
+        _log(
+            "🧪 system1内訳: "
+            + f"元={s1_total}, 価格>=5: {s1_price}, DV20>=50M: {s1_dv}"
+        )
     except Exception:
         pass
     # System2 フィルター内訳の可視化（価格・売買代金・ATR比率の段階通過数）
@@ -4097,7 +4341,10 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         s4_total = stats4.get("total", len(symbols or []))
         s4_dv = stats4.get("dv_pass", 0)
         s4_hv = stats4.get("hv_pass", 0)
-        _log("🧪 system4内訳: " + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}")
+        _log(
+            "🧪 system4内訳: "
+            + f"元={s4_total}, DV50>=100M: {s4_dv}, HV50 10〜40: {s4_hv}"
+        )
     except Exception:
         pass
     # System5 フィルター内訳（AvgVol50>500k → DV50>2.5M → ATR_Pct>閾値）
@@ -4127,7 +4374,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # System7 フィルター内訳（SPY固定）
     try:
         spyp = (
-            1 if ("SPY" in basic_data and not getattr(basic_data.get("SPY"), "empty", True)) else 0
+            1
+            if (
+                "SPY" in basic_data
+                and not getattr(basic_data.get("SPY"), "empty", True)
+            )
+            else 0
         )
         _log(f"🧪 system7内訳: SPY固定 | SPY存在={spyp}")
     except Exception:
@@ -4168,7 +4420,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 _spy_df = get_spy_with_indicators(basic_data["SPY"])
                 if _spy_df is not None and not getattr(_spy_df, "empty", True):
                     _last = _spy_df.iloc[-1]
-                    _spy_ok = int(float(_last.get("Close", 0)) > float(_last.get("SMA100", 0)))
+                    _spy_ok = int(
+                        float(_last.get("Close", 0)) > float(_last.get("SMA100", 0))
+                    )
         except Exception:
             _spy_ok = None
         # system1 デバッグ情報（最初の1銘柄分）を一時的に保持し、セットアップ内訳の後にまとめて出力
@@ -4400,7 +4654,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     s4_close += 1
             except Exception:
                 pass
-        _log(f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}")
+        _log(
+            f"🧩 system4セットアップ内訳: フィルタ通過={s4_filter}, Close>SMA200: {s4_close}"
+        )
         try:
             _stage(
                 "system4",
@@ -4551,13 +4807,23 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 last_row = spy_data.iloc[-1] if hasattr(spy_data, "iloc") else spy_data
                 # セットアップ条件: Low <= min_50
                 try:
-                    low_val = to_float(get_indicator(cast(Mapping[str, Any], last_row), "Low"))
-                    min50_val = to_float(get_indicator(cast(Mapping[str, Any], last_row), "min_50"))
-                    if (not pd.isna(low_val)) and (not pd.isna(min50_val)) and low_val <= min50_val:
+                    low_val = to_float(
+                        get_indicator(cast(Mapping[str, Any], last_row), "Low")
+                    )
+                    min50_val = to_float(
+                        get_indicator(cast(Mapping[str, Any], last_row), "min_50")
+                    )
+                    if (
+                        (not pd.isna(low_val))
+                        and (not pd.isna(min50_val))
+                        and low_val <= min50_val
+                    ):
                         s7_setup = 1
                 except Exception:
                     pass
-        _log(f"🧩 system7セットアップ内訳: フィルタ通過={s7_filter}, Low<=min_50: {s7_setup}")
+        _log(
+            f"🧩 system7セットアップ内訳: フィルタ通過={s7_filter}, Low<=min_50: {s7_setup}"
+        )
         try:
             _stage(
                 "system7",
@@ -4633,7 +4899,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 4: シグナル生成（System 1-7）
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.start_phase("phase4_signal_generation")
-    _phase4_measure = perf_monitor.measure("phase4_signal_generation") if perf_monitor else None
+    _phase4_measure = (
+        perf_monitor.measure("phase4_signal_generation") if perf_monitor else None
+    )
     if _phase4_measure:
         _phase4_measure.__enter__()
 
@@ -4645,6 +4913,14 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     _phase4_details: list[dict[str, Any]] = []
     system_names = [f"system{i}" for i in range(1, 8)]
 
+    # Progress: phase4 start
+    try:
+        emit_progress_event(
+            "phase4_signal_generation_start", {"systems": len(system_names)}
+        )
+    except Exception:
+        pass
+
     for system_name in system_names:
         _log(f"▶ {system_name} 開始")
 
@@ -4652,6 +4928,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         try:
             if per_system_progress and callable(per_system_progress):
                 per_system_progress(system_name, "start")
+        except Exception:
+            pass
+        # Progress: per-system start
+        try:
+            emit_progress_event("system_start", {"system": system_name})
         except Exception:
             pass
 
@@ -4689,7 +4970,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
             # per-system 計測（ベンチマークが無効でも _PerfTimer による軽量ログは出す）
-            _sys_t_prepare = None
+            _sys_t_prepare = 0.0  # Phase5 は内部で prepare を行うため外側では実行しない
             _sys_t_candidates = None
             try:
                 import time as _t
@@ -4697,24 +4978,6 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 _sys_t0 = _t.perf_counter()
             except Exception:
                 _sys_t0 = None
-
-            with _PerfTimer(f"{system_name}.prepare_data"):
-                try:
-                    prepared_data = strategy.prepare_data(raw_data)
-                except Exception as prep_err:
-                    _log_error(f"[{system_name}] データ準備でエラー: {prep_err}", "DATA001")
-                    per_system[system_name] = pd.DataFrame()
-                    _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
-                    _log(f"✅ {system_name} 完了: 0件")
-                    # 失敗時も計測を記録（可能なら）
-                    try:
-                        import time as _t
-
-                        if _sys_t0 is not None:
-                            _sys_t_prepare = _t.perf_counter() - _sys_t0
-                    except Exception:
-                        pass
-                    continue
 
             candidate_kwargs: dict[str, Any] = {}
             if system_name == "system4":
@@ -4771,7 +5034,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     # フルスキャンへのフォールバックは行わず、latest_only を維持する
                     if base_day is not None:
                         # 全システムにグローバル基準日を注入（system6 も対応済み）
-                        candidate_kwargs["latest_mode_date"] = pd.Timestamp(base_day).normalize()
+                        candidate_kwargs["latest_mode_date"] = pd.Timestamp(
+                            base_day
+                        ).normalize()
                     # 全システムに max_date_lag_days を注入
                     # (system1/3 のみが実際に使用し、他システムは kwargs で受け取るが無視)
                     max_lag = max(0, int(getattr(ctx, "max_date_lag_days", 1)))
@@ -4783,11 +5048,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 if system_name == "system1":
                     _log(
                         "[system1] DEBUG call generate_candidates "
-                        f"latest_only={candidate_kwargs.get('latest_only')} "
-                        f"prepared_syms={len(prepared_data)}"
+                        f"latest_only={candidate_kwargs.get('latest_only')}"
                     )
             except Exception:
                 pass
+            # 準備段階は外側で実行しないため、候補生成計測の開始をここに置く
             _sys_t1 = None
             try:
                 import time as _t
@@ -4797,16 +5062,17 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             except Exception:
                 pass
 
-            # Phase5: Use get_today_signals instead of generate_candidates
-            # to ensure entry_price/stop_price are calculated
+            # Phase5: Use get_today_signals (内部で prepare_data/フィルター/セットアップ/候補抽出/エントリー算出)
+            # 外側での prepare_data は行わず、生データ raw_data を渡す
             with _PerfTimer(f"{system_name}.get_today_signals"):
                 try:
                     df = strategy.get_today_signals(
-                        prepared_data,
+                        raw_data,
                         market_df=spy_df,
                         today=ctx.today,
                         progress_callback=None,
-                        log_callback=_log,
+                        # 重複する詳細ログを抑制
+                        log_callback=_quiet_log_for_phase5,
                         stage_progress=None,
                         use_process_pool=False,  # Phase5 is already parallelized per-system
                         max_workers=None,
@@ -4819,7 +5085,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     _log(f"[{system_name}] Traceback:\n{traceback.format_exc()}")
                     df = pd.DataFrame()
 
-            # per-system 計測まとめ
+            # per-system 計測まとめ（準備は内部で行われるため 0、候補抽出は get_today_signals 全体の時間）
             try:
                 import time as _t
 
@@ -4827,9 +5093,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 if _sys_t0 is not None:
                     if _sys_t1 is None:
                         _sys_t1 = _now
-                    _sys_t_prepare = (
-                        (_sys_t1 - _sys_t0) if _sys_t_prepare is None else _sys_t_prepare
-                    )
+                    # _sys_t_prepare は 0.0 に固定（外側では実行しない）
                     _sys_t_candidates = _now - _sys_t1
             except Exception:
                 pass
@@ -4856,7 +5120,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         f"[ALLOC_DEBUG] {system_name} get_today_signals returned columns: {list(df.columns)}"
                     )
                     if len(df) > 0:
-                        _log(f"[ALLOC_DEBUG] {system_name} sample row: {df.iloc[0].to_dict()}")
+                        _log(
+                            f"[ALLOC_DEBUG] {system_name} sample row: {df.iloc[0].to_dict()}"
+                        )
 
             per_system[system_name] = df
             count = len(df) if not df.empty else 0
@@ -4886,6 +5152,17 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
 
         _log(f"✅ {system_name} 完了: {len(per_system[system_name])}件")
+        # Progress: per-system complete
+        try:
+            emit_progress_event(
+                "system_complete",
+                {
+                    "system": system_name,
+                    "candidates": int(len(per_system.get(system_name, pd.DataFrame()))),
+                },
+            )
+        except Exception:
+            pass
 
         # ベンチマーク拡張: フェーズ4のシステム別明細を収集
         try:
@@ -4893,9 +5170,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 detail = {
                     "system": system_name,
                     "prepare_sec": round(float(_sys_t_prepare or 0.0), 6),
-                    "generate_candidates_sec": round(float(_sys_t_candidates or 0.0), 6),
+                    "generate_candidates_sec": round(
+                        float(_sys_t_candidates or 0.0), 6
+                    ),
                     "total_sec": round(
-                        float((((_sys_t_prepare or 0.0) + (_sys_t_candidates or 0.0)))), 6
+                        float((((_sys_t_prepare or 0.0) + (_sys_t_candidates or 0.0)))),
+                        6,
                     ),
                     "candidates": (
                         int(len(per_system.get(system_name, pd.DataFrame())))
@@ -4924,7 +5204,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     # システム別の順序を明示（1..7）に固定
     order_1_7 = [f"system{i}" for i in range(1, 8)]
-    per_system = {k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system}
+    per_system = {
+        k: per_system.get(k, pd.DataFrame()) for k in order_1_7 if k in per_system
+    }
     ctx.per_system_frames = dict(per_system)
     # メトリクス概要計算
 
@@ -4934,7 +5216,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     if _LIGHTWEIGHT_BENCHMARK:
         # 明細を extras に付加（フェーズ終了と同時に）
         try:
-            _LIGHTWEIGHT_BENCHMARK.add_extra_section("phase4_per_system", _phase4_details)
+            _LIGHTWEIGHT_BENCHMARK.add_extra_section(
+                "phase4_per_system", _phase4_details
+            )
         except Exception:
             pass
         _LIGHTWEIGHT_BENCHMARK.end_phase()
@@ -4942,9 +5226,26 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase 5: 配分計算
     if _LIGHTWEIGHT_BENCHMARK:
         _LIGHTWEIGHT_BENCHMARK.start_phase("phase5_allocation")
-    _phase5_measure = perf_monitor.measure("phase5_allocation") if perf_monitor else None
+    _phase5_measure = (
+        perf_monitor.measure("phase5_allocation") if perf_monitor else None
+    )
     if _phase5_measure:
         _phase5_measure.__enter__()
+
+    # Progress: phase5 start
+    try:
+        total_cand = 0
+        try:
+            total_cand = sum(
+                len(df) for df in per_system.values() if isinstance(df, pd.DataFrame)
+            )
+        except Exception:
+            total_cand = 0
+        emit_progress_event(
+            "phase5_allocation_start", {"total_candidates": int(total_cand)}
+        )
+    except Exception:
+        pass
 
     # === Allocation & Final Assembly ===
     # ここで per_system から最終候補 (final_df) を構築し AllocationSummary を取得する。
@@ -4988,7 +5289,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
         final_df = pd.DataFrame()
-        from core.final_allocation import AllocationSummary as _AS  # local import to avoid cycle
+        from core.final_allocation import (
+            AllocationSummary as _AS,  # local import to avoid cycle
+        )
 
         allocation_summary = _AS(
             mode="error",
@@ -4998,6 +5301,31 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             available_slots={},
             final_counts={},
         )
+
+    # Progress: phase5 complete (emit brief summary)
+    try:
+        _final_counts = int(len(final_df) if isinstance(final_df, pd.DataFrame) else 0)
+        alloc_brief = {}
+        try:
+            if isinstance(allocation_summary, dict):
+                sc = allocation_summary.get("slot_candidates")
+                fc = allocation_summary.get("final_counts")
+                if isinstance(sc, dict):
+                    alloc_brief["slot_candidates_total"] = sum(
+                        int(v or 0) for v in sc.values()
+                    )
+                if isinstance(fc, dict):
+                    alloc_brief["final_counts_total"] = sum(
+                        int(v or 0) for v in fc.values()
+                    )
+        except Exception:
+            alloc_brief = {}
+        emit_progress_event(
+            "phase5_allocation_complete",
+            {"final_df_rows": _final_counts, **alloc_brief},
+        )
+    except Exception:
+        pass
 
     # 並べ替え / 連番付与（finalize_allocation 内部で付与されるが念のため最終安定ソート）
     try:
@@ -5043,14 +5371,18 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             if hasattr(alloc_summary, "final_counts"):
                 raw = getattr(alloc_summary, "final_counts", {})
                 if isinstance(raw, dict):
-                    final_counts_map = {str(k).strip().lower(): int(v) for k, v in raw.items()}
+                    final_counts_map = {
+                        str(k).strip().lower(): int(v) for k, v in raw.items()
+                    }
         except Exception:
             final_counts_map = {}
         try:
             if hasattr(alloc_summary, "slot_candidates"):
                 raw2 = getattr(alloc_summary, "slot_candidates", {})
                 if isinstance(raw2, dict):
-                    cand_counts_map = {str(k).strip().lower(): int(v) for k, v in raw2.items()}
+                    cand_counts_map = {
+                        str(k).strip().lower(): int(v) for k, v in raw2.items()
+                    }
         except Exception:
             cand_counts_map = {}
 
@@ -5058,7 +5390,12 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         if not final_counts_map and (final_df is not None) and (not final_df.empty):
             try:
                 grp = (
-                    final_df["system"].astype(str).str.strip().str.lower().value_counts().to_dict()
+                    final_df["system"]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                    .value_counts()
+                    .to_dict()
                 )
                 final_counts_map = {str(k): int(v) for k, v in grp.items()}
             except Exception:
@@ -5229,13 +5566,17 @@ def _format_phase_completion(
             )
         if setup_int is not None:
             return (
-                f"🏁 {name}: {label}のプロセスプールが完了 " f"(セットアップ通過 {setup_int} 銘柄)"
+                f"🏁 {name}: {label}のプロセスプールが完了 "
+                f"(セットアップ通過 {setup_int} 銘柄)"
             )
         return f"🏁 {name}: {label}のプロセスプールが完了"
 
     if prev_stage == 50:
         if candidate_int is not None:
-            return f"🏁 {name}: {label}のプロセスプールが完了 " f"(当日候補 {candidate_int} 銘柄)"
+            return (
+                f"🏁 {name}: {label}のプロセスプールが完了 "
+                f"(当日候補 {candidate_int} 銘柄)"
+            )
         return f"🏁 {name}: {label}のプロセスプールが完了"
 
     if prev_stage == 75:
@@ -5337,7 +5678,8 @@ def _configure_lookback_days(
     try:
         settings2 = get_settings(create_dirs=True)
         lb_default = int(
-            settings2.cache.rolling.base_lookback_days + settings2.cache.rolling.buffer_days
+            settings2.cache.rolling.base_lookback_days
+            + settings2.cache.rolling.buffer_days
         )
     except Exception:
         settings2 = None
@@ -5405,7 +5747,9 @@ def _run_strategy_with_proper_scope(
     mgr: Any | None = None
 
     # Configure process pool settings
-    use_process_pool, max_workers = _configure_process_pool_and_workers(name=name, _log=_log)
+    use_process_pool, max_workers = _configure_process_pool_and_workers(
+        name=name, _log=_log
+    )
 
     # Configure lookback days
     lookback_days = _configure_lookback_days(name=name, stg=stg, base=base)
@@ -5755,7 +6099,11 @@ def parse_cli_args() -> argparse.Namespace:
 
 def configure_logging_for_cli(args: argparse.Namespace) -> None:
     env_mode = os.environ.get("TODAY_SIGNALS_LOG_MODE", "").strip().lower()
-    mode = args.log_file_mode or (env_mode if env_mode in {"single", "dated"} else None) or "dated"
+    mode = (
+        args.log_file_mode
+        or (env_mode if env_mode in {"single", "dated"} else None)
+        or "dated"
+    )
     _configure_today_logger(mode=mode)
     try:
         sel_path = globals().get("_LOG_FILE_PATH")
@@ -5782,7 +6130,9 @@ def run_signal_pipeline(
         try:
             from common.performance_monitor import enable_global_monitor
 
-            _perf_monitor = enable_global_monitor()  # noqa: F841 - グローバルモニター初期化のみ
+            _perf_monitor = (
+                enable_global_monitor()
+            )  # noqa: F841 - グローバルモニター初期化のみ
             _log("📊 詳細パフォーマンス測定を有効化しました")
         except Exception as e:  # pragma: no cover - 安全フォールバック
             _log(f"⚠️ PerformanceMonitor初期化失敗: {e}")
@@ -5840,7 +6190,9 @@ def run_signal_pipeline(
         per_system_dict = {}
     else:
         # 既に辞書形式の場合
-        per_system_dict = allocation_summary if isinstance(allocation_summary, dict) else {}
+        per_system_dict = (
+            allocation_summary if isinstance(allocation_summary, dict) else {}
+        )
 
     return final_df, per_system_dict
 
@@ -5856,7 +6208,9 @@ def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
         if "entry_date" in final_df.columns:
             tmp_df = final_df.copy()
             # まずはそのまま正規化
-            norm_series = pd.to_datetime(tmp_df["entry_date"], errors="coerce").dt.normalize()
+            norm_series = pd.to_datetime(
+                tmp_df["entry_date"], errors="coerce"
+            ).dt.normalize()
             # すべて NaT になってしまうケースの簡易フォールバック（型崩れ対策）
             try:
                 if norm_series.isna().all():
@@ -6002,13 +6356,83 @@ def main():
         except Exception:
             pass
 
-    _phase6_measure = perf_monitor.measure("phase6_save_notify") if perf_monitor else None
+    _phase6_measure = (
+        perf_monitor.measure("phase6_save_notify") if perf_monitor else None
+    )
     if _phase6_measure:
         _phase6_measure.__enter__()
+
+    # Progress: phase6 save/notify start
+    try:
+        emit_progress_event(
+            "phase6_save_notify_start",
+            {
+                "final_rows": int(
+                    0
+                    if final_df is None or getattr(final_df, "empty", True)
+                    else len(final_df)
+                )
+            },
+        )
+    except Exception:
+        pass
 
     signals_for_merge = log_final_candidates(final_df)
     merge_signals_for_cli(signals_for_merge)
     maybe_submit_orders(final_df, args)
+
+    # Save CSVs (final and per-system) when requested via CLI
+    # Note: We reuse the existing save/notify helper but disable notify to avoid
+    # side-effects from the CLI path. This restores signals_final_* outputs under
+    # settings.outputs.signals_dir for --save-csv runs.
+    try:
+        if (
+            getattr(args, "save_csv", False)
+            and final_df is not None
+            and not getattr(final_df, "empty", True)
+        ):
+            ctx = _initialize_run_context(
+                slots_long=args.slots_long,
+                slots_short=args.slots_short,
+                capital_long=args.capital_long,
+                capital_short=args.capital_short,
+                save_csv=True,
+                csv_name_mode=args.csv_name_mode,
+                notify=False,  # CLI からの保存では通知は抑制
+                log_callback=None,
+                progress_callback=None,
+                per_system_progress=None,
+                symbol_data=None,
+                parallel=args.parallel,
+                test_mode=getattr(args, "test_mode", None),
+                skip_external=getattr(args, "skip_external", False),
+            )
+            # per_system は最終CSV保存には不要なため空で十分
+            _save_and_notify_phase(
+                ctx,
+                final_df=final_df,
+                per_system={},
+                order_1_7=[f"system{i}" for i in range(1, 8)],
+                metrics_summary_context=None,
+            )
+    except Exception:
+        # 保存失敗は致命ではないため握りつぶし（ログは _save_and_notify_phase 内で出力）
+        pass
+
+    # Progress: phase6 save/notify complete
+    try:
+        emit_progress_event(
+            "phase6_save_notify_complete",
+            {
+                "final_rows": int(
+                    0
+                    if final_df is None or getattr(final_df, "empty", True)
+                    else len(final_df)
+                )
+            },
+        )
+    except Exception:
+        pass
 
     if _phase6_measure:
         _phase6_measure.__exit__(None, None, None)
@@ -6045,7 +6469,9 @@ def main():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             test_mode_suffix = f"_{getattr(args, 'test_mode', 'full')}"
             bench_dir = Path(
-                "results_csv_test" if getattr(args, "test_mode", None) else "results_csv"
+                "results_csv_test"
+                if getattr(args, "test_mode", None)
+                else "results_csv"
             )
             bench_dir.mkdir(parents=True, exist_ok=True)
             report_path = bench_dir / f"benchmark{test_mode_suffix}_{timestamp}.json"
@@ -6062,6 +6488,21 @@ def main():
                 _log(f"    {phase_name}: {duration:.2f} 秒")
         except Exception as e:
             _log(f"⚠️ ベンチマークレポート保存失敗: {e}")
+
+    # Final completion event (Phase 7 equivalent)
+    try:
+        emit_progress_event(
+            "pipeline_complete",
+            {
+                "final_rows": int(
+                    0
+                    if final_df is None or getattr(final_df, "empty", True)
+                    else len(final_df)
+                )
+            },
+        )
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

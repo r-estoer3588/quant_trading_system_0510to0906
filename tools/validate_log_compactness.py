@@ -198,8 +198,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate log compactness between COMPACT_TODAY_LOGS=0 and =1"
     )
-    parser.add_argument("--verbose", type=Path, required=True, help="Path to verbose log file")
-    parser.add_argument("--compact", type=Path, required=True, help="Path to compact log file")
+    parser.add_argument(
+        "--verbose", type=Path, required=True, help="Path to verbose log file"
+    )
+    parser.add_argument(
+        "--compact", type=Path, required=True, help="Path to compact log file"
+    )
     parser.add_argument(
         "--max-verbose",
         type=int,

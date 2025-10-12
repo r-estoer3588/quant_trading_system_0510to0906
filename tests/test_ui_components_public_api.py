@@ -219,7 +219,9 @@ class TestLoggingFunctions:
         )
 
         # Should not raise exceptions
-        ui_components.save_signal_and_trade_logs(signal_df, results_df, "TestSystem", 10000.0)
+        ui_components.save_signal_and_trade_logs(
+            signal_df, results_df, "TestSystem", 10000.0
+        )
 
         # Verify CSV save was attempted
         assert mock_to_csv.called

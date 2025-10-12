@@ -25,10 +25,7 @@
 
 ### 🏃 [運用ガイド](#operations)
 
-- [自動実行設定](./schedule_quick_start.md) - Windows Task Scheduler
-- [通知設定](./NOTIFICATIONS.md) - Slack/Discord 連携
-- [UI メトリクス](./today_signals_ui_metrics.md) - ダッシュボード
-- [Bulk API 品質ガイド](./operations/bulk_api_quality_guide.md) - データ品質検証と設定
+- [文字化け対策ガイド（Windows）](./operations/mojibake_guide.md) - UTF-8/NO_EMOJI の設定
 
 ### 🔗 関連リンク
 

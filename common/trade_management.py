@@ -295,6 +295,44 @@ class TradeManager:
         self.completed_trades: List[TradeRecord] = []
         self.trade_counter = 0
 
+    def _get_row_for_date(
+        self,
+        market_data: pd.DataFrame,
+        date: datetime,
+    ) -> Optional[pd.Series]:
+        """Return a row for the given date, with robust fallbacks.
+
+        Preference order:
+        1) exact date
+        2) previous available (pad/ffill)
+        3) next available (backfill/bfill)
+        4) nearest
+        """
+        try:
+            if market_data is None or market_data.empty:
+                return None
+            idx = market_data.index
+            ts = pd.Timestamp(date).normalize()
+
+            # Exact
+            if ts in idx:
+                row = market_data.loc[ts]
+                return row.iloc[0] if isinstance(row, pd.DataFrame) else row
+
+            # Try previous first
+            for method in ("pad", "ffill", "backfill", "bfill", "nearest"):
+                try:
+                    pos_arr = idx.get_indexer([ts], method=method)
+                    pos = int(pos_arr[0]) if len(pos_arr) > 0 else -1
+                except Exception:
+                    pos = -1
+                if pos is not None and 0 <= pos < len(idx):
+                    row = market_data.iloc[pos]
+                    return row.iloc[0] if isinstance(row, pd.DataFrame) else row
+        except Exception:
+            return None
+        return None
+
     def create_trade_entry(
         self,
         symbol: str,
@@ -320,20 +358,47 @@ class TradeManager:
         try:
             rules = SYSTEM_TRADE_RULES.get(system.lower())
             if not rules:
-                logger.error(f"No trade rules found for system: {system}")
+                logger.error("No trade rules found for system: %s", system)
                 return None
 
             # Extract basic information
             shares = int(entry_data.get("shares", 0))
             if shares <= 0:
-                logger.warning(f"Invalid shares for {symbol}: {shares}")
+                logger.warning("Invalid shares for %s: %s", symbol, shares)
                 return None
 
             # Calculate entry price based on system rules
+            # Fallback priority order:
+            # 1. Market data (Open for MARKET orders, reference price for LIMIT)
+            # 2. Allocation entry_price (from signal generation phase)
+            # 3. Fail if neither available
             entry_price = self._calculate_entry_price(market_data, signal_date, rules)
             if entry_price is None or entry_price <= 0:
-                logger.warning(f"Could not calculate entry price for {symbol}")
-                return None
+                # Fallback: use entry_price from allocation result (signal phase)
+                fallback_raw = entry_data.get("entry_price")
+                if fallback_raw is not None:
+                    try:
+                        fallback_price = float(fallback_raw)
+                    except (TypeError, ValueError):
+                        fallback_price = None
+                else:
+                    fallback_price = None
+                if fallback_price is not None and fallback_price > 0:
+                    entry_price = fallback_price
+                    logger.debug(
+                        "Using allocation fallback entry_price for %s: %s",
+                        symbol,
+                        entry_price,
+                    )
+                else:
+                    logger.debug(
+                        (
+                            "Could not calculate entry price for %s "
+                            "(no market data fallback)"
+                        ),
+                        symbol,
+                    )
+                    return None
 
             # Calculate stop loss price
             stop_price = self._calculate_stop_price(
@@ -343,7 +408,7 @@ class TradeManager:
                 rules,
             )
             if stop_price is None:
-                logger.warning(f"Could not calculate stop price for {symbol}")
+                logger.debug("Could not calculate stop price for %s", symbol)
                 return None
 
             # Calculate profit target if applicable
@@ -412,7 +477,7 @@ class TradeManager:
             return entry
 
         except Exception as e:
-            logger.error(f"Error creating trade entry for {symbol}: {e}")
+            logger.error("Error creating trade entry for %s: %s", symbol, e)
             return None
 
     def _calculate_entry_price(
@@ -421,23 +486,27 @@ class TradeManager:
         signal_date: datetime,
         rules: SystemTradeRules,
     ) -> Optional[float]:
-        """Calculate entry price based on system rules."""
+        """Calculate entry price based on system rules.
+
+        Priority:
+        1. Open price for MARKET orders (if available on signal_date)
+        2. Close price as fallback when Open is missing
+        3. Reference price + offset for LIMIT orders
+        """
         try:
-            # Determine reference row for the given signal_date
-            idx = market_data.index
-            use_date = pd.Timestamp(signal_date).normalize()
-            if use_date in idx:
-                ref_row = market_data.loc[use_date]
-            else:
-                try:
-                    pos_arr = idx.get_indexer([use_date], method="backfill")
-                    pos = int(pos_arr[0]) if len(pos_arr) > 0 else -1
-                except Exception:
-                    pos = -1
-                if pos is None or pos < 0 or pos >= len(idx):
-                    return None
-                nearest_date = idx[pos]
-                ref_row = market_data.loc[nearest_date]
+            # Determine reference row for the given signal_date with robust fallback
+            ref_row = self._get_row_for_date(market_data, signal_date)
+            if ref_row is None:
+                return None
+
+            ref_row_date = None
+            try:
+                ref_row_date = getattr(ref_row, "name", None)
+                if isinstance(ref_row_date, (pd.Timestamp, datetime)):
+                    ref_row_date = pd.Timestamp(ref_row_date).normalize()
+            except Exception:
+                ref_row_date = None
+            target_date = pd.Timestamp(signal_date).normalize()
 
             if rules.entry_type == OrderType.MARKET:
                 # Market orders: use entry day's open (ctx.today is entry date)
@@ -460,8 +529,24 @@ class TradeManager:
                 if open_price and open_price > 0:
                     return open_price
                 # Fallback: if open is missing, try using Close as an approximation
-                close_price = _coerce_float(ref_row.get("Close", ref_row.get("close", 0)))
-                return close_price if (close_price and close_price > 0) else None
+                close_price = _coerce_float(
+                    ref_row.get("Close", ref_row.get("close", 0))
+                )
+                if close_price and close_price > 0:
+                    logger.debug(
+                        "Entry price fallback to Close for %s (target=%s, source=%s)",
+                        rules.system_name,
+                        target_date,
+                        ref_row_date,
+                    )
+                    return close_price
+                logger.debug(
+                    "Entry price not available for %s on %s (fallback row=%s)",
+                    rules.system_name,
+                    target_date,
+                    ref_row_date,
+                )
+                return None
 
             elif rules.entry_type == OrderType.LIMIT:
                 # Limit orders: calculate based on reference price and offset
@@ -487,7 +572,7 @@ class TradeManager:
             return None
 
         except Exception as e:
-            logger.error(f"Error calculating entry price: {e}")
+            logger.error("Error calculating entry price: %s", e)
             return None
 
     def _calculate_limit_order_price(
@@ -498,7 +583,9 @@ class TradeManager:
     ) -> Optional[float]:
         """Calculate the original limit order price."""
         try:
-            ref_row = market_data.loc[signal_date]
+            ref_row = self._get_row_for_date(market_data, signal_date)
+            if ref_row is None:
+                return None
             if isinstance(ref_row, pd.DataFrame):
                 ref_row = ref_row.iloc[0]
             ref_price = float(
@@ -514,7 +601,7 @@ class TradeManager:
             return ref_price * offset_multiplier
 
         except Exception as e:
-            logger.error(f"Error calculating limit order price: {e}")
+            logger.error("Error calculating limit order price: %s", e)
             return None
 
     def _calculate_stop_price(
@@ -546,7 +633,7 @@ class TradeManager:
             return max(0.01, stop_price)  # Ensure positive price
 
         except Exception as e:
-            logger.error(f"Error calculating stop price: {e}")
+            logger.error("Error calculating stop price: %s", e)
             return None
 
     def _calculate_profit_target_price(
@@ -585,7 +672,7 @@ class TradeManager:
             return None
 
         except Exception as e:
-            logger.error(f"Error calculating profit target price: {e}")
+            logger.error("Error calculating profit target price: %s", e)
             return None
 
     def _get_atr_value(
@@ -600,7 +687,9 @@ class TradeManager:
             atr_col = f"atr{period}"
             alt_cols = [f"ATR{period}", f"atr_{period}", f"ATR_{period}"]
 
-            row = market_data.loc[date]
+            row = self._get_row_for_date(market_data, date)
+            if row is None:
+                return None
             if isinstance(row, pd.DataFrame):
                 row = row.iloc[0]
 
@@ -619,17 +708,21 @@ class TradeManager:
                 if col in row.index:
                     raw_val2 = row[col]
                     try:
-                        val2 = raw_val2.iloc[0] if isinstance(raw_val2, pd.Series) else raw_val2
+                        val2 = (
+                            raw_val2.iloc[0]
+                            if isinstance(raw_val2, pd.Series)
+                            else raw_val2
+                        )
                         if pd.notna(val2) and float(val2) > 0:
                             return float(val2)
                     except Exception:
                         continue
 
-            logger.warning(f"ATR{period} not found for date {date}")
+            logger.warning("ATR%s not found for date %s", period, date)
             return None
 
         except Exception as e:
-            logger.error(f"Error getting ATR value: {e}")
+            logger.error("Error getting ATR value: %s", e)
             return None
 
     def enhance_allocation_with_trade_management(
@@ -660,14 +753,17 @@ class TradeManager:
                 side = row.get("side", "")
 
                 if not all([symbol, system, side]):
-                    logger.warning(f"Missing required fields in allocation row: {dict(row)}")
+                    logger.warning(
+                        "Missing required fields in allocation row: %s",
+                        dict(row),
+                    )
                     enhanced_records.append(dict(row))
                     continue
 
                 # Get market data for this symbol
                 market_data = market_data_dict.get(symbol)
                 if market_data is None or market_data.empty:
-                    logger.warning(f"No market data available for {symbol}")
+                    logger.warning("No market data available for %s", symbol)
                     enhanced_records.append(dict(row))
                     continue
 
@@ -683,7 +779,7 @@ class TradeManager:
                 )
 
                 if trade_entry is None:
-                    logger.warning(f"Could not create trade entry for {symbol}")
+                    logger.warning("Could not create trade entry for %s", symbol)
                     enhanced_records.append(dict(row))
                     continue
 
@@ -702,9 +798,15 @@ class TradeManager:
 
                 # System rules
                 if trade_entry.rules:
-                    enhanced_row["use_trailing_stop"] = trade_entry.rules.use_trailing_stop
-                    enhanced_row["trailing_stop_pct"] = trade_entry.rules.trailing_stop_pct
-                    enhanced_row["max_holding_days"] = trade_entry.rules.max_holding_days
+                    enhanced_row["use_trailing_stop"] = (
+                        trade_entry.rules.use_trailing_stop
+                    )
+                    enhanced_row["trailing_stop_pct"] = (
+                        trade_entry.rules.trailing_stop_pct
+                    )
+                    enhanced_row["max_holding_days"] = (
+                        trade_entry.rules.max_holding_days
+                    )
                     enhanced_row["allow_re_entry"] = trade_entry.rules.allow_re_entry
 
                 # ATR context
@@ -717,7 +819,9 @@ class TradeManager:
 
                 # Risk metrics
                 if trade_entry.entry_price > 0 and trade_entry.stop_price > 0:
-                    risk_per_share = abs(trade_entry.entry_price - trade_entry.stop_price)
+                    risk_per_share = abs(
+                        trade_entry.entry_price - trade_entry.stop_price
+                    )
                     total_risk = risk_per_share * trade_entry.shares
                     enhanced_row["risk_per_share"] = risk_per_share
                     enhanced_row["total_risk"] = total_risk
@@ -730,7 +834,7 @@ class TradeManager:
                 enhanced_records.append(enhanced_row)
 
             except Exception as e:
-                logger.error(f"Error enhancing allocation row: {e}")
+                logger.error("Error enhancing allocation row: %s", e)
                 enhanced_records.append(dict(row))
                 continue
 

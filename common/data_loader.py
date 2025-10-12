@@ -15,7 +15,9 @@ from common.utils import get_cached_data
 def _load_one(symbol: str, cache_dir: Path) -> tuple[str, pd.DataFrame | None]:
     # 1) 新キャッシュ（base_cache）優先
     try:
-        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
+        df = load_base_cache(
+            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False
+        )
         if df is not None and not df.empty:
             return symbol, df
     except Exception:

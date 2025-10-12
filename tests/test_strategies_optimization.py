@@ -165,7 +165,9 @@ class TestSystem1StrategyBasics:
         """compute_exit の基本計算"""
         df = pd.DataFrame(
             {"Close": [100.0, 95.0, 105.0, 110.0], "ATR10": [2.0, 2.0, 2.0, 2.0]},
-            index=pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"]),
+            index=pd.to_datetime(
+                ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04"]
+            ),
         )
 
         entry_idx = 1  # 2023-01-02
@@ -313,7 +315,9 @@ class TestSystem2StrategyBasics:
         """get_total_days メソッドの基本動作"""
         # モックデータ
         data_dict = {
-            "AAPL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}),
+            "AAPL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}
+            ),
             "TSLA": pd.DataFrame({"Date": ["2023-01-03"], "Close": [200]}),
         }
 
@@ -426,7 +430,9 @@ class TestSystem3StrategyBasics:
     def test_get_total_days_delegation_system3(self, system3_strategy):
         """get_total_days 委譲機能検証"""
         # モック設定
-        with patch("strategies.system3_strategy.get_total_days_system3") as mock_get_days:
+        with patch(
+            "strategies.system3_strategy.get_total_days_system3"
+        ) as mock_get_days:
             mock_get_days.return_value = 5
 
             result = system3_strategy.get_total_days()
@@ -483,7 +489,9 @@ class TestSystem4StrategyBasics:
     def test_get_total_days_delegation_system4(self, system4_strategy):
         """get_total_days 委譲機能検証"""
         # モック設定
-        with patch("strategies.system4_strategy.get_total_days_system4") as mock_get_days:
+        with patch(
+            "strategies.system4_strategy.get_total_days_system4"
+        ) as mock_get_days:
             mock_get_days.return_value = 7
 
             result = system4_strategy.get_total_days()
@@ -540,7 +548,9 @@ class TestSystem5StrategyBasics:
     def test_get_total_days_delegation_system5(self, system5_strategy):
         """get_total_days 委譲機能検証"""
         # モック設定
-        with patch("strategies.system5_strategy.get_total_days_system5") as mock_get_days:
+        with patch(
+            "strategies.system5_strategy.get_total_days_system5"
+        ) as mock_get_days:
             mock_get_days.return_value = 4
 
             result = system5_strategy.get_total_days()
@@ -597,7 +607,9 @@ class TestSystem6StrategyBasics:
     def test_get_total_days_delegation_system6(self, system6_strategy):
         """get_total_days 委譲機能検証"""
         # モック設定
-        with patch("strategies.system6_strategy.get_total_days_system6") as mock_get_days:
+        with patch(
+            "strategies.system6_strategy.get_total_days_system6"
+        ) as mock_get_days:
             mock_get_days.return_value = 6
 
             result = system6_strategy.get_total_days()
@@ -654,7 +666,9 @@ class TestSystem7StrategyBasics:
     def test_get_total_days_delegation_system7(self, system7_strategy):
         """get_total_days 委譲機能検証"""
         # モック設定
-        with patch("strategies.system7_strategy.get_total_days_system7") as mock_get_days:
+        with patch(
+            "strategies.system7_strategy.get_total_days_system7"
+        ) as mock_get_days:
             mock_get_days.return_value = 14
 
             result = system7_strategy.get_total_days()

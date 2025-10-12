@@ -164,7 +164,9 @@ class TestLoadConfigGeneric:
             json.dump(config_data, f)
 
         with patch.dict(os.environ, {"TEST_CONFIG": str(config_file)}):
-            result = _load_config_generic("TEST_CONFIG", Path("default.json"), json.load)
+            result = _load_config_generic(
+                "TEST_CONFIG", Path("default.json"), json.load
+            )
 
         assert result == config_data
 
@@ -184,7 +186,9 @@ class TestLoadConfigGeneric:
             f.write("invalid json content")
 
         with patch.dict(os.environ, {"TEST_CONFIG": str(config_file)}):
-            result = _load_config_generic("TEST_CONFIG", Path("default.json"), json.load)
+            result = _load_config_generic(
+                "TEST_CONFIG", Path("default.json"), json.load
+            )
 
         assert result == {}
 

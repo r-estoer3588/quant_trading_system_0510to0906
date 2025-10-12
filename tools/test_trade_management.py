@@ -33,7 +33,9 @@ from strategies.system1_strategy import System1Strategy  # noqa: E402
 from strategies.system2_strategy import System2Strategy  # noqa: E402
 
 
-def create_test_market_data(symbols: list[str], days: int = 100) -> dict[str, pd.DataFrame]:
+def create_test_market_data(
+    symbols: list[str], days: int = 100
+) -> dict[str, pd.DataFrame]:
     """Create synthetic market data for testing."""
     market_data = {}
 
@@ -241,7 +243,9 @@ def test_trade_management_system():
                 "total_risk",
             ]
 
-            available_cols = [col for col in trade_mgmt_cols if col in allocation_df.columns]
+            available_cols = [
+                col for col in trade_mgmt_cols if col in allocation_df.columns
+            ]
             print(f"Available: {available_cols}")
 
             # Display sample results
@@ -332,8 +336,121 @@ def test_trade_management_system():
     return allocation_df, summary
 
 
+def test_market_order_fallback_to_close():
+    """Test MARKET order fallback when Open is missing."""
+    print("\n=== Testing MARKET Order Open→Close Fallback ===")
+
+    # Create minimal market data with missing Open on signal date
+    test_date = datetime(2025, 1, 15)
+    df = pd.DataFrame(
+        [
+            {
+                "Date": test_date - timedelta(days=1),
+                "Open": 100.0,
+                "High": 102.0,
+                "Low": 99.0,
+                "Close": 101.0,
+                "Volume": 1000000,
+                "atr10": 2.0,
+                "atr20": 2.5,
+            },
+            {
+                "Date": test_date,
+                "Open": np.nan,  # Missing Open price
+                "High": 103.0,
+                "Low": 100.0,
+                "Close": 102.5,
+                "Volume": 1200000,
+                "atr10": 2.1,
+                "atr20": 2.6,
+            },
+        ]
+    )
+    df.set_index("Date", inplace=True)
+
+    trade_manager = TradeManager()
+    entry_data = {
+        "entry_price": 102.0,  # allocation entry_price
+        "shares": 100,
+    }
+
+    trade_entry = trade_manager.create_trade_entry(
+        symbol="TEST",
+        system="system1",  # Uses MARKET entry
+        side="long",
+        signal_date=test_date,
+        entry_data=entry_data,
+        market_data=df,
+    )
+
+    if trade_entry:
+        # Should fallback to Close since Open is missing
+        expected_price = 102.5
+        assert (
+            trade_entry.entry_price == expected_price
+        ), f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
+        print(
+            f"✅ Fallback to Close successful: "
+            f"entry_price={trade_entry.entry_price:.2f}"
+        )
+    else:
+        print("❌ Trade entry creation failed")
+
+
+def test_entry_price_fallback_to_allocation():
+    """Test fallback to allocation entry_price when market data is unavailable."""
+    print("\n=== Testing Entry Price Fallback to Allocation ===")
+
+    # Create DataFrame with ATR but missing Open/Close columns
+    test_date = datetime(2025, 1, 15)
+    df = pd.DataFrame(
+        [
+            {
+                "Date": test_date - timedelta(days=1),
+                "atr10": 2.0,
+                "atr20": 2.5,
+                # Open/Close columns intentionally missing
+            },
+            {
+                "Date": test_date,
+                "atr10": 2.1,
+                "atr20": 2.6,
+            },
+        ]
+    )
+    df.set_index("Date", inplace=True)
+
+    trade_manager = TradeManager()
+    allocation_entry = 103.5
+    entry_data = {
+        "entry_price": allocation_entry,
+        "shares": 50,
+    }
+
+    trade_entry = trade_manager.create_trade_entry(
+        symbol="TEST",
+        system="system1",  # Uses MARKET entry
+        side="long",
+        signal_date=test_date,
+        entry_data=entry_data,
+        market_data=df,
+    )
+
+    if trade_entry:
+        # Should use allocation entry_price since Open/Close are missing
+        assert (
+            trade_entry.entry_price == allocation_entry
+        ), f"Expected {allocation_entry}, got {trade_entry.entry_price}"
+        print(
+            f"✅ Fallback to allocation entry_price successful: "
+            f"{trade_entry.entry_price:.2f}"
+        )
+    else:
+        print("❌ Trade entry creation failed")
+
+
 if __name__ == "__main__":
-    # Run the test
+    # Run the main integration test
     allocation_df, summary = test_trade_management_system()
 
     # Save results for inspection
@@ -342,3 +459,7 @@ if __name__ == "__main__":
         os.makedirs("results_csv_test", exist_ok=True)
         allocation_df.to_csv(output_file, index=False)
         print(f"\n📁 Results saved to: {output_file}")
+
+    # Run new unit tests for fallback scenarios
+    test_market_order_fallback_to_close()
+    test_entry_price_fallback_to_allocation()

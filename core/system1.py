@@ -19,7 +19,10 @@ import pandas as pd
 from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import REQUIRED_COLUMNS
-from common.system_setup_predicates import system1_setup_predicate, validate_predicate_equivalence
+from common.system_setup_predicates import (
+    system1_setup_predicate,
+    validate_predicate_equivalence,
+)
 from strategies.constants import STOP_ATR_MULTIPLE_SYSTEM1
 
 
@@ -49,7 +52,9 @@ class System1Diagnostics:
     ranking_source: str | None = None
 
     # reason histogram
-    exclude_reasons: DefaultDict[str, int] = field(default_factory=lambda: defaultdict(int))
+    exclude_reasons: DefaultDict[str, int] = field(
+        default_factory=lambda: defaultdict(int)
+    )
 
     def as_dict(self) -> dict[str, Any]:
         # normalize defaultdict to plain dict of ints
@@ -70,7 +75,9 @@ class System1Diagnostics:
             "mismatch_flag": int(self.mismatch_flag),
             "date_fallback_count": int(self.date_fallback_count),
             "ranking_source": self.ranking_source,
-            "exclude_reasons": {k: int(v) for k, v in dict(self.exclude_reasons).items()},
+            "exclude_reasons": {
+                k: int(v) for k, v in dict(self.exclude_reasons).items()
+            },
         }
 
 
@@ -420,11 +427,14 @@ def prepare_data_vectorized_system1(
                 }
 
                 # OHLC 不足時にキャッシュから補完するヘルパ
-                def _augment_ohlc_if_missing(sym: str, df_in: pd.DataFrame) -> pd.DataFrame:
+                def _augment_ohlc_if_missing(
+                    sym: str, df_in: pd.DataFrame
+                ) -> pd.DataFrame:
                     x2 = df_in
                     try:
                         need_any = any(
-                            col not in x2.columns for col in ("Open", "High", "Low", "Close")
+                            col not in x2.columns
+                            for col in ("Open", "High", "Low", "Close")
                         )
                         if not need_any:
                             return x2
@@ -463,7 +473,9 @@ def prepare_data_vectorized_system1(
                                     except Exception:
                                         # インデックス不一致時は結合してから埋める
                                         try:
-                                            joined = x2.join(price_df[[col]], how="left")
+                                            joined = x2.join(
+                                                price_df[[col]], how="left"
+                                            )
                                             x2[col] = joined[col]
                                         except Exception:
                                             pass
@@ -499,13 +511,19 @@ def prepare_data_vectorized_system1(
                             # フォールバック（万一の安全策）
                             try:
                                 if "Date" in x.columns:
-                                    idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                                    idx = pd.to_datetime(
+                                        x["Date"], errors="coerce"
+                                    ).dt.normalize()
                                     x.index = pd.Index(idx, name="Date")
                                 elif "date" in x.columns:
-                                    idx = pd.to_datetime(x["date"], errors="coerce").dt.normalize()
+                                    idx = pd.to_datetime(
+                                        x["date"], errors="coerce"
+                                    ).dt.normalize()
                                     x.index = pd.Index(idx, name="Date")
                                 else:
-                                    x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+                                    x.index = pd.to_datetime(
+                                        x.index, errors="coerce"
+                                    ).normalize()
                                 x = x[~x.index.isna()]
                                 x = x.sort_index()
                                 if getattr(x.index, "has_duplicates", False):
@@ -515,7 +533,9 @@ def prepare_data_vectorized_system1(
 
                         # OHLC が欠けている場合はキャッシュから補完
                         missing_ohlc = [
-                            c for c in ("Open", "High", "Low", "Close") if c not in x.columns
+                            c
+                            for c in ("Open", "High", "Low", "Close")
+                            if c not in x.columns
                         ]
                         if missing_ohlc:
                             try:
@@ -563,7 +583,9 @@ def prepare_data_vectorized_system1(
                                 "dollarvolume20",
                                 pd.Series(index=x.index, dtype=float),
                             )
-                            close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
+                            close_s = x.get(
+                                "Close", pd.Series(index=x.index, dtype=float)
+                            )
                             filt = (close_s >= 5.0) & (dv > 25_000_000)
                         except Exception:
                             filt = pd.Series(
@@ -574,8 +596,12 @@ def prepare_data_vectorized_system1(
                         x["filter"] = filt
 
                         try:
-                            close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
-                            sma200_s = x.get("sma200", pd.Series(index=x.index, dtype=float))
+                            close_s = x.get(
+                                "Close", pd.Series(index=x.index, dtype=float)
+                            )
+                            sma200_s = x.get(
+                                "sma200", pd.Series(index=x.index, dtype=float)
+                            )
                             roc_ok = (
                                 x.get(
                                     "roc200",
@@ -615,7 +641,9 @@ def prepare_data_vectorized_system1(
                     except Exception:
                         continue
 
-                _substep(f"fast-path (latest_only) processed symbols={len(prepared_dict)}")
+                _substep(
+                    f"fast-path (latest_only) processed symbols={len(prepared_dict)}"
+                )
 
                 # predicate 検証は検証フラグが有効なときのみ（速度最優先）
                 try:
@@ -641,7 +669,9 @@ def prepare_data_vectorized_system1(
                     x = df.copy()
 
                     # Ensure date index (if not already set)
-                    if "date" in x.columns and not isinstance(x.index, pd.DatetimeIndex):
+                    if "date" in x.columns and not isinstance(
+                        x.index, pd.DatetimeIndex
+                    ):
                         try:
                             x["date"] = pd.to_datetime(x["date"])
                             x = x.set_index("date", drop=False)
@@ -650,7 +680,9 @@ def prepare_data_vectorized_system1(
 
                     # Filter: Close>=5, DollarVolume20>25M（欠損は安全側に False）
                     try:
-                        dv = x.get("dollarvolume20", pd.Series(index=x.index, dtype=float))
+                        dv = x.get(
+                            "dollarvolume20", pd.Series(index=x.index, dtype=float)
+                        )
                         filt = (x["Close"] >= 5.0) & (dv > 25_000_000)
                     except Exception:
                         filt = pd.Series(
@@ -663,8 +695,12 @@ def prepare_data_vectorized_system1(
                     # Setup: Filter + Close>SMA200 + ROC200>0（欠損は False）
                     try:
                         close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
-                        sma200_s = x.get("sma200", pd.Series(index=x.index, dtype=float))
-                        roc_ok = x.get("roc200", pd.Series(index=x.index, dtype=float)) > 0
+                        sma200_s = x.get(
+                            "sma200", pd.Series(index=x.index, dtype=float)
+                        )
+                        roc_ok = (
+                            x.get("roc200", pd.Series(index=x.index, dtype=float)) > 0
+                        )
                         setup = filt & (close_s > sma200_s) & roc_ok
                     except Exception:
                         setup = pd.Series(
@@ -679,7 +715,9 @@ def prepare_data_vectorized_system1(
                 _substep(f"fast-path processed symbols={len(prepared_dict)}")
 
                 # Validate setup column vs predicate equivalence
-                validate_predicate_equivalence(prepared_dict, "System1", log_fn=log_callback)
+                validate_predicate_equivalence(
+                    prepared_dict, "System1", log_fn=log_callback
+                )
 
                 return prepared_dict
 
@@ -703,7 +741,8 @@ def prepare_data_vectorized_system1(
     if log_callback:
         try:
             log_callback(
-                "System1: Starting normal processing for " f"{len(target_symbols)} symbols"
+                "System1: Starting normal processing for "
+                f"{len(target_symbols)} symbols"
             )
         except Exception:
             pass
@@ -733,7 +772,9 @@ def prepare_data_vectorized_system1(
         from config.environment import get_env_config
 
         if getattr(get_env_config(), "validate_setup_predicate", False):
-            validate_predicate_equivalence(typed_results, "System1", log_fn=log_callback)
+            validate_predicate_equivalence(
+                typed_results, "System1", log_fn=log_callback
+            )
     except Exception:
         pass
 
@@ -813,7 +854,9 @@ def generate_candidates_system1(
 
     diag.symbols_total = len(prepared_dict)
     diag.symbols_with_data = sum(
-        1 for df in prepared_dict.values() if isinstance(df, pd.DataFrame) and not df.empty
+        1
+        for df in prepared_dict.values()
+        if isinstance(df, pd.DataFrame) and not df.empty
     )
 
     # Fast path: evaluate only the most recent bar per symbol
@@ -837,7 +880,11 @@ def generate_candidates_system1(
                     max_lag_days = int(str(raw_lag).strip())
             except Exception:
                 max_lag_days = None
-            if isinstance(max_lag_days, int) and max_lag_days is not None and max_lag_days < 0:
+            if (
+                isinstance(max_lag_days, int)
+                and max_lag_days is not None
+                and max_lag_days < 0
+            ):
                 max_lag_days = 0
             try:
                 maybe = kwargs.get("latest_mode_date")
@@ -874,7 +921,9 @@ def generate_candidates_system1(
                 from config.environment import get_env_config
 
                 env = get_env_config()
-                validate_predicates = bool(getattr(env, "validate_setup_predicate", False))
+                validate_predicates = bool(
+                    getattr(env, "validate_setup_predicate", False)
+                )
             except Exception:
                 # If environment config is not available, keep default False
                 validate_predicates = False
@@ -900,7 +949,9 @@ def generate_candidates_system1(
                     else:
                         latest_idx_raw = df.index[-1]
                         try:
-                            latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
+                            latest_idx_norm = pd.Timestamp(
+                                str(latest_idx_raw)
+                            ).normalize()
                         except Exception:
                             diag.exclude_reasons["invalid_date"] += 1
                             continue
@@ -951,7 +1002,9 @@ def generate_candidates_system1(
                         and max_lag_days >= 0
                         and date_val < target_date
                     ):
-                        delta_days = int((pd.Timestamp(target_date) - pd.Timestamp(date_val)).days)
+                        delta_days = int(
+                            (pd.Timestamp(target_date) - pd.Timestamp(date_val)).days
+                        )
                         if delta_days > max_lag_days:
                             diag.exclude_reasons["too_stale"] += 1
                             continue
@@ -961,12 +1014,16 @@ def generate_candidates_system1(
 
                 # Use predicate-based evaluation (no column dependency)
                 try:
-                    from common.system_setup_predicates import system1_setup_predicate as _s1_pred
+                    from common.system_setup_predicates import (
+                        system1_setup_predicate as _s1_pred,
+                    )
                 except Exception:
                     _s1_pred = None
 
                 # Evaluate setup conditions using fast row-based function
-                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
+                passed, flags, reason = system1_row_passes_setup(
+                    last_row, allow_fallback=True
+                )
 
                 # In production, trust row-based evaluation.
                 # When validation is enabled, also require predicate() to pass.
@@ -1008,7 +1065,9 @@ def generate_candidates_system1(
 
                 # fallback時は target_date ラベルで集計（フィルタ時に消えないように）
                 raw_label_dt = (
-                    target_date if (fallback_used and (target_date is not None)) else date_val
+                    target_date
+                    if (fallback_used and (target_date is not None))
+                    else date_val
                 )
                 # 異常年（例: 8237年）や NaT を除去する安全サニタイズ
 
@@ -1036,7 +1095,9 @@ def generate_candidates_system1(
                     continue
                 # 明示エントリー日（翌営業日）
                 try:
-                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+                    from common.utils_spy import (
+                        resolve_signal_entry_date as _resolve_entry,
+                    )
 
                     entry_dt = _resolve_entry(label_dt)
                 except Exception:
@@ -1084,14 +1145,17 @@ def generate_candidates_system1(
                     try:
                         date_sample = df_all["date"].head(5).tolist()
                         log_callback(
-                            f"[DEBUG_S1] date_sample={date_sample}, " f"target_date={target_date}"
+                            f"[DEBUG_S1] date_sample={date_sample}, "
+                            f"target_date={target_date}"
                         )
                     except Exception:
                         pass
 
             # Sanitize date column
             try:
-                df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce").dt.normalize()
+                df_all["date"] = pd.to_datetime(
+                    df_all["date"], errors="coerce"
+                ).dt.normalize()
                 df_all = df_all.dropna(subset=["date"]).copy()
             except Exception:
                 pass
@@ -1110,7 +1174,9 @@ def generate_candidates_system1(
                         )
                     if filtered.empty and len(df_all) > 0:
                         try:
-                            mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                            mode_date = max(date_counter.items(), key=lambda kv: kv[1])[
+                                0
+                            ]
                         except Exception:
                             mode_date = None
                         if mode_date is not None:
@@ -1124,7 +1190,9 @@ def generate_candidates_system1(
                                     resolve_signal_entry_date as _resolve_entry_dt,
                                 )
 
-                                tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
+                                tmp.loc[:, "entry_date"] = _resolve_entry_dt(
+                                    target_date
+                                )
                             except Exception:
                                 tmp.loc[:, "entry_date"] = target_date
                             filtered = tmp
@@ -1138,7 +1206,9 @@ def generate_candidates_system1(
                 final_label_date = None
 
             # Rank by ROC200 and take top N
-            ranked = filtered.sort_values("roc200", ascending=False, kind="stable").copy()
+            ranked = filtered.sort_values(
+                "roc200", ascending=False, kind="stable"
+            ).copy()
             top_cut = ranked.head(resolved_top_n)
 
             # Top-off:補完
@@ -1151,9 +1221,15 @@ def generate_candidates_system1(
                 )
             if missing > 0 and len(df_all_original) > 0:
                 try:
-                    exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                    exists = (
+                        set(top_cut["symbol"].astype(str))
+                        if not top_cut.empty
+                        else set()
+                    )
                     extras_pool = (
-                        df_all_original.sort_values("roc200", ascending=False, kind="stable")
+                        df_all_original.sort_values(
+                            "roc200", ascending=False, kind="stable"
+                        )
                         .loc[~df_all_original["symbol"].astype(str).isin(exists)]
                         .copy()
                     )
@@ -1163,7 +1239,9 @@ def generate_candidates_system1(
                                 final_label_date = (
                                     target_date
                                     if target_date is not None
-                                    else max(date_counter.items(), key=lambda kv: kv[1])[0]
+                                    else max(
+                                        date_counter.items(), key=lambda kv: kv[1]
+                                    )[0]
                                 )
                             except Exception:
                                 final_label_date = None
@@ -1266,7 +1344,9 @@ def generate_candidates_system1(
 
             if date == diag_target_date:
                 diag.total_symbols += 1
-                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=False)
+                passed, flags, reason = system1_row_passes_setup(
+                    row, allow_fallback=False
+                )
                 pred_val = system1_setup_predicate(row)
                 if pred_val:
                     diag.setup_predicate_count += 1
@@ -1330,7 +1410,9 @@ def generate_candidates_system1(
             candidates_df["entry_date"] = pd.to_datetime(candidates_df["entry_date"])
         except Exception:
             pass
-        candidates_df = candidates_df.sort_values(["date", "roc200"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "roc200"], ascending=[True, False]
+        )
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
             diag.ranked_top_n_count = len(candidates_by_date.get(last_date, []))
@@ -1343,7 +1425,10 @@ def generate_candidates_system1(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            ("System1: Generated " f"{total_candidates} candidates across {unique_dates} dates")
+            (
+                "System1: Generated "
+                f"{total_candidates} candidates across {unique_dates} dates"
+            )
         )
 
     return finalize(candidates_by_date, candidates_df)

@@ -106,16 +106,83 @@ def capture_streamlit_screenshot(
             print("Waiting for Streamlit to fully render...")
             try:
                 # 1. Streamlit のメインコンテナが表示されるまで待機
-                page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=10000)
+                page.wait_for_selector(
+                    '[data-testid="stAppViewContainer"]', timeout=10000
+                )
 
                 # 2. すべてのリソースとネットワーク読み込み完了を待機
                 page.wait_for_load_state("load")
                 page.wait_for_load_state("networkidle")
 
-                # 3. Streamlit の columns 要素がレンダリングされるまで待機
-                # （columns はページの主要なレイアウト要素）
+                # 3. Streamlit の columns 要素がレンダリングされるまで待機（堅牢化）
                 print("Waiting for Streamlit columns to render...")
-                page.wait_for_selector('[data-testid="column"]', timeout=5000)
+
+                def wait_for_columns_robust(total_timeout_ms: int = 15000) -> None:
+                    """Streamlit columns 検出の堅牢化。
+
+                    - 複数セレクタを順に試す（Streamlit バージョン差分吸収）
+                    - エクスポネンシャルバックオフでリトライ
+                    - いずれかのセレクタで要素が見つかれば成功とみなす
+                    """
+
+                    candidate_selectors = [
+                        '[data-testid="column"]',
+                        '[data-testid="stVerticalBlock"]',
+                        '[data-testid="stHorizontalBlock"]',
+                        '[data-testid="stElementContainer"]',
+                        "div.block-container",
+                    ]
+
+                    # リトライ: 2s -> 4s -> 8s （合計 14s 目安）
+                    time_buckets = [
+                        2000,
+                        4000,
+                        max(1000, total_timeout_ms - 6000),
+                    ]
+                    started_at = time.time()
+
+                    for bucket in time_buckets:
+                        remaining = max(
+                            0,
+                            total_timeout_ms - int((time.time() - started_at) * 1000),
+                        )
+                        if remaining <= 0:
+                            break
+                        per_selector_timeout = min(bucket, remaining)
+
+                        for sel in candidate_selectors:
+                            try:
+                                # いずれかのセレクタで 1 要素でも見つかれば OK
+                                locator = page.locator(sel)
+                                count = locator.count()
+                                if count and count > 0:
+                                    # 既に存在するなら可視化を待機して抜ける
+                                    locator.first.wait_for(
+                                        state="visible",
+                                        timeout=per_selector_timeout,
+                                    )
+                                    print(f"Columns detected via selector: {sel}")
+                                    return
+                                # 存在しない場合はこのセレクタで待つ
+                                page.wait_for_selector(
+                                    sel,
+                                    timeout=per_selector_timeout,
+                                )
+                                print(f"Columns detected via selector: {sel}")
+                                return
+                            except PlaywrightTimeoutError:
+                                continue
+                            except Exception as wait_err:  # pragma: no cover
+                                print(f"Column wait warning ({sel}): {wait_err}")
+                                continue
+
+                    # 最後まで見つからなければ警告
+                    print(
+                        "Warning: Could not detect Streamlit columns in time; "
+                        "proceeding with fallback waits."
+                    )
+
+                wait_for_columns_robust(total_timeout_ms=15000)
 
                 # 4. Streamlit の内部 JavaScript とレイアウト計算完了
                 # Streamlit は React ベースで非同期レンダリングするため
@@ -221,7 +288,10 @@ def capture_streamlit_screenshot(
                 if right_edge > viewport_width and viewport_width < MAX_VIEWPORT_WIDTH:
                     new_width = min(int(right_edge) + 40, MAX_VIEWPORT_WIDTH)
                     if new_width > viewport_width:
-                        print("Expanding viewport for System5: " f"{viewport_width} -> {new_width}")
+                        print(
+                            "Expanding viewport for System5: "
+                            f"{viewport_width} -> {new_width}"
+                        )
                         page.set_viewport_size(
                             {
                                 "width": new_width,

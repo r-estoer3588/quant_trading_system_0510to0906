@@ -4,6 +4,7 @@ import logging.handlers
 from pathlib import Path
 import time
 from typing import Any
+import unicodedata
 
 from config.settings import Settings
 
@@ -40,6 +41,13 @@ class SystemLogger:
         self.logger = logger or logging.getLogger(__name__)
         self.log_callback = log_callback
         self.compact_mode = compact_mode
+        # NO_EMOJI 環境の場合は絵文字等の特殊記号を除去してログ出力
+        try:
+            from config.environment import get_env_config
+
+            self._no_emoji = bool(get_env_config().no_emoji)
+        except Exception:
+            self._no_emoji = False
 
     @classmethod
     def create(
@@ -77,9 +85,22 @@ class SystemLogger:
         context_str = ", ".join(f"{k}={v}" for k, v in context.items())
         return f"{self.system_name}: {message} ({context_str})"
 
+    @staticmethod
+    def _strip_emoji(text: str) -> str:
+        """絵文字や特殊記号(多くが So カテゴリ)を簡易に除去。
+        - 日本語/英数字/記号の大半は保持される
+        - 完全検出ではないが、cp932で崩れやすい文字を抑制
+        """
+        try:
+            return "".join(ch for ch in text if unicodedata.category(ch) != "So")
+        except Exception:
+            return text
+
     def _log(self, level: int, message: str, **context: Any) -> None:
         """logger と log_callback の両方にログ出力"""
         formatted_msg = self._format_message(message, **context)
+        if getattr(self, "_no_emoji", False):
+            formatted_msg = self._strip_emoji(formatted_msg)
         self.logger.log(level, formatted_msg)
 
         if self.log_callback:
@@ -124,7 +145,9 @@ class SystemLogger:
         """CRITICALレベルのログ出力"""
         self._log(logging.CRITICAL, message, **context)
 
-    def exception(self, message: str, exc_info: Exception | None = None, **context: Any) -> None:
+    def exception(
+        self, message: str, exc_info: Exception | None = None, **context: Any
+    ) -> None:
         """例外情報付きのERRORレベルログ出力"""
         formatted_msg = self._format_message(message, **context)
         self.logger.error(formatted_msg, exc_info=exc_info or True)
@@ -164,7 +187,9 @@ def setup_logging(settings: Settings) -> logging.Logger:
     )
 
     rotation = settings.logging.rotation.lower()
-    handler: logging.handlers.TimedRotatingFileHandler | logging.handlers.RotatingFileHandler
+    handler: (
+        logging.handlers.TimedRotatingFileHandler | logging.handlers.RotatingFileHandler
+    )
     if rotation == "daily":
         handler = logging.handlers.TimedRotatingFileHandler(
             filename=str(log_path), when="midnight", backupCount=7, encoding="utf-8"

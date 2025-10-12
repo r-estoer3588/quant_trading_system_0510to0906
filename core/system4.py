@@ -37,7 +37,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM4_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM4_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -102,7 +104,9 @@ def prepare_data_vectorized_system4(
                     x = df.copy()
 
                     # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
-                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x["hv50"].between(10, 40)
+                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x[
+                        "hv50"
+                    ].between(10, 40)
 
                     # Setup: Filter + Close>SMA200 (trend confirmation)
                     x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
@@ -110,7 +114,9 @@ def prepare_data_vectorized_system4(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System4: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System4: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -120,7 +126,9 @@ def prepare_data_vectorized_system4(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System4: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System4: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -133,7 +141,9 @@ def prepare_data_vectorized_system4(
         return {}
 
     if log_callback:
-        log_callback(f"System4: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System4: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -211,7 +221,9 @@ def generate_candidates_system4(
 
                 # Use predicate-based evaluation (no setup column dependency)
                 try:
-                    from common.system_setup_predicates import system4_setup_predicate as _s4_pred
+                    from common.system_setup_predicates import (
+                        system4_setup_predicate as _s4_pred,
+                    )
                 except Exception:
                     _s4_pred = None
 
@@ -240,7 +252,15 @@ def generate_candidates_system4(
                 high_val = last_row.get("High", 0)
                 entry_price = close_val if close_val > 0 else open_val
                 stop_price = high_val if high_val > 0 else close_val * 1.015
-                atr20_val = last_row.get("atr20", 0)
+
+                # System4はatr40を使用（SYSTEM4_REQUIRED_INDICATORSで定義）
+                atr40_val = 0.0
+                try:
+                    atr40_raw = last_row.get("atr40")
+                    if atr40_raw is not None and not pd.isna(atr40_raw):
+                        atr40_val = float(atr40_raw)
+                except Exception:
+                    pass
 
                 dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
@@ -254,7 +274,7 @@ def generate_candidates_system4(
                         "sma200": last_row.get("sma200", 0),
                         "entry_price": entry_price,
                         "stop_price": stop_price,
-                        "atr20": atr20_val,
+                        "atr40": atr40_val,
                     }
                 )
 
@@ -289,7 +309,10 @@ def generate_candidates_system4(
                                 continue
                         if samples:
                             log_callback(
-                                ("System4: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                                (
+                                    "System4: DEBUG latest_only 0 candidates. "
+                                    + " | ".join(samples)
+                                )
                             )
                     except Exception:
                         pass
@@ -301,7 +324,9 @@ def generate_candidates_system4(
                 df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(top_n)
+            df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(
+                top_n
+            )
             diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -363,7 +388,9 @@ def generate_candidates_system4(
                     continue
                 row = cast(pd.Series, df.loc[date])
                 setup_val = bool(row.get("setup", False))
-                from common.system_setup_predicates import system4_setup_predicate as _s4_pred
+                from common.system_setup_predicates import (
+                    system4_setup_predicate as _s4_pred,
+                )
 
                 pred_val = _s4_pred(row)
                 if pred_val:
@@ -410,7 +437,9 @@ def generate_candidates_system4(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "rsi4"], ascending=[True, True])
+        candidates_df = candidates_df.sort_values(
+            ["date", "rsi4"], ascending=[True, True]
+        )
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -424,7 +453,10 @@ def generate_candidates_system4(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            ("System4: Generated " f"{total_candidates} candidates across {unique_dates} dates")
+            (
+                "System4: Generated "
+                f"{total_candidates} candidates across {unique_dates} dates"
+            )
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

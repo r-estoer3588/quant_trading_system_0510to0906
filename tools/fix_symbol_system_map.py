@@ -34,7 +34,15 @@ def fix_symbol_system_map():
 
     # 現在のマップ形式をチェック
     single_system_symbols: list[tuple[str, str | list[str]]] = []
-    all_systems = ["system1", "system2", "system3", "system4", "system5", "system6", "system7"]
+    all_systems = [
+        "system1",
+        "system2",
+        "system3",
+        "system4",
+        "system5",
+        "system6",
+        "system7",
+    ]
 
     for symbol, systems in symbol_map.items():
         if isinstance(systems, str):

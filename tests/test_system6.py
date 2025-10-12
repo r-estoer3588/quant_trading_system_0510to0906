@@ -89,7 +89,9 @@ def test_system6_profit_target_exits_next_close():
     entry_price, stop_price = entry
     entry_idx = cast(int, df.index.get_loc(dates[1]))
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     assert exit_date == dates[3]
     assert exit_price == pytest.approx(float(df.iloc[3]["Close"]))
@@ -114,7 +116,9 @@ def test_system6_stop_exit_same_day_at_stop_price():
     entry_price, stop_price = entry
     entry_idx = cast(int, df.index.get_loc(dates[1]))
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     assert exit_date == dates[2]
     assert exit_price == pytest.approx(stop_price)
@@ -141,7 +145,9 @@ def test_system6_time_exit_after_max_days_close():
     entry_price, stop_price = entry
     entry_idx = cast(int, df.index.get_loc(dates[1]))
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     expected_idx = entry_idx + max_days
     assert exit_date == dates[expected_idx]
@@ -173,7 +179,9 @@ def test_compute_indicators_from_frame_aligns_range_index():
 
     assert len(prepared) == periods
     assert prepared.index.is_monotonic_increasing
-    assert {"atr10", "dollarvolume50", "return_6d", "UpTwoDays", "hv50"}.issubset(prepared.columns)
+    assert {"atr10", "dollarvolume50", "return_6d", "UpTwoDays", "hv50"}.issubset(
+        prepared.columns
+    )
     # 既存の指標がそのまま活用され、filter/setupも生成される
     assert prepared["filter"].all()
     assert prepared["setup"].all()

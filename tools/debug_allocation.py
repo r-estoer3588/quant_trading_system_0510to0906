@@ -87,7 +87,9 @@ def generate_simple_test_signals(
     for system_name, strategy in strategies.items():
         if test_mode == "mini":
             # ミニモードでは少数のシンボルのみ
-            test_symbols = symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
+            test_symbols = (
+                symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
+            )
         else:
             test_symbols = symbol_universe
 
@@ -148,7 +150,9 @@ def generate_simple_test_signals(
         if "score" in df.columns:
             score_stats = df["score"].describe()
             nan_count = df["score"].isna().sum()
-            logger.debug(f"   📈 score統計: mean={score_stats['mean']:.3f}, NaN={nan_count}件")
+            logger.debug(
+                f"   📈 score統計: mean={score_stats['mean']:.3f}, NaN={nan_count}件"
+            )
 
         # ATRとCloseの確認（ポジションサイズ計算に必要）
         atr_col = None
@@ -162,7 +166,9 @@ def generate_simple_test_signals(
         if atr_col:
             atr_stats = df[atr_col].describe()
             atr_nan_count = df[atr_col].isna().sum()
-            logger.debug(f"   💹 {atr_col}: mean={atr_stats['mean']:.3f}, NaN={atr_nan_count}件")
+            logger.debug(
+                f"   💹 {atr_col}: mean={atr_stats['mean']:.3f}, NaN={atr_nan_count}件"
+            )
         else:
             logger.warning(f"   ⚠️ {system_name}: ATR列が見つかりません")
 
@@ -277,7 +283,9 @@ def simulate_position_size_calculation(
                 else:
                     success_count += 1
                     percentage = (size_result / test_budget) * 100
-                    logger.debug(f"  💵 {symbol}: ${size_result:.0f} ({percentage:.1f}%)")
+                    logger.debug(
+                        f"  💵 {symbol}: ${size_result:.0f} ({percentage:.1f}%)"
+                    )
 
             except Exception as e:
                 error_count += 1
@@ -289,7 +297,9 @@ def simulate_position_size_calculation(
 
 
 def trace_allocation_step_by_step(
-    per_system: Dict[str, pd.DataFrame], strategies: Dict[str, Any], verbose: bool = False
+    per_system: Dict[str, pd.DataFrame],
+    strategies: Dict[str, Any],
+    verbose: bool = False,
 ) -> None:
     """配分プロセスのステップバイステップトレース"""
     logger.info("=" * 50)
@@ -385,7 +395,9 @@ def validate_data_consistency() -> None:
     logger.info(f"キャッシュ検証: {valid_count}/{len(test_symbols)}銘柄が有効")
 
 
-def generate_debug_report(per_system: Dict[str, pd.DataFrame], final_result: Any = None) -> None:
+def generate_debug_report(
+    per_system: Dict[str, pd.DataFrame], final_result: Any = None
+) -> None:
     """デバッグレポートの生成"""
     logger.info("=" * 50)
     logger.info("📊 デバッグレポート生成")
@@ -417,7 +429,9 @@ def generate_debug_report(per_system: Dict[str, pd.DataFrame], final_result: Any
                 "has_required_columns": all(
                     col in df.columns for col in ["symbol", "side", "score"]
                 ),
-                "unique_symbols": df["symbol"].nunique() if "symbol" in df.columns else 0,
+                "unique_symbols": (
+                    df["symbol"].nunique() if "symbol" in df.columns else 0
+                ),
                 "side_distribution": (
                     df["side"].value_counts().to_dict() if "side" in df.columns else {}
                 ),
@@ -432,7 +446,11 @@ def generate_debug_report(per_system: Dict[str, pd.DataFrame], final_result: Any
 
     # レポートをファイルに保存
     settings = get_settings()
-    report_path = Path(settings.project_root) / "results_csv_test" / "debug_allocation_report.json"
+    report_path = (
+        Path(settings.project_root)
+        / "results_csv_test"
+        / "debug_allocation_report.json"
+    )
     report_path.parent.mkdir(exist_ok=True)
 
     with open(report_path, "w") as f:
@@ -468,7 +486,9 @@ def main():
     logger.info(f"✅ シンボル一覧: {len(symbol_universe)}件")
 
     # テストシグナル生成
-    per_system = generate_simple_test_signals(strategies, symbol_universe, args.test_mode)
+    per_system = generate_simple_test_signals(
+        strategies, symbol_universe, args.test_mode
+    )
 
     # TRDlist状況確認
     total_candidates = sum(len(df) for df in per_system.values() if not df.empty)
@@ -487,7 +507,9 @@ def main():
             positions_short=10,
         )
 
-        entry_count = len(final_df) if final_df is not None and not final_df.empty else 0
+        entry_count = (
+            len(final_df) if final_df is not None and not final_df.empty else 0
+        )
         logger.info(f"🎯 Entry最終件数: {entry_count}件")
 
         if entry_count > 0:
@@ -495,7 +517,9 @@ def main():
             if args.verbose and not final_df.empty:
                 logger.info("\n📋 Entry詳細:")
                 for _, row in final_df.head(10).iterrows():
-                    logger.info(f"  {row.get('symbol', 'N/A')} ({row.get('system', 'N/A')})")
+                    logger.info(
+                        f"  {row.get('symbol', 'N/A')} ({row.get('system', 'N/A')})"
+                    )
         else:
             logger.warning("⚠️ 問題: TRDlistあるが、Entry 0件")
 

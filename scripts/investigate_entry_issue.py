@@ -117,7 +117,9 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
                 system_findings[system_name] = system_info
 
             except Exception as e:
-                sys_logger.error(f"per_system_{system_name}.feather読込エラー", error=str(e))
+                sys_logger.error(
+                    f"per_system_{system_name}.feather読込エラー", error=str(e)
+                )
                 print(f"  - エラー: {e}")
         else:
             print(f"\n{system_name}: ファイルが存在しません")
@@ -144,7 +146,9 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
                     print("  （空のデータフレーム）")
 
             except Exception as e:
-                sys_logger.error(f"skip_summary_{system_name}.csv読込エラー", error=str(e))
+                sys_logger.error(
+                    f"skip_summary_{system_name}.csv読込エラー", error=str(e)
+                )
                 print(f"  - エラー: {e}")
 
     investigation_results["findings"]["skip_summaries"] = skip_summaries

@@ -187,7 +187,9 @@ def build_symbol_universe(
         logger=log,
     )
     if not metadata:
-        log.warning("EODHD からのメタデータ取得に失敗したためフィルタリングをスキップします")
+        log.warning(
+            "EODHD からのメタデータ取得に失敗したためフィルタリングをスキップします"
+        )
         return sorted(raw_symbols)
 
     filtered: list[str] = []
@@ -214,7 +216,9 @@ def build_symbol_universe(
             continue
 
         is_delisted = _coerce_bool(
-            _first(info, "IsDelisted", "is_delisted", "Delisted", "delisted", "isDelisted")
+            _first(
+                info, "IsDelisted", "is_delisted", "Delisted", "delisted", "isDelisted"
+            )
         )
         if is_delisted:
             continue
@@ -255,7 +259,9 @@ def resolve_eodhd_config(
         api_key = _coerce_str(getattr(settings, "EODHD_API_KEY", None)) or ""
         if not api_key:
             data_cfg = getattr(settings, "data", None)
-            env_name = _coerce_str(getattr(data_cfg, "api_key_env", None)) or "EODHD_API_KEY"
+            env_name = (
+                _coerce_str(getattr(data_cfg, "api_key_env", None)) or "EODHD_API_KEY"
+            )
             api_key = os.getenv(env_name, "")
 
         try:

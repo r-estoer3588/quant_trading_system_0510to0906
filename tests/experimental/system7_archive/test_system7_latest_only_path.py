@@ -52,7 +52,9 @@ class TestSystem7LatestOnlyFastPath:
         raw_dict = {"SPY": spy_data}
 
         # prepare_data で指標計算 (既にatr50, min_50, max_70は含まれている)
-        prepared_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+        prepared_dict = prepare_data_vectorized_system7(
+            raw_dict, reuse_indicators=False
+        )
 
         # latest_only=True で呼び出し
         result = generate_candidates_system7(
@@ -65,8 +67,12 @@ class TestSystem7LatestOnlyFastPath:
 
         # fast-path が実行されたことを確認
         ranking_src = diagnostics.get("ranking_source")
-        assert ranking_src == "latest_only", f"Expected 'latest_only', got {ranking_src}"
-        assert diagnostics.get("ranked_top_n_count") == 1, "latest_only should return 1 candidate"
+        assert (
+            ranking_src == "latest_only"
+        ), f"Expected 'latest_only', got {ranking_src}"
+        assert (
+            diagnostics.get("ranked_top_n_count") == 1
+        ), "latest_only should return 1 candidate"
 
         # normalized に SPY が含まれる
         assert len(normalized) > 0, "Should have at least one date"
@@ -83,7 +89,9 @@ class TestSystem7LatestOnlyFastPath:
         expected_close = spy_data["Close"].iloc[-1]
         raw_dict = {"SPY": spy_data}
 
-        prepared_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+        prepared_dict = prepare_data_vectorized_system7(
+            raw_dict, reuse_indicators=False
+        )
 
         result = generate_candidates_system7(
             prepared_dict, top_n=5, latest_only=True, include_diagnostics=True
@@ -94,7 +102,9 @@ class TestSystem7LatestOnlyFastPath:
         first_date = list(normalized.keys())[0]
         spy_payload = normalized[first_date]["SPY"]
         actual_price = spy_payload.get("entry_price")
-        assert actual_price == expected_close, f"Expected {expected_close}, got {actual_price}"
+        assert (
+            actual_price == expected_close
+        ), f"Expected {expected_close}, got {actual_price}"
 
     def test_latest_only_with_atr50_lowercase(self):
         """latest_only で atr50 (lowercase) が ATR50 として取得される (Line 230-232)"""
@@ -180,7 +190,10 @@ class TestSystem7LatestOnlyFastPath:
 
         # progress_callback が呼ばれたことを確認
         assert len(progress_calls) > 0, "progress_callback should be called"
-        assert progress_calls[0] == (1, 1), f"Expected progress (1, 1), got {progress_calls[0]}"
+        assert progress_calls[0] == (
+            1,
+            1,
+        ), f"Expected progress (1, 1), got {progress_calls[0]}"
 
     def test_latest_only_no_setup_today(self):
         """latest_only で最終日に setup=False の場合、候補なし"""

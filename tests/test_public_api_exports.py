@@ -65,7 +65,9 @@ EXACT_ALLOWLIST = {"tr", "safe_filename", "extract_zero_reason_from_logs"}
 
 def test_no_unexpected_new_callables():
     public_callables = {
-        name for name, obj in vars(uic).items() if callable(obj) and not name.startswith("_")
+        name
+        for name, obj in vars(uic).items()
+        if callable(obj) and not name.startswith("_")
     }
     filtered = {
         n
@@ -115,7 +117,11 @@ def test_callable_prefix_classification():
                 categories[p].append(name)
                 matched = True
                 break
-        if not matched and name not in EXPECTED_EXPORTS and name not in INTERNAL_SHOULD_NOT_EXPORT:
+        if (
+            not matched
+            and name not in EXPECTED_EXPORTS
+            and name not in INTERNAL_SHOULD_NOT_EXPORT
+        ):
             if name not in EXACT_ALLOWLIST:
                 uncategorized.append(name)
     # 情報出力

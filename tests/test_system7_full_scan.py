@@ -128,7 +128,9 @@ class TestSystem7FullScan:
 
         # Each date should have exactly 1 symbol (SPY)
         for entry_date in normalized:
-            assert len(normalized[entry_date]) <= 1, "Expected <=1 symbol per date (top_n=1)"
+            assert (
+                len(normalized[entry_date]) <= 1
+            ), "Expected <=1 symbol per date (top_n=1)"
             assert "SPY" in normalized[entry_date]
             spy_payload = normalized[entry_date]["SPY"]
             assert "ATR50" in spy_payload

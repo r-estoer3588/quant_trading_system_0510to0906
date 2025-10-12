@@ -107,7 +107,9 @@ class EnvironmentConfig:
     """
 
     # ===== 1. ログ制御 =====
-    compact_logs: bool = field(default_factory=lambda: _get_bool_env("COMPACT_TODAY_LOGS", False))
+    compact_logs: bool = field(
+        default_factory=lambda: _get_bool_env("COMPACT_TODAY_LOGS", False)
+    )
     """DEBUGログを抑制し、簡潔なログ出力。本番推奨。"""
 
     enable_progress_events: bool = field(
@@ -200,7 +202,9 @@ class EnvironmentConfig:
     """⚠️テスト専用。System3のATR比率閾値を上書き。本番環境では絶対に設定しないこと。"""
 
     # ===== 3. パフォーマンス・並列処理 =====
-    use_process_pool: bool = field(default_factory=lambda: _get_bool_env("USE_PROCESS_POOL", False))
+    use_process_pool: bool = field(
+        default_factory=lambda: _get_bool_env("USE_PROCESS_POOL", False)
+    )
     """プロセスプールでの並列処理を有効化。"""
 
     process_pool_workers: int | None = field(
@@ -213,7 +217,9 @@ class EnvironmentConfig:
     )
     """System6専用のプロセスプール使用フラグ。"""
 
-    basic_data_parallel: bool | None = field(default_factory=lambda: _basic_data_parallel_default())
+    basic_data_parallel: bool | None = field(
+        default_factory=lambda: _basic_data_parallel_default()
+    )
     """基本データ読み込みの並列処理。True=強制並列、False=強制直列、None=自動。"""
 
     basic_data_parallel_threshold: int = field(
@@ -226,14 +232,20 @@ class EnvironmentConfig:
     )
     """基本データ読み込みの最大ワーカー数。Noneで自動決定。"""
 
-    lookback_margin: float = field(default_factory=lambda: _get_float_env("LOOKBACK_MARGIN", 0.15))
+    lookback_margin: float = field(
+        default_factory=lambda: _get_float_env("LOOKBACK_MARGIN", 0.15)
+    )
     """ルックバック期間のマージン（既定15%）。"""
 
-    lookback_min_days: int = field(default_factory=lambda: _get_int_env("LOOKBACK_MIN_DAYS", 80))
+    lookback_min_days: int = field(
+        default_factory=lambda: _get_int_env("LOOKBACK_MIN_DAYS", 80)
+    )
     """ルックバック期間の最小日数。"""
 
     # ===== 4. テスト・デバッグ =====
-    test_mode: str | None = field(default_factory=lambda: _get_str_env("TEST_MODE", "") or None)
+    test_mode: str | None = field(
+        default_factory=lambda: _get_str_env("TEST_MODE", "") or None
+    )
     """テストモード: 'mini' (10銘柄) | 'quick' (50銘柄) | 'sample' (100銘柄) | None。"""
 
     validate_setup_predicate: bool = field(
@@ -256,7 +268,9 @@ class EnvironmentConfig:
     )
     """テストモード時のデータ鮮度許容日数。"""
 
-    full_scan_today: bool = field(default_factory=lambda: _get_bool_env("FULL_SCAN_TODAY", False))
+    full_scan_today: bool = field(
+        default_factory=lambda: _get_bool_env("FULL_SCAN_TODAY", False)
+    )
     """全履歴をスキャン（latest_only=False）。デバッグ用。"""
 
     allow_critical_changes: bool = field(
@@ -279,7 +293,9 @@ class EnvironmentConfig:
     )
     """ログ圧縮検証時の最大行数（compact）。"""
 
-    allocation_debug: bool = field(default_factory=lambda: _get_bool_env("ALLOCATION_DEBUG", False))
+    allocation_debug: bool = field(
+        default_factory=lambda: _get_bool_env("ALLOCATION_DEBUG", False)
+    )
     """配分処理の詳細デバッグログを有効化。開発・デバッグ用。"""
 
     # ===== 4.5. latest_only 鮮度ガード（カレンダー日ベース） =====
@@ -293,7 +309,9 @@ class EnvironmentConfig:
     """
 
     # ===== 5. API認証（機密情報） =====
-    apca_api_key_id: str = field(default_factory=lambda: _get_str_env("APCA_API_KEY_ID", ""))
+    apca_api_key_id: str = field(
+        default_factory=lambda: _get_str_env("APCA_API_KEY_ID", "")
+    )
     """⚠️機密情報。Alpaca APIキーID。.envで管理。"""
 
     apca_api_secret_key: str = field(
@@ -306,13 +324,19 @@ class EnvironmentConfig:
     )
     """Alpaca APIのベースURL。"""
 
-    alpaca_paper: bool = field(default_factory=lambda: _get_bool_env("ALPACA_PAPER", True))
+    alpaca_paper: bool = field(
+        default_factory=lambda: _get_bool_env("ALPACA_PAPER", True)
+    )
     """ペーパートレーディングモード。本番ではfalse。"""
 
-    slack_bot_token: str = field(default_factory=lambda: _get_str_env("SLACK_BOT_TOKEN", ""))
+    slack_bot_token: str = field(
+        default_factory=lambda: _get_str_env("SLACK_BOT_TOKEN", "")
+    )
     """⚠️機密情報。Slack Bot Token。.envで管理。"""
 
-    slack_channel_logs: str = field(default_factory=lambda: _get_str_env("SLACK_CHANNEL_LOGS", ""))
+    slack_channel_logs: str = field(
+        default_factory=lambda: _get_str_env("SLACK_CHANNEL_LOGS", "")
+    )
     """Slack通知先チャンネル（ログ）。"""
 
     slack_channel_equity: str = field(
@@ -330,11 +354,15 @@ class EnvironmentConfig:
     )
     """⚠️機密情報。Discord Webhook URL。.envで管理。"""
 
-    eodhd_api_key: str = field(default_factory=lambda: _get_str_env("EODHD_API_KEY", ""))
+    eodhd_api_key: str = field(
+        default_factory=lambda: _get_str_env("EODHD_API_KEY", "")
+    )
     """⚠️機密情報。EODHD APIキー。.envで管理。"""
 
     # ===== 6. 通知・ダッシュボード =====
-    notify_use_rich: bool = field(default_factory=lambda: _get_bool_env("NOTIFY_USE_RICH", False))
+    notify_use_rich: bool = field(
+        default_factory=lambda: _get_bool_env("NOTIFY_USE_RICH", False)
+    )
     """通知をリッチカード形式で送信。"""
 
     cache_health_silent: bool = field(
@@ -359,10 +387,14 @@ class EnvironmentConfig:
     """Bulk API使用の最低信頼性スコア（パーセント）。デフォルト: 70.0%"""
 
     # ===== 8. その他 =====
-    scheduler_workers: int = field(default_factory=lambda: _get_int_env("SCHEDULER_WORKERS", 4))
+    scheduler_workers: int = field(
+        default_factory=lambda: _get_int_env("SCHEDULER_WORKERS", 4)
+    )
     """スケジューラーのワーカー数。"""
 
-    bulk_update_workers: int = field(default_factory=lambda: _get_int_env("BULK_UPDATE_WORKERS", 4))
+    bulk_update_workers: int = field(
+        default_factory=lambda: _get_int_env("BULK_UPDATE_WORKERS", 4)
+    )
     """バルク更新のワーカー数。"""
 
     data_cache_dir: str = field(
@@ -370,7 +402,9 @@ class EnvironmentConfig:
     )
     """データキャッシュディレクトリ。"""
 
-    results_dir: str = field(default_factory=lambda: _get_str_env("RESULTS_DIR", "results_csv"))
+    results_dir: str = field(
+        default_factory=lambda: _get_str_env("RESULTS_DIR", "results_csv")
+    )
     """結果CSV出力先ディレクトリ。"""
 
     logs_dir: str = field(default_factory=lambda: _get_str_env("LOGS_DIR", "logs"))
@@ -471,7 +505,9 @@ def print_env_summary() -> None:
     print("=" * 60)
     print("環境変数設定サマリー")
     print("=" * 60)
-    mode = "本番" if env.is_production() else ("テスト" if env.is_test_mode() else "開発")
+    mode = (
+        "本番" if env.is_production() else ("テスト" if env.is_test_mode() else "開発")
+    )
     print(f"モード: {mode}")
     print(f"Compact Logs: {env.compact_logs}")
     print(f"Alpaca Paper Trading: {env.alpaca_paper}")

@@ -98,7 +98,12 @@ def system3_setup_predicate(row: pd.Series) -> bool:
         drop3d = _to_float(row.get("drop3d"))
         if not _all_not_nan([close, dv20, atr_ratio, drop3d]):
             return False
-        return (close >= 5.0) and (dv20 > 25_000_000) and (atr_ratio >= 0.05) and (drop3d >= 0.125)
+        return (
+            (close >= 5.0)
+            and (dv20 > 25_000_000)
+            and (atr_ratio >= 0.05)
+            and (drop3d >= 0.125)
+        )
     except Exception:
         return False
 
@@ -146,13 +151,17 @@ def system4_setup_predicate(row: pd.Series) -> bool:
 # 条件 (filter == setup): Close>=5, adx7>35, atr_pct>DEFAULT_ATR_PCT_THRESHOLD
 
 
-def system5_setup_predicate(row: pd.Series, *, atr_pct_threshold: float | None = None) -> bool:
+def system5_setup_predicate(
+    row: pd.Series, *, atr_pct_threshold: float | None = None
+) -> bool:
     try:
         close = _to_float(row.get("Close"))
         adx7 = _to_float(row.get("adx7"))
         atr_pct = _to_float(row.get("atr_pct"))
         threshold = (
-            atr_pct_threshold if atr_pct_threshold is not None else DEFAULT_ATR_PCT_THRESHOLD
+            atr_pct_threshold
+            if atr_pct_threshold is not None
+            else DEFAULT_ATR_PCT_THRESHOLD
         )
         if not _all_not_nan([close, adx7, atr_pct]):
             return False

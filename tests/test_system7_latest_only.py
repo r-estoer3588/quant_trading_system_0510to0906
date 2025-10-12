@@ -68,7 +68,9 @@ class TestSystem7LatestOnlyPath:
             lows.append(449.0)  # Above min_50 (447.75) → no setup
             highs.append(452.25)  # 1.005 * 450
 
-        df_temp = pd.DataFrame({"Close": prices, "Low": lows, "High": highs}, index=dates)
+        df_temp = pd.DataFrame(
+            {"Close": prices, "Low": lows, "High": highs}, index=dates
+        )
         min_50 = df_temp["Low"].rolling(window=50, min_periods=1).min()
         max_70 = df_temp["High"].rolling(window=70, min_periods=1).max()
 
@@ -120,7 +122,10 @@ class TestSystem7LatestOnlyPath:
 
         # Debug: print if prepare_data failed
         if not data_dict:
-            print(f"DEBUG: prepare_data returned empty dict. " f"Skip messages: {skip_messages}")
+            print(
+                f"DEBUG: prepare_data returned empty dict. "
+                f"Skip messages: {skip_messages}"
+            )
         spy_df = data_dict.get("SPY")
         if spy_df is not None and spy_df.empty:
             print("DEBUG: SPY DataFrame is empty")
@@ -212,7 +217,9 @@ class TestSystem7LatestOnlyPath:
             spy_payload = normalized[first_date].get("SPY")
 
             if spy_payload:
-                assert "entry_date" in spy_payload, "Fast path should include entry_date"
+                assert (
+                    "entry_date" in spy_payload
+                ), "Fast path should include entry_date"
                 assert spy_payload["entry_date"] is not None
 
     def test_latest_only_includes_atr50(self):
@@ -262,7 +269,9 @@ class TestSystem7LatestOnlyPath:
             spy_payload = normalized[first_date].get("SPY")
 
             if spy_payload:
-                assert "symbol" not in spy_payload, "Payload should exclude 'symbol' key"
+                assert (
+                    "symbol" not in spy_payload
+                ), "Payload should exclude 'symbol' key"
 
     @patch("core.system7.resolve_signal_entry_date")
     def test_latest_only_with_top_n_limit(self, mock_resolve):
@@ -321,7 +330,9 @@ class TestSystem7LatestOnlyPath:
         # Should have ranked_top_n_count
         assert "ranked_top_n_count" in diagnostics
         assert isinstance(diagnostics["ranked_top_n_count"], int)
-        assert diagnostics["ranked_top_n_count"] >= 1, "Should have at least 1 candidate"
+        assert (
+            diagnostics["ranked_top_n_count"] >= 1
+        ), "Should have at least 1 candidate"
 
     def test_latest_only_returns_dataframe(self):
         """Test latest_only returns DataFrame as second element (line 256)."""

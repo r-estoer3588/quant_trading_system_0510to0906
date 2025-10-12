@@ -108,7 +108,9 @@ class RollingIssueAggregator:
         except Exception:
             return False
 
-    def already_reported(self, category: str, symbol: str) -> bool:  # backward-friendly alias
+    def already_reported(
+        self, category: str, symbol: str
+    ) -> bool:  # backward-friendly alias
         """`has_issue` のエイリアス。外部呼び出しの可読性を重視。"""
         return self.has_issue(category, symbol)
 

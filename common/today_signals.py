@@ -15,7 +15,7 @@ import pandas as pd
 from common.indicator_access import get_indicator, to_float
 
 try:
-    from common.dataframe_utils import round_dataframe  # type: ignore
+    from common.dataframe_utils import round_dataframe
 except Exception:  # pragma: no cover - tests may stub cache_manager
 
     def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
@@ -73,11 +73,12 @@ def _default_cli_log(message: str) -> None:
 
 
 # --- サイド定義（売買区分）---
-# System1/3/5 は買い戦略、System2/4/6/7 は売り戦略として扱う。
-LONG_SYSTEMS = {"system1", "system3", "system5"}
-SHORT_SYSTEMS = {"system2", "system4", "system6", "system7"}
+# System1/3/4/5 は買い戦略、System2/6/7 は売り戦略として扱う。
+# 仕様（docs）に合わせて system4 はロングに修正。
+LONG_SYSTEMS = {"system1", "system3", "system4", "system5"}
+SHORT_SYSTEMS = {"system2", "system6", "system7"}
 
-STOP_MULTIPLIER_BY_SYSTEM = {
+STOP_MULTIPLIER_BY_SYSTEM: dict[str, float] = {
     "system1": STOP_ATR_MULTIPLE_SYSTEM1,
     "system2": STOP_ATR_MULTIPLE_DEFAULT,
     "system3": STOP_ATR_MULTIPLE_SYSTEM3,
@@ -119,7 +120,11 @@ class TodaySignal:
     score_rank: int | None = None
     score_rank_total: int | None = None
     reason: str | None = None
-    atr20: float | None = None  # 配分計算用ATR値
+    # 配分計算用ATR値（システムごとに異なるATRを使用）
+    atr10: float | None = None  # System2/3/5/6で使用
+    atr20: float | None = None  # System1で使用
+    atr40: float | None = None  # System4で使用
+    atr50: float | None = None  # System7で使用
 
 
 @dataclass
@@ -310,14 +315,23 @@ def _normalize_today(today: pd.Timestamp | None) -> pd.Timestamp:
                 base = base.tz_localize(None)
             except Exception:
                 base = pd.Timestamp(base.to_pydatetime().replace(tzinfo=None))
-    return base.normalize()
+    # Ensure precise type for static checkers
+    try:
+        normed = base.normalize()
+        return pd.Timestamp(normed)
+    except Exception:
+        return pd.Timestamp(base)
 
 
 def _slice_data_for_lookback(
     raw_data_dict: dict[str, pd.DataFrame],
     lookback_days: int | None,
 ) -> dict[str, pd.DataFrame]:
-    if lookback_days is None or lookback_days <= 0 or not isinstance(raw_data_dict, dict):
+    if (
+        lookback_days is None
+        or lookback_days <= 0
+        or not isinstance(raw_data_dict, dict)
+    ):
         return raw_data_dict
     sliced: dict[str, pd.DataFrame] = {}
     for sym, df in raw_data_dict.items():
@@ -366,7 +380,7 @@ def _normalize_prepared_dict(
 
 
 def _prepare_strategy_data(
-    strategy,
+    strategy: Any,
     sliced_dict: dict[str, pd.DataFrame],
     *,
     progress_callback: Callable[..., None] | None,
@@ -442,7 +456,9 @@ def _detect_last_trading_day(df: pd.DataFrame) -> pd.Timestamp | None:
             idx = pd.to_datetime(df.index, errors="coerce").normalize()
             idx = idx[~idx.isna()]
             if len(idx):
-                return pd.Timestamp(idx[-1])
+                # Use max() to safely get a scalar Timestamp
+                last_val = idx.max()
+                return pd.Timestamp(last_val)
     except Exception:
         pass
     try:
@@ -450,7 +466,13 @@ def _detect_last_trading_day(df: pd.DataFrame) -> pd.Timestamp | None:
             series = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
             series = series.dropna()
             if len(series):
-                return pd.Timestamp(series.iloc[-1])
+                try:
+                    return pd.Timestamp(series.iloc[-1])
+                except Exception:
+                    try:
+                        return pd.Timestamp(pd.to_datetime(series.iloc[-1]))
+                    except Exception:
+                        return None
     except Exception:
         pass
     return None
@@ -472,7 +494,9 @@ def _filter_by_data_freshness(
         return prepared, [], []
 
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
     except Exception:
         prev_trading_day = pd.Timestamp(today).normalize() - pd.Timedelta(days=1)
 
@@ -487,7 +511,9 @@ def _filter_by_data_freshness(
             global _TEST_MODE_FRESHNESS_LOGGED
             if (not _TEST_MODE_FRESHNESS_LOGGED) and log_callback:
                 try:
-                    log_callback(f"🧪 [TEST-MODE={env.test_mode}] 鮮度許容を1.5年に緩和しました")
+                    log_callback(
+                        f"🧪 [TEST-MODE={env.test_mode}] 鮮度許容を1.5年に緩和しました"
+                    )
                 except Exception:
                     pass
                 _TEST_MODE_FRESHNESS_LOGGED = True
@@ -655,18 +681,26 @@ def _compute_filter_pass(
     log_callback: Callable[[str], None] | None,
 ) -> int:
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_filter_on_date(x: pd.DataFrame) -> bool:
             try:
                 if getattr(x, "empty", True) or "filter" not in x.columns:
                     return False
                 if "Date" in x.columns:
-                    dt_vals = pd.to_datetime(x["Date"], errors="coerce").dt.normalize().to_numpy()
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
                     mask = dt_vals == prev_trading_day
                     rows = x.loc[mask]
                 else:
-                    idx_vals = pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
                 if len(rows) == 0:
@@ -685,7 +719,9 @@ def _compute_filter_pass(
             filter_pass = 0
         try:
             if str(system_name).lower() == "system7":
-                filter_pass = 1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                filter_pass = (
+                    1 if (isinstance(prepared, dict) and ("SPY" in prepared)) else 0
+                )
         except Exception:
             pass
     except Exception:
@@ -699,7 +735,7 @@ def _compute_filter_pass(
 
 
 def _generate_candidates_for_system(
-    strategy,
+    strategy: Any,
     prepared: dict[str, pd.DataFrame] | pd.DataFrame | None,
     *,
     system_name: str,
@@ -708,10 +744,12 @@ def _generate_candidates_for_system(
     progress_callback: Callable[..., None] | None,
     log_callback: Callable[[str], None] | None,
 ) -> CandidateExtraction:
-    gen_fn = strategy.generate_candidates  # type: ignore[attr-defined]
+    gen_fn = getattr(strategy, "generate_candidates")
     params = inspect.signature(gen_fn).parameters
     needs_market_df = "market_df" in params
-    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+    accepts_kwargs = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
     can_override_top_n = "top_n" in params or accepts_kwargs
     market_df_local = market_df
     market_df_arg = market_df
@@ -721,7 +759,9 @@ def _generate_candidates_for_system(
         needs_fallback = market_df_arg is None or getattr(market_df_arg, "empty", False)
         if needs_fallback and isinstance(prepared, dict):
             maybe_spy = prepared.get("SPY")
-            if isinstance(maybe_spy, pd.DataFrame) and not getattr(maybe_spy, "empty", True):
+            if isinstance(maybe_spy, pd.DataFrame) and not getattr(
+                maybe_spy, "empty", True
+            ):
                 market_df_arg = maybe_spy
                 needs_fallback = False
         if needs_fallback:
@@ -734,13 +774,17 @@ def _generate_candidates_for_system(
                 market_df_local = cached_spy
                 if log_callback:
                     try:
-                        log_callback("🛟 System4: SPYデータをキャッシュから補完しました")
+                        log_callback(
+                            "🛟 System4: SPYデータをキャッシュから補完しました"
+                        )
                     except Exception:
                         pass
         if market_df_arg is None or getattr(market_df_arg, "empty", False):
             if log_callback:
                 try:
-                    log_callback("⚠️ System4: SPYデータが見つからないため候補抽出をスキップします")
+                    log_callback(
+                        "⚠️ System4: SPYデータが見つからないため候補抽出をスキップします"
+                    )
                 except Exception:
                     pass
             return CandidateExtraction(
@@ -820,7 +864,9 @@ def _generate_candidates_for_system(
 
     _log_elapsed(log_callback, "⏱️ セットアップ/候補抽出 完了", t1)
 
-    return CandidateExtraction(candidates_by_date, market_df_local, diagnostics=diagnostics_payload)
+    return CandidateExtraction(
+        candidates_by_date, market_df_local, diagnostics=diagnostics_payload
+    )
 
 
 def _compute_setup_pass(
@@ -833,23 +879,31 @@ def _compute_setup_pass(
     candidate_diagnostics: dict[str, object] | None = None,
 ) -> int:
     try:
-        prev_trading_day = get_latest_nyse_trading_day(pd.Timestamp(today) - pd.Timedelta(days=1))
+        prev_trading_day = get_latest_nyse_trading_day(
+            pd.Timestamp(today) - pd.Timedelta(days=1)
+        )
 
         def _last_row(x: pd.DataFrame) -> pd.Series | None:
             try:
                 if "Date" in x.columns:
-                    dt_vals = pd.to_datetime(x["Date"], errors="coerce").dt.normalize().to_numpy()
+                    dt_vals = (
+                        pd.to_datetime(x["Date"], errors="coerce")
+                        .dt.normalize()
+                        .to_numpy()
+                    )
                     mask = dt_vals == prev_trading_day
                     rows = x.loc[mask]
                 else:
-                    idx_vals = pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    idx_vals = (
+                        pd.to_datetime(x.index, errors="coerce").normalize().to_numpy()
+                    )
                     mask = idx_vals == prev_trading_day
                     rows = x.loc[mask]
                 if len(rows) == 0:
                     rows = x.tail(1)
                 if len(rows) == 0:
                     return None
-                return rows.iloc[-1]
+                return cast(pd.Series, rows.iloc[-1])
             except Exception:
                 return None
 
@@ -904,7 +958,9 @@ def _compute_setup_pass(
             reason_counts: dict[str, int] = {}
 
             for symbol, row in latest_rows.items():
-                passed, flags, reason = system1_row_passes_setup(row, allow_fallback=allow_fallback)
+                passed, flags, reason = system1_row_passes_setup(
+                    row, allow_fallback=allow_fallback
+                )
                 if flags["filter_ok"]:
                     filter_ok_count += 1
                 if flags["setup_flag"]:
@@ -919,7 +975,9 @@ def _compute_setup_pass(
                     reason_counts[reason] = reason_counts.get(reason, 0) + 1
 
             try:
-                spy_df = get_spy_with_indicators(market_df if market_df is not None else None)
+                spy_df = get_spy_with_indicators(
+                    market_df if market_df is not None else None
+                )
             except Exception:
                 spy_df = None
             spy_gate_bool = _make_spy_gate(spy_df, column="sma100")
@@ -948,7 +1006,9 @@ def _compute_setup_pass(
                         top_items = sorted(
                             reason_counts.items(), key=lambda kv: kv[1], reverse=True
                         )[:2]
-                        parts.append("除外理由=" + ", ".join(f"{k}:{v}" for k, v in top_items))
+                        parts.append(
+                            "除外理由=" + ", ".join(f"{k}:{v}" for k, v in top_items)
+                        )
                     log_callback("🧩 system1セットアップ集計: " + ", ".join(parts))
                 except Exception:
                     pass
@@ -966,12 +1026,17 @@ def _compute_setup_pass(
                 # 複数エイリアスの OR 判定（指標そのものがブール/数値 いずれでも True 判定）
                 row_map = cast(Mapping[str, Any], row)
                 return bool(
-                    get_indicator(row_map, "twodayup") or get_indicator(row_map, "uptwodays")
+                    get_indicator(row_map, "twodayup")
+                    or get_indicator(row_map, "uptwodays")
                 )
 
-            filtered_rows = [r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
             rsi_pass = _count_if(filtered_rows, _rsi_ok)
-            two_up_pass = _count_if(filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r))
+            two_up_pass = _count_if(
+                filtered_rows, lambda r: _rsi_ok(r) and _two_up_ok(r)
+            )
             setup_pass = two_up_pass
             if log_callback:
                 try:
@@ -983,7 +1048,9 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system3":
-            filtered_rows = [r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
 
             def _close_ok(row: pd.Series) -> bool:
                 try:
@@ -1031,32 +1098,34 @@ def _compute_setup_pass(
                     return False
 
             above_sma = _count_if(rows_list, _above_sma)
-            spy_gate: int | None = None
+            spy_gate_val: int | None = None
             try:
-                if isinstance(market_df, pd.DataFrame) and not getattr(market_df, "empty", False):
+                spy_source: pd.DataFrame | None = None
+                if isinstance(market_df, pd.DataFrame) and not getattr(
+                    market_df, "empty", False
+                ):
                     spy_source = market_df
                 elif isinstance(prepared, dict):
-                    spy_source = prepared.get("SPY")
-                else:
-                    spy_source = None
+                    v = prepared.get("SPY")
+                    spy_source = v if isinstance(v, pd.DataFrame) else None
                 spy_with = get_spy_with_indicators(spy_source)
             except Exception:
                 spy_with = None
             try:
-                spy_gate = _make_spy_gate(
+                spy_gate_val = _make_spy_gate(
                     _normalize_daily_index(spy_with) if spy_with is not None else None
                 )
-                if spy_gate is False:
-                    spy_gate = 0
-                elif spy_gate is True:
-                    spy_gate = 1
+                if spy_gate_val is False:
+                    spy_gate_val = 0
+                elif spy_gate_val is True:
+                    spy_gate_val = 1
             except Exception:
-                spy_gate = None
+                spy_gate_val = None
 
-            setup_pass = above_sma if spy_gate != 0 else 0
+            setup_pass = above_sma if spy_gate_val != 0 else 0
             if log_callback:
                 try:
-                    spy_label = "-" if spy_gate is None else str(int(spy_gate))
+                    spy_label = "-" if spy_gate_val is None else str(int(spy_gate_val))
                     log_callback(
                         "🧩 system4セットアップ集計: "
                         + f"フィルタ通過={filter_pass}, SPY>SMA200: {spy_label}, "
@@ -1131,7 +1200,9 @@ def _compute_setup_pass(
 
             price_pass = _count_if(rows_list, _price_ok)
             adx_pass = _count_if(rows_list, lambda r: _price_ok(r) and _adx_ok(r))
-            rsi_pass = _count_if(rows_list, lambda r: _price_ok(r) and _adx_ok(r) and _rsi_ok(r))
+            rsi_pass = _count_if(
+                rows_list, lambda r: _price_ok(r) and _adx_ok(r) and _rsi_ok(r)
+            )
             setup_pass = rsi_pass
             if log_callback:
                 try:
@@ -1143,7 +1214,9 @@ def _compute_setup_pass(
                 except Exception:
                     pass
         elif name == "system6":
-            filtered_rows = [r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))]
+            filtered_rows = [
+                r for r in rows_list if ("filter" not in r) or bool(r.get("filter"))
+            ]
 
             def _ret_ok(row: pd.Series) -> bool:
                 try:
@@ -1156,7 +1229,8 @@ def _compute_setup_pass(
             def _up_two(row: pd.Series) -> bool:
                 row_map = cast(Mapping[str, Any], row)
                 return bool(
-                    get_indicator(row_map, "uptwodays") or get_indicator(row_map, "twodayup")
+                    get_indicator(row_map, "uptwodays")
+                    or get_indicator(row_map, "twodayup")
                 )
 
             ret_pass = _count_if(filtered_rows, _ret_ok)
@@ -1230,10 +1304,12 @@ def _diagnose_setup_zero_reason(
         return None
 
     try:
+        spy_source: pd.DataFrame | None
         if isinstance(market_df, pd.DataFrame):
             spy_source = market_df
         elif isinstance(prepared, dict):
-            spy_source = prepared.get("SPY")
+            _tmp = prepared.get("SPY")
+            spy_source = _tmp if isinstance(_tmp, pd.DataFrame) else None
         else:
             spy_source = None
     except Exception:
@@ -1294,7 +1370,9 @@ def _select_candidate_date(
     target_date: pd.Timestamp | None = None
     fallback_reason: str | None = None
 
-    def _collect_recent_days(anchor: pd.Timestamp | None, count: int) -> list[pd.Timestamp]:
+    def _collect_recent_days(
+        anchor: pd.Timestamp | None, count: int
+    ) -> list[pd.Timestamp]:
         if anchor is None or count <= 0:
             return []
         out: list[pd.Timestamp] = []
@@ -1380,7 +1458,9 @@ def _select_candidate_date(
     try:
         if target_date is not None and target_date in key_map:
             orig_key = key_map[target_date]
-            total_candidates_today = len((candidates_by_date or {}).get(orig_key, []) or [])
+            total_candidates_today = len(
+                (candidates_by_date or {}).get(orig_key, []) or []
+            )
         else:
             total_candidates_today = 0
     except Exception:
@@ -1403,7 +1483,9 @@ def _select_candidate_date(
         try:
             log_callback(f"🧩 セットアップチェック完了：{setup_pass} 銘柄")
             log_callback(f"🧮 候補生成済み（セットアップ通過）：{setup_pass} 銘柄")
-            log_callback(f"🧮 TRDlist相当（直近営業日時点の候補数）：{total_candidates_today} 銘柄")
+            log_callback(
+                f"🧮 TRDlist相当（直近営業日時点の候補数）：{total_candidates_today} 銘柄"
+            )
         except Exception:
             pass
 
@@ -1513,7 +1595,7 @@ def _attach_entry_skip_attrs(frame: pd.DataFrame, stats: SkipStats) -> None:
 
 
 def _build_today_signals_dataframe(
-    strategy,
+    strategy: Any,
     prepared: dict[str, pd.DataFrame] | pd.DataFrame | None,
     candidates_by_date: dict | None,
     selection: CandidateSelection,
@@ -1543,7 +1625,7 @@ def _build_today_signals_dataframe(
         today_candidates = [c for c in today_raw if isinstance(c, dict)]
     elif isinstance(today_raw, dict):
         # Expect a symbol->payload dict; inject symbol into each payload
-        for _sym, _payload in cast(dict, today_raw).items():
+        for _sym, _payload in today_raw.items():
             sym_str = str(_sym) if _sym is not None else ""
             if isinstance(_payload, dict):
                 rec = dict(_payload)
@@ -1600,8 +1682,13 @@ def _build_today_signals_dataframe(
             values = normalized.to_numpy()
         except Exception:
             return None
-        date_cache[symbol] = values
-        return values
+        # Help static checkers: ensure ndarray type
+        try:
+            arr = cast(np.ndarray, values)
+        except Exception:
+            arr = np.asarray(values)
+        date_cache[symbol] = arr
+        return arr
 
     for c in today_candidates:
         sym = c.get("symbol")
@@ -1622,7 +1709,9 @@ def _build_today_signals_dataframe(
             if c.get("entry_price") is None:
                 close_ci = _find_column_ci(df, "Close")
                 if close_ci is not None and close_ci in df.columns:
-                    last_close_ser = pd.to_numeric(df[close_ci], errors="coerce").dropna()
+                    last_close_ser = pd.to_numeric(
+                        df[close_ci], errors="coerce"
+                    ).dropna()
                     last_close_ser = last_close_ser[last_close_ser > 0]
                     if not last_close_ser.empty:
                         c["entry_price"] = float(last_close_ser.iloc[-1])
@@ -1649,7 +1738,9 @@ def _build_today_signals_dataframe(
         skey, sval, _asc = _score_from_candidate(system_name, c)
 
         try:
-            if (system_name == "system1") and (skey is None or str(skey).upper() != "ROC200"):
+            if (system_name == "system1") and (
+                skey is None or str(skey).upper() != "ROC200"
+            ):
                 skey = "ROC200"
         except Exception:
             pass
@@ -1717,7 +1808,9 @@ def _build_today_signals_dataframe(
                     pass
 
             try:
-                needs_rank_eval = rank_val is None or total_for_rank == 0 or sval is None
+                needs_rank_eval = (
+                    rank_val is None or total_for_rank == 0 or sval is None
+                )
                 if signal_date_ts is not None and needs_rank_eval:
                     if isinstance(prepared, dict):
                         cache_key = (str(skey), signal_date_ts, bool(_asc))
@@ -1736,7 +1829,11 @@ def _build_today_signals_dataframe(
                                         continue
                                     row = pdf.loc[mask]
                                     ci_inner = _find_column_ci(row, skey)
-                                    if row.empty or ci_inner is None or ci_inner not in row.columns:
+                                    if (
+                                        row.empty
+                                        or ci_inner is None
+                                        or ci_inner not in row.columns
+                                    ):
                                         continue
                                     val = row.iloc[0][ci_inner]
                                     if val is None or pd.isna(val):
@@ -1745,8 +1842,13 @@ def _build_today_signals_dataframe(
                                 except Exception:
                                     continue
                             if vals:
-                                vals_sorted = sorted(vals, key=lambda x: x[1], reverse=not _asc)
-                                ranks = {name: idx + 1 for idx, (name, _) in enumerate(vals_sorted)}
+                                vals_sorted = sorted(
+                                    vals, key=lambda x: x[1], reverse=not _asc
+                                )
+                                ranks = {
+                                    name: idx + 1
+                                    for idx, (name, _) in enumerate(vals_sorted)
+                                }
                             else:
                                 vals_sorted = []
                                 ranks = {}
@@ -1794,7 +1896,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ボラティリティが高く条件一致のため"]
         elif system_name == "system4":
             if rank_val is not None:
-                formatted = _format_rank_reason("RSI4", rank_val, total_for_rank, nuance="低水準")
+                formatted = _format_rank_reason(
+                    "RSI4", rank_val, total_for_rank, nuance="低水準"
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1809,7 +1913,9 @@ def _build_today_signals_dataframe(
                 reason_parts = ["ADXが強く、反発期待のため"]
         elif system_name == "system6":
             if rank_val is not None:
-                formatted = _format_rank_reason("過去6日騰落率", rank_val, total_for_rank)
+                formatted = _format_rank_reason(
+                    "過去6日騰落率", rank_val, total_for_rank
+                )
                 if formatted:
                     reason_parts = [formatted]
             if not reason_parts:
@@ -1829,7 +1935,9 @@ def _build_today_signals_dataframe(
                     reason_parts = [f"rank={rank_val}/{total_label}"]
             elif skey is not None:
                 try:
-                    if sval is not None and not (isinstance(sval, float) and pd.isna(sval)):
+                    if sval is not None and not (
+                        isinstance(sval, float) and pd.isna(sval)
+                    ):
                         reason_parts.append("スコア条件を満たしたため")
                 except Exception:
                     reason_parts.append("スコア条件を満たしたため")
@@ -1853,7 +1961,9 @@ def _build_today_signals_dataframe(
                 if not pd.isna(cand_dt_ts):
                     cand_dt_norm = pd.Timestamp(cand_dt_ts).normalize()
                     try:
-                        from common.utils_spy import resolve_signal_entry_date as _res_entry
+                        from common.utils_spy import (
+                            resolve_signal_entry_date as _res_entry,
+                        )
 
                         _ed = _res_entry(cand_dt_norm)
                     except Exception:
@@ -1864,17 +1974,55 @@ def _build_today_signals_dataframe(
             continue
         entry_date_norm = pd.Timestamp(_ed).normalize()
 
-        # ATR20 を候補から取得（配分計算用）
+        # 全ATR値を候補から取得（配分計算用）
+        # システムごとに異なるATRを使用: S1=atr20, S2/3/5/6=atr10, S4=atr40, S7=atr50
+        atr10_val = None
         atr20_val = None
+        atr40_val = None
+        atr50_val = None
+
         try:
+            # atr10
+            for key in ("atr10", "ATR10", "atr_10", "ATR_10"):
+                if key in c:
+                    raw = c.get(key)
+                    if raw is not None and not (
+                        isinstance(raw, float) and pd.isna(raw)
+                    ):
+                        atr10_val = float(raw)
+                        break
+
+            # atr20
             for key in ("atr20", "ATR20", "atr_20", "ATR_20"):
                 if key in c:
                     raw = c.get(key)
-                    if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
+                    if raw is not None and not (
+                        isinstance(raw, float) and pd.isna(raw)
+                    ):
                         atr20_val = float(raw)
                         break
+
+            # atr40
+            for key in ("atr40", "ATR40", "atr_40", "ATR_40"):
+                if key in c:
+                    raw = c.get(key)
+                    if raw is not None and not (
+                        isinstance(raw, float) and pd.isna(raw)
+                    ):
+                        atr40_val = float(raw)
+                        break
+
+            # atr50
+            for key in ("atr50", "ATR50", "atr_50", "ATR_50"):
+                if key in c:
+                    raw = c.get(key)
+                    if raw is not None and not (
+                        isinstance(raw, float) and pd.isna(raw)
+                    ):
+                        atr50_val = float(raw)
+                        break
         except Exception:
-            atr20_val = None
+            pass
 
         rows.append(
             TodaySignal(
@@ -1894,23 +2042,31 @@ def _build_today_signals_dataframe(
                 score_rank=None if rank_val is None else int(rank_val),
                 score_rank_total=(None if total_for_rank <= 0 else int(total_for_rank)),
                 reason=reason_text,
+                atr10=atr10_val,
                 atr20=atr20_val,
+                atr40=atr40_val,
+                atr50=atr50_val,
             )
         )
 
     if not rows:
         _log_entry_skip_summary(entry_skip_stats, system_name, log_callback)
-        top_reason = None
+        top_reason: str | None = None
         if entry_skip_stats.counts:
             try:
-                top_reason = max(entry_skip_stats.counts.items(), key=lambda item: item[1])[0]
+                top_reason = max(
+                    entry_skip_stats.counts.items(), key=lambda item: item[1]
+                )[0]
             except Exception:
-                top_reason = next(iter(entry_skip_stats.counts.keys()), None)
-        frame = _empty_today_signals_frame(
+                try:
+                    top_reason = next(iter(entry_skip_stats.counts.keys()), None)
+                except Exception:
+                    top_reason = None
+        frame_empty = _empty_today_signals_frame(
             f"entry_stop_failed:{top_reason}" if top_reason else None
         )
-        _attach_entry_skip_attrs(frame, entry_skip_stats)
-        return frame, 0
+        _attach_entry_skip_attrs(frame_empty, entry_skip_stats)
+        return frame_empty, 0
 
     out = pd.DataFrame([r.__dict__ for r in rows])
     _attach_entry_skip_attrs(out, entry_skip_stats)
@@ -1985,8 +2141,12 @@ def _make_spy_gate(spy_df: pd.DataFrame | None, column: str = "SMA200") -> bool 
     except Exception:
         return None
     try:
-        close_val = pd.to_numeric(pd.Series([last_row.get("Close")]), errors="coerce").iloc[0]
-        sma_val = pd.to_numeric(pd.Series([last_row.get(column)]), errors="coerce").iloc[0]
+        close_val = pd.to_numeric(
+            pd.Series([last_row.get("Close")]), errors="coerce"
+        ).iloc[0]
+        sma_val = pd.to_numeric(
+            pd.Series([last_row.get(column)]), errors="coerce"
+        ).iloc[0]
     except Exception:
         return None
     if pd.isna(close_val) or pd.isna(sma_val):
@@ -2158,7 +2318,7 @@ def _atr_column_candidates(df: pd.DataFrame, system_name: str | None) -> list[st
     return ordered
 
 
-def _resolve_stop_atr_multiple(strategy, system_name: str) -> float:
+def _resolve_stop_atr_multiple(strategy: Any, system_name: str) -> float:
     name = (system_name or "").lower()
     try:
         config = getattr(strategy, "config", None)
@@ -2170,7 +2330,7 @@ def _resolve_stop_atr_multiple(strategy, system_name: str) -> float:
             if isinstance(config, dict):
                 candidate = config.get("stop_atr_multiple")
             elif hasattr(config, "get"):
-                candidate = config.get("stop_atr_multiple")  # type: ignore[call-arg]
+                candidate = config.get("stop_atr_multiple")
             else:
                 candidate = getattr(config, "stop_atr_multiple", None)
         except Exception:
@@ -2181,13 +2341,17 @@ def _resolve_stop_atr_multiple(strategy, system_name: str) -> float:
             except (TypeError, ValueError):
                 value = None
             else:
-                if math.isfinite(value) and value > 0:
-                    return value
-    return STOP_MULTIPLIER_BY_SYSTEM.get(name, STOP_ATR_MULTIPLE_DEFAULT)
+                if value is not None and math.isfinite(value) and value > 0:
+                    return float(value)
+    try:
+        fallback = STOP_MULTIPLIER_BY_SYSTEM.get(name, STOP_ATR_MULTIPLE_DEFAULT)
+        return float(fallback)
+    except Exception:
+        return float(STOP_ATR_MULTIPLE_DEFAULT)
 
 
 def _compute_entry_stop(
-    strategy,
+    strategy: Any,
     df: pd.DataFrame,
     candidate: dict,
     side: str,
@@ -2216,18 +2380,18 @@ def _compute_entry_stop(
 
     # strategy 独自の compute_entry があれば優先
     try:
-        _fn = strategy.compute_entry  # type: ignore[attr-defined]
+        _fn = getattr(strategy, "compute_entry", None)
     except Exception:
         _fn = None
     if callable(_fn):
         try:
             res = _fn(df, candidate, 0.0)
             if res and isinstance(res, tuple) and len(res) == 2:
-                entry, stop = float(res[0]), float(res[1])
-                if entry > 0 and (
-                    (side == "short" and stop > entry) or (side == "long" and entry > stop)
+                e, st = float(res[0]), float(res[1])
+                if e > 0 and (
+                    (side == "short" and st > e) or (side == "long" and e > st)
                 ):
-                    return round(entry, 4), round(stop, 4)
+                    return round(e, 4), round(st, 4)
         except Exception as exc:
             _record_detail("strategy_compute_entry_error", str(exc))
 
@@ -2288,7 +2452,8 @@ def _compute_entry_stop(
                     except Exception:
                         continue
         try:
-            return frame.get(lower)  # type: ignore[return-value]
+            val = frame.get(lower)
+            return val if isinstance(val, pd.Series) else None
         except Exception:
             return None
 
@@ -2390,8 +2555,8 @@ def _compute_entry_stop(
     atr_column = atr_candidates[0] if atr_candidates else None
     atr_window = _infer_atr_window(atr_column)
 
-    entry = None
-    atr_val = None
+    entry: float | None = None
+    atr_val: float | None = None
     if 0 <= entry_idx < len(df):
         row = df.iloc[entry_idx]
         entry = _as_positive(_get_value_ci(row, "Open"))
@@ -2447,10 +2612,10 @@ def _compute_entry_stop(
         # Also pick latest positive ATR from available ATR columns if needed
         if atr_val is None and atr_column:
             try:
-                atr_series = pd.to_numeric(df[atr_column], errors="coerce").dropna()
-                atr_series = atr_series[atr_series > 0]
-                if not atr_series.empty:
-                    atr_val = float(atr_series.iloc[-1])
+                atr_series_tmp = pd.to_numeric(df[atr_column], errors="coerce").dropna()
+                atr_series_tmp = atr_series_tmp[atr_series_tmp > 0]
+                if not atr_series_tmp.empty:
+                    atr_val = float(atr_series_tmp.iloc[-1])
                     try:
                         _record_detail(
                             "atr_window",
@@ -2503,10 +2668,11 @@ def _compute_entry_stop(
         return None
 
     if atr_val is None and atr_column:
-        atr_series = _get_series_ci(df, atr_column)
+        atr_series: pd.Series | None = _get_series_ci(df, atr_column)
         if atr_series is None:
             try:
-                atr_series = df.get(atr_column)
+                val = df.get(atr_column)
+                atr_series = val if isinstance(val, pd.Series) else None
             except Exception:
                 atr_series = None
         atr_val = _latest_positive(atr_series)
@@ -2537,7 +2703,7 @@ def _compute_entry_stop(
 
 
 def get_today_signals_for_strategy(
-    strategy,
+    strategy: Any,
     raw_data_dict: dict[str, pd.DataFrame],
     *,
     market_df: pd.DataFrame | None = None,
@@ -2561,7 +2727,7 @@ def get_today_signals_for_strategy(
           score_key, score
     """
     try:
-        system_name = str(strategy.SYSTEM_NAME).lower()  # type: ignore[attr-defined]
+        system_name = str(getattr(strategy, "SYSTEM_NAME", "")).lower()
     except Exception:
         system_name = ""
     side = _infer_side(system_name)
@@ -2574,7 +2740,7 @@ def get_today_signals_for_strategy(
     today_ts = _normalize_today(today)
 
     total_symbols = len(raw_data_dict)
-    if log_callback:
+    if log_callback is not None:
         try:
             log_callback(f"🧪 フィルターチェック開始：{total_symbols} 銘柄")
         except Exception:
@@ -2598,14 +2764,14 @@ def get_today_signals_for_strategy(
         lookback_days=lookback_days,
     )
     if prepare_result.early_exit_frame is not None:
-        if log_callback and prepare_result.early_exit_reason:
+        if (log_callback is not None) and prepare_result.early_exit_reason:
             try:
                 log_callback(f"🛈 中断理由コード: {prepare_result.early_exit_reason}")
             except Exception:
                 pass
         return prepare_result.early_exit_frame
 
-    prepared = prepare_result.prepared
+    prepared: dict[str, pd.DataFrame] | pd.DataFrame | None = prepare_result.prepared
     prepared = _apply_shortability_filter(
         system_name, prepared, prepare_result.skip_stats, log_callback
     )
@@ -2681,7 +2847,7 @@ def get_today_signals_for_strategy(
         setup_zero_reason = None
 
     if setup_pass <= 0:
-        if log_callback:
+        if log_callback is not None:
             try:
                 if setup_zero_reason:
                     log_callback(f"🛈 セットアップ不成立: {setup_zero_reason}")
@@ -2742,13 +2908,15 @@ def get_today_signals_for_strategy(
     # Emit diagnostic log if selection or extraction indicated zero candidates
     try:
         if getattr(selection, "zero_reason", None):
-            if log_callback:
+            if log_callback is not None:
                 try:
                     log_callback(f"🛈 選定結果: 候補0件理由: {selection.zero_reason}")
                 except Exception:
                     pass
-        elif hasattr(candidates, "zero_reason") and getattr(candidates, "zero_reason", None):
-            if log_callback:
+        elif hasattr(candidates, "zero_reason") and getattr(
+            candidates, "zero_reason", None
+        ):
+            if log_callback is not None:
                 try:
                     log_callback(f"🛈 抽出結果: 候補0件理由: {candidates.zero_reason}")
                 except Exception:
@@ -2794,6 +2962,11 @@ def run_all_systems_today(
     parallel: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """scripts.run_all_systems_today.compute_today_signals のラッパー。"""
+    # 進捗 JSONL へセッション開始イベントを（安全に）出す
+    try:
+        from common.progress_events import emit_phase as _emit_phase
+    except Exception:
+        _emit_phase = None  # type: ignore
     try:
         from scripts.run_all_systems_today import compute_today_signals as _compute
     except ImportError:
@@ -2810,7 +2983,14 @@ def run_all_systems_today(
     if log_callback is None:
         log_callback = _default_cli_log
 
-    return _compute(
+    # フェーズ: start
+    try:
+        if _emit_phase is not None:
+            _emit_phase("ui_wrapper", status="start")
+    except Exception:
+        pass
+
+    result = _compute(
         symbols,
         slots_long=slots_long,
         slots_short=slots_short,
@@ -2825,6 +3005,14 @@ def run_all_systems_today(
         symbol_data=symbol_data,
         parallel=parallel,
     )
+
+    # フェーズ: complete
+    try:
+        if _emit_phase is not None:
+            _emit_phase("ui_wrapper", status="complete")
+    except Exception:
+        pass
+    return cast(tuple[pd.DataFrame, dict[str, pd.DataFrame]], result)
 
 
 compute_today_signals = run_all_systems_today

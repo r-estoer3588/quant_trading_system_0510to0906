@@ -89,7 +89,9 @@ class TraceContext:
 
 
 # ContextVar for trace context
-_trace_context: ContextVar[Optional[TraceContext]] = ContextVar("trace_context", default=None)
+_trace_context: ContextVar[Optional[TraceContext]] = ContextVar(
+    "trace_context", default=None
+)
 
 # ContextVar for phase hierarchy
 _phase_stack: ContextVar[List[ProcessingPhase]] = ContextVar("phase_stack", default=[])
@@ -243,7 +245,9 @@ class PhaseProgress:
 
 
 # Global phase progress tracking
-_phase_progress: ContextVar[Optional[PhaseProgress]] = ContextVar("phase_progress", default=None)
+_phase_progress: ContextVar[Optional[PhaseProgress]] = ContextVar(
+    "phase_progress", default=None
+)
 
 
 def start_phase_progress(phase: ProcessingPhase, total_items: int) -> PhaseProgress:
@@ -291,7 +295,9 @@ def trading_run_context(run_id: Optional[str] = None, **metadata):
         yield ctx
 
 
-def log_phase_transition(from_phase: Optional[ProcessingPhase], to_phase: ProcessingPhase):
+def log_phase_transition(
+    from_phase: Optional[ProcessingPhase], to_phase: ProcessingPhase
+):
     """Log phase transition with trace context."""
     from common.structured_logging import get_trading_logger
 

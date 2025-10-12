@@ -290,7 +290,9 @@ def generate_candidates_system6(
                 metrics.record_metric(
                     "system6_candidates_batch_duration", batch_duration, "seconds"
                 )
-                metrics.record_metric("system6_candidates_rows_per_second", rows_per_second, "rate")
+                metrics.record_metric(
+                    "system6_candidates_rows_per_second", rows_per_second, "rate"
+                )
 
             batch_start = time.time()
             buffer.clear()
@@ -324,7 +326,9 @@ def generate_candidates_system6(
             pass
 
     # 最終メトリクス記録
-    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    total_candidates = sum(
+        len(candidates) for candidates in candidates_by_date.values()
+    )
     unique_dates = len(candidates_by_date)
     metrics.record_metric("system6_total_candidates", total_candidates, "count")
     metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")

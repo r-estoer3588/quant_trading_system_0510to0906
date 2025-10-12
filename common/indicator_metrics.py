@@ -51,7 +51,9 @@ class IndicatorMetrics:
         """成功率（％）"""
         if self.total_indicators == 0:
             return 100.0
-        return ((self.existing_count + self.computed_count) / self.total_indicators) * 100
+        return (
+            (self.existing_count + self.computed_count) / self.total_indicators
+        ) * 100
 
 
 class IndicatorMetricsCollector:
@@ -100,7 +102,9 @@ class IndicatorMetricsCollector:
             start_time = time.time()
 
             # メトリクス初期化
-            metrics = IndicatorMetrics(symbol=symbol, timestamp=pd.Timestamp.now().isoformat())
+            metrics = IndicatorMetrics(
+                symbol=symbol, timestamp=pd.Timestamp.now().isoformat()
+            )
 
             # 期待される全指標リスト（add_indicatorsが生成する可能性のある列）
             expected_indicators = self._get_expected_indicators()
@@ -128,7 +132,10 @@ class IndicatorMetricsCollector:
                     if indicator in new_columns:
                         metrics.computed_indicators.append(indicator)
                         metrics.computed_count += 1
-                    elif indicator not in initial_columns and indicator not in final_columns:
+                    elif (
+                        indicator not in initial_columns
+                        and indicator not in final_columns
+                    ):
                         # 期待されていたが生成されなかった指標
                         metrics.failed_indicators.append(indicator)
                         metrics.failed_count += 1
@@ -158,7 +165,9 @@ class IndicatorMetricsCollector:
                 metrics.total_indicators = len(expected_indicators)
                 metrics.failed_count = metrics.total_indicators - metrics.existing_count
                 metrics.failed_indicators = [
-                    i for i in expected_indicators if i not in metrics.existing_indicators
+                    i
+                    for i in expected_indicators
+                    if i not in metrics.existing_indicators
                 ]
 
                 self._record_metrics(metrics)
@@ -231,7 +240,8 @@ class IndicatorMetricsCollector:
             return
 
         filename = (
-            filename or f"indicator_metrics_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename
+            or f"indicator_metrics_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
         )
         filepath = self.output_dir / filename
 

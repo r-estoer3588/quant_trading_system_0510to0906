@@ -30,7 +30,9 @@ def test_ultra_optimized_phase2():
 
     # テスト用シンボル
     rolling_dir = Path(settings.cache.rolling_dir)
-    available_files = list(rolling_dir.glob("*.csv")) + list(rolling_dir.glob("*.parquet"))
+    available_files = list(rolling_dir.glob("*.csv")) + list(
+        rolling_dir.glob("*.parquet")
+    )
     symbols = [f.stem for f in available_files[:50]]
 
     if not symbols:
@@ -79,7 +81,11 @@ def test_ultra_optimized_phase2():
         try:
             # rolling → fullの順でファイルパスを探索
             for profile in ["rolling", "full"]:
-                base_dir = rolling_dir if profile == "rolling" else Path(settings.cache.full_dir)
+                base_dir = (
+                    rolling_dir
+                    if profile == "rolling"
+                    else Path(settings.cache.full_dir)
+                )
 
                 # 各ファイル形式を試行
                 for ext in [".parquet", ".feather", ".csv"]:
@@ -91,24 +97,34 @@ def test_ultra_optimized_phase2():
                                 df = pd.read_parquet(
                                     file_path, columns=None
                                 )  # 全列読み込み後に選別
-                                available_cols = [c for c in essential_columns if c in df.columns]
+                                available_cols = [
+                                    c for c in essential_columns if c in df.columns
+                                ]
                                 if available_cols:
                                     df = df[available_cols]
 
                             elif ext == ".feather":
                                 df = pd.read_feather(file_path)
-                                available_cols = [c for c in essential_columns if c in df.columns]
+                                available_cols = [
+                                    c for c in essential_columns if c in df.columns
+                                ]
                                 if available_cols:
                                     df = df[available_cols]
 
                             else:  # CSV
                                 # CSVは事前に列をチェック
                                 try:
-                                    sample = pd.read_csv(file_path, nrows=0)  # ヘッダーのみ
+                                    sample = pd.read_csv(
+                                        file_path, nrows=0
+                                    )  # ヘッダーのみ
                                     available_cols = [
-                                        c for c in essential_columns if c in sample.columns
+                                        c
+                                        for c in essential_columns
+                                        if c in sample.columns
                                     ]
-                                    use_cols = available_cols if available_cols else None
+                                    use_cols = (
+                                        available_cols if available_cols else None
+                                    )
 
                                     df = pd.read_csv(
                                         file_path,
@@ -119,7 +135,9 @@ def test_ultra_optimized_phase2():
                                             if k in (available_cols or [])
                                         },
                                         parse_dates=(
-                                            ["Date"] if "Date" in (available_cols or []) else None
+                                            ["Date"]
+                                            if "Date" in (available_cols or [])
+                                            else None
                                         ),
                                         low_memory=False,  # 型推論を無効化して高速化
                                     )
@@ -193,9 +211,9 @@ def test_ultra_optimized_phase2():
     # メモリ使用量の推測
     if ultra_data:
         sample_df = next(iter(ultra_data.values()))
-        estimated_memory_mb = (len(ultra_data) * sample_df.memory_usage(deep=True).sum()) / (
-            1024 * 1024
-        )
+        estimated_memory_mb = (
+            len(ultra_data) * sample_df.memory_usage(deep=True).sum()
+        ) / (1024 * 1024)
         print(f"💾 推定メモリ使用量: {estimated_memory_mb:.1f}MB")
 
 

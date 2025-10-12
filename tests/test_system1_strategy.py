@@ -31,13 +31,19 @@ class TestSystem1Strategy:
     def test_prepare_data_with_dict_input(self):
         """Test prepare_data with dictionary input"""
         mock_raw_data = {
-            "AAPL": pd.DataFrame({"Close": [100, 101, 102], "Volume": [1000, 1100, 1200]}),
-            "SPY": pd.DataFrame({"Close": [400, 401, 402], "Volume": [5000, 5100, 5200]}),
+            "AAPL": pd.DataFrame(
+                {"Close": [100, 101, 102], "Volume": [1000, 1100, 1200]}
+            ),
+            "SPY": pd.DataFrame(
+                {"Close": [400, 401, 402], "Volume": [5000, 5100, 5200]}
+            ),
         }
 
         mock_log_callback = Mock()
 
-        with patch("strategies.system1_strategy.prepare_data_vectorized_system1") as mock_prepare:
+        with patch(
+            "strategies.system1_strategy.prepare_data_vectorized_system1"
+        ) as mock_prepare:
             mock_prepare.return_value = {"AAPL": mock_raw_data["AAPL"]}
 
             result = self.strategy.prepare_data(
@@ -52,7 +58,9 @@ class TestSystem1Strategy:
         mock_raw_data = {"AAPL": pd.DataFrame({"Close": [100, 101]})}
         mock_log_callback = Mock()
 
-        with patch("strategies.system1_strategy.prepare_data_vectorized_system1") as mock_prepare:
+        with patch(
+            "strategies.system1_strategy.prepare_data_vectorized_system1"
+        ) as mock_prepare:
             # First call raises exception, second succeeds
             mock_prepare.side_effect = [
                 Exception("Test error"),
@@ -75,7 +83,9 @@ class TestSystem1Strategy:
             "SPY": pd.DataFrame({"Close": [400, 401], "ROC200": [0.05, 0.06]}),
         }
 
-        with patch("strategies.system1_strategy.generate_roc200_ranking_system1") as mock_generate:
+        with patch(
+            "strategies.system1_strategy.generate_roc200_ranking_system1"
+        ) as mock_generate:
             mock_generate.return_value = {"2023-01-01": ["AAPL"]}
 
             self.strategy.generate_candidates(mock_data_dict, top_n=5)
@@ -92,7 +102,9 @@ class TestSystem1Strategy:
             "SPY": pd.DataFrame({"Close": [400, 401]}),
         }
 
-        with patch("strategies.system1_strategy.generate_roc200_ranking_system1") as mock_generate:
+        with patch(
+            "strategies.system1_strategy.generate_roc200_ranking_system1"
+        ) as mock_generate:
             with patch("config.settings.get_settings") as mock_get_settings:
                 mock_settings = Mock()
                 mock_settings.backtest.top_n_rank = 15
@@ -127,10 +139,14 @@ class TestSystem1Strategy:
             }
         )
 
-        with patch("strategies.system1_strategy.simulate_trades_with_risk") as mock_simulate:
+        with patch(
+            "strategies.system1_strategy.simulate_trades_with_risk"
+        ) as mock_simulate:
             mock_simulate.return_value = (mock_trades_df, {})
 
-            result = self.strategy.run_backtest(mock_data_dict, mock_candidates, capital)
+            result = self.strategy.run_backtest(
+                mock_data_dict, mock_candidates, capital
+            )
 
             mock_simulate.assert_called_once()
             assert len(result) == 1
@@ -164,7 +180,9 @@ class TestSystem1Strategy:
     def test_compute_entry_invalid_date(self):
         """Test compute_entry with invalid entry date"""
         dates = pd.date_range("2023-01-01", periods=3, freq="D")
-        df = pd.DataFrame({"Open": [100.0, 101.0, 102.0], "ATR20": [2.0, 2.1, 2.2]}, index=dates)
+        df = pd.DataFrame(
+            {"Open": [100.0, 101.0, 102.0], "ATR20": [2.0, 2.1, 2.2]}, index=dates
+        )
 
         candidate = {"entry_date": "2023-01-10"}  # Date not in DataFrame
 
@@ -191,7 +209,9 @@ class TestSystem1Strategy:
         entry_price = 101.0
         stop_price = 90.0
 
-        exit_price, exit_date = self.strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+        exit_price, exit_date = self.strategy.compute_exit(
+            df, entry_idx, entry_price, stop_price
+        )
 
         # Should exit at stop price on day 2 (index 2)
         assert exit_price == 90.0
@@ -215,7 +235,9 @@ class TestSystem1Strategy:
         entry_price = 101.0
         stop_price = 90.0
 
-        exit_price, exit_date = self.strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+        exit_price, exit_date = self.strategy.compute_exit(
+            df, entry_idx, entry_price, stop_price
+        )
 
         # Should exit at close price after max_hold_days (index 3)
         assert exit_price == 103.5
@@ -225,7 +247,9 @@ class TestSystem1Strategy:
         """Test get_total_days method"""
         mock_data_dict = {"AAPL": pd.DataFrame({"Close": [100, 101, 102]})}
 
-        with patch("strategies.system1_strategy.get_total_days_system1") as mock_get_days:
+        with patch(
+            "strategies.system1_strategy.get_total_days_system1"
+        ) as mock_get_days:
             mock_get_days.return_value = 250
 
             result = self.strategy.get_total_days(mock_data_dict)

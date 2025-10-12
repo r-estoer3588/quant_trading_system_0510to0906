@@ -103,7 +103,9 @@ class TestCacheManagerCoreFixed:
         manager = CacheManager(working_settings)
 
         # Simple DataFrame
-        df = pd.DataFrame({"Keep1": [1, 2, 3], "Keep2": [4, 5, 6], "Remove1": [7, 8, 9]})
+        df = pd.DataFrame(
+            {"Keep1": [1, 2, 3], "Keep2": [4, 5, 6], "Remove1": [7, 8, 9]}
+        )
 
         keep_columns = ["Keep1", "Keep2"]
         result = manager.remove_unnecessary_columns(df, keep_columns)

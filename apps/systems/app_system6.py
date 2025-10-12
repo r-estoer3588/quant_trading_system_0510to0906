@@ -186,7 +186,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
 
     # UIManager を必要最低限で初期化（事前フェーズプレースホルダーは生成しない）
     ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
+        ui_manager.system(SYSTEM_NAME)
+        if ui_manager
+        else UIManager().system(SYSTEM_NAME)
     )
 
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
@@ -237,7 +239,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            _dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -282,7 +286,9 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
+                    0
+                ]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None

@@ -281,7 +281,9 @@ class TestMergeOhlcvVariants:
 
     def test_single_ohlcv_column_preservation(self):
         """単一OHLCV列の保持"""
-        df = pd.DataFrame({"Open": [1, 2, 3], "High": [4, 5, 6], "Other": ["a", "b", "c"]})
+        df = pd.DataFrame(
+            {"Open": [1, 2, 3], "High": [4, 5, 6], "Other": ["a", "b", "c"]}
+        )
         result = _merge_ohlcv_variants(df)
 
         # 正規化されて同じ値が維持される
@@ -357,7 +359,9 @@ class TestMergeOhlcvVariants:
     def test_exception_handling_in_merging(self):
         """マージ処理中の例外処理"""
         # 異なる型の列で例外が発生する可能性
-        df = pd.DataFrame({"open": ["1", "2", "3"], "OPEN": [1.0, 2.0, 3.0]})  # 文字列  # 数値
+        df = pd.DataFrame(
+            {"open": ["1", "2", "3"], "OPEN": [1.0, 2.0, 3.0]}
+        )  # 文字列  # 数値
 
         # 例外が発生してもクラッシュしない
         result = _merge_ohlcv_variants(df)

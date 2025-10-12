@@ -330,7 +330,10 @@ class TestSystem4MainFunctions:
 
         # Diagnostics should be consistent
         assert diagnostics1["ranking_source"] == diagnostics2["ranking_source"]
-        assert diagnostics1["setup_predicate_count"] == diagnostics2["setup_predicate_count"]
+        assert (
+            diagnostics1["setup_predicate_count"]
+            == diagnostics2["setup_predicate_count"]
+        )
         assert diagnostics1["ranked_top_n_count"] == diagnostics2["ranked_top_n_count"]
 
 

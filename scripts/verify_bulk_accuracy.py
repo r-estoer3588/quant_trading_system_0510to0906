@@ -49,7 +49,9 @@ class BulkDataVerifier:
         # 信頼性スコアの最低基準
         self.min_reliability = env_config.bulk_api_min_reliability / 100.0
 
-    def fetch_individual_eod(self, symbol: str, date: str | None = None) -> dict[str, Any]:
+    def fetch_individual_eod(
+        self, symbol: str, date: str | None = None
+    ) -> dict[str, Any]:
         """個別APIで最新データを取得（検証用）"""
         if not API_KEY:
             return {}
@@ -58,7 +60,11 @@ class BulkDataVerifier:
         params = {
             "api_token": API_KEY,
             "fmt": "json",
-            "from": (date if date else (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")),
+            "from": (
+                date
+                if date
+                else (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+            ),
             "to": date if date else datetime.now().strftime("%Y-%m-%d"),
         }
 
@@ -126,7 +132,9 @@ class BulkDataVerifier:
             if bulk_val is not None and ref_val is not None and ref_val > 0:
                 diff_pct = abs(bulk_val - ref_val) / ref_val
                 # Volumeは緩和した許容範囲、価格データは厳格な許容範囲
-                field_tolerance = self.volume_tolerance if field == "volume" else tolerance
+                field_tolerance = (
+                    self.volume_tolerance if field == "volume" else tolerance
+                )
 
                 if diff_pct > field_tolerance:
                     issues.append(
@@ -220,9 +228,13 @@ class BulkDataVerifier:
                     # 日付を確認
                     cached_date = None
                     if "Date" in cached.columns:
-                        cached_date = pd.to_datetime(cached["Date"].iloc[-1]).strftime("%Y-%m-%d")
+                        cached_date = pd.to_datetime(cached["Date"].iloc[-1]).strftime(
+                            "%Y-%m-%d"
+                        )
                     elif "date" in cached.columns:
-                        cached_date = pd.to_datetime(cached["date"].iloc[-1]).strftime("%Y-%m-%d")
+                        cached_date = pd.to_datetime(cached["date"].iloc[-1]).strftime(
+                            "%Y-%m-%d"
+                        )
 
                     if cached_date:
                         print(f"  📁 キャッシュ最新日: {cached_date}")
@@ -367,7 +379,9 @@ class BulkDataVerifier:
                 bulk_symbols = set(bulk_df["code"].str.upper())
 
                 coverage = (
-                    len(bulk_symbols & universe_set) / len(universe_set) if universe_set else 0
+                    len(bulk_symbols & universe_set) / len(universe_set)
+                    if universe_set
+                    else 0
                 )
                 missing = universe_set - bulk_symbols
 
@@ -418,14 +432,20 @@ def main():
         """,
     )
 
-    parser.add_argument("--symbols", type=str, help="検証する銘柄（カンマ区切り）例: AAPL,MSFT,SPY")
+    parser.add_argument(
+        "--symbols", type=str, help="検証する銘柄（カンマ区切り）例: AAPL,MSFT,SPY"
+    )
     parser.add_argument(
         "--use-api",
         action="store_true",
         help="個別APIでも検証（APIコール消費に注意）",
     )
-    parser.add_argument("--timing", action="store_true", help="取得タイミングの影響を調査")
-    parser.add_argument("--coverage", action="store_true", help="Bulkデータのカバレッジを分析")
+    parser.add_argument(
+        "--timing", action="store_true", help="取得タイミングの影響を調査"
+    )
+    parser.add_argument(
+        "--coverage", action="store_true", help="Bulkデータのカバレッジを分析"
+    )
     parser.add_argument(
         "--full",
         action="store_true",
@@ -453,7 +473,9 @@ def main():
     # 精度検証
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",")]
-        results = verifier.verify_sample_symbols(symbols, use_individual_api=args.use_api)
+        results = verifier.verify_sample_symbols(
+            symbols, use_individual_api=args.use_api
+        )
     else:
         results = verifier.verify_sample_symbols(use_individual_api=args.use_api)
 

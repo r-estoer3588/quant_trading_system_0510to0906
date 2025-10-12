@@ -80,7 +80,9 @@ class TestSystem5MainFunctions:
         with patch("core.system5.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system5(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system5(
+                raw_data_dict=mock_data, reuse_indicators=True
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -125,7 +127,9 @@ class TestSystem5MainFunctions:
                 [],
             )
 
-            result = prepare_data_vectorized_system5(raw_data_dict=None, symbols=symbols)
+            result = prepare_data_vectorized_system5(
+                raw_data_dict=None, symbols=symbols
+            )
 
         assert isinstance(result, dict)
         assert len(result) == 2
@@ -235,7 +239,9 @@ class TestSystem5MainFunctions:
 
         assert isinstance(candidates, dict)
         assert len(candidates) == 0
-        assert merged_df is None or (isinstance(merged_df, pd.DataFrame) and merged_df.empty)
+        assert merged_df is None or (
+            isinstance(merged_df, pd.DataFrame) and merged_df.empty
+        )
 
     def test_generate_candidates_system5_ranking_order(self):
         """Test that candidates are ranked by ADX7 descending"""
@@ -364,7 +370,9 @@ class TestSystem5EdgeCases:
         with patch("core.system5.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system5(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system5(
+                raw_data_dict=mock_data, reuse_indicators=True
+            )
 
         assert isinstance(result, dict)
         # Should handle NaN values gracefully
@@ -385,7 +393,9 @@ class TestSystem5EdgeCases:
             ),
         }
 
-        candidates, merged_df = generate_candidates_system5(prepared_dict=prepared_dict, top_n=10)
+        candidates, merged_df = generate_candidates_system5(
+            prepared_dict=prepared_dict, top_n=10
+        )
 
         assert isinstance(candidates, dict)
         # Should return empty candidates or handle gracefully

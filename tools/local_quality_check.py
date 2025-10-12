@@ -116,11 +116,15 @@ def run_mypy(paths: List[str], limit: int) -> ToolResult:
     text = out + err
     lines = [line for line in text.splitlines() if line.strip()]
     # 最終行に summary があるケース: "Found X errors" 等
-    error_lines = [line for line in lines if ": error:" in line or line.endswith(" error")]
+    error_lines = [
+        line for line in lines if ": error:" in line or line.endswith(" error")
+    ]
     issues = len(error_lines)
     if code == 0:
         return ToolResult(name="mypy", status="success", issues=0)
-    return ToolResult(name="mypy", status="fail", issues=issues, details=error_lines[:limit])
+    return ToolResult(
+        name="mypy", status="fail", issues=issues, details=error_lines[:limit]
+    )
 
 
 def run_pytest(limit: int) -> ToolResult:
@@ -218,7 +222,9 @@ def aggregate(paths: List[str], limit: int) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Local quality aggregator (no Docker)")
-    parser.add_argument("--paths", nargs="*", help="Target directories (default: auto-detect)")
+    parser.add_argument(
+        "--paths", nargs="*", help="Target directories (default: auto-detect)"
+    )
     parser.add_argument(
         "--limit", type=int, default=DEFAULT_LIMIT, help="Per tool issue sample limit"
     )
@@ -234,7 +240,8 @@ def main() -> int:
 
     # stderr に簡易サマリ
     summary_lines = [
-        f"[{p['name']}] {p['status']} issues={p.get('issues',0)}" for p in payload["results"]
+        f"[{p['name']}] {p['status']} issues={p.get('issues',0)}"
+        for p in payload["results"]
     ]
     print("\n".join(summary_lines), file=sys.stderr)
 

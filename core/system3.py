@@ -38,7 +38,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -54,7 +56,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         except Exception:
             _atr_thr = 0.05
         x["filter"] = (
-            (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= _atr_thr)
+            (x["Close"] >= 5.0)
+            & (x["dollarvolume20"] > 25_000_000)
+            & (x["atr_ratio"] >= _atr_thr)
         )
 
         # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
@@ -132,7 +136,9 @@ def prepare_data_vectorized_system3(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System3: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System3: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -142,7 +148,9 @@ def prepare_data_vectorized_system3(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System3: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System3: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -155,7 +163,9 @@ def prepare_data_vectorized_system3(
         return {}
 
     if log_callback:
-        log_callback(f"System3: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System3: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -260,7 +270,9 @@ def generate_candidates_system3(
 
             # Use predicate for setup evaluation
             try:
-                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+                from common.system_setup_predicates import (
+                    system3_setup_predicate as _s3_pred,
+                )
             except Exception:
                 _s3_pred = None
 
@@ -312,7 +324,9 @@ def generate_candidates_system3(
 
         # trading-day lag helper
         try:
-            from common.utils_spy import calculate_trading_days_lag as _td_lag  # noqa: WPS433
+            from common.utils_spy import (  # noqa: WPS433
+                calculate_trading_days_lag as _td_lag,
+            )
         except Exception:
             _td_lag = None
 
@@ -345,7 +359,11 @@ def generate_candidates_system3(
                                 lag_days = int((target_date - latest_idx_norm).days)
                         except Exception:
                             lag_days = None
-                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
+                        if (
+                            lag_days is not None
+                            and lag_days >= 0
+                            and lag_days <= max_date_lag_days
+                        ):
                             last_row = _to_series(df.loc[latest_idx_raw])
                             dt = target_date
                         else:
@@ -419,13 +437,24 @@ def generate_candidates_system3(
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 # 明示エントリー日（翌営業日）
                 try:
-                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+                    from common.utils_spy import (
+                        resolve_signal_entry_date as _resolve_entry,
+                    )
 
                     entry_dt = _resolve_entry(dt)
                 except Exception:
                     entry_dt = None
 
                 atr_payload = 0 if pd.isna(atr_val) else atr_val
+
+                # ATR10を配分計算用に保持
+                atr10_val = 0.0
+                try:
+                    atr10_raw = last_row.get("atr10")
+                    if atr10_raw is not None and not pd.isna(atr10_raw):
+                        atr10_val = float(atr10_raw)
+                except Exception:
+                    pass
 
                 rows.append(
                     {
@@ -435,6 +464,7 @@ def generate_candidates_system3(
                         "drop3d": drop_val,
                         "atr_ratio": atr_payload,
                         "close": last_row.get("Close", 0),
+                        "atr10": atr10_val,
                     }
                 )
             except Exception:
@@ -460,7 +490,11 @@ def generate_candidates_system3(
                                 _s_atr,
                                 _s_filter,
                             ) = _evaluate_row(s_last)
-                            drop_txt = f"{s_drop_val:.4f}" if not pd.isna(s_drop_val) else "nan"
+                            drop_txt = (
+                                f"{s_drop_val:.4f}"
+                                if not pd.isna(s_drop_val)
+                                else "nan"
+                            )
                             samples.append(
                                 (
                                     f"{s_sym}: date={s_dt.date()} "
@@ -475,7 +509,10 @@ def generate_candidates_system3(
                             continue
                     if samples:
                         log_callback(
-                            ("System3: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                            (
+                                "System3: DEBUG latest_only 0 candidates. "
+                                + " | ".join(samples)
+                            )
                         )
                 except Exception:
                     pass
@@ -486,7 +523,9 @@ def generate_candidates_system3(
         # top-off用に元の全候補を保持
         df_all_original = df_all.copy()
         if log_callback:
-            log_callback(f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}")
+            log_callback(
+                f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}"
+            )
 
         # target_date 優先でフィルタ。0件/不足時は安全フォールバックで補充する
         try:
@@ -545,9 +584,13 @@ def generate_candidates_system3(
         # df_all_original または lagged_rows に補完候補がある場合に top-off を実行
         if missing > 0 and (len(df_all_original) > 0 or lagged_rows):
             try:
-                exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                exists = (
+                    set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                )
                 extras_pool = (
-                    df_all_original.sort_values("drop3d", ascending=False, kind="stable")
+                    df_all_original.sort_values(
+                        "drop3d", ascending=False, kind="stable"
+                    )
                     .loc[~df_all_original["symbol"].astype(str).isin(exists)]
                     .copy()
                 )
@@ -556,7 +599,9 @@ def generate_candidates_system3(
                     lag_df = pd.DataFrame(lagged_rows)
                     if not lag_df.empty:
                         lag_df = lag_df.loc[~lag_df["symbol"].astype(str).isin(exists)]
-                        extras_pool = pd.concat([extras_pool, lag_df], ignore_index=True)
+                        extras_pool = pd.concat(
+                            [extras_pool, lag_df], ignore_index=True
+                        )
                 if not extras_pool.empty:
                     if final_label_date is None:
                         try:
@@ -574,7 +619,9 @@ def generate_candidates_system3(
                                 resolve_signal_entry_date as _resolve_entry_dt2,
                             )
 
-                            extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(final_label_date)
+                            extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(
+                                final_label_date
+                            )
                         except Exception:
                             extras_pool.loc[:, "entry_date"] = final_label_date
                     extras_take = extras_pool.head(missing)
@@ -645,7 +692,9 @@ def generate_candidates_system3(
                     continue
                 row = cast(pd.Series, df.loc[date])
                 setup_val = bool(row.get("setup", False))
-                from common.system_setup_predicates import system3_setup_predicate as _s3_pred
+                from common.system_setup_predicates import (
+                    system3_setup_predicate as _s3_pred,
+                )
 
                 pred_val = _s3_pred(row)
                 if pred_val:
@@ -691,7 +740,9 @@ def generate_candidates_system3(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "drop3d"], ascending=[True, False]
+        )
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -705,7 +756,10 @@ def generate_candidates_system3(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            ("System3: Generated " f"{total_candidates} candidates across {unique_dates} dates")
+            (
+                "System3: Generated "
+                f"{total_candidates} candidates across {unique_dates} dates"
+            )
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

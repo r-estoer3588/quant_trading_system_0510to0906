@@ -273,7 +273,9 @@ def _run_single_strategy(
 
     # System4 SPY依存チェック
     if name == "system4" and spy_df is None:
-        _local_log("⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。")
+        _local_log(
+            "⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
+        )
         return pd.DataFrame(), f"❌ {name}: 0 件 🚫", logs
 
     _local_log(f"🔎 {name}: シグナル抽出を開始")
@@ -299,7 +301,9 @@ def _run_single_strategy(
     lookback_days = _get_lookback_days(name, stg, base)
 
     if use_process_pool:
-        _local_log(f"⚙️ {name}: プロセスプール実行を開始 (workers={max_workers or 'auto'})")
+        _local_log(
+            f"⚙️ {name}: プロセスプール実行を開始 (workers={max_workers or 'auto'})"
+        )
 
     # 戦略実行
     df = pd.DataFrame()
@@ -363,7 +367,9 @@ def _run_single_strategy(
             if pool_outcome == "success":
                 _local_log(f"🏁 {name}: プロセスプール実行が完了しました")
             elif pool_outcome == "fallback":
-                _local_log(f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）")
+                _local_log(
+                    f"🏁 {name}: プロセスプール実行を終了（フォールバック実行済み）"
+                )
             else:
                 _local_log(f"🏁 {name}: プロセスプール実行を終了（結果: 失敗）")
 
@@ -408,13 +414,16 @@ def _get_max_workers() -> int | None:
         return None
 
 
-def _get_lookback_days(name: str, stg: Any, base: Mapping[str, pd.DataFrame | None]) -> int:
+def _get_lookback_days(
+    name: str, stg: Any, base: Mapping[str, pd.DataFrame | None]
+) -> int:
     """戦略別ルックバック日数の決定"""
     # デフォルトルックバック設定
     try:
         settings = get_settings(create_dirs=True)
         lb_default = int(
-            settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+            settings.cache.rolling.base_lookback_days
+            + settings.cache.rolling.buffer_days
         )
     except Exception:
         lb_default = 300

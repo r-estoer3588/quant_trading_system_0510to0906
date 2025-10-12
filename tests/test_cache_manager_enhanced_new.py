@@ -120,7 +120,9 @@ class TestCacheManagerReadOperations:
         mock_read.assert_called_once()
 
     @patch.object(CacheManager, "_read_base_and_tail")
-    def test_read_base_and_tail_none_result(self, mock_read, cache_manager_with_temp_dirs):
+    def test_read_base_and_tail_none_result(
+        self, mock_read, cache_manager_with_temp_dirs
+    ):
         """Test _read_base_and_tail when file doesn't exist."""
         manager = cache_manager_with_temp_dirs
         mock_read.return_value = None
@@ -136,7 +138,9 @@ class TestCacheManagerReadOperations:
         # Mock file_manager.detect_path and read_with_fallback
         with (
             patch.object(manager.file_manager, "detect_path") as mock_detect,
-            patch.object(manager.file_manager, "read_with_fallback"),  # mock_read removed
+            patch.object(
+                manager.file_manager, "read_with_fallback"
+            ),  # mock_read removed
         ):
             mock_path = Mock()
             mock_path.exists.return_value = False
@@ -158,7 +162,9 @@ class TestCacheManagerWriteOperations:
             manager.write_atomic(sample_ohlcv_data, "AAPL", "base")
             mock_write.assert_called_once()
 
-    def test_upsert_both_calls_upsert_one(self, cache_manager_with_temp_dirs, sample_ohlcv_data):
+    def test_upsert_both_calls_upsert_one(
+        self, cache_manager_with_temp_dirs, sample_ohlcv_data
+    ):
         """Test that upsert_both calls _upsert_one for both profiles."""
         manager = cache_manager_with_temp_dirs
 
@@ -207,7 +213,9 @@ class TestCacheManagerIndicatorOperations:
         result = manager._recompute_indicators(empty_df)
         assert result.empty
 
-    def test_recompute_indicators_missing_required_columns(self, cache_manager_with_temp_dirs):
+    def test_recompute_indicators_missing_required_columns(
+        self, cache_manager_with_temp_dirs
+    ):
         """Test _recompute_indicators when required OHLC columns are missing."""
         manager = cache_manager_with_temp_dirs
 
@@ -282,7 +290,9 @@ class TestCacheManagerUtilityMethods:
         result = manager._enforce_rolling_window(sample_ohlcv_data)
         assert len(result) <= manager.rolling_cfg.window_size
 
-    def test_optimize_dataframe_memory_basic(self, cache_manager_with_temp_dirs, sample_ohlcv_data):
+    def test_optimize_dataframe_memory_basic(
+        self, cache_manager_with_temp_dirs, sample_ohlcv_data
+    ):
         """Test optimize_dataframe_memory basic functionality."""
         manager = cache_manager_with_temp_dirs
 

@@ -63,7 +63,9 @@ def days_held(entry_date: str | None) -> int | None:
         return None
 
 
-def fetch_entry_dates_from_alpaca(client: Any, symbols: Iterable[str]) -> dict[str, pd.Timestamp]:
+def fetch_entry_dates_from_alpaca(
+    client: Any, symbols: Iterable[str]
+) -> dict[str, pd.Timestamp]:
     """Fetch entry dates for ``symbols`` from Alpaca fill activities.
 
     Parameters
@@ -104,7 +106,9 @@ def fetch_entry_dates_from_alpaca(client: Any, symbols: Iterable[str]) -> dict[s
 
         # Alpaca returns most recent first; normalize to oldest fill.
         try:
-            sorted_acts = sorted(activities, key=lambda a: getattr(a, "transaction_time", ""))
+            sorted_acts = sorted(
+                activities, key=lambda a: getattr(a, "transaction_time", "")
+            )
         except Exception:
             sorted_acts = list(activities)
 
