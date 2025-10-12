@@ -2989,6 +2989,12 @@ def _save_and_notify_phase(
             out_df.to_csv(out, index=False)
         _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
 
+        # 保存確認（同期検証用）
+        if out_all.exists():
+            _log(f"✅ CSV保存確認: {out_all.name} ({len(final_df)}行)")
+        else:
+            _log(f"⚠️ CSV保存失敗: {out_all} が見つかりません")
+
         # --- TRDlist validation and report export (non-intrusive) ---
         try:
             from common.trdlist_validator import build_validation_report
@@ -6333,6 +6339,16 @@ def maybe_run_planned_exits(args: argparse.Namespace) -> None:
 def main():
     args = parse_cli_args()
     configure_logging_for_cli(args)
+
+    # 進捗イベントログを初期化（実行ごとにクリア）
+    if ENABLE_PROGRESS_EVENTS:
+        try:
+            from common.progress_events import reset_progress_log
+
+            reset_progress_log()
+        except Exception:
+            pass
+
     # 他スコープ（compute_today_signals 内）で --full-scan-today を参照できるように一時保存
     try:
         globals()["_CLI_ARGS"] = args

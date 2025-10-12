@@ -1,0 +1,33 @@
+{
+  "name": "quant_trading_system",
+  "version": "1.0.0",
+  "description": "![CI Unified](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/CI%20Unified/badge.svg)\r ![Coverage Report](https://github.com/r-estoer3588/quant_trading_system_0510to0906/workflows/Coverage%20Report/badge.svg)\r ![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)\r ![License](https://img.shields.io/badge/license-Private-red.svg)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "test:streamlit": "playwright test e2e/streamlit",
+    "test:quick": "playwright test --project=chromium"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/r-estoer3588/quant_trading_system_0510to0906.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/r-estoer3588/quant_trading_system_0510to0906/issues"
+  },
+  "homepage": "https://github.com/r-estoer3588/quant_trading_system_0510to0906#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.7.2"
+  }
+}

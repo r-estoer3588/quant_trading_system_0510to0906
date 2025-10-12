@@ -37,6 +37,12 @@
 				"--save-csv"
 			],
 			"group": "build",
+			"options": {
+				"env": {
+					"ENABLE_PROGRESS_EVENTS": "1",
+					"COMPACT_TODAY_LOGS": "1"
+				}
+			},
 			"presentation": {
 				"echo": true,
 				"reveal": "always",
@@ -336,6 +342,88 @@
 				"reveal": "always",
 				"panel": "dedicated"
 			}
+		},
+		{
+			"label": "E2E: Run All Tests",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"test"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: Run Tests (Headed)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"test:headed"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: Interactive UI",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"test:ui"
+			],
+			"group": "test",
+			"isBackground": true,
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: Show Report",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"test:report"
+			],
+			"group": "test",
+			"isBackground": true,
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: Quick Test (Chromium Only)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"test:quick"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			},
+			"problemMatcher": []
 		}
 	]
 }
