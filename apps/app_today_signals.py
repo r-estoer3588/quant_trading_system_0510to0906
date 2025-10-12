@@ -1537,6 +1537,8 @@ class StageTracker:
         self._last_event: dict[str, tuple[int, int, int, int, int, float]] = {}
         self.universe_total: int | None = None
         self.universe_target: int | None = None
+        # JSONL進捗イベント同期用: 最後に読み込んだ候補数
+        self._jsonl_candidates: dict[str, int] = {}
         if self.show_ui:
             sys_cols = st.columns(7)
             sys_labels = [f"System{i}" for i in range(1, 8)]
@@ -1563,11 +1565,13 @@ class StageTracker:
 
         # フェーズに応じた適切な値を設定
         if phase == "start":
-            # 開始時は0%から開始（リセット）
+            # 開始時は強制的に0にリセット
             value = 0
-            self.states[key] = 0  # 状態もリセット
+            self.states[key] = 0
         elif phase == "done":
+            # 完了時は強制的に100に設定
             value = 100
+            self.states[key] = 100
         else:
             # その他のフェーズでは実際の進捗値を取得
             try:
@@ -1579,20 +1583,85 @@ class StageTracker:
             except Exception:
                 value = self.states.get(key, 0)
 
-        value = max(0, min(100, int(value)))
+            # 値を0-100に制限
+            value = max(0, min(100, int(value)))
 
-        # 通常時は進捗後退を防ぐが、開始時（phase="start"）はリセットを許可
-        if phase != "start":
+            # 進捗後退を防ぐ: 前回値より大きい場合のみ更新
             prev = int(self.states.get(key, 0))
-            value = max(prev, value)
-
-        self.states[key] = value
+            if value > prev:
+                self.states[key] = value
+            else:
+                # 後退する場合は前回値を維持
+                value = prev
 
         try:
             progress_bar.progress(value)
             self.stage_txt[key].text(f"run {value}%" if value < 100 else "done 100%")
         except Exception:
             pass
+
+        # JSONL進捗イベントと同期: 候補数を更新
+        self._sync_from_jsonl_if_needed()
+
+    def _sync_from_jsonl_if_needed(self) -> None:
+        """JSONL進捗イベントから最新の候補数を取得してメトリクスを更新する"""
+        try:
+            settings = get_settings(create_dirs=False)
+            logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
+            jsonl_path = logs_dir / "progress_today.jsonl"
+            if not jsonl_path.exists():
+                return
+
+            # system_complete イベントから候補数を抽出
+            events = _read_progress_events_safe(limit=100)  # 最新100件をチェック
+            for event in reversed(events):  # 新しい順に処理
+                if event.get("event_type") != "system_complete":
+                    continue
+                data = event.get("data", {})
+                sys_name = data.get("system", "").lower()
+                candidates = data.get("candidates")
+                if sys_name and candidates is not None:
+                    # 候補数が変化していたら更新
+                    prev = self._jsonl_candidates.get(sys_name)
+                    if prev != candidates:
+                        self._jsonl_candidates[sys_name] = candidates
+                        counts = self._ensure_counts(sys_name)
+                        counts["cand"] = int(candidates)
+                        counts["entry"] = int(candidates)  # Entry も同じ値で更新
+                        self._render_metrics(sys_name)
+        except Exception:
+            pass  # エラーは無視（UI更新の補助機能なので）
+
+    def _sync_final_counts_from_jsonl(self) -> None:
+        """JSONL進捗イベントから最終候補数(pipeline_complete)を取得してメトリクスを更新する"""
+        try:
+            settings = get_settings(create_dirs=False)
+            logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
+            jsonl_path = logs_dir / "progress_today.jsonl"
+            if not jsonl_path.exists():
+                return
+
+            events = _read_progress_events_safe(limit=50)
+            # system_complete イベントから各システムの候補数を取得
+            system_candidates: dict[str, int] = {}
+            for event in events:
+                if event.get("event_type") == "system_complete":
+                    data = event.get("data", {})
+                    sys_name = data.get("system", "").lower()
+                    candidates = data.get("candidates")
+                    if sys_name and candidates is not None:
+                        system_candidates[sys_name] = int(candidates)
+
+            # 各システムのメトリクスを更新
+            for sys_name, cand_count in system_candidates.items():
+                counts = self._ensure_counts(sys_name)
+                counts["cand"] = cand_count
+                # Entry も候補数と同じに設定（配分前）
+                if counts.get("entry") is None or counts["entry"] == 0:
+                    counts["entry"] = cand_count
+                self._render_metrics(sys_name)
+        except Exception:
+            pass  # エラーは無視
 
     def _initialize_from_store(self) -> None:
         try:
@@ -1785,6 +1854,9 @@ class StageTracker:
         self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
     ) -> None:  # noqa: E501
         """最終化：残った候補/エントリー数を補完し、全バーを100%にする。"""
+        # まずJSONL進捗イベントから最終候補数を同期
+        self._sync_final_counts_from_jsonl()
+
         # AllocationSummary が dict で同梱されている場合、slot_candidates を候補数のフォールバックに使用する
         alloc_slot_candidates: dict[str, int] | None = None
         alloc_final_counts: dict[str, int] | None = None
@@ -1968,6 +2040,12 @@ class StageTracker:
         self.refresh_all()
 
     def refresh_all(self) -> None:
+        # まずJSONLから最新データを同期
+        try:
+            self._sync_final_counts_from_jsonl()
+        except Exception:
+            pass
+        # 全システムのメトリクスを再描画
         for name in self.metrics_store.systems():
             self._render_metrics(name)
 

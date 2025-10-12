@@ -143,6 +143,33 @@ PR 作成時に自動的にカバレッジレポートが生成され、以下�
 
 ---
 
+## 🤖 自動化機能
+
+このプロジェクトは **AI 駆動開発** を重視し、以下の自動化機能を統合しています：
+
+### 開発自動化
+
+- ✅ **プロジェクトルールチェック**: CacheManager 経由のアクセス、System7 SPY 固定などを自動検証
+- ⏱️ **パフォーマンス回帰検知**: mini テストのベンチマーク計測、10% 劣化で警告
+- 📸 **スナップショットテスト**: 出力 CSV の変化を自動検出、Git commit と紐付け
+- 🔍 **pre-commit/pre-push フック**: コミット・プッシュ時に自動品質チェック
+
+### 運用自動化
+
+- 🚀 **日次シグナル自動実行**: Windows タスクスケジューラで毎日 10:00 JST に自動生成
+- 📊 **Slack 通知**: 成功/エラーを自動通知（`#trading-signals`, `#trading-errors`）
+- ☁️ **GitHub Actions**: クラウドでのシグナル生成、ドキュメント更新、セキュリティ監査
+
+### ドキュメント自動化
+
+- 📝 **API ドキュメント生成**: docstring から markdown を自動生成（`docs/api/`）
+- 📊 **システム仕様書生成**: System1-7 の仕様を自動抽出（`docs/systems_auto/`）
+- 🔄 **GitHub Actions 連携**: コード変更時に自動でドキュメント更新
+
+**詳細**: [docs/automation/AUTOMATION_GUIDE.md](./docs/automation/AUTOMATION_GUIDE.md)
+
+---
+
 ## セットアップ
 
 1. 仮想環境を作成し依存関係をインストール:

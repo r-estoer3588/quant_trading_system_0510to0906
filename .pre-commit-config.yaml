@@ -54,6 +54,32 @@ repos:
 
   - repo: local
     hooks:
+      # === Automation Tools ===
+      - id: project-rules-check
+        name: Project-Specific Rules Check
+        entry: python tools/check_project_rules.py
+        language: system
+        types: [python]
+        pass_filenames: true
+        exclude: ^(tests/|tools/check_project_rules\.py|e2e/)
+        stages: [pre-push] # より厳格に pre-push で実行
+
+      - id: auto-benchmark
+        name: Performance Regression Check
+        entry: python tools/auto_benchmark.py --threshold 0.10 --confirm
+        language: system
+        files: ^(core/|common/|scripts/run_all_systems_today\.py)
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: auto-snapshot
+        name: Snapshot Test (Core Changes)
+        entry: python tools/auto_snapshot.py --compare
+        language: system
+        files: ^(core/system[1-7]\.py|core/final_allocation\.py|common/today_signals\.py)
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: pytest-quick
         name: pytest quick subset
         entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m pytest -q --tb=short -k "not slow and not integration"

@@ -1,0 +1,62 @@
+name: Daily Signal Generation (Scheduled)
+
+on:
+    schedule:
+        # 日本時間 10:00 (UTC 01:00) に実行
+        - cron: "0 1 * * 1-5" # 月-金
+
+    workflow_dispatch: # 手動実行も可能
+
+jobs:
+    generate-signals:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+                  cache: "pip"
+
+            - name: Install dependencies
+              run: |
+                  pip install -r requirements.txt
+
+            - name: Cache update
+              env:
+                  EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+              run: |
+                  python scripts/update_from_bulk_last_day.py --max-symbols 300 --workers 4
+
+            - name: Generate signals
+              env:
+                  COMPACT_TODAY_LOGS: "1"
+                  ENABLE_PROGRESS_EVENTS: "1"
+              run: |
+                  python scripts/run_all_systems_today.py --parallel --save-csv --test-mode mini
+
+            - name: Upload results
+              uses: actions/upload-artifact@v4
+              with:
+                  name: signals-${{ github.run_number }}
+                  path: |
+                      data_cache/signals/
+                      logs/today_*.log
+                  retention-days: 7
+
+            - name: Notify Slack on success
+              if: success()
+              env:
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+              run: |
+                  python scripts/notify_results.py --signals 0 --log logs/today_signals_latest.log
+
+            - name: Notify Slack on failure
+              if: failure()
+              env:
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+              run: |
+                  python scripts/notify_error.py --error "GitHub Actions workflow failed" --log logs/today_signals_latest.log
