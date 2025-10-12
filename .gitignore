@@ -79,3 +79,11 @@ env/
 .wslvenv/
 
 results_csv_test/
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
