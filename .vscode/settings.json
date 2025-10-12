@@ -70,6 +70,8 @@
   "python.analysis.autoImportCompletions": true,
   "python.analysis.completeFunctionParens": true,
   "python.analysis.autoFormatStrings": true,
+  // 型チェックの強度を basic に下げ、エディタのノイズを低減（CI は mypy で担保）
+  "python.analysis.typeCheckingMode": "basic",
   "python.analysis.inlayHints.functionReturnTypes": true,
   "python.analysis.inlayHints.variableTypes": true,
   "python.analysis.inlayHints.parameterTypes": true,

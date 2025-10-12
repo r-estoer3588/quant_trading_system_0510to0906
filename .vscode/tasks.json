@@ -213,6 +213,129 @@
 			],
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "Safe: Quick Test Run",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"-m",
+				"pytest",
+				"-q",
+				"--tb=short"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": "$python"
+		},
+		{
+			"label": "Safe: Run All Systems Today",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"scripts/run_all_systems_today.py",
+				"--parallel",
+				"--save-csv"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Safe: Lint & Format",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"-m",
+				"ruff",
+				"check",
+				"--fix",
+				"."
+			],
+			"group": "build",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"Safe: Black Format"
+			],
+			"presentation": {
+				"echo": true,
+				"reveal": "silent",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "Safe: Black Format",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"-m",
+				"black",
+				"."
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "silent",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "Safe: Today Signals UI (Compact)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"scripts/run_today_ui.py",
+				"--compact",
+				"--app",
+				"apps/app_today_signals.py"
+			],
+			"isBackground": true,
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			}
 		}
 	]
 }
