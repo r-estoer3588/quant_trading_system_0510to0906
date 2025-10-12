@@ -121,6 +121,26 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result
 
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
@@ -146,7 +166,10 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if atr is None:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+            getattr(self, "config", {}).get(
+                "stop_atr_multiple",
+                STOP_ATR_MULTIPLE_DEFAULT,
+            )
         )
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
@@ -154,7 +177,13 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         self._last_entry_atr = atr
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        entry_price: float,
+        stop_price: float,
+    ):
         """System5 の利確・損切り・時間退出ロジック。
 
         - 利益目標: 過去10日ATR×設定倍率を上回ったら翌営業日の寄り付きで決済
@@ -179,7 +208,10 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         target_mult = float(getattr(self, "config", {}).get("target_atr_multiple", 1.0))
         target_price = entry_price + target_mult * atr
         fallback_days = int(
-            getattr(self, "config", {}).get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT)
+            getattr(self, "config", {}).get(
+                "fallback_exit_after_days",
+                FALLBACK_EXIT_DAYS_DEFAULT,
+            )
         )
 
         last_idx = len(df) - 1

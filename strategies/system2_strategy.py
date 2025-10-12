@@ -105,6 +105,26 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result
 
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
     # -------------------------------
     # 共通シミュレーター用フック（System2ルール）
     # -------------------------------
@@ -151,7 +171,13 @@ class System2Strategy(AlpacaOrderMixin, StrategyBase):
         stop_price = entry_price + stop_mult * atr
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        entry_price: float,
+        stop_price: float,
+    ):
         """利確/損切りロジック。
         - ストップ到達: その日の高値>=stop で当日決済
         - 利確到達: 前日終値で判定し、翌日大引けで決済

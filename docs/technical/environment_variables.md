@@ -17,8 +17,9 @@
 4. [テスト・デバッグ](#4-テストデバッグ)
 5. [API 認証（機密情報）](#5-api認証機密情報)
 6. [通知・ダッシュボード](#6-通知ダッシュボード)
-7. [その他](#7-その他)
-8. [設定方法とベストプラクティス](#設定方法とベストプラクティス)
+7. [Bulk API データ品質検証](#7-bulk-apiデータ品質検証)
+8. [その他](#8-その他)
+9. [設定方法とベストプラクティス](#設定方法とベストプラクティス)
 
 ---
 
@@ -278,6 +279,17 @@
 
 ---
 
+### `LATEST_ONLY_MAX_DATE_LAG_DAYS`
+
+- **デフォルト**: (未設定、`settings.cache.rolling.max_staleness_days` を使用)
+- **設定値**: 整数（日数、0 以上）
+- **対象**: `scripts/run_all_systems_today.py`（latest_only 用の鮮度ガード）
+- **説明**: latest_only のターゲット日（latest_mode_date）に対して、最新バー日付が古すぎる銘柄を除外する許容乖離（日数、カレンダー日基準）。未設定時は設定ファイルの `max_staleness_days` を用いる。
+- **使用例**: `LATEST_ONLY_MAX_DATE_LAG_DAYS=1` で当日 ≒ 同日のみ許容、`2` で週末・祝日跨ぎを広めに許容。
+- **参照**: `config/environment.py` の `EnvironmentConfig.latest_only_max_date_lag_days`、`core/system1.py` の latest_only ステールネスチェック。
+
+---
+
 ## 5. API 認証（機密情報）
 
 ⚠️ **重要**: これらの変数は `.env` ファイルで管理し、**絶対に Git 追跡対象にしないこと**！
@@ -371,7 +383,41 @@
 
 ---
 
-## 7. その他
+## 7. Bulk API データ品質検証
+
+### `BULK_API_VOLUME_TOLERANCE`
+
+- **デフォルト**: `5.0`
+- **設定値**: 数値（パーセンテージ）
+- **対象**: `scripts/verify_bulk_accuracy.py`
+- **説明**: Volume（出来高）データの許容差異。デフォルト 5.0% で速報値の誤差を許容。
+- **使用例**: `BULK_API_VOLUME_TOLERANCE=3.0` で 3% 以内の差異を許容
+- **参照**: `scripts/verify_bulk_accuracy.py`
+- **注意**: 市場データの特性上、Volume は確定値までに数%の変動が発生します。厳格すぎる設定は Bulk API の利点を損ないます。
+
+### `BULK_API_PRICE_TOLERANCE`
+
+- **デフォルト**: `0.5`
+- **設定値**: 数値（パーセンテージ）
+- **対象**: `scripts/verify_bulk_accuracy.py`
+- **説明**: 価格データ（OHLC）の許容差異。デフォルト 0.5% で厳格に検証。
+- **使用例**: `BULK_API_PRICE_TOLERANCE=1.0` で 1% 以内の差異を許容
+- **参照**: `scripts/verify_bulk_accuracy.py`
+- **注意**: 価格データの差異は戦略に直接影響するため、緩和は慎重に。
+
+### `BULK_API_MIN_RELIABILITY`
+
+- **デフォルト**: `70.0`
+- **設定値**: 数値（パーセンテージ）
+- **対象**: `scripts/verify_bulk_accuracy.py`
+- **説明**: Bulk API 使用の最低信頼性スコア。デフォルト 70% 以上で Bulk API を使用可能と判定。
+- **使用例**: `BULK_API_MIN_RELIABILITY=80.0` で 80% 以上に引き上げ
+- **参照**: `scripts/verify_bulk_accuracy.py`
+- **注意**: 低すぎる設定は品質の低いデータを許容し、高すぎる設定は過剰に個別 API にフォールバックします。
+
+---
+
+## 8. その他
 
 ### `SCHEDULER_WORKERS` / `BULK_UPDATE_WORKERS`
 

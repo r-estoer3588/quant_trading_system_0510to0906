@@ -163,6 +163,16 @@ pip install -r requirements.txt
 - `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL`: Slack 通知設定
 - `DISCORD_WEBHOOK_URL`: Discord 通知設定
 
+### Bulk API 品質設定（2025-10-12 改善）
+
+日次更新で使用する Bulk API のデータ品質を環境変数で調整できます：
+
+- `BULK_API_VOLUME_TOLERANCE`: Volume 差異許容範囲（デフォルト: 5.0%）
+- `BULK_API_PRICE_TOLERANCE`: 価格差異許容範囲（デフォルト: 0.5%）
+- `BULK_API_MIN_RELIABILITY`: Bulk API 使用の最低信頼性スコア（デフォルト: 70.0%）
+
+**📘 詳細**: [Bulk API クイックスタート](./docs/BULK_API_QUICK_START.md) を参照してください。
+
 ### ログ・進捗関連の環境変数
 
 - `COMPACT_TODAY_LOGS`: 当日パイプラインの詳細ログを抑制（デフォルト: false）

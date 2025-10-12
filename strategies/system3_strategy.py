@@ -46,7 +46,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ):
         """候補生成（共通メソッド使用）"""
-        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        top_n = self._get_top_n_setting(kwargs.pop("top_n", None))
         batch_size = self._get_batch_size_setting(len(data_dict))
         # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
         latest_only = bool(kwargs.pop("latest_only", False))
@@ -101,6 +101,26 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result
 
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
     # 共通シミュレーター用フック（System3）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
@@ -132,7 +152,13 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        entry_price: float,
+        stop_price: float,
+    ):
         """利確/損切りロジック。
         - 終値ベースで4%以上の利益なら翌日大引けで決済
         - 損切り価格到達時は当日決済

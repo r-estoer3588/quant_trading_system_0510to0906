@@ -12,13 +12,16 @@ from typing import Any
 import pandas as pd
 
 from common.cache_manager import CacheManager, load_base_cache
+from config.environment import get_env_config
 from config.settings import get_settings
 
 try:  # pragma: no cover - optional dependency
     from common.utils_spy import get_latest_nyse_trading_day
 except Exception:  # pragma: no cover
 
-    def get_latest_nyse_trading_day(today: pd.Timestamp | None = None) -> pd.Timestamp:  # type: ignore[override]
+    def get_latest_nyse_trading_day(
+        today: pd.Timestamp | None = None,
+    ) -> pd.Timestamp:
         if today is None:
             return pd.Timestamp.now().normalize()
         try:
@@ -224,22 +227,24 @@ def _extract_last_cache_date(df: pd.DataFrame | None) -> pd.Timestamp | None:
     for col in ("date", "Date"):
         if col in df.columns:
             try:
-                values = pd.to_datetime(df[col].to_numpy(), errors="coerce")
-                values = values.dropna()
-                if not values.empty:
-                    try:
-                        last_val = values[-1]
-                    except Exception:
-                        # fallback to list indexing
-                        last_val = list(values)[-1]
+                ser = pd.Series(pd.to_datetime(df[col].to_numpy(), errors="coerce"))
+                ser = ser.dropna()
+                if not ser.empty:
+                    last_val = ser.iloc[-1]
                     return pd.Timestamp(last_val).normalize()
             except Exception:
                 continue
     try:
-        idx = pd.to_datetime(df.index.to_numpy(), errors="coerce")
-        mask = ~pd.isna(idx)
+        idx_arr = pd.to_datetime(df.index.to_numpy(), errors="coerce")
+        ser = pd.Series(idx_arr)
+        mask = ~pd.isna(ser)
         if mask.any():
-            return pd.Timestamp(idx[mask][-1]).normalize()
+            try:
+                filtered = ser[mask]
+                last_val = filtered.iloc[-1]
+                return pd.Timestamp(last_val).normalize()
+            except Exception:
+                pass
     except Exception:
         pass
     return None
@@ -491,7 +496,8 @@ def load_basic_data_phase(
 
     stats_lock = Lock()
     stats: dict[str, int] = {}
-    skipped_symbols: list[tuple[str, str, list[str]]] = []  # (symbol, reason_label, skip_parts)
+    skipped_symbols: list[tuple[str, str, list[str]]] = []
+    # (symbol, reason_label, skip_parts)
 
     def _record_stat(key: str) -> None:
         with stats_lock:
@@ -507,7 +513,7 @@ def load_basic_data_phase(
         except Exception:
             recent_allowed = set()
 
-    # compute min of recent_allowed if present (value not used directly but keep logic clear)
+    # compute min(recent_allowed) when present
     if recent_allowed:
         try:
             _ = min(recent_allowed)
@@ -666,12 +672,24 @@ def load_basic_data_phase(
             detail.note = _merge_note(detail.note, _issues_to_note(issues_after))
         if ok_after:
             if detail is not None:
-                detail.rows_after = int(len(normalized))
+                try:
+                    if isinstance(normalized, pd.DataFrame):
+                        detail.rows_after = int(len(normalized))
+                    else:
+                        detail.rows_after = 0
+                except Exception:
+                    detail.rows_after = 0
                 detail.resolved = True
             _record_stat(source or "rolling")
             return sym, normalized, detail
         if detail is not None and normalized is not None:
-            detail.rows_after = int(len(normalized))
+            try:
+                if isinstance(normalized, pd.DataFrame):
+                    detail.rows_after = int(len(normalized))
+                else:
+                    detail.rows_after = 0
+            except Exception:
+                detail.rows_after = 0
         _record_stat("failed")
         return sym, None, detail
 
@@ -726,14 +744,14 @@ def load_basic_data_phase(
         return data
 
     if parallel is None:
-        env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
-        if env_parallel in ("1", "true", "yes"):
+        env = get_env_config()
+        if env.basic_data_parallel is True:
             parallel = total_syms > 1
-        elif env_parallel in ("0", "false", "no"):
+        elif env.basic_data_parallel is False:
             parallel = False
         else:
             try:
-                threshold = int(os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200"))
+                threshold = int(env.basic_data_parallel_threshold)
             except Exception:
                 threshold = 200
             parallel = total_syms >= max(0, threshold)
@@ -748,12 +766,17 @@ def load_basic_data_phase(
             for i in range(0, total_skipped, batch_size):
                 batch = skipped_symbols[i : i + batch_size]
                 symbols_str = ", ".join(sym for sym, _, _ in batch)
-                log(
-                    f"⚠️ rolling未整備 ({i+1}〜{min(i+batch_size, total_skipped)}/{total_skipped}): {symbols_str}"
+                msg = (
+                    "⚠️ rolling未整備 ("
+                    f"{i+1}〜{min(i+batch_size, total_skipped)}/{total_skipped}"
+                    f"): {symbols_str}"
                 )
+                log(msg)
             # 最後に集計メッセージ
             log(
-                f"💡 rolling未整備の計{total_skipped}銘柄は自動的にスキップされました（base/full_backupからの再試行は不要）"
+                "💡 rolling未整備の計"
+                f"{total_skipped}銘柄は自動的にスキップされました（"
+                "base/full_backupからの再試行は不要）"
             )
         except Exception:  # pragma: no cover - defensive
             pass

@@ -12,7 +12,7 @@ run_all_systems_today.py から戦略実行の責務を分離:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import threading
 import time
@@ -21,6 +21,7 @@ from typing import Any
 import pandas as pd
 
 from common.stage_metrics import GLOBAL_STAGE_METRICS
+from config.environment import get_env_config
 from config.settings import get_settings
 
 __all__ = [
@@ -265,7 +266,8 @@ def _run_single_strategy(
     if name in raw_data_sets:
         base = raw_data_sets[name]
     elif name == "system7":
-        base = {"SPY": basic_data.get("SPY")}
+        spy_val = basic_data.get("SPY")
+        base = {"SPY": spy_val} if spy_val is not None else {}
     else:
         base = basic_data
 
@@ -384,22 +386,20 @@ def _run_single_strategy(
 
 def _should_use_process_pool() -> bool:
     """環境変数に基づくプロセスプール使用判定"""
-    import os
-
-    env_pp = os.environ.get("USE_PROCESS_POOL", "").strip().lower()
-    return env_pp in {"1", "true", "yes", "on"}
+    try:
+        return bool(get_env_config().use_process_pool)
+    except Exception:
+        return False
 
 
 def _get_max_workers() -> int | None:
     """ワーカー数の決定（環境変数 > 設定 > None）"""
-    import os
-
     try:
-        env_workers = os.environ.get("PROCESS_POOL_WORKERS", "").strip()
+        env_workers = get_env_config().process_pool_workers
         if env_workers:
             return int(env_workers) or None
     except Exception:
-        pass
+        env_workers = None
 
     try:
         settings = get_settings(create_dirs=False)
@@ -408,10 +408,8 @@ def _get_max_workers() -> int | None:
         return None
 
 
-def _get_lookback_days(name: str, stg: Any, base: dict[str, pd.DataFrame]) -> int:
+def _get_lookback_days(name: str, stg: Any, base: Mapping[str, pd.DataFrame | None]) -> int:
     """戦略別ルックバック日数の決定"""
-    import os
-
     # デフォルトルックバック設定
     try:
         settings = get_settings(create_dirs=True)
@@ -423,7 +421,7 @@ def _get_lookback_days(name: str, stg: Any, base: dict[str, pd.DataFrame]) -> in
 
     # システム別必要日数マップ
     try:
-        margin = float(os.environ.get("LOOKBACK_MARGIN", "0.15"))
+        margin = float(get_env_config().lookback_margin)
     except Exception:
         margin = 0.15
 
@@ -452,7 +450,7 @@ def _get_lookback_days(name: str, stg: Any, base: dict[str, pd.DataFrame]) -> in
 
     # 最終決定
     try:
-        min_floor = int(os.environ.get("LOOKBACK_MIN_DAYS", "80"))
+        min_floor = int(get_env_config().lookback_min_days)
     except Exception:
         min_floor = 80
 

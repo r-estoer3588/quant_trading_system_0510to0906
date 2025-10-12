@@ -188,7 +188,6 @@ def generate_candidates_system3(
     batch_size: int | None = None,
     latest_only: bool = False,
     include_diagnostics: bool = False,
-    diagnostics: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> (
     tuple[dict[pd.Timestamp, dict[str, dict]], pd.DataFrame | None]
@@ -205,14 +204,15 @@ def generate_candidates_system3(
     Returns:
         (Daily candidate dictionary, Integrated candidate DataFrame)
     """
-    if diagnostics is None:
-        diagnostics = {
-            "ranking_source": None,
-            "setup_predicate_count": 0,
-            "predicate_only_pass_count": 0,
-            "mismatch_flag": 0,
-            "ranked_top_n_count": 0,
-        }
+    # Initialize diagnostics dict
+    diagnostics = {
+        "ranking_source": None,
+        "setup_predicate_count": 0,
+        "predicate_only_pass_count": 0,
+        "ranked_top_n_count": 0,
+        "exclude_reasons": {},
+        "mismatch_flag": 0,
+    }
 
     if not prepared_dict:
         if log_callback:

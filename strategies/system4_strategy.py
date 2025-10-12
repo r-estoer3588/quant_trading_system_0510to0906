@@ -121,6 +121,26 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result
 
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
     # システムフック群
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
         try:
@@ -145,14 +165,23 @@ class System4Strategy(AlpacaOrderMixin, StrategyBase):
         if atr40 is None:
             return None
         stop_mult = float(
-            getattr(self, "config", {}).get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM4)
+            getattr(self, "config", {}).get(
+                "stop_atr_multiple",
+                STOP_ATR_MULTIPLE_SYSTEM4,
+            )
         )
         stop_price = entry_price - stop_mult * atr40
         if entry_price - stop_price <= 0:
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        entry_price: float,
+        stop_price: float,
+    ):
         trail_pct = float(getattr(self, "config", {}).get("trailing_pct", 0.20))
         highest = entry_price
         for idx2 in range(entry_idx + 1, len(df)):
