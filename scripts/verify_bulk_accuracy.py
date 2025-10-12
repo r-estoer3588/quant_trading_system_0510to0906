@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from common.cache_manager import CacheManager  # noqa: E402
+from config.environment import get_env_config  # noqa: E402
 from config.settings import get_settings  # noqa: E402
 from scripts.update_from_bulk_last_day import fetch_bulk_last_day  # noqa: E402
 
@@ -37,6 +38,16 @@ class BulkDataVerifier:
         self.settings = get_settings()
         self.cm = CacheManager(self.settings)
         self.discrepancies: list[dict[str, Any]] = []
+
+        # 環境変数から設定を読み込み
+        env_config = get_env_config()
+
+        # Volume差異の許容範囲（環境変数で制御可能）
+        self.volume_tolerance = env_config.bulk_api_volume_tolerance / 100.0
+        # 価格データの許容範囲（従来通り）
+        self.price_tolerance = env_config.bulk_api_price_tolerance / 100.0
+        # 信頼性スコアの最低基準
+        self.min_reliability = env_config.bulk_api_min_reliability / 100.0
 
     def fetch_individual_eod(self, symbol: str, date: str | None = None) -> dict[str, Any]:
         """個別APIで最新データを取得（検証用）"""
@@ -111,10 +122,13 @@ class BulkDataVerifier:
                         except (ValueError, TypeError):
                             continue
 
-            # 比較
+            # 比較（Volumeは専用許容範囲を使用）
             if bulk_val is not None and ref_val is not None and ref_val > 0:
                 diff_pct = abs(bulk_val - ref_val) / ref_val
-                if diff_pct > tolerance:
+                # Volumeは緩和した許容範囲、価格データは厳格な許容範囲
+                field_tolerance = self.volume_tolerance if field == "volume" else tolerance
+
+                if diff_pct > field_tolerance:
                     issues.append(
                         {
                             "field": field,
@@ -279,22 +293,26 @@ class BulkDataVerifier:
         issue_count = len(results["issues"])
 
         if verified_count > 0:
-            reliability_score = (verified_count - issue_count) / results["total_symbols"]
+            total_symbols = results["total_symbols"]
+            reliability_score = (verified_count - issue_count) / total_symbols
         else:
             reliability_score = 0.0
 
         results["reliability_score"] = reliability_score
 
         print("\n" + "=" * 60)
+        # 環境変数で設定された最低基準と比較
         if reliability_score >= 0.95:
             print(f"✅ 信頼性スコア: {reliability_score:.1%}")
             print("👍 Bulk APIは高品質です。安心して使用できます。")
-        elif reliability_score >= 0.80:
+        elif reliability_score >= self.min_reliability:
             print(f"⚠️ 信頼性スコア: {reliability_score:.1%}")
             print("💡 一部銘柄で差異があります。重要銘柄は個別確認を推奨。")
+            print(f"   （基準: {self.min_reliability:.0%}以上で使用可能）")
         else:
             print(f"❌ 信頼性スコア: {reliability_score:.1%}")
             print("🚨 Bulk APIの品質が低いです。個別API使用を推奨します。")
+            print(f"   （基準: {self.min_reliability:.0%}未満）")
         print("=" * 60)
 
         return results

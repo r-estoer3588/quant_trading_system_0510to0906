@@ -21,6 +21,9 @@ from typing import Any, TypeAlias, TypedDict
 
 import pandas as pd
 
+from common.trade_management import TradeManager
+from config.environment import get_env_config
+
 # Type aliases for better readability
 PositionDict: TypeAlias = dict[str, Any]
 SystemName: TypeAlias = str
@@ -98,7 +101,6 @@ def _load_allocations_from_settings() -> tuple[dict[str, float], dict[str, float
             short_result = {str(k): float(v) for k, v in short_alloc.items() if float(v) > 0}
         else:
             short_result = DEFAULT_SHORT_ALLOCATIONS.copy()
-
         return long_result, short_result
 
     except Exception:
@@ -175,6 +177,11 @@ class AllocationSummary:
     capital_long: float | None = None
     capital_short: float | None = None
     system_diagnostics: dict[str, Any] | None = None
+    # Optional final metrics (added for diagnostics/reporting)
+    final_count: int = 0
+    final_symbols: list[str] | None = None
+    final_long_count: int = 0
+    final_short_count: int = 0
 
     def __post_init__(self) -> None:
         """Validate allocation summary after initialization."""
@@ -303,7 +310,12 @@ def count_active_positions_by_system(
                 continue
             norm_map[key_str.upper()] = val_str.lower()
         except Exception as e:
-            logger.warning("Error processing symbol_system_map entry %r -> %r: %s", key, value, e)
+            logger.warning(
+                "Error processing symbol_system_map entry %r -> %r: %s",
+                key,
+                value,
+                e,
+            )
             continue
 
     counts: dict[str, int] = {}
@@ -568,16 +580,18 @@ def _allocate_by_capital(
     side: str,
     active_positions: Mapping[str, int],
 ) -> CapitalAllocationResult:
-    import os
-
-    debug_mode = os.environ.get("ALLOCATION_DEBUG") == "1"
+    env = get_env_config()
+    debug_mode = env.allocation_debug
 
     budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
     remaining = budgets.copy()
 
     if debug_mode:
         logger.info(
-            f"[ALLOC_DEBUG] Starting capital allocation: side={side}, total_budget=${total_budget:,.0f}"
+            (
+                "[ALLOC_DEBUG] Starting capital allocation: side=%s, "
+                "total_budget=$%s" % (side, f"{total_budget:,.0f}")
+            )
         )
         logger.info(f"[ALLOC_DEBUG] System weights: {dict(weights)}")
         logger.info(f"[ALLOC_DEBUG] System budgets: {dict(budgets)}")
@@ -598,7 +612,10 @@ def _allocate_by_capital(
         if not callable(calc_fn):
             calc_fn = None
             if debug_mode:
-                logger.warning(f"[ALLOC_DEBUG] {name}: calculate_position_size not found")
+                logger.warning(
+                    "[ALLOC_DEBUG] %s: calculate_position_size not found",
+                    name,
+                )
 
         # リスク設定の読み込み
         try:
@@ -609,6 +626,29 @@ def _allocate_by_capital(
             max_pct = float(config.get("max_pct", 0.10))
         except (TypeError, ValueError):
             max_pct = 0.10
+        # Guard against non-positive or non-finite settings coming from config
+        try:
+            import math as _math
+
+            if (not _math.isfinite(risk_pct)) or risk_pct <= 0:
+                if debug_mode:
+                    logger.info(
+                        ("[ALLOC_DEBUG] %s: risk_pct=%s invalid -> " "fallback to default 0.020"),
+                        name,
+                        risk_pct,
+                    )
+                risk_pct = 0.02
+            if (not _math.isfinite(max_pct)) or max_pct <= 0:
+                if debug_mode:
+                    logger.info(
+                        ("[ALLOC_DEBUG] %s: max_pct=%s invalid -> " "fallback to default 0.100"),
+                        name,
+                        max_pct,
+                    )
+                max_pct = 0.10
+        except Exception:
+            # On any unexpected error, keep already assigned values
+            pass
         try:
             max_positions = int(config.get("max_positions", 10))
         except (TypeError, ValueError):
@@ -637,7 +677,11 @@ def _allocate_by_capital(
                     norm_records.append({str(k): rec.get(k) for k in rec})
             candidates[name] = norm_records
             if debug_mode:
-                logger.info(f"[ALLOC_DEBUG] {name}: {len(norm_records)} candidates loaded")
+                logger.info(
+                    "[ALLOC_DEBUG] %s: %s candidates loaded",
+                    name,
+                    len(norm_records),
+                )
         index_map[name] = 0
 
     counts = {name: 0 for name in ordered_names}
@@ -659,19 +703,8 @@ def _allocate_by_capital(
             return 0
 
     # システム別の処理統計
-    processed_stats = {
-        name: {
-            "processed": 0,
-            "skipped_no_symbol": 0,
-            "skipped_duplicate": 0,
-            "skipped_price": 0,
-            "skipped_calc_fn": 0,
-            "skipped_shares": 0,
-            "skipped_cash": 0,
-            "allocated": 0,
-        }
-        for name in ordered_names
-    }
+    # Note: per-system processing stats were considered but are currently
+    # unused in the final output. Keep logic minimal to avoid lint noise.
 
     still = True
     round_num = 0
@@ -702,9 +735,13 @@ def _allocate_by_capital(
                             f"max_pos({counts.get(name, 0)}/{max_pos_map.get(name, 0)})"
                         )
                     if index_map.get(name, 0) >= len(rows):
-                        skip_reasons.append(f"exhausted({index_map.get(name, 0)}/{len(rows)})")
+                        skip_reasons.append(f"exhausted({index_map.get(name, 0)}/" f"{len(rows)})")
                     if skip_reasons:
-                        logger.debug(f"[ALLOC_DEBUG] {name} skipped: {','.join(skip_reasons)}")
+                        logger.debug(
+                            "[ALLOC_DEBUG] %s skipped: %s",
+                            name,
+                            ",".join(skip_reasons),
+                        )
                 continue
 
             meta = meta_map[name]
@@ -719,17 +756,68 @@ def _allocate_by_capital(
                 if not sym or sym in chosen_symbols:
                     if debug_mode and round_num <= 2:
                         if not sym:
-                            logger.debug(f"[ALLOC_DEBUG] {name}: Skipping row with missing symbol")
+                            logger.debug(
+                                "[ALLOC_DEBUG] %s: Skipping row with missing symbol",
+                                name,
+                            )
                         else:
-                            logger.debug(f"[ALLOC_DEBUG] {name} {sym}: Already selected")
+                            logger.debug(
+                                "[ALLOC_DEBUG] %s %s: Already selected",
+                                name,
+                                sym,
+                            )
                     continue
 
+                # entry_price/stop_price の取得 - 存在しない場合は Close/ATR から計算
                 entry = _safe_positive_float(row.get("entry_price"), allow_zero=False)
                 stop = _safe_positive_float(row.get("stop_price"), allow_zero=False)
+
+                # Fallback: entry_price が存在しない場合は Close を使用
+                if entry is None or entry <= 0:
+                    entry = _safe_positive_float(row.get("Close"), allow_zero=False)
+                    if debug_mode and round_num <= 2:
+                        logger.debug(
+                            "[ALLOC_DEBUG] %s %s: Using Close as entry_price=%s",
+                            name,
+                            sym,
+                            entry,
+                        )
+
+                # Fallback: stop_price が存在しない場合は Close ± ATR から計算
+                if stop is None or stop <= 0:
+                    atr = _safe_positive_float(row.get("atr10"), allow_zero=False)
+                    if atr is None:
+                        atr = _safe_positive_float(row.get("ATR10"), allow_zero=False)
+                    if atr is None:
+                        atr = _safe_positive_float(row.get("atr20"), allow_zero=False)
+
+                    if entry and entry > 0 and atr and atr > 0:
+                        if side == "long":
+                            stop = entry - (atr * 2.0)  # ロング: エントリー - ATR*2
+                        else:
+                            stop = entry + (atr * 2.0)  # ショート: エントリー + ATR*2
+
+                        if debug_mode and round_num <= 2:
+                            logger.debug(
+                                (
+                                    "[ALLOC_DEBUG] %s %s: Calculated stop_price=%s "
+                                    "from entry=%s atr=%s"
+                                ),
+                                name,
+                                sym,
+                                stop,
+                                entry,
+                                atr,
+                            )
+
                 if entry is None or stop is None or entry <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            f"[ALLOC_DEBUG] {name} {sym}: Invalid prices entry={entry} stop={stop}"
+                            ("[ALLOC_DEBUG] %s %s: Invalid prices entry=%s stop=%s"),
+                            name,
+                            sym,
+                            entry,
+                            stop,
                         )
                     continue
 
@@ -737,12 +825,8 @@ def _allocate_by_capital(
                 if meta.calc_fn is not None:
                     try:
                         # 正しい引数で calculate_position_size を呼び出し
-                        entry_price = (
-                            _safe_positive_float(row.get("entry_price"), allow_zero=False) or entry
-                        )
-                        stop_price = (
-                            _safe_positive_float(row.get("stop_price"), allow_zero=False) or stop
-                        )
+                        entry_price = entry
+                        stop_price = stop
 
                         if entry_price and stop_price and entry_price > 0:
                             desired_shares = _normalize_shares(
@@ -754,30 +838,110 @@ def _allocate_by_capital(
                                     max_pct=meta.max_pct,
                                 )
                             )
+                            # 詳細診断: リスク/資金上限ベースの概算株数も併記
+                            if debug_mode and round_num <= 3:
+                                try:
+                                    rem_cap = float(remaining[name])
+                                    e = float(entry_price)
+                                    s = float(stop_price)
+                                    rps = abs(e - s) if e is not None and s is not None else 0.0
+                                    allow_risk = rem_cap * float(meta.risk_pct)
+                                    shares_by_risk = int(allow_risk // rps) if rps > 0 else 0
+                                    cap_limit_dollars = rem_cap * float(meta.max_pct)
+                                    shares_by_capital = (
+                                        int(cap_limit_dollars // abs(e)) if e > 0 else 0
+                                    )
+                                    shares_by_cash = int(rem_cap // abs(e)) if e > 0 else 0
+                                    logger.debug(
+                                        (
+                                            "[ALLOC_DEBUG] %s %s: shares_calc rem=$%s "
+                                            "entry=%s stop=%s risk_pct=%.4f max_pct=%.4f "
+                                            "rps=%s shr_risk=%s shr_cap=%s shr_cash=%s desired=%s"
+                                        ),
+                                        name,
+                                        sym,
+                                        f"{rem_cap:.0f}",
+                                        e,
+                                        s,
+                                        float(meta.risk_pct),
+                                        float(meta.max_pct),
+                                        (f"{rps:.4f}" if rps else "0"),
+                                        shares_by_risk,
+                                        shares_by_capital,
+                                        shares_by_cash,
+                                        desired_shares,
+                                    )
+                                except Exception:
+                                    # 診断ログは失敗しても処理継続
+                                    pass
                         else:
                             if debug_mode and round_num <= 2:
                                 logger.debug(
-                                    f"[ALLOC_DEBUG] {name} {sym}: Invalid entry/stop prices"
+                                    (
+                                        "[ALLOC_DEBUG] %s %s: Invalid entry/stop "
+                                        "entry_price=%s stop_price=%s"
+                                    ),
+                                    name,
+                                    sym,
+                                    entry_price,
+                                    stop_price,
                                 )
                     except Exception as e:
                         desired_shares = 0
                         if debug_mode and round_num <= 2:
-                            logger.debug(f"[ALLOC_DEBUG] {name} {sym}: calc_fn error {e}")
+                            logger.debug(
+                                "[ALLOC_DEBUG] %s %s: calc_fn error %s",
+                                name,
+                                sym,
+                                e,
+                            )
                 else:
                     if debug_mode and round_num <= 2:
-                        logger.debug(f"[ALLOC_DEBUG] {name} {sym}: No calc_fn available")
+                        logger.debug(
+                            "[ALLOC_DEBUG] %s %s: No calc_fn available",
+                            name,
+                            sym,
+                        )
 
                 if desired_shares <= 0:
                     if debug_mode and round_num <= 2:
-                        logger.debug(f"[ALLOC_DEBUG] {name} {sym}: Invalid shares {desired_shares}")
+                        logger.debug(
+                            "[ALLOC_DEBUG] %s %s: Invalid shares %s",
+                            name,
+                            sym,
+                            desired_shares,
+                        )
                     continue
 
                 max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
                 shares = min(desired_shares, max_by_cash)
+                if debug_mode and round_num <= 3:
+                    try:
+                        logger.debug(
+                            (
+                                "[ALLOC_DEBUG] %s %s: shares_decision desired=%s max_by_cash=%s -> shares=%s"
+                            ),
+                            name,
+                            sym,
+                            desired_shares,
+                            max_by_cash,
+                            shares,
+                        )
+                    except Exception:
+                        pass
                 if shares <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            f"[ALLOC_DEBUG] {name} {sym}: No cash shares={shares} (desired={desired_shares}, max_cash={max_by_cash}, remaining=${remaining[name]:.0f})"
+                            (
+                                "[ALLOC_DEBUG] %s %s: No cash shares=%s "
+                                "(desired=%s, max_cash=%s, remaining=$%s)"
+                            ),
+                            name,
+                            sym,
+                            shares,
+                            desired_shares,
+                            max_by_cash,
+                            f"{remaining[name]:.0f}",
                         )
                     continue
 
@@ -785,7 +949,10 @@ def _allocate_by_capital(
                 if position_value <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            f"[ALLOC_DEBUG] {name} {sym}: Invalid position_value {position_value}"
+                            "[ALLOC_DEBUG] %s %s: Invalid position_value %s",
+                            name,
+                            sym,
+                            position_value,
                         )
                     continue
 
@@ -796,6 +963,10 @@ def _allocate_by_capital(
                 record["system"] = record.get("system", name)
                 record["side"] = record.get("side", side)
                 record["system_budget"] = float(round(remaining[name], 2))
+
+                # フォールバック計算された entry_price と stop_price を設定
+                record["entry_price"] = entry
+                record["stop_price"] = stop
                 remaining_after = remaining[name] - position_value
                 record["remaining_after"] = float(round(remaining_after, 2))
                 chosen.append(record)
@@ -806,7 +977,12 @@ def _allocate_by_capital(
 
                 if debug_mode:
                     logger.debug(
-                        f"[ALLOC_DEBUG] {name} {sym}: ALLOCATED shares={shares} value=${position_value:.0f} remaining=${remaining_after:.0f}"
+                        ("[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s " "value=$%s remaining=$%s"),
+                        name,
+                        sym,
+                        shares,
+                        f"{position_value:.0f}",
+                        f"{remaining_after:.0f}",
                     )
                 break
 
@@ -821,7 +997,11 @@ def _allocate_by_capital(
         total_budget_used = sum(budgets[name] - remaining.get(name, 0) for name in budgets)
         logger.info(f"[ALLOC_DEBUG] === ALLOCATION SUMMARY ({side}) ===")
         logger.info(f"[ALLOC_DEBUG] Total allocated: {total_allocated} positions")
-        logger.info(f"[ALLOC_DEBUG] Budget used: ${total_budget_used:,.0f} / ${total_budget:,.0f}")
+        logger.info(
+            "[ALLOC_DEBUG] Budget used: $%s / $%s",
+            f"{total_budget_used:,.0f}",
+            f"{total_budget:,.0f}",
+        )
         logger.info(f"[ALLOC_DEBUG] System counts: {dict(counts)}")
         logger.info(f"[ALLOC_DEBUG] Remaining budgets: {dict(remaining)}")
 
@@ -830,10 +1010,11 @@ def _allocate_by_capital(
             for name in ordered_names:
                 cand_count = len(candidates.get(name, []))
                 calc_fn_available = meta_map[name].calc_fn is not None
-                budget_available = remaining.get(name, 0) > 0
-                max_pos_available = max_pos_map.get(name, 0) > 0
                 logger.warning(
-                    f"[ALLOC_DEBUG]   {name}: candidates={cand_count}, calc_fn={calc_fn_available}, budget=${remaining.get(name, 0):.0f}, max_pos={max_pos_map.get(name, 0)}"
+                    f"[ALLOC_DEBUG]   {name}: candidates={cand_count}, "
+                    f"calc_fn={calc_fn_available}, "
+                    f"budget=${remaining.get(name, 0):.0f}, "
+                    f"max_pos={max_pos_map.get(name, 0)}"
                 )
 
     return CapitalAllocationResult(
@@ -935,12 +1116,33 @@ def finalize_allocation(
     default_long_ratio: float = 0.5,
     default_max_positions: int = 10,
     system_diagnostics: Mapping[str, Any] | None = None,
+    market_data_dict: Mapping[str, pd.DataFrame] | None = None,
+    signal_date: Any | None = None,
+    include_trade_management: bool = False,
 ) -> tuple[pd.DataFrame, AllocationSummary]:
     """Combine per-system candidates into the final trade list.
 
     Parameters mirror the behaviour of ``scripts.run_all_systems_today`` but
     are greatly simplified so that tests can provide deterministic inputs.
+    This function also includes trade management field calculations.
     """
+    # 入力候補データのデバッグ情報を出力
+    env = get_env_config()
+    debug_mode = env.allocation_debug
+    if debug_mode:
+        logger.info("[ALLOC_DEBUG] === INPUT CANDIDATES DEBUG ===")
+        for sys_name, df in per_system.items():
+            if not df.empty:
+                cols_str = f"{list(df.columns)}"
+                msg = f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows, " f"columns: {cols_str}"
+                logger.info(msg)
+                # サンプル行の詳細を出力
+                if len(df) > 0:
+                    sample_row = df.iloc[0]
+                    sample_dict = dict(sample_row)
+                    logger.info(f"[ALLOC_DEBUG] {sys_name} sample row: {sample_dict}")
+            else:
+                logger.info(f"[ALLOC_DEBUG] {sys_name}: EMPTY DataFrame")
 
     per_system_norm: dict[str, pd.DataFrame] = {
         str(name).strip().lower(): df for name, df in per_system.items()
@@ -950,10 +1152,16 @@ def finalize_allocation(
     if long_allocations is None and short_allocations is None:
         config_long_alloc, config_short_alloc = _load_allocations_from_settings()
         long_alloc = _normalize_allocations(config_long_alloc, DEFAULT_LONG_ALLOCATIONS)
-        short_alloc = _normalize_allocations(config_short_alloc, DEFAULT_SHORT_ALLOCATIONS)
+        short_alloc = _normalize_allocations(
+            config_short_alloc,
+            DEFAULT_SHORT_ALLOCATIONS,
+        )
     else:
         long_alloc = _normalize_allocations(long_allocations, DEFAULT_LONG_ALLOCATIONS)
-        short_alloc = _normalize_allocations(short_allocations, DEFAULT_SHORT_ALLOCATIONS)
+        short_alloc = _normalize_allocations(
+            short_allocations,
+            DEFAULT_SHORT_ALLOCATIONS,
+        )
 
     systems = sorted({*per_system_norm.keys(), *long_alloc.keys(), *short_alloc.keys()})
     max_pos_map = _resolve_max_positions(strategies, systems, default_max_positions)
@@ -1103,6 +1311,66 @@ def finalize_allocation(
     # Add candidate counts for capital mode (slot mode already has them)
     if summary.slot_candidates is None:
         summary.slot_candidates = candidate_counts
+
+    if include_trade_management:
+        if market_data_dict is None or signal_date is None:
+            raise ValueError(
+                "market_data_dict and signal_date must be provided "
+                "when include_trade_management is True."
+            )
+        # Convert cached frames so TradeManager receives a datetime index
+        # Rolling cache commonly stores an integer index
+        prepared_market_data = {}
+        for sym, df in market_data_dict.items():
+            if df is None or df.empty:
+                continue
+            # Check if 'date' column exists and index is not already datetime
+            if "date" in df.columns and not isinstance(df.index, pd.DatetimeIndex):
+                df_copy = df.copy()
+                df_copy["date"] = pd.to_datetime(df_copy["date"])
+                df_copy = df_copy.set_index("date", drop=False)
+                prepared_market_data[sym] = df_copy
+            else:
+                prepared_market_data[sym] = df
+
+        # TradeManager API: instantiate without args and enhance allocation
+        tm = TradeManager()
+        final_df = tm.enhance_allocation_with_trade_management(
+            final_df, prepared_market_data, signal_date
+        )
+
+    # Final summary diagnostics
+    if system_diagnostics:
+        summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
+    try:
+        summary.final_count = int(len(final_df))
+    except Exception:
+        summary.final_count = 0
+    try:
+        if "symbol" in final_df.columns:
+            summary.final_symbols = [str(s) for s in final_df["symbol"].tolist()]
+        else:
+            summary.final_symbols = []
+    except Exception:
+        summary.final_symbols = []
+    try:
+        if "long" in final_df.columns:
+            summary.final_long_count = int(
+                pd.to_numeric(final_df["long"], errors="coerce").fillna(0).sum()
+            )
+        else:
+            summary.final_long_count = 0
+    except Exception:
+        summary.final_long_count = 0
+    try:
+        if "short" in final_df.columns:
+            summary.final_short_count = int(
+                pd.to_numeric(final_df["short"], errors="coerce").fillna(0).sum()
+            )
+        else:
+            summary.final_short_count = 0
+    except Exception:
+        summary.final_short_count = 0
 
     return final_df, summary
 

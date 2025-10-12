@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 import math
-from typing import Any, Callable, DefaultDict, Mapping, cast
+from typing import Any, Callable, DefaultDict, Mapping, Optional, cast
 
 import pandas as pd
 
@@ -20,6 +20,7 @@ from common.batch_processing import process_symbols_batch
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import REQUIRED_COLUMNS
 from common.system_setup_predicates import system1_setup_predicate, validate_predicate_equivalence
+from strategies.constants import STOP_ATR_MULTIPLE_SYSTEM1
 
 
 @dataclass(slots=True)
@@ -276,8 +277,8 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["setup"] = x["filter"] & (x["sma25"] > x["sma50"])
     except Exception:
         # Fallback safe defaults
-        x["filter"] = False
-        x["setup"] = False
+        x["filter"] = pd.Series(False, index=x.index, dtype=bool)
+        x["setup"] = pd.Series(False, index=x.index, dtype=bool)
     return x
 
 
@@ -317,11 +318,15 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         # Filter: Close>=5, DollarVolume20>25M
         try:
             filt = (x["Close"] >= 5.0) & (
-                x.get("dollarvolume20", pd.Series(index=x.index, dtype=float)) > 25_000_000
+                x.get(
+                    "dollarvolume20",
+                    pd.Series(index=x.index, dtype=float),
+                )
+                > 25_000_000
             )
         except Exception:
             # If columns not available, mark filter False
-            filt = pd.Series(False, index=x.index)
+            filt = pd.Series(False, index=x.index, dtype=bool)
         x["filter"] = filt
 
         # Setup: Filter + Close>SMA200 + ROC200>0
@@ -335,7 +340,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
                 & (x["roc200"] > 0)
             )
         except Exception:
-            setup = pd.Series(False, index=x.index)
+            setup = pd.Series(False, index=x.index, dtype=bool)
         x["setup"] = setup
 
         return symbol, x
@@ -390,17 +395,247 @@ def prepare_data_vectorized_system1(
             pass
 
     _substep("enter prepare_data")
+    # 軽量化ヒント: latest_only のときは最小列 + 末尾数行のみを処理
+    latest_only = bool(_kwargs.get("latest_only", False))
     # Fast path: reuse precomputed indicators
     if reuse_indicators and raw_data_dict:
         _substep("fast-path check start")
         try:
-            # Early check - verify required indicators exist (roc200 のみ必須)
+            # latest_only の場合は必須列チェックを緩め、末尾数行 + 最小列に絞る
+            if latest_only:
+                prepared_dict: dict[str, pd.DataFrame] = {}
+                minimal_cols = {
+                    # OHLCV 最小限（フォールバック計算や整合のため）
+                    "Open",
+                    "High",
+                    "Low",
+                    "Close",
+                    # 参照指標
+                    "sma25",
+                    "sma50",
+                    "sma200",
+                    "roc200",
+                    "atr20",
+                    "dollarvolume20",
+                }
+
+                # OHLC 不足時にキャッシュから補完するヘルパ
+                def _augment_ohlc_if_missing(sym: str, df_in: pd.DataFrame) -> pd.DataFrame:
+                    x2 = df_in
+                    try:
+                        need_any = any(
+                            col not in x2.columns for col in ("Open", "High", "Low", "Close")
+                        )
+                        if not need_any:
+                            return x2
+                        # 遅延 import（循環回避）
+                        from common.cache_manager import (  # type: ignore
+                            CacheManager,
+                            load_base_cache,
+                        )
+                        from config.settings import get_settings  # type: ignore
+
+                        try:
+                            settings = get_settings()
+                            cache_mgr = CacheManager(settings)
+                            base_df = load_base_cache(sym, cache_manager=cache_mgr)
+                        except Exception:
+                            base_df = None
+                        if base_df is None or getattr(base_df, "empty", True):
+                            return x2
+
+                        base_df = _rename_ohlcv(base_df)
+                        base_df = _normalize_index(base_df)
+                        cols = [
+                            c
+                            for c in ("Open", "High", "Low", "Close")
+                            if c in getattr(base_df, "columns", [])
+                        ]
+                        if not cols:
+                            return x2
+                        price_df = base_df.loc[:, cols].copy()
+                        # 既存列は優先し、欠損はキャッシュ値で埋める
+                        for col in ("Open", "High", "Low", "Close"):
+                            if col in price_df.columns:
+                                if col in x2.columns:
+                                    try:
+                                        x2[col] = x2[col].fillna(price_df[col])
+                                    except Exception:
+                                        # インデックス不一致時は結合してから埋める
+                                        try:
+                                            joined = x2.join(price_df[[col]], how="left")
+                                            x2[col] = joined[col]
+                                        except Exception:
+                                            pass
+                                else:
+                                    try:
+                                        joined = x2.join(price_df[[col]], how="left")
+                                        x2[col] = joined[col]
+                                    except Exception:
+                                        # インデックス不一致があっても諦めない
+                                        try:
+                                            x2[col] = price_df[col]
+                                        except Exception:
+                                            pass
+                    except Exception:
+                        # 失敗しても静かに元の df を返す
+                        return x2
+                    return x2
+
+                for symbol, df in raw_data_dict.items():
+                    try:
+                        if df is None or getattr(df, "empty", True):
+                            continue
+                        x = df.copy(deep=False)
+
+                        # OHLCV 列名を正規化（小文字 → PascalCase）
+                        x = _rename_ohlcv(x)
+
+                        # 日付インデックス正規化（'Date' だけでなく 'date' も考慮）
+                        # 既存のヘルパーを利用して安全に正規化する。
+                        try:
+                            x = _normalize_index(x)
+                        except Exception:
+                            # フォールバック（万一の安全策）
+                            try:
+                                if "Date" in x.columns:
+                                    idx = pd.to_datetime(x["Date"], errors="coerce").dt.normalize()
+                                    x.index = pd.Index(idx, name="Date")
+                                elif "date" in x.columns:
+                                    idx = pd.to_datetime(x["date"], errors="coerce").dt.normalize()
+                                    x.index = pd.Index(idx, name="Date")
+                                else:
+                                    x.index = pd.to_datetime(x.index, errors="coerce").normalize()
+                                x = x[~x.index.isna()]
+                                x = x.sort_index()
+                                if getattr(x.index, "has_duplicates", False):
+                                    x = x[~x.index.duplicated(keep="last")]
+                            except Exception:
+                                pass
+
+                        # OHLC が欠けている場合はキャッシュから補完
+                        missing_ohlc = [
+                            c for c in ("Open", "High", "Low", "Close") if c not in x.columns
+                        ]
+                        if missing_ohlc:
+                            try:
+                                if log_callback and symbol in ("SPY", "A"):
+                                    log_callback(
+                                        f"[DEBUG_PREPARED] {symbol}: missing OHLC "
+                                        f"before augment => {missing_ohlc}"
+                                    )
+                            except Exception:
+                                pass
+                            x = _augment_ohlc_if_missing(symbol, x)
+
+                        # 列の最小化（存在するもののみ残す）— 補完後に実行
+                        keep_cols = [c for c in minimal_cols if c in x.columns]
+                        if keep_cols:
+                            x = x.loc[:, keep_cols].copy()
+
+                        # 数値変換（必要列のみ）
+                        for col in (
+                            "Close",
+                            "Low",
+                            "High",
+                            "Open",
+                            "sma25",
+                            "sma50",
+                            "sma200",
+                            "roc200",
+                            "atr20",
+                            "dollarvolume20",
+                        ):
+                            if col in x.columns:
+                                try:
+                                    x[col] = pd.to_numeric(x[col], errors="coerce")
+                                except Exception:
+                                    pass
+
+                        # 末尾数行だけ残す（前日/当日推定に十分）
+                        x = x.tail(3).copy()
+                        if x.empty:
+                            continue
+
+                        # 軽量 filter/setup 付与
+                        try:
+                            dv = x.get(
+                                "dollarvolume20",
+                                pd.Series(index=x.index, dtype=float),
+                            )
+                            close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
+                            filt = (close_s >= 5.0) & (dv > 25_000_000)
+                        except Exception:
+                            filt = pd.Series(
+                                False,
+                                index=x.index,
+                                dtype=bool,
+                            )  # type: ignore[assignment]
+                        x["filter"] = filt
+
+                        try:
+                            close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
+                            sma200_s = x.get("sma200", pd.Series(index=x.index, dtype=float))
+                            roc_ok = (
+                                x.get(
+                                    "roc200",
+                                    pd.Series(index=x.index, dtype=float),
+                                )
+                                > 0
+                            )
+                            setup = filt & (close_s > sma200_s) & roc_ok
+                        except Exception:
+                            setup = pd.Series(
+                                False,
+                                index=x.index,
+                                dtype=bool,
+                            )  # type: ignore[assignment]
+                        x["setup"] = setup
+
+                        # DEBUG: prepared_dict 格納前に Close/Open 値を確認
+                        if log_callback and symbol in ("SPY", "A"):
+                            try:
+                                has_close = "Close" in x.columns
+                                has_open = "Open" in x.columns
+                                close_val = None
+                                open_val = None
+                                if has_close and len(x) > 0:
+                                    close_val = x["Close"].iloc[-1]
+                                if has_open and len(x) > 0:
+                                    open_val = x["Open"].iloc[-1]
+                                msg = (
+                                    f"[DEBUG_PREPARED] {symbol}: "
+                                    f"Close={close_val} Open={open_val} shape={x.shape}"
+                                )
+                                log_callback(msg)
+                            except Exception as e:
+                                log_callback(f"[DEBUG_PREPARED] {symbol}: ERROR={e}")
+
+                        prepared_dict[symbol] = x
+                    except Exception:
+                        continue
+
+                _substep(f"fast-path (latest_only) processed symbols={len(prepared_dict)}")
+
+                # predicate 検証は検証フラグが有効なときのみ（速度最優先）
+                try:
+                    from config.environment import get_env_config
+
+                    if getattr(get_env_config(), "validate_setup_predicate", False):
+                        validate_predicate_equivalence(
+                            prepared_dict, "System1", log_fn=log_callback
+                        )
+                except Exception:
+                    pass
+
+                return prepared_dict
+
+            # 通常 fast-path: precomputed インジケーター前提で安全にチェック
             valid_data_dict, error_symbols = check_precomputed_indicators(
                 raw_data_dict, ["roc200"], "System1", skip_callback
             )
 
             if valid_data_dict:
-                # Apply System1-specific filters
                 prepared_dict = {}
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
@@ -418,7 +653,11 @@ def prepare_data_vectorized_system1(
                         dv = x.get("dollarvolume20", pd.Series(index=x.index, dtype=float))
                         filt = (x["Close"] >= 5.0) & (dv > 25_000_000)
                     except Exception:
-                        filt = pd.Series(False, index=x.index)
+                        filt = pd.Series(
+                            False,
+                            index=x.index,
+                            dtype=bool,
+                        )  # type: ignore[assignment]
                     x["filter"] = filt
 
                     # Setup: Filter + Close>SMA200 + ROC200>0（欠損は False）
@@ -428,7 +667,11 @@ def prepare_data_vectorized_system1(
                         roc_ok = x.get("roc200", pd.Series(index=x.index, dtype=float)) > 0
                         setup = filt & (close_s > sma200_s) & roc_ok
                     except Exception:
-                        setup = pd.Series(False, index=x.index)
+                        setup = pd.Series(
+                            False,
+                            index=x.index,
+                            dtype=bool,
+                        )  # type: ignore[assignment]
                     x["setup"] = setup
 
                     prepared_dict[symbol] = x
@@ -459,7 +702,9 @@ def prepare_data_vectorized_system1(
     _substep(f"normal path start symbols={len(target_symbols)}")
     if log_callback:
         try:
-            log_callback(f"System1: Starting normal processing for {len(target_symbols)} symbols")
+            log_callback(
+                "System1: Starting normal processing for " f"{len(target_symbols)} symbols"
+            )
         except Exception:
             pass
 
@@ -483,8 +728,14 @@ def prepare_data_vectorized_system1(
         cast(dict[str, pd.DataFrame], results) if isinstance(results, dict) else {}
     )
 
-    # Validate setup column vs predicate equivalence
-    validate_predicate_equivalence(typed_results, "System1", log_fn=log_callback)
+    # Validate setup column vs predicate equivalence（環境設定が有効な時のみ）
+    try:
+        from config.environment import get_env_config
+
+        if getattr(get_env_config(), "validate_setup_predicate", False):
+            validate_predicate_equivalence(typed_results, "System1", log_fn=log_callback)
+    except Exception:
+        pass
 
     return typed_results
 
@@ -577,6 +828,17 @@ def generate_candidates_system1(
             date_counter: dict[pd.Timestamp, int] = {}
             # Optional: orchestrator may specify a target trading date fallback
             target_date = None
+            # Optional max lag (calendar days). If provided and latest bar is older than
+            # target_date by more than this lag, the symbol will be skipped.
+            raw_lag = kwargs.get("max_date_lag_days", None)
+            max_lag_days: Optional[int] = None
+            try:
+                if raw_lag is not None:
+                    max_lag_days = int(str(raw_lag).strip())
+            except Exception:
+                max_lag_days = None
+            if isinstance(max_lag_days, int) and max_lag_days is not None and max_lag_days < 0:
+                max_lag_days = 0
             try:
                 maybe = kwargs.get("latest_mode_date")
                 if maybe is not None:
@@ -588,13 +850,8 @@ def generate_candidates_system1(
                             target_date = pd.Timestamp(str(td)).normalize()
             except Exception:
                 target_date = None
-            max_date_lag_days = 1
-            lag_override = kwargs.get("max_date_lag_days")
-            if lag_override is not None:
-                try:
-                    max_date_lag_days = max(0, int(float(str(lag_override))))
-                except Exception:
-                    pass
+            # Date lag override accepted but currently unused
+            # (kept for API compatibility)
 
             def _ensure_series(obj: Any) -> pd.Series | None:
                 if obj is None:
@@ -608,12 +865,19 @@ def generate_candidates_system1(
                     return obj
                 return None
 
-            fallback_log_remaining = 5
-            # trading-day based lag helper
+            # trading-day lag helper removed (used to call exchange calendars).
+            # Calendar-day comparison is enough for our lag<=1 fallback.
+
+            # Predicate validation toggle (avoid duplicate evaluation in production)
+            validate_predicates = False
             try:
-                from common.utils_spy import calculate_trading_days_lag as _td_lag  # noqa: WPS433
-            except Exception:  # fallback: calendar days
-                _td_lag = None
+                from config.environment import get_env_config
+
+                env = get_env_config()
+                validate_predicates = bool(getattr(env, "validate_setup_predicate", False))
+            except Exception:
+                # If environment config is not available, keep default False
+                validate_predicates = False
 
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
@@ -640,16 +904,9 @@ def generate_candidates_system1(
                         except Exception:
                             diag.exclude_reasons["invalid_date"] += 1
                             continue
-                        lag_days: int | None = None
-                        try:
-                            if _td_lag is not None:
-                                lag_days = int(_td_lag(latest_idx_norm, target_date))
-                            else:
-                                lag_delta = target_date - latest_idx_norm
-                                lag_days = int(lag_delta.days)
-                        except Exception:
-                            lag_days = None
-                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
+
+                        # Fast path: if dates equal, accept immediately
+                        if latest_idx_norm == target_date:
                             try:
                                 row_obj = df.loc[latest_idx_raw]
                             except Exception:
@@ -657,20 +914,17 @@ def generate_candidates_system1(
                             date_val = latest_idx_norm
                             fallback_used = True
                             diag.date_fallback_count += 1
-                            if fallback_used and log_callback and fallback_log_remaining > 0:
-                                try:
-                                    msg = (
-                                        "System1: latest_only missing target bar -> "
-                                        f"fallback to {latest_idx_norm.date()} "
-                                        f"for {sym}"
-                                    )
-                                    log_callback(msg)
-                                except Exception:
-                                    pass
-                                fallback_log_remaining -= 1
                         else:
-                            diag.exclude_reasons["missing_date"] += 1
-                            continue
+                            # Unconditional fallback to latest available bar.
+                            # Final selection by date is handled after the loop
+                            # (target_date → mode_date among collected rows).
+                            try:
+                                row_obj = df.loc[latest_idx_raw]
+                            except Exception:
+                                row_obj = None
+                            date_val = latest_idx_norm
+                            fallback_used = True
+                            diag.date_fallback_count += 1
                 else:
                     latest_idx_raw = df.index[-1]
                     try:
@@ -688,25 +942,43 @@ def generate_candidates_system1(
                     diag.exclude_reasons["invalid_row"] += 1
                     continue
 
+                # Staleness guard (calendar-day based): when target_date is defined and
+                # max_lag_days is provided, drop symbols whose latest bar is too old.
+                try:
+                    if (
+                        target_date is not None
+                        and isinstance(max_lag_days, int)
+                        and max_lag_days >= 0
+                        and date_val < target_date
+                    ):
+                        delta_days = int((pd.Timestamp(target_date) - pd.Timestamp(date_val)).days)
+                        if delta_days > max_lag_days:
+                            diag.exclude_reasons["too_stale"] += 1
+                            continue
+                except Exception:
+                    # On any failure, do not exclude based on staleness.
+                    pass
+
                 # Use predicate-based evaluation (no column dependency)
                 try:
                     from common.system_setup_predicates import system1_setup_predicate as _s1_pred
                 except Exception:
                     _s1_pred = None
 
-                # Evaluate setup conditions via predicate
-                pred_ok = False
-                if _s1_pred is not None:
+                # Evaluate setup conditions using fast row-based function
+                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
+
+                # In production, trust row-based evaluation.
+                # When validation is enabled, also require predicate() to pass.
+                pred_ok = True
+                if validate_predicates and _s1_pred is not None:
                     try:
                         pred_ok = bool(_s1_pred(last_row))
                     except Exception:
                         pred_ok = False
 
-                # Also evaluate via row-based function for diagnostics
-                passed, flags, reason = system1_row_passes_setup(last_row, allow_fallback=True)
-
-                # Primary acceptance: predicate must pass
-                if not pred_ok:
+                # Primary acceptance
+                if not (passed and pred_ok):
                     if reason:
                         diag.exclude_reasons[reason] += 1
                     else:
@@ -723,6 +995,17 @@ def generate_candidates_system1(
                 diag.final_pass += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
+                atr20_val = _to_float(last_row.get("atr20", 0))
+
+                # エントリー価格とストップ価格の計算
+                # System1: 翌日寄り付きで買い、損切りは買値 - 5*ATR20
+                entry_price = close_val if close_val > 0 else 0.0
+                stop_price = (
+                    entry_price - (STOP_ATR_MULTIPLE_SYSTEM1 * atr20_val)
+                    if (entry_price > 0 and atr20_val > 0)
+                    else 0.0
+                )
+
                 # fallback時は target_date ラベルで集計（フィルタ時に消えないように）
                 raw_label_dt = (
                     target_date if (fallback_used and (target_date is not None)) else date_val
@@ -752,20 +1035,32 @@ def generate_candidates_system1(
                         pass
                     continue
                 # 明示エントリー日（翌営業日）
-                # Temporarily disabled to isolate date issue
-                entry_dt = None  # TODO: Re-enable resolve_signal_entry_date
-                # try:
-                #     from common.utils_spy import resolve_signal_entry_date as _resolve_entry
-                #     entry_dt = _resolve_entry(label_dt)
-                # except Exception:
-                #     entry_dt = None
+                try:
+                    from common.utils_spy import resolve_signal_entry_date as _resolve_entry
+
+                    entry_dt = _resolve_entry(label_dt)
+                except Exception:
+                    entry_dt = None
                 date_counter[label_dt] = date_counter.get(label_dt, 0) + 1
+
+                # ATR20 を配分計算用に保持
+                atr20_val = 0.0
+                try:
+                    atr20_raw = last_row.get("atr20")
+                    if atr20_raw is not None and not math.isnan(float(atr20_raw)):
+                        atr20_val = float(atr20_raw)
+                except Exception:
+                    pass
+
                 row_dict = {
                     "symbol": sym,
                     "date": label_dt,
                     "entry_date": entry_dt,
                     "roc200": roc200_val,
                     "close": 0.0 if math.isnan(close_val) else close_val,
+                    "entry_price": entry_price,
+                    "stop_price": stop_price,
+                    "atr20": atr20_val,
                     "setup": bool(last_row.get("setup", False)),
                 }
                 rows.append(row_dict)
@@ -850,8 +1145,9 @@ def generate_candidates_system1(
             missing = max(0, resolved_top_n - len(top_cut))
             if log_callback:
                 log_callback(
-                    f"[DEBUG_S1_TOPOFF] filtered={len(filtered)} top_cut={len(top_cut)} "
-                    f"missing={missing} df_all_orig={len(df_all_original)}"
+                    f"[DEBUG_S1_TOPOFF] filtered={len(filtered)} "
+                    f"top_cut={len(top_cut)} missing={missing} "
+                    f"df_all_orig={len(df_all_original)}"
                 )
             if missing > 0 and len(df_all_original) > 0:
                 try:

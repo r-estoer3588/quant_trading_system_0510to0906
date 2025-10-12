@@ -237,7 +237,6 @@ def generate_candidates_system6(
     latest_only: bool = False,
     latest_mode_date: pd.Timestamp | None = None,
     include_diagnostics: bool = False,
-    diagnostics: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> (
     tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
@@ -253,14 +252,13 @@ def generate_candidates_system6(
     of each DataFrame. Returns normalized mapping {date: {symbol: payload}}.
     """
     # diagnostics payload (opt-in)
-    if diagnostics is None:
-        diagnostics = {
-            "ranking_source": None,
-            "setup_predicate_count": 0,
-            "ranked_top_n_count": 0,
-            "predicate_only_pass_count": 0,
-            "mismatch_flag": 0,
-        }
+    diagnostics = {
+        "ranking_source": None,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": 0,
+    }
 
     candidates_by_date: dict[pd.Timestamp, list] = {}
 

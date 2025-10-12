@@ -162,7 +162,6 @@ def generate_candidates_system4(
     log_callback: Callable[[str], None] | None = None,
     latest_only: bool = False,
     include_diagnostics: bool = False,
-    diagnostics: dict[str, Any] | None = None,
     **_unused_kwargs: Any,
 ) -> (
     tuple[dict[pd.Timestamp, dict[str, dict[str, Any]]], pd.DataFrame | None]
@@ -183,14 +182,14 @@ def generate_candidates_system4(
     Returns:
         (Daily candidate dictionary, Integrated candidate DataFrame)
     """
-    if diagnostics is None:
-        diagnostics = {
-            "ranking_source": None,
-            "setup_predicate_count": 0,
-            "ranked_top_n_count": 0,
-            "predicate_only_pass_count": 0,
-            "mismatch_flag": 0,
-        }
+    # Initialize diagnostics dict
+    diagnostics = {
+        "ranking_source": None,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": 0,
+    }
 
     if not prepared_dict:
         if log_callback:
@@ -234,6 +233,15 @@ def generate_candidates_system4(
                         continue
                 except Exception:
                     continue
+
+                # Entry/Stop価格計算用の値取得
+                close_val = last_row.get("Close", 0)
+                open_val = last_row.get("Open", 0)
+                high_val = last_row.get("High", 0)
+                entry_price = close_val if close_val > 0 else open_val
+                stop_price = high_val if high_val > 0 else close_val * 1.015
+                atr20_val = last_row.get("atr20", 0)
+
                 dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
@@ -242,8 +250,11 @@ def generate_candidates_system4(
                         "date": dt,
                         "rsi4": rsi4_val,
                         "atr_ratio": last_row.get("atr_ratio", 0),
-                        "close": last_row.get("Close", 0),
+                        "close": close_val,
                         "sma200": last_row.get("sma200", 0),
+                        "entry_price": entry_price,
+                        "stop_price": stop_price,
+                        "atr20": atr20_val,
                     }
                 )
 

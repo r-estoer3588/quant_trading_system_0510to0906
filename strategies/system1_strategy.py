@@ -113,6 +113,26 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             pass
         return result_tuple
 
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
     def compute_entry(
         self,
         df: pd.DataFrame,
@@ -134,7 +154,10 @@ class System1Strategy(AlpacaOrderMixin, StrategyBase):
             df,
             candidate,
             atr_column="atr20",
-            stop_multiplier=self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM1),
+            stop_multiplier=self.config.get(
+                "stop_atr_multiple",
+                STOP_ATR_MULTIPLE_SYSTEM1,
+            ),
         )
         if result is None:
             return None

@@ -22,6 +22,7 @@ import pandas as pd
 
 from common.cache_manager import CacheManager
 from common.rate_limited_logging import create_rate_limited_logger
+from config.environment import get_env_config
 
 # グローバルレート制限ロガー
 _rate_limited_logger = None
@@ -221,8 +222,8 @@ def load_basic_data(
     start_ts = time.perf_counter()
     # 進捗更新間隔（件数）。環境変数 TODAY_PROGRESS_CHUNK で上書き可能（既定 500）
     try:
-        _chunk_raw = (os.environ.get("TODAY_PROGRESS_CHUNK") or "").strip()
-        chunk = int(_chunk_raw) if _chunk_raw else 500
+        env = get_env_config()
+        chunk = int(env.today_progress_chunk)
     except Exception:
         chunk = 500
 
@@ -344,24 +345,24 @@ def load_basic_data(
             pass
         return normalized
 
-    env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
-    try:
-        env_parallel_threshold = int(os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200"))
-    except Exception:
-        env_parallel_threshold = 200
-    if env_parallel in ("1", "true", "yes"):
+    _env = get_env_config()
+    if _env.basic_data_parallel is True:
         use_parallel = total_syms > 1
-    elif env_parallel in ("0", "false", "no"):
+    elif _env.basic_data_parallel is False:
         use_parallel = False
     else:
+        try:
+            env_parallel_threshold = int(getattr(_env, "basic_data_parallel_threshold", 200))
+        except Exception:
+            env_parallel_threshold = 200
         use_parallel = total_syms >= max(0, env_parallel_threshold)
 
     max_workers: int | None = None
     if use_parallel and total_syms > 0:
         try:
-            env_workers = (os.environ.get("BASIC_DATA_MAX_WORKERS", "") or "").strip()
-            if env_workers:
-                max_workers = int(env_workers)
+            env_workers_val = getattr(_env, "basic_data_max_workers", None)
+            if env_workers_val is not None:
+                max_workers = int(env_workers_val)
         except Exception:
             max_workers = None
         if max_workers is None:
@@ -375,7 +376,7 @@ def load_basic_data(
             cpu_count = os.cpu_count() or 4
             max_workers = max(4, cpu_count * 2)
         max_workers = max(1, min(int(max_workers), total_syms))
-        if _log:
+        if log_callback is not None:
             _log(f"🧵 基礎データロード並列化: workers={max_workers}")
 
     def _load_one(sym: str) -> tuple[str, pd.DataFrame | None]:
@@ -439,8 +440,13 @@ def load_basic_data(
             eta_sec = int(remain / rate) if rate > 0 else 0
             m, s = divmod(eta_sec, 60)
             # 表示オプション
-            use_thousands = os.environ.get("TODAY_PROGRESS_THOUSANDS") == "1"
-            style = (os.environ.get("TODAY_PROGRESS_STYLE") or "both").lower()
+            try:
+                env2 = get_env_config()
+                use_thousands = bool(getattr(env2, "today_progress_thousands", False))
+                style = str(getattr(env2, "today_progress_style", "both")).lower()
+            except Exception:
+                use_thousands = False
+                style = "both"
             # 固定幅整形（桁数揺れ対策）
             if use_thousands:
                 tot_txt = f"{total_syms:,}"
@@ -608,8 +614,8 @@ def load_indicator_data(
     total_syms = len(symbols)
     start_ts = time.time()
     try:
-        _chunk_raw2 = (os.environ.get("TODAY_PROGRESS_CHUNK") or "").strip()
-        chunk = int(_chunk_raw2) if _chunk_raw2 else 500
+        env = get_env_config()
+        chunk = int(env.today_progress_chunk)
     except Exception:
         chunk = 500
 
@@ -620,12 +626,7 @@ def load_indicator_data(
     # 理由別カウンタ (生成失敗/長さ不足など) を収集し最終サマリーに載せる
     missing_reasons: dict[str, int] = {}
     # 旧挙動復活のための環境変数は解析段階で参照する（ここでは未使用）
-    _ = os.environ.get("ROLLING_MISSING_VERBOSE", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    _ = bool(get_env_config().rolling_missing_verbose)
 
     for idx, sym in enumerate(symbols, start=1):
         try:

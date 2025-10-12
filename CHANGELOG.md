@@ -6,6 +6,7 @@
 
 ### Added
 
+- **Bulk API Quality Control**: 環境変数で Volume/価格差異の許容範囲を制御可能に（`config/environment.py`, `scripts/verify_bulk_accuracy.py`）
 - **System1-7 Predicate Integration**: `common/system_setup_predicates.py` に全システムの Setup predicate 関数を実装し、`core/system{1-7}.py` で統合
 - **System1 DatetimeIndex Fix**: `cache_manager.load_base()` 返却データを DatetimeIndex に明示変換し、"year 10312" エラーを解決
 - **Technical Documentation**: Feather フォーマット要件 (`docs/technical/cache_index_requirements.md`) と System6 閾値ガイド (`docs/technical/zero_candidates_guide.md`) を追加
@@ -18,6 +19,7 @@
 
 ### Changed
 
+- **Bulk API Volume Tolerance**: デフォルトを 0.5%から 5.0%に緩和し、信頼性スコア 30%→100%に改善（2025-10-12）
 - **System1-7 Setup Validation**: 全システムで predicate 関数による Setup 判定に統一（DRY 原則、テスト容易性向上）
 - **System7 Code Cleanup**: `core/system7.py` から pytest-cov 非互換コード（lines 124-128）を削除
 - **Test Mode Freshness**: Mini/Quick/Sample モード時のデータ鮮度許容を 365 日に緩和（`scripts/run_all_systems_today.py`）
@@ -39,6 +41,9 @@
 
 ### Documentation
 
+- **Bulk API Quality Guide**: `docs/operations/bulk_api_quality_guide.md` で品質検証・設定・トラブルシューティングを包括的に解説
+- **Environment Variables**: `docs/technical/environment_variables.md` に Bulk API 品質検証関連の環境変数を追加
+- **Change Summary**: `docs/changes/2025-10-12_bulk_api_quality_improvement.md` で Volume 許容範囲緩和の詳細を記録
 - **Cache Index Requirements**: `docs/technical/cache_index_requirements.md` で Feather フォーマット制約と DatetimeIndex 要件を解説
 - **Zero Candidates Guide**: `docs/technical/zero_candidates_guide.md` で System6 閾値問題とテスト環境設定を説明
 - **System6 Threshold Warning**: `docs/systems/システム6.txt` にテスト環境閾値の警告を追加

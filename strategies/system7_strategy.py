@@ -63,7 +63,11 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 _perf.mark_system_start(self.SYSTEM_NAME)
         except Exception:  # pragma: no cover
             pass
-        result = generate_candidates_system7(data_dict, include_diagnostics=True, **kwargs)
+        result = generate_candidates_system7(
+            data_dict,
+            include_diagnostics=True,
+            **kwargs,
+        )
         if isinstance(result, tuple) and len(result) == 3:
             candidates_by_date, merged_df, diagnostics = result
             self.last_diagnostics = diagnostics
@@ -100,6 +104,28 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         except Exception:  # pragma: no cover
             pass
         return result
+
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.20)
+        if bool(self.config.get("single_mode", False)):
+            max_alloc = max(1.0, max_alloc)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
 
     def run_backtest(
         self,

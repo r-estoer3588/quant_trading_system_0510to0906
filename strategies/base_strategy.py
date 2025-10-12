@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
+import math
 from typing import Any, Dict
 
 import pandas as pd
@@ -160,26 +161,92 @@ class StrategyBase(ABC):
         capital: float,
         entry_price: float,
         stop_price: float,
-        risk_pct: float = 0.02,
-        max_pct: float = 0.10,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **_unused,
     ) -> int:
-        """
-        共通のポジションサイズ計算（System1〜7 共通）
-        - capital: 現在資金
-        - entry_price: エントリー価格
-        - stop_price: 損切り価格
-        - risk_pct: 1トレードのリスク割合（デフォルト2%）
-        - max_pct: 1トレードの最大資金割合（デフォルト10%）
-        """
-        risk_per_trade = risk_pct * capital
-        max_position_value = max_pct * capital
+        """リスク割合と最大投資割合から株数を算出する共通実装。"""
 
-        risk_per_share = abs(entry_price - stop_price)
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
+
+    def _calculate_position_size_core(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        risk_pct: float,
+        max_pct: float,
+    ) -> int:
+        capital_val = self._safe_float(capital)
+        entry_val = self._safe_float(entry_price)
+        stop_val = self._safe_float(stop_price)
+        if capital_val <= 0 or entry_val <= 0 or stop_val <= 0:
+            return 0
+
+        risk_pct = max(0.0, float(risk_pct))
+        max_pct = max(0.0, float(max_pct))
+        if risk_pct == 0.0 or max_pct == 0.0:
+            return 0
+
+        risk_per_trade = capital_val * risk_pct
+        max_position_value = capital_val * max_pct
+
+        risk_per_share = abs(entry_val - stop_val)
         if risk_per_share <= 0:
             return 0
 
-        shares = min(risk_per_trade / risk_per_share, max_position_value / entry_price)
-        return int(shares)
+        shares_by_risk = math.floor(risk_per_trade / risk_per_share)
+        shares_by_capital = math.floor(max_position_value / entry_val)
+        shares = min(shares_by_risk, shares_by_capital)
+
+        if shares <= 0 and risk_per_trade >= risk_per_share:
+            shares = 1
+
+        return max(shares, 0)
+
+    def _resolve_pct(
+        self,
+        override: float | None,
+        config_key: str,
+        default: float,
+    ) -> float:
+        try:
+            if override is not None:
+                value = float(override)
+                if math.isfinite(value) and value >= 0:
+                    return value
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            if isinstance(self.config, dict) and config_key in self.config:
+                value = float(self.config.get(config_key, default))
+                if math.isfinite(value) and value >= 0:
+                    return value
+        except (TypeError, ValueError):
+            pass
+        return default
+
+    @staticmethod
+    def _safe_float(value: float | int | str | None) -> float:
+        if value is None:
+            return 0.0
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(result):
+            return 0.0
+        return result
 
     # --- Perf Snapshot Helpers -------------------------------------------------
     @staticmethod
@@ -259,7 +326,12 @@ class StrategyBase(ABC):
     # リファクタリング用共通メソッド（追加）
     # ----------------------------
 
-    def _resolve_data_params(self, raw_data_or_symbols, use_process_pool=False, **_kwargs):
+    def _resolve_data_params(
+        self,
+        raw_data_or_symbols,
+        use_process_pool: bool = False,
+        **_kwargs,
+    ):
         """
         データパラメータの共通解決処理
 
@@ -283,7 +355,12 @@ class StrategyBase(ABC):
     # 共通PnL計算メソッド
     # ----------------------------
 
-    def compute_pnl_long(self, entry_price: float, exit_price: float, shares: int) -> float:
+    def compute_pnl_long(
+        self,
+        entry_price: float,
+        exit_price: float,
+        shares: int,
+    ) -> float:
         """
         ロングポジションのPnL計算。
 
@@ -297,7 +374,12 @@ class StrategyBase(ABC):
         """
         return (exit_price - entry_price) * shares
 
-    def compute_pnl_short(self, entry_price: float, exit_price: float, shares: int) -> float:
+    def compute_pnl_short(
+        self,
+        entry_price: float,
+        exit_price: float,
+        shares: int,
+    ) -> float:
         """
         ショートポジションのPnL計算。
 
@@ -361,7 +443,13 @@ class StrategyBase(ABC):
         except Exception:
             return min(100, max(10, data_size // 10))
 
-    def _compute_entry_common(self, df, candidate, atr_column="atr20", stop_multiplier=None):
+    def _compute_entry_common(
+        self,
+        df,
+        candidate,
+        atr_column="atr20",
+        stop_multiplier=None,
+    ):
         """
         共通エントリー計算（ATRベースのストップロス）
         戻り値: (entry_price, stop_price, entry_idx) または None
@@ -405,7 +493,13 @@ class StrategyBase(ABC):
 
         return entry_price, stop_price, entry_idx
 
-    def _prepare_data_with_fallback(self, core_prepare_func, raw_dict, symbols, **kwargs):
+    def _prepare_data_with_fallback(
+        self,
+        core_prepare_func,
+        raw_dict,
+        symbols,
+        **kwargs,
+    ):
         """
         System1用のフォールバック付きprepare_data処理
         """
@@ -452,6 +546,11 @@ class StrategyBase(ABC):
 
         # System1のフォールバック処理
         if hasattr(self, "SYSTEM_NAME") and getattr(self, "SYSTEM_NAME", None) == "system1":
-            return self._prepare_data_with_fallback(core_prepare_func, raw_dict, symbols, **kwargs)
+            return self._prepare_data_with_fallback(
+                core_prepare_func,
+                raw_dict,
+                symbols,
+                **kwargs,
+            )
         else:
             return core_prepare_func(raw_dict, symbols=symbols, **kwargs)

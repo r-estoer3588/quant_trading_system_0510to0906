@@ -17,6 +17,26 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(slots=True)
+class SystemDiagnostics:
+    """A structured container for system-wide diagnostic data."""
+
+    data: dict[str, Any] = field(default_factory=dict)
+
+    def set(self, key: str, value: Any) -> None:
+        self.data[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.data.get(key, default)
+
+    def merge(self, other: dict[str, Any]) -> None:
+        self.data.update(other)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.data.copy()
+
+
 RowPredicate = Callable[[pd.Series], bool]
 
 # --- Diagnostics keys (shared across systems) ---

@@ -49,6 +49,10 @@ from strategies.constants import (
     STOP_ATR_MULTIPLE_SYSTEM4,
 )
 
+# --- Module-level flags (one-time notices) ----------------------------------
+# テストモードの鮮度許容緩和ログは1プロセス中に1回だけ表示する
+_TEST_MODE_FRESHNESS_LOGGED: bool = False
+
 
 # --- CLI用デフォルトログ関数 -----------------------------------------------
 def _default_cli_log(message: str) -> None:
@@ -115,6 +119,7 @@ class TodaySignal:
     score_rank: int | None = None
     score_rank_total: int | None = None
     reason: str | None = None
+    atr20: float | None = None  # 配分計算用ATR値
 
 
 @dataclass
@@ -374,6 +379,7 @@ def _prepare_strategy_data(
     skip_callback = skip_stats.callback()
 
     try:
+        # latest_only ヒントを prepare_data に伝播（各戦略側で未対応なら無視される）
         prepared_dict = strategy.prepare_data(
             sliced_dict,
             progress_callback=progress_callback,
@@ -383,6 +389,7 @@ def _prepare_strategy_data(
             max_workers=max_workers,
             lookback_days=lookback_days,
             reuse_indicators=True,
+            latest_only=True,
         )
     except Exception as exc:
         system_name = str(getattr(strategy, "SYSTEM_NAME", ""))
@@ -403,6 +410,7 @@ def _prepare_strategy_data(
                 max_workers=None,
                 lookback_days=lookback_days,
                 reuse_indicators=False,
+                latest_only=True,
             )
         except Exception as exc2:
             reason_code = "prepare_fail: 入力不備のため処理中断"
@@ -468,10 +476,28 @@ def _filter_by_data_freshness(
     except Exception:
         prev_trading_day = pd.Timestamp(today).normalize() - pd.Timedelta(days=1)
 
+    # テストモード時は鮮度チェックを大幅に緩和（365営業日 ≈ 1.5年）
     try:
-        month_cutoff = pd.Timestamp(prev_trading_day) - pd.DateOffset(months=1)
+        from config.environment import get_env_config
+
+        env = get_env_config()
+        # test_mode が設定されている場合は鮮度チェックを緩和
+        if env.test_mode in ("mini", "quick", "sample"):
+            month_cutoff = pd.Timestamp(prev_trading_day) - pd.Timedelta(days=365 * 1.5)
+            global _TEST_MODE_FRESHNESS_LOGGED
+            if (not _TEST_MODE_FRESHNESS_LOGGED) and log_callback:
+                try:
+                    log_callback(f"🧪 [TEST-MODE={env.test_mode}] 鮮度許容を1.5年に緩和しました")
+                except Exception:
+                    pass
+                _TEST_MODE_FRESHNESS_LOGGED = True
+        else:
+            month_cutoff = pd.Timestamp(prev_trading_day) - pd.DateOffset(months=1)
     except Exception:
-        month_cutoff = pd.Timestamp(prev_trading_day) - pd.Timedelta(days=30)
+        try:
+            month_cutoff = pd.Timestamp(prev_trading_day) - pd.DateOffset(months=1)
+        except Exception:
+            month_cutoff = pd.Timestamp(prev_trading_day) - pd.Timedelta(days=30)
 
     stale_alerts: list[tuple[str, pd.Timestamp]] = []
     stale_suppressed: list[tuple[str, pd.Timestamp]] = []
@@ -733,11 +759,14 @@ def _generate_candidates_for_system(
     call_kwargs: dict[str, Any] = {
         "progress_callback": progress_callback,
         "log_callback": log_callback,
+        "latest_only": True,  # 当日シグナル抽出時は最新行のみ処理
     }
-    if can_override_top_n:
+    # Only add top_n if not already in the function signature as keyword argument
+    if can_override_top_n and "top_n" not in params:
         call_kwargs["top_n"] = TODAY_TOP_N
     # request diagnostics when supported by underlying core functions
-    call_kwargs["include_diagnostics"] = True
+    if "include_diagnostics" in params:
+        call_kwargs["include_diagnostics"] = True
 
     if needs_market_df and market_df_arg is not None:
         market_df_local = market_df_arg
@@ -1502,9 +1531,34 @@ def _build_today_signals_dataframe(
     key_map = selection.key_map
     if target_date is not None and target_date in key_map:
         orig_key = key_map[target_date]
-        today_candidates = cast(list[dict], candidates_by_date.get(orig_key, []))
+        today_raw = candidates_by_date.get(orig_key, [])
     else:
-        today_candidates = cast(list[dict], [])
+        today_raw = []
+
+    # Normalize candidate payloads to a list[dict].
+    # Some systems return {date: [{...}, {...}]}, others return {date: {symbol: {...}}}.
+    today_candidates: list[dict] = []
+    if isinstance(today_raw, list):
+        # Expect a list of dicts
+        today_candidates = [c for c in today_raw if isinstance(c, dict)]
+    elif isinstance(today_raw, dict):
+        # Expect a symbol->payload dict; inject symbol into each payload
+        for _sym, _payload in cast(dict, today_raw).items():
+            sym_str = str(_sym) if _sym is not None else ""
+            if isinstance(_payload, dict):
+                rec = dict(_payload)
+                rec.setdefault("symbol", sym_str)
+                # also attach the candidate date so we can derive entry_date later
+                if target_date is not None and "date" not in rec:
+                    rec["date"] = target_date
+                today_candidates.append(rec)
+            else:
+                base = {"symbol": sym_str, "value": _payload}
+                if target_date is not None:
+                    base["date"] = target_date
+                today_candidates.append(base)
+    else:
+        today_candidates = []
     if not today_candidates:
         return _empty_today_signals_frame(), 0
 
@@ -1516,6 +1570,19 @@ def _build_today_signals_dataframe(
         tuple[str, pd.Timestamp, bool],
         tuple[list[tuple[str, float]], dict[str, int]],
     ] = {}
+
+    def _find_column_ci(frame: pd.DataFrame, key: str) -> str | None:
+        """Return the actual column name in frame matching key case-insensitively."""
+        if not isinstance(key, str) or frame is None:
+            return None
+        cols = getattr(frame, "columns", [])
+        if key in cols:
+            return key
+        key_lower = key.lower()
+        for col in cols:
+            if isinstance(col, str) and col.lower() == key_lower:
+                return col
+        return None
 
     def _get_normalized_dates(symbol: str, frame: pd.DataFrame) -> np.ndarray | None:
         cached = date_cache.get(symbol)
@@ -1549,6 +1616,29 @@ def _build_today_signals_dataframe(
         if df is None or getattr(df, "empty", True):
             entry_skip_stats.record(str(sym), "prepared_frame_empty")
             continue
+        # Prefill candidate with last available Close
+        # (and a common ATR) when entry_price is absent.
+        try:
+            if c.get("entry_price") is None:
+                close_ci = _find_column_ci(df, "Close")
+                if close_ci is not None and close_ci in df.columns:
+                    last_close_ser = pd.to_numeric(df[close_ci], errors="coerce").dropna()
+                    last_close_ser = last_close_ser[last_close_ser > 0]
+                    if not last_close_ser.empty:
+                        c["entry_price"] = float(last_close_ser.iloc[-1])
+            # Optionally provide an ATR value hint to reduce fallback cost
+            if all(k not in c for k in ("ATR20", "atr20", "atr10", "ATR10")):
+                for k in ("ATR20", "atr20", "ATR10", "atr10", "ATR14", "atr14"):
+                    ci = _find_column_ci(df, k)
+                    if ci is None or ci not in df.columns:
+                        continue
+                    atr_ser = pd.to_numeric(df[ci], errors="coerce").dropna()
+                    atr_ser = atr_ser[atr_ser > 0]
+                    if not atr_ser.empty:
+                        c[k] = float(atr_ser.iloc[-1])
+                        break
+        except Exception:
+            pass
         debug_info: dict[str, Any] = {}
         comp = _compute_entry_stop(strategy, df, c, side, debug=debug_info)
         if not comp:
@@ -1607,18 +1697,21 @@ def _build_today_signals_dataframe(
                             mask = dt_vals == signal_date_ts
                             if mask.any():
                                 row = df.loc[mask]
-                                if not row.empty and skey in row.columns:
-                                    _v = row.iloc[0][skey]
-                                    if _v is not None and not pd.isna(_v):
-                                        sval = float(_v)
+                                if not row.empty:
+                                    ci = _find_column_ci(row, skey)
+                                    if ci is not None and ci in row.columns:
+                                        _v = row.iloc[0][ci]
+                                        if _v is not None and not pd.isna(_v):
+                                            sval = float(_v)
                 except Exception:
                     pass
             if (system_name == "system1") and (
                 sval is None or (isinstance(sval, float) and pd.isna(sval))
             ):
                 try:
-                    if skey in df.columns:
-                        _v = pd.Series(df[skey]).dropna().tail(1).iloc[0]
+                    ci2 = _find_column_ci(df, skey)
+                    if ci2 is not None and ci2 in df.columns:
+                        _v = pd.Series(df[ci2]).dropna().tail(1).iloc[0]
                         sval = float(_v)
                 except Exception:
                     pass
@@ -1642,9 +1735,10 @@ def _build_today_signals_dataframe(
                                     if not mask.any():
                                         continue
                                     row = pdf.loc[mask]
-                                    if row.empty or skey not in row.columns:
+                                    ci_inner = _find_column_ci(row, skey)
+                                    if row.empty or ci_inner is None or ci_inner not in row.columns:
                                         continue
-                                    val = row.iloc[0][skey]
+                                    val = row.iloc[0][ci_inner]
                                     if val is None or pd.isna(val):
                                         continue
                                     vals.append((str(psym), float(val)))
@@ -1745,14 +1839,42 @@ def _build_today_signals_dataframe(
 
         reason_text = "; ".join(reason_parts)
 
+        # Resolve entry_date; if missing, derive from candidate date
         try:
             _ed_raw: Any = c.get("entry_date")
             _ed = pd.Timestamp(_ed_raw) if _ed_raw is not None else None
-            if _ed is None or pd.isna(_ed):
-                continue
-            entry_date_norm = pd.Timestamp(_ed).normalize()
         except Exception:
+            _ed = None
+        if _ed is None or (isinstance(_ed, pd.Timestamp) and pd.isna(_ed)):
+            # derive from 'date' field when available
+            try:
+                cand_dt_raw: Any = c.get("date") or c.get("Date")
+                cand_dt_ts = pd.to_datetime(cand_dt_raw, errors="coerce")
+                if not pd.isna(cand_dt_ts):
+                    cand_dt_norm = pd.Timestamp(cand_dt_ts).normalize()
+                    try:
+                        from common.utils_spy import resolve_signal_entry_date as _res_entry
+
+                        _ed = _res_entry(cand_dt_norm)
+                    except Exception:
+                        _ed = cand_dt_norm
+            except Exception:
+                _ed = None
+        if _ed is None or (isinstance(_ed, pd.Timestamp) and pd.isna(_ed)):
             continue
+        entry_date_norm = pd.Timestamp(_ed).normalize()
+
+        # ATR20 を候補から取得（配分計算用）
+        atr20_val = None
+        try:
+            for key in ("atr20", "ATR20", "atr_20", "ATR_20"):
+                if key in c:
+                    raw = c.get(key)
+                    if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
+                        atr20_val = float(raw)
+                        break
+        except Exception:
+            atr20_val = None
 
         rows.append(
             TodaySignal(
@@ -1772,6 +1894,7 @@ def _build_today_signals_dataframe(
                 score_rank=None if rank_val is None else int(rank_val),
                 score_rank_total=(None if total_for_rank <= 0 else int(total_for_rank)),
                 reason=reason_text,
+                atr20=atr20_val,
             )
         )
 
@@ -1912,19 +2035,38 @@ def _score_from_candidate(
     elif name == "system6":
         key_order = [(["return_6d"], False), (["ATR10"], True)] + key_order
 
+    # Case-insensitive key lookup
+    try:
+        ci_map: dict[str, tuple[str, object]] = {}
+        for ck, cv in candidate.items():
+            if isinstance(ck, str):
+                low = ck.lower()
+                if low not in ci_map:
+                    ci_map[low] = (ck, cv)
+    except Exception:
+        ci_map = {}
+
+    def _get_ci(k: str) -> tuple[str, object] | None:
+        if k in candidate:
+            return k, candidate.get(k)
+        low = k.lower()
+        return ci_map.get(low)
+
     for keys, asc in key_order:
         for k in keys:
-            if k in candidate:
-                v = candidate.get(k)
-                if v is None:
-                    return k, None, asc
-                if isinstance(v, (int | float | str)):
-                    try:
-                        return k, float(v), asc
-                    except Exception:
-                        return k, None, asc
-                else:
-                    return k, None, asc
+            found = _get_ci(k)
+            if found is None:
+                continue
+            actual_key, v = found
+            if v is None:
+                return actual_key, None, asc
+            if isinstance(v, (int, float, str)):
+                try:
+                    return actual_key, float(v), asc
+                except Exception:
+                    return actual_key, None, asc
+            else:
+                return actual_key, None, asc
     # 見つからない場合
     return None, None, False
 
@@ -2269,6 +2411,56 @@ def _compute_entry_stop(
                         pass
                     _record_detail("atr_source", f"prev_row:{col}")
                     break
+    else:
+        # Entry day not found (likely next trading day not yet in df).
+        # Use latest series fallback explicitly.
+        try:
+            # Prefer previous day's Close as entry fallback
+            close_col = None
+            for col in getattr(df, "columns", []):
+                if isinstance(col, str) and col.lower() == "close":
+                    close_col = col
+                    break
+            if close_col is not None:
+                series = pd.to_numeric(df[close_col], errors="coerce").dropna()
+                series = series[series > 0]
+                if not series.empty:
+                    entry = float(series.iloc[-1])
+                    _record_detail("entry_source", "prev_close_fallback")
+        except Exception:
+            pass
+        if entry is None:
+            try:
+                open_col = None
+                for col in getattr(df, "columns", []):
+                    if isinstance(col, str) and col.lower() == "open":
+                        open_col = col
+                        break
+                if open_col is not None:
+                    series = pd.to_numeric(df[open_col], errors="coerce").dropna()
+                    series = series[series > 0]
+                    if not series.empty:
+                        entry = float(series.iloc[-1])
+                        _record_detail("entry_source", "prev_open_fallback")
+            except Exception:
+                pass
+        # Also pick latest positive ATR from available ATR columns if needed
+        if atr_val is None and atr_column:
+            try:
+                atr_series = pd.to_numeric(df[atr_column], errors="coerce").dropna()
+                atr_series = atr_series[atr_series > 0]
+                if not atr_series.empty:
+                    atr_val = float(atr_series.iloc[-1])
+                    try:
+                        _record_detail(
+                            "atr_window",
+                            int(_infer_atr_window(atr_column, atr_window)),
+                        )
+                    except Exception:
+                        pass
+                    _record_detail("atr_source", f"latest:{atr_column}")
+            except Exception:
+                pass
 
     if isinstance(candidate, dict):
         if entry is None:

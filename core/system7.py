@@ -161,7 +161,6 @@ def generate_candidates_system7(
     batch_size: int | None = None,
     latest_only: bool = False,
     include_diagnostics: bool = False,
-    diagnostics: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> (
     Tuple[dict[pd.Timestamp, dict[str, dict[str, object]]], pd.DataFrame | None]
@@ -184,14 +183,13 @@ def generate_candidates_system7(
       matching Systems1–6 for orchestration uniformity.
     """
 
-    if diagnostics is None:
-        diagnostics = {
-            "ranking_source": None,
-            "setup_predicate_count": 0,
-            "ranked_top_n_count": 0,
-            "predicate_only_pass_count": 0,
-            "mismatch_flag": 0,
-        }
+    diagnostics = {
+        "ranking_source": None,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": 0,
+    }
 
     if "SPY" not in prepared_dict:
         return ({}, None, diagnostics) if include_diagnostics else ({}, None)

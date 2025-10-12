@@ -84,6 +84,20 @@ def _get_str_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
+def _basic_data_parallel_default() -> bool | None:
+    """Parse BASIC_DATA_PARALLEL into tri-state bool.
+
+    Returns:
+        True if env=="1", False if env=="0", otherwise None (auto)
+    """
+    val = _get_str_env("BASIC_DATA_PARALLEL", "").strip().lower()
+    if val == "1":
+        return True
+    if val == "0":
+        return False
+    return None
+
+
 @dataclass
 class EnvironmentConfig:
     """環境変数の統一管理クラス。
@@ -139,11 +153,32 @@ class EnvironmentConfig:
     )
     """rollingキャッシュ問題の詳細表示行数。"""
 
+    # 進捗表示（UI/CLI 共通）
+    today_progress_chunk: int = field(
+        default_factory=lambda: _get_int_env("TODAY_PROGRESS_CHUNK", 500)
+    )
+    """進捗ログを出す件数間隔（既定: 500）。"""
+
+    today_progress_thousands: bool = field(
+        default_factory=lambda: _get_bool_env("TODAY_PROGRESS_THOUSANDS", False)
+    )
+    """進捗件数表示を3桁区切りにする。"""
+
+    today_progress_style: str = field(
+        default_factory=lambda: _get_str_env("TODAY_PROGRESS_STYLE", "both")
+    )
+    """進捗表示スタイル: 'elapsed' | 'eta' | 'both'（既定）。"""
+
     no_emoji: bool = field(
         default_factory=lambda: _get_bool_env("NO_EMOJI", False)
         or _get_bool_env("DISABLE_EMOJI", False)
     )
     """ログからEmoji（絵文字）を削除。CI/CD用。"""
+
+    rolling_missing_verbose: bool = field(
+        default_factory=lambda: _get_bool_env("ROLLING_MISSING_VERBOSE", False)
+    )
+    """個別銘柄ごとの rolling 未整備ログを詳細表示（既定は抑制）。"""
 
     # ===== 2. System3固有（テスト用閾値） =====
     min_drop3d_for_test: float | None = field(
@@ -178,13 +213,7 @@ class EnvironmentConfig:
     )
     """System6専用のプロセスプール使用フラグ。"""
 
-    basic_data_parallel: bool | None = field(
-        default_factory=lambda: (
-            True
-            if _get_str_env("BASIC_DATA_PARALLEL", "").lower() == "1"
-            else (False if _get_str_env("BASIC_DATA_PARALLEL", "").lower() == "0" else None)
-        )
-    )
+    basic_data_parallel: bool | None = field(default_factory=lambda: _basic_data_parallel_default())
     """基本データ読み込みの並列処理。True=強制並列、False=強制直列、None=自動。"""
 
     basic_data_parallel_threshold: int = field(
@@ -204,6 +233,9 @@ class EnvironmentConfig:
     """ルックバック期間の最小日数。"""
 
     # ===== 4. テスト・デバッグ =====
+    test_mode: str | None = field(default_factory=lambda: _get_str_env("TEST_MODE", "") or None)
+    """テストモード: 'mini' (10銘柄) | 'quick' (50銘柄) | 'sample' (100銘柄) | None。"""
+
     validate_setup_predicate: bool = field(
         default_factory=lambda: _get_bool_env("VALIDATE_SETUP_PREDICATE", False)
     )
@@ -246,6 +278,19 @@ class EnvironmentConfig:
         default_factory=lambda: _get_int_env("MAX_COMPACT_LINES", 0) or None
     )
     """ログ圧縮検証時の最大行数（compact）。"""
+
+    allocation_debug: bool = field(default_factory=lambda: _get_bool_env("ALLOCATION_DEBUG", False))
+    """配分処理の詳細デバッグログを有効化。開発・デバッグ用。"""
+
+    # ===== 4.5. latest_only 鮮度ガード（カレンダー日ベース） =====
+    latest_only_max_date_lag_days: int | None = field(
+        default_factory=lambda: _get_int_env("LATEST_ONLY_MAX_DATE_LAG_DAYS", 0) or None
+    )
+    """latest_only 時に許容する最新バーとターゲット日の日付乖離（カレンダー日）。
+
+    None: 設定未指定（settings.cache.rolling.max_staleness_days を使用）
+    0以上の整数: 明示上書き（0 は同日一致のみ許容）
+    """
 
     # ===== 5. API認証（機密情報） =====
     apca_api_key_id: str = field(default_factory=lambda: _get_str_env("APCA_API_KEY_ID", ""))
@@ -297,7 +342,23 @@ class EnvironmentConfig:
     )
     """キャッシュ健康診断のCLI通知を抑制。"""
 
-    # ===== 7. その他 =====
+    # ===== 7. Bulk APIデータ品質検証 =====
+    bulk_api_volume_tolerance: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_VOLUME_TOLERANCE", 5.0)
+    )
+    """Bulk API Volume差異の許容範囲（パーセント）。デフォルト: 5.0%"""
+
+    bulk_api_price_tolerance: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_PRICE_TOLERANCE", 0.5)
+    )
+    """Bulk API価格差異の許容範囲（パーセント）。デフォルト: 0.5%"""
+
+    bulk_api_min_reliability: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_MIN_RELIABILITY", 70.0)
+    )
+    """Bulk API使用の最低信頼性スコア（パーセント）。デフォルト: 70.0%"""
+
+    # ===== 8. その他 =====
     scheduler_workers: int = field(default_factory=lambda: _get_int_env("SCHEDULER_WORKERS", 4))
     """スケジューラーのワーカー数。"""
 
@@ -385,6 +446,21 @@ def get_env_config() -> EnvironmentConfig:
         ...     print("Running in production")
     """
     return EnvironmentConfig()
+
+
+def reset_env_config_cache() -> None:
+    """環境変数設定のキャッシュをクリア。
+
+    os.environ を動的に変更した後に呼び出すことで、
+    get_env_config() が最新の環境変数を読み込むようにする。
+
+    Examples:
+        >>> import os
+        >>> os.environ["TEST_MODE"] = "mini"
+        >>> reset_env_config_cache()
+        >>> env = get_env_config()  # 新しい環境変数で再初期化
+    """
+    get_env_config.cache_clear()
 
 
 def print_env_summary() -> None:

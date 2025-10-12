@@ -47,10 +47,12 @@ except Exception:  # pragma: no cover - defensive; failure is non-fatal
 if sys.platform == "win32":
     try:
         # reconfigure が利用可能な Python のみ直接切り替え
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]  # hasattr() でチェック済み
-        if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]  # hasattr() でチェック済み
+        _reconf_out = getattr(sys.stdout, "reconfigure", None)
+        if callable(_reconf_out):
+            _reconf_out(encoding="utf-8")
+        _reconf_err = getattr(sys.stderr, "reconfigure", None)
+        if callable(_reconf_err):
+            _reconf_err(encoding="utf-8")
     except (AttributeError, io.UnsupportedOperation):
         # Fallback: Windows cp932 を回避するために UTF-8 ラッパを被せる
         import codecs
@@ -107,8 +109,8 @@ from common.utils_spy import (
     get_latest_nyse_trading_day,
     get_signal_target_trading_day,
     get_spy_with_indicators,
-    resolve_signal_entry_date,
 )
+from config.environment import get_env_config
 from config.settings import get_settings
 from core.final_allocation import finalize_allocation, load_symbol_system_map
 from core.system1 import summarize_system1_diagnostics
@@ -123,12 +125,13 @@ from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from tools.notify_metrics import send_metrics_notification  # noqa: E402
-from tools.verify_trd_length import get_expected_max_for_mode, verify_trd_length  # noqa: E402
 
 # --- Console encoding helpers (to mitigate mojibake on Windows terminals) ---
-_NO_EMOJI_ENV = (
-    os.environ.get("NO_EMOJI") or os.environ.get("DISABLE_EMOJI") or ""
-).strip().lower() in {"1", "true", "yes", "on"}
+_env = get_env_config()
+_NO_EMOJI_ENV = bool(_env.no_emoji)
+
+# コンパクトログ（詳細DEBUGを抑制）
+_COMPACT_LOG = bool(_env.compact_logs)
 
 
 def _console_supports_utf8() -> bool:
@@ -205,6 +208,8 @@ class LightweightBenchmark:
         self._current_phase: str | None = None
         self._start_time: float | None = None
         self._global_start: float | None = None
+        # 追加メタデータ（任意のブロックや明細を保存するための拡張領域）
+        self.extras: dict[str, Any] = {}
 
     def start_phase(self, phase_name: str) -> None:
         """フェーズ開始時刻を記録。"""
@@ -244,6 +249,8 @@ class LightweightBenchmark:
             "timestamp": datetime.now().isoformat(),
             "phases": self.phases,
             "total_duration_sec": round(total_duration, 6),
+            # 追加メタデータ（フェーズ内訳など）
+            "extras": self.extras,
         }
 
     def save_report(self, output_path: str | Path) -> None:
@@ -254,6 +261,16 @@ class LightweightBenchmark:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as f:
             json.dump(self.get_report(), f, ensure_ascii=False, indent=2)
+
+    # 追加: 任意セクションの付加
+    def add_extra_section(self, name: str, payload: Any) -> None:
+        if not self.enabled:
+            return
+        try:
+            self.extras[str(name)] = payload
+        except Exception:
+            # extras 書き込み失敗は致命的ではないので無視
+            pass
 
 
 _LIGHTWEIGHT_BENCHMARK: LightweightBenchmark | None = None
@@ -723,7 +740,7 @@ def _get_today_logger() -> logging.Logger:
         # 環境変数でも日付別ログ指定を許可（UI 実行など main() を経ない場合）
         if globals().get("_LOG_FILE_PATH") is None:
             try:
-                _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+                _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
                 if _mode_env == "dated":
                     try:
                         _jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
@@ -791,19 +808,11 @@ def _emit_ui_log(message: str) -> None:
     """
     # 1) フラグ判定（UI構造化 と NDJSON）
     try:
-        structured_ui = (os.environ.get("STRUCTURED_UI_LOGS") or "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        structured_ui = bool(get_env_config().structured_ui_logs)
     except Exception:
         structured_ui = False
     try:
-        ndjson_flag = (os.environ.get("STRUCTURED_LOG_NDJSON") or "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        ndjson_flag = bool(get_env_config().structured_log_ndjson)
     except Exception:
         ndjson_flag = False
 
@@ -1093,8 +1102,11 @@ def _log(
     # キーワードによる除外判定（全体）
     try:
         # SHOW_INDICATOR_LOGS が真でない限り、インジケーター系の進捗ログを抑制
-        _show_ind_logs = (os.environ.get("SHOW_INDICATOR_LOGS") or "").strip().lower()
-        _hide_indicator_logs = _show_ind_logs not in {"1", "true", "yes", "on"}
+        try:
+            _show_ind_logs_flag = bool(get_env_config().show_indicator_logs)
+        except Exception:
+            _show_ind_logs_flag = False
+        _hide_indicator_logs = not _show_ind_logs_flag
         _indicator_skip = (
             "インジケーター計算",
             "指標計算",
@@ -1169,11 +1181,10 @@ class _PerfTimer:
     def __init__(self, label: str, level: str = "DEBUG") -> None:
         self.label = label
         self.level = level
-        self.enabled = (os.environ.get("ENABLE_STEP_TIMINGS") or "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        try:
+            self.enabled = bool(get_env_config().enable_step_timings)
+        except Exception:
+            self.enabled = False
         self._t0: float | None = None
 
     def __enter__(self):  # noqa: D401
@@ -1762,11 +1773,14 @@ def _load_basic_data(
             pass
         return normalized
 
-    env_parallel = (os.environ.get("BASIC_DATA_PARALLEL", "") or "").strip().lower()
-    try:
-        env_parallel_threshold = int(os.environ.get("BASIC_DATA_PARALLEL_THRESHOLD", "200"))
-    except Exception:
-        env_parallel_threshold = 200
+    # env-based overrides via EnvironmentConfig
+    env_cfg = get_env_config()
+    env_parallel = (
+        "1"
+        if env_cfg.basic_data_parallel is True
+        else ("0" if env_cfg.basic_data_parallel is False else "")
+    )
+    env_parallel_threshold = int(getattr(env_cfg, "basic_data_parallel_threshold", 200))
     if env_parallel in ("1", "true", "yes"):
         use_parallel = total_syms > 1
     elif env_parallel in ("0", "false", "no"):
@@ -1777,7 +1791,7 @@ def _load_basic_data(
     max_workers: int | None = None
     if use_parallel and total_syms > 0:
         try:
-            env_workers = (os.environ.get("BASIC_DATA_MAX_WORKERS", "") or "").strip()
+            env_workers = str(env_cfg.basic_data_max_workers or "").strip()
             if env_workers:
                 max_workers = int(env_workers)
         except Exception:
@@ -2303,6 +2317,14 @@ def _initialize_run_context(
 ) -> TodayRunContext:
     """当日シグナル実行前に共有設定・状態をまとめたコンテキストを生成する。"""
 
+    # テストモードを環境変数にも設定（get_env_config()のシングルトン初期化前に設定必須）
+    if test_mode:
+        os.environ["TEST_MODE"] = test_mode
+        # 環境変数変更後にキャッシュをクリアして、最新の環境変数を反映
+        from config.environment import reset_env_config_cache
+
+        reset_env_config_cache()
+
     # Avoid directory creation side-effects during initialization; directories
     # are expected to exist or be created lazily by CacheManager/write ops.
     settings = get_settings(create_dirs=False)
@@ -2332,6 +2354,7 @@ def _initialize_run_context(
     )
     ctx.run_start_time = datetime.now()
     ctx.start_equity = _get_account_equity()
+
     try:
         freshness_tolerance = int(settings.cache.rolling.max_staleness_days)
     except Exception:
@@ -2339,6 +2362,14 @@ def _initialize_run_context(
     # Default to calendar days for backward compatibility
     # Will be updated to trading days after signal_base_day is determined
     ctx.max_date_lag_days = max(0, int(freshness_tolerance))
+    # 環境変数による上書き（latest_only 用鮮度ガード、カレンダー日）
+    try:
+        env = get_env_config()
+        lag_override = getattr(env, "latest_only_max_date_lag_days", None)
+        if lag_override is not None:
+            ctx.max_date_lag_days = max(0, int(lag_override))
+    except Exception:
+        pass
     try:
         import uuid as _uuid
 
@@ -2402,29 +2433,30 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
                     except Exception:
                         pass
 
+        # テストモード・環境変数の制限値を事前計算
+        limit_val: int | None = None
+        limit_src = ""
+
+        # テストモードの制限チェック
+        if test_mode:
+            test_limits = {"mini": 10, "quick": 50, "sample": 100}
+            if test_mode in test_limits and test_mode != "test_symbols":
+                limit_val = test_limits[test_mode]
+                limit_src = f"test-mode={test_mode}"
+
+        # 環境変数による制限チェック（テストモードが未指定の場合）
+        if limit_val is None:
+            try:
+                env_limit = os.getenv("TODAY_SYMBOL_LIMIT", "").strip()
+                if env_limit:
+                    parsed = int(env_limit)
+                    if parsed > 0:
+                        limit_val = parsed
+                        limit_src = "TODAY_SYMBOL_LIMIT"
+            except Exception:
+                limit_val = None
+
         if fetched:
-            limit_val: int | None = None
-            limit_src = ""
-
-            # テストモードの制限チェック
-            if test_mode:
-                test_limits = {"mini": 10, "quick": 50, "sample": 100}
-                if test_mode in test_limits and test_mode != "test_symbols":
-                    limit_val = test_limits[test_mode]
-                    limit_src = f"test-mode={test_mode}"
-
-            # 環境変数による制限チェック（テストモードが未指定の場合）
-            if limit_val is None:
-                try:
-                    env_limit = os.getenv("TODAY_SYMBOL_LIMIT", "").strip()
-                    if env_limit:
-                        parsed = int(env_limit)
-                        if parsed > 0:
-                            limit_val = parsed
-                            limit_src = "TODAY_SYMBOL_LIMIT"
-                except Exception:
-                    limit_val = None
-
             if limit_val is not None and len(fetched) > limit_val:
                 fetched = fetched[:limit_val]
                 label = limit_src or "TODAY_SYMBOL_LIMIT"
@@ -2449,6 +2481,18 @@ def _prepare_symbol_universe(ctx: TodayRunContext, initial_symbols: list[str] | 
                     symbols = list(dict.fromkeys(primaries + others))
                 except Exception:
                     symbols = []
+
+        # テストモード制限を skip_external 経路でも適用
+        if limit_val is not None and len(symbols) > limit_val:
+            symbols = symbols[:limit_val]
+            label = limit_src or "TODAY_SYMBOL_LIMIT"
+            info = f"🎯 シンボル数を制限 ({label}={limit_val})"
+            _log(info)
+            if log_callback:
+                try:
+                    log_callback(info)
+                except Exception:
+                    pass
 
     # Ensure SPY is the first symbol in today's universe (required by some systems)
     try:
@@ -2588,7 +2632,7 @@ def _ensure_cli_logger_configured() -> None:
     """CLI 実行時のファイルロガー設定を保証する。"""
     try:
         if globals().get("_LOG_FILE_PATH") is None:
-            _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
             _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
     except Exception:
         pass
@@ -2597,7 +2641,7 @@ def _ensure_cli_logger_configured() -> None:
 def _silence_streamlit_cli_warnings() -> None:
     """CLI での実行時、Streamlit の bare mode 警告を抑制する。"""
     try:
-        if os.environ.get("STREAMLIT_SERVER_ENABLED"):
+        if get_env_config().streamlit_server_enabled:
             return
 
         class _SilenceBareModeWarnings(logging.Filter):
@@ -3587,7 +3631,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # CLI 経由で未設定の場合（UI 等）、既定で日付別ログに切替
     try:
         if globals().get("_LOG_FILE_PATH") is None:
-            _mode_env = (os.environ.get("TODAY_SIGNALS_LOG_MODE") or "").strip().lower()
+            _mode_env = (get_env_config().today_signals_log_mode or "").strip().lower()
             _configure_today_logger(mode=("single" if _mode_env == "single" else "dated"))
     except Exception:
         pass
@@ -3619,7 +3663,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     # CLI実行時のStreamlit警告を抑制（UIコンテキストが無い場合のみ）
     try:
-        if not os.environ.get("STREAMLIT_SERVER_ENABLED"):
+        if not get_env_config().streamlit_server_enabled:
 
             class _SilenceBareModeWarnings(logging.Filter):
                 def filter(self, record: logging.LogRecord) -> bool:
@@ -3656,17 +3700,39 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     except Exception:
         ctx.signal_base_day = entry_day
 
-    # Update max_date_lag_days based on actual NYSE trading days
-    # This ensures we only allow lags that represent valid trading days (e.g., weekend gaps)
-    # rather than mid-week staleness
+    # Update max_date_lag_days dynamically for weekend/holiday gaps when no env override is set
+    # 基本方針: 明示的な環境変数オーバーライドがない場合、
+    # (entry_day - signal_base_day) のカレンダー日差分を下限として許容（日数）を引き上げる。
     try:
-        # Get the configured calendar-day tolerance
-        calendar_tolerance = getattr(ctx, "max_date_lag_days", 2)
-        # For now, keep it simple: trading day tolerance = calendar day tolerance
-        # In production, you may want to validate against actual SPY cache date here
-        ctx.max_date_lag_days = max(0, int(calendar_tolerance))
+        env = get_env_config()
+        lag_override = getattr(env, "latest_only_max_date_lag_days", None)
     except Exception:
-        pass
+        lag_override = None
+
+    try:
+        calendar_tolerance = max(0, int(getattr(ctx, "max_date_lag_days", 2)))
+    except Exception:
+        calendar_tolerance = 2
+
+    if lag_override is None:
+        try:
+            entry = pd.Timestamp(getattr(ctx, "entry_day", None)).normalize()
+            base = pd.Timestamp(getattr(ctx, "signal_base_day", None)).normalize()
+            gap_days = None
+            if entry is not None and base is not None:
+                gap_days = max(0, int((entry - base).days))
+            effective = int(calendar_tolerance)
+            if gap_days is not None:
+                effective = max(effective, gap_days)
+            ctx.max_date_lag_days = max(0, int(effective))
+        except Exception:
+            ctx.max_date_lag_days = calendar_tolerance
+    else:
+        # Respect explicit env override decided earlier in _initialize_run_context
+        try:
+            ctx.max_date_lag_days = max(0, int(getattr(ctx, "max_date_lag_days", 1)))
+        except Exception:
+            pass
 
     # Run start banner (CLI only) - 最初に実行開始メッセージを表示
     try:
@@ -4575,6 +4641,8 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     _log("🚀 各システムの当日シグナル抽出を開始")
 
     per_system = {}
+    # ベンチマーク明細（有効時のみ値が入る）
+    _phase4_details: list[dict[str, Any]] = []
     system_names = [f"system{i}" for i in range(1, 8)]
 
     for system_name in system_names:
@@ -4620,6 +4688,16 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 continue
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")
+            # per-system 計測（ベンチマークが無効でも _PerfTimer による軽量ログは出す）
+            _sys_t_prepare = None
+            _sys_t_candidates = None
+            try:
+                import time as _t
+
+                _sys_t0 = _t.perf_counter()
+            except Exception:
+                _sys_t0 = None
+
             with _PerfTimer(f"{system_name}.prepare_data"):
                 try:
                     prepared_data = strategy.prepare_data(raw_data)
@@ -4628,6 +4706,14 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     per_system[system_name] = pd.DataFrame()
                     _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
                     _log(f"✅ {system_name} 完了: 0件")
+                    # 失敗時も計測を記録（可能なら）
+                    try:
+                        import time as _t
+
+                        if _sys_t0 is not None:
+                            _sys_t_prepare = _t.perf_counter() - _sys_t0
+                    except Exception:
+                        pass
                     continue
 
             candidate_kwargs: dict[str, Any] = {}
@@ -4702,118 +4788,75 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     )
             except Exception:
                 pass
-            with _PerfTimer(f"{system_name}.generate_candidates"):
-                candidates, _ = strategy.generate_candidates(prepared_data, **candidate_kwargs)
+            _sys_t1 = None
+            try:
+                import time as _t
+
+                if _sys_t0 is not None:
+                    _sys_t1 = _t.perf_counter()
+            except Exception:
+                pass
+
+            # Phase5: Use get_today_signals instead of generate_candidates
+            # to ensure entry_price/stop_price are calculated
+            with _PerfTimer(f"{system_name}.get_today_signals"):
+                try:
+                    df = strategy.get_today_signals(
+                        prepared_data,
+                        market_df=spy_df,
+                        today=ctx.today,
+                        progress_callback=None,
+                        log_callback=_log,
+                        stage_progress=None,
+                        use_process_pool=False,  # Phase5 is already parallelized per-system
+                        max_workers=None,
+                        lookback_days=None,
+                    )
+                except Exception as sig_err:
+                    import traceback
+
+                    _log(f"[{system_name}] ⚠️ get_today_signals failed: {sig_err}")
+                    _log(f"[{system_name}] Traceback:\n{traceback.format_exc()}")
+                    df = pd.DataFrame()
+
+            # per-system 計測まとめ
+            try:
+                import time as _t
+
+                _now = _t.perf_counter()
+                if _sys_t0 is not None:
+                    if _sys_t1 is None:
+                        _sys_t1 = _now
+                    _sys_t_prepare = (
+                        (_sys_t1 - _sys_t0) if _sys_t_prepare is None else _sys_t_prepare
+                    )
+                    _sys_t_candidates = _now - _sys_t1
+            except Exception:
+                pass
 
             # TRD リスト長の検証（テストモード時の整合性チェック）
-            try:
-                expected_max_trd = get_expected_max_for_mode(ctx.test_mode)
-                trd_result = verify_trd_length(candidates or {}, system_name, expected_max_trd)
-                if not trd_result["valid"]:
-                    _log(f"[{system_name}] {trd_result['message']}")
-                else:
-                    # 既定はコンパクト運用を尊重して DEBUG に留める
-                    # TRD_LOG_OK=1/true/yes/on のときは Info としても出力
-                    _ok_env = (os.environ.get("TRD_LOG_OK") or "").strip().lower()
-                    if _ok_env in {"1", "true", "yes", "on"}:
-                        _log(f"[{system_name}] {trd_result['message']}")
-                    else:
-                        rate_limited_logger = _get_rate_limited_logger()
-                        rate_limited_logger.debug_rate_limited(
-                            trd_result["message"],
-                            message_key=f"trd_verify_{system_name}",
-                            interval=10,
-                        )
-            except Exception as trd_err:
-                # 検証失敗時もエラーで止めない（警告のみ）
-                _log(f"[{system_name}] ⚠️ TRD検証でエラー: {trd_err}")
-
+            # Note: get_today_signals returns DataFrame, not dict[date, dict]
+            # So we skip TRD verification here (will be done in Phase6)
             try:
                 if system_name == "system1":
                     _log(
-                        "[system1] DEBUG returned candidate_dates="
-                        f"{len(candidates) if candidates else 0}"
+                        "[system1] DEBUG get_today_signals returned "
+                        f"{len(df) if df is not None and not df.empty else 0} rows"
                     )
             except Exception:
                 pass
-            if candidates:
-                # 候補をDataFrameに変換
-                rows = []
-                for date_key, symbols_data in candidates.items():
-                    if isinstance(symbols_data, dict):
-                        for symbol, data in symbols_data.items():
-                            # Prefer candidate-provided entry_date; otherwise compute from date_key
-                            try:
-                                cand_entry = (
-                                    data.get("entry_date") if isinstance(data, dict) else None
-                                )
-                            except Exception:
-                                cand_entry = None
-                            entry_date_val = None
-                            if cand_entry is not None and cand_entry != "":
-                                try:
-                                    ts = pd.to_datetime(cand_entry, errors="coerce")
-                                    if not pd.isna(ts):
-                                        entry_date_val = pd.Timestamp(ts).normalize()
-                                except Exception:
-                                    entry_date_val = None
-                            if entry_date_val is None:
-                                # date_key が異常（年が極端・NaT）な場合に備えてサニタイズ
-                                try:
-                                    base_ts = pd.Timestamp(date_key)
-                                except Exception:
-                                    base_ts = pd.NaT
-                                if pd.isna(base_ts):
-                                    # これ以上推定できないので当該レコードはスキップ
-                                    continue
-                                base_ts = pd.Timestamp(base_ts).normalize()
-                                year_val = int(getattr(base_ts, "year", 0) or 0)
-                                if year_val < 1900 or year_val > 2262:
-                                    # 異常年レンジはスキップ
-                                    continue
-                                try:
-                                    # date_key is the signal day; convert to next trading day
-                                    entry_date_val = resolve_signal_entry_date(base_ts)
-                                except Exception:
-                                    entry_date_val = base_ts
-                            # DEBUGログ: コンパクトモードでは抑制
-                            try:
-                                if not _COMPACT_LOG:
-                                    _log(
-                                        f"[DEBUG] build-row {system_name} {symbol} date_key={str(date_key)} cand_entry={cand_entry} -> entry_date_val={str(entry_date_val)}",
-                                        ui=False,
-                                    )
-                            except Exception:
-                                pass
-                            # Merge candidate payload, then enforce normalized entry_date
-                            row_payload = {
-                                "system": system_name,
-                                "symbol": symbol,
-                                "side": (
-                                    ("long" if int(system_name[-1]) in [1, 3, 4, 5] else "short")
-                                ),
-                            }
-                            # bring all candidate fields first
-                            if isinstance(data, dict):
-                                try:
-                                    row_payload.update(data)
-                                except Exception:
-                                    pass
-                            # finally, enforce entry_date value
-                            row_payload["entry_date"] = entry_date_val
-                            rows.append(row_payload)
-                df = pd.DataFrame(rows) if rows else pd.DataFrame()
-                # DEBUGログ: コンパクトモードでは抑制
-                try:
-                    if not _COMPACT_LOG and not df.empty and "entry_date" in df.columns:
-                        _log(
-                            f"[DEBUG] per-system {system_name} entry_date dtype={str(df['entry_date'].dtype)} sample={list(pd.to_datetime(df['entry_date'], errors='coerce').dt.normalize().head(3).astype(str))}",
-                            ui=False,
-                        )
-                except Exception:
-                    pass
-            else:
+
+            # df is already a DataFrame with entry_price/stop_price from get_today_signals
+            if df is None or df.empty:
                 df = pd.DataFrame()
+            else:
+                # デバッグ: get_today_signalsから返されたDataFrameの列を確認
+                if os.environ.get("ALLOCATION_DEBUG", "0") == "1":
+                    _log(
+                        f"[ALLOC_DEBUG] {system_name} get_today_signals returned columns: {list(df.columns)}"
+                    )
+                    if len(df) > 0:
+                        _log(f"[ALLOC_DEBUG] {system_name} sample row: {df.iloc[0].to_dict()}")
 
             per_system[system_name] = df
             count = len(df) if not df.empty else 0
@@ -4844,6 +4887,27 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
         _log(f"✅ {system_name} 完了: {len(per_system[system_name])}件")
 
+        # ベンチマーク拡張: フェーズ4のシステム別明細を収集
+        try:
+            if _LIGHTWEIGHT_BENCHMARK and _LIGHTWEIGHT_BENCHMARK.enabled:
+                detail = {
+                    "system": system_name,
+                    "prepare_sec": round(float(_sys_t_prepare or 0.0), 6),
+                    "generate_candidates_sec": round(float(_sys_t_candidates or 0.0), 6),
+                    "total_sec": round(
+                        float((((_sys_t_prepare or 0.0) + (_sys_t_candidates or 0.0)))), 6
+                    ),
+                    "candidates": (
+                        int(len(per_system.get(system_name, pd.DataFrame())))
+                        if isinstance(per_system.get(system_name), pd.DataFrame)
+                        else 0
+                    ),
+                    "latest_only": bool(candidate_kwargs.get("latest_only", False)),
+                }
+                _phase4_details.append(detail)
+        except Exception:
+            pass
+
         # システム完了をUIに通知
         try:
             if per_system_progress and callable(per_system_progress):
@@ -4868,6 +4932,11 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     if _phase4_measure:
         _phase4_measure.__exit__(None, None, None)
     if _LIGHTWEIGHT_BENCHMARK:
+        # 明細を extras に付加（フェーズ終了と同時に）
+        try:
+            _LIGHTWEIGHT_BENCHMARK.add_extra_section("phase4_per_system", _phase4_details)
+        except Exception:
+            pass
         _LIGHTWEIGHT_BENCHMARK.end_phase()
 
     # Phase 5: 配分計算
@@ -4889,6 +4958,19 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # アクティブポジション情報（将来: broker / キャッシュから取得可能なら拡張）
         active_positions = None  # NOTE: Could be retrieved via ctx if needed
 
+        # デバッグ: 配分前の候補データを出力
+        if os.environ.get("ALLOCATION_DEBUG", "0") == "1":
+            _log("[ALLOC_DEBUG] === PRE-ALLOCATION CANDIDATES ===")
+            for sys_name, df in per_system.items():
+                if not df.empty:
+                    _log(f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows")
+                    _log(f"[ALLOC_DEBUG] {sys_name} columns: {list(df.columns)}")
+                    if len(df) > 0:
+                        sample = df.iloc[0].to_dict()
+                        _log(f"[ALLOC_DEBUG] {sys_name} sample: {sample}")
+                else:
+                    _log(f"[ALLOC_DEBUG] {sys_name}: EMPTY")
+
         final_df, allocation_summary = finalize_allocation(
             per_system,
             strategies=strategies,
@@ -4899,6 +4981,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             capital_long=capital_long,
             capital_short=capital_short,
             system_diagnostics=ctx.system_diagnostics,
+            market_data_dict=ctx.basic_data,
+            signal_date=ctx.today,
+            include_trade_management=True,
         )
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
@@ -5365,7 +5450,7 @@ def _run_strategy_with_proper_scope(
             market_df=spy_df,
             today=today,
             progress_callback=None,
-            log_callback=_log_cb,
+            log_callback=_log,
             stage_progress=_stage_cb,
             use_process_pool=use_process_pool,
             max_workers=max_workers,
@@ -5810,16 +5895,28 @@ def log_final_candidates(final_df: pd.DataFrame) -> list[Signal]:
     ]
     show = [c for c in cols if c in final_df.columns]
     _log(tmp_df[show].to_string(index=False))
-    signals_for_merge = [
-        Signal(
-            system_id=int(str(r.get("system")).replace("system", "") or 0),
-            symbol=str(r.get("symbol")),
-            side="BUY" if str(r.get("side")).lower() == "long" else "SELL",
-            strength=float(r.get("score", 0.0)),
-            meta={},
+    signals_for_merge = []
+    for _, r in final_df.iterrows():
+        raw_score = r.get("score", 0.0)
+        try:
+            # None/NaN/invalid -> 0.0
+            score_val = 0.0 if pd.isna(raw_score) else float(raw_score)
+        except Exception:
+            score_val = 0.0
+        try:
+            system_field = str(r.get("system"))
+            system_id = int(system_field.replace("system", "") or 0)
+        except Exception:
+            system_id = 0
+        signals_for_merge.append(
+            Signal(
+                system_id=system_id,
+                symbol=str(r.get("symbol")),
+                side="BUY" if str(r.get("side")).lower() == "long" else "SELL",
+                strength=score_val,
+                meta={},
+            )
         )
-        for _, r in final_df.iterrows()
-    ]
     return signals_for_merge
 
 

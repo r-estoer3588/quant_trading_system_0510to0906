@@ -16,7 +16,7 @@ import re
 import sys
 from threading import Lock
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 import uuid
 
 try:
@@ -303,14 +303,14 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
     invalid_side_mask = work["side_norm"].isna()
     if invalid_side_mask.any():
         invalid_values = sorted(
-            {str(v) for v in work.loc[invalid_side_mask, "side"].tolist()}
+            {str(v) for v in work.loc[invalid_side_mask, "side"].values.tolist()}
         )  # noqa: E501
         raise ValueError(f"未対応のsideが含まれています: {invalid_values}")
 
     invalid_system_mask = work["system_norm"].isna()
     if invalid_system_mask.any():
         invalid_values = sorted(
-            {str(v) for v in work.loc[invalid_system_mask, "system"].tolist()}
+            {str(v) for v in work.loc[invalid_system_mask, "system"].values.tolist()}
         )  # noqa: E501
         raise ValueError(f"未対応のsystemが含まれています: {invalid_values}")
 
@@ -318,14 +318,14 @@ def _build_position_summary_table(df: pd.DataFrame) -> pd.DataFrame:
         ~work["system_norm"].isin(LONG_SYSTEMS)
     )  # noqa: E501
     if long_conflict_mask.any():
-        conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].tolist()})
+        conflict = sorted({str(v) for v in work.loc[long_conflict_mask, "system"].values.tolist()})
         raise ValueError(f"Longサイドに想定外のsystemが含まれています: {conflict}")
 
     short_conflict_mask = (work["side_norm"] == "short") & (
         ~work["system_norm"].isin(SHORT_SYSTEMS)
     )
     if short_conflict_mask.any():
-        conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].tolist()})
+        conflict = sorted({str(v) for v in work.loc[short_conflict_mask, "system"].values.tolist()})
         raise ValueError(f"Shortサイドに想定外のsystemが含まれています: {conflict}")
 
     def _sorted_systems(systems: set[str]) -> list[str]:
@@ -394,10 +394,10 @@ def _normalize_price_history(df: pd.DataFrame, rows: int) -> pd.DataFrame | None
         return None
 
     try:
-        work.columns = [str(col) for col in work.columns]
+        work.columns = pd.Index([str(col) for col in work.columns])  # type: ignore[assignment]
     except Exception:
         work = pd.DataFrame(work)
-        work.columns = [str(col) for col in work.columns]
+        work.columns = pd.Index([str(col) for col in work.columns])  # type: ignore[assignment]
 
     lower_map = {col.lower(): col for col in work.columns}
 
@@ -429,9 +429,9 @@ def _normalize_price_history(df: pd.DataFrame, rows: int) -> pd.DataFrame | None
             work.rename(columns={col: target}, inplace=True)
 
     try:
-        work.columns = [str(col).lower() for col in work.columns]
+        work.columns = pd.Index([str(col).lower() for col in work.columns])  # type: ignore[assignment]
     except Exception:
-        work.columns = [str(col) for col in work.columns]
+        work.columns = pd.Index([str(col) for col in work.columns])  # type: ignore[assignment]
 
     if "date" not in work.columns or "close" not in work.columns:
         return None
@@ -813,7 +813,7 @@ def _log_manual_rebuild_notice(
                     _MANUAL_REBUILD_AGG is not None
                 ):
                     try:
-                        _MANUAL_REBUILD_AGG.add(symbol, status)  # type: ignore[attr-defined]
+                        _MANUAL_REBUILD_AGG.add(symbol, status)
                     except Exception:
                         pass
             except Exception:
@@ -860,7 +860,7 @@ def _log_manual_rebuild_notice(
                                 _agg_summary = get_rolling_issue_aggregator()
                                 _issues_map = getattr(_agg_summary, "_issues", {})
                                 _missing_list = _issues_map.get("missing_rolling", [])
-                                missing_cnt = len(_missing_list)  # type: ignore[arg-type]
+                                missing_cnt = len(_missing_list)
                             except Exception:
                                 missing_cnt = 0
                             extra = f" missing_rolling:{missing_cnt}件" if missing_cnt else ""
@@ -1653,7 +1653,7 @@ class StageTracker:
 
         try:
             if isinstance(per_system, dict):
-                alloc_dict = per_system.get("__allocation_summary__")  # type: ignore[assignment]
+                alloc_dict = per_system.get("__allocation_summary__")
             else:
                 alloc_dict = None
             if isinstance(alloc_dict, dict):
@@ -1879,24 +1879,32 @@ class StageTracker:
 
     def get_display_metrics(self, name: str) -> dict[str, int | None]:
         key = str(name).lower()
-        return self.metrics_store.get_display_metrics(key)
+        result = self.metrics_store.get_display_metrics(key)
+        return cast(dict[str, int | None], result)
 
     def _ensure_counts(self, name: str) -> dict[str, int | None]:
-        return self.metrics_store.ensure_display_metrics(name)
+        result = self.metrics_store.ensure_display_metrics(name)
+        return cast(dict[str, int | None], result)
 
     @staticmethod
     def _format_value(value: Any) -> str:
-        return "-" if value is None else str(value)
+        """Format value as string, returning '-' for None."""
+        result: str = "-" if value is None else str(value)
+        return result
 
     @staticmethod
     def _clamp_trdlist(value: Any) -> int | None:
-        return StageMetricsStore.clamp_trdlist(value)
+        result = StageMetricsStore.clamp_trdlist(value)
+        return cast(int | None, result)
 
     def _format_trdlist(self, value: Any) -> str:
+        """Format trdlist value with clamping, returning '-' for None."""
         if value is None:
-            return "-"
+            clamped_str: str = "-"
+            return clamped_str
         try:
-            return str(self._clamp_trdlist(value))
+            clamped_val = self._clamp_trdlist(value)
+            return str(clamped_val) if clamped_val is not None else "-"
         except Exception:
             return "-"
 
@@ -2070,7 +2078,7 @@ class UILogger:
                             "utf-8",
                             "utf8",
                         ):
-                            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+                            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
                 except Exception:
                     pass
             # 初回ヒント表示（化けを検知できそうなら）
@@ -2306,6 +2314,62 @@ def _postprocess_results(
             final_df.insert(0, "no", range(1, len(final_df) + 1))
         except Exception:
             pass
+    # 仕掛け管理の主要列を前面に出し、UI向けの日本語ラベル・ツールチップを適用
+    try:
+        if isinstance(final_df, pd.DataFrame) and not final_df.empty:
+            trade_cols = [
+                "entry_type",
+                "entry_price_final",
+                "stop_price",
+                "profit_target_price",
+                "use_trailing_stop",
+                "trailing_stop_pct",
+                "max_holding_days",
+                "entry_atr",
+                "risk_per_share",
+                "total_risk",
+            ]
+            exist = [c for c in trade_cols if c in final_df.columns]
+            # 全NaNの列はノイズになるため除外（ただし 'no' は常に保持）
+            exist_non_nan: list[str] = []
+            for c in exist:
+                try:
+                    if not pd.to_numeric(final_df[c], errors="coerce").isna().all():
+                        exist_non_nan.append(c)
+                except Exception:
+                    # 数値変換できないときは、文字列列として非NaN判定
+                    try:
+                        if not final_df[c].isna().all():
+                            exist_non_nan.append(c)
+                    except Exception:
+                        pass
+            # 既存先頭ナンバー列 'no' は温存
+            leading = [c for c in (["no"] if "no" in final_df.columns else []) + exist_non_nan]
+            if leading:
+                other_cols = [c for c in final_df.columns if c not in leading]
+                final_df = final_df[leading + other_cols]
+
+            # 表示名（日本語ラベル）を設定
+            label_map = {
+                "entry_type": "仕掛け種別",
+                "entry_price_final": "仕掛け価格",
+                "stop_price": "損切価格",
+                "profit_target_price": "利食い価格",
+                "use_trailing_stop": "利益の保護ON",
+                "trailing_stop_pct": "トレーリング幅(%)",
+                "max_holding_days": "最大保有日数",
+                "entry_atr": "ATR(参照)",
+                "risk_per_share": "1株あたりリスク",
+                "total_risk": "推定総リスク",
+            }
+            # 列名の見た目だけを置き換え（内部キーは保持）
+            try:
+                display_cols = {c: label_map.get(c, c) for c in final_df.columns}
+                final_df = final_df.rename(columns=display_cols)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return final_df, per_system
 
 
@@ -2488,13 +2552,13 @@ def _interpret_compute_today_result(
 
     # dict ならそのまま
     if isinstance(maybe_second, dict):
-        return maybe_df, maybe_second  # type: ignore[return-value]
+        return maybe_df, maybe_second
 
     # AllocationSummary を dict 化
     try:
-        from core.final_allocation import to_allocation_summary_dict  # type: ignore
+        from core.final_allocation import to_allocation_summary_dict
     except Exception:
-        to_allocation_summary_dict = None  # type: ignore
+        to_allocation_summary_dict = None
 
     if to_allocation_summary_dict is not None:
         try:
@@ -3449,7 +3513,7 @@ def _poll_order_status(results_df: pd.DataFrame, trade_options: TradeOptions) ->
         client = None
     if client is None:
         return
-    order_ids = [str(oid) for oid in results_df["order_id"].tolist() if oid]
+    order_ids = [str(oid) for oid in results_df["order_id"].values.tolist() if oid]
     end = time.time() + 10
     last: dict[str, Any] = {}
     while time.time() < end:
@@ -3758,7 +3822,7 @@ def _log_and_notify(
     notifier: Callable[[str], None] | None,
     log_callback: Callable[[str], None] | None,
     level: int = logging.INFO,
-):
+) -> None:
     """Log to both logger and optional callbacks."""
 
     _get_today_logger().log(level, message)
@@ -4150,7 +4214,7 @@ if "positions_df" in st.session_state:
 
         # 手仕舞い対象の選択
         if not positions_df.empty:
-            symbols_list = positions_df["symbol"].tolist()
+            symbols_list = positions_df["symbol"].values.tolist()
             selected_symbols: list[str] = st.multiselect(
                 "手仕舞いする銘柄を選択:",
                 options=symbols_list,

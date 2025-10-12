@@ -63,8 +63,10 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         **kwargs,
     ) -> tuple[dict, pd.DataFrame | None]:
         """候補生成（共通メソッド使用、特殊分岐廃止）"""
-        top_n = self._get_top_n_setting(kwargs.get("top_n"))
+        top_n = self._get_top_n_setting(kwargs.pop("top_n", None))
         batch_size = self._get_batch_size_setting(len(data_dict))
+        # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
+        latest_only = bool(kwargs.pop("latest_only", False))
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
 
@@ -77,6 +79,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             data_dict,
             top_n=top_n,
             batch_size=batch_size,
+            latest_only=latest_only,
             include_diagnostics=True,
             **kwargs,
         )
@@ -92,7 +95,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 data_dict,
                 candidates_by_date,
                 top_n=top_n,
-                latest_only=bool(kwargs.get("latest_only", False)),
+                latest_only=latest_only,
                 spec=SystemDiagnosticSpec(
                     rank_metric_name="return_6d",
                     rank_predicate=numeric_greater_than("return_6d", 0.20),
@@ -115,6 +118,26 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         except Exception:  # pragma: no cover
             pass
         return result
+
+    def calculate_position_size(
+        self,
+        capital: float,
+        entry_price: float,
+        stop_price: float,
+        *,
+        risk_pct: float | None = None,
+        max_pct: float | None = None,
+        **kwargs,
+    ) -> int:
+        risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
+        max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
+        return self._calculate_position_size_core(
+            capital,
+            entry_price,
+            stop_price,
+            risk,
+            max_alloc,
+        )
 
     # シミュレーター用フック（System6: Short）
     def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
@@ -148,7 +171,13 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             return None
         return entry_price, stop_price
 
-    def compute_exit(self, df: pd.DataFrame, entry_idx: int, entry_price: float, stop_price: float):
+    def compute_exit(
+        self,
+        df: pd.DataFrame,
+        entry_idx: int,
+        entry_price: float,
+        stop_price: float,
+    ):
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
         profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
