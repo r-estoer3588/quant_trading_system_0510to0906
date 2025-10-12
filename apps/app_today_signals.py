@@ -2764,12 +2764,10 @@ def _interpret_compute_today_result(
                         fc_sorted = {
                             k: fc[k] for k in sorted(fc.keys(), key=_system_sort_key)
                         }
-                        logger.log(
-                            "🧾 AllocationSummary final_counts=" + str(fc_sorted)
-                        )
+                        logger.log("🧾 最終結果(entry)=" + str(fc_sorted))
                     except Exception:
                         # フォールバック（元のまま）
-                        logger.log("🧾 AllocationSummary final_counts=" + str(fc))
+                        logger.log("🧾 最終結果(entry)=" + str(fc))
 
                 long_alloc = summary_dict.get("long_allocations", {}) or {}
                 short_alloc = summary_dict.get("short_allocations", {}) or {}

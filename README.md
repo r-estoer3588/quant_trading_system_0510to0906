@@ -476,6 +476,41 @@ pre-commit フックが以下を自動実行します：
   - 品質集計（ruff/mypy/pytest/bandit/radon）
   - **black フォーマット厳格チェック**（フォーマット漏れを防止）
 
+#### 手動フックの使い分け（PowerShell）
+
+用途別にローカルで個別のチェックを素早く回せます。
+
+- Ruff（静的解析、軽微な修正の自動適用）
+
+  ```powershell
+  # チェックのみ
+  ruff check .
+
+  # 自動修正も適用
+  ruff check --fix .
+  ```
+
+- mypy（UTF-8 強制ランナーで Windows のコードページ問題を回避）
+
+  ```powershell
+  # 指定ファイルのみ（例: core/system7.py）
+  python tools/mypy_utf8_runner.py core/system7.py --no-incremental
+
+  # 主要システムまとめチェック
+  python tools/mypy_utf8_runner.py core/system1.py core/system2.py core/system3.py core/system4.py core/system5.py core/system6.py core/system7.py --no-incremental
+  ```
+
+- pytest（クイックサブセット、短いトレース）
+
+  ```powershell
+  C:\Repos\quant_trading_system\venv\Scripts\python.exe -m pytest -q --tb=short -k "not slow and not integration"
+  ```
+
+ヒント:
+
+- まとまった変更の前後は `ruff --fix` → `black` → `isort` → `pytest -q` の順で回すとノイズが減ります。
+- エディタの型警告は Pylance（basic）で軽めに、厳密チェックは mypy を使用します。
+
 #### フォーマット問題の回避
 
 大量のファイル編集後は以下の手順でコミットしてください：
