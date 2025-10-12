@@ -66,7 +66,9 @@ def save_symbol_manifest(
 
     manifest_path = _manifest_path(base_dir)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return manifest_path
 
 

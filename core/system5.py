@@ -46,7 +46,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM5_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM5_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -55,7 +57,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
         # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
         x["filter"] = (
-            (x["Close"] >= 5.0) & (x["adx7"] > 35.0) & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
+            (x["Close"] >= 5.0)
+            & (x["adx7"] > 35.0)
+            & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
         )
 
         # Setup: Same as filter for System5 (simple high ADX trend selection)
@@ -126,7 +130,9 @@ def prepare_data_vectorized_system5(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System5: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System5: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -136,7 +142,9 @@ def prepare_data_vectorized_system5(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System5: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System5: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -149,7 +157,9 @@ def prepare_data_vectorized_system5(
         return {}
 
     if log_callback:
-        log_callback(f"System5: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System5: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -229,7 +239,9 @@ def generate_candidates_system5(
 
                 # Use predicate-based evaluation (no setup column dependency)
                 try:
-                    from common.system_setup_predicates import system5_setup_predicate as _s5_pred
+                    from common.system_setup_predicates import (
+                        system5_setup_predicate as _s5_pred,
+                    )
                 except Exception:
                     _s5_pred = None
 
@@ -253,6 +265,16 @@ def generate_candidates_system5(
                     continue
                 dt = pd.Timestamp(df.index[-1])
                 date_counter[dt] = date_counter.get(dt, 0) + 1
+
+                # ATR10を配分計算用に保持
+                atr10_val = 0.0
+                try:
+                    atr10_raw = last_row.get("atr10")
+                    if atr10_raw is not None and not pd.isna(atr10_raw):
+                        atr10_val = float(atr10_raw)
+                except Exception:
+                    pass
+
                 rows.append(
                     {
                         "symbol": sym,
@@ -260,6 +282,7 @@ def generate_candidates_system5(
                         "adx7": adx7_val,
                         "atr_pct": last_row.get("atr_pct", 0),
                         "close": last_row.get("Close", 0),
+                        "atr10": atr10_val,
                     }
                 )
 
@@ -294,7 +317,10 @@ def generate_candidates_system5(
                                 continue
                         if samples:
                             log_callback(
-                                ("System5: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                                (
+                                    "System5: DEBUG latest_only 0 candidates. "
+                                    + " | ".join(samples)
+                                )
                             )
                     except Exception:
                         pass
@@ -306,7 +332,9 @@ def generate_candidates_system5(
                 df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
+            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(
+                top_n
+            )
             diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -367,7 +395,9 @@ def generate_candidates_system5(
                     continue
                 row = cast(pd.Series, df.loc[date])
                 setup_val = bool(row.get("setup", False))
-                from common.system_setup_predicates import system5_setup_predicate as _s5_pred
+                from common.system_setup_predicates import (
+                    system5_setup_predicate as _s5_pred,
+                )
 
                 pred_val = _s5_pred(row)
                 if pred_val:
@@ -413,7 +443,9 @@ def generate_candidates_system5(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "adx7"], ascending=[True, False]
+        )
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -427,7 +459,10 @@ def generate_candidates_system5(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            ("System5: Generated " f"{total_candidates} candidates across {unique_dates} dates")
+            (
+                "System5: Generated "
+                f"{total_candidates} candidates across {unique_dates} dates"
+            )
         )
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}

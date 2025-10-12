@@ -138,7 +138,9 @@ class TestSystem2DiagnosticsMinimal:
             )
         }
 
-        res = generate_candidates_system2(prepared_dict, top_n=5, include_diagnostics=True)
+        res = generate_candidates_system2(
+            prepared_dict, top_n=5, include_diagnostics=True
+        )
         if isinstance(res, tuple) and len(res) == 3:
             _candidates, _df, diagnostics = res
         else:

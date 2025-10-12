@@ -37,7 +37,9 @@ def _is_nan(val: Any) -> bool:
         return False
 
 
-def validate_trd_frame(df: pd.DataFrame, *, name: str | None = None) -> ValidationResult:
+def validate_trd_frame(
+    df: pd.DataFrame, *, name: str | None = None
+) -> ValidationResult:
     errs: list[str] = []
     warns: list[str] = []
     label = (name or "").strip() or "unknown"
@@ -58,7 +60,9 @@ def validate_trd_frame(df: pd.DataFrame, *, name: str | None = None) -> Validati
 
     # 重複（symbol, system）組の検出
     try:
-        dup_mask = df.duplicated(subset=[c for c in ("symbol", "system") if c in df.columns])
+        dup_mask = df.duplicated(
+            subset=[c for c in ("symbol", "system") if c in df.columns]
+        )
         if dup_mask.any():
             dups = df.loc[
                 dup_mask,
@@ -97,7 +101,9 @@ def validate_trd_frame(df: pd.DataFrame, *, name: str | None = None) -> Validati
         # entry_date
         if "entry_date" in df.columns:
             if _is_nan(row.get("entry_date")):
-                errs.append(f"[{label}] {sym}/{sys_name} has NaT entry_date at index {idx}")
+                errs.append(
+                    f"[{label}] {sym}/{sys_name} has NaT entry_date at index {idx}"
+                )
         # prices
 
         def _to_float_safe(x: Any) -> float | None:
@@ -109,8 +115,16 @@ def validate_trd_frame(df: pd.DataFrame, *, name: str | None = None) -> Validati
             except Exception:
                 return None
 
-        ep = _to_float_safe(row.get("entry_price")) if "entry_price" in df.columns else None
-        sp = _to_float_safe(row.get("stop_price")) if "stop_price" in df.columns else None
+        ep = (
+            _to_float_safe(row.get("entry_price"))
+            if "entry_price" in df.columns
+            else None
+        )
+        sp = (
+            _to_float_safe(row.get("stop_price"))
+            if "stop_price" in df.columns
+            else None
+        )
         if ep is None or _is_nan(ep) or (isinstance(ep, (int, float)) and ep <= 0):
             errs.append(
                 (
@@ -261,7 +275,11 @@ def validate_trd_frame(df: pd.DataFrame, *, name: str | None = None) -> Validati
         if has_sys and has_pv and has_sb:
             try:
                 # 正規化
-                cols = [c for c in ("system", "position_value", "system_budget") if c in df.columns]
+                cols = [
+                    c
+                    for c in ("system", "position_value", "system_budget")
+                    if c in df.columns
+                ]
                 work = df[cols].copy()
                 work["system"] = work["system"].astype(str).str.lower().str.strip()
                 # 数値化（非数は無視）
@@ -321,7 +339,9 @@ def summarize_trd_frame(df: pd.DataFrame | None) -> dict[str, Any]:
         out["rows"] = int(len(df))
         if "symbol" in df.columns:
             try:
-                out["unique_symbols"] = int(df["symbol"].astype(str).str.upper().nunique())
+                out["unique_symbols"] = int(
+                    df["symbol"].astype(str).str.upper().nunique()
+                )
             except Exception:
                 out["unique_symbols"] = int(df["symbol"].nunique())
         if "side" in df.columns:

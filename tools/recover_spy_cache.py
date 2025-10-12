@@ -36,7 +36,9 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
     """EODHD API から SPY データを取得し CacheManager で保存する（エラー解析強化版）。"""
     symbol = "SPY"
 
-    with trace_context(phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol) as ctx:
+    with trace_context(
+        phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol
+    ) as ctx:
         logger.get_logger("spy_recovery").info(
             f"Starting SPY cache recovery with trace_id: {ctx.trace_id}"
         )
@@ -183,7 +185,9 @@ def _fetch_spy_data_with_retry(api_key: str, symbol: str) -> pd.DataFrame:
                 )
 
     # Retry policy for network operations
-    retry_policy = RetryPolicy(max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0)
+    retry_policy = RetryPolicy(
+        max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0
+    )
 
     return retry_with_backoff(
         _fetch_data,
@@ -326,6 +330,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.out or args.group:
-        print("⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます")
+        print(
+            "⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます"
+        )
 
     fetch_and_cache_spy_from_eodhd()

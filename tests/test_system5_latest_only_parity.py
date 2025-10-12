@@ -5,7 +5,9 @@ import pandas as pd
 from core.system5 import generate_candidates_system5
 
 
-def _make_prepared(symbol: str, dates: pd.DatetimeIndex, adx_vals: list[float]) -> pd.DataFrame:
+def _make_prepared(
+    symbol: str, dates: pd.DatetimeIndex, adx_vals: list[float]
+) -> pd.DataFrame:
     assert len(dates) == len(adx_vals)
     return pd.DataFrame(
         {
@@ -31,9 +33,13 @@ def test_system5_latest_only_parity_latest_day():
     }
 
     top_n = 3
-    fast_by_date, fast_df = generate_candidates_system5(prepared, top_n=top_n, latest_only=True)
+    fast_by_date, fast_df = generate_candidates_system5(
+        prepared, top_n=top_n, latest_only=True
+    )
     assert fast_df is not None
-    full_by_date, full_df = generate_candidates_system5(prepared, top_n=top_n, latest_only=False)
+    full_by_date, full_df = generate_candidates_system5(
+        prepared, top_n=top_n, latest_only=False
+    )
     assert full_df is not None and latest in full_by_date
 
     fast_syms = list(fast_df[fast_df["date"] == latest]["symbol"])  # adx7 desc

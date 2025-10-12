@@ -267,7 +267,9 @@ class TestStandaloneFunctions:
 
         # Check for common indicators (depending on implementation)
         potential_indicators = ["SMA_20", "RSI_14", "ATR_20", "adx7"]
-        found_indicators = [col for col in potential_indicators if col in result.columns]
+        found_indicators = [
+            col for col in potential_indicators if col in result.columns
+        ]
         assert len(found_indicators) > 0  # Should have at least some indicators
 
     def test_get_indicator_column_flexible(self, sample_data):

@@ -72,7 +72,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         return symbol, None
 
     # Create strategy-specific derived columns using precomputed indicators only
-    x["filter"] = (x["Low"] >= 5) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+    x["filter"] = (
+        (x["Low"] >= 5) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+    )
     x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
 
     # 完了を親に伝える
@@ -130,7 +132,9 @@ def prepare_data_vectorized_system2(
                 "atr_ratio",
                 "twodayup",
             ]
-            missing_indicators = [col for col in required_indicators if col not in df.columns]
+            missing_indicators = [
+                col for col in required_indicators if col not in df.columns
+            ]
 
             if missing_indicators:
                 raise RuntimeError(
@@ -160,7 +164,9 @@ def prepare_data_vectorized_system2(
 
             # Create strategy-specific derived columns
             x["filter"] = (
-                (x["Low"] >= 5) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+                (x["Low"] >= 5)
+                & (x["dollarvolume20"] > 25_000_000)
+                & (x["atr_ratio"] > 0.03)
             )
             x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
 
@@ -208,7 +214,9 @@ def prepare_data_vectorized_system2(
                 batch = target_symbols[i : i + batch_size]
                 start_time = time.time()
 
-                futures = {executor.submit(_compute_indicators, sym): sym for sym in batch}
+                futures = {
+                    executor.submit(_compute_indicators, sym): sym for sym in batch
+                }
                 batch_results = 0
 
                 for future in as_completed(futures):
@@ -334,7 +342,9 @@ def select_candidates_system2(
     selected = [sym for sym, _ in candidates[:top_n]]
 
     if log_callback:
-        log_callback(f"System2 selected {len(selected)} candidates from {len(candidates)} setups")
+        log_callback(
+            f"System2 selected {len(selected)} candidates from {len(candidates)} setups"
+        )
 
     return selected
 
@@ -411,9 +421,13 @@ def system2_backtest_vectorized(
 
         # Calculate position metrics (simplified for performance)
         positions = len(candidates)
-        daily_return = 0.0  # Placeholder - would calculate actual returns in full implementation
+        daily_return = (
+            0.0  # Placeholder - would calculate actual returns in full implementation
+        )
 
-        daily_pnl.append({"Date": current_date, "PnL": daily_return, "Positions": positions})
+        daily_pnl.append(
+            {"Date": current_date, "PnL": daily_return, "Positions": positions}
+        )
 
         # Record trades (simplified)
         for symbol in candidates:
@@ -471,7 +485,9 @@ def generate_candidates_system2(
             last_price = df["Close"].iloc[-1]
         setup_df["entry_price"] = last_price
 
-        base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(index=setup_df.index)
+        base_dates = pd.to_datetime(setup_df.index, errors="coerce").to_series(
+            index=setup_df.index
+        )
         setup_df["entry_date"] = base_dates.map(resolve_signal_entry_date)
         setup_df = setup_df.dropna(subset=["entry_date"])
         all_signals.append(setup_df)

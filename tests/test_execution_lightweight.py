@@ -144,7 +144,9 @@ class TestStrategiesExecution:
         try:
             from strategies import constants
 
-            constants_attrs = [attr for attr in dir(constants) if not attr.startswith("_")]
+            constants_attrs = [
+                attr for attr in dir(constants) if not attr.startswith("_")
+            ]
             assert len(constants_attrs) >= 0
         except (ImportError, Exception):
             pytest.skip("Strategy constants access not available")

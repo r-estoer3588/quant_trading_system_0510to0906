@@ -230,7 +230,9 @@ def _build_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare images between two snapshot directories.")
+    parser = argparse.ArgumentParser(
+        description="Compare images between two snapshot directories."
+    )
     parser.add_argument("--snap-a", help="Older snapshot directory.")
     parser.add_argument("--snap-b", help="Newer snapshot directory.")
     parser.add_argument(

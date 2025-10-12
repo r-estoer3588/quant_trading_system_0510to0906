@@ -187,7 +187,9 @@ class TestSystem6MainFunctions:
 
         assert isinstance(candidates, dict)
         assert len(candidates) == 0
-        assert merged_df is None or (isinstance(merged_df, pd.DataFrame) and merged_df.empty)
+        assert merged_df is None or (
+            isinstance(merged_df, pd.DataFrame) and merged_df.empty
+        )
 
     def test_generate_candidates_system6_ranking_order(self):
         """Test that candidates are ranked by return_6d descending"""
@@ -335,7 +337,9 @@ class TestSystem6EdgeCases:
             ),
         }
 
-        candidates, merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=10)
+        candidates, merged_df = generate_candidates_system6(
+            prepared_dict=prepared_dict, top_n=10
+        )
 
         assert isinstance(candidates, dict)
         # Should return empty candidates or handle gracefully
@@ -369,7 +373,10 @@ class TestSystem6LatestOnlyMode:
         )
 
         # prepare_data_vectorized_system6を使ってsetup列を生成
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
@@ -401,7 +408,10 @@ class TestSystem6LatestOnlyMode:
             index=dates,
         )
 
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
@@ -429,12 +439,17 @@ class TestSystem6LatestOnlyMode:
             index=dates,
         )
 
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        result, _ = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True)
+        result, _ = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True
+        )
 
         # 条件を満たさないためスキップ（結果は0件）
         assert len(result) == 0
@@ -488,7 +503,10 @@ class TestSystem6RankingAndFiltering:
             ),
         }
 
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
@@ -534,7 +552,10 @@ class TestSystem6RankingAndFiltering:
                 index=dates,
             )
 
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
@@ -585,11 +606,16 @@ class TestSystem6RankingAndFiltering:
             ),  # 異なる日付
         }
 
-        from core.system6 import generate_candidates_system6, prepare_data_vectorized_system6
+        from core.system6 import (
+            generate_candidates_system6,
+            prepare_data_vectorized_system6,
+        )
 
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        gen_result = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True)
+        gen_result = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True
+        )
         result, df = gen_result[:2] if len(gen_result) == 3 else gen_result
 
         # 最頻日（dates1）が選択されることを確認
@@ -1200,7 +1226,9 @@ class TestSystem6HelperFunctions:
         from core.system6 import get_total_days_system6
 
         dates1 = pd.date_range("2023-01-01", periods=5, freq="D")
-        dates2 = pd.date_range("2023-01-03", periods=5, freq="D")  # 1/3から開始（2日重複）
+        dates2 = pd.date_range(
+            "2023-01-03", periods=5, freq="D"
+        )  # 1/3から開始（2日重複）
 
         data_dict = {
             "SYM1": pd.DataFrame(
@@ -1472,7 +1500,9 @@ class TestSystem6LoggingCallbacks:
         )
 
         # Check if completion message was logged
-        completion_logs = [log for log in logs_captured if "完了" in log or "候補生成" in log]
+        completion_logs = [
+            log for log in logs_captured if "完了" in log or "候補生成" in log
+        ]
         # Should have completion message
         assert len(completion_logs) > 0
 

@@ -146,7 +146,9 @@ def main():
         base_path, curr_path = _pick_latest_two(args.dir)
     else:
         if not args.baseline or not args.current:
-            raise SystemExit("--baseline と --current を指定するか、--dir を使用してください")
+            raise SystemExit(
+                "--baseline と --current を指定するか、--dir を使用してください"
+            )
         base_path, curr_path = args.baseline, args.current
 
     # スナップショット比較

@@ -69,7 +69,9 @@ def _extract_last_cache_date(df: pd.DataFrame) -> pd.Timestamp | None:
     return None
 
 
-def _recent_trading_days(today: pd.Timestamp | None, max_back: int) -> list[pd.Timestamp]:
+def _recent_trading_days(
+    today: pd.Timestamp | None, max_back: int
+) -> list[pd.Timestamp]:
     """今日から最大 max_back 営業日を遡って日付リストを生成。"""
     if today is None:
         return []
@@ -317,17 +319,25 @@ def load_basic_data(
             if "Date" not in df.columns:
                 work = df.copy()
                 if "date" in work.columns:
-                    work["Date"] = pd.to_datetime(work["date"].to_numpy(), errors="coerce")
+                    work["Date"] = pd.to_datetime(
+                        work["date"].to_numpy(), errors="coerce"
+                    )
                 else:
-                    work["Date"] = pd.to_datetime(work.index.to_numpy(), errors="coerce")
+                    work["Date"] = pd.to_datetime(
+                        work.index.to_numpy(), errors="coerce"
+                    )
                 df = work
-            df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
+            df["Date"] = pd.to_datetime(
+                df["Date"].to_numpy(), errors="coerce"
+            ).normalize()
         except Exception:
             pass
         normalized = _normalize_ohlcv(df)
         try:
             fill_cols = [
-                c for c in ("Open", "High", "Low", "Close", "Volume") if c in normalized.columns
+                c
+                for c in ("Open", "High", "Low", "Close", "Volume")
+                if c in normalized.columns
             ]
             if fill_cols:
                 normalized = normalized.copy()
@@ -352,7 +362,9 @@ def load_basic_data(
         use_parallel = False
     else:
         try:
-            env_parallel_threshold = int(getattr(_env, "basic_data_parallel_threshold", 200))
+            env_parallel_threshold = int(
+                getattr(_env, "basic_data_parallel_threshold", 200)
+            )
         except Exception:
             env_parallel_threshold = 200
         use_parallel = total_syms >= max(0, env_parallel_threshold)
@@ -536,8 +548,9 @@ def load_basic_data(
         total_elapsed = max(0.0, time.perf_counter() - start_ts)
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
-        done_msg = f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒" + (
-            " | 並列=ON" if use_parallel and max_workers else " | 並列=OFF"
+        done_msg = (
+            f"📦 基礎データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+            + (" | 並列=ON" if use_parallel and max_workers else " | 並列=OFF")
         )
         if log_callback:
             _log(done_msg)
@@ -557,7 +570,9 @@ def load_basic_data(
             "failed": "失敗",
         }
         summary_parts = [
-            f"{label}={stats.get(key, 0)}" for key, label in summary_map.items() if stats.get(key)
+            f"{label}={stats.get(key, 0)}"
+            for key, label in summary_map.items()
+            if stats.get(key)
         ]
         if summary_parts:
             try:
@@ -639,9 +654,13 @@ def load_indicator_data(
                         if x.index.name is not None:
                             x = x.reset_index()
                         if "date" in x.columns:
-                            x["date"] = pd.to_datetime(x["date"].to_numpy(), errors="coerce")
+                            x["date"] = pd.to_datetime(
+                                x["date"].to_numpy(), errors="coerce"
+                            )
                         elif "Date" in x.columns:
-                            x["date"] = pd.to_datetime(x["Date"].to_numpy(), errors="coerce")
+                            x["date"] = pd.to_datetime(
+                                x["Date"].to_numpy(), errors="coerce"
+                            )
                         col_map = {
                             "Open": "open",
                             "High": "high",
@@ -669,7 +688,8 @@ def load_indicator_data(
 
             try:
                 target_len = int(
-                    settings.cache.rolling.base_lookback_days + settings.cache.rolling.buffer_days
+                    settings.cache.rolling.base_lookback_days
+                    + settings.cache.rolling.buffer_days
                 )
             except Exception:
                 target_len = 300  # デフォルト
@@ -695,11 +715,17 @@ def load_indicator_data(
                     if "Date" not in df.columns:
                         if "date" in df.columns:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df["date"].to_numpy(), errors="coerce")
+                            df["Date"] = pd.to_datetime(
+                                df["date"].to_numpy(), errors="coerce"
+                            )
                         else:
                             df = df.copy()
-                            df["Date"] = pd.to_datetime(df.index.to_numpy(), errors="coerce")
-                    df["Date"] = pd.to_datetime(df["Date"].to_numpy(), errors="coerce").normalize()
+                            df["Date"] = pd.to_datetime(
+                                df.index.to_numpy(), errors="coerce"
+                            )
+                    df["Date"] = pd.to_datetime(
+                        df["Date"].to_numpy(), errors="coerce"
+                    ).normalize()
                 except Exception:
                     pass
                 df = _normalize_ohlcv(df)
@@ -756,7 +782,9 @@ def load_indicator_data(
                 try:
                     reason_parts = [
                         f"{k}={v}"
-                        for k, v in sorted(missing_reasons.items(), key=lambda x: (-x[1], x[0]))
+                        for k, v in sorted(
+                            missing_reasons.items(), key=lambda x: (-x[1], x[0])
+                        )
                     ]
                     reason_str = " / ".join(reason_parts)
                 except Exception:
@@ -778,7 +806,9 @@ def load_indicator_data(
         total_elapsed = max(0.0, time.time() - start_ts)
         total_int = int(total_elapsed)
         m, s = divmod(total_int, 60)
-        done_msg = f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        done_msg = (
+            f"🧮 指標データロード完了: {len(data)}/{total_syms} | 所要 {m}分{s}秒"
+        )
         if log_callback:
             _log(done_msg)
         if ui_log_callback:

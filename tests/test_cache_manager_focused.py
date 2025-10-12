@@ -327,7 +327,9 @@ class TestCacheManagerBatch:
             for symbol in results:
                 assert symbol in symbols
                 # Each value should be None or DataFrame
-                assert results[symbol] is None or isinstance(results[symbol], pd.DataFrame)
+                assert results[symbol] is None or isinstance(
+                    results[symbol], pd.DataFrame
+                )
 
 
 # Integration test that covers multiple methods

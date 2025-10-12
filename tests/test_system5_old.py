@@ -129,12 +129,16 @@ def test_core_indicators_computation():
     # ADX7の範囲チェック（NaN値を除外）
     adx_values = result["ADX7"].dropna()
     assert len(adx_values) > 0, "Should have some ADX values"
-    assert (adx_values >= 0).all() and (adx_values <= 100).all(), "ADX should be in [0,100]"
+    assert (adx_values >= 0).all() and (
+        adx_values <= 100
+    ).all(), "ADX should be in [0,100]"
 
     # RSI3の範囲チェック（NaN値を除外）
     rsi_values = result["RSI3"].dropna()
     assert len(rsi_values) > 0, "Should have some RSI values"
-    assert (rsi_values >= 0).all() and (rsi_values <= 100).all(), "RSI should be in [0,100]"
+    assert (rsi_values >= 0).all() and (
+        rsi_values <= 100
+    ).all(), "RSI should be in [0,100]"
 
     assert result["ATR_Pct"].min() >= 0, "ATR_Pct should be positive"
 
@@ -161,7 +165,9 @@ def test_filter_conditions():
     valid_rows = result.iloc[100:]  # 十分なデータがある行のみ
 
     # 出来高条件
-    assert (valid_rows["AvgVolume50"] > 500_000).all(), "Volume filter should be satisfied"
+    assert (
+        valid_rows["AvgVolume50"] > 500_000
+    ).all(), "Volume filter should be satisfied"
 
     # ドルボリューム条件
     dollar_vol_msg = "Dollar volume filter should be satisfied"
@@ -287,7 +293,9 @@ def test_placeholder_run(dummy_data):
 
     # prepare_minimal_for_testが動作することを確認
     processed = strategy.prepare_minimal_for_test(dummy_data)
-    assert isinstance(processed, dict), "prepare_minimal_for_test should return a dictionary"
+    assert isinstance(
+        processed, dict
+    ), "prepare_minimal_for_test should return a dictionary"
     assert len(processed) > 0, "Processed data should not be empty"
     strategy = System5Strategy()
     dates = pd.date_range("2024-01-01", periods=4, freq="D")
@@ -345,7 +353,9 @@ def test_system5_profit_target_exits_next_open():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     assert exit_date == dates[3]
     assert exit_price == pytest.approx(float(df.iloc[3]["Open"]))
@@ -368,7 +378,9 @@ def test_system5_stop_exit_uses_stop_price_same_day():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     assert exit_date == dates[2]
     assert exit_price == pytest.approx(stop_price)
@@ -376,7 +388,9 @@ def test_system5_stop_exit_uses_stop_price_same_day():
 
 def test_system5_fallback_exit_next_open_after_six_days():
     strategy = System5Strategy()
-    fallback_days = strategy.config.get("fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT)
+    fallback_days = strategy.config.get(
+        "fallback_exit_after_days", FALLBACK_EXIT_DAYS_DEFAULT
+    )
     periods = fallback_days + 3  # entry day + fallback window + next day
     dates = pd.date_range("2024-01-01", periods=periods, freq="B")
     highs = [97] * periods
@@ -395,7 +409,9 @@ def test_system5_fallback_exit_next_open_after_six_days():
     entry_price, stop_price = strategy.compute_entry(df, candidate, 10_000)
     entry_idx = df.index.get_loc(dates[1])
 
-    exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_price)
+    exit_price, exit_date = strategy.compute_exit(
+        df, entry_idx, entry_price, stop_price
+    )
 
     expected_idx = entry_idx + fallback_days + 1
     assert exit_date == dates[expected_idx]

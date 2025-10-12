@@ -357,10 +357,14 @@ def _build_data_config(cfg: dict[str, Any], root: Path) -> DataConfig:
     return DataConfig(
         vendor=str(cfg.get("vendor", "EODHD")),
         eodhd_base=str(
-            os.getenv("API_EODHD_BASE", cfg.get("eodhd_base", "https://eodhistoricaldata.com"))
+            os.getenv(
+                "API_EODHD_BASE", cfg.get("eodhd_base", "https://eodhistoricaldata.com")
+            )
         ),
         api_key_env=str(cfg.get("api_key_env", "EODHD_API_KEY")),
-        cache_dir=_as_path(root, os.getenv("DATA_CACHE_DIR", cfg.get("cache_dir", "data_cache"))),
+        cache_dir=_as_path(
+            root, os.getenv("DATA_CACHE_DIR", cfg.get("cache_dir", "data_cache"))
+        ),
         cache_recent_dir=_as_path(
             root,
             os.getenv(
@@ -368,7 +372,9 @@ def _build_data_config(cfg: dict[str, Any], root: Path) -> DataConfig:
                 cfg.get("cache_recent_dir", "data_cache_recent"),
             ),
         ),
-        max_workers=_env_int("THREADS_DEFAULT", _coerce_int(cfg.get("max_workers", 8), 8)),
+        max_workers=_env_int(
+            "THREADS_DEFAULT", _coerce_int(cfg.get("max_workers", 8), 8)
+        ),
         batch_size=_env_int("BATCH_SIZE", _coerce_int(cfg.get("batch_size", 100), 100)),
         request_timeout=_env_int(
             "REQUEST_TIMEOUT", _coerce_int(cfg.get("request_timeout", 10), 10)
@@ -394,7 +400,9 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             max_symbols_final = override_val
 
     stale_days = _coerce_int(rolling_cfg.get("max_stale_days", 2), 2)
-    staleness_days = _coerce_int(rolling_cfg.get("max_staleness_days", stale_days), stale_days)
+    staleness_days = _coerce_int(
+        rolling_cfg.get("max_staleness_days", stale_days), stale_days
+    )
 
     cache_round = _positive_int_or_none(
         os.getenv("CACHE_ROUND_DECIMALS", cfg.get("round_decimals"))
@@ -418,7 +426,9 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             field_sep=str(cfg.get("csv_field_sep", ",")),
         ),
         rolling=CacheRollingConfig(
-            base_lookback_days=_coerce_int(rolling_cfg.get("base_lookback_days", 300), 300),
+            base_lookback_days=_coerce_int(
+                rolling_cfg.get("base_lookback_days", 300), 300
+            ),
             buffer_days=_coerce_int(rolling_cfg.get("buffer_days", 30), 30),
             workers=_positive_int_or_none(rolling_cfg.get("workers")),
             max_staleness_days=staleness_days,
@@ -427,13 +437,25 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             max_stale_days=stale_days,
             max_symbols=max_symbols_final,
             round_decimals=rolling_round,
-            adaptive_window_count=_coerce_int(rolling_cfg.get("adaptive_window_count", 8), 8),
-            adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
-            adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
+            adaptive_window_count=_coerce_int(
+                rolling_cfg.get("adaptive_window_count", 8), 8
+            ),
+            adaptive_increase_threshold=float(
+                rolling_cfg.get("adaptive_increase_threshold", 1.02)
+            ),
+            adaptive_decrease_threshold=float(
+                rolling_cfg.get("adaptive_decrease_threshold", 0.98)
+            ),
             adaptive_step=_coerce_int(rolling_cfg.get("adaptive_step", 1), 1),
-            adaptive_min_workers=_coerce_int(rolling_cfg.get("adaptive_min_workers", 1), 1),
-            adaptive_max_workers=_positive_int_or_none(rolling_cfg.get("adaptive_max_workers")),
-            adaptive_report_seconds=_coerce_int(rolling_cfg.get("adaptive_report_seconds", 10), 10),
+            adaptive_min_workers=_coerce_int(
+                rolling_cfg.get("adaptive_min_workers", 1), 1
+            ),
+            adaptive_max_workers=_positive_int_or_none(
+                rolling_cfg.get("adaptive_max_workers")
+            ),
+            adaptive_report_seconds=_coerce_int(
+                rolling_cfg.get("adaptive_report_seconds", 10), 10
+            ),
             csv=CsvConfig(
                 decimal_point=str(rolling_cfg.get("csv_decimal_point", ".")),
                 thousands_sep=(
@@ -494,7 +516,9 @@ def _build_scheduler_config(cfg: dict[str, Any]) -> SchedulerConfig:
 
 def _build_ui_config(cfg: dict[str, Any]) -> UIConfig:
     try:
-        _dlr_raw = os.getenv("DEFAULT_LONG_RATIO", str(cfg.get("default_long_ratio", 0.5)))
+        _dlr_raw = os.getenv(
+            "DEFAULT_LONG_RATIO", str(cfg.get("default_long_ratio", 0.5))
+        )
         _dlr = float(_dlr_raw)
     except Exception:
         _dlr = 0.5
@@ -534,10 +558,14 @@ def _build_ui_config(cfg: dict[str, Any]) -> UIConfig:
             },
         ),
         auto_tickers=tuple(cfg.get("auto_tickers", [])),
-        debug_mode=str(os.getenv("DEBUG_MODE", str(cfg.get("debug_mode", False)))).lower()
+        debug_mode=str(
+            os.getenv("DEBUG_MODE", str(cfg.get("debug_mode", False)))
+        ).lower()
         in ("1", "true", "yes"),
         show_download_buttons=str(
-            os.getenv("SHOW_DOWNLOAD_BUTTONS", str(cfg.get("show_download_buttons", True)))
+            os.getenv(
+                "SHOW_DOWNLOAD_BUTTONS", str(cfg.get("show_download_buttons", True))
+            )
         ).lower()
         in ("1", "true", "yes"),
     )

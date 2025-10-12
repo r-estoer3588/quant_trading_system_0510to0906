@@ -62,11 +62,17 @@ class TestSystem3ComputeIndicators:
                 & (sample_data_with_indicators["dollarvolume20"] > 25_000_000)
                 & (sample_data_with_indicators["atr_ratio"] >= 0.05)
             )
-            pd.testing.assert_series_equal(result["filter"], expected_filter, check_names=False)
+            pd.testing.assert_series_equal(
+                result["filter"], expected_filter, check_names=False
+            )
 
             # Check setup conditions (filter + drop3d >= 0.125)
-            expected_setup = expected_filter & (sample_data_with_indicators["drop3d"] >= 0.125)
-            pd.testing.assert_series_equal(result["setup"], expected_setup, check_names=False)
+            expected_setup = expected_filter & (
+                sample_data_with_indicators["drop3d"] >= 0.125
+            )
+            pd.testing.assert_series_equal(
+                result["setup"], expected_setup, check_names=False
+            )
 
     def test_compute_indicators_none_data(self):
         """Test with None data."""
@@ -112,7 +118,9 @@ class TestSystem3ComputeIndicators:
         # Test edge cases for filter conditions
         edge_case_data = sample_data_with_indicators.copy()
         edge_case_data.loc[edge_case_data.index[0], "Close"] = 4.99  # Below 5 threshold
-        edge_case_data.loc[edge_case_data.index[1], "dollarvolume20"] = 24_999_999  # Below 25M
+        edge_case_data.loc[edge_case_data.index[1], "dollarvolume20"] = (
+            24_999_999  # Below 25M
+        )
         edge_case_data.loc[edge_case_data.index[2], "atr_ratio"] = 0.049  # Below 0.05
 
         with patch("core.system3.get_cached_data") as mock_get_data:
@@ -132,8 +140,12 @@ class TestSystem3ComputeIndicators:
         """Test setup condition logic with drop3d threshold."""
         # Test drop3d threshold conditions
         threshold_data = sample_data_with_indicators.copy()
-        threshold_data.loc[threshold_data.index[0], "drop3d"] = 0.124  # Below 12.5% threshold
-        threshold_data.loc[threshold_data.index[1], "drop3d"] = 0.125  # Exactly at threshold
+        threshold_data.loc[threshold_data.index[0], "drop3d"] = (
+            0.124  # Below 12.5% threshold
+        )
+        threshold_data.loc[threshold_data.index[1], "drop3d"] = (
+            0.125  # Exactly at threshold
+        )
         threshold_data.loc[threshold_data.index[2], "drop3d"] = 0.130  # Above threshold
 
         with patch("core.system3.get_cached_data") as mock_get_data:
@@ -173,7 +185,9 @@ class TestSystem3PrepareDataVectorized:
 
     def test_prepare_data_vectorized_basic(self, complete_raw_data):
         """Test basic data preparation with reuse_indicators=True."""
-        result = prepare_data_vectorized_system3(complete_raw_data, reuse_indicators=True)
+        result = prepare_data_vectorized_system3(
+            complete_raw_data, reuse_indicators=True
+        )
 
         assert isinstance(result, dict)
         assert "TEST1" in result
@@ -246,7 +260,9 @@ class TestSystem3GenerateCandidates:
             date_candidates = candidates_by_date[date]
             if len(date_candidates) > 1:
                 for i in range(len(date_candidates) - 1):
-                    assert date_candidates[i]["drop3d"] >= date_candidates[i + 1]["drop3d"]
+                    assert (
+                        date_candidates[i]["drop3d"] >= date_candidates[i + 1]["drop3d"]
+                    )
 
     def test_generate_candidates_no_setup_data(self):
         """Test with data having no setup conditions."""
@@ -262,7 +278,9 @@ class TestSystem3GenerateCandidates:
             )
         }
 
-        candidates_by_date, candidates_df = generate_candidates_system3(no_setup_data, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system3(
+            no_setup_data, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert len(candidates_by_date) == 0
@@ -406,7 +424,9 @@ class TestSystem3Integration:
         assert len(prepared_data) == 2
 
         # Step 2: Generate candidates
-        candidates_by_date, candidates_df = generate_candidates_system3(prepared_data, top_n=3)
+        candidates_by_date, candidates_df = generate_candidates_system3(
+            prepared_data, top_n=3
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert candidates_df is not None
@@ -438,7 +458,9 @@ class TestSystem3Integration:
         }
 
         # Prepare data
-        prepared_data = prepare_data_vectorized_system3(edge_case_data, reuse_indicators=True)
+        prepared_data = prepare_data_vectorized_system3(
+            edge_case_data, reuse_indicators=True
+        )
 
         assert isinstance(prepared_data, dict)
         assert "EDGE1" in prepared_data

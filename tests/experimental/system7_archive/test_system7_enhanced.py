@@ -294,7 +294,9 @@ class TestSystem7EdgeCases:
         """Test when SPY is not in prepared data."""
         dates = pd.date_range("2023-01-01", periods=50, freq="D")
         other_data = {
-            "AAPL": pd.DataFrame({"Close": [150.0] * 50, "atr50": [3.0] * 50}, index=dates)
+            "AAPL": pd.DataFrame(
+                {"Close": [150.0] * 50, "atr50": [3.0] * 50}, index=dates
+            )
         }
 
         result_tuple = generate_candidates_system7(other_data, top_n=5)
@@ -334,7 +336,9 @@ class TestSystem7EdgeCases:
             )
         }
 
-        result_tuple = generate_candidates_system7(spy_data, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            spy_data, top_n=5, include_diagnostics=True
+        )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         if diagnostics and isinstance(diagnostics, dict):

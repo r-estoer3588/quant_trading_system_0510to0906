@@ -10,12 +10,17 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import logging
-import os
 from pathlib import Path
 import threading
 from typing import Any
 
 from config.settings import get_settings
+
+try:
+    # 型安全な環境変数アクセス（推奨経路）
+    from config.environment import get_env_config
+except Exception:  # pragma: no cover - フォールバックのみ
+    get_env_config = None  # fallback sentinel
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,11 @@ class ProgressEventEmitter:
 
     _instance = None
     _lock = threading.Lock()
+    # for type checkers
+    _initialized: bool
+    enabled: bool
+    _log_file: Path | None
+    logger: logging.Logger
 
     def __new__(cls):
         if cls._instance is None:
@@ -46,7 +56,15 @@ class ProgressEventEmitter:
         if self._initialized:
             return
 
-        self.enabled = os.getenv("ENABLE_PROGRESS_EVENTS", "1") == "1"
+        # 環境変数は EnvironmentConfig 経由で取得（規約）。
+        # 取得に失敗した場合のみ保守的に有効化（従来のデフォルト "1" を踏襲）。
+        try:
+            if get_env_config is not None:
+                self.enabled = bool(get_env_config().enable_progress_events)
+            else:
+                self.enabled = True
+        except Exception:
+            self.enabled = True
         self._log_file: Path | None = None
         self._file_handle: object | None = None
         self.logger = logging.getLogger(__name__)
@@ -180,7 +198,9 @@ class ProgressEventEmitter:
 _progress_emitter = ProgressEventEmitter()
 
 
-def emit_progress(event_type: str, data: dict[str, Any] | None = None, level: str = "info") -> None:
+def emit_progress(
+    event_type: str, data: dict[str, Any] | None = None, level: str = "info"
+) -> None:
     """
     グローバル進捗エミッターに進捗イベントを送信する。
 
@@ -197,21 +217,23 @@ def reset_progress_log() -> None:
     _progress_emitter.reset()
 
 
-def emit_system_start(system_name: str, symbol_count: int = 0, **kwargs) -> None:
+def emit_system_start(system_name: str, symbol_count: int = 0, **kwargs: Any) -> None:
     """システム開始イベントのショートカット。"""
     _progress_emitter.emit_system_start(system_name, symbol_count, kwargs)
 
 
-def emit_system_progress(system_name: str, processed: int, total: int, **kwargs) -> None:
+def emit_system_progress(
+    system_name: str, processed: int, total: int, **kwargs: Any
+) -> None:
     """システム進捗イベントのショートカット。"""
     _progress_emitter.emit_system_progress(system_name, processed, total, kwargs)
 
 
-def emit_system_complete(system_name: str, final_count: int = 0, **kwargs) -> None:
+def emit_system_complete(system_name: str, final_count: int = 0, **kwargs: Any) -> None:
     """システム完了イベントのショートカット。"""
     _progress_emitter.emit_system_complete(system_name, final_count, kwargs)
 
 
-def emit_phase(phase_name: str, status: str = "start", **kwargs) -> None:
+def emit_phase(phase_name: str, status: str = "start", **kwargs: Any) -> None:
     """フェーズイベントのショートカット。"""
     _progress_emitter.emit_phase(phase_name, status, kwargs)

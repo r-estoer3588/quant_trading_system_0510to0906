@@ -109,10 +109,14 @@ _JA_MAP: dict[str, str] = {
     "indicators: done": "インジケーター計算 完了",
     "candidates: extracting...": "トレード候補：抽出中...",
     "candidates: done": "候補抽出 完了",
-    ("📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
+    (
+        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
         "📊 インジケーター計算 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
-    ("📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"): (
+    (
+        "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s"
+    ): (
         "📊 候補抽出 {done}/{total} 件 完了 | 経過: {em}分{es}秒 / 残り: 約{rm}分{rs}秒"
     ),
     "symbols: {names}": "銘柄: {names}",

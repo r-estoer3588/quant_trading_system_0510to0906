@@ -40,7 +40,9 @@ def export_diagnostics_snapshot(
         # 辞書の場合
         systems_data = allocation_summary
     else:
-        logger.warning(f"Unexpected allocation_summary type: {type(allocation_summary)}")
+        logger.warning(
+            f"Unexpected allocation_summary type: {type(allocation_summary)}"
+        )
         systems_data = {}
 
     # 各システムの diagnostics を収集
@@ -53,7 +55,9 @@ def export_diagnostics_snapshot(
             diag = getattr(system_info, "diagnostics", {})
             candidates = getattr(system_info, "candidates", [])
         else:
-            logger.warning(f"Unexpected system_info type for {system_id}: {type(system_info)}")
+            logger.warning(
+                f"Unexpected system_info type for {system_id}: {type(system_info)}"
+            )
             diag = {}
             candidates = []
 

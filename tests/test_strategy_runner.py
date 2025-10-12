@@ -7,7 +7,11 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from common.strategy_runner import StrategyRunner, run_strategies_parallel, run_strategies_serial
+from common.strategy_runner import (
+    StrategyRunner,
+    run_strategies_parallel,
+    run_strategies_serial,
+)
 
 
 class TestStrategyRunner:
@@ -168,10 +172,14 @@ class TestStrategyRunner:
         # Result should be tuple of (DataFrame, message, logs)
         assert len(result["system1"]) == 3
 
-    def test_strategy_error_handling(self, mock_strategies, mock_raw_data_sets, mock_basic_data):
+    def test_strategy_error_handling(
+        self, mock_strategies, mock_raw_data_sets, mock_basic_data
+    ):
         """Test error handling when strategy fails."""
         # Make strategy raise an exception
-        mock_strategies["system1"].get_today_signals.side_effect = Exception("Test error")
+        mock_strategies["system1"].get_today_signals.side_effect = Exception(
+            "Test error"
+        )
 
         result = run_strategies_serial(
             strategies=mock_strategies,
@@ -185,10 +193,14 @@ class TestStrategyRunner:
         df, msg, logs = result["system1"]
         assert isinstance(df, pd.DataFrame)
         assert df.empty  # Should return empty DataFrame on error
-        assert "件" in msg or "error" in msg.lower()  # Accept Japanese or English error message
+        assert (
+            "件" in msg or "error" in msg.lower()
+        )  # Accept Japanese or English error message
         assert len(logs) > 0
 
-    def test_missing_spy_handling(self, mock_strategies, mock_raw_data_sets, mock_basic_data):
+    def test_missing_spy_handling(
+        self, mock_strategies, mock_raw_data_sets, mock_basic_data
+    ):
         """Test handling when SPY data is missing for systems that need it."""
         # Test system2 which typically needs SPY
         system2_strategy = Mock()
@@ -209,7 +221,9 @@ class TestStrategyRunner:
         assert "system2" in result
         # Should handle missing SPY gracefully
 
-    def test_callback_handling(self, mock_strategies, mock_raw_data_sets, mock_basic_data):
+    def test_callback_handling(
+        self, mock_strategies, mock_raw_data_sets, mock_basic_data
+    ):
         """Test callback function handling."""
         per_system_progress = Mock()
         log_callback = Mock()
@@ -303,7 +317,9 @@ class TestStrategyRunner:
             assert isinstance(msg, str)
             assert isinstance(logs, list)
 
-    def test_runner_with_callbacks(self, mock_strategies, mock_raw_data_sets, mock_basic_data):
+    def test_runner_with_callbacks(
+        self, mock_strategies, mock_raw_data_sets, mock_basic_data
+    ):
         """Test StrategyRunner with callbacks."""
         log_callback = Mock()
         progress_callback = Mock()

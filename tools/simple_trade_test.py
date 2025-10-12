@@ -28,14 +28,20 @@ def test_basic_functionality():
     ]:
         rules = get_system_trade_rules(system_name)
         if rules:
-            print(f"✅ {system_name}: {rules.side} side, {rules.entry_type.value} entry")
-            print(f"   Stop: {rules.stop_atr_period}d ATR × {rules.stop_atr_multiplier}")
+            print(
+                f"✅ {system_name}: {rules.side} side, {rules.entry_type.value} entry"
+            )
+            print(
+                f"   Stop: {rules.stop_atr_period}d ATR × {rules.stop_atr_multiplier}"
+            )
 
             if rules.use_trailing_stop:
                 print(f"   Trailing: {rules.trailing_stop_pct * 100}%")
 
             if rules.profit_target_type != "none":
-                print(f"   Target: {rules.profit_target_type} = {rules.profit_target_value}")
+                print(
+                    f"   Target: {rules.profit_target_type} = {rules.profit_target_value}"
+                )
 
             if rules.max_holding_days > 0:
                 print(f"   Max hold: {rules.max_holding_days} days")

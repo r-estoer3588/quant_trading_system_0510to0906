@@ -3,7 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from common.utils import BatchSizeMonitor, _merge_ohlcv_variants, clamp01, drop_duplicate_columns
+from common.utils import (
+    BatchSizeMonitor,
+    _merge_ohlcv_variants,
+    clamp01,
+    drop_duplicate_columns,
+)
 
 
 @pytest.mark.parametrize(

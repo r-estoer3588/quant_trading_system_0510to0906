@@ -189,7 +189,9 @@ class CacheValidator:
         if df is None or df.empty:
             return
 
-        present_indicators = [col for col in MAIN_INDICATOR_COLUMNS if col in df.columns]
+        present_indicators = [
+            col for col in MAIN_INDICATOR_COLUMNS if col in df.columns
+        ]
         if not present_indicators:
             return
 

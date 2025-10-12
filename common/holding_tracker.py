@@ -72,7 +72,9 @@ def generate_holding_matrix(
     return holding_matrix
 
 
-def display_holding_heatmap(matrix: pd.DataFrame, title: str = "日別保有ヒートマップ") -> None:
+def display_holding_heatmap(
+    matrix: pd.DataFrame, title: str = "日別保有ヒートマップ"
+) -> None:
     """
     Streamlitで保有銘柄のヒートマップを表示。
     - matrix: generate_holding_matrixの出力
@@ -94,7 +96,9 @@ def display_holding_heatmap(matrix: pd.DataFrame, title: str = "日別保有ヒ�
     st.pyplot(fig)
 
 
-def download_holding_csv(matrix: pd.DataFrame, filename: str = "holding_status.csv") -> None:
+def download_holding_csv(
+    matrix: pd.DataFrame, filename: str = "holding_status.csv"
+) -> None:
     """
     保有銘柄の遷移をCSV形式でダウンロード提供。
     """
@@ -111,4 +115,6 @@ def download_holding_csv(matrix: pd.DataFrame, filename: str = "holding_status.c
     except Exception:
         matrix_to_write = matrix
     csv = matrix_to_write.to_csv().encode("utf-8")
-    st.download_button("保有銘柄の遷移をCSVで保存", data=csv, file_name=filename, mime="text/csv")
+    st.download_button(
+        "保有銘柄の遷移をCSVで保存", data=csv, file_name=filename, mime="text/csv"
+    )

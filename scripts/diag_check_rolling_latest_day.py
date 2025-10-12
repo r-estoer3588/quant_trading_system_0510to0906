@@ -34,7 +34,10 @@ def _detect_date_column(df: pd.DataFrame) -> str | None:
 def _expected_base_day(cm: CacheManager, symbols: Iterable[str]) -> pd.Timestamp:
     """当日シグナルと同等の基準日を取得。不可なら rolling の最終日モードで代替。"""
     try:
-        from common.utils_spy import get_latest_nyse_trading_day, get_signal_target_trading_day
+        from common.utils_spy import (
+            get_latest_nyse_trading_day,
+            get_signal_target_trading_day,
+        )
 
         entry_day = get_signal_target_trading_day()
         base_day = pd.Timestamp(

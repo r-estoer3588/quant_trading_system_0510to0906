@@ -404,7 +404,9 @@ class TestSystem7DateGroupingDetailedBranches:
 
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=5, include_diagnostics=True
+        )
         normalized = result_tuple[0]
 
         # Should handle missing ATR gracefully

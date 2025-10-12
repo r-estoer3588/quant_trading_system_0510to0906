@@ -200,7 +200,9 @@ class TestSystem3Strategy:
 
         # Mock minimal data structure
         mock_data = {
-            "TEST": pd.DataFrame({"Close": [100.0], "Date": pd.date_range("2023-01-01", periods=1)})
+            "TEST": pd.DataFrame(
+                {"Close": [100.0], "Date": pd.date_range("2023-01-01", periods=1)}
+            )
         }
 
         try:

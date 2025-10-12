@@ -1,0 +1,16 @@
+{
+  "denyReason": "Destructive operation requires explicit confirmation",
+  "denyPatterns": [
+    "(?<!\\w)(rm|rmdir)\\s+(-rf|-r|-rfv|/s(\\s+/q)?|/q)",
+    "(?<!\\w)del(\\.exe)?\\s+(/s|/q|/f)",
+    "(?<!\\w)Remove-Item\\b.*(-Recurse|-Force)",
+    "(?<!\\w)Clear-Content\\b",
+    "(?<!\\w)Format(-)?(Volume|FS)?\\b|(?<!\\w)format(\\.exe)?\\b",
+    "(?<!\\w)diskpart(\\.exe)?\\b",
+    "(?<!\\w)cipher(\\.exe)?\\s+/w\\b",
+    "(?<!\\w)sdelete(\\.exe)?\\b",
+    "(?<!\\w)robocopy(\\.exe)?\\b.*\\s/MIR\\b"
+  ],
+  "logPath": "logs/command_audit.jsonl",
+  "defaultPolicy": "allow"
+}

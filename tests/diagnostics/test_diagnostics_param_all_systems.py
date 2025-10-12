@@ -171,7 +171,9 @@ def test_diagnostics_shape_full_scan(
     df_multi = pd.DataFrame(extended_data, index=dates)
 
     prepared = {("SPY" if system_id == "system7" else "AAA"): df_multi}
-    result = gen_func(prepared, latest_only=False, include_diagnostics=True, top_n=top_n)
+    result = gen_func(
+        prepared, latest_only=False, include_diagnostics=True, top_n=top_n
+    )
 
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
@@ -194,7 +196,9 @@ def test_diagnostics_shape_full_scan(
         assert k in diag, f"missing diagnostics key {k} for {system_id} (full_scan)"
 
     # full_scan モードでは ranking_source が "full_scan" であること
-    assert diag["ranking_source"] == "full_scan", f"expected 'full_scan' for {system_id}"
+    assert (
+        diag["ranking_source"] == "full_scan"
+    ), f"expected 'full_scan' for {system_id}"
 
     # setup_predicate_count は full_scan 時は複数日分の合計になる可能性がある
     assert isinstance(diag.get("setup_predicate_count"), int)

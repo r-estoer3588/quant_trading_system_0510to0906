@@ -77,11 +77,17 @@ class PhaseMetrics:
 
     def finalize(self) -> None:
         """終了スナップショットから計算値を導出。"""
-        if self.end_time is None or self.start_snapshot is None or self.end_snapshot is None:
+        if (
+            self.end_time is None
+            or self.start_snapshot is None
+            or self.end_snapshot is None
+        ):
             return
 
         self.duration_sec = self.end_time - self.start_time
-        self.memory_delta_mb = self.end_snapshot.memory_rss_mb - self.start_snapshot.memory_rss_mb
+        self.memory_delta_mb = (
+            self.end_snapshot.memory_rss_mb - self.start_snapshot.memory_rss_mb
+        )
         self.memory_peak_mb = max(
             self.start_snapshot.memory_rss_mb, self.end_snapshot.memory_rss_mb
         )
@@ -92,8 +98,12 @@ class PhaseMetrics:
         ) / 2.0
 
         # I/O差分（MB単位）
-        io_read_delta = self.end_snapshot.io_read_bytes - self.start_snapshot.io_read_bytes
-        io_write_delta = self.end_snapshot.io_write_bytes - self.start_snapshot.io_write_bytes
+        io_read_delta = (
+            self.end_snapshot.io_read_bytes - self.start_snapshot.io_read_bytes
+        )
+        io_write_delta = (
+            self.end_snapshot.io_write_bytes - self.start_snapshot.io_write_bytes
+        )
         self.io_read_delta_mb = io_read_delta / (1024 * 1024)
         self.io_write_delta_mb = io_write_delta / (1024 * 1024)
 

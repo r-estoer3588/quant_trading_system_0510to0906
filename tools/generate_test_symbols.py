@@ -82,7 +82,9 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
     # 移動平均
     for period in [25, 50, 100, 150, 200]:
-        df[f"SMA{period}"] = config.get(f"SMA{period}", df["Close"].rolling(period).mean())
+        df[f"SMA{period}"] = config.get(
+            f"SMA{period}", df["Close"].rolling(period).mean()
+        )
 
     # ATR計算
     df["HL"] = df["High"] - df["Low"]
@@ -164,7 +166,9 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     df["ROC200"] = config.get("ROC200", (df["Close"] / df["Close"].shift(200) - 1))
 
     # return_6d
-    df["return_6d"] = config.get("return_6d", (df["Close"] / df["Close"].shift(6) - 1) * 100)
+    df["return_6d"] = config.get(
+        "return_6d", (df["Close"] / df["Close"].shift(6) - 1) * 100
+    )
 
     # パターン検出（簡易版）
     up_days = df["Close"] > df["Close"].shift(1)
@@ -354,7 +358,9 @@ def generate_test_symbols():
 
         # 最新行の重要な値を表示（デバッグ用）
         last_row = df.iloc[-1]
-        print(f"    最新データ: Close={last_row['Close']:.2f}, Volume={last_row['Volume']:,}")
+        print(
+            f"    最新データ: Close={last_row['Close']:.2f}, Volume={last_row['Volume']:,}"
+        )
         if "SMA25" in last_row and "SMA50" in last_row:
             print(f"    SMA25={last_row['SMA25']:.2f}, SMA50={last_row['SMA50']:.2f}")
         if "RSI3" in last_row:
@@ -365,7 +371,9 @@ def generate_test_symbols():
 
     # 使用方法の表示
     print("\n📖 使用方法:")
-    print("  python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external")
+    print(
+        "  python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external"
+    )
 
 
 if __name__ == "__main__":
