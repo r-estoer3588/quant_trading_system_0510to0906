@@ -1,5 +1,6 @@
 {
-  "python.defaultInterpreterPath": "C:\\Users\\stair\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  // Use workspace venv Python to avoid WindowsApps stub issues
+  "python.defaultInterpreterPath": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
   "python.terminal.activateEnvironment": true,
   "python.terminal.executeInFileDir": false,
   "terminal.integrated.env.windows": {
@@ -31,6 +32,10 @@
     ]
   },
   "black-formatter.importStrategy": "fromEnvironment",
+  // Force Black formatter to use the same venv interpreter
+  "black-formatter.interpreter": [
+    "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe"
+  ],
   // "black-formatter.importStrategy": "fromEnvironment",
   "files.autoGuessEncoding": false,
   "files.encoding": "utf8",
@@ -113,6 +118,10 @@
     "**/.venv/**",
     "**/site-packages/**",
     "**/venv/**"
+  ],
+  // Force Mypy Type Checker extension to use the workspace venv
+  "mypy-type-checker.interpreter": [
+    "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe"
   ],
   "python.analysis.exclude": [
     "**/.wslvenv/**",
