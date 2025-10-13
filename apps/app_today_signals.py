@@ -4176,33 +4176,18 @@ def _log_and_notify(
 
 with st.sidebar:
     st.header("ユニバース")
-    universe: list[str] = []
-    try:
-        from common.symbol_universe import build_symbol_universe_from_settings
-        import common.universe as univ
 
-        logger = logging.getLogger("today_signals.ui")
-        universe = build_symbol_universe_from_settings(settings, logger=logger)
-    except Exception as exc:
+    # キャッシュベースの銘柄ユニバース構築（run_all_systems_today.pyと同じロジック）
+    # 外部API呼び出しを一切行わず、ローカルキャッシュのみを使用
+    from common.universe import build_universe_from_cache, load_universe_file
+
+    universe = load_universe_file()
+    if not universe:
+        universe = build_universe_from_cache(limit=None)
+
+    if not universe:
+        st.error("⚠️ 銘柄ユニバースが空です。キャッシュを更新してください。")
         universe = []
-        st.warning(f"NASDAQ/EODHDの銘柄取得に失敗しました: {exc}")
-
-    if not universe:
-        try:
-            import common.universe as universe_mod
-
-            universe = universe_mod.load_universe_file()
-        except Exception:
-            pass
-
-    if not universe:
-        try:
-            import common.universe as universe_mod
-
-            universe = universe_mod.build_universe_from_cache(limit=None)
-            universe_mod.save_universe_file(universe)
-        except Exception:
-            universe = []
 
     all_syms = universe
 
