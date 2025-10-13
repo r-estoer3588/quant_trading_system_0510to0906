@@ -82,7 +82,7 @@ repos:
 
       - id: pytest-quick
         name: pytest quick subset
-        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m pytest -q --tb=short -k "not slow and not integration"
+        entry: python -m pytest -q --tb=short -k "not slow and not integration"
         language: system
         types: [python]
         pass_filenames: false
@@ -97,7 +97,7 @@ repos:
 
       - id: run-enhanced-tests
         name: Run enhanced final_allocation tests
-        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
+        entry: python -m pytest tests/test_final_allocation_enhanced.py -q --tb=short
         language: system
         files: ^(core/final_allocation\.py|tests/test_final_allocation_enhanced\.py)$
         pass_filenames: false
@@ -121,7 +121,7 @@ repos:
       # mypy (UTF-8 forced) - Windows codepage compatibility
       - id: mypy-utf8
         name: mypy (UTF-8 forced)
-        entry: C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -X utf8 -m mypy --config-file mypy.ini
+        entry: python -X utf8 -m mypy --config-file mypy.ini
         language: system
         types: [python]
         # Gradual rollout: start with specific tools and common modules

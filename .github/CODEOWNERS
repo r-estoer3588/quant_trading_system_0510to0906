@@ -1,7 +1,13 @@
-# クリティカル UI まわり。変更にはレビュー必須にするための CODEOWNERS。
-# 自分の GitHub ユーザー名/チーム名に置き換えてください。
+# CODEOWNERS: 既定レビューアの指定（ブランチ保護と併用推奨）
+# 目的: リポジトリを note 等で公開した後も、直接の破壊的変更を防ぎ、PR レビューを経る体制にする。
 
-common/ui_components.py @YOUR_GITHUB_HANDLE
-common/ui_bridge.py     @YOUR_GITHUB_HANDLE
-common/ui_tabs.py       @YOUR_GITHUB_HANDLE
-app_integrated.py       @YOUR_GITHUB_HANDLE
+# リポジトリ全体の既定オーナー
+* @r-estoer3588
+
+# 重要ディレクトリを明示（将来のチーム拡張に備え）
+/apps/**        @r-estoer3588
+/common/**      @r-estoer3588
+/core/**        @r-estoer3588
+/strategies/**  @r-estoer3588
+/scripts/**     @r-estoer3588
+/docs/**        @r-estoer3588
