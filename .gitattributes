@@ -1,0 +1,71 @@
+# Normalize line endings and define text/binary handling across OSes
+
+# Default: treat all files as text and enforce LF in repo
+* text=auto eol=lf
+
+# Common text types with explicit LF
+*.py      text eol=lf
+*.pyi     text eol=lf
+*.ipynb   text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.toml    text eol=lf
+*.md      text eol=lf
+*.rst     text eol=lf
+*.txt     text eol=lf
+*.csv     text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.css     text eol=lf
+*.scss    text eol=lf
+*.html    text eol=lf
+*.tsv     text eol=lf
+*.ini     text eol=lf
+*.cfg     text eol=lf
+
+# Shell/CI scripts
+*.sh      text eol=lf
+*.ps1     text eol=crlf
+*.psm1    text eol=crlf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Images and binary artifacts
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.7z      binary
+*.gz      binary
+*.bz2     binary
+*.xz      binary
+*.parquet binary
+*.feather binary
+*.pkl     binary
+*.bin     binary
+*.exe     binary
+*.dll     binary
+
+# Fonts and vector images
+*.ttf     binary
+*.otf     binary
+*.woff    binary
+*.woff2   binary
+# SVG はテキストとして扱い、LF を強制
+*.svg     text eol=lf
+
+# Git attributes for diffing certain files better (optional, kept simple)
+#*.ipynb  diff=ipynb
+
+# Keep Playwright artifacts ignored by .gitignore; attributes here for completeness
+playwright/.auth/          -text
+playwright/.cache/         -text
+test-results/              -text
+playwright-report/         -text
+blob-report/               -text

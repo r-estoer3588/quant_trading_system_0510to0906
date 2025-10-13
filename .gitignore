@@ -75,6 +75,8 @@ logs/archive/
 # Python virtual environments (ローカル仮想環境はコミットしない)
 .venv/
 venv/
+venv_new/
+venv*/
 env/
 .wslvenv/
 

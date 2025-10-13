@@ -9,7 +9,7 @@
 		{
 			"label": "Quick Test Run",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"pytest",
@@ -30,7 +30,7 @@
 		{
 			"label": "Run All Systems Today",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"scripts/run_all_systems_today.py",
 				"--parallel",
@@ -52,7 +52,7 @@
 		{
 			"label": "Cache Daily Data",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"scripts/cache_daily_data.py"
 			],
@@ -66,7 +66,7 @@
 		{
 			"label": "Start Streamlit UI",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"streamlit",
@@ -84,7 +84,7 @@
 		{
 			"label": "Lint & Format",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"ruff",
@@ -106,7 +106,7 @@
 		{
 			"label": "Black Format",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"black",
@@ -122,7 +122,7 @@
 		{
 			"label": "Full Quality Check",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"pre_commit",
@@ -178,7 +178,7 @@
 		{
 			"label": "Build Rolling Only",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"scripts/build_rolling_with_indicators.py",
 				"--workers",
@@ -194,7 +194,7 @@
 		{
 			"label": "Bulk Update (Small Sample)",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"scripts/update_from_bulk_last_day.py",
 				"--max-symbols",
@@ -210,7 +210,7 @@
 		{
 			"label": "Today Signals UI (Compact)",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"scripts/run_today_ui.py",
 				"--compact",
@@ -230,7 +230,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"-m",
 				"pytest",
 				"-q",
@@ -257,7 +257,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"scripts/run_all_systems_today.py",
 				"--parallel",
 				"--save-csv"
@@ -279,7 +279,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"-m",
 				"ruff",
 				"check",
@@ -307,7 +307,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"-m",
 				"black",
 				"."
@@ -329,7 +329,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"scripts/run_today_ui.py",
 				"--compact",
 				"--app",
@@ -353,7 +353,7 @@
 				"Bypass",
 				"-File",
 				"tools/safe_exec.ps1",
-				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"${config:python.defaultInterpreterPath}",
 				"scripts/capture_ui_progress.py",
 				"--headed",
 				"--dark",
@@ -378,7 +378,7 @@
 		{
 			"label": "Analyze Progress Sync",
 			"type": "shell",
-			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"tools/sync_analysis.py"
 			],
@@ -475,7 +475,7 @@
 		{
 			"label": "Lint & Format (single run now)",
 			"type": "shell",
-			"command": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"ruff",
@@ -487,7 +487,7 @@
 		{
 			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
 			"type": "shell",
-			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"ruff",
@@ -500,7 +500,7 @@
 		{
 			"label": "Quick Test Run",
 			"type": "shell",
-			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"pytest",
@@ -512,7 +512,7 @@
 		{
 			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
 			"type": "shell",
-			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"ruff",
@@ -525,7 +525,7 @@
 		{
 			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
 			"type": "shell",
-			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"-m",
 				"ruff",
@@ -538,7 +538,7 @@
 		{
 			"label": "Run Sync Analysis",
 			"type": "shell",
-			"command": "c:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
+			"command": "${config:python.defaultInterpreterPath}",
 			"args": [
 				"tools/sync_analysis.py"
 			],
