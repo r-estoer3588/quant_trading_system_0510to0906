@@ -298,6 +298,17 @@ class EnvironmentConfig:
     )
     """配分処理の詳細デバッグログを有効化。開発・デバッグ用。"""
 
+    export_diagnostics_snapshot_always: bool = field(
+        default_factory=lambda: _get_bool_env(
+            "EXPORT_DIAGNOSTICS_SNAPSHOT_ALWAYS", False
+        )
+    )
+    """本番実行（test_mode なし）でも diagnostics スナップショットを出力する。
+
+    既定は False（テストモード時のみ出力）。True の場合は `results_csv/diagnostics_test/` 配下に
+    `diagnostics_snapshot_*.json` を出力し、UI フル実行時の 3 点同期（JSONL × スクショ × 診断）に利用できる。
+    """
+
     # ===== 4.5. latest_only 鮮度ガード（カレンダー日ベース） =====
     latest_only_max_date_lag_days: int | None = field(
         default_factory=lambda: _get_int_env("LATEST_ONLY_MAX_DATE_LAG_DAYS", 0) or None

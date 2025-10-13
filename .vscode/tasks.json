@@ -344,6 +344,53 @@
 			}
 		},
 		{
+			"label": "Safe: Capture UI Progress (Headed Dark)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/safe_exec.ps1",
+				"${workspaceFolder}\\venv\\Scripts\\python.exe",
+				"scripts/capture_ui_progress.py",
+				"--headed",
+				"--dark",
+				"--url",
+				"http://localhost:8501"
+			],
+			"options": {
+				"env": {
+					"ENABLE_PROGRESS_EVENTS": "1",
+					"PLAYWRIGHT_HEADFUL": "1",
+					"PLAYWRIGHT_DARK": "1"
+				}
+			},
+			"isBackground": true,
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Analyze Progress Sync",
+			"type": "shell",
+			"command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+			"args": [
+				"tools/sync_analysis.py"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"panel": "shared",
+				"clear": true
+			}
+		},
+		{
 			"label": "E2E: Run All Tests",
 			"type": "shell",
 			"command": "npm",
@@ -424,6 +471,79 @@
 				"panel": "dedicated"
 			},
 			"problemMatcher": []
+		},
+		{
+			"label": "Lint & Format (single run now)",
+			"type": "shell",
+			"command": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"ruff",
+				"check",
+				"--fix",
+				"."
+			]
+		},
+		{
+			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
+			"type": "shell",
+			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"args": [
+				"-m",
+				"ruff",
+				"check",
+				"--select",
+				"E,F",
+				"scripts/capture_ui_progress.py"
+			]
+		},
+		{
+			"label": "Quick Test Run",
+			"type": "shell",
+			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-q",
+				"--tb=short"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
+			"type": "shell",
+			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"args": [
+				"-m",
+				"ruff",
+				"check",
+				"--select",
+				"E,F",
+				"scripts/capture_ui_progress.py"
+			]
+		},
+		{
+			"label": "Lint & Quick Syntax Check (capture_ui_progress)",
+			"type": "shell",
+			"command": "${workspaceFolder}\\\\venv\\\\Scripts\\\\python.exe",
+			"args": [
+				"-m",
+				"ruff",
+				"check",
+				"--select",
+				"E,F",
+				"scripts/capture_ui_progress.py"
+			]
+		},
+		{
+			"label": "Run Sync Analysis",
+			"type": "shell",
+			"command": "c:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
+			"args": [
+				"tools/sync_analysis.py"
+			],
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

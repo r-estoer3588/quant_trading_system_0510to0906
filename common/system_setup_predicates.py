@@ -87,23 +87,43 @@ def system1_setup_predicate(row: pd.Series) -> bool:
 
 
 # --- System3 -----------------------------------------------------------------
-# 条件: Close>=5, dollarvolume20>25M, atr_ratio>=0.05, drop3d>=0.125
+# Phase 2 filter: Low>=1, AvgVol50>=1M, atr_ratio>=0.05
+# Phase 6 setup: Close>SMA150, drop3d>=0.125
+# This predicate combines both for complete evaluation
 
 
 def system3_setup_predicate(row: pd.Series) -> bool:
     try:
-        close = _to_float(row.get("Close"))
-        dv20 = _to_float(row.get("dollarvolume20"))
-        atr_ratio = _to_float(row.get("atr_ratio"))
-        drop3d = _to_float(row.get("drop3d"))
-        if not _all_not_nan([close, dv20, atr_ratio, drop3d]):
-            return False
-        return (
-            (close >= 5.0)
-            and (dv20 > 25_000_000)
-            and (atr_ratio >= 0.05)
-            and (drop3d >= 0.125)
+        # Phase 2 filter (safety check)
+        low = indicator_to_float(get_indicator(row, "Low"))  # type: ignore[arg-type]
+        avgvol50 = indicator_to_float(
+            get_indicator(row, "AvgVolume50")  # type: ignore[arg-type]
         )
+        atr_ratio = indicator_to_float(
+            get_indicator(row, "atr_ratio")  # type: ignore[arg-type]
+        )
+
+        if math.isnan(low) or math.isnan(avgvol50) or math.isnan(atr_ratio):
+            return False
+        if not (low >= 1.0 and avgvol50 >= 1_000_000 and atr_ratio >= 0.05):
+            return False
+
+        # Phase 6 setup
+        close = indicator_to_float(
+            get_indicator(row, "Close")  # type: ignore[arg-type]
+        )
+        sma150 = indicator_to_float(
+            get_indicator(row, "sma150")  # type: ignore[arg-type]
+        )
+        drop3d = indicator_to_float(
+            get_indicator(row, "drop3d")  # type: ignore[arg-type]
+        )
+
+        if math.isnan(close) or math.isnan(sma150) or math.isnan(drop3d):
+            return False
+
+        # セットアップ: 終値が150日SMAを上回る & 過去3日で12.5%以上下落
+        return (close > sma150) and (drop3d >= 0.125)
     except Exception:
         return False
 

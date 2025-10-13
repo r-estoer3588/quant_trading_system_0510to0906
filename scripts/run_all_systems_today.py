@@ -1368,8 +1368,18 @@ def _export_diagnostics_snapshot(
         mode = getattr(ctx, "test_mode", None)
     except Exception:
         mode = None
-    if not mode:
-        return  # production では出力しない
+
+    # 本番でも明示フラグで出力可能にする
+    export_always = False
+    try:
+        from config.environment import get_env_config  # 遅延import
+
+        export_always = bool(get_env_config().export_diagnostics_snapshot_always)
+    except Exception:
+        export_always = False
+
+    if not mode and not export_always:
+        return  # production では既定は出力しない
 
     try:
         settings = ctx.settings

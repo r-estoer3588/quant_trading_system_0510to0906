@@ -66,6 +66,15 @@
 - **説明**: NDJSON 形式の構造化ログを `logs/` へ出力。
 - **参照**: `scripts/run_all_systems_today.py` L724
 
+### `EXPORT_DIAGNOSTICS_SNAPSHOT_ALWAYS`
+
+- **デフォルト**: `0`
+- **設定値**: `0` / `1`
+- **対象**: `scripts/run_all_systems_today.py`
+- **説明**: 本番実行（test*mode なし）でも Diagnostics スナップショット（`results_csv/diagnostics_test/diagnostics_snapshot*\*.json`）を出力する。UI フル実行時の「3 点同期（JSONL × スクショ × 診断）」で同一ランの診断情報を参照したい場合に有効化する。
+- **注意**: 生成ファイルは `results_csv/diagnostics_test/` 配下に出力され、運用の結果 CSV と混ざらない。
+- **参照**: `scripts/run_all_systems_today.py` の `_export_diagnostics_snapshot()`
+
 ### `SHOW_INDICATOR_LOGS`
 
 - **デフォルト**: `0`
