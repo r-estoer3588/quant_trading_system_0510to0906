@@ -1965,7 +1965,24 @@ class StageTracker:
                 except Exception:
                     pass
 
-            if counts.get("cand") is None:
+            # diagnostics から ranked_top_n_count（真の候補数）を優先的に適用
+            # 既存 cand が None または 0 の場合は上書きして TRDlist を正す
+            if system_diagnostics_map:
+                try:
+                    diag = system_diagnostics_map.get(name)
+                    if isinstance(diag, dict):
+                        r_topn = diag.get("ranked_top_n_count")
+                        if isinstance(r_topn, (int, float)) and int(r_topn) > 0:
+                            cur_cand = counts.get("cand")
+                            cur_val = int(cur_cand) if cur_cand is not None else None
+                            if cur_val is None or cur_val <= 0:
+                                counts["cand"] = self._clamp_trdlist(int(r_topn))
+                except Exception:
+                    pass
+
+            # cand が未設定 もしくは 0 の場合は AllocationSummary / per_system でフォールバック
+            cand_val = counts.get("cand")
+            if cand_val is None or int(cand_val or 0) <= 0:
                 # 1) AllocationSummary の slot_candidates からフォールバック
                 used = False
                 try:
