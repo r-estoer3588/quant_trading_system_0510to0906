@@ -15,32 +15,35 @@ date: 2025-10-13
 ## 結果サマリ
 
 非並列（開始 16:48:12 → 終了 17:03:05, 総実行 891.61s）
+
 - 最終候補: 合計 38（system1=10, system2=10, system4=10, system5=8）
 - 出力:
-  - CSV: data_cache/signals/signals_final_2025-10-13.csv（38行）
+  - CSV: data_cache/signals/signals_final_2025-10-13.csv（38 行）
   - 検証: results_csv/validation/validation_report_2025-10-13.json（errors=0, warnings=1: 重複シンボル情報）
   - ベンチ: results_csv/benchmark_None_20251013_170305.json
   - ログ: logs/today_signals_20251013_1648.log / logs/progress_today.jsonl
 
 並列（開始 18:11:49 → 終了 18:26:39, 総実行 888.93s）
+
 - 最終候補: 合計 38（system1=10, system2=10, system4=10, system5=8）
 - 出力:
-  - CSV: data_cache/signals/signals_final_2025-10-13.csv（38行）
+  - CSV: data_cache/signals/signals_final_2025-10-13.csv（38 行）
   - 検証: results_csv/validation/validation_report_2025-10-13.json（errors=0, warnings=1）
   - ベンチ: results_csv/benchmark_None_20251013_182639.json
   - ログ: logs/today_signals_20251013_1811.log / logs/progress_today.jsonl
 
 補足（phase4 性能）
-- 非並列: phase4_signal_generation=824.08s
-- 並列:   phase4_signal_generation=820.79s
 
-## tri-sync（3点同期）検証
+- 非並列: phase4_signal_generation=824.08s
+- 並列: phase4_signal_generation=820.79s
+
+## tri-sync（3 点同期）検証
 
 - パイプライン完了: OK（pipeline_complete=true）
 - システム別候補（イベント/スクショ集計）:
   - system1=10, system2=10, system3=0, system4=10, system5=10（抽出候補）, system6=0, system7=0
 - CSV 最終採用との差分:
-  - system5: 抽出候補 10 → 最終採用 8（配分段階フィルタで2件落選）
+  - system5: 抽出候補 10 → 最終採用 8（配分段階フィルタで 2 件落選）
 - 整合性チェック:
   - 配分合計 == JSONL 合計: OK
   - diagnostics ranked_top_n_count とイベント候補数: OK
@@ -48,6 +51,7 @@ date: 2025-10-13
   - マッチ率: 6/7 システムで完全一致（system5 の差は既知・合理的）
 
 tri-sync 生成物
+
 - サマリ JSON: screenshots/progress_tracking/sync_summary.json
 - 詳細 JSON: screenshots/progress_tracking/sync_analysis.json
 - レポート: screenshots/progress_tracking/ANALYSIS_REPORT.md
