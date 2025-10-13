@@ -97,12 +97,25 @@ pytest -q                                   # 決定性テスト
 pre-commit run --files <changed_files>
 ```
 
+**VS Code タスク統合** (推奨):
+
+VS Code タスクランナーで主要コマンドを実行可能（`.vscode/tasks.json` 定義済み）:
+
+- **Quick Test Run**: `Ctrl+Shift+P` → "Run Task" → "Quick Test Run"
+- **Run All Systems Today**: ワンクリックで並列実行 + CSV 保存
+- **Lint & Format**: ruff + black の自動実行
+- **Safe: 〜** タスク: `tools/safe_exec.ps1` 経由で UTF-8/エラーハンドリング強化版
+
 **テスト戦略**:
 
 - `--test-mode mini`: 10 銘柄（超高速、2 秒）/ `quick`: 50 銘柄 / `sample`: 100 銘柄。
 - `--skip-external`: NASDAQ Trader / pandas_market_calendars API をスキップ。
 - `--benchmark`: パフォーマンス計測 JSON を `results_csv_test/` に出力。
 - 決定性: `common/testing.py::set_test_determinism()` でシード固定 + freezegun 日時固定。
+  - **重要**: すべてのテストで `conftest.py` の自動フィクスチャが決定性を保証（手動呼び出し不要）。
+  - 日時固定: `freezegun` で "2025-01-15 10:00:00 America/New_York" 固定。
+  - 乱数固定: NumPy/Python random シード 42 固定。
+  - 並列実行: pytest-xdist 互換（テスト間干渉なし）。
 
 ## 6. 守るべき禁止事項 / ガードレール
 
@@ -150,6 +163,14 @@ pre-commit run --files <changed_files>
 - Long/Short バケツ別配分: `DEFAULT_LONG_ALLOCATIONS` (S1/3/4/5) + `DEFAULT_SHORT_ALLOCATIONS` (S2/6/7)。
 - ポジションサイズ: ATR ベース + `risk_pct=0.02` / `max_pct=0.10` 上限。
 
+**最近の主要改善 (2025 年 10 月)**:
+
+- **Bulk API 品質管理**: Volume 許容範囲を 0.5%→5.0% に緩和、信頼性スコア 30%→100% 改善（環境変数: `BULK_API_VOLUME_TOLERANCE`, `BULK_API_MIN_RELIABILITY`）。
+- **Setup Predicates 統合**: `common/system_setup_predicates.py` に全システム(1-7)の Setup 条件を純関数化、DRY 原則適用＋テスト容易性向上。
+- **Cache Index Requirements**: Feather フォーマット要件で DatetimeIndex 必須化、"year 10312" エラーを解決（`docs/technical/cache_index_requirements.md`）。
+- **System7 Coverage**: 52%→66% カバレッジ向上、44 テスト全 PASS（4 つの公式テストファイル構成）。
+- **Pytest-cov 互換性**: NumPy `_NoValueType` エラー回避のため `.reindex()` 使用パターンに統一。
+
 ## 8. コードスタイル / 品質
 
 - snake_case / PascalCase / 型ヒント推奨。`ruff` + `black`。決定性: `common/testing.py` 利用。
@@ -177,6 +198,8 @@ pre-commit run --files <changed_files>
 - [ ] 重複列を増やしていないか（OHLCV は PascalCase 統一）
 - [ ] 環境変数を追加した場合: `config/environment.py::EnvironmentConfig` と `docs/technical/environment_variables.md` の両方に追記
 - [ ] `os.environ.get()` の直接使用を避け、`get_env_config()` 経由でアクセスしているか
+- [ ] **テスト決定性**: 新規テストで時刻/乱数に依存する場合、`conftest.py` の自動フィクスチャで自動対応（手動 `set_test_determinism()` 不要）
+- [ ] **VS Code タスク**: 新規スクリプトを追加した場合、`.vscode/tasks.json` にタスク定義を追加（任意だが推奨）
 
 **デバッグヒント**:
 
@@ -185,5 +208,20 @@ pre-commit run --files <changed_files>
 - 進捗監視: `ENABLE_PROGRESS_EVENTS=1` + Streamlit UI「当日シグナル」タブでリアルタイム追跡。
 - 環境変数確認: `python -c "from config.environment import get_env_config; env = get_env_config(); env.print_env_summary()"` で現在の設定を表示。
 - 本番環境警告: `env.validate()` が返すエラーリストで、テスト用設定（`MIN_DROP3D_FOR_TEST` 等）が本番で有効になっていないか確認。
+- **UI スクリーンショット**: Playwright で `tools/run_and_snapshot.ps1` を実行し、ボタンクリック → 完了画面撮影 → スナップショット比較を自動化。
+- **E2E テスト**: `npm test` で Playwright E2E テストを実行（`e2e/` ディレクトリ）。ヘッドレスモードで高速、`npm run test:headed` でブラウザ表示。
+
+**E2E テスト (Playwright) 統合**:
+
+- **セットアップ**: `pip install playwright` + `playwright install chromium` (初回のみ)
+- **VSCode 拡張**: "Playwright Test for VSCode" で UI テストのデバッグ・レコーディング・インスペクター利用可能
+- **実行例**:
+  - `npm test`: 全 E2E テスト (ヘッドレス)
+  - `npm run test:headed`: ブラウザ表示モード
+  - `npm run test:ui`: インタラクティブ UI
+  - `npm run test:quick`: Chromium のみ高速実行
+- **UI 自動撮影**: `tools/capture_ui_screenshot.py` で Streamlit UI のボタンクリック → 完了画面撮影を自動化
+  - 例: `python tools/capture_ui_screenshot.py --url http://localhost:8501 --click-button "▶ 本日のシグナル実行" --wait-after-click 30`
+- **統合ワークフロー**: `tools/run_and_snapshot.ps1` でボタンクリック → 撮影 → スナップショット作成を一括実行
 
 不明点や曖昧な規約は PR 説明に背景を記述し合意形成してください。
