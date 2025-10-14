@@ -11,7 +11,8 @@
 設計指針:
     - 個別関数: system1_setup_predicate(row: pd.Series) -> bool など
     - 追加便利関数: get_system_setup_predicate(name_or_id) -> Callable
-    - System5 の ATR% 閾値は core/system5.py の DEFAULT_ATR_PCT_THRESHOLD と同値 (循環依存を避けるため値をローカル再定義)。
+        - System5 の ATR% 閾値は core/system5.py の DEFAULT_ATR_PCT_THRESHOLD と同値
+            (循環依存を避けるため値をローカル再定義)。
     - System 名 / ID いずれでも取得できる軽量マップ SETUP_PREDICATES を提供。
 
 後続 (ID8 diagnostics enrichment) で以下カウンタに利用予定:
@@ -52,7 +53,9 @@ def _to_float(value: Any) -> float:
     Note: This is a legacy wrapper. For indicator values, prefer using
     get_indicator() + indicator_to_float() for case-insensitive access.
     """
-    return indicator_to_float(value)
+    from typing import cast
+
+    return cast(float, indicator_to_float(value))
 
 
 def _all_not_nan(values: list[float]) -> bool:
@@ -65,23 +68,71 @@ def _all_not_nan(values: list[float]) -> bool:
 # This predicate combines both for complete evaluation
 
 
-def system1_setup_predicate(row: pd.Series) -> bool:
+def system1_setup_predicate(
+    row: pd.Series, *, return_reason: bool = False
+) -> bool | tuple[bool, str | None]:
+    """System1 setup predicate with optional reason.
+
+    Conditions (Two-Phase safety included):
+      - Phase 2 filter (safety): Close >= 5 and dollarvolume20 >= 50M
+      - Phase 6 setup: sma25 > sma50 and roc200 > 0
+
+    Returns:
+      - When return_reason=False (default): bool
+      - When return_reason=True: (bool, reason: str|None)
+
+    Reason codes:
+      - "missing_price_or_volume" | "filter_phase2"
+      - "missing_sma" | "missing_roc200" | "sma_trend" | "roc200"
+      - "exception" (unexpected error)
+    """
     try:
-        # Phase 2 filter (redundant safety check) - use case-insensitive access
-        close = indicator_to_float(get_indicator(row, "Close"))  # type: ignore[arg-type]
-        dv20 = indicator_to_float(get_indicator(row, "dollarvolume20"))  # type: ignore[arg-type]
-        if math.isnan(close) or math.isnan(dv20):
-            return False
-        if not (close >= 5.0 and dv20 >= 50_000_000):
-            return False
+        from typing import Mapping as _Mapping
+        from typing import cast as _cast
+
+        row_map: _Mapping[str, Any] = _cast(_Mapping[str, Any], row)
+        # Phase 2 filter (redundant safety check) - case-insensitive access
+        close_v: float = indicator_to_float(get_indicator(row_map, "Close"))
+        dv20_v: float = indicator_to_float(get_indicator(row_map, "dollarvolume20"))
+        if math.isnan(close_v) or math.isnan(dv20_v):
+            result = (False, "missing_price_or_volume")
+            return result if return_reason else result[0]
+        if not (close_v >= 5.0 and dv20_v >= 50_000_000):
+            result = (False, "filter_phase2")
+            return result if return_reason else result[0]
 
         # Phase 6 setup (SMA trend + ROC200 momentum)
-        sma25 = indicator_to_float(get_indicator(row, "sma25"))  # type: ignore[arg-type]
-        sma50 = indicator_to_float(get_indicator(row, "sma50"))  # type: ignore[arg-type]
-        roc200 = indicator_to_float(get_indicator(row, "roc200"))  # type: ignore[arg-type]
-        if math.isnan(sma25) or math.isnan(sma50) or math.isnan(roc200):
-            return False
-        return (sma25 > sma50) and (roc200 > 0.0)
+        sma25_v: float = indicator_to_float(get_indicator(row_map, "sma25"))
+        sma50_v: float = indicator_to_float(get_indicator(row_map, "sma50"))
+        roc200_v: float = indicator_to_float(get_indicator(row_map, "roc200"))
+        if math.isnan(sma25_v) or math.isnan(sma50_v):
+            result = (False, "missing_sma")
+            return result if return_reason else result[0]
+        if math.isnan(roc200_v):
+            result = (False, "missing_roc200")
+            return result if return_reason else result[0]
+
+        ok: bool = (sma25_v > sma50_v) and (roc200_v > 0.0)
+        if return_reason:
+            if ok:
+                return True, None
+            # 詳細な失敗理由
+            if not (sma25_v > sma50_v):
+                return False, "sma_trend"
+            return False, "roc200"
+        return ok
+    except Exception:
+        return (False, "exception") if return_reason else False
+
+
+def system1_setup_predicate_bool(row: pd.Series) -> bool:
+    """Bool-only wrapper to satisfy Mapping[str, Callable[..., bool]] typing.
+
+    This calls system1_setup_predicate with default (return_reason=False).
+    """
+    try:
+        res = system1_setup_predicate(row)
+        return bool(res)  # mypy: res is bool in default mode
     except Exception:
         return False
 
@@ -92,38 +143,79 @@ def system1_setup_predicate(row: pd.Series) -> bool:
 # This predicate combines both for complete evaluation
 
 
-def system3_setup_predicate(row: pd.Series) -> bool:
+def system3_setup_predicate(
+    row: pd.Series, *, return_reason: bool = False
+) -> bool | tuple[bool, str | None]:
+    """System3 setup predicate with optional reason.
+
+    Conditions (Two-Phase safety included):
+      - Phase 2 filter: low >= 1 and avgvolume50 >= 1M and atr_ratio >= threshold
+      - Phase 6 setup: close > sma150 and drop3d >= 0.125
+
+    Reason codes:
+      - "missing_filter_fields" | "filter_phase2"
+      - "missing_setup_fields" | "close_vs_sma150" | "drop3d"
+      - "exception"
+    """
     try:
+        from typing import Mapping as _Mapping
+        from typing import cast as _cast
+
+        row_map: _Mapping[str, Any] = _cast(_Mapping[str, Any], row)
         # Phase 2 filter (safety check)
-        low = indicator_to_float(get_indicator(row, "Low"))  # type: ignore[arg-type]
-        avgvol50 = indicator_to_float(
-            get_indicator(row, "AvgVolume50")  # type: ignore[arg-type]
-        )
-        atr_ratio = indicator_to_float(
-            get_indicator(row, "atr_ratio")  # type: ignore[arg-type]
-        )
+        low: float = indicator_to_float(get_indicator(row_map, "Low"))
+        avgvol50: float = indicator_to_float(get_indicator(row_map, "AvgVolume50"))
+        atr_ratio: float = indicator_to_float(get_indicator(row_map, "atr_ratio"))
+
+        # ATR 閾値（テスト時は環境変数による上書きを許可）
+        atr_thr = 0.05
+        try:
+            from config.environment import get_env_config as _get_env  # 遅延 import
+
+            _env = _get_env()
+            if _env.min_atr_ratio_for_test is not None:
+                atr_thr = float(_env.min_atr_ratio_for_test)
+        except Exception:
+            # 環境の取得に失敗しても既定値で継続
+            atr_thr = 0.05
 
         if math.isnan(low) or math.isnan(avgvol50) or math.isnan(atr_ratio):
-            return False
-        if not (low >= 1.0 and avgvol50 >= 1_000_000 and atr_ratio >= 0.05):
-            return False
+            result = (False, "missing_filter_fields")
+            return result if return_reason else result[0]
+        if not (low >= 1.0 and avgvol50 >= 1_000_000 and atr_ratio >= atr_thr):
+            result = (False, "filter_phase2")
+            return result if return_reason else result[0]
 
         # Phase 6 setup
-        close = indicator_to_float(
-            get_indicator(row, "Close")  # type: ignore[arg-type]
-        )
-        sma150 = indicator_to_float(
-            get_indicator(row, "sma150")  # type: ignore[arg-type]
-        )
-        drop3d = indicator_to_float(
-            get_indicator(row, "drop3d")  # type: ignore[arg-type]
-        )
+        close: float = indicator_to_float(get_indicator(row_map, "Close"))
+        sma150: float = indicator_to_float(get_indicator(row_map, "sma150"))
+        drop3d: float = indicator_to_float(get_indicator(row_map, "drop3d"))
 
         if math.isnan(close) or math.isnan(sma150) or math.isnan(drop3d):
-            return False
+            result = (False, "missing_setup_fields")
+            return result if return_reason else result[0]
 
         # セットアップ: 終値が150日SMAを上回る & 過去3日で12.5%以上下落
-        return (close > sma150) and (drop3d >= 0.125)
+        ok: bool = (close > sma150) and (drop3d >= 0.125)
+        if return_reason:
+            if ok:
+                return True, None
+            if not (close > sma150):
+                return False, "close_vs_sma150"
+            return False, "drop3d"
+        return ok
+    except Exception:
+        return (False, "exception") if return_reason else False
+
+
+def system3_setup_predicate_bool(row: pd.Series) -> bool:
+    """Bool-only wrapper for System3 predicate.
+
+    This calls system3_setup_predicate with default (return_reason=False).
+    """
+    try:
+        res = system3_setup_predicate(row)
+        return bool(res)
     except Exception:
         return False
 
@@ -219,12 +311,12 @@ def system6_setup_predicate(row: pd.Series) -> bool:
 # --- 取得ヘルパ --------------------------------------------------------------
 SETUP_PREDICATES: Mapping[str, Callable[..., bool]] = {
     # 名前 / ID どちらでも取り出せるよう重複キーを用意
-    "1": system1_setup_predicate,
-    "System1": system1_setup_predicate,
+    "1": system1_setup_predicate_bool,
+    "System1": system1_setup_predicate_bool,
     "2": system2_setup_predicate,
     "System2": system2_setup_predicate,
-    "3": system3_setup_predicate,
-    "System3": system3_setup_predicate,
+    "3": system3_setup_predicate_bool,
+    "System3": system3_setup_predicate_bool,
     "4": system4_setup_predicate,
     "System4": system4_setup_predicate,
     "5": system5_setup_predicate,

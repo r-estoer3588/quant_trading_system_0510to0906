@@ -10,6 +10,7 @@ note記事用アイキャッチ画像生成スクリプト
 
 import argparse
 import os
+import sys
 
 from PIL import (
     Image,
@@ -305,12 +306,16 @@ def paste_character(
 
 
 def get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """フォント取得（Windows用）"""
+    """フォント取得（Windows用・おしゃれフォント優先）"""
     font_paths = [
+        "C:/Windows/Fonts/YuGothB.ttc",  # Yu Gothic UI Bold（游ゴシック太字・モダン）
+        "C:/Windows/Fonts/YuGothM.ttc",  # Yu Gothic UI Medium
+        "C:/Windows/Fonts/yugothib.ttf",  # Yu Gothic Bold
+        "C:/Windows/Fonts/meiryob.ttc",  # Meiryo Bold（日本語太字）
+        "C:/Windows/Fonts/segoeuib.ttf",  # Segoe UI Bold
         "C:/Windows/Fonts/msgothic.ttc",  # MS Gothic（日本語）
         "C:/Windows/Fonts/meiryo.ttc",  # Meiryo（日本語）
-        "C:/Windows/Fonts/segoeui.ttf",  # Segoe UI
-        "C:/Windows/Fonts/arial.ttf",  # Arial
+        "C:/Windows/Fonts/arialbd.ttf",  # Arial Bold
     ]
 
     for fp in font_paths:
@@ -324,7 +329,7 @@ def get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def add_title_text(img, title_lines):
-    """タイトルテキストを追加（中央）"""
+    """タイトルテキストを追加（上部配置、半透明背景付き）"""
     draw = ImageDraw.Draw(img)
     width, height = img.size
 
@@ -332,27 +337,46 @@ def add_title_text(img, title_lines):
     font_large = get_font(80)
     font_medium = get_font(60)
 
-    # 1行目（「対話で学ぶ」）
+    # 1行目のサイズ計算
     line1 = title_lines[0]
     bbox1 = draw.textbbox((0, 0), line1, font=font_large)
     text1_w = bbox1[2] - bbox1[0]
     text1_h = bbox1[3] - bbox1[1]
 
+    # 2行目のサイズ計算
+    line2 = title_lines[1]
+    bbox2 = draw.textbbox((0, 0), line2, font=font_medium)
+    text2_w = bbox2[2] - bbox2[0]
+    text2_h = bbox2[3] - bbox2[1]
+
+    # 上部5%の位置に配置（帯を完全に避ける）
+    y1 = int(height * 0.05)
+    y2 = y1 + text1_h + 20
+
+    # 半透明の黒背景ボックスを追加（可読性向上）
+    bg_padding = 30
+    bg_box = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    bg_draw = ImageDraw.Draw(bg_box)
+    bg_y_start = y1 - bg_padding
+    bg_y_end = y2 + text2_h + bg_padding
+    bg_draw.rectangle(
+        [(0, bg_y_start), (width, bg_y_end)], fill=(0, 0, 0, 100)  # 黒、透明度100/255
+    )
+    img = Image.alpha_composite(img.convert("RGBA"), bg_box)
+
+    # 新しいdrawオブジェクトを作成
+    draw = ImageDraw.Draw(img)
+
+    # 1行目を中央配置
     x1 = (width - text1_w) // 2
-    y1 = int(height * 0.35)
 
     # 影
     draw.text((x1 + 3, y1 + 3), line1, font=font_large, fill=(0, 0, 0, 180))
     # メインテキスト
     draw.text((x1, y1), line1, font=font_large, fill=(255, 255, 255, 255))
 
-    # 2行目（「Playwright × AI」）
-    line2 = title_lines[1]
-    bbox2 = draw.textbbox((0, 0), line2, font=font_medium)
-    text2_w = bbox2[2] - bbox2[0]
-
+    # 2行目を中央配置
     x2 = (width - text2_w) // 2
-    y2 = y1 + text1_h + 20
 
     # 影
     draw.text((x2 + 3, y2 + 3), line2, font=font_medium, fill=(0, 0, 0, 180))
@@ -451,8 +475,11 @@ def create_article_eyecatch(
         print("✅ キャラクターシルエット追加完了")
 
     # 4. タイトルテキスト（中央）
-    img = add_title_text(img, [title_line1, title_line2])
-    print("✅ タイトルテキスト追加完了")
+    if title_line1 or title_line2:  # タイトルが指定されている場合のみ描画
+        img = add_title_text(img, [title_line1, title_line2])
+        print("✅ タイトルテキスト追加完了")
+    else:
+        print("ℹ️  タイトルなし版を生成（ベース画像）")
 
     # 5. 保存
     img = img.convert("RGB")  # RGBA → RGB（JPEG互換）
@@ -477,6 +504,18 @@ def main():
         dest="title2",
         default="Playwright × AI",
         help="タイトル2行目",
+    )
+    parser.add_argument(
+        "--no-title",
+        dest="no_title",
+        action="store_true",
+        help="タイトルを描画しない（ベース画像生成用）",
+    )
+    parser.add_argument(
+        "--base",
+        dest="base_image",
+        default=None,
+        help="ベース画像のパス（既存画像にタイトルのみ追加）",
     )
     parser.add_argument("--width", dest="width", type=int, default=1280, help="画像幅")
     parser.add_argument(
@@ -545,6 +584,10 @@ def main():
 
     args = parser.parse_args()
 
+    # タイトルなしオプションの処理
+    title1 = "" if args.no_title else args.title1
+    title2 = "" if args.no_title else args.title2
+
     # 出力先
     output_path = args.out or os.path.join(
         os.path.expanduser("~"),
@@ -552,23 +595,59 @@ def main():
         "eyecatch_playwright_ai.png",
     )
 
-    # アイキャッチ生成
-    create_article_eyecatch(
-        output_path=output_path,
-        title_line1=args.title1,
-        title_line2=args.title2,
-        width=args.width,
-        height=args.height,
-        yui_path=args.yui,
-        ren_path=args.ren,
-        disable_circuit=args.no_circuit,
-        unify_style=args.unify_style,
-        posterize_bits=args.posterize_bits,
-        saturation=args.saturation,
-        contrast=args.contrast,
-        tint=args.tint,
-        outline_px=args.outline_px,
-    )
+    # ベース画像モード: 既存画像にタイトルのみ追加
+    if args.base_image:
+        if not os.path.exists(args.base_image):
+            print(f"❌ エラー: ベース画像が見つかりません: {args.base_image}")
+            sys.exit(1)
+
+        print(f"📂 ベース画像を読み込み: {args.base_image}")
+        base_img = Image.open(args.base_image).convert("RGBA")
+
+        # Tint適用（指定された場合）
+        if args.tint and args.tint != "none":
+            print(f"🎨 Tint適用: {args.tint}")
+            tint_map = {
+                "navy": (44, 80, 122, 40),
+                "teal": (0, 200, 150, 32),
+                "gold": (255, 200, 50, 24),
+            }
+            tint_rgba = tint_map.get(args.tint.lower())
+            if tint_rgba:
+                overlay = Image.new("RGBA", base_img.size, tint_rgba)
+                base_img = Image.alpha_composite(base_img, overlay)
+                print(f"✅ Tint ({args.tint}) 適用完了")
+
+        # タイトル追加
+        if title1 or title2:
+            final_img = add_title_text(base_img, [title1, title2])
+            print("✅ タイトルテキスト追加完了")
+        else:
+            final_img = base_img
+            print("ℹ️ タイトルなし（ベース画像のみ）")
+
+        # 保存
+        final_img.convert("RGB").save(output_path, "PNG")
+        print(f"✅ 画像保存完了: {output_path}")
+
+    else:
+        # 通常モード: キャラクター配置から生成
+        create_article_eyecatch(
+            output_path=output_path,
+            title_line1=title1,
+            title_line2=title2,
+            width=args.width,
+            height=args.height,
+            yui_path=args.yui,
+            ren_path=args.ren,
+            disable_circuit=args.no_circuit,
+            unify_style=args.unify_style,
+            posterize_bits=args.posterize_bits,
+            saturation=args.saturation,
+            contrast=args.contrast,
+            tint=args.tint,
+            outline_px=args.outline_px,
+        )
 
     print("\n" + "=" * 60)
     print("✅ アイキャッチ画像生成完了！")

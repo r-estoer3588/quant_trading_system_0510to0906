@@ -27,6 +27,10 @@ def capture_streamlit_screenshot(
     headless: bool = True,
     wait_for_user: bool = False,
     color_scheme: Literal["dark", "light", "no-preference"] = "dark",
+    # New: robust post-click waits for results screen
+    wait_text: str | None = None,
+    wait_selector: str | None = None,
+    wait_results: bool = False,
 ) -> bool:
     """Streamlit UI のスクリーンショットを取得。
 
@@ -198,9 +202,19 @@ def capture_streamlit_screenshot(
             if click_button:
                 print(f"Clicking button: '{click_button}'")
                 try:
-                    # Streamlit のボタンを探してクリック
-                    button = page.get_by_role("button", name=click_button).first
-                    button.click()
+                    # クリック（ロール指定）
+                    try:
+                        button = page.get_by_role("button", name=click_button).first
+                        button.click()
+                    except Exception as e_role:
+                        # フォールバック: テキスト検索でクリック
+                        print(
+                            "Primary click failed (" + str(e_role) + "); "
+                            "trying text-based fallback..."
+                        )
+                        fallback = page.get_by_text(click_button, exact=False).first
+                        fallback.wait_for(state="visible", timeout=8000)
+                        fallback.click()
 
                     if wait_for_user:
                         print("\n" + "=" * 60)
@@ -214,7 +228,6 @@ def capture_streamlit_screenshot(
                         time.sleep(3)
                         page.wait_for_load_state("networkidle", timeout=10000)
                         time.sleep(2)
-
                     else:
                         print(f"Waiting {wait_after_click}s for results...")
                         # 進行状況バーが消えるまで待機
@@ -227,12 +240,83 @@ def capture_streamlit_screenshot(
                         time.sleep(3)
                         page.wait_for_load_state("networkidle", timeout=10000)
                         time.sleep(2)
-
                 except Exception as e:
                     print(f"Button click warning: {e}")
                     # ボタンが見つからなくてもスクリーンショットは撮る
                     if not wait_for_user:
                         time.sleep(wait_after_click)
+
+            # クリック後の「結果画面」をより確実に待機（任意指定 or 既定の特徴語）
+            try:
+                # 合計待機時間（ミリ秒）をクリック後待機時間から推定、下限を設定
+                total_wait_ms = max(10000, int(wait_after_click * 1000))
+                deadline = time.time() + (total_wait_ms / 1000.0)
+
+                def _remaining_ms() -> int:
+                    return max(0, int((deadline - time.time()) * 1000))
+
+                def _wait_text(txt: str) -> bool:
+                    try:
+                        loc = page.get_by_text(txt, exact=False).first
+                        loc.wait_for(
+                            state="visible", timeout=max(1000, _remaining_ms())
+                        )
+                        return True
+                    except Exception:
+                        return False
+
+                def _wait_selector(sel: str) -> bool:
+                    try:
+                        page.wait_for_selector(
+                            sel, state="visible", timeout=max(1000, _remaining_ms())
+                        )
+                        return True
+                    except Exception:
+                        return False
+
+                waited = False
+                # 明示指定があれば優先
+                if wait_text:
+                    print(f"Waiting for text to appear: '{wait_text}'")
+                    waited = _wait_text(wait_text)
+                if not waited and wait_selector:
+                    print(f"Waiting for selector to appear: {wait_selector}")
+                    waited = _wait_selector(wait_selector)
+
+                # 既定の「結果画面」候補を順に待機
+                if not waited and wait_results:
+                    print("Waiting for results screen markers...")
+                    candidates_text = [
+                        "最終選定銘柄",
+                        "本日のシグナルはありません",
+                        "総経過時間:",
+                    ]
+                    candidates_buttons = [
+                        "最終CSVをダウンロード",
+                    ]
+                    # 1) 見出しや情報文
+                    for t in candidates_text:
+                        if _wait_text(t):
+                            waited = True
+                            break
+                    # 2) ダウンロードボタン（ロール）
+                    if not waited:
+                        for name in candidates_buttons:
+                            try:
+                                loc = page.get_by_role("button", name=name).first
+                                loc.wait_for(
+                                    state="visible", timeout=max(1000, _remaining_ms())
+                                )
+                                waited = True
+                                break
+                            except Exception:
+                                continue
+                if waited:
+                    print("Results screen detected.")
+                else:
+                    print("Results markers not detected in time — proceeding anyway.")
+            except Exception as _res_e:
+                print(f"Results wait warning: {_res_e}")
 
             # 最下部までスクロール（オプション）
             if scroll_to_bottom:
@@ -353,6 +437,19 @@ def main() -> None:
         help="Wait seconds after button click",
     )
     parser.add_argument(
+        "--wait-text",
+        help="Wait until text appears after click (partial match)",
+    )
+    parser.add_argument(
+        "--wait-selector",
+        help="Wait until CSS selector appears after click",
+    )
+    parser.add_argument(
+        "--wait-results",
+        action="store_true",
+        help="Wait for common results markers (最終選定銘柄/本日のシグナルはありません/総経過時間/最終CSVボタン)",
+    )
+    parser.add_argument(
         "--no-scroll",
         action="store_true",
         help="Do not scroll to bottom before screenshot",
@@ -387,6 +484,9 @@ def main() -> None:
         headless=not args.show_browser,
         wait_for_user=args.wait_for_user,
         color_scheme="light" if args.light_mode else "dark",
+        wait_text=args.wait_text,
+        wait_selector=args.wait_selector,
+        wait_results=bool(args.wait_results),
     )
     sys.exit(0 if success else 1)
 

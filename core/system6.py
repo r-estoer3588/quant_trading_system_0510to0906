@@ -1,6 +1,7 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
 from collections.abc import Callable
+import logging
 import math
 import time
 from typing import Any, cast
@@ -13,6 +14,8 @@ from common.i18n import tr
 from common.structured_logging import MetricsCollector
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import resolve_batch_size
+
+logger = logging.getLogger(__name__)
 
 # System6 configuration constants
 MIN_PRICE = 5.0  # 最低価格フィルター（ドル）
@@ -254,13 +257,44 @@ def generate_candidates_system6(
     of each DataFrame. Returns normalized mapping {date: {symbol: payload}}.
     """
     # diagnostics payload (opt-in)
-    diagnostics = {
-        "ranking_source": None,
-        "setup_predicate_count": 0,
-        "ranked_top_n_count": 0,
-        "predicate_only_pass_count": 0,
-        "mismatch_flag": 0,
+    diagnostics: dict[str, Any] = {
+        "ranking_source": None,  # str | None
+        "setup_predicate_count": 0,  # int
+        "ranked_top_n_count": 0,  # int
+        "predicate_only_pass_count": 0,  # int
+        "mismatch_flag": 0,  # int flag
     }
+
+    # --- 自動 latest_only 切替 -------------------------------------------------
+    # 目的: 当日シグナル用途 (バックテスト以外) では高速パスを強制し、
+    #       System6 の全日付フルスキャンによる遅延を避ける。
+    # 条件:
+    #   - 呼び出しで latest_only=False でも、環境変数 system6_force_latest_only が True
+    #   - env.full_scan_today が False （明示 full 走査要求がない）
+    #   - include_diagnostics は影響なし（fast path も診断返却対応済み）
+    try:  # 環境依存のため失敗しても安全に継続
+        from config.environment import get_env_config  # 遅延インポートで初期化コスト最小化
+
+        env = get_env_config()
+        if (
+            not latest_only
+            and getattr(env, "system6_force_latest_only", False)
+            and not getattr(env, "full_scan_today", False)
+        ):
+            latest_only = True  # 強制切替
+            if logger:
+                logger.info(
+                    "System6: forcing latest_only "
+                    "(system6_force_latest_only=1, full_scan_today=0)"
+                )
+            try:  # メトリクス環境が無い状況でも安全に続行
+                _metrics.record_metric(
+                    "system6_forced_latest_only", 1, "count", stage="system6"
+                )
+            except Exception:  # noqa: BLE001 - ログ最適化目的で握りつぶし
+                pass
+    except Exception:
+        pass
 
     candidates_by_date: dict[pd.Timestamp, list] = {}
 
@@ -475,6 +509,20 @@ def generate_candidates_system6(
             # fall through to full path
     total = len(prepared_dict)
 
+    # 追加最適化: COMPACT ログや高速化モード時に filter/setup 集計を抑制するフラグ
+    collect_counts = True
+    try:
+        from config.environment import get_env_config
+
+        env2 = get_env_config()
+        # compact_logs かつ latest_only 強制無効化されていない → 集計省略許容
+        if getattr(env2, "compact_logs", False):
+            # 明示的にフル走査要求がある場合は保持
+            if not getattr(env2, "full_scan_today", False):
+                collect_counts = False
+    except Exception:
+        pass
+
     if batch_size is None:
         try:
             from config.settings import get_settings
@@ -519,21 +567,31 @@ def generate_candidates_system6(
             last_price = df["Close"].iloc[-1]
 
         # 統計計算：フィルター通過数とセットアップ通過数をカウント（累積日数）
-        if "filter" in df.columns:
-            try:
-                filter_passed += int(df["filter"].sum())
-            except Exception:
-                pass
-        if "setup" in df.columns:
-            try:
-                setup_passed += int(df["setup"].sum())
-            except Exception:
-                pass
+        if collect_counts:
+            if "filter" in df.columns:
+                try:
+                    filter_passed += int(df["filter"].sum())
+                except Exception:
+                    pass
+            if "setup" in df.columns:
+                try:
+                    setup_passed += int(df["setup"].sum())
+                except Exception:
+                    pass
 
         try:
-            if "setup" not in df.columns or not df["setup"].any():
+            # まず最終行付近の軽量チェックで高速脱出（全期間 any() の前）
+            setup_col = df.get("setup")
+            if setup_col is None:
                 skipped += 1
                 continue
+            # 末尾 8 行程度で True がなければ全体 any() を評価、それでも無ければ早期スキップ
+            tail_window = setup_col.tail(min(8, len(setup_col)))
+            if not tail_window.any():
+                if not setup_col.any():  # 本当に 1 度も True なし
+                    skipped += 1
+                    continue
+            # ここまで来たら従来どおり全 True 行抽出
             setup_days = df[df["setup"] == 1]
             if setup_days.empty:
                 skipped += 1

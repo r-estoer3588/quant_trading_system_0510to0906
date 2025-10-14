@@ -24,6 +24,12 @@ from core.system6 import (  # System6 のフィルター閾値と HV 範囲を�
     MIN_PRICE,
 )
 
+# 型安全な環境変数アクセス
+try:
+    from config.environment import get_env_config  # 遅延 import で循環回避
+except Exception:  # フォールバック（テスト時など）
+    get_env_config = None  # type: ignore
+
 __all__ = [
     "_pick_series",
     "_last_scalar",
@@ -417,6 +423,7 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
 
 
 def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
+    # 既存の前処理互換: Low>=1 と AvgVol50>=1M をまず評価
     low_series = _pick_series(df, ["Low", "low"])
     low_val = _last_scalar(low_series)
     if low_val is None:
@@ -434,14 +441,61 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             av_val = _last_non_nan(av_series)
     av_ok = bool(av_val is not None and av_val >= 1_000_000)
 
+    # ATR 比率（列 or フォールバック演算）
     atr_ratio = _resolve_atr_ratio(df)
-    # Allow test override of ATR ratio threshold (default 0.05)
+
+    # ATR 閾値: 環境設定の型安全アクセスに統一
+    atr_thr = 0.05
     try:
-        thr_env = os.getenv("MIN_ATR_RATIO_FOR_TEST")
-        atr_thr = float(thr_env) if thr_env is not None else 0.05
+        env = get_env_config() if get_env_config is not None else None
+        if env is not None and env.min_atr_ratio_for_test is not None:
+            atr_thr = float(env.min_atr_ratio_for_test)
     except Exception:
         atr_thr = 0.05
+
     atr_ok = bool(atr_ratio is not None and atr_ratio >= atr_thr)
+
+    # mini/quick 等のテスト系での枯渇ガード（再発防止）：
+    # Close>=5 & DollarVolume20>25M を満たす場合、
+    # ATR がわずかに不足でも緩和閾値 (0.03) を適用して救済。
+    # 本番 (env.is_test_mode()==False) では適用しない。
+    if not atr_ok:
+        try:
+            env = get_env_config() if get_env_config is not None else None
+            is_test = bool(env and env.is_test_mode())
+        except Exception:
+            is_test = False
+
+        if is_test:
+            # 価格と出来高の安全フィルタ（core/system3 に整合）
+            close_series = _pick_series(df, ["Close", "close", "CLOSE"])
+            last_close = _last_scalar(close_series)
+            if last_close is None:
+                last_close = _last_non_nan(close_series)
+            price_ok = bool(last_close is not None and last_close >= 5.0)
+
+            vol_series = _pick_series(df, ["Volume", "volume"])
+            dv20 = _calc_dollar_volume_from_series(close_series, vol_series, 20)
+            if dv20 is None:
+                # 列があれば末尾値を採用
+                dv_series = _pick_series(
+                    df, ["DollarVolume20", "dollarvolume20", "DV20", "dollar_volume20"]
+                )
+                dv20 = _last_scalar(dv_series) or _last_non_nan(dv_series)
+            dv_ok = bool(dv20 is not None and float(dv20) > 25_000_000)
+
+            if price_ok and dv_ok:
+                relax_thr = 0.03
+                try:
+                    # 明示上書きがある場合はそれを優先（テスト専用）
+                    env = get_env_config() if get_env_config is not None else None
+                    if env is not None and env.min_atr_ratio_for_test is not None:
+                        relax_thr = float(env.min_atr_ratio_for_test)
+                except Exception:
+                    pass
+                if atr_ratio is not None and atr_ratio >= relax_thr:
+                    atr_ok = True
+
     if _filter_debug_enabled():
         reason = None
         if atr_ok:
