@@ -4,6 +4,14 @@
 
 ---
 
+## 🔧 プロジェクト基本情報
+
+**note アカウント**: AI Narrative Studio  
+**X アカウント**: [@ai_narrative25](https://x.com/ai_narrative25)  
+**シリーズ名**: 「対話で学ぶ」シリーズ（Playwright × AI / Copilot Chat 活用）
+
+---
+
 ## 📌 基本キーワード（型の呼び出し）
 
 ### 🎭 `@ユイレン` または `@対話型`
@@ -76,31 +84,48 @@ Week2のX投稿1-4のテキストを最終調整してください。
 
 ### 🎨 `@アイキャッチ` または `@画像生成`
 
-**意味**: 英語版アイキャッチ画像の文言・生成コマンドを参照する
+**意味**: アイキャッチ画像の生成（ベース画像 + 週別タイトル）
 
 **動作**:
 
-1. `docs/english_eyecatch_specs.md` を参照
-2. 指定した Week の英語タイトル・副題・ALT テキストを確認
-3. 画像生成コマンドをコピペ可能な形で提示
+1. `docs/eyecatch_workflow.md` を参照してワークフロー確認
+2. ベース画像 `docs/images/eyecatch_base_yui_ren.png` から生成
+3. 週別にタイトル・Tint 色を変更して統一感のある画像を作成
+
+**新しいワークフロー（2025 年 10 月 15 日実装）**:
+
+- **ベース画像**: `docs/images/eyecatch_base_yui_ren.png`（ユイ&レン、Navy 背景、文字なし）
+- **生成方式**: ベース画像にタイトルのみ追加（約 5 秒/枚）
+- **Tint 色**: Week1/4=Navy、Week2=Teal、Week3=Gold
 
 **使用例**:
 
 ```
 @アイキャッチ
-Week1の英語版アイキャッチを生成するコマンドを教えてください。
+Week1の日本語版アイキャッチを生成してください。
 ```
 
 **期待される出力**:
 
 ```powershell
-C:\Repos\quant_trading_system\venv\Scripts\python.exe tools\generate_article_eyecatch.py `
-  --yui "C:\Users\stair\Downloads\yui.png" `
-  --ren "C:\Users\stair\Downloads\ren.png" `
-  --out "C:\Users\stair\Downloads\eyecatch_copilot_10_en.png" `
-  --title1 "10 Hidden Features" `
-  --title2 "of GitHub Copilot Chat" `
-  --unify-style --posterize-bits 4 --saturation 0.95 --contrast 1.05 --tint navy --stroke 2
+python.exe tools\generate_article_eyecatch.py `
+  --base "docs\images\eyecatch_base_yui_ren.png" `
+  --out "docs\images\eyecatch_week1_ja.png" `
+  --title1 "GitHub Copilot Chat" `
+  --title2 "隠れた便利機能 10選" `
+  --stroke 2
+```
+
+**Tint 変更例（Week2: Teal）**:
+
+```powershell
+python.exe tools\generate_article_eyecatch.py `
+  --base "docs\images\eyecatch_base_yui_ren.png" `
+  --out "docs\images\eyecatch_week2_ja.png" `
+  --title1 "Playwright の CI失敗を" `
+  --title2 "30分で潰す実践ガイド" `
+  --tint teal `
+  --stroke 2
 ```
 
 ---

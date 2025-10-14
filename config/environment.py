@@ -217,6 +217,22 @@ class EnvironmentConfig:
     )
     """System6専用のプロセスプール使用フラグ。"""
 
+    system6_force_latest_only: bool = field(
+        default_factory=lambda: _get_bool_env("SYSTEM6_FORCE_LATEST_ONLY", True)
+    )
+    """System6 を当日シグナル実行（バックテスト以外）で latest_only 強制する。
+
+    目的:
+        - System6 のフルスキャン（全日付走査）で時間が掛かるケースを回避し、
+          当日候補抽出用途では O(symbols) の fast-path を常時利用する。
+    仕様:
+        - True (既定): generate_candidates_system6(latest_only=False 指定でも) 実行時に
+          today 実行コンテキストと判断できれば latest_only パスへ強制切替。
+        - False: 呼び出し側指定をそのまま尊重。
+    注意:
+        - バックテストや履歴検証では full_scan_today / 明示 latest_only=False を優先。
+        - 将来 System6 の過去日ランキング分析をする際はこのフラグを False に設定。"""
+
     basic_data_parallel: bool | None = field(
         default_factory=lambda: _basic_data_parallel_default()
     )

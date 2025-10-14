@@ -177,6 +177,20 @@
 - **説明**: System6 専用のプロセスプール使用フラグ。
 - **参照**: `strategies/system6_strategy.py` L39
 
+### `SYSTEM6_FORCE_LATEST_ONLY`
+
+- **デフォルト**: `true`
+- **設定値**: `true` / `false`
+- **対象**: `core/system6.py`
+- **説明**: 当日シグナル実行（`FULL_SCAN_TODAY` 未指定）で System6 の候補生成を必ず `latest_only` 高速パスに切り替える。System6 はショートのモメンタム逆張り特性で過去複数日のセットアップ走査がコスト高になりやすいため、日次用途では最終足のみを O(symbols) で評価する方が実用的。
+- **挙動詳細**:
+  - `SYSTEM6_FORCE_LATEST_ONLY=true` かつ `FULL_SCAN_TODAY` が `false` → 呼び出し側が `latest_only=False` を渡しても内部で強制上書き。
+  - `FULL_SCAN_TODAY=1` を指定するとフルスキャン（履歴全日付）に戻る。
+  - バックテストや過去日パターン分析で multi-day 候補が必要な場合は `SYSTEM6_FORCE_LATEST_ONLY=0` を併用。
+- **副作用**: fast-path では 1 日分候補のみ生成するため、過去複数日のランキング検証には不向き。Diagnostics の `ranking_source` は `latest_only` になる。
+- **ログ**: 強制適用時に `System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)` を INFO 出力（compact ログでも 1 行）。
+- **メトリクス**: `_metrics.record_metric("system6_forced_latest_only", 1, "count")` が記録され、パフォーマンス観測や回帰診断に利用可能。
+
 ### `BASIC_DATA_PARALLEL`
 
 - **デフォルト**: (自動判定)

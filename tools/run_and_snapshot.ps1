@@ -50,7 +50,10 @@ param(
     [switch]$ShowBrowser,
     [switch]$WaitForUser,
     [switch]$WithInspector,
-    [switch]$SkipSnapshot
+    [switch]$SkipSnapshot,
+    [string]$WaitText,
+    [string]$WaitSelector,
+    [switch]$NoWaitResults
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,6 +94,16 @@ with sync_playwright() as p:
         "--click-button", "▶ 本日のシグナル実行",
         "--wait-after-click", $WaitAfterClick
     )
+
+    if ($WaitText) {
+        $CaptureArgs += @("--wait-text", $WaitText)
+    }
+    if ($WaitSelector) {
+        $CaptureArgs += @("--wait-selector", $WaitSelector)
+    }
+    if (-not $NoWaitResults.IsPresent) {
+        $CaptureArgs += "--wait-results"
+    }
 
     if ($ShowBrowser) {
         $CaptureArgs += "--show-browser"

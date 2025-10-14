@@ -2,7 +2,7 @@
 
 ROC200-based momentum strategy:
 - Indicators: ROC200, SMA200, DollarVolume20 (precomputed only)
-- Setup conditions: Close>5, DollarVolume20>25M, Close>SMA200, ROC200>0
+- Setup conditions: Close>5, DollarVolume20>50M, Close>SMA200, ROC200>0
 - Candidate generation: ROC200 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -322,14 +322,14 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         # for ranking by roc200.
         x = df.copy()
 
-        # Filter: Close>=5, DollarVolume20>25M
+        # Filter: Close>=5, DollarVolume20>50M
         try:
             filt = (x["Close"] >= 5.0) & (
                 x.get(
                     "dollarvolume20",
                     pd.Series(index=x.index, dtype=float),
                 )
-                > 25_000_000
+                > 50_000_000
             )
         except Exception:
             # If columns not available, mark filter False
@@ -439,11 +439,8 @@ def prepare_data_vectorized_system1(
                         if not need_any:
                             return x2
                         # 遅延 import（循環回避）
-                        from common.cache_manager import (  # type: ignore
-                            CacheManager,
-                            load_base_cache,
-                        )
-                        from config.settings import get_settings  # type: ignore
+                        from common.cache_manager import CacheManager, load_base_cache
+                        from config.settings import get_settings
 
                         try:
                             settings = get_settings()
@@ -586,7 +583,7 @@ def prepare_data_vectorized_system1(
                             close_s = x.get(
                                 "Close", pd.Series(index=x.index, dtype=float)
                             )
-                            filt = (close_s >= 5.0) & (dv > 25_000_000)
+                            filt = (close_s >= 5.0) & (dv > 50_000_000)
                         except Exception:
                             filt = pd.Series(
                                 False,
@@ -678,12 +675,12 @@ def prepare_data_vectorized_system1(
                         except Exception:
                             pass  # Keep original index if conversion fails
 
-                    # Filter: Close>=5, DollarVolume20>25M（欠損は安全側に False）
+                    # Filter: Close>=5, DollarVolume20>50M（欠損は安全側に False）
                     try:
                         dv = x.get(
                             "dollarvolume20", pd.Series(index=x.index, dtype=float)
                         )
-                        filt = (x["Close"] >= 5.0) & (dv > 25_000_000)
+                        filt = (x["Close"] >= 5.0) & (dv > 50_000_000)
                     except Exception:
                         filt = pd.Series(
                             False,
@@ -942,6 +939,14 @@ def generate_candidates_system1(
                 row_obj = None
                 date_val = None
                 fallback_used = False
+                # latest index guard (e.g., SPY cache tail issues)
+                try:
+                    if getattr(df.index, "size", 0) == 0 or df.index[-1] is None:
+                        diag.exclude_reasons["latest_index_missing"] += 1
+                        continue
+                except Exception:
+                    diag.exclude_reasons["latest_index_missing"] += 1
+                    continue
                 if target_date is not None:
                     if target_date in df.index:
                         row_obj = df.loc[target_date]
@@ -1012,41 +1017,64 @@ def generate_candidates_system1(
                     # On any failure, do not exclude based on staleness.
                     pass
 
-                # Use predicate-based evaluation (no column dependency)
-                try:
-                    from common.system_setup_predicates import (
-                        system1_setup_predicate as _s1_pred,
-                    )
-                except Exception:
-                    _s1_pred = None
-
-                # Evaluate setup conditions using fast row-based function
-                passed, flags, reason = system1_row_passes_setup(
-                    last_row, allow_fallback=True
-                )
-
-                # In production, trust row-based evaluation.
-                # When validation is enabled, also require predicate() to pass.
-                pred_ok = True
-                if validate_predicates and _s1_pred is not None:
-                    try:
-                        pred_ok = bool(_s1_pred(last_row))
-                    except Exception:
-                        pred_ok = False
-
-                # Primary acceptance
-                if not (passed and pred_ok):
-                    if reason:
-                        diag.exclude_reasons[reason] += 1
+                # Primary evaluation via predicate (single source)
+                res_pred = system1_setup_predicate(last_row, return_reason=True)
+                if isinstance(res_pred, tuple):
+                    pred_ok, pred_reason = res_pred
+                else:
+                    pred_ok, pred_reason = bool(res_pred), None
+                if not pred_ok:
+                    if pred_reason:
+                        diag.exclude_reasons[str(pred_reason)] += 1
                     else:
                         diag.exclude_reasons["predicate_failed"] += 1
                     continue
 
+                # Count Phase2 filter pass (Close>=5 & DollarVolume20>=50M)
+                try:
+                    close_v = _to_float(last_row.get("Close"))
+                    dv20_v = _to_float(last_row.get("dollarvolume20"))
+                    if (
+                        not math.isnan(close_v)
+                        and not math.isnan(dv20_v)
+                        and close_v >= 5.0
+                        and dv20_v >= 50_000_000
+                    ):
+                        diag.filter_pass += 1
+                except Exception:
+                    pass
+
+                # Optional legacy check (diagnostics only)
+                try:
+                    if validate_predicates:
+                        passed_legacy, flags, legacy_reason = system1_row_passes_setup(
+                            last_row, allow_fallback=True
+                        )
+                        if bool(passed_legacy) != bool(pred_ok):
+                            diag.exclude_reasons["_predicate_mismatch"] += 1
+                except Exception:
+                    # do not block on diagnostics
+                    pass
+
                 # Update diagnostics counters
-                if flags.get("sma_trend_ok"):
-                    diag.setup_flag_true += 1
-                if flags.get("roc200_positive"):
-                    diag.roc200_positive += 1
+                # For compatibility, infer flags from row directly when available
+                try:
+                    sma25_v = _to_float(last_row.get("sma25"))
+                    sma50_v = _to_float(last_row.get("sma50"))
+                    if (
+                        not math.isnan(sma25_v)
+                        and not math.isnan(sma50_v)
+                        and sma25_v > sma50_v
+                    ):
+                        diag.setup_flag_true += 1
+                except Exception:
+                    pass
+                try:
+                    roc200_v = _to_float(last_row.get("roc200"))
+                    if not math.isnan(roc200_v) and roc200_v > 0:
+                        diag.roc200_positive += 1
+                except Exception:
+                    pass
 
                 diag.setup_predicate_count += 1
                 diag.final_pass += 1
@@ -1289,7 +1317,7 @@ def generate_candidates_system1(
                     "setup": bool(row.get("setup", False)),
                 }
 
-            return finalize(by_date, None)
+            return finalize(by_date, df_all)
 
         except Exception as e_latest:
             if log_callback:
@@ -1469,7 +1497,7 @@ def generate_roc200_ranking_system1(
         return []
 
     target_date = pd.to_datetime(date)
-    candidates = []
+    candidates: list[dict] = []
 
     for symbol, df in data_dict.items():
         try:

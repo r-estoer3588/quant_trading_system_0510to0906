@@ -22,6 +22,12 @@ from common.system_constants import SYSTEM3_REQUIRED_INDICATORS
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import get_cached_data
 
+# 型安全な環境変数アクセス（可能なら）
+try:
+    from config.environment import get_env_config as _get_env
+except Exception:  # フォールバック
+    _get_env = None  # type: ignore
+
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
     """Check precomputed indicators and apply System3-specific filters.
@@ -50,9 +56,14 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05 (test override allowed)
         _atr_thr = 0.05
         try:
-            _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
-            if _ov is not None:
-                _atr_thr = float(str(_ov))
+            if _get_env is not None:
+                _env = _get_env()
+                if _env.min_atr_ratio_for_test is not None:
+                    _atr_thr = float(_env.min_atr_ratio_for_test)
+            else:
+                _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
+                if _ov is not None:
+                    _atr_thr = float(str(_ov))
         except Exception:
             _atr_thr = 0.05
         x["filter"] = (
@@ -119,9 +130,14 @@ def prepare_data_vectorized_system3(
                     # ATR_Ratio>=0.05 (test override allowed)
                     _atr_thr = 0.05
                     try:
-                        _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
-                        if _ov is not None:
-                            _atr_thr = float(str(_ov))
+                        if _get_env is not None:
+                            _env = _get_env()
+                            if _env.min_atr_ratio_for_test is not None:
+                                _atr_thr = float(_env.min_atr_ratio_for_test)
+                        else:
+                            _ov = _os.environ.get("MIN_ATR_RATIO_FOR_TEST")
+                            if _ov is not None:
+                                _atr_thr = float(str(_ov))
                     except Exception:
                         _atr_thr = 0.05
                     x["filter"] = (
@@ -263,10 +279,13 @@ def generate_candidates_system3(
 
         def _evaluate_row(
             row: pd.Series | None,
-        ) -> tuple[bool, bool, bool, float, float, bool]:
-            """Evaluate System3 setup conditions using predicate (no column dependency)."""
+        ) -> tuple[bool, bool, bool, float, float, bool, str | None]:
+            """
+            Evaluate System3 setup conditions using predicate
+            (no column dependency).
+            """
             if row is None:
-                return False, False, False, float("nan"), float("nan"), False
+                return False, False, False, float("nan"), float("nan"), False, None
 
             # Use predicate for setup evaluation
             try:
@@ -277,9 +296,14 @@ def generate_candidates_system3(
                 _s3_pred = None
 
             setup_flag = False
+            pred_reason: str | None = None
             if _s3_pred is not None:
                 try:
-                    setup_flag = bool(_s3_pred(row))
+                    res = _s3_pred(row, return_reason=True)  # type: ignore[arg-type]
+                    if isinstance(res, tuple):
+                        setup_flag, pred_reason = bool(res[0]), res[1]
+                    else:
+                        setup_flag = bool(res)
                 except Exception:
                     setup_flag = False
 
@@ -320,6 +344,7 @@ def generate_candidates_system3(
                 drop_val,
                 atr_val,
                 filter_flag,
+                pred_reason,
             )
 
         # trading-day lag helper
@@ -379,6 +404,7 @@ def generate_candidates_system3(
                                 drop_val_ex,
                                 atr_val_ex,
                                 _filter_ex,
+                                pred_reason_ex,
                             ) = _evaluate_row(last_row)
                             if setup_col_ex:
                                 diagnostics["setup_predicate_count"] += 1
@@ -386,6 +412,18 @@ def generate_candidates_system3(
                                 diagnostics["predicate_only_pass_count"] += 1
                                 diagnostics["mismatch_flag"] = 1
                             if (not final_ok_ex) or pd.isna(drop_val_ex):
+                                try:
+                                    if pred_reason_ex:
+                                        diagnostics["exclude_reasons"][
+                                            str(pred_reason_ex)
+                                        ] = (
+                                            diagnostics["exclude_reasons"].get(
+                                                str(pred_reason_ex), 0
+                                            )
+                                            + 1
+                                        )
+                                except Exception:
+                                    pass
                                 continue
                             try:
                                 from common.utils_spy import (
@@ -421,6 +459,7 @@ def generate_candidates_system3(
                     drop_val,
                     atr_val,
                     _filter_flag,
+                    pred_reason,
                 ) = _evaluate_row(last_row)
 
                 if setup_col:
@@ -430,6 +469,14 @@ def generate_candidates_system3(
                     diagnostics["mismatch_flag"] = 1
 
                 if not final_ok:
+                    try:
+                        if pred_reason:
+                            diagnostics["exclude_reasons"][str(pred_reason)] = (
+                                diagnostics["exclude_reasons"].get(str(pred_reason), 0)
+                                + 1
+                            )
+                    except Exception:
+                        pass
                     continue
                 if pd.isna(drop_val):
                     continue
@@ -489,6 +536,7 @@ def generate_candidates_system3(
                                 s_drop_val,
                                 _s_atr,
                                 _s_filter,
+                                _s_reason,
                             ) = _evaluate_row(s_last)
                             drop_txt = (
                                 f"{s_drop_val:.4f}"
