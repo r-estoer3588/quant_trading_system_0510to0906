@@ -1,14 +1,4 @@
-<!--
-  Article Meta Block (編集時テンプレ)
-  公開時に必要な要素: 公開日(published), 最終更新(updated), タグ(tags), シリーズ(series)
-  更新時運用ルール:
-    1. 軽微な誤字修正は updated をそのまま(週次まとめ時に一括更新)
-    2. 内容追加/章差替えは updated を即日へ
-  シリーズ識別: series_slug を共通利用 (Week2以降も踏襲)
--->
-
 > 📅 公開日: 2025-10-18 18:00 / 最終更新: 2025-10-15  
-> 🏷️ タグ: GitHub Copilot, Copilot Chat, AI 支援開発, テスト自動化, Playwright, 開発効率化, リファクタリング, ログ解析  
 > 🗂️ シリーズ: 対話で学ぶ Copilot 活用術 (Week 1 / 4)
 
 # 【対話で学ぶ】GitHub Copilot Chat の隠れた便利機能 10 選
