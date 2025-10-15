@@ -200,6 +200,19 @@ pip install -r requirements.txt
 
 **📘 詳細**: [Bulk API クイックスタート](./docs/BULK_API_QUICK_START.md) を参照してください。
 
+### コード整形フロー（black/isort/ruff）
+
+コミット前は自動修正ではなく「検出のみ」に変更しました（pre-commit は `--check` 運用）。
+
+手動で整形する場合は次を実行してください:
+
+```bash
+make fmt         # ruff --fix → black → isort の順で自動整形
+make fmt-check   # 差分なし確認（CI と同等の check-only）
+```
+
+VS Code のタスクからも同等の処理を実行できます（Safe: Lint & Format）。
+
 ### ログ・進捗関連の環境変数
 
 - `COMPACT_TODAY_LOGS`: 当日パイプラインの詳細ログを抑制（デフォルト: false）

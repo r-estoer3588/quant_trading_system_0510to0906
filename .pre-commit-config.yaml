@@ -1,25 +1,26 @@
 repos:
   - repo: https://github.com/psf/black
-    rev: 24.8.0
+    rev: 24.10.0 # 統一: 開発環境の black 24.10.0 と合わせ phantom 変更防止
     hooks:
       - id: black
         language_version: python3
-        args: ["--line-length", "88"]
+        # check モード: 自動書換せず差分があれば失敗。
+        # 書換は手動 fmt タスク (ruff→black→isort) で行う運用に変更。
+        args: ["--line-length", "88", "--check"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
       - id: ruff
         args: ["--fix"]
-        stages: [manual]
       - id: ruff-format
-        stages: [manual]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
       - id: isort
-        args: ["--profile", "black", "--line-length=88"]
+        # check-only で自動整形しない（手動 fmt タスクに統一）
+        args: ["--profile", "black", "--line-length=88", "--check-only"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
