@@ -287,6 +287,14 @@ def generate_candidates_system6(
                     "System6: forcing latest_only "
                     "(system6_force_latest_only=1, full_scan_today=0)"
                 )
+            if log_callback:
+                try:
+                    log_callback(
+                        "System6: forcing latest_only "
+                        "(system6_force_latest_only=1, full_scan_today=0)"
+                    )
+                except Exception:
+                    pass
             try:  # メトリクス環境が無い状況でも安全に続行
                 _metrics.record_metric(
                     "system6_forced_latest_only", 1, "count", stage="system6"
@@ -454,6 +462,7 @@ def generate_candidates_system6(
                             )
                     except Exception:
                         pass
+                diagnostics["ranking_source"] = "latest_only"
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             # 指定があればその日で揃え、無ければ最頻日で揃える（欠落シンボル耐性）

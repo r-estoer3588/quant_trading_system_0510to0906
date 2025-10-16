@@ -27,9 +27,10 @@ def export_diagnostics_snapshot(
         allocation_summary: compute_today_signals() が返す allocation_summary
         output_path: 出力先 JSON パス（例: results_csv_test/diagnostics_snapshot.json）
     """
-    snapshot = {
+    systems_list: list[dict[str, Any]] = []
+    snapshot: dict[str, Any] = {
         "export_date": datetime.now().isoformat(),
-        "systems": [],
+        "systems": systems_list,
     }
 
     # allocation_summary がオブジェクトの場合、属性を取得
@@ -40,9 +41,7 @@ def export_diagnostics_snapshot(
         # 辞書の場合
         systems_data = allocation_summary
     else:
-        logger.warning(
-            f"Unexpected allocation_summary type: {type(allocation_summary)}"
-        )
+        logger.warning(f"Unexpected allocation_summary type: {type(allocation_summary)}")
         systems_data = {}
 
     # 各システムの diagnostics を収集
@@ -55,22 +54,24 @@ def export_diagnostics_snapshot(
             diag = getattr(system_info, "diagnostics", {})
             candidates = getattr(system_info, "candidates", [])
         else:
-            logger.warning(
-                f"Unexpected system_info type for {system_id}: {type(system_info)}"
-            )
+            logger.warning(f"Unexpected system_info type for {system_id}: {type(system_info)}")
             diag = {}
             candidates = []
 
-        # フォールバック適用
+        # フォールバック適用（標準化キー）
         diag_safe = get_diagnostics_with_fallback(diag, system_id)
+        # 追加の生診断（標準化されない任意フィールド）
+        try:
+            extras = {k: v for k, v in (diag or {}).items() if k not in diag_safe} if isinstance(diag, dict) else {}
+        except Exception:
+            extras = {}
 
-        snapshot["systems"].append(
+        systems_list.append(
             {
                 "system_id": system_id,
                 "diagnostics": diag_safe,
-                "candidate_count": (
-                    len(candidates) if isinstance(candidates, (list, tuple)) else 0
-                ),
+                **({"diagnostics_extra": extras} if extras else {}),
+                "candidate_count": (len(candidates) if isinstance(candidates, (list, tuple)) else 0),
             }
         )
 

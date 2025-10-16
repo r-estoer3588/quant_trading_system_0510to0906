@@ -1,19 +1,15 @@
-"""
-UI進捗分析マスタースクリプト
+"""UI 進捗の完全分析を実行し、統合 Markdown レポートを生成するユーティリティ。
 
-3つの分析ツールを順次実行し、統合レポートを生成:
-1. スクショ自動解析（OCR + ピクセル解析）
-2. JSONL同期検証
-3. ビジュアル差分検出
-
-Usage:
-    python tools/run_complete_ui_analysis.py
+実行内容:
+- スクリーンショット自動解析（OCR + ピクセル解析）
+- JSONL 同期検証
+- ビジュアル差分検出
 
 出力:
-    - screenshots/progress_tracking/analysis_results.json
-    - screenshots/progress_tracking/sync_verification.json
-    - screenshots/progress_tracking/visual_diff_report.json
-    - screenshots/progress_tracking/COMPLETE_ANALYSIS_REPORT.md
+- screenshots/progress_tracking/analysis_results.json
+- screenshots/progress_tracking/sync_verification.json
+- screenshots/progress_tracking/visual_diff_report.json
+- screenshots/progress_tracking/COMPLETE_ANALYSIS_REPORT.md
 """
 
 from __future__ import annotations
@@ -33,7 +29,7 @@ def run_command(cmd: list[str], description: str) -> bool:
     print(f"Command: {' '.join(cmd)}\n")
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=False)
+        subprocess.run(cmd, check=True, capture_output=False)
         print(f"\n✅ {description} 完了\n")
         return True
     except subprocess.CalledProcessError as e:
@@ -69,7 +65,11 @@ def generate_markdown_report(
         "",
         "### スクショ解析",
         f"- 総スクショ数: {len(analysis_data)} 枚",
-        f"- 進捗バー抽出成功: {sum(1 for r in analysis_data if r.get('progress_percentage') is not None)} 枚",
+        (
+            "- 進捗バー抽出成功: "
+            + str(sum(1 for r in analysis_data if r.get("progress_percentage") is not None))
+            + " 枚"
+        ),
         "",
         "### UI/JSONL同期検証",
         f"- 検証済みスクショ: {sync_data['summary']['verified_screenshots']} 枚",
@@ -118,7 +118,12 @@ def generate_markdown_report(
             report_lines.extend(
                 [
                     f"### {reg['prev_file']} → {reg['curr_file']}",
-                    f"- 緑ピクセル: {pb_diff.get('green_pixels_prev')} → {pb_diff.get('green_pixels_curr')}",
+                    (
+                        "- 緑ピクセル: "
+                        + str(pb_diff.get("green_pixels_prev"))
+                        + " → "
+                        + str(pb_diff.get("green_pixels_curr"))
+                    ),
                     f"- 変化量: {pb_diff.get('green_pixel_change')}",
                     "",
                 ]

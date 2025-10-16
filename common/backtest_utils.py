@@ -79,9 +79,7 @@ def _compute_exit(
 ) -> tuple[float | None, pd.Timestamp | None]:
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_calc = strategy.compute_exit(
-                df, entry_idx, entry_price, stop_loss_price
-            )
+            exit_calc = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
         except Exception:
             return None, None
         return exit_calc if exit_calc else (None, None)
@@ -155,21 +153,33 @@ def simulate_trades_with_risk(
     max_pct = float(cfg.get("max_pct", 0.10))
 
     for i, (date, candidates) in enumerate(sorted(candidates_by_date.items()), start=1):
+        # 互換性確保: {date: {symbol: payload}} 形式にも対応
+        try:
+            if isinstance(candidates, dict):
+                # dict-of-dicts -> list-of-dicts へ正規化
+                candidates = [
+                    {
+                        "symbol": str(sym),
+                        "entry_date": pd.Timestamp(date),
+                        **(payload or {}),
+                    }
+                    for sym, payload in candidates.items()
+                    if isinstance(sym, str) and sym
+                ]
+        except Exception:
+            # 正規化に失敗した場合は元の candidates をそのまま使用（後続でフィルタ）
+            pass
         # --- exit 済みポジションの損益反映 ---
-        current_capital, active_positions = strategy.update_capital_with_exits(
-            current_capital, active_positions, date
-        )
+        current_capital, active_positions = strategy.update_capital_with_exits(current_capital, active_positions, date)
 
         # --- 保有枠チェック ---
         active_positions = [p for p in active_positions if p["exit_date"] >= date]
         available_slots = max(0, max_positions - len(active_positions))
 
         if available_slots > 0:
-            day_candidates = [
-                c
-                for c in candidates
-                if c["symbol"] not in {p["symbol"] for p in active_positions}
-            ][:available_slots]
+            day_candidates = [c for c in candidates if c["symbol"] not in {p["symbol"] for p in active_positions}][
+                :available_slots
+            ]
 
             for c in day_candidates:
                 df = data_dict.get(c["symbol"])
@@ -180,9 +190,7 @@ def simulate_trades_with_risk(
                 except KeyError:
                     continue
 
-                entry_price, stop_loss_price = _compute_entry(
-                    strategy, df, c, current_capital, side
-                )
+                entry_price, stop_loss_price = _compute_entry(strategy, df, c, current_capital, side)
                 if not entry_price or not stop_loss_price:
                     continue
 
@@ -201,9 +209,7 @@ def simulate_trades_with_risk(
                 if shares * abs(entry_price) > current_capital:
                     continue
 
-                exit_price, exit_date = _compute_exit(
-                    strategy, df, entry_idx, entry_price, stop_loss_price, side
-                )
+                exit_price, exit_date = _compute_exit(strategy, df, entry_idx, entry_price, stop_loss_price, side)
                 if exit_price is None or exit_date is None:
                     continue
 
@@ -243,10 +249,7 @@ def simulate_trades_with_risk(
         if on_log:
             try:
                 try:
-                    msg = (
-                        f"💰 {date.date()} | Capital: {current_capital:.2f} USD "
-                        f"| Active: {len(active_positions)}"
-                    )
+                    msg = f"💰 {date.date()} | Capital: {current_capital:.2f} USD " f"| Active: {len(active_positions)}"
                     on_log(msg)
                 except Exception:
                     pass
