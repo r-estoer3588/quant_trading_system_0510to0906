@@ -14,9 +14,7 @@ import pandas as pd
 
 
 class StrategyProtocol(Protocol):
-    def compute_pnl(
-        self, entry_price: float, exit_price: float, shares: int
-    ) -> float: ...
+    def compute_pnl(self, entry_price: float, exit_price: float, shares: int) -> float: ...
 
     def calculate_position_size(
         self,
@@ -129,9 +127,7 @@ def _compute_entry_exit(strategy, df: pd.DataFrame, candidate: dict, side: str):
     # exit hook or fallback
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_price, exit_date = strategy.compute_exit(
-                df, entry_idx, entry_price, stop_loss_price
-            )
+            exit_price, exit_date = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
         except Exception:
             return None
     else:
@@ -251,10 +247,7 @@ def run_integrated_backtest(
     )
     name_to_state = {s.name: s for s in system_states}
     # シグナル件数
-    signal_counts = {
-        s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
-        for s in system_states
-    }
+    signal_counts = {s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in system_states}
 
     # 長短の初期資金
     if long_share < 0 or short_share < 0 or (long_share + short_share) == 0:
@@ -295,9 +288,7 @@ def run_integrated_backtest(
                 else:
                     long_capital += float(p["pnl"])
         # remove exited
-        active_positions = [
-            p for p in active_positions if p["exit_date"] > current_date
-        ]
+        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
 
         # 2) 当日の各Systemシグナルを順番に処理
         for sys_name in [f"System{k}" for k in range(1, 8)]:
@@ -305,6 +296,21 @@ def run_integrated_backtest(
             if stt is None:
                 continue
             cands = stt.candidates_by_date.get(pd.Timestamp(current_date), [])
+            # 互換性確保: {date: {symbol: payload}} 形式にも対応
+            try:
+                if isinstance(cands, dict):
+                    cands = [
+                        {
+                            "symbol": str(sym),
+                            "entry_date": pd.Timestamp(current_date),
+                            **(payload or {}),
+                        }
+                        for sym, payload in cands.items()
+                        if isinstance(sym, str) and sym
+                    ]
+            except Exception:
+                # 正規化に失敗した場合は元の構造のまま進める（後段で弾かれる）
+                pass
             if not cands:
                 continue
 
@@ -338,9 +344,7 @@ def run_integrated_backtest(
                 # 既定ポジションサイズ
                 try:
                     # バケット資金を使用
-                    bucket_capital = (
-                        short_capital if stt.side == "short" else long_capital
-                    )
+                    bucket_capital = short_capital if stt.side == "short" else long_capital
                     shares_std = stt.strategy.calculate_position_size(
                         bucket_capital,
                         entry_price,
@@ -364,9 +368,7 @@ def run_integrated_backtest(
                     global_rem = max(0.0, bucket_capital - bucket_used_value[stt.side])
 
                 max_by_alloc = int(alloc_rem // abs(entry_price)) if entry_price else 0
-                max_by_global = (
-                    int(global_rem // abs(entry_price)) if entry_price else 0
-                )
+                max_by_global = int(global_rem // abs(entry_price)) if entry_price else 0
 
                 shares_cap = max(0, min(shares_std, max_by_alloc, max_by_global))
                 if shares_cap <= 0:
@@ -375,11 +377,7 @@ def run_integrated_backtest(
                 # PnL算出（hook優先）
                 if hasattr(stt.strategy, "compute_pnl"):
                     try:
-                        pnl = float(
-                            stt.strategy.compute_pnl(
-                                entry_price, exit_price, int(shares_cap)
-                            )
-                        )
+                        pnl = float(stt.strategy.compute_pnl(entry_price, exit_price, int(shares_cap)))
                     except Exception:
                         pnl = (exit_price - entry_price) * int(shares_cap)
                 else:
@@ -401,8 +399,7 @@ def run_integrated_backtest(
                         "pnl": round(float(pnl), 2),
                         # 参考用：トレード時点のバケット資金に対する比率
                         "return_%": round(
-                            (float(pnl) / (bucket_capital if bucket_capital else 1.0))
-                            * 100,
+                            (float(pnl) / (bucket_capital if bucket_capital else 1.0)) * 100,
                             4,
                         ),
                     }
@@ -456,9 +453,7 @@ def build_system_states(
         # System7 は SPY のみ
         syms = ["SPY"] if sys_name == "System7" else symbols
         try:
-            logging.getLogger(__name__).info(
-                "[prepare] %s | symbols=%d", sys_name, len(syms)
-            )
+            logging.getLogger(__name__).info("[prepare] %s | symbols=%d", sys_name, len(syms))
         except Exception:
             pass
 
@@ -509,9 +504,7 @@ def build_system_states(
                 side=_get_side(sys_name),
                 strategy=strat,
                 prepared=prepared,
-                candidates_by_date={
-                    pd.Timestamp(k): v for k, v in (cands or {}).items()
-                },
+                candidates_by_date={pd.Timestamp(k): v for k, v in (cands or {}).items()},
             )
         )
 

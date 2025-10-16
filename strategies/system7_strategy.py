@@ -40,10 +40,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     def prepare_data(
         self,
-        raw_data_or_symbols,
+        raw_data_or_symbols: dict | list,
         reuse_indicators: bool | None = None,
         **kwargs,
-    ):
+    ) -> dict:
         """System7のデータ準備（共通テンプレート使用）"""
         kwargs.pop("single_mode", None)  # System7固有の引数を除去
         return self._prepare_data_template(
@@ -53,7 +53,12 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             **kwargs,
         )
 
-    def generate_candidates(self, data_dict, market_df=None, **kwargs):
+    def generate_candidates(
+        self,
+        data_dict: dict,
+        market_df: pd.DataFrame | None = None,
+        **kwargs,
+    ) -> tuple[dict, pd.DataFrame | None]:
         kwargs.pop("single_mode", None)
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
@@ -103,6 +108,27 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                 )
         except Exception:  # pragma: no cover
             pass
+        # 出力スキーマの標準化（フラグで有効化）
+        try:
+            from config.environment import get_env_config  # 遅延import
+
+            env = get_env_config()
+            if getattr(env, "standardize_strategy_output", False):
+                from common.candidates_schema import normalize_candidates_to_list
+
+                if isinstance(result, tuple) and len(result) == 2:
+                    _c, _m = result
+                    result = (normalize_candidates_to_list(_c or {}), _m)
+                elif isinstance(result, dict):
+                    # 返却型をタプルに揃える
+                    result = (normalize_candidates_to_list(result), None)
+        except Exception:
+            # 標準化に失敗しても従来出力をそのまま返す（安全側）
+            pass
+
+        # 戻り値の型をタプルに統一（互換維持）
+        if isinstance(result, dict):
+            result = (result, None)
         return result
 
     def calculate_position_size(
@@ -119,19 +145,20 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         max_alloc = self._resolve_pct(max_pct, "max_pct", 0.20)
         if bool(self.config.get("single_mode", False)):
             max_alloc = max(1.0, max_alloc)
-        return self._calculate_position_size_core(
+        result: int = self._calculate_position_size_core(
             capital,
             entry_price,
             stop_price,
             risk,
             max_alloc,
         )
+        return result
 
     def run_backtest(
         self,
-        data_dict,
-        candidates_by_date,
-        capital,
+        data_dict: dict,
+        candidates_by_date: dict,
+        capital: float,
         **kwargs,
     ) -> pd.DataFrame:
         results: list[dict] = []
@@ -153,15 +180,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         risk_pct = float(self.config.get("risk_pct", 0.02))
         max_pct = float(self.config.get("max_pct", 0.20))
         if "single_mode" in self.config:
-            single_mode = (
-                bool(self.config.get("single_mode", False))
-                if not single_mode
-                else single_mode
-            )
+            single_mode = bool(self.config.get("single_mode", False)) if not single_mode else single_mode
 
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -205,9 +226,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = (
-                    capital_current if single_mode else capital_current * max_pct
-                )
+                max_position_value = capital_current if single_mode else capital_current * max_pct
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -230,11 +249,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     exit_date = df.index[-1]
                     exit_price = float(df.iloc[-1]["Close"])
 
-                exit_price_safe = (
-                    float(exit_price)
-                    if exit_price is not None
-                    else float(df.iloc[-1]["Close"])
-                )
+                exit_price_safe = float(exit_price) if exit_price is not None else float(df.iloc[-1]["Close"])
                 pnl = (entry_price - exit_price_safe) * shares
                 return_pct = pnl / capital_current * 100 if capital_current else 0.0
 
@@ -266,8 +281,10 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         return pd.DataFrame(results)
 
     @staticmethod
-    def _safe_positive(value) -> float | None:
+    def _safe_positive(value: float | int | None) -> float | None:
         """値を安全に正の浮動小数点数に変換"""
+        if value is None:
+            return None
         try:
             out = float(value)
         except (TypeError, ValueError):
@@ -307,11 +324,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     @staticmethod
     def _detect_atr_columns(df: pd.DataFrame) -> list[str]:
-        return [
-            col
-            for col in getattr(df, "columns", [])
-            if isinstance(col, str) and col.upper().startswith("ATR")
-        ]
+        return [col for col in getattr(df, "columns", []) if isinstance(col, str) and col.upper().startswith("ATR")]
 
     @staticmethod
     def _fallback_atr(df: pd.DataFrame, window: int) -> float | None:
@@ -339,7 +352,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         atr_series = tr.rolling(window, min_periods=min_periods).mean()
         return System7Strategy._latest_positive(atr_series)
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float) -> tuple[float, float] | None:
         key = candidate.get("entry_date")
         if key is None:
             return None
@@ -428,9 +441,7 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             return None
 
         atr = float(atr_val)
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None
@@ -454,4 +465,4 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         return out
 
     def get_total_days(self, data_dict: dict) -> int:
-        return get_total_days_system7(data_dict)
+        return int(get_total_days_system7(data_dict))

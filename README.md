@@ -200,19 +200,6 @@ pip install -r requirements.txt
 
 **📘 詳細**: [Bulk API クイックスタート](./docs/BULK_API_QUICK_START.md) を参照してください。
 
-### コード整形フロー（black/isort/ruff）
-
-コミット前は自動修正ではなく「検出のみ」に変更しました（pre-commit は `--check` 運用）。
-
-手動で整形する場合は次を実行してください:
-
-```bash
-make fmt         # ruff --fix → black → isort の順で自動整形
-make fmt-check   # 差分なし確認（CI と同等の check-only）
-```
-
-VS Code のタスクからも同等の処理を実行できます（Safe: Lint & Format）。
-
 ### ログ・進捗関連の環境変数
 
 - `COMPACT_TODAY_LOGS`: 当日パイプラインの詳細ログを抑制（デフォルト: false）
@@ -572,6 +559,63 @@ git commit -m "message"
 #### pre-commit バイパスの禁止
 
 `git commit --no-verify` は使用しないでください。品質チェックをバイパスすると、CI で失敗する可能性があります。
+
+---
+
+### 🆕 フォーマット・コミット運用の標準手順（2024 年 10 月更新）
+
+#### 1. 自動フォーマットの推奨手順
+
+コミット前に、**必ず下記コマンドで全ファイルを一括整形**してください。
+
+```bash
+make fmt
+# または Windows PowerShell では
+python -m ruff check --fix .
+python -m black .
+python -m isort .
+```
+
+`make fmt` は `ruff --fix` → `black` → `isort` の順で全ファイルを自動整形します。
+
+#### 2. pre-commit フックの動作と注意点
+
+- pre-commit フックは「**チェック専用モード**」で動作します（black/isort/ruff すべて check-only）。
+- フォーマット漏れがあると「files were modified by this hook」と表示され、コミットがブロックされます。
+- その場合は `make fmt` を再実行し、**必ず `git add -u` で再ステージ**してからコミットしてください。
+
+#### 3. 典型的なコミット手順
+
+```bash
+# 変更を保存
+make fmt
+git add -u
+git commit -m "メッセージ"
+# フックで修正が入った場合
+make fmt
+git add -u
+git commit -m "Apply formatting"
+```
+
+#### 4. トラブル時の対処
+
+- 何度も「files were modified by this hook」が出る場合は、
+  - 1. `make fmt` を 2 回以上実行
+  - 2. `git add -u` で再ステージ
+  - 3. それでも直らない場合はエディタの自動改行・BOM・改行コード設定を確認
+- **pyproject.toml はルートのみ有効**（`common/`等に重複がないか確認）
+- `.gitattributes` で `* text=auto eol=lf` を強制しています（BOM 混入や CRLF 混在を防止）
+
+#### 5. 参考: Makefile の fmt ターゲット
+
+```makefile
+fmt:
+	$(PYTHON) -m ruff check --fix .
+	$(PYTHON) -m black .
+	$(PYTHON) -m isort .
+```
+
+---
 
 #### pre-push フックの動作確認
 

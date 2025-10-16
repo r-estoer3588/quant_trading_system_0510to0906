@@ -1414,10 +1414,21 @@ def _export_diagnostics_snapshot(
                 raw_diag = diag_map.get(sys_id) or {}
                 # Phase5: フォールバック適用で欠損値を -1 / unknown に正規化
                 safe_diag = get_diagnostics_with_fallback(raw_diag, sys_id)
+                # 追加の生診断（正規化キー以外）を抽出して併記
+                try:
+                    extras = (
+                        {k: v for k, v in raw_diag.items() if k not in safe_diag}
+                        if isinstance(raw_diag, dict)
+                        else {}
+                    )
+                except Exception:
+                    extras = {}
                 systems_payload.append(
                     {
                         "system_id": sys_id,
                         "diagnostics": safe_diag,
+                        # System3 等のランキング可視化フィールド（ranking_input_counts など）を保持
+                        **({"diagnostics_extra": extras} if extras else {}),
                         "final_candidate_count": int(final_counts.get(sys_id, 0)),
                     }
                 )
@@ -4069,6 +4080,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 cache_manager=ctx.cache_manager,
                 log_callback=_log,
                 rolling_data=basic_data if isinstance(basic_data, dict) else None,
+                tolerance_days=max(0, int(getattr(ctx, "max_date_lag_days", 1))),
             )
 
             # 除外銘柄の詳細を CSV 保存
@@ -4335,18 +4347,34 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         )
     except Exception:
         pass
-    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%）
+    # System3 フィルター内訳（Low>=1 → AvgVol50>=1M → ATR_Ratio>=5%（テスト時はoverride表示））
     try:
         stats3 = filter_stats.get("system3", {})
         s3_total = stats3.get("total", len(symbols or []))
         s3_low = stats3.get("low_pass", 0)
         s3_av = stats3.get("avgvol_pass", 0)
         s3_atr = stats3.get("atr_pass", 0)
+        # 表示ラベルのみテストモード時に override（MIN_ATR_RATIO_FOR_TEST）を反映
+        # 本番では常に 5.0% を表示し、ロジックは変更しない
+        _atr_label_pct = 5.0
+        try:
+            from config.environment import get_env_config as _get_env  # 遅延import（安全）
+
+            _env_label = _get_env()
+            if hasattr(_env_label, "is_test_mode") and bool(_env_label.is_test_mode()):
+                _ov = getattr(_env_label, "min_atr_ratio_for_test", None)
+                if _ov is not None:
+                    try:
+                        _atr_label_pct = float(_ov) * 100.0
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         _log(
             "🧪 system3内訳: "
             + (
                 f"元={s3_total}, Low>=1: {s3_low}, "
-                f"AvgVol50>=1M: {s3_av}, ATR_Ratio>=5%: {s3_atr}"
+                f"AvgVol50>=1M: {s3_av}, ATR_Ratio>={_atr_label_pct:.1f}%: {s3_atr}"
             )
         )
     except Exception:
@@ -4605,6 +4633,20 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         s3_filter = int(len(system3_syms))
         s3_close = 0
         s3_combo = 0
+        # drop3d 閾値は本番固定 0.125。テストモード時のみ override を反映（表示目的含む）
+        try:
+            from config.environment import get_env_config as _get_env
+
+            _env3 = _get_env()
+            _drop_thr = 0.125
+            if (
+                hasattr(_env3, "is_test_mode")
+                and bool(_env3.is_test_mode())
+                and getattr(_env3, "min_drop3d_for_test", None) is not None
+            ):
+                _drop_thr = float(_env3.min_drop3d_for_test)
+        except Exception:
+            _drop_thr = 0.125
         for _sym in system3_syms or []:
             _df = raw_data_system3.get(_sym)
             if _df is None or getattr(_df, "empty", True):
@@ -4624,7 +4666,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             s3_close += 1
             try:
                 dv = to_float(get_indicator(last, "drop3d"))
-                drop_pass = (not pd.isna(dv)) and dv >= 0.125
+                drop_pass = (not pd.isna(dv)) and dv >= _drop_thr
             except Exception:
                 drop_pass = False
             if drop_pass:
@@ -4633,7 +4675,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         _log(
             "🧩 system3セットアップ内訳: "
             + f"フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3日下落率>=12.5%: {s3_setup}"
+            + f"3日下落率>={_drop_thr*100:.1f}%: {s3_setup}"
         )
         try:
             _stage(
@@ -5190,7 +5232,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         float(_sys_t_candidates or 0.0), 6
                     ),
                     "total_sec": round(
-                        float((((_sys_t_prepare or 0.0) + (_sys_t_candidates or 0.0)))),
+                        float(((_sys_t_prepare or 0.0) + (_sys_t_candidates or 0.0))),
                         6,
                     ),
                     "candidates": (

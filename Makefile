@@ -3,7 +3,11 @@ PYTEST ?= pytest -q
 IMGDIR ?= results_images
 SNAPSHOT_SOURCES ?= results_csv results_csv_test logs $(IMGDIR)
 
-.PHONY: test snapshot imgdiff verify auto-refine run-and-snapshot clean fmt lint fmt-check
+.PHONY: test snapshot imgdiff verify auto-refine run-and-snapshot clean fmt
+fmt:
+	$(PYTHON) -m ruff check --fix .
+	$(PYTHON) -m black .
+	$(PYTHON) -m isort .
 
 test:
 	$(PYTHON) -m $(PYTEST)
@@ -36,17 +40,3 @@ run-and-snapshot:
 clean:
 	@echo "Removing snapshots directory..."
 	@rm -rf snapshots
-
-# --- Formatting & Linting (manual step before commit) ---
-fmt:
-	$(PYTHON) -m ruff check --fix .
-	$(PYTHON) -m black .
-	$(PYTHON) -m isort .
-
-fmt-check:
-	$(PYTHON) -m ruff check .
-	$(PYTHON) -m black --check .
-	$(PYTHON) -m isort --check-only .
-
-lint: fmt-check
-	@echo "Lint/format checks passed."

@@ -2,7 +2,7 @@
 
 プロジェクト全体で使用される環境変数を網羅的に一覧化し、各変数の目的・デフォルト値・影響範囲を明示します。
 
-**最終更新**: 2025-10-10  
+**最終更新**: 2025-10-10
 **対象バージョン**: branch0906
 
 > **真偽値の判定ルール**: "1" / "true" / "yes" / "on" を真、それ以外を偽と見なします（大文字小文字不問）。
@@ -190,6 +190,17 @@
 - **副作用**: fast-path では 1 日分候補のみ生成するため、過去複数日のランキング検証には不向き。Diagnostics の `ranking_source` は `latest_only` になる。
 - **ログ**: 強制適用時に `System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)` を INFO 出力（compact ログでも 1 行）。
 - **メトリクス**: `_metrics.record_metric("system6_forced_latest_only", 1, "count")` が記録され、パフォーマンス観測や回帰診断に利用可能。
+
+### `STANDARDIZE_STRATEGY_OUTPUT`
+
+- **デフォルト**: `false`
+- **設定値**: `true` / `false`
+- **対象**: `strategies/system6_strategy.py`, `strategies/system7_strategy.py`（今後拡大予定）
+- **説明**: 戦略レイヤの `generate_candidates()` 返却形式を外向きに統一。歴史的に一部戦略は `{date: {symbol: payload}}` を返してきたが、消費側は `{date: [record, ...]}`（list-of-dicts）を前提とする箇所が多い。`true` にすると戦略内で安全に list-of-dicts に変換する。
+- **挙動**:
+  - `true`: 返却直前に `{date: {symbol: payload}}` → `{date: [record, ...]}` へ変換。順序は `rank` 昇順、なければ `return_6d` 降順、どちらも無ければ安定（挿入）順。
+  - `false`: 既存の返却形式を維持（互換目的）。
+- **備考**: コア層（`core/systemX.py`）の返却形式は変更しない。変換は無害で、すでに list-of-dicts の場合は変化しない。
 
 ### `BASIC_DATA_PARALLEL`
 
@@ -623,5 +634,5 @@ TODAY_SYMBOL_LIMIT=10  # 高速テスト
 
 ---
 
-**最終更新**: 2025-10-10  
+**最終更新**: 2025-10-10
 **メンテナー**: プロジェクトチーム

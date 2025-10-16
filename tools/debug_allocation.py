@@ -21,9 +21,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
+import numbers
 from pathlib import Path
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd
 
@@ -50,7 +52,7 @@ from strategies.system7_strategy import System7Strategy
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(verbose: bool = False):
+def setup_logging(verbose: bool = False) -> None:
     """ロギング設定"""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -87,9 +89,7 @@ def generate_simple_test_signals(
     for system_name, strategy in strategies.items():
         if test_mode == "mini":
             # ミニモードでは少数のシンボルのみ
-            test_symbols = (
-                symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
-            )
+            test_symbols = symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
         else:
             test_symbols = symbol_universe
 
@@ -119,7 +119,10 @@ def generate_simple_test_signals(
             logger.info(f"⚠️ {system_name}: シグナルなし")
 
     return per_system
-    """候補の詳細分析"""
+
+
+def analyze_candidates(per_system: Dict[str, pd.DataFrame]) -> None:
+    """候補の詳細分析をログ出力する。"""
     logger.info("=" * 50)
     logger.info("🔍 候補詳細分析")
     logger.info("=" * 50)
@@ -128,30 +131,32 @@ def generate_simple_test_signals(
 
     for system_name, df in per_system.items():
         if df is None or df.empty:
-            logger.info(f"❌ {system_name}: 候補なし")
+            logger.info("❌ %s: 候補なし", system_name)
             continue
 
         count = len(df)
         total_candidates += count
-        logger.info(f"✅ {system_name}: {count}件の候補")
+        logger.info("✅ %s: %d件の候補", system_name, count)
 
         # データ型と必須列の確認
         required_cols = ["symbol", "side", "score"]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            logger.error(f"❌ {system_name}: 必須列が不足 - {missing_cols}")
+            logger.error("❌ %s: 必須列が不足 - %s", system_name, missing_cols)
             continue
 
         # side列の値を確認
-        side_values = df["side"].unique() if "side" in df.columns else []
-        logger.debug(f"   📊 side値: {side_values}")
+        side_values_list: List[Any] = list(df["side"].unique()) if "side" in df.columns else []
+        logger.debug("   📊 side値: %s", side_values_list)
 
         # score列の統計
         if "score" in df.columns:
             score_stats = df["score"].describe()
-            nan_count = df["score"].isna().sum()
+            nan_count = int(df["score"].isna().sum())
             logger.debug(
-                f"   📈 score統計: mean={score_stats['mean']:.3f}, NaN={nan_count}件"
+                "   📈 score統計: mean=%.3f, NaN=%d件",
+                float(score_stats["mean"]),
+                nan_count,
             )
 
         # ATRとCloseの確認（ポジションサイズ計算に必要）
@@ -165,26 +170,32 @@ def generate_simple_test_signals(
 
         if atr_col:
             atr_stats = df[atr_col].describe()
-            atr_nan_count = df[atr_col].isna().sum()
+            atr_nan_count = int(df[atr_col].isna().sum())
             logger.debug(
-                f"   💹 {atr_col}: mean={atr_stats['mean']:.3f}, NaN={atr_nan_count}件"
+                "   💹 %s: mean=%.3f, NaN=%d件",
+                atr_col,
+                float(atr_stats["mean"]),
+                atr_nan_count,
             )
         else:
-            logger.warning(f"   ⚠️ {system_name}: ATR列が見つかりません")
+            logger.warning("   ⚠️ %s: ATR列が見つかりません", system_name)
 
         if close_col:
             close_stats = df[close_col].describe()
-            close_nan_count = df[close_col].isna().sum()
+            close_nan_count = int(df[close_col].isna().sum())
             logger.debug(
-                f"   💰 {close_col}: mean=${close_stats['mean']:.2f}, NaN={close_nan_count}件"
+                "   💰 %s: mean=$%.2f, NaN=%d件",
+                close_col,
+                float(close_stats["mean"]),
+                close_nan_count,
             )
         else:
-            logger.warning(f"   ⚠️ {system_name}: Close列が見つかりません")
+            logger.warning("   ⚠️ %s: Close列が見つかりません", system_name)
 
-        if verbose and count > 0:
-            # サンプル表示
+        # 詳細サンプル出力（DEBUGレベル時）
+        if logger.isEnabledFor(logging.DEBUG) and count > 0:
             sample = df.head(3)
-            logger.debug(f"   📋 {system_name} サンプル:")
+            logger.debug("   📋 %s サンプル:", system_name)
             for _, row in sample.iterrows():
                 symbol = row["symbol"]
                 side = row.get("side", "N/A")
@@ -192,10 +203,15 @@ def generate_simple_test_signals(
                 atr = row.get(atr_col, "N/A") if atr_col else "N/A"
                 close = row.get(close_col, "N/A") if close_col else "N/A"
                 logger.debug(
-                    f"      {symbol}: side={side}, score={score}, atr={atr}, close={close}"
+                    "      %s: side=%s, score=%s, atr=%s, close=%s",
+                    symbol,
+                    side,
+                    score,
+                    atr,
+                    close,
                 )
 
-    logger.info(f"📊 総候補数: {total_candidates}件")
+    logger.info("📊 総候補数: %d件", total_candidates)
 
 
 def check_symbol_system_map_compatibility(
@@ -218,15 +234,19 @@ def check_symbol_system_map_compatibility(
         unmapped_symbols = []
 
         for _, row in df.iterrows():
-            symbol = row["symbol"]
-            allowed_systems = symbol_system_map.get(symbol, [])
+            symbol_val = row.get("symbol")
+            try:
+                symbol_str = str(symbol_val)
+            except Exception:
+                continue
+            allowed_systems = symbol_system_map.get(symbol_str, [])
 
             if not allowed_systems:  # マップに登録されていない
-                unmapped_symbols.append(symbol)
+                unmapped_symbols.append(symbol_str)
             elif system_key not in allowed_systems:
-                blocked_symbols.append(symbol)
+                blocked_symbols.append(symbol_str)
             else:
-                allowed_symbols.append(symbol)
+                allowed_symbols.append(symbol_str)
 
         logger.info(f"{system_name}:")
         logger.info(f"  ✅ 許可: {len(allowed_symbols)}件")
@@ -240,7 +260,8 @@ def check_symbol_system_map_compatibility(
 
 
 def simulate_position_size_calculation(
-    per_system: Dict[str, pd.DataFrame], strategies: Dict[str, Any]
+    per_system: Dict[str, pd.DataFrame],
+    strategies: Dict[str, Any],
 ) -> None:
     """ポジションサイズ計算のシミュレーション"""
     logger.info("=" * 50)
@@ -275,16 +296,29 @@ def simulate_position_size_calculation(
             symbol = row["symbol"]
 
             try:
-                size_result = calc_fn(row, test_budget)
+                size_raw = calc_fn(row, test_budget)
+                size_result: Optional[float] = None
+                if isinstance(size_raw, numbers.Real):
+                    size_result = float(size_raw)
+                else:
+                    try:
+                        size_result = float(str(size_raw))
+                    except Exception:
+                        size_result = None
+                if size_result is not None and not math.isfinite(size_result):
+                    size_result = None
 
                 if size_result is None or size_result <= 0:
                     zero_size_count += 1
-                    logger.debug(f"  💸 {symbol}: 無効なポジションサイズ {size_result}")
+                    logger.debug("  💸 %s: 無効なポジションサイズ %s", symbol, size_raw)
                 else:
                     success_count += 1
-                    percentage = (size_result / test_budget) * 100
+                    percentage: float = (size_result / test_budget) * 100
                     logger.debug(
-                        f"  💵 {symbol}: ${size_result:.0f} ({percentage:.1f}%)"
+                        "  💵 %s: $%.0f (%.1f%%)",
+                        symbol,
+                        size_result,
+                        percentage,
                     )
 
             except Exception as e:
@@ -292,7 +326,10 @@ def simulate_position_size_calculation(
                 logger.debug(f"  ❌ {symbol}: 計算エラー {e}")
 
         logger.info(
-            f"  結果: 成功={success_count}, ゼロサイズ={zero_size_count}, エラー={error_count}"
+            "  結果: 成功=%d, ゼロサイズ=%d, エラー=%d",
+            success_count,
+            zero_size_count,
+            error_count,
         )
 
 
@@ -354,7 +391,11 @@ def trace_allocation_step_by_step(
                 logger.info("最終候補リスト:")
                 for _, row in final_df.head(10).iterrows():
                     logger.info(
-                        f"  {row['symbol']} ({row['system']}, {row['side']}, score={row.get('score', 'N/A')})"
+                        "  %s (%s, %s, score=%s)",
+                        row["symbol"],
+                        row["system"],
+                        row["side"],
+                        row.get("score", "N/A"),
                     )
 
     finally:
@@ -373,7 +414,8 @@ def validate_data_consistency() -> None:
     logger.info("=" * 50)
 
     # キャッシュマネージャーの日付確認
-    cache_manager = CacheManager()
+    settings = get_settings(create_dirs=False)
+    cache_manager = CacheManager(settings)
 
     # rolling キャッシュの最新日付を確認
     test_symbols = ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"]
@@ -381,76 +423,70 @@ def validate_data_consistency() -> None:
 
     for symbol in test_symbols:
         try:
-            df = cache_manager.load_rolling(symbol)
-            if not df.empty:
-                latest_date = df.index[-1].strftime("%Y-%m-%d")
+            df = cache_manager.read(symbol, "rolling")
+            if df is not None and not df.empty:
+                latest_date_str = None
+                if "date" in df.columns:
+                    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                    if df["date"].notna().any():
+                        latest_date_str = pd.to_datetime(df["date"].max()).strftime("%Y-%m-%d")
+                elif isinstance(df.index, pd.DatetimeIndex):
+                    latest_date_str = pd.to_datetime(df.index.max()).strftime("%Y-%m-%d")
+
                 row_count = len(df)
-                logger.debug(f"✅ {symbol}: 最新={latest_date}, 行数={row_count}")
+                logger.debug("✅ %s: 最新=%s, 行数=%d", symbol, latest_date_str, row_count)
                 valid_count += 1
             else:
-                logger.warning(f"❌ {symbol}: rolling データが空")
+                logger.warning("❌ %s: rolling データが空", symbol)
         except Exception as e:
-            logger.warning(f"❌ {symbol}: rolling データ読み込みエラー {e}")
+            logger.warning("❌ %s: rolling データ読み込みエラー %s", symbol, e)
 
     logger.info(f"キャッシュ検証: {valid_count}/{len(test_symbols)}銘柄が有効")
 
 
 def generate_debug_report(
-    per_system: Dict[str, pd.DataFrame], final_result: Any = None
+    per_system: Dict[str, pd.DataFrame],
+    final_result: Any = None,
 ) -> None:
     """デバッグレポートの生成"""
     logger.info("=" * 50)
     logger.info("📊 デバッグレポート生成")
     logger.info("=" * 50)
 
-    report = {
+    report: Dict[str, Any] = {
         "timestamp": pd.Timestamp.now().isoformat(),
         "summary": {
             "total_systems": len(per_system),
-            "systems_with_candidates": len(
-                [df for df in per_system.values() if df is not None and not df.empty]
-            ),
-            "total_candidates": sum(
-                len(df) for df in per_system.values() if df is not None and not df.empty
-            ),
+            "systems_with_candidates": len([df for df in per_system.values() if df is not None and not df.empty]),
+            "total_candidates": sum(len(df) for df in per_system.values() if df is not None and not df.empty),
             "final_allocations": (
-                0
-                if final_result is None
-                else len(final_result[0]) if hasattr(final_result[0], "__len__") else 0
+                0 if final_result is None else len(final_result[0]) if hasattr(final_result[0], "__len__") else 0
             ),
         },
         "per_system": {},
     }
 
+    sys_details = cast(Dict[str, Any], report["per_system"])
     for system_name, df in per_system.items():
         if df is not None and not df.empty:
-            report["per_system"][system_name] = {
+            sys_details[system_name] = {
                 "candidate_count": len(df),
-                "has_required_columns": all(
-                    col in df.columns for col in ["symbol", "side", "score"]
-                ),
-                "unique_symbols": (
-                    df["symbol"].nunique() if "symbol" in df.columns else 0
-                ),
-                "side_distribution": (
-                    df["side"].value_counts().to_dict() if "side" in df.columns else {}
-                ),
+                "has_required_columns": all(col in df.columns for col in ["symbol", "side", "score"]),
+                "unique_symbols": (df["symbol"].nunique() if "symbol" in df.columns else 0),
+                "side_distribution": (df["side"].value_counts().to_dict() if "side" in df.columns else {}),
             }
         else:
-            report["per_system"][system_name] = {
+            sys_details[system_name] = {
                 "candidate_count": 0,
                 "has_required_columns": False,
                 "unique_symbols": 0,
                 "side_distribution": {},
             }
+    report["per_system"] = sys_details
 
     # レポートをファイルに保存
     settings = get_settings()
-    report_path = (
-        Path(settings.project_root)
-        / "results_csv_test"
-        / "debug_allocation_report.json"
-    )
+    report_path = Path(settings.PROJECT_ROOT) / "results_csv_test" / "debug_allocation_report.json"
     report_path.parent.mkdir(exist_ok=True)
 
     with open(report_path, "w") as f:
@@ -487,7 +523,9 @@ def main():
 
     # テストシグナル生成
     per_system = generate_simple_test_signals(
-        strategies, symbol_universe, args.test_mode
+        strategies,
+        symbol_universe,
+        args.test_mode,
     )
 
     # TRDlist状況確認
@@ -499,17 +537,13 @@ def main():
 
     # デフォルト配分設定で実行
     try:
-        final_df = finalize_allocation(
+        final_df, _summary = finalize_allocation(
             per_system,
-            capital_long=100000,  # $100k
-            capital_short=100000,  # $100k
-            positions_long=10,
-            positions_short=10,
+            capital_long=100000.0,  # $100k
+            capital_short=100000.0,  # $100k
         )
 
-        entry_count = (
-            len(final_df) if final_df is not None and not final_df.empty else 0
-        )
+        entry_count = len(final_df) if final_df is not None and not final_df.empty else 0
         logger.info(f"🎯 Entry最終件数: {entry_count}件")
 
         if entry_count > 0:
@@ -518,7 +552,9 @@ def main():
                 logger.info("\n📋 Entry詳細:")
                 for _, row in final_df.head(10).iterrows():
                     logger.info(
-                        f"  {row.get('symbol', 'N/A')} ({row.get('system', 'N/A')})"
+                        "  %s (%s)",
+                        row.get("symbol", "N/A"),
+                        row.get("system", "N/A"),
                     )
         else:
             logger.warning("⚠️ 問題: TRDlistあるが、Entry 0件")

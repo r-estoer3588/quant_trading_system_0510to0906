@@ -32,10 +32,10 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
 
     def prepare_data(
         self,
-        raw_data_or_symbols,
+        raw_data_or_symbols: dict | list,
         reuse_indicators: bool | None = None,
         **kwargs,
-    ):
+    ) -> dict:
         """System6のデータ準備（共通テンプレート使用、特殊分岐廃止）"""
         # パフォーマンス最適化: プロセスプール使用制御（型安全な環境アクセス）
         try:
@@ -47,9 +47,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             # フォールバック（互換性維持）
             import os  # noqa: WPS433
 
-            use_process_pool = (
-                os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
-            )
+            use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
 
         # System6専用のパフォーマンス設定
         kwargs.setdefault("use_process_pool", use_process_pool)
@@ -64,8 +62,8 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
 
     def generate_candidates(
         self,
-        data_dict,
-        market_df=None,
+        data_dict: dict,
+        market_df: pd.DataFrame | None = None,
         **kwargs,
     ) -> tuple[dict, pd.DataFrame | None]:
         """候補生成（共通メソッド使用、特殊分岐廃止）"""
@@ -122,7 +120,27 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                     candidate_count=candidate_count,
                 )
         except Exception:  # pragma: no cover
+            # 戻り値の型をタプルに統一（互換維持）
+            if isinstance(result, dict):
+                result = (result, None)
+        # 出力スキーマの標準化（フラグで有効化）
+        try:
+            from config.environment import get_env_config  # 遅延import
+
+            env = get_env_config()
+            if getattr(env, "standardize_strategy_output", False):
+                from common.candidates_schema import normalize_candidates_to_list
+
+                if isinstance(result, tuple) and len(result) == 2:
+                    _c, _m = result
+                    result = (normalize_candidates_to_list(_c or {}), _m)
+                elif isinstance(result, dict):
+                    # 返却型をタプルに揃える
+                    result = (normalize_candidates_to_list(result), None)
+        except Exception:
+            # 標準化に失敗しても従来出力をそのまま返す（安全側）
             pass
+
         return result
 
     def calculate_position_size(
@@ -137,16 +155,17 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     ) -> int:
         risk = self._resolve_pct(risk_pct, "risk_pct", 0.02)
         max_alloc = self._resolve_pct(max_pct, "max_pct", 0.10)
-        return self._calculate_position_size_core(
+        result: int = self._calculate_position_size_core(
             capital,
             entry_price,
             stop_price,
             risk,
             max_alloc,
         )
+        return result
 
     # シミュレーター用フック（System6: Short）
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float):
+    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float) -> tuple[float, float] | None:
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -170,9 +189,7 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
         stop_price = entry_price + stop_mult * atr
         # ショート戦略: ストップロスはエントリー価格より上に設定される
         if stop_price <= entry_price:
@@ -185,12 +202,10 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         entry_idx: int,
         entry_price: float,
         stop_price: float,
-    ):
+    ) -> tuple[float, pd.Timestamp]:
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
-        profit_take_pct = float(
-            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5)
-        )
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
         max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         last_idx = len(df) - 1
 
@@ -252,4 +267,4 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         return out
 
     def get_total_days(self, data_dict: dict) -> int:
-        return get_total_days_system6(data_dict)
+        return int(get_total_days_system6(data_dict))
