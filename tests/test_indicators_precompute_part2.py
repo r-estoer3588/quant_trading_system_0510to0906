@@ -468,7 +468,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
     def test_cache_skip_attribute_handling(self):
         """キャッシュスキップ属性の処理テスト"""
 
-        def _calc_with_skip_cache(sym_df: tuple[str, pd.DataFrame]) -> tuple[str, pd.DataFrame]:
+        def _calc_with_skip_cache(
+            sym_df: tuple[str, pd.DataFrame],
+        ) -> tuple[str, pd.DataFrame]:
             sym, df = sym_df
 
             # キャッシュスキップフラグが設定されたDataFrameを返す

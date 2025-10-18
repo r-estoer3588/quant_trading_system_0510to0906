@@ -77,9 +77,12 @@ from common.system_groups import (  # noqa: E402
     format_group_counts_and_values,
 )
 from common.today_signals import (  # noqa: E402
+    LONG_SYSTEMS,
+    SHORT_SYSTEMS,
+)
+from common.today_signals import (  # noqa: E402
     run_all_systems_today as compute_today_signals,
 )
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
 from common.utils_spy import (  # noqa: E402
     calculate_trading_days_lag,
     describe_trading_gap,

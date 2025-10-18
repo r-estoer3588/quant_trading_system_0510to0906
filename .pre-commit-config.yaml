@@ -1,13 +1,13 @@
 repos:
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 7.0.0
     hooks:
       - id: isort
         # 自動修正モードにして先に import 整理を行う（black と整合させる）
         args: ["--profile", "black", "--line-length=88"]
 
   - repo: https://github.com/psf/black
-    rev: 24.10.0 # 統一: 開発環境の black 24.10.0 と合わせ phantom 変更防止
+    rev: 25.9.0 # 統一: 開発環境の black 24.10.0 と合わせ phantom 変更防止
     hooks:
       - id: black
         language_version: python3
@@ -15,14 +15,14 @@ repos:
         args: ["--line-length", "88"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.14.1
     hooks:
       - id: ruff
         args: ["--fix"]
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
         exclude: ^\.vscode/
@@ -39,7 +39,7 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v1.18.2
     hooks:
       - id: mypy
         additional_dependencies: []
