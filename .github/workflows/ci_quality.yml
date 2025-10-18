@@ -26,7 +26,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install ruff mypy
+          pip install ruff mypy isort
+      - name: isort (import order check)
+        run: isort --check-only .
+
       - name: Ruff Lint
         run: ruff check . --output-format=github
       - name: Type Check (mypy)
