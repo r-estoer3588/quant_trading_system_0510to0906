@@ -19,13 +19,13 @@
    - VS Code を使う場合は必ずファイル保存とウィンドウの最小化ではなく、ワークスペースを完全に閉じることを推奨します
 2. 仮想環境をアクティベート
 3. インポート順序を整理
-   - `python -m isort .`  
-    (推奨: このリポジトリではまず isort でインポートを整え、その後 Black → Ruff を実行します)
+   - `python -m isort .`
+     (推奨: このリポジトリではまず isort でインポートを整え、その後 Black → Ruff を実行します)
 4. コード整形（Black）
    - `python -m black .`
 5. Ruff のフォーマット (lint/自動修正)
    - `python -m ruff format .`
-    (順序: isort → black → ruff の順で実行してください)
+     (順序: isort → black → ruff の順で実行してください)
 6. pre-commit を実行して差分をチェック（ローカルで事前に通す）
    - `pre-commit run --all-files`
 7. 変更をステージ → commit（`git add -A && git commit -m "..."`）

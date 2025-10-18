@@ -79,12 +79,12 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    // Use the workspace venv python to ensure Streamlit is available on Windows CI/local dev
+    // Use a PowerShell wrapper so we can run the full pipeline before launching Streamlit
     command:
-      "c:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe -m streamlit run apps/app_integrated.py",
+      "pwsh -NoProfile -ExecutionPolicy Bypass -File tools/start_playwright_server.ps1",
     url: "http://localhost:8501",
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000, // 2 minutes for Streamlit to start
+    timeout: 20 * 60 * 1000, // 20 minutes to allow full pipeline + Streamlit startup
     stdout: "pipe",
     stderr: "pipe",
   },
