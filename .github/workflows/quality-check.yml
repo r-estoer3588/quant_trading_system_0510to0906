@@ -37,10 +37,17 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          pip install isort
 
       - name: Auto-fix with ruff
         run: |
           python -m ruff check . --select=F,E,W --ignore=E501,E402 --fix
+        continue-on-error: true
+
+      - name: Auto-fix imports with isort
+        run: |
+          # isort will modify files to canonical import order
+          python -m isort . || true
         continue-on-error: true
 
       - name: Auto-format with black
