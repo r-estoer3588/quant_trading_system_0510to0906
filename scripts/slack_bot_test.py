@@ -19,9 +19,7 @@ for name, channel_id in channels.items():
         print(f"Error: Environment variable for '{name}' channel is missing.")
         continue
     try:
-        response = client.chat_postMessage(
-            channel=channel_id, text=f"✅ テスト通知: {name} チャンネルに送信しました！"
-        )
+        response = client.chat_postMessage(channel=channel_id, text=f"✅ テスト通知: {name} チャンネルに送信しました！")
         print(f"Success → {name}: ts={response['ts']}")
     except SlackApiError as e:
         print(f"Error in {name}: {e.response['error']}")

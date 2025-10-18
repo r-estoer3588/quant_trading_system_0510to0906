@@ -156,11 +156,7 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     work = work.dropna(subset=["date"])  # 不正日付を除外
     if work.empty:
         return None
-    work = (
-        work.sort_values("date")
-        .drop_duplicates("date", keep="last")
-        .reset_index(drop=True)
-    )
+    work = work.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
     calc = work.copy()
 
@@ -255,9 +251,7 @@ def _prepare_rolling_frame(df: pd.DataFrame, target_days: int) -> pd.DataFrame |
     return enriched.loc[:, cols]
 
 
-def _clean_duplicate_columns(
-    df: pd.DataFrame, skip_cleanup: bool = False
-) -> pd.DataFrame:
+def _clean_duplicate_columns(df: pd.DataFrame, skip_cleanup: bool = False) -> pd.DataFrame:
     """Remove duplicate columns, keeping PascalCase/uppercase versions."""
     if df is None or df.empty:
         return df
@@ -307,9 +301,7 @@ def _clean_duplicate_columns(
     if duplicates_to_remove:
         # Only show error message if duplicates still occur (indicates a problem)
         removed_cols = ", ".join(duplicates_to_remove)
-        print(
-            f"⚠️ 予期しない重複列を検出・削除: {len(duplicates_to_remove)}列 ({removed_cols})"
-        )
+        print(f"⚠️ 予期しない重複列を検出・削除: {len(duplicates_to_remove)}列 ({removed_cols})")
         df = df.drop(columns=duplicates_to_remove)
 
     return df
@@ -415,10 +407,7 @@ def _resolve_symbol_universe(
             missing = len(manifest_symbols) - len(filtered)
             if missing:
                 _log_message(
-                    (
-                        f"ℹ️ full_backup に未存在の {missing} 銘柄を除外し "
-                        f"{len(filtered)} 銘柄を処理対象とします"
-                    ),
+                    (f"ℹ️ full_backup に未存在の {missing} 銘柄を除外し {len(filtered)} 銘柄を処理対象とします"),
                     log,
                 )
             return filtered
@@ -433,9 +422,7 @@ def _resolve_symbol_universe(
             )
             return available
 
-        _log_message(
-            "⚠️ full_backup ディレクトリから処理対象を検出できませんでした", log
-        )
+        _log_message("⚠️ full_backup ディレクトリから処理対象を検出できませんでした", log)
         return []
 
     # cache_daily_data と同一ロジックで銘柄集合を構築
@@ -482,9 +469,7 @@ def _resolve_symbol_universe(
 
     discovered = _discover_symbols(cache_manager.full_dir)
     _log_message(
-        (
-            f"ℹ️ マニフェスト未検出のため full_backup を走査して {len(discovered)} 銘柄を検出しました"
-        ),
+        (f"ℹ️ マニフェスト未検出のため full_backup を走査して {len(discovered)} 銘柄を検出しました"),
         log,
     )
     return discovered
@@ -515,10 +500,7 @@ def extract_rolling_from_full(
 
     if target_days is None:
         try:
-            target_days = int(
-                cache_manager.rolling_cfg.base_lookback_days
-                + cache_manager.rolling_cfg.buffer_days
-            )
+            target_days = int(cache_manager.rolling_cfg.base_lookback_days + cache_manager.rolling_cfg.buffer_days)
         except Exception:
             target_days = 330
     target_days = max(1, int(target_days))
@@ -540,9 +522,7 @@ def extract_rolling_from_full(
     try:
         # tests may provide a SimpleNamespace without nested attributes;
         # fall back safely
-        round_decimals = getattr(
-            getattr(cache_manager, "rolling_cfg", None), "round_decimals", None
-        )
+        round_decimals = getattr(getattr(cache_manager, "rolling_cfg", None), "round_decimals", None)
         if round_decimals is None:
             settings_obj = getattr(cache_manager, "settings", None)
             cache_obj = getattr(settings_obj, "cache", None)
@@ -629,19 +609,14 @@ def extract_rolling_from_full(
             log,
         )
 
-        args_list = [
-            (symbol, target_days, round_decimals, nan_warnings)
-            for symbol in symbol_list
-        ]
+        args_list = [(symbol, target_days, round_decimals, nan_warnings) for symbol in symbol_list]
 
         # prepare progress output file
         try:
             settings_obj = getattr(cache_manager, "settings", None)
             cache_obj = getattr(settings_obj, "cache", None)
             rolling_obj = getattr(cache_obj, "rolling", None)
-            report_seconds = int(
-                getattr(rolling_obj, "adaptive_report_seconds", 10) or 10
-            )
+            report_seconds = int(getattr(rolling_obj, "adaptive_report_seconds", 10) or 10)
         except Exception:
             report_seconds = 10
 
@@ -678,9 +653,7 @@ def extract_rolling_from_full(
                 if not active:
                     break
 
-                done, _ = concurrent.futures.wait(
-                    active.keys(), return_when=concurrent.futures.FIRST_COMPLETED
-                )
+                done, _ = concurrent.futures.wait(active.keys(), return_when=concurrent.futures.FIRST_COMPLETED)
                 for fut in done:
                     symbol, start_ts = active.pop(fut)
                     stats.processed_symbols += 1
@@ -701,9 +674,7 @@ def extract_rolling_from_full(
                     if not ok:
                         if message == "no_data":
                             stats.skipped_no_data += 1
-                            _log_message(
-                                f"⏭️ {symbol}: full データ無しのためスキップ", log
-                            )
+                            _log_message(f"⏭️ {symbol}: full データ無しのためスキップ", log)
                         else:
                             stats.errors[symbol] = message or "error"
                             _log_message(f"⚠️ {symbol}: 処理失敗 ({message})", log)
@@ -713,10 +684,7 @@ def extract_rolling_from_full(
                 # write progress JSON periodically
                 try:
                     now_ts = int(time.time())
-                    if (
-                        not progress_path.exists()
-                        or now_ts - int(progress_path.stat().st_mtime) >= report_seconds
-                    ):
+                    if not progress_path.exists() or now_ts - int(progress_path.stat().st_mtime) >= report_seconds:
                         prog = {
                             "total": stats.total_symbols,
                             "processed": stats.processed_symbols,
@@ -724,9 +692,7 @@ def extract_rolling_from_full(
                             "skipped": stats.skipped_no_data,
                             "errors": len(stats.errors),
                             "current_workers": current_workers,
-                            "recent_window_seconds": [
-                                round(d, 3) for d in window_durations
-                            ],
+                            "recent_window_seconds": [round(d, 3) for d in window_durations],
                             "timestamp": now_ts,
                         }
                         try:
@@ -738,10 +704,7 @@ def extract_rolling_from_full(
                     pass
 
                 # report progress periodically
-                if (
-                    stats.processed_symbols % 100 == 0
-                    or stats.processed_symbols == len(symbol_list)
-                ):
+                if stats.processed_symbols % 100 == 0 or stats.processed_symbols == len(symbol_list):
                     _log_message(
                         f"✅ 進捗: {stats.processed_symbols}/{len(symbol_list)} 銘柄処理完了",
                         log,
@@ -758,23 +721,14 @@ def extract_rolling_from_full(
                         prev_throughput = throughput
                     else:
                         # if throughput improved notably, try increasing workers
-                        if (
-                            throughput > prev_throughput * 1.02
-                            and current_workers < max_possible
-                        ):
+                        if throughput > prev_throughput * 1.02 and current_workers < max_possible:
                             current_workers += 1
-                            _log_message(
-                                f"ℹ️ ワーカー数を増やします -> {current_workers}", log
-                            )
+                            _log_message(f"ℹ️ ワーカー数を増やします -> {current_workers}", log)
                             prev_throughput = throughput
                         # if throughput degraded notably, decrease workers
-                        elif (
-                            throughput < prev_throughput * 0.98 and current_workers > 1
-                        ):
+                        elif throughput < prev_throughput * 0.98 and current_workers > 1:
                             current_workers = max(1, current_workers - 1)
-                            _log_message(
-                                f"ℹ️ ワーカー数を減らします -> {current_workers}", log
-                            )
+                            _log_message(f"ℹ️ ワーカー数を減らします -> {current_workers}", log)
                             prev_throughput = throughput
                         else:
                             # small/no change, keep current

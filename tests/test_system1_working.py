@@ -150,9 +150,7 @@ class TestSystem1HelpersSafe:
 
     def test_normalize_index_invalid_date(self):
         """Test index normalization with invalid date"""
-        df = pd.DataFrame(
-            {"Close": [100, 101], "Date": ["invalid_date", "another_invalid"]}
-        )
+        df = pd.DataFrame({"Close": [100, 101], "Date": ["invalid_date", "another_invalid"]})
 
         result = _normalize_index(df)
 

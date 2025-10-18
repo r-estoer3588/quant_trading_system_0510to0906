@@ -17,9 +17,7 @@ import sys
 from typing import Dict, Set
 
 
-def compare_csv(
-    baseline_path: Path, current_path: Path, threshold: float = 0.01
-) -> Dict:
+def compare_csv(baseline_path: Path, current_path: Path, threshold: float = 0.01) -> Dict:
     """CSV ファイルの差分を検出"""
     try:
         import pandas as pd
@@ -64,9 +62,7 @@ def compare_csv(
         },
         "column_diff": list(col_diff),
         "value_diffs": value_diffs,
-        "has_significant_diff": (
-            row_diff_pct > threshold or bool(col_diff) or bool(value_diffs)
-        ),
+        "has_significant_diff": (row_diff_pct > threshold or bool(col_diff) or bool(value_diffs)),
     }
 
 
@@ -86,9 +82,7 @@ def main():
         required=True,
         help="ベースラインスナップショットディレクトリ",
     )
-    parser.add_argument(
-        "--current", type=Path, required=True, help="現在のスナップショットディレクトリ"
-    )
+    parser.add_argument("--current", type=Path, required=True, help="現在のスナップショットディレクトリ")
     parser.add_argument(
         "--threshold",
         type=float,
@@ -128,9 +122,7 @@ def main():
         json.dump(results, f, indent=2, ensure_ascii=False)
 
     # サマリー表示
-    significant_diffs = [
-        k for k, v in results.items() if v.get("has_significant_diff", False)
-    ]
+    significant_diffs = [k for k, v in results.items() if v.get("has_significant_diff", False)]
 
     if significant_diffs:
         print(f"⚠️  Files with significant differences (>{args.threshold:.0%}):\n")
@@ -143,10 +135,7 @@ def main():
             # 行数差分
             row_info = diff.get("row_count", {})
             if row_info.get("diff_pct", 0) > args.threshold:
-                print(
-                    f"     • Row count: {row_info['baseline']} → "
-                    f"{row_info['current']} ({row_info['diff_pct']:+.1%})"
-                )
+                print(f"     • Row count: {row_info['baseline']} → {row_info['current']} ({row_info['diff_pct']:+.1%})")
 
             # カラム差分
             col_diff = diff.get("column_diff", [])
@@ -157,8 +146,7 @@ def main():
             value_diffs = diff.get("value_diffs", {})
             for col, vdiff in list(value_diffs.items())[:3]:  # 最大3件表示
                 print(
-                    f"     • {col}: {vdiff['diff_pct']:+.1%} change "
-                    f"({vdiff['baseline']:.2f} → {vdiff['current']:.2f})"
+                    f"     • {col}: {vdiff['diff_pct']:+.1%} change ({vdiff['baseline']:.2f} → {vdiff['current']:.2f})"
                 )
 
             if len(value_diffs) > 3:
@@ -169,9 +157,7 @@ def main():
         print(f"📊 Detailed report: {report_path}")
         return 1
     else:
-        print(
-            f"✅ No significant differences detected (threshold: {args.threshold:.0%})"
-        )
+        print(f"✅ No significant differences detected (threshold: {args.threshold:.0%})")
         print(f"   Compared {len(common_files)} file(s)")
         return 0
 

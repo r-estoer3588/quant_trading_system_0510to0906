@@ -74,13 +74,7 @@ def save_snapshot() -> Path:
     import json
 
     try:
-        git_commit = (
-            subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .strip()
-        )
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
         git_commit = "unknown"
 
@@ -151,9 +145,7 @@ def main():
         action="store_true",
         help="前回スナップショットとの比較をスキップ",
     )
-    parser.add_argument(
-        "--skip-interactive", action="store_true", help="対話的確認をスキップ"
-    )
+    parser.add_argument("--skip-interactive", action="store_true", help="対話的確認をスキップ")
     args = parser.parse_args()
 
     # ミニテスト実行

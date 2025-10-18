@@ -147,7 +147,7 @@ _MANUAL_REBUILD_AGG = None
 
 if not _IS_STREAMLIT_RUNTIME:
     if __name__ == "__main__":
-        print("このスクリプトはStreamlitで実行してください: " "`streamlit run apps/dashboards/app_today_signals.py`")
+        print("このスクリプトはStreamlitで実行してください: `streamlit run apps/dashboards/app_today_signals.py`")
         raise SystemExit
 
 try:
@@ -268,7 +268,7 @@ def _render_progress_events_panel() -> None:
                 file_size = pj.stat().st_size if pj.exists() else 0
                 if file_size > 2 * 1024 * 1024:
                     st.warning(
-                        f"progress_today.jsonl が大きくなっています（~{file_size/1024/1024:.1f}MB）。"
+                        f"progress_today.jsonl が大きくなっています（~{file_size / 1024 / 1024:.1f}MB）。"
                         " 表示件数を抑えてご利用ください。"
                     )
             except Exception:
@@ -1230,7 +1230,7 @@ def _collect_symbol_data(
             new_listings = [s for s in manual_symbols if len(s) <= 4 and s.isalpha()]  # 新規上場の可能性
             try:
                 base_msg = (
-                    "⚠️ rolling未整備: " f"{len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
+                    f"⚠️ rolling未整備: {len(manual_symbols)}銘柄 → 手動でキャッシュを更新してください | 例: {sample}"
                 )
                 if new_listings:
                     base_msg += f" (新規上場含む可能性: {len(new_listings)}件)"
@@ -2683,7 +2683,7 @@ def _interpret_compute_today_result(result: Any, logger: Any) -> tuple[pd.DataFr
     maybe_df, maybe_second = result
     if not isinstance(maybe_df, pd.DataFrame):
         try:
-            logger.log(("⚠️ compute_today_signals 戻り値の第1要素が DataFrame でない: " f"{type(maybe_df).__name__}"))
+            logger.log((f"⚠️ compute_today_signals 戻り値の第1要素が DataFrame でない: {type(maybe_df).__name__}"))
         except Exception:
             pass
         return empty
@@ -2754,7 +2754,7 @@ def _interpret_compute_today_result(result: Any, logger: Any) -> tuple[pd.DataFr
 
     # 不明な型
     try:
-        logger.log(("⚠️ compute_today_signals の戻り値型が不正: df=DataFrame, second=" f"{type(maybe_second).__name__}"))
+        logger.log((f"⚠️ compute_today_signals の戻り値型が不正: df=DataFrame, second={type(maybe_second).__name__}"))
     except Exception:
         pass
     return empty
@@ -2816,7 +2816,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                 days_behind = (today - last_cache_date).days
                 if days_behind > 1:  # 1営業日より古い場合のみ警告
                     temp_logger.log(
-                        f"ℹ️ 注: キャッシュデータが{days_behind}日古いため、" "直近営業日ベースで計算します。",
+                        f"ℹ️ 注: キャッシュデータが{days_behind}日古いため、直近営業日ベースで計算します。",
                         no_timestamp=True,
                     )
     except Exception:
@@ -2903,7 +2903,7 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
                         sys_counts = final_df["system"].value_counts().to_dict()
                     else:
                         sys_counts = {"<no system column>": len(final_df)}
-                    msg = "🔍 final_counts=0 だが final_df 行数=" f"{len(final_df)} system別={sys_counts}"
+                    msg = f"🔍 final_counts=0 だが final_df 行数={len(final_df)} system別={sys_counts}"
                     logger.log(msg)
                 if final_df.empty and isinstance(final_counts, dict) and sum(final_counts.values()) == 0:
                     # 完全0のとき per_system DataFrame の行数概要
@@ -3467,7 +3467,7 @@ def _render_final_summary(final_df: pd.DataFrame) -> None:
     except Exception:
         summary_lines = []
     if summary_lines:
-        font_css = "font-family: 'Noto Sans JP', 'Meiryo', sans-serif; " "font-size: 1rem; letter-spacing: 0.02em;"
+        font_css = "font-family: 'Noto Sans JP', 'Meiryo', sans-serif; font-size: 1rem; letter-spacing: 0.02em;"
         html_summary = " / ".join(summary_lines)
         st.markdown(
             f'<div style="{font_css}">サマリー（Long/Short別）: {html_summary}</div>',

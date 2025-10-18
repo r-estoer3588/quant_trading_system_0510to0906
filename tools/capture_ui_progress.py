@@ -62,7 +62,7 @@ def capture_screenshots(
 
                 # スクリーンショット撮影
                 page.screenshot(path=str(filename), full_page=True)
-                print(f"[{i+1:3d}] {timestamp} - 保存完了: {filename.name}")
+                print(f"[{i + 1:3d}] {timestamp} - 保存完了: {filename.name}")
 
                 # 進捗バーの値を抽出して表示 (オプション)
                 try:
@@ -76,20 +76,16 @@ def capture_screenshots(
                 time.sleep(interval)
 
         except KeyboardInterrupt:
-            print(f"\n✅ 監視停止 - 合計{i+1}枚撮影")
+            print(f"\n✅ 監視停止 - 合計{i + 1}枚撮影")
         finally:
             browser.close()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Streamlit UI進捗スクリーンショット監視"
-    )
+    parser = argparse.ArgumentParser(description="Streamlit UI進捗スクリーンショット監視")
     parser.add_argument("--url", default="http://localhost:8501", help="Streamlit URL")
     parser.add_argument("--interval", type=int, default=2, help="撮影間隔(秒)")
-    parser.add_argument(
-        "--output", default="screenshots/progress_tracking", help="保存先ディレクトリ"
-    )
+    parser.add_argument("--output", default="screenshots/progress_tracking", help="保存先ディレクトリ")
     parser.add_argument("--max", type=int, default=100, help="最大撮影枚数")
     parser.add_argument(
         "--wait-timeout",

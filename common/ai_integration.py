@@ -114,9 +114,7 @@ class AIIntegrationHelper:
             logger.error(f"モデル訓練エラー: {e}")
             return False
 
-    def log_analysis_results(
-        self, analysis_result: Optional[Dict[str, Any]], logger_func=None
-    ) -> None:
+    def log_analysis_results(self, analysis_result: Optional[Dict[str, Any]], logger_func=None) -> None:
         """分析結果をログに出力"""
         if not analysis_result or not logger_func:
             return
@@ -131,15 +129,11 @@ class AIIntegrationHelper:
             predicted_time = analysis_result.get("predicted_performance")
             if predicted_time:
                 confidence = analysis_result.get("confidence", 0)
-                logger_func(
-                    f"AI予測実行時間: {predicted_time:.1f}秒 (信頼度: {confidence:.1%})"
-                )
+                logger_func(f"AI予測実行時間: {predicted_time:.1f}秒 (信頼度: {confidence:.1%})")
 
             # 最適化提案
             suggestions = self.get_optimization_suggestions()
-            high_priority_suggestions = [
-                s for s in suggestions if s.get("priority") == "high"
-            ]
+            high_priority_suggestions = [s for s in suggestions if s.get("priority") == "high"]
 
             for suggestion in high_priority_suggestions[:2]:  # 上位2件のみ
                 title = suggestion.get("title", "No Title")

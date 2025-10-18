@@ -10,6 +10,8 @@ It verifies that:
 """
 
 from datetime import datetime, timedelta
+
+# ruff: noqa: E402
 import os
 from pathlib import Path
 import sys
@@ -20,7 +22,7 @@ import pandas as pd
 # Add project root to path
 # tools/ 配下から実行されることを想定し、リポジトリルートを sys.path に追加
 project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root))  # noqa: E402 - inserted path for tools execution
 
 from common.trade_management import (  # noqa: E402
     SYSTEM_TRADE_RULES,
@@ -28,14 +30,20 @@ from common.trade_management import (  # noqa: E402
     get_system_trade_rules,
     validate_trade_management_data,
 )
-from core.final_allocation import finalize_allocation  # noqa: E402
+from core.final_allocation import (  # noqa: E402
+    finalize_allocation,
+    load_symbol_system_map,
+)
 from strategies.system1_strategy import System1Strategy  # noqa: E402
 from strategies.system2_strategy import System2Strategy  # noqa: E402
+from strategies.system3_strategy import System3Strategy  # noqa: E402
+from strategies.system4_strategy import System4Strategy  # noqa: E402
+from strategies.system5_strategy import System5Strategy  # noqa: E402
+from strategies.system6_strategy import System6Strategy  # noqa: E402
+from strategies.system7_strategy import System7Strategy  # noqa: E402
 
 
-def create_test_market_data(
-    symbols: list[str], days: int = 100
-) -> dict[str, pd.DataFrame]:
+def create_test_market_data(symbols: list[str], days: int = 100) -> dict[str, pd.DataFrame]:
     """Create synthetic market data for testing."""
     market_data = {}
 
@@ -214,6 +222,22 @@ def test_trade_management_system():
     # Test enhanced allocation
     print("\n=== Testing Enhanced Allocation ===")
     try:
+        # Ensure strategies mapping and symbol_system_map are provided
+        strategy_objs = [
+            System1Strategy(),
+            System2Strategy(),
+            System3Strategy(),
+            System4Strategy(),
+            System5Strategy(),
+            System6Strategy(),
+            System7Strategy(),
+        ]
+        strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
+        try:
+            symbol_system_map = load_symbol_system_map()
+        except Exception:
+            symbol_system_map = {}
+
         allocation_df, summary = finalize_allocation(
             per_system=candidates,
             strategies=strategies,
@@ -223,6 +247,7 @@ def test_trade_management_system():
             market_data_dict=market_data,
             signal_date=signal_date,
             include_trade_management=True,
+            symbol_system_map=symbol_system_map,
         )
 
         print(f"Enhanced allocation successful: {len(allocation_df)} positions")
@@ -243,9 +268,7 @@ def test_trade_management_system():
                 "total_risk",
             ]
 
-            available_cols = [
-                col for col in trade_mgmt_cols if col in allocation_df.columns
-            ]
+            available_cols = [col for col in trade_mgmt_cols if col in allocation_df.columns]
             print(f"Available: {available_cols}")
 
             # Display sample results
@@ -389,10 +412,7 @@ def test_market_order_fallback_to_close():
         assert (
             trade_entry.entry_price == expected_price
         ), f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
-        print(
-            f"✅ Fallback to Close successful: "
-            f"entry_price={trade_entry.entry_price:.2f}"
-        )
+        print(f"✅ Fallback to Close successful: entry_price={trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")
 
@@ -441,10 +461,7 @@ def test_entry_price_fallback_to_allocation():
         assert (
             trade_entry.entry_price == allocation_entry
         ), f"Expected {allocation_entry}, got {trade_entry.entry_price}"
-        print(
-            f"✅ Fallback to allocation entry_price successful: "
-            f"{trade_entry.entry_price:.2f}"
-        )
+        print(f"✅ Fallback to allocation entry_price successful: {trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")
 

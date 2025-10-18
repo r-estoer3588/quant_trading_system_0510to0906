@@ -120,9 +120,7 @@ class TestSystem7DateNormalization:
         def mock_skip(msg):
             skip_messages.append(msg)
 
-        result = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False, skip_callback=mock_skip
-        )
+        result = prepare_data_vectorized_system7(raw_data, reuse_indicators=False, skip_callback=mock_skip)
 
         # SPY should be skipped due to error
         assert "SPY" not in result
@@ -282,9 +280,7 @@ class TestSystem7LatestOnlyDetailedBranches:
         spy_data = self.create_spy_complete(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         normalized = result_tuple[0]
 
         # Check payload structure
@@ -302,9 +298,7 @@ class TestSystem7LatestOnlyDetailedBranches:
         spy_data = self.create_spy_complete(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         df_fast = result_tuple[1]
 
         # Should have rank columns with value 1
@@ -404,9 +398,7 @@ class TestSystem7DateGroupingDetailedBranches:
 
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
         normalized = result_tuple[0]
 
         # Should handle missing ATR gracefully
@@ -422,9 +414,7 @@ class TestSystem7DateGroupingDetailedBranches:
         def mock_log(msg):
             log_messages.append(msg)
 
-        _ = generate_candidates_system7(
-            data_dict, top_n=10, log_callback=mock_log, include_diagnostics=True
-        )
+        _ = generate_candidates_system7(data_dict, top_n=10, log_callback=mock_log, include_diagnostics=True)
 
         # Should log message with window calculation
         assert any("候補日数" in msg for msg in log_messages)

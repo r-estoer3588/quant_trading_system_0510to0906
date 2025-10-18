@@ -20,9 +20,7 @@ try:
     # Try to get functions if they exist
     compute_today_signals = getattr(ts_module, "compute_today_signals", None)
     get_today_date_str = getattr(ts_module, "get_today_date_str", None)
-    validate_system_data_completeness = getattr(
-        ts_module, "validate_system_data_completeness", None
-    )
+    validate_system_data_completeness = getattr(ts_module, "validate_system_data_completeness", None)
 except ImportError:
     ts_module = None
 

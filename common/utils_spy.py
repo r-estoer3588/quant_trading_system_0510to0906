@@ -157,9 +157,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
             path = p
             break
     if path is None or not path.exists():
-        _st_emit(
-            "error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)")
-        )
+        _st_emit("error", tr("❌ SPY.csv が見つかりません (base/full_backup/rolling を確認)"))
         return None
 
     # backtest 時は full_backup の存在を必須とし、無ければエラーメッセージを表示
@@ -182,9 +180,7 @@ def get_spy_data_cached_v2(folder: str = "data_cache", mode: str = "backtest"):
 
         # 直近情報の表示（UIが無い場面では無視される）
         try:
-            _st_emit(
-                "write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date()))
-            )
+            _st_emit("write", tr("✅ SPYキャッシュ最終日: {d}", d=str(df.index[-1].date())))
         except Exception:
             pass
 
@@ -299,9 +295,7 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
         tzinfo = getattr(raw, "tzinfo", None)
         if tzinfo is None:
             try:
-                localized = raw.tz_localize(
-                    "America/New_York", ambiguous="NaT", nonexistent="NaT"
-                )
+                localized = raw.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
                 if pd.isna(localized):
                     raise ValueError
                 return localized
@@ -352,9 +346,7 @@ def get_signal_target_trading_day(now: pd.Timestamp | None = None) -> pd.Timesta
 _NYSE_SCHEDULE_CACHE: dict[tuple[pd.Timestamp, pd.Timestamp], pd.DatetimeIndex] = {}
 
 
-def get_nyse_valid_days(
-    start: pd.Timestamp, end: pd.Timestamp, use_cache: bool = True
-) -> pd.DatetimeIndex:
+def get_nyse_valid_days(start: pd.Timestamp, end: pd.Timestamp, use_cache: bool = True) -> pd.DatetimeIndex:
     """Return normalized NYSE trading days between [start, end].
 
     Caches results per (start,end) to avoid repeated calendar queries in a single run.
@@ -378,9 +370,7 @@ def get_nyse_valid_days(
     return valid
 
 
-def calculate_trading_days_lag(
-    cache_date: pd.Timestamp, target_date: pd.Timestamp
-) -> int:
+def calculate_trading_days_lag(cache_date: pd.Timestamp, target_date: pd.Timestamp) -> int:
     """Calculate trading-day lag from cache_date to target_date (0 if same/younger)."""
     cache_n = pd.Timestamp(cache_date).normalize()
     target_n = pd.Timestamp(target_date).normalize()
@@ -515,9 +505,7 @@ def _persist_spy_with_indicators(spy_df: pd.DataFrame) -> None:
         try:
             df_to_save = spy_df.copy()
             if "Date" in df_to_save.columns:
-                df_to_save["Date"] = pd.to_datetime(
-                    df_to_save["Date"], errors="coerce"
-                ).dt.normalize()
+                df_to_save["Date"] = pd.to_datetime(df_to_save["Date"], errors="coerce").dt.normalize()
                 df_to_save = df_to_save.dropna(subset=["Date"]).sort_values("Date")
                 try:
                     settings = get_settings(create_dirs=True)

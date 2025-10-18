@@ -58,9 +58,7 @@ def save_signal_and_trade_logs(
     system_name: str,
     capital: float,
 ) -> None: ...
-def save_prepared_data_cache(
-    data_dict: dict[str, pd.DataFrame], system_name: str = "SystemX"
-) -> None: ...
+def save_prepared_data_cache(data_dict: dict[str, pd.DataFrame], system_name: str = "SystemX") -> None: ...
 def display_roc200_ranking(
     ranking_df: pd.DataFrame,
     years: int = 5,

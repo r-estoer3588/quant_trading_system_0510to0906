@@ -282,9 +282,7 @@ def _get_available_memory_mb() -> int | None:
 def _get_configured_rate_limit(cm: CacheManager) -> int | None:
     """Return configured API rate limit (requests per minute) from env or settings."""
     try:
-        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv(
-            "API_RATE_LIMIT_PER_MIN"
-        )
+        env = os.getenv("EODHD_RATE_LIMIT_PER_MIN") or os.getenv("API_RATE_LIMIT_PER_MIN")
         if env:
             try:
                 return int(env)
@@ -484,9 +482,7 @@ def _concat_excluding_all_na(
     return pd.concat(frames, ignore_index=ignore_index)
 
 
-def _merge_existing_full(
-    new_full: pd.DataFrame, existing_full: pd.DataFrame | None
-) -> pd.DataFrame:
+def _merge_existing_full(new_full: pd.DataFrame, existing_full: pd.DataFrame | None) -> pd.DataFrame:
     """既存データに新規データを追加・更新してマージする。
 
     既存データをベースとし、新規データで上書き/追加する。
@@ -558,11 +554,7 @@ def _merge_existing_full(
     # 既存列は除外する。
     base_columns = list(new_full.columns)
     base_lower = {str(c).lower() for c in base_columns}
-    prev_tail = [
-        c
-        for c in previous.columns
-        if c not in base_columns and str(c).lower() not in base_lower
-    ]
+    prev_tail = [c for c in previous.columns if c not in base_columns and str(c).lower() not in base_lower]
     ordered = base_columns + prev_tail
     final_columns = [c for c in ordered if c in combined.columns]
 
@@ -576,10 +568,7 @@ def _merge_existing_full(
 
 
 def fetch_bulk_last_day() -> pd.DataFrame | None:
-    url = (
-        "https://eodhistoricaldata.com/api/eod-bulk-last-day/US"
-        f"?api_token={API_KEY}&fmt=json"
-    )
+    url = f"https://eodhistoricaldata.com/api/eod-bulk-last-day/US?api_token={API_KEY}&fmt=json"
     masked_url = url
     try:
         if API_KEY:
@@ -712,9 +701,7 @@ def append_to_cache(
 
             # 既存の最終日付以上の新規データが無ければ処理をスキップ（高速化）
             try:
-                skip_if_no_new = (
-                    os.getenv("BULK_SKIP_IF_NO_NEW_DATE") or "1"
-                ).strip().lower() in {
+                skip_if_no_new = (os.getenv("BULK_SKIP_IF_NO_NEW_DATE") or "1").strip().lower() in {
                     "1",
                     "true",
                     "yes",
@@ -725,34 +712,16 @@ def append_to_cache(
             if skip_if_no_new:
                 try:
                     last_old = None
-                    if (
-                        existing_raw is not None
-                        and not existing_raw.empty
-                        and "date" in existing_raw.columns
-                    ):
-                        last_old = pd.to_datetime(
-                            existing_raw["date"], errors="coerce"
-                        ).max()
+                    if existing_raw is not None and not existing_raw.empty and "date" in existing_raw.columns:
+                        last_old = pd.to_datetime(existing_raw["date"], errors="coerce").max()
                     last_new = None
-                    if (
-                        new_raw is not None
-                        and not new_raw.empty
-                        and "date" in new_raw.columns
-                    ):
-                        last_new = pd.to_datetime(
-                            new_raw["date"], errors="coerce"
-                        ).max()
-                    if (
-                        pd.notna(last_old)
-                        and pd.notna(last_new)
-                        and last_new <= last_old
-                    ):
+                    if new_raw is not None and not new_raw.empty and "date" in new_raw.columns:
+                        last_new = pd.to_datetime(new_raw["date"], errors="coerce").max()
+                    if pd.notna(last_old) and pd.notna(last_new) and last_new <= last_old:
                         return 1, 0, sym_norm
                 except Exception:
                     pass
-            combined = _concat_excluding_all_na(
-                existing_raw, new_raw, ignore_index=True
-            )
+            combined = _concat_excluding_all_na(existing_raw, new_raw, ignore_index=True)
             if combined.empty:
                 return 0, 0, sym_norm
             # 列重複を除去（特に 'date' の重複で Series ではなく DataFrame になるのを防ぐ）
@@ -761,11 +730,7 @@ def append_to_cache(
             except Exception:
                 pass
             # 'Date' / 'date' 候補から1本のSeriesに正規化し、残りは削除
-            date_like_cols = [
-                c
-                for c in combined.columns
-                if str(c).lower() in ("date", "timestamp", "index")
-            ]
+            date_like_cols = [c for c in combined.columns if str(c).lower() in ("date", "timestamp", "index")]
             chosen = None
             for c in date_like_cols:
                 try:
@@ -783,9 +748,7 @@ def append_to_cache(
                 except Exception:
                     continue
             if chosen is not None:
-                combined = combined.drop(
-                    columns=[col for col in date_like_cols if col in combined.columns]
-                )
+                combined = combined.drop(columns=[col for col in date_like_cols if col in combined.columns])
                 # 1次元配列に強制変換してから datetime 変換（2D代入エラー回避）
                 try:
                     arr = getattr(chosen, "values", None)
@@ -806,11 +769,7 @@ def append_to_cache(
             if combined.empty:
                 return 0, 0, sym_norm
             # 価格列が全行でNaN（有効な価格情報なし）の場合はスキップ
-            price_cols = [
-                c
-                for c in ["open", "high", "low", "close", "volume"]
-                if c in combined.columns
-            ]
+            price_cols = [c for c in ["open", "high", "low", "close", "volume"] if c in combined.columns]
             if price_cols:
                 try:
                     numeric = combined[price_cols].apply(pd.to_numeric, errors="coerce")
@@ -831,9 +790,7 @@ def append_to_cache(
             combined_tail = combined
             try:
                 if len(combined) > tail_rows_eff:
-                    combined_tail = combined.iloc[-tail_rows_eff:].reset_index(
-                        drop=True
-                    )
+                    combined_tail = combined.iloc[-tail_rows_eff:].reset_index(drop=True)
             except Exception:
                 pass
 
@@ -863,27 +820,17 @@ def append_to_cache(
                 enriched = indicator_source.copy()
 
             # cache_daily_data.py に合わせて列は大文字系で保持
-            full_tail_ready = (
-                enriched.reset_index().sort_values("Date").reset_index(drop=True)
-            )
+            full_tail_ready = enriched.reset_index().sort_values("Date").reset_index(drop=True)
             # Close/AdjClose を相互補完
-            if (
-                "Close" not in full_tail_ready.columns
-                and "AdjClose" in full_tail_ready.columns
-            ):
+            if "Close" not in full_tail_ready.columns and "AdjClose" in full_tail_ready.columns:
                 full_tail_ready["Close"] = full_tail_ready["AdjClose"]
-            if (
-                "AdjClose" not in full_tail_ready.columns
-                and "Close" in full_tail_ready.columns
-            ):
+            if "AdjClose" not in full_tail_ready.columns and "Close" in full_tail_ready.columns:
                 full_tail_ready["AdjClose"] = full_tail_ready["Close"]
             # 既存 full とテールをマージ（重複日は新しい方＝テールを優先）
             full_ready = _merge_existing_full(full_tail_ready, existing_full)
             prev_full_sorted = None
             if existing_full is not None and not existing_full.empty:
-                prev_full_sorted = (
-                    existing_full.copy().sort_values("date").reset_index(drop=True)
-                )
+                prev_full_sorted = existing_full.copy().sort_values("date").reset_index(drop=True)
             try:
                 cm.write_atomic(full_ready, sym_norm, "full")
             except Exception as exc:
@@ -898,9 +845,7 @@ def append_to_cache(
             except Exception as exc:
                 print(f"{sym_norm}: write rolling error - {exc}")
 
-            skip_base = (
-                os.getenv("BULK_SKIP_BASE_INDICATORS") or ""
-            ).strip().lower() in {
+            skip_base = (os.getenv("BULK_SKIP_BASE_INDICATORS") or "").strip().lower() in {
                 "1",
                 "true",
                 "yes",
@@ -1058,9 +1003,7 @@ def append_to_cache(
                     break
 
             while pending:
-                done, pending = concurrent.futures.wait(
-                    pending, return_when=concurrent.futures.FIRST_COMPLETED
-                )
+                done, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
                 for fut in done:
                     try:
                         proc_flag, upd_flag, symname = fut.result()
@@ -1179,8 +1122,7 @@ def run_bulk_update(
     if target_universe:
         filtered, filter_stats = _filter_bulk_data_by_universe(working, target_universe)
         print(
-            "[DEBUG] Filtered rows by universe: "
-            f"{filter_stats.get('matched_rows', 0)} / {len(working)}",
+            f"[DEBUG] Filtered rows by universe: {filter_stats.get('matched_rows', 0)} / {len(working)}",
             flush=True,
         )
         missing = filter_stats.get("missing_symbols", 0)
@@ -1203,8 +1145,7 @@ def run_bulk_update(
 
     prepared = _drop_rows_without_price_data(filtered)
     print(
-        "[DEBUG] Rows after price-column check: "
-        f"{len(prepared)} (removed {len(filtered) - len(prepared)})",
+        f"[DEBUG] Rows after price-column check: {len(prepared)} (removed {len(filtered) - len(prepared)})",
         flush=True,
     )
     if prepared.empty:
@@ -1263,9 +1204,7 @@ def main():
         "--tail-rows",
         type=int,
         default=None,
-        help=(
-            "指標の再計算に用いるテール行数（未指定時は環境変数 BULK_TAIL_ROWS または 240）"
-        ),
+        help=("指標の再計算に用いるテール行数（未指定時は環境変数 BULK_TAIL_ROWS または 240）"),
     )
     args = parser.parse_args()
     if not API_KEY:
@@ -1317,10 +1256,7 @@ def main():
             if total <= 0:
                 total = max(processed, 0)
             print(
-                (
-                    f"  💓 Heartbeat {now_hb}: {processed}/{total} processed "
-                    f"(updated {updated})"
-                ),
+                (f"  💓 Heartbeat {now_hb}: {processed}/{total} processed (updated {updated})"),
                 flush=True,
             )
 
@@ -1355,8 +1291,7 @@ def main():
         total_symbols = max(progress_state.get("total", 0), exc.processed)
         print("🛑 ユーザーにより更新処理が中断されました", flush=True)
         print(
-            f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols}"
-            f" 銘柄 / 更新済み: {exc.updated} 銘柄",
+            f"   ↳ {now} 時点 | 処理済み: {exc.processed}/{total_symbols} 銘柄 / 更新済み: {exc.updated} 銘柄",
             flush=True,
         )
         # ハートビート停止と環境変数の復元
@@ -1383,8 +1318,7 @@ def main():
         updated_count = progress_state.get("updated", 0)
         print("🛑 ユーザーにより更新処理が中断されました", flush=True)
         print(
-            f"   ↳ {now} 時点 | 処理済み: {processed_count}/{total_symbols}"
-            f" 銘柄 / 更新済み: {updated_count} 銘柄",
+            f"   ↳ {now} 時点 | 処理済み: {processed_count}/{total_symbols} 銘柄 / 更新済み: {updated_count} 銘柄",
             flush=True,
         )
         # ハートビート停止と環境変数の復元
@@ -1432,8 +1366,7 @@ def main():
     )
     if result.progress_step_used and total_symbols:
         print(
-            "🧮 進捗ログ間隔: "
-            f"{result.progress_step_used} 銘柄ごと (対象 {total_symbols} 銘柄想定)",
+            f"🧮 進捗ログ間隔: {result.progress_step_used} 銘柄ごと (対象 {total_symbols} 銘柄想定)",
             flush=True,
         )
 

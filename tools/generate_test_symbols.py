@@ -34,9 +34,7 @@ def create_base_dates(days: int = 300) -> pd.DatetimeIndex:
     return pd.date_range(start=start_date, end=end_date, freq="D")
 
 
-def create_base_ohlcv(
-    dates: pd.DatetimeIndex, base_price: float, volatility: float = 0.02
-) -> pd.DataFrame:
+def create_base_ohlcv(dates: pd.DatetimeIndex, base_price: float, volatility: float = 0.02) -> pd.DataFrame:
     """基本的なOHLCVデータを生成"""
     np.random.seed(42)  # 再現性のため
 
@@ -82,9 +80,7 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
     # 移動平均
     for period in [25, 50, 100, 150, 200]:
-        df[f"SMA{period}"] = config.get(
-            f"SMA{period}", df["Close"].rolling(period).mean()
-        )
+        df[f"SMA{period}"] = config.get(f"SMA{period}", df["Close"].rolling(period).mean())
 
     # ATR計算
     df["HL"] = df["High"] - df["Low"]
@@ -151,12 +147,8 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
     # 出来高指標
     df["AvgVolume50"] = config.get("AvgVolume50", df["Volume"].rolling(50).mean())
-    df["DollarVolume20"] = config.get(
-        "DollarVolume20", (df["Close"] * df["Volume"]).rolling(20).mean()
-    )
-    df["DollarVolume50"] = config.get(
-        "DollarVolume50", (df["Close"] * df["Volume"]).rolling(50).mean()
-    )
+    df["DollarVolume20"] = config.get("DollarVolume20", (df["Close"] * df["Volume"]).rolling(20).mean())
+    df["DollarVolume50"] = config.get("DollarVolume50", (df["Close"] * df["Volume"]).rolling(50).mean())
 
     # HV50（ボラティリティ）
     returns = df["Close"].pct_change()
@@ -166,9 +158,7 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     df["ROC200"] = config.get("ROC200", (df["Close"] / df["Close"].shift(200) - 1))
 
     # return_6d
-    df["return_6d"] = config.get(
-        "return_6d", (df["Close"] / df["Close"].shift(6) - 1) * 100
-    )
+    df["return_6d"] = config.get("return_6d", (df["Close"] / df["Close"].shift(6) - 1) * 100)
 
     # パターン検出（簡易版）
     up_days = df["Close"] > df["Close"].shift(1)
@@ -358,9 +348,7 @@ def generate_test_symbols():
 
         # 最新行の重要な値を表示（デバッグ用）
         last_row = df.iloc[-1]
-        print(
-            f"    最新データ: Close={last_row['Close']:.2f}, Volume={last_row['Volume']:,}"
-        )
+        print(f"    最新データ: Close={last_row['Close']:.2f}, Volume={last_row['Volume']:,}")
         if "SMA25" in last_row and "SMA50" in last_row:
             print(f"    SMA25={last_row['SMA25']:.2f}, SMA50={last_row['SMA50']:.2f}")
         if "RSI3" in last_row:
@@ -371,9 +359,7 @@ def generate_test_symbols():
 
     # 使用方法の表示
     print("\n📖 使用方法:")
-    print(
-        "  python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external"
-    )
+    print("  python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external")
 
 
 if __name__ == "__main__":

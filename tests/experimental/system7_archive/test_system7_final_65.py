@@ -56,14 +56,10 @@ class TestSystem7FullScanNormalization:
         raw_data = {"SPY": spy_data}
 
         # Prepare data first
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         # Generate candidates with full_scan mode and diagnostics
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=False, include_diagnostics=True)
 
         assert len(result_tuple) == 3
         candidates_dict = result_tuple[0]
@@ -85,13 +81,9 @@ class TestSystem7FullScanNormalization:
         spy_data = self.create_spy_with_multiple_dates()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=False
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=False)
 
         candidates_dict = result_tuple[0]
 
@@ -137,13 +129,9 @@ class TestSystem7FullScanNormalization:
         )
 
         raw_data = {"SPY": spy_data}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=False, include_diagnostics=True)
 
         # Should not crash even if normalized_full is empty
         assert len(result_tuple) == 3
@@ -193,18 +181,14 @@ class TestSystem7LatestOnlyLogCallback:
         spy_data = self.create_spy_for_latest_only_with_setup()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
         log_messages = []
 
         def log_cb(msg):
             log_messages.append(msg)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True, log_callback=log_cb
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True, log_callback=log_cb)
 
         # Should have generated candidate
         candidates_dict = result_tuple[0]
@@ -254,13 +238,9 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True, include_diagnostics=False
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True, include_diagnostics=False)
 
         candidates_dict = result_tuple[0]
 
@@ -285,13 +265,9 @@ class TestSystem7LatestOnlyDataConstruction:
             spy_data = spy_data.drop(columns=["ATR50"])
 
         raw_data = {"SPY": spy_data}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True)
 
         candidates_dict = result_tuple[0]
 
@@ -308,13 +284,9 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True, include_diagnostics=True)
 
         # Access diagnostics (tuple index 2)
         candidates_dict = result_tuple[0]
@@ -331,13 +303,9 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_for_data_construction()
         raw_data = {"SPY": spy_data}
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=5, latest_only=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=5, latest_only=True)
 
         candidates_dict = result_tuple[0]
         date_key = list(candidates_dict.keys())[0]

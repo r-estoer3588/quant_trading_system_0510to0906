@@ -214,9 +214,7 @@ class ExtendedCacheHealthChecker:
 
         return date_gaps, duplicate_dates, chronological_order
 
-    def _analyze_data_anomalies(
-        self, df: pd.DataFrame
-    ) -> tuple[dict[str, int], int, dict[str, int]]:
+    def _analyze_data_anomalies(self, df: pd.DataFrame) -> tuple[dict[str, int], int, dict[str, int]]:
         """データ異常値分析"""
         price_anomalies = {}
         volume_anomalies = 0
@@ -270,9 +268,7 @@ class ExtendedCacheHealthChecker:
 
         return price_anomalies, volume_anomalies, indicator_anomalies
 
-    def _analyze_single_file(
-        self, file_path: Path, profile: str
-    ) -> ExtendedHealthMetrics | None:
+    def _analyze_single_file(self, file_path: Path, profile: str) -> ExtendedHealthMetrics | None:
         """単一ファイル分析"""
         try:
             # ファイル読み込み
@@ -280,9 +276,7 @@ class ExtendedCacheHealthChecker:
             symbol = file_path.stem
 
             # 既存ヘルスチェック実行
-            basic_results = self.basic_checker.check_dataframe_health(
-                df, symbol, profile
-            )
+            basic_results = self.basic_checker.check_dataframe_health(df, symbol, profile)
 
             # 基本統計
             total_rows = len(df)
@@ -292,9 +286,7 @@ class ExtendedCacheHealthChecker:
             # NaN詳細分析
             nan_counts = df.isnull().sum()
             total_cells = total_rows * total_columns
-            overall_nan_rate = (
-                df.isnull().sum().sum() / total_cells if total_cells > 0 else 0
-            )
+            overall_nan_rate = df.isnull().sum().sum() / total_cells if total_cells > 0 else 0
 
             # カラム別NaN率
             nan_columns = {}
@@ -314,14 +306,10 @@ class ExtendedCacheHealthChecker:
             unexpected_columns = list(actual_columns - expected_columns)
 
             # 時系列品質分析
-            date_gaps, duplicate_dates, chronological_order = (
-                self._analyze_time_series_quality(df)
-            )
+            date_gaps, duplicate_dates, chronological_order = self._analyze_time_series_quality(df)
 
             # データ異常値分析
-            price_anomalies, volume_anomalies, indicator_anomalies = (
-                self._analyze_data_anomalies(df)
-            )
+            price_anomalies, volume_anomalies, indicator_anomalies = self._analyze_data_anomalies(df)
 
             return ExtendedHealthMetrics(
                 symbol=symbol,
@@ -364,10 +352,7 @@ class ExtendedCacheHealthChecker:
         results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_file = {
-                executor.submit(
-                    self._analyze_single_file, file_path, profile
-                ): file_path
-                for file_path in sample_files
+                executor.submit(self._analyze_single_file, file_path, profile): file_path for file_path in sample_files
             }
 
             for future in as_completed(future_to_file):
@@ -378,16 +363,12 @@ class ExtendedCacheHealthChecker:
         logger.info(f"Successfully analyzed {len(results)}/{len(sample_files)} files")
         return results
 
-    def generate_comprehensive_report(
-        self, all_results: dict[str, list[ExtendedHealthMetrics]]
-    ) -> dict:
+    def generate_comprehensive_report(self, all_results: dict[str, list[ExtendedHealthMetrics]]) -> dict:
         """包括的レポート生成"""
         report = {
             "analysis_metadata": {
                 "timestamp": datetime.now().isoformat(),
-                "total_files_analyzed": sum(
-                    len(results) for results in all_results.values()
-                ),
+                "total_files_analyzed": sum(len(results) for results in all_results.values()),
                 "sampling_enabled": self.sample_size is not None,
                 "sample_size": self.sample_size,
                 "nan_threshold": self.nan_threshold,
@@ -409,30 +390,22 @@ class ExtendedCacheHealthChecker:
             # 統計計算
             total_files = len(metrics_list)
             avg_nan_rate = np.mean([m.nan_rate_overall for m in metrics_list])
-            files_with_high_nan = sum(
-                1 for m in metrics_list if m.columns_with_high_nan
-            )
+            files_with_high_nan = sum(1 for m in metrics_list if m.columns_with_high_nan)
             avg_file_size = np.mean([m.file_size_mb for m in metrics_list])
             total_missing_cols = sum(len(m.missing_columns) for m in metrics_list)
             files_with_date_issues = sum(
-                1
-                for m in metrics_list
-                if m.date_gaps > 0 or m.duplicate_dates > 0 or not m.chronological_order
+                1 for m in metrics_list if m.date_gaps > 0 or m.duplicate_dates > 0 or not m.chronological_order
             )
 
             profile_summary = {
                 "total_files": total_files,
                 "average_nan_rate": round(avg_nan_rate, 4),
                 "files_with_high_nan": files_with_high_nan,
-                "high_nan_percentage": round(
-                    files_with_high_nan / total_files * 100, 2
-                ),
+                "high_nan_percentage": round(files_with_high_nan / total_files * 100, 2),
                 "average_file_size_mb": round(avg_file_size, 3),
                 "total_missing_columns": total_missing_cols,
                 "files_with_date_issues": files_with_date_issues,
-                "date_issues_percentage": round(
-                    files_with_date_issues / total_files * 100, 2
-                ),
+                "date_issues_percentage": round(files_with_date_issues / total_files * 100, 2),
             }
 
             report["profile_summaries"][profile] = profile_summary
@@ -441,18 +414,10 @@ class ExtendedCacheHealthChecker:
         if all_metrics:
             report["overall_statistics"] = {
                 "total_symbols_analyzed": len(set(m.symbol for m in all_metrics)),
-                "average_rows_per_file": round(
-                    np.mean([m.total_rows for m in all_metrics]), 1
-                ),
-                "average_columns_per_file": round(
-                    np.mean([m.total_columns for m in all_metrics]), 1
-                ),
+                "average_rows_per_file": round(np.mean([m.total_rows for m in all_metrics]), 1),
+                "average_columns_per_file": round(np.mean([m.total_columns for m in all_metrics]), 1),
                 "overall_health_rate": round(
-                    sum(
-                        1
-                        for m in all_metrics
-                        if m.basic_health_results.get("overall_health", False)
-                    )
+                    sum(1 for m in all_metrics if m.basic_health_results.get("overall_health", False))
                     / len(all_metrics)
                     * 100,
                     2,
@@ -528,20 +493,14 @@ def main():
         default=["base", "rolling"],
         help="分析対象プロファイル",
     )
-    parser.add_argument(
-        "--sample", type=int, default=10, help="サンプリングサイズ（デフォルト: 10）"
-    )
-    parser.add_argument(
-        "--nan-threshold", type=float, default=0.5, help="高NaN率の閾値"
-    )
+    parser.add_argument("--sample", type=int, default=10, help="サンプリングサイズ（デフォルト: 10）")
+    parser.add_argument("--nan-threshold", type=float, default=0.5, help="高NaN率の閾値")
     parser.add_argument("--workers", type=int, default=4, help="並列ワーカー数")
 
     args = parser.parse_args()
 
     # ロギング設定
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     # 分析実行
     checker = ExtendedCacheHealthChecker(
@@ -574,15 +533,11 @@ def main():
 
         print(f"\n{profile.upper()}:")
         print(f"  ファイル数: {summary['total_files']}")
-        print(f"  平均NaN率: {summary['average_nan_rate']*100:.2f}%")
-        print(
-            f"  高NaN率ファイル: {summary['files_with_high_nan']} ({summary['high_nan_percentage']:.1f}%)"
-        )
+        print(f"  平均NaN率: {summary['average_nan_rate'] * 100:.2f}%")
+        print(f"  高NaN率ファイル: {summary['files_with_high_nan']} ({summary['high_nan_percentage']:.1f}%)")
         print(f"  平均サイズ: {summary['average_file_size_mb']:.3f}MB")
         print(f"  欠損カラム: {summary['total_missing_columns']}")
-        print(
-            f"  日付問題ファイル: {summary['files_with_date_issues']} ({summary['date_issues_percentage']:.1f}%)"
-        )
+        print(f"  日付問題ファイル: {summary['files_with_date_issues']} ({summary['date_issues_percentage']:.1f}%)")
 
     # 推奨事項
     if report["recommendations"]:

@@ -21,9 +21,7 @@ _TOMORROW_CLOSE_SYSTEMS: Iterable[str] = {
 }
 
 
-def decide_exit_schedule(
-    system: str, exit_date: object, today: pd.Timestamp | None
-) -> tuple[bool, str]:
+def decide_exit_schedule(system: str, exit_date: object, today: pd.Timestamp | None) -> tuple[bool, str]:
     """Return whether the exit is due today and the suggested order timing.
 
     Parameters
@@ -58,11 +56,7 @@ def decide_exit_schedule(
         when_future = "tomorrow_open"
     else:
         when_due = "today_close"
-        when_future = (
-            "tomorrow_close"
-            if system_norm in _TOMORROW_CLOSE_SYSTEMS
-            else "today_close"
-        )
+        when_future = "tomorrow_close" if system_norm in _TOMORROW_CLOSE_SYSTEMS else "today_close"
 
     return is_due, when_due if is_due else when_future
 

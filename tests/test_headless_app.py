@@ -30,9 +30,7 @@ def test_streamlit_smoke_headless() -> None:
         "--server.headless",
         "true",
     ]
-    proc = subprocess.Popen(
-        cmd, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    )
+    proc = subprocess.Popen(cmd, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         url = f"http://localhost:{port}"
         for _ in range(20):

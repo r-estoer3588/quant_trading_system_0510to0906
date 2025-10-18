@@ -392,10 +392,7 @@ class TradeManager:
                     )
                 else:
                     logger.debug(
-                        (
-                            "Could not calculate entry price for %s "
-                            "(no market data fallback)"
-                        ),
+                        ("Could not calculate entry price for %s (no market data fallback)"),
                         symbol,
                     )
                     return None
@@ -412,9 +409,7 @@ class TradeManager:
                 return None
 
             # Calculate profit target if applicable
-            profit_target_price = self._calculate_profit_target_price(
-                market_data, signal_date, entry_price, rules
-            )
+            profit_target_price = self._calculate_profit_target_price(market_data, signal_date, entry_price, rules)
 
             # Get ATR values for reference (coerce Optional to float)
             entry_atr_opt = self._get_atr_value(
@@ -470,9 +465,7 @@ class TradeManager:
 
             # Set order price for limit orders
             if rules.entry_type == OrderType.LIMIT:
-                entry.entry_order_price = self._calculate_limit_order_price(
-                    market_data, signal_date, rules
-                )
+                entry.entry_order_price = self._calculate_limit_order_price(market_data, signal_date, rules)
 
             return entry
 
@@ -529,9 +522,7 @@ class TradeManager:
                 if open_price and open_price > 0:
                     return open_price
                 # Fallback: if open is missing, try using Close as an approximation
-                close_price = _coerce_float(
-                    ref_row.get("Close", ref_row.get("close", 0))
-                )
+                close_price = _coerce_float(ref_row.get("Close", ref_row.get("close", 0)))
                 if close_price and close_price > 0:
                     logger.debug(
                         "Entry price fallback to Close for %s (target=%s, source=%s)",
@@ -657,9 +648,7 @@ class TradeManager:
                     return entry_price / target_multiplier
 
             elif rules.profit_target_type == "atr":
-                atr_value = self._get_atr_value(
-                    market_data, signal_date, rules.profit_target_atr_period
-                )
+                atr_value = self._get_atr_value(market_data, signal_date, rules.profit_target_atr_period)
                 if atr_value is None or atr_value <= 0:
                     return None
 
@@ -708,11 +697,7 @@ class TradeManager:
                 if col in row.index:
                     raw_val2 = row[col]
                     try:
-                        val2 = (
-                            raw_val2.iloc[0]
-                            if isinstance(raw_val2, pd.Series)
-                            else raw_val2
-                        )
+                        val2 = raw_val2.iloc[0] if isinstance(raw_val2, pd.Series) else raw_val2
                         if pd.notna(val2) and float(val2) > 0:
                             return float(val2)
                     except Exception:
@@ -798,15 +783,9 @@ class TradeManager:
 
                 # System rules
                 if trade_entry.rules:
-                    enhanced_row["use_trailing_stop"] = (
-                        trade_entry.rules.use_trailing_stop
-                    )
-                    enhanced_row["trailing_stop_pct"] = (
-                        trade_entry.rules.trailing_stop_pct
-                    )
-                    enhanced_row["max_holding_days"] = (
-                        trade_entry.rules.max_holding_days
-                    )
+                    enhanced_row["use_trailing_stop"] = trade_entry.rules.use_trailing_stop
+                    enhanced_row["trailing_stop_pct"] = trade_entry.rules.trailing_stop_pct
+                    enhanced_row["max_holding_days"] = trade_entry.rules.max_holding_days
                     enhanced_row["allow_re_entry"] = trade_entry.rules.allow_re_entry
 
                 # ATR context
@@ -819,17 +798,13 @@ class TradeManager:
 
                 # Risk metrics
                 if trade_entry.entry_price > 0 and trade_entry.stop_price > 0:
-                    risk_per_share = abs(
-                        trade_entry.entry_price - trade_entry.stop_price
-                    )
+                    risk_per_share = abs(trade_entry.entry_price - trade_entry.stop_price)
                     total_risk = risk_per_share * trade_entry.shares
                     enhanced_row["risk_per_share"] = risk_per_share
                     enhanced_row["total_risk"] = total_risk
 
                     if trade_entry.position_value > 0:
-                        enhanced_row["risk_pct_position"] = (
-                            total_risk / trade_entry.position_value
-                        ) * 100
+                        enhanced_row["risk_pct_position"] = (total_risk / trade_entry.position_value) * 100
 
                 enhanced_records.append(enhanced_row)
 

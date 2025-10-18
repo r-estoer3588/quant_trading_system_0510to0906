@@ -63,9 +63,7 @@ def _filter_debug_enabled() -> bool:
         return False
 
 
-def _emit_filter_debug(
-    system_tag: str, stats: dict[str, int] | None, final_list_len: int
-) -> None:
+def _emit_filter_debug(system_tag: str, stats: dict[str, int] | None, final_list_len: int) -> None:
     if not _filter_debug_enabled():
         return
     try:
@@ -118,7 +116,7 @@ def _emit_filter_debug(
                     "atr_pass",
                 ]:
                     if k in st and st[k] >= 0:
-                        ratio_parts.append(f"{k.split('_')[0]}%={st[k]/total*100:.1f}")
+                        ratio_parts.append(f"{k.split('_')[0]}%={st[k] / total * 100:.1f}")
         except Exception:
             pass
         msg = f"[FDBG {system_tag}] " + " ".join(parts)
@@ -163,10 +161,7 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
             if nm in df.columns:
                 s_any = df[nm]
                 try:
-                    if (
-                        isinstance(s_any, pd.DataFrame)
-                        and getattr(s_any, "ndim", None) == 2
-                    ):
+                    if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
                         # 先頭列のみ使用
                         s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 except Exception:
@@ -185,10 +180,7 @@ def _pick_series(df: pd.DataFrame, names: Sequence[str]):
                 continue
             try:
                 s_any = df[real]
-                if (
-                    isinstance(s_any, pd.DataFrame)
-                    and getattr(s_any, "ndim", None) == 2
-                ):
+                if isinstance(s_any, pd.DataFrame) and getattr(s_any, "ndim", None) == 2:
                     s_any = s_any.iloc[:, 0]  # type: ignore[index]
                 try:
                     s_any = pd.to_numeric(s_any, errors="coerce")
@@ -240,9 +232,7 @@ def _last_scalar(series):
         return None
 
 
-def _calc_dollar_volume_from_series(
-    close_series, volume_series, window: int
-) -> float | None:
+def _calc_dollar_volume_from_series(close_series, volume_series, window: int) -> float | None:
     if close_series is None or volume_series is None:
         return None
     try:
@@ -271,11 +261,7 @@ def _calc_average_volume_from_series(volume_series, window: int) -> float | None
     if volume_series is None:
         return None
     try:
-        tail = (
-            volume_series.tail(window)
-            if hasattr(volume_series, "tail")
-            else volume_series
-        )
+        tail = volume_series.tail(window) if hasattr(volume_series, "tail") else volume_series
     except Exception:
         tail = volume_series
     try:
@@ -371,9 +357,7 @@ def _system1_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(
-        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
-    )
+    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -392,9 +376,7 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         last_close = _last_non_nan(close_series)
     price_ok = bool(last_close is not None and last_close >= 5)
 
-    dv_series = _pick_series(
-        df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"]
-    )
+    dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "dollar_volume20", "DV20"])
     dv20 = _last_scalar(dv_series)
     if dv20 is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -413,11 +395,7 @@ def _system2_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             reason = "atr_missing"
         else:
             reason = "atr_below"
-        (
-            df.attrs.setdefault("_fdbg_reasons2", []).append(reason)
-            if hasattr(df, "attrs")
-            else None
-        )
+        (df.attrs.setdefault("_fdbg_reasons2", []).append(reason) if hasattr(df, "attrs") else None)
 
     return price_ok, dv_ok, atr_ok
 
@@ -430,9 +408,7 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
         low_val = _last_non_nan(low_series)
     low_ok = bool(low_val is not None and low_val >= 1)
 
-    av_series = _pick_series(
-        df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"]
-    )
+    av_series = _pick_series(df, ["AvgVolume50", "avgvolume50", "avg_volume50", "AVGVOL50"])
     av_val = _last_scalar(av_series)
     if av_val is None:
         volume_series = _pick_series(df, ["Volume", "volume"])
@@ -478,9 +454,7 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             dv20 = _calc_dollar_volume_from_series(close_series, vol_series, 20)
             if dv20 is None:
                 # 列があれば末尾値を採用
-                dv_series = _pick_series(
-                    df, ["DollarVolume20", "dollarvolume20", "DV20", "dollar_volume20"]
-                )
+                dv_series = _pick_series(df, ["DollarVolume20", "dollarvolume20", "DV20", "dollar_volume20"])
                 dv20 = _last_scalar(dv_series) or _last_non_nan(dv_series)
             dv_ok = bool(dv20 is not None and float(dv20) > 25_000_000)
 
@@ -504,11 +478,7 @@ def _system3_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             reason = "atr_missing"
         else:
             reason = "atr_below"
-        (
-            df.attrs.setdefault("_fdbg_reasons3", []).append(reason)
-            if hasattr(df, "attrs")
-            else None
-        )
+        (df.attrs.setdefault("_fdbg_reasons3", []).append(reason) if hasattr(df, "attrs") else None)
 
     return low_ok, av_ok, atr_ok
 
@@ -540,11 +510,7 @@ def _system4_conditions(df: pd.DataFrame) -> tuple[bool, bool]:
             reason = "hv_missing"
         else:
             reason = "hv_range_fail"
-        (
-            df.attrs.setdefault("_fdbg_reasons4", []).append(reason)
-            if hasattr(df, "attrs")
-            else None
-        )
+        (df.attrs.setdefault("_fdbg_reasons4", []).append(reason) if hasattr(df, "attrs") else None)
 
     return dv_ok, hv_ok
 
@@ -587,11 +553,7 @@ def _system5_conditions(df: pd.DataFrame) -> tuple[bool, bool, bool]:
             reason = "atr_missing"
         else:
             reason = "atr_below"
-        (
-            df.attrs.setdefault("_fdbg_reasons5", []).append(reason)
-            if hasattr(df, "attrs")
-            else None
-        )
+        (df.attrs.setdefault("_fdbg_reasons5", []).append(reason) if hasattr(df, "attrs") else None)
 
     return av_ok, dv_ok, atr_ok
 
@@ -801,12 +763,7 @@ def filter_system4(symbols, data, stats: dict[str, int] | None = None):
             except Exception:
                 dv_val = None
                 hv_val = None
-            print(
-                (
-                    f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} "
-                    f"hv_val={hv_val} hv_ok={hv_ok}"
-                )
-            )
+            print((f"[DBG system4] sym={sym} dv_val={dv_val} dv_ok={dv_ok} hv_val={hv_val} hv_ok={hv_ok}"))
             debug_count += 1
         if not dv_ok:
             continue

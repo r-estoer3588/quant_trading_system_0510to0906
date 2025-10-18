@@ -85,27 +85,48 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
             include_diagnostics=True,
             **kwargs,
         )
+        try:
+            from config.environment import get_env_config
 
-        if isinstance(result, tuple) and len(result) == 3:
-            candidates_by_date, merged_df, diagnostics = result
-            self.last_diagnostics = diagnostics
-            result = (candidates_by_date, merged_df)
-        elif isinstance(result, tuple) and len(result) == 2:
-            candidates_by_date, merged_df = result
-            self.last_diagnostics = build_system_diagnostics(
-                self.SYSTEM_NAME,
-                prepared_dict,
-                candidates_by_date,
-                top_n=top_n,
-                latest_only=latest_only,
-                spec=SystemDiagnosticSpec(
-                    rank_metric_name="adx7",
-                    rank_predicate=numeric_greater_than("adx7", 0.0),
-                ),
-            )
+            env = get_env_config()
+            standardize = bool(getattr(env, "standardize_strategy_output", False))
+        except Exception:
+            standardize = False
+
+        if isinstance(result, tuple) and len(result) >= 2:
+            if len(result) == 3:
+                candidates_by_date, merged_df, diagnostics = result
+                self.last_diagnostics = diagnostics
+            else:
+                candidates_by_date, merged_df = result
+                self.last_diagnostics = build_system_diagnostics(
+                    self.SYSTEM_NAME,
+                    prepared_dict,
+                    candidates_by_date,
+                    top_n=top_n,
+                    latest_only=latest_only,
+                    spec=SystemDiagnosticSpec(
+                        rank_metric_name="adx7",
+                        rank_predicate=numeric_greater_than("adx7", 0.0),
+                    ),
+                )
+            if standardize:
+                try:
+                    from common.candidates_schema import normalize_candidates_to_list
+
+                    candidates_by_date = normalize_candidates_to_list(candidates_by_date or {})
+                except Exception:
+                    pass
             result = (candidates_by_date, merged_df)
         else:
             self.last_diagnostics = None
+            if standardize and isinstance(result, dict):
+                try:
+                    from common.candidates_schema import normalize_candidates_to_list
+
+                    result = (normalize_candidates_to_list(result), None)
+                except Exception:
+                    result = (result, None)
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -154,9 +175,7 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(
-            getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97)
-        )
+        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
         entry_price = round(prev_close * ratio, 2)
         atr = None
         for col in ("atr10", "ATR10"):

@@ -94,16 +94,12 @@ def _load_allocations_from_settings() -> tuple[dict[str, float], dict[str, float
 
         # 設定がある場合はそれを使用、無い場合はデフォルトを使用
         if long_alloc:
-            long_result = {
-                str(k): float(v) for k, v in long_alloc.items() if float(v) > 0
-            }
+            long_result = {str(k): float(v) for k, v in long_alloc.items() if float(v) > 0}
         else:
             long_result = DEFAULT_LONG_ALLOCATIONS.copy()
 
         if short_alloc:
-            short_result = {
-                str(k): float(v) for k, v in short_alloc.items() if float(v) > 0
-            }
+            short_result = {str(k): float(v) for k, v in short_alloc.items() if float(v) > 0}
         else:
             short_result = DEFAULT_SHORT_ALLOCATIONS.copy()
         return long_result, short_result
@@ -549,9 +545,7 @@ def _allocate_by_slots(
         except Exception:
             # 失敗時も最低限の列は確保されているので継続
             pass
-        subset["alloc_weight"] = (
-            long_alloc.get(name) if name in long_alloc else short_alloc.get(name, 0.0)
-        )
+        subset["alloc_weight"] = long_alloc.get(name) if name in long_alloc else short_alloc.get(name, 0.0)
         frames.append(subset)
         distribution[name] = take
 
@@ -622,18 +616,15 @@ def _allocate_by_capital(
 ) -> CapitalAllocationResult:
     env = get_env_config()
     debug_mode = env.allocation_debug
+    # デバッグ時は簡潔に呼び出し元の欠落コンテキストを警告するが、
+    # 具体的なパラメータの存在チェックは外側の呼び出し元で行う。
 
-    budgets = {
-        name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights
-    }
+    budgets = {name: float(total_budget) * float(weights.get(name, 0.0)) for name in weights}
     remaining = budgets.copy()
 
     if debug_mode:
         logger.info(
-            (
-                "[ALLOC_DEBUG] Starting capital allocation: side=%s, "
-                "total_budget=$%s" % (side, f"{total_budget:,.0f}")
-            )
+            ("[ALLOC_DEBUG] Starting capital allocation: side=%s, total_budget=$%s" % (side, f"{total_budget:,.0f}"))
         )
         logger.info(f"[ALLOC_DEBUG] System weights: {dict(weights)}")
         logger.info(f"[ALLOC_DEBUG] System budgets: {dict(budgets)}")
@@ -675,10 +666,7 @@ def _allocate_by_capital(
             if (not _math.isfinite(risk_pct)) or risk_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        (
-                            "[ALLOC_DEBUG] %s: risk_pct=%s invalid -> "
-                            "fallback to default 0.020"
-                        ),
+                        ("[ALLOC_DEBUG] %s: risk_pct=%s invalid -> fallback to default 0.020"),
                         name,
                         risk_pct,
                     )
@@ -686,10 +674,7 @@ def _allocate_by_capital(
             if (not _math.isfinite(max_pct)) or max_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        (
-                            "[ALLOC_DEBUG] %s: max_pct=%s invalid -> "
-                            "fallback to default 0.100"
-                        ),
+                        ("[ALLOC_DEBUG] %s: max_pct=%s invalid -> fallback to default 0.100"),
                         name,
                         max_pct,
                     )
@@ -734,8 +719,7 @@ def _allocate_by_capital(
 
     counts = {name: 0 for name in ordered_names}
     max_pos_map = {
-        name: max(0, meta_map[name].max_positions - int(active_positions.get(name, 0)))
-        for name in ordered_names
+        name: max(0, meta_map[name].max_positions - int(active_positions.get(name, 0))) for name in ordered_names
     }
 
     if debug_mode:
@@ -780,9 +764,7 @@ def _allocate_by_capital(
                         rem = remaining.get(name, 0.0)
                         skip_reasons.append(f"no_budget({rem:.0f})")
                     if counts.get(name, 0) >= max_pos_map.get(name, 0):
-                        skip_reasons.append(
-                            f"max_pos({counts.get(name, 0)}/{max_pos_map.get(name, 0)})"
-                        )
+                        skip_reasons.append(f"max_pos({counts.get(name, 0)}/{max_pos_map.get(name, 0)})")
                     if index_map.get(name, 0) >= len(rows):
                         exhausted = index_map.get(name, 0)
                         total_rows = len(rows)
@@ -855,10 +837,7 @@ def _allocate_by_capital(
 
                         if debug_mode and round_num <= 2:
                             logger.debug(
-                                (
-                                    "[ALLOC_DEBUG] %s %s: Calculated stop_price=%s "
-                                    "from entry=%s atr=%s"
-                                ),
+                                ("[ALLOC_DEBUG] %s %s: Calculated stop_price=%s from entry=%s atr=%s"),
                                 name,
                                 sym,
                                 stop,
@@ -900,22 +879,12 @@ def _allocate_by_capital(
                                     rem_cap = float(remaining[name])
                                     e = float(entry_price)
                                     s = float(stop_price)
-                                    rps = (
-                                        abs(e - s)
-                                        if e is not None and s is not None
-                                        else 0.0
-                                    )
+                                    rps = abs(e - s) if e is not None and s is not None else 0.0
                                     allow_risk = rem_cap * float(meta.risk_pct)
-                                    shares_by_risk = (
-                                        int(allow_risk // rps) if rps > 0 else 0
-                                    )
+                                    shares_by_risk = int(allow_risk // rps) if rps > 0 else 0
                                     cap_limit_dollars = rem_cap * float(meta.max_pct)
-                                    shares_by_capital = (
-                                        int(cap_limit_dollars // abs(e)) if e > 0 else 0
-                                    )
-                                    shares_by_cash = (
-                                        int(rem_cap // abs(e)) if e > 0 else 0
-                                    )
+                                    shares_by_capital = int(cap_limit_dollars // abs(e)) if e > 0 else 0
+                                    shares_by_cash = int(rem_cap // abs(e)) if e > 0 else 0
                                     logger.info(
                                         (
                                             "[ALLOC_DEBUG] %s %s: shares_calc rem=$%s "
@@ -943,10 +912,7 @@ def _allocate_by_capital(
                         else:
                             if debug_mode and round_num <= 2:
                                 logger.debug(
-                                    (
-                                        "[ALLOC_DEBUG] %s %s: Invalid entry/stop "
-                                        "entry_price=%s stop_price=%s"
-                                    ),
+                                    ("[ALLOC_DEBUG] %s %s: Invalid entry/stop entry_price=%s stop_price=%s"),
                                     name,
                                     sym,
                                     entry_price,
@@ -984,10 +950,7 @@ def _allocate_by_capital(
                 if debug_mode and round_num <= 3:
                     try:
                         logger.info(
-                            (
-                                "[ALLOC_DEBUG] %s %s: shares_decision "
-                                "desired=%s max_by_cash=%s -> shares=%s"
-                            ),
+                            ("[ALLOC_DEBUG] %s %s: shares_decision desired=%s max_by_cash=%s -> shares=%s"),
                             name,
                             sym,
                             desired_shares,
@@ -999,10 +962,7 @@ def _allocate_by_capital(
                 if shares <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            (
-                                "[ALLOC_DEBUG] %s %s: No cash shares=%s "
-                                "(desired=%s, max_cash=%s, remaining=$%s)"
-                            ),
+                            ("[ALLOC_DEBUG] %s %s: No cash shares=%s (desired=%s, max_cash=%s, remaining=$%s)"),
                             name,
                             sym,
                             shares,
@@ -1044,10 +1004,7 @@ def _allocate_by_capital(
 
                 if debug_mode:
                     logger.debug(
-                        (
-                            "[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s "
-                            "value=$%s remaining=$%s"
-                        ),
+                        ("[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s value=$%s remaining=$%s"),
                         name,
                         sym,
                         shares,
@@ -1064,9 +1021,7 @@ def _allocate_by_capital(
     # デバッグサマリー
     if debug_mode:
         total_allocated = len(chosen)
-        total_budget_used = sum(
-            budgets[name] - remaining.get(name, 0) for name in budgets
-        )
+        total_budget_used = sum(budgets[name] - remaining.get(name, 0) for name in budgets)
         logger.info(f"[ALLOC_DEBUG] === ALLOCATION SUMMARY ({side}) ===")
         logger.info(f"[ALLOC_DEBUG] Total allocated: {total_allocated} positions")
         logger.info(
@@ -1207,9 +1162,7 @@ def finalize_allocation(
         for sys_name, df in per_system.items():
             if not df.empty:
                 cols_str = f"{list(df.columns)}"
-                msg = (
-                    f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows, " f"columns: {cols_str}"
-                )
+                msg = f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows, columns: {cols_str}"
                 logger.info(msg)
                 # サンプル行の詳細を出力
                 if len(df) > 0:
@@ -1219,9 +1172,16 @@ def finalize_allocation(
             else:
                 logger.info(f"[ALLOC_DEBUG] {sys_name}: EMPTY DataFrame")
 
-    per_system_norm: dict[str, pd.DataFrame] = {
-        str(name).strip().lower(): df for name, df in per_system.items()
-    }
+    # 非破壊の簡潔な診断ログ: 呼び出し元が strategies/symbol_system_map を
+    # 渡していない場合、資本配分や現有ポジションのカウントに影響するため
+    # デバッグ時のみ警告を出す。
+    if debug_mode:
+        if strategies is None:
+            logger.warning("[ALLOC_DEBUG] finalize_allocation called without strategies")
+        if symbol_system_map is None:
+            logger.warning("[ALLOC_DEBUG] called without symbol_system_map; active counts may be incomplete")
+
+    per_system_norm: dict[str, pd.DataFrame] = {str(name).strip().lower(): df for name, df in per_system.items()}
 
     # 配分設定が提供されていない場合は、設定ファイルから読み込む
     if long_allocations is None and short_allocations is None:
@@ -1248,9 +1208,7 @@ def finalize_allocation(
         limit = int(max_pos_map.get(name, default_max_positions))
         available_slots[name] = max(0, limit - taken)
 
-    candidate_counts = {
-        name: _candidate_count(per_system_norm.get(name)) for name in systems
-    }
+    candidate_counts = {name: _candidate_count(per_system_norm.get(name)) for name in systems}
 
     # Determine allocation mode.
     mode = "slot"
@@ -1303,24 +1261,19 @@ def finalize_allocation(
                         key = str(name).strip().lower()
                         try:
                             # そのまま side 列を尊重（slot 結果には付与済み）
-                            if "side" in group.columns and (
-                                str(group["side"].iloc[0]).strip().lower() == "short"
-                            ):
-                                selected_per_system_short[key] = group.reset_index(
-                                    drop=True
-                                )
+                            if "side" in group.columns and (str(group["side"].iloc[0]).strip().lower() == "short"):
+                                grp = group.reset_index(drop=True)
+                                selected_per_system_short[key] = grp
                             else:
-                                selected_per_system_long[key] = group.reset_index(
-                                    drop=True
-                                )
+                                grp = group.reset_index(drop=True)
+                                selected_per_system_long[key] = grp
                         except Exception:
                             # 何かあれば long 側へ
                             selected_per_system_long[key] = group.reset_index(drop=True)
 
                 # strategies 正規化
                 strategies_norm: dict[str, object] = {
-                    str(name).strip().lower(): obj
-                    for name, obj in (strategies or {}).items()
+                    str(name).strip().lower(): obj for name, obj in (strategies or {}).items()
                 }
 
                 # 選抜済み候補に対し、各 side で資本配分により shares を算出
@@ -1429,9 +1382,7 @@ def finalize_allocation(
                 return True
 
         frames = [
-            df
-            for df in [long_result.frame, short_result.frame]
-            if df is not None and not _is_effectively_empty(df)
+            df for df in [long_result.frame, short_result.frame] if df is not None and not _is_effectively_empty(df)
         ]
         if frames:
             final_df = _concat_nonempty(frames)
@@ -1460,9 +1411,7 @@ def finalize_allocation(
 
     if system_diagnostics:
         try:
-            summary.system_diagnostics = {
-                str(k): v for k, v in system_diagnostics.items()
-            }
+            summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
         except Exception:
             try:
                 summary.system_diagnostics = dict(system_diagnostics)
@@ -1478,9 +1427,7 @@ def finalize_allocation(
 
     if "system" in final_df.columns:
         try:
-            counts_series = (
-                final_df["system"].astype(str).str.strip().str.lower().value_counts()
-            )
+            counts_series = final_df["system"].astype(str).str.strip().str.lower().value_counts()
             summary.final_counts = {str(k): int(v) for k, v in counts_series.items()}
         except Exception:
             summary.final_counts = {}
@@ -1493,10 +1440,7 @@ def finalize_allocation(
 
     if include_trade_management:
         if market_data_dict is None or signal_date is None:
-            raise ValueError(
-                "market_data_dict and signal_date must be provided "
-                "when include_trade_management is True."
-            )
+            raise ValueError("market_data_dict and signal_date must be provided when include_trade_management is True.")
         # Convert cached frames so TradeManager receives a datetime index
         # Rolling cache commonly stores an integer index
         prepared_market_data = {}
@@ -1514,9 +1458,7 @@ def finalize_allocation(
 
         # TradeManager API: instantiate without args and enhance allocation
         tm = TradeManager()
-        final_df = tm.enhance_allocation_with_trade_management(
-            final_df, prepared_market_data, signal_date
-        )
+        final_df = tm.enhance_allocation_with_trade_management(final_df, prepared_market_data, signal_date)
 
     # Final summary diagnostics
     if system_diagnostics:
@@ -1534,18 +1476,14 @@ def finalize_allocation(
         summary.final_symbols = []
     try:
         if "long" in final_df.columns:
-            summary.final_long_count = int(
-                pd.to_numeric(final_df["long"], errors="coerce").fillna(0).sum()
-            )
+            summary.final_long_count = int(pd.to_numeric(final_df["long"], errors="coerce").fillna(0).sum())
         else:
             summary.final_long_count = 0
     except Exception:
         summary.final_long_count = 0
     try:
         if "short" in final_df.columns:
-            summary.final_short_count = int(
-                pd.to_numeric(final_df["short"], errors="coerce").fillna(0).sum()
-            )
+            summary.final_short_count = int(pd.to_numeric(final_df["short"], errors="coerce").fillna(0).sum())
         else:
             summary.final_short_count = 0
     except Exception:

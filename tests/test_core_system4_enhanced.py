@@ -45,9 +45,7 @@ class TestSystem4ComputeIndicators:
 
         # Add filter and setup columns based on System4 logic
         data["filter"] = (
-            (data["Close"] >= 5)
-            & (data["Close"] > data["sma200"])
-            & ((data["atr40"] / data["Close"]) < 0.05)
+            (data["Close"] >= 5) & (data["Close"] > data["sma200"]) & ((data["atr40"] / data["Close"]) < 0.05)
         ).astype(int)
         data["setup"] = (data["filter"] & (data["rsi4"] < 30)).astype(int)
 
@@ -71,25 +69,17 @@ class TestSystem4ComputeIndicators:
 
         # Verify ATR ratio calculation
         expected_atr_ratio = sample_data["atr40"] / sample_data["Close"]
-        pd.testing.assert_series_equal(
-            result["atr_ratio"], expected_atr_ratio, check_names=False
-        )
+        pd.testing.assert_series_equal(result["atr_ratio"], expected_atr_ratio, check_names=False)
 
         # Verify filter conditions (Close>=5 & Close>SMA200 & ATR_Ratio<0.05)
         expected_filter = (
-            (sample_data["Close"] >= 5.0)
-            & (sample_data["Close"] > sample_data["sma200"])
-            & (expected_atr_ratio < 0.05)
+            (sample_data["Close"] >= 5.0) & (sample_data["Close"] > sample_data["sma200"]) & (expected_atr_ratio < 0.05)
         )
-        pd.testing.assert_series_equal(
-            result["filter"], expected_filter, check_names=False
-        )
+        pd.testing.assert_series_equal(result["filter"], expected_filter, check_names=False)
 
         # Verify setup conditions (filter & RSI4<30)
         expected_setup = expected_filter & (sample_data["rsi4"] < 30.0)
-        pd.testing.assert_series_equal(
-            result["setup"], expected_setup, check_names=False
-        )
+        pd.testing.assert_series_equal(result["setup"], expected_setup, check_names=False)
 
     @patch("core.system4.get_cached_data")
     def test_compute_indicators_none_data(self, mock_get_cached_data):
@@ -152,9 +142,7 @@ class TestSystem4ComputeIndicators:
             & (edge_case_data["Close"] > edge_case_data["sma200"])
             & ((edge_case_data["atr40"] / edge_case_data["Close"]) < 0.05)
         ).astype(int)
-        edge_case_data["setup"] = (
-            edge_case_data["filter"] & (edge_case_data["rsi4"] < 30)
-        ).astype(int)
+        edge_case_data["setup"] = (edge_case_data["filter"] & (edge_case_data["rsi4"] < 30)).astype(int)
 
         mock_get_cached_data.return_value = edge_case_data
 
@@ -167,9 +155,7 @@ class TestSystem4ComputeIndicators:
         assert not result["filter"].iloc[0]  # Close < 5
         assert not result["filter"].iloc[1]  # Close == SMA200 (not >)
         assert not result["filter"].iloc[2]  # ATR_Ratio >= 0.05
-        assert not result["filter"].iloc[
-            3
-        ]  # ATR_Ratio = 0.02 < 0.05, but Close <= SMA200
+        assert not result["filter"].iloc[3]  # ATR_Ratio = 0.02 < 0.05, but Close <= SMA200
 
     @patch("core.system4.get_cached_data")
     def test_compute_indicators_setup_conditions(self, mock_get_cached_data):
@@ -192,9 +178,7 @@ class TestSystem4ComputeIndicators:
             & (setup_data["Close"] > setup_data["sma200"])
             & ((setup_data["atr40"] / setup_data["Close"]) < 0.05)
         ).astype(int)
-        setup_data["setup"] = (setup_data["filter"] & (setup_data["rsi4"] < 30)).astype(
-            int
-        )
+        setup_data["setup"] = (setup_data["filter"] & (setup_data["rsi4"] < 30)).astype(int)
 
         mock_get_cached_data.return_value = setup_data
 
@@ -236,9 +220,7 @@ class TestSystem4PrepareDataVectorized:
             & (test1_data["Close"] > test1_data["sma200"])
             & ((test1_data["atr40"] / test1_data["Close"]) < 0.05)
         ).astype(int)
-        test1_data["setup"] = (test1_data["filter"] & (test1_data["rsi4"] < 30)).astype(
-            int
-        )
+        test1_data["setup"] = (test1_data["filter"] & (test1_data["rsi4"] < 30)).astype(int)
 
         test2_data = pd.DataFrame(
             {
@@ -258,9 +240,7 @@ class TestSystem4PrepareDataVectorized:
             & (test2_data["Close"] > test2_data["sma200"])
             & ((test2_data["atr40"] / test2_data["Close"]) < 0.05)
         ).astype(int)
-        test2_data["setup"] = (test2_data["filter"] & (test2_data["rsi4"] < 30)).astype(
-            int
-        )
+        test2_data["setup"] = (test2_data["filter"] & (test2_data["rsi4"] < 30)).astype(int)
 
         return {"TEST1": test1_data, "TEST2": test2_data}
 
@@ -325,9 +305,7 @@ class TestSystem4GenerateCandidates:
 
     def test_generate_candidates_with_valid_data(self, prepared_data_with_setup):
         """Test candidate generation with valid setup data."""
-        candidates_by_date, candidates_df = generate_candidates_system4(
-            prepared_data_with_setup, top_n=3
-        )
+        candidates_by_date, candidates_df = generate_candidates_system4(prepared_data_with_setup, top_n=3)
 
         assert isinstance(candidates_by_date, dict)
         assert candidates_df is not None
@@ -366,9 +344,7 @@ class TestSystem4GenerateCandidates:
             )
         }
 
-        candidates_by_date, candidates_df = generate_candidates_system4(
-            no_setup_data, top_n=3
-        )
+        candidates_by_date, candidates_df = generate_candidates_system4(no_setup_data, top_n=3)
 
         assert isinstance(candidates_by_date, dict)
         assert len(candidates_by_date) == 0
@@ -384,9 +360,7 @@ class TestSystem4GenerateCandidates:
 
     def test_generate_candidates_with_default_top_n(self, prepared_data_with_setup):
         """Test candidate generation with default top_n."""
-        candidates_by_date, candidates_df = generate_candidates_system4(
-            prepared_data_with_setup
-        )
+        candidates_by_date, candidates_df = generate_candidates_system4(prepared_data_with_setup)
 
         assert isinstance(candidates_by_date, dict)
         assert candidates_df is not None
@@ -462,9 +436,7 @@ class TestSystem4Integration:
 
         # Add filter and setup columns based on System4 logic
         data["filter"] = (
-            (data["Close"] >= 5)
-            & (data["Close"] > data["sma200"])
-            & ((data["atr40"] / data["Close"]) < 0.05)
+            (data["Close"] >= 5) & (data["Close"] > data["sma200"]) & ((data["atr40"] / data["Close"]) < 0.05)
         ).astype(int)
         data["setup"] = (data["filter"] & (data["rsi4"] < 30)).astype(int)
 
@@ -473,17 +445,13 @@ class TestSystem4Integration:
     def test_full_system4_workflow(self, full_test_data):
         """Test complete System4 workflow from data preparation to candidate generation."""
         # Step 1: Prepare data
-        prepared_data = prepare_data_vectorized_system4(
-            full_test_data, reuse_indicators=True
-        )
+        prepared_data = prepare_data_vectorized_system4(full_test_data, reuse_indicators=True)
 
         assert isinstance(prepared_data, dict)
         assert "INTEG1" in prepared_data
 
         # Step 2: Generate candidates
-        candidates_by_date, candidates_df = generate_candidates_system4(
-            prepared_data, top_n=3
-        )
+        candidates_by_date, candidates_df = generate_candidates_system4(prepared_data, top_n=3)
 
         assert isinstance(candidates_by_date, dict)
         assert candidates_df is not None
@@ -513,16 +481,12 @@ class TestSystem4Integration:
             & (edge_data["Close"] > edge_data["sma200"])
             & ((edge_data["atr40"] / edge_data["Close"]) < 0.05)
         ).astype(int)
-        edge_data["setup"] = (edge_data["filter"] & (edge_data["rsi4"] < 30)).astype(
-            int
-        )
+        edge_data["setup"] = (edge_data["filter"] & (edge_data["rsi4"] < 30)).astype(int)
 
         edge_case_data = {"EDGE1": edge_data}
 
         # Prepare data
-        prepared_data = prepare_data_vectorized_system4(
-            edge_case_data, reuse_indicators=True
-        )
+        prepared_data = prepare_data_vectorized_system4(edge_case_data, reuse_indicators=True)
 
         assert isinstance(prepared_data, dict)
         assert "EDGE1" in prepared_data
@@ -530,16 +494,10 @@ class TestSystem4Integration:
         # Check filter conditions (expected results based on actual calculation)
         df = prepared_data["EDGE1"]
         assert not df["filter"].iloc[0]  # Close < 5 condition fails
-        assert df["filter"].iloc[
-            1
-        ]  # Close > SMA200 (5.01 > 5.00) passes all conditions
-        assert df["filter"].iloc[
-            2
-        ]  # ATR_Ratio = 4.9/100 = 0.049 < 0.05 passes all conditions
+        assert df["filter"].iloc[1]  # Close > SMA200 (5.01 > 5.00) passes all conditions
+        assert df["filter"].iloc[2]  # ATR_Ratio = 4.9/100 = 0.049 < 0.05 passes all conditions
 
         # Check setup conditions
         assert not df["setup"].iloc[0]  # Filter fails (Close < 5)
-        assert not df["setup"].iloc[
-            1
-        ]  # Filter passes but RSI4 = 30.0 not < 30 (condition fails)
+        assert not df["setup"].iloc[1]  # Filter passes but RSI4 = 30.0 not < 30 (condition fails)
         assert df["setup"].iloc[2]  # Filter passes + RSI4 = 25.0 < 30 (setup passes)

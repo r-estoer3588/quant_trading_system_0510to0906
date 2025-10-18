@@ -70,26 +70,48 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
             include_diagnostics=True,
             **kwargs,
         )
-        if isinstance(result, tuple) and len(result) == 3:
-            candidates_by_date, merged_df, diagnostics = result
-            self.last_diagnostics = diagnostics
-            result = (candidates_by_date, merged_df)
-        elif isinstance(result, tuple) and len(result) == 2:
-            candidates_by_date, merged_df = result
-            self.last_diagnostics = build_system_diagnostics(
-                self.SYSTEM_NAME,
-                data_dict,
-                candidates_by_date,
-                top_n=top_n,
-                latest_only=latest_only,
-                spec=SystemDiagnosticSpec(
-                    rank_metric_name="drop3d",
-                    rank_predicate=numeric_greater_equal("drop3d", 0.125),
-                ),
-            )
+        try:
+            from config.environment import get_env_config
+
+            env = get_env_config()
+            standardize = bool(getattr(env, "standardize_strategy_output", False))
+        except Exception:
+            standardize = False
+
+        if isinstance(result, tuple) and len(result) >= 2:
+            if len(result) == 3:
+                candidates_by_date, merged_df, diagnostics = result
+                self.last_diagnostics = diagnostics
+            else:
+                candidates_by_date, merged_df = result
+                self.last_diagnostics = build_system_diagnostics(
+                    self.SYSTEM_NAME,
+                    data_dict,
+                    candidates_by_date,
+                    top_n=top_n,
+                    latest_only=latest_only,
+                    spec=SystemDiagnosticSpec(
+                        rank_metric_name="drop3d",
+                        rank_predicate=numeric_greater_equal("drop3d", 0.125),
+                    ),
+                )
+            if standardize:
+                try:
+                    from common.candidates_schema import normalize_candidates_to_list
+
+                    candidates_by_date = normalize_candidates_to_list(candidates_by_date or {})
+                except Exception:
+                    pass
             result = (candidates_by_date, merged_df)
         else:
             self.last_diagnostics = None
+            if standardize and isinstance(result, dict):
+                try:
+                    from common.candidates_schema import normalize_candidates_to_list
+
+                    result = (normalize_candidates_to_list(result), None)
+                except Exception:
+                    result = (result, None)
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf as _gpf
 
@@ -150,9 +172,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(
-            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM3)
-        )
+        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_SYSTEM3))
         stop_price = entry_price - stop_mult * atr
         if entry_price - stop_price <= 0:
             return None
@@ -170,9 +190,7 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         - 損切り価格到達時は当日決済
         - 3日経過しても未達なら4日目の大引けで決済
         """
-        profit_take_pct = float(
-            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4)
-        )
+        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_4))
         max_hold_days = int(self.config.get("max_hold_days", MAX_HOLD_DAYS_DEFAULT))
 
         for offset in range(max_hold_days + 1):

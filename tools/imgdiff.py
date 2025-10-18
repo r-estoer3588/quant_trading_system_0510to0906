@@ -82,15 +82,7 @@ def _build_report(
         html_a = "" if not cell_a else f'<img src="{cell_a}" height="120"/>'
         html_b = "" if not cell_b else f'<img src="{cell_b}" height="120"/>'
         html_d = "" if not cell_d else f'<img src="{cell_d}" height="120"/>'
-        rows.append(
-            "<tr>"
-            f"<td>{rel}</td>"
-            f"<td>{reason}</td>"
-            f"<td>{html_a}</td>"
-            f"<td>{html_b}</td>"
-            f"<td>{html_d}</td>"
-            "</tr>"
-        )
+        rows.append(f"<tr><td>{rel}</td><td>{reason}</td><td>{html_a}</td><td>{html_b}</td><td>{html_d}</td></tr>")
 
     html = f"""
 <!DOCTYPE html>
@@ -217,10 +209,7 @@ def _build_report(
       </tr>
     </thead>
     <tbody>
-      {
-        ''.join(rows) if rows
-        else '<tr><td colspan="5" class="no-diff">差分はありません</td></tr>'
-      }
+      {"".join(rows) if rows else '<tr><td colspan="5" class="no-diff">差分はありません</td></tr>'}
     </tbody>
   </table>
 </body>
@@ -230,9 +219,7 @@ def _build_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Compare images between two snapshot directories."
-    )
+    parser = argparse.ArgumentParser(description="Compare images between two snapshot directories.")
     parser.add_argument("--snap-a", help="Older snapshot directory.")
     parser.add_argument("--snap-b", help="Newer snapshot directory.")
     parser.add_argument(

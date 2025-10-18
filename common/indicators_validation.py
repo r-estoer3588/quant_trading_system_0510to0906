@@ -113,8 +113,7 @@ def validate_precomputed_indicators(
             missing_report[symbol] = missing_for_symbol
             if len(missing_for_symbol) > 5:  # 多数不足の場合は簡潔にする
                 validation_errors.append(
-                    f"{symbol}: {len(missing_for_symbol)}個の指標が不足 "
-                    f"(例: {', '.join(missing_for_symbol[:3])}...)"
+                    f"{symbol}: {len(missing_for_symbol)}個の指標が不足 (例: {', '.join(missing_for_symbol[:3])}...)"
                 )
             else:
                 validation_errors.append(f"{symbol}: {', '.join(missing_for_symbol)}")
@@ -132,7 +131,7 @@ def validate_precomputed_indicators(
         else:
             for error in validation_errors[:3]:
                 log_callback(f"   • {error}")
-            log_callback(f"   ... 他{len(validation_errors)-3}件の問題")
+            log_callback(f"   ... 他{len(validation_errors) - 3}件の問題")
 
         if strict_mode:
             detailed_msg = "\\n".join(
@@ -150,9 +149,7 @@ def validate_precomputed_indicators(
     return validation_passed, missing_report
 
 
-def quick_indicator_check(
-    data_dict: dict[str, pd.DataFrame], log_callback=None
-) -> bool:
+def quick_indicator_check(data_dict: dict[str, pd.DataFrame], log_callback=None) -> bool:
     """
     高速な指標存在チェック（サンプル銘柄のみ）
 

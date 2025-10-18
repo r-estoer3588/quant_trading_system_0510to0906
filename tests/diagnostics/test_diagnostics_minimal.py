@@ -22,11 +22,7 @@ def _make_df_system2(pass_setup: bool = True) -> pd.DataFrame:
     }
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
-        df["filter"] = (
-            (df["Close"] >= 5.0)
-            & (df["dollarvolume20"] > 25_000_000)
-            & (df["atr_ratio"] > 0.03)
-        )
+        df["filter"] = (df["Close"] >= 5.0) & (df["dollarvolume20"] > 25_000_000) & (df["atr_ratio"] > 0.03)
         df["setup"] = df["filter"] & (df["rsi3"] > 90.0) & df["twodayup"]
     return df
 
@@ -37,9 +33,7 @@ def _make_df_system7(pass_setup: bool = True) -> pd.DataFrame:
     min50 = [96.0, 96.0]  # latest low (95) <= min50 (96) -> setup True
     close = [101.0, 96.5]
     atr50 = [2.5, 2.6]
-    df = pd.DataFrame(
-        {"Low": low, "min_50": min50, "Close": close, "ATR50": atr50}, index=dates
-    )
+    df = pd.DataFrame({"Low": low, "min_50": min50, "Close": close, "ATR50": atr50}, index=dates)
     if pass_setup:
         df["setup"] = df["Low"] <= df["min_50"]
     return df
@@ -55,11 +49,7 @@ def _make_df_system3(pass_setup: bool = True) -> pd.DataFrame:
     }
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
-        df["filter"] = (
-            (df["Close"] >= 5.0)
-            & (df["dollarvolume20"] > 25_000_000)
-            & (df["atr_ratio"] >= 0.05)
-        )
+        df["filter"] = (df["Close"] >= 5.0) & (df["dollarvolume20"] > 25_000_000) & (df["atr_ratio"] >= 0.05)
         df["setup"] = df["filter"] & (df["drop3d"] >= 0.125)
     return df
 
@@ -90,18 +80,14 @@ def _make_df_system5(pass_setup: bool = True) -> pd.DataFrame:
     }
     df = pd.DataFrame(data, index=dates)
     if pass_setup:
-        df["filter"] = (
-            (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
-        )
+        df["filter"] = (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
         df["setup"] = df["filter"]
     return df
 
 
 def test_system2_diagnostics_latest_only_shape():
     prepared = {"AAA": _make_df_system2(pass_setup=True)}
-    result = generate_candidates_system2(
-        prepared, latest_only=True, include_diagnostics=True, top_n=5
-    )
+    result = generate_candidates_system2(prepared, latest_only=True, include_diagnostics=True, top_n=5)
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
     else:
@@ -127,9 +113,7 @@ def test_system2_diagnostics_latest_only_shape():
 
 def test_system7_diagnostics_latest_only_shape():
     prepared = {"SPY": _make_df_system7(pass_setup=True)}
-    result = generate_candidates_system7(
-        prepared, latest_only=True, include_diagnostics=True, top_n=1
-    )
+    result = generate_candidates_system7(prepared, latest_only=True, include_diagnostics=True, top_n=1)
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
     else:
@@ -152,9 +136,7 @@ def test_system7_diagnostics_latest_only_shape():
 
 def test_system3_diagnostics_latest_only_shape():
     prepared = {"AAA": _make_df_system3(pass_setup=True)}
-    result = generate_candidates_system3(
-        prepared, latest_only=True, include_diagnostics=True, top_n=5
-    )
+    result = generate_candidates_system3(prepared, latest_only=True, include_diagnostics=True, top_n=5)
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
     else:
@@ -177,9 +159,7 @@ def test_system3_diagnostics_latest_only_shape():
 
 def test_system4_diagnostics_latest_only_shape():
     prepared = {"BBB": _make_df_system4(pass_setup=True)}
-    result = generate_candidates_system4(
-        prepared, latest_only=True, include_diagnostics=True, top_n=5
-    )
+    result = generate_candidates_system4(prepared, latest_only=True, include_diagnostics=True, top_n=5)
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
     else:
@@ -202,9 +182,7 @@ def test_system4_diagnostics_latest_only_shape():
 
 def test_system5_diagnostics_latest_only_shape():
     prepared = {"CCC": _make_df_system5(pass_setup=True)}
-    result = generate_candidates_system5(
-        prepared, latest_only=True, include_diagnostics=True, top_n=5
-    )
+    result = generate_candidates_system5(prepared, latest_only=True, include_diagnostics=True, top_n=5)
     if isinstance(result, tuple) and len(result) == 3:
         by_date, merged, diag = result
     else:

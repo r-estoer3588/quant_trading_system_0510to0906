@@ -55,9 +55,7 @@ def run_benchmark() -> Optional[Dict]:
     return data
 
 
-def compare_with_baseline(
-    current: Dict, baseline: Dict, threshold: float = 0.10
-) -> List[Dict]:
+def compare_with_baseline(current: Dict, baseline: Dict, threshold: float = 0.10) -> List[Dict]:
     """ベースラインと比較（デフォルト10%以上の劣化を検出）"""
     regressions = []
 
@@ -161,13 +159,7 @@ def save_benchmark(data: Dict):
 
     # Git commit 取得（失敗しても続行）
     try:
-        git_commit = (
-            subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .strip()
-        )
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
         git_commit = "unknown"
 
@@ -193,9 +185,7 @@ def main():
         default=0.10,
         help="許容する劣化率（デフォルト: 0.10 = 10%%）",
     )
-    parser.add_argument(
-        "--skip-interactive", action="store_true", help="対話的確認をスキップ"
-    )
+    parser.add_argument("--skip-interactive", action="store_true", help="対話的確認をスキップ")
     args = parser.parse_args()
 
     # ベンチマーク実行
@@ -213,18 +203,12 @@ def main():
         regressions = compare_with_baseline(current, baseline, threshold=args.threshold)
 
         if regressions:
-            print(
-                f"⚠️  Performance regressions detected (>{args.threshold:.0%} slower):\n"
-            )
+            print(f"⚠️  Performance regressions detected (>{args.threshold:.0%} slower):\n")
             for reg in regressions:
                 print(f"  • {reg['phase']}: {reg['regression_pct']:+.1%} slower")
-                print(
-                    f"    Baseline: {reg['baseline']:.2f}s → Current: {reg['current']:.2f}s"
-                )
+                print(f"    Baseline: {reg['baseline']:.2f}s → Current: {reg['current']:.2f}s")
 
-            print(
-                f"\n❌ Performance degraded by >{args.threshold:.0%}. Review changes."
-            )
+            print(f"\n❌ Performance degraded by >{args.threshold:.0%}. Review changes.")
 
             if not args.skip_interactive:
                 response = input("\nContinue anyway? (y/N): ")
@@ -233,9 +217,7 @@ def main():
             else:
                 return 1
         else:
-            print(
-                f"✅ No performance regressions detected (threshold: {args.threshold:.0%})"
-            )
+            print(f"✅ No performance regressions detected (threshold: {args.threshold:.0%})")
     else:
         print("ℹ️  No baseline available (need 3+ historical runs)")
         print("   This run will be used as baseline for future comparisons.")

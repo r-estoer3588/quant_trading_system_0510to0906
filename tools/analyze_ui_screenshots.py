@@ -35,7 +35,9 @@ def extract_timestamp_from_filename(filename: str) -> str | None:
         ms_str = match.group(3)  # 856
 
         # Format: YYYY-MM-DD HH:MM:SS.mmm
-        formatted = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}.{ms_str}"
+        formatted = (
+            f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}.{ms_str}"
+        )
         return formatted
     return None
 
@@ -155,9 +157,7 @@ def analyze_screenshot(image_path: Path) -> dict[str, Any]:
             "ocr_text_sample": text_data.get("raw_text", "")[:100],
         }
 
-        print(
-            f"✅ {image_path.name}: {progress_percentage}% | {text_data.get('system_name', '?')}"
-        )
+        print(f"✅ {image_path.name}: {progress_percentage}% | {text_data.get('system_name', '?')}")
 
         return result
 
@@ -226,15 +226,9 @@ def main():
     print(f"📊 結果: {output_file}")
 
     # サマリー表示
-    valid_progress = [
-        r["progress_percentage"]
-        for r in results
-        if r.get("progress_percentage") is not None
-    ]
+    valid_progress = [r["progress_percentage"] for r in results if r.get("progress_percentage") is not None]
     if valid_progress:
-        print(
-            f"📈 進捗バー範囲: {min(valid_progress):.1f}% ～ {max(valid_progress):.1f}%"
-        )
+        print(f"📈 進捗バー範囲: {min(valid_progress):.1f}% ～ {max(valid_progress):.1f}%")
 
 
 if __name__ == "__main__":

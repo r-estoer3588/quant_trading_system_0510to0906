@@ -46,10 +46,7 @@ def parse_screenshot_timestamp(filename: str) -> datetime | None:
     if match:
         date_str = match.group(1)
         time_str = match.group(2)
-        dt_str = (
-            f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} "
-            f"{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
-        )
+        dt_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
         return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
     return None
 
@@ -89,9 +86,7 @@ def analyze_sync():
     print(f"📋 JSONLイベント: {len(events)} 件")
 
     # system_start/complete イベントのみ抽出
-    system_events = [
-        e for e in events if e.get("event_type") in ["system_start", "system_complete"]
-    ]
+    system_events = [e for e in events if e.get("event_type") in ["system_start", "system_complete"]]
     print(f"   うちsystem関連: {len(system_events)} 件\n")
 
     # スクショ一覧取得
@@ -136,13 +131,8 @@ def analyze_sync():
     print("-" * 80)
 
     for r in sync_results[:20]:  # 最初の20件を表示
-        cand_str = (
-            str(r.get("candidates", "-")) if r.get("candidates") is not None else "-"
-        )
-        print(
-            f"{r['screenshot_time']:<10} {r['screenshot']:<35} "
-            f"{r['event_type']:<18} {r['system']:<8} {cand_str:<6}"
-        )
+        cand_str = str(r.get("candidates", "-")) if r.get("candidates") is not None else "-"
+        print(f"{r['screenshot_time']:<10} {r['screenshot']:<35} {r['event_type']:<18} {r['system']:<8} {cand_str:<6}")
 
     if len(sync_results) > 20:
         print(f"\n   ... 他 {len(sync_results) - 20} 件\n")
@@ -207,9 +197,7 @@ def analyze_sync():
             return best
 
         lines.append("## 代表スクリーンショット（各Systemの開始/完了 近傍）\n")
-        lines.append(
-            "| System | Start Event | Start SS | " "Complete Event | Complete SS |\n"
-        )
+        lines.append("| System | Start Event | Start SS | Complete Event | Complete SS |\n")
         lines.append("|---|---|---|---|---|\n")
 
         def _find_evt(evt_type: str, sys_name: str) -> dict | None:
@@ -217,8 +205,7 @@ def analyze_sync():
                 (
                     e
                     for e in system_events
-                    if e.get("event_type") == evt_type
-                    and e.get("data", {}).get("system") == sys_name
+                    if e.get("event_type") == evt_type and e.get("data", {}).get("system") == sys_name
                 ),
                 None,
             )
@@ -241,9 +228,7 @@ def analyze_sync():
             cm_evt = cm_e.get("timestamp") if cm_e else "-"
             st_link = f"![{st_ss.name}](./{st_ss.name})" if st_ss else "-"
             cm_link = f"![{cm_ss.name}](./{cm_ss.name})" if cm_ss else "-"
-            lines.append(
-                f"| {sys_name} | {st_evt} | {st_link} | " f"{cm_evt} | {cm_link} |\n"
-            )
+            lines.append(f"| {sys_name} | {st_evt} | {st_link} | {cm_evt} | {cm_link} |\n")
 
         # overall start/end を推定
         def _ev_time(e: dict | None) -> datetime | None:
@@ -252,11 +237,7 @@ def analyze_sync():
             return _to_dt(e.get("timestamp"))
 
         ev_phase4 = next(
-            (
-                e
-                for e in events
-                if e.get("event_type") == "phase4_signal_generation_start"
-            ),
+            (e for e in events if e.get("event_type") == "phase4_signal_generation_start"),
             None,
         )
         overall_start = _ev_time(ev_phase4)
@@ -272,24 +253,14 @@ def analyze_sync():
             None,
         )
         ev_ui_wrap = next(
-            (
-                e
-                for e in reversed(events)
-                if e.get("event_type") == "phase_ui_wrapper_complete"
-            ),
+            (e for e in reversed(events) if e.get("event_type") == "phase_ui_wrapper_complete"),
             None,
         )
         ev_alloc_done = next(
-            (
-                e
-                for e in reversed(events)
-                if e.get("event_type") == "phase5_allocation_complete"
-            ),
+            (e for e in reversed(events) if e.get("event_type") == "phase5_allocation_complete"),
             None,
         )
-        overall_end = (
-            _ev_time(ev_pipeline) or _ev_time(ev_ui_wrap) or _ev_time(ev_alloc_done)
-        )
+        overall_end = _ev_time(ev_pipeline) or _ev_time(ev_ui_wrap) or _ev_time(ev_alloc_done)
 
         # per-system start/end/candidates (+ 代表スクショ名)
         per_system: dict[str, dict] = {}
@@ -336,8 +307,8 @@ def analyze_sync():
         for sys_name in systems:
             info = per_system.get(sys_name, {})
             lines.append(
-                f"| {sys_name} | {info.get('start','-')} | {info.get('end','-')} | "
-                f"{info.get('duration_sec','-')} | {info.get('candidates','-')} |\n"
+                f"| {sys_name} | {info.get('start', '-')} | {info.get('end', '-')} | "
+                f"{info.get('duration_sec', '-')} | {info.get('candidates', '-')} |\n"
             )
 
         # ===== 3点同期: 診断スナップショットを探索し、JSONL候補数と突き合わせ =====
@@ -379,9 +350,7 @@ def analyze_sync():
                     continue
                 exp0 = data0.get("export_date")
                 try:
-                    exp_dt0 = (
-                        datetime.fromisoformat(exp0) if isinstance(exp0, str) else None
-                    )
+                    exp_dt0 = datetime.fromisoformat(exp0) if isinstance(exp0, str) else None
                 except Exception:
                     exp_dt0 = None
                 if exp_dt0 and exp_dt0.date() == overall_end.date():
@@ -394,17 +363,13 @@ def analyze_sync():
                     continue
                 exp = data.get("export_date")
                 try:
-                    exp_dt = (
-                        datetime.fromisoformat(exp) if isinstance(exp, str) else None
-                    )
+                    exp_dt = datetime.fromisoformat(exp) if isinstance(exp, str) else None
                 except Exception:
                     exp_dt = None
                 if exp_dt is None:
                     continue
                 delta = abs((exp_dt - overall_end).total_seconds())
-                if delta <= window.total_seconds() and (
-                    best_dt_diff is None or delta < best_dt_diff
-                ):
+                if delta <= window.total_seconds() and (best_dt_diff is None or delta < best_dt_diff):
                     best_dt_diff = delta
                     chosen_diag_path = diag_file
                     chosen_diag = data
@@ -478,17 +443,13 @@ def analyze_sync():
             "overall_end": overall_end.isoformat() if overall_end else None,
             "allocation_total_candidates": alloc_total,
             "sum_jsonl_candidates": sum_jsonl,
-            "sum_jsonl_vs_alloc_match": (
-                (alloc_total == sum_jsonl) if isinstance(alloc_total, int) else None
-            ),
+            "sum_jsonl_vs_alloc_match": ((alloc_total == sum_jsonl) if isinstance(alloc_total, int) else None),
             "systems": tri_rows,
             "generated_at": datetime.now().isoformat(),
         }
 
         tri_path = md_path.parent / "tri_sync_report.json"
-        tri_path.write_text(
-            json.dumps(tri_report, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        tri_path.write_text(json.dumps(tri_report, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # Markdown: 3点同期セクションを追記
         lines.append("\n## 3点同期チェック（JSONL × 診断 × スクショ代表）\n")
@@ -503,17 +464,14 @@ def analyze_sync():
                 f"sum(jsonl per-system): {sum_jsonl}"
                 f" → {'一致' if alloc_total == sum_jsonl else '不一致'}\n"
             )
-        lines.append(
-            "\n| System | JSONL candidates | Diagnostics ranked_top_n | "
-            "status | start SS | complete SS |\n"
-        )
+        lines.append("\n| System | JSONL candidates | Diagnostics ranked_top_n | status | start SS | complete SS |\n")
         lines.append("|---|---:|---:|---|---|---|\n")
         for r in tri_rows:
             lines.append(
-                f"| {r['system']} | {r.get('jsonl_candidates','-')} | "
-                f"{r.get('diagnostics_ranked_top_n','-')} | "
-                f"{r.get('status','-')} | {r.get('start_ss','-')} | "
-                f"{r.get('complete_ss','-')} |\n"
+                f"| {r['system']} | {r.get('jsonl_candidates', '-')} | "
+                f"{r.get('diagnostics_ranked_top_n', '-')} | "
+                f"{r.get('status', '-')} | {r.get('start_ss', '-')} | "
+                f"{r.get('complete_ss', '-')} |\n"
             )
 
         # 末尾にJSONリンク
@@ -534,17 +492,13 @@ def analyze_sync():
                 "start": overall_start.isoformat() if overall_start else None,
                 "end": overall_end.isoformat() if overall_end else None,
                 "duration_sec": (
-                    int((overall_end - overall_start).total_seconds())
-                    if (overall_start and overall_end)
-                    else None
+                    int((overall_end - overall_start).total_seconds()) if (overall_start and overall_end) else None
                 ),
             },
             "systems": per_system,
         }
         summary_path = md_path.parent / "sync_summary.json"
-        summary_path.write_text(
-            json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"🧾 サマリーJSON: {summary_path}")
     except Exception as e:
         print(f"⚠️ Markdownレポート生成に失敗: {e}")

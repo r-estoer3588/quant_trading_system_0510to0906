@@ -63,9 +63,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
         else:
             # フォールバック（通常は実行されない）
             metrics.record_metric("system6_fallback_atr10", 1, "count")
-            x["atr10"] = AverageTrueRange(
-                x["High"], x["Low"], x["Close"], window=10
-            ).average_true_range()
+            x["atr10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
 
         # DollarVolume50
         if "DollarVolume50" in df.columns:
@@ -95,9 +93,7 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
         else:
             # フォールバック（通常は実行されない）
             metrics.record_metric("system6_fallback_uptwodays", 1, "count")
-            x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-                x["Close"].shift(1) > x["Close"].shift(2)
-            )
+            x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
 
         # フィルターとセットアップ条件（軽量な論理演算）
         x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
@@ -209,17 +205,13 @@ def generate_candidates_system6(
         missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
         if missing_cols:
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}"
-                )
+                log_callback(f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}")
             skipped += 1
             skipped_missing_cols += 1
             continue
         if df[SYSTEM6_NUMERIC_COLUMNS].isnull().any().any():
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）"
-                )
+                log_callback(f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）")
 
         # last_price（直近終値）を取得
         last_price = None
@@ -263,8 +255,7 @@ def generate_candidates_system6(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
+                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,
@@ -287,12 +278,8 @@ def generate_candidates_system6(
             batch_duration = time.time() - batch_start
             if batch_duration > 0:
                 rows_per_second = len(buffer) / batch_duration
-                metrics.record_metric(
-                    "system6_candidates_batch_duration", batch_duration, "seconds"
-                )
-                metrics.record_metric(
-                    "system6_candidates_rows_per_second", rows_per_second, "rate"
-                )
+                metrics.record_metric("system6_candidates_batch_duration", batch_duration, "seconds")
+                metrics.record_metric("system6_candidates_rows_per_second", rows_per_second, "rate")
 
             batch_start = time.time()
             buffer.clear()
@@ -326,9 +313,7 @@ def generate_candidates_system6(
             pass
 
     # 最終メトリクス記録
-    total_candidates = sum(
-        len(candidates) for candidates in candidates_by_date.values()
-    )
+    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
     unique_dates = len(candidates_by_date)
     metrics.record_metric("system6_total_candidates", total_candidates, "count")
     metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
@@ -337,8 +322,7 @@ def generate_candidates_system6(
     if log_callback:
         try:
             log_callback(
-                f"📊 System6 候補生成完了: {total_candidates}件の候補 "
-                f"({unique_dates}日分, {processed}シンボル処理)"
+                f"📊 System6 候補生成完了: {total_candidates}件の候補 ({unique_dates}日分, {processed}シンボル処理)"
             )
         except Exception:
             pass

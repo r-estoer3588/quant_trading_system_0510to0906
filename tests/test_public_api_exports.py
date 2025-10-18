@@ -64,11 +64,7 @@ EXACT_ALLOWLIST = {"tr", "safe_filename", "extract_zero_reason_from_logs"}
 
 
 def test_no_unexpected_new_callables():
-    public_callables = {
-        name
-        for name, obj in vars(uic).items()
-        if callable(obj) and not name.startswith("_")
-    }
+    public_callables = {name for name, obj in vars(uic).items() if callable(obj) and not name.startswith("_")}
     filtered = {
         n
         for n in public_callables
@@ -117,11 +113,7 @@ def test_callable_prefix_classification():
                 categories[p].append(name)
                 matched = True
                 break
-        if (
-            not matched
-            and name not in EXPECTED_EXPORTS
-            and name not in INTERNAL_SHOULD_NOT_EXPORT
-        ):
+        if not matched and name not in EXPECTED_EXPORTS and name not in INTERNAL_SHOULD_NOT_EXPORT:
             if name not in EXACT_ALLOWLIST:
                 uncategorized.append(name)
     # 情報出力
@@ -130,6 +122,4 @@ def test_callable_prefix_classification():
         if items:
             print(f"  {p}: {len(items)}")
     if uncategorized:
-        print(
-            f"[INFO] 未分類 callable: {sorted(uncategorized)[:15]} ... (total {len(uncategorized)})"
-        )
+        print(f"[INFO] 未分類 callable: {sorted(uncategorized)[:15]} ... (total {len(uncategorized)})")

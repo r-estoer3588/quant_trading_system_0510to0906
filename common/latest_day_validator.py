@@ -271,7 +271,7 @@ def validate_latest_trading_day(
     if tolerance_days:
         try:
             base_date = pd.Timestamp(expected_date).date()
-            msg = f"ℹ️ 許容遅延: 過去 {int(tolerance_days)} 営業日までを有効とみなしています " f"(基準日: {base_date})"
+            msg = f"ℹ️ 許容遅延: 過去 {int(tolerance_days)} 営業日までを有効とみなしています (基準日: {base_date})"
             _log(msg)
         except Exception:
             pass

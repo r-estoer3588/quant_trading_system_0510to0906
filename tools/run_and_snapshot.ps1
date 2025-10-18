@@ -85,13 +85,13 @@ with sync_playwright() as p:
         Start-Sleep -Seconds 3  # Inspector の起動を待つ
     }
 
-    Write-Host "=== Step 1: Clicking '▶ 本日のシグナル実行' and capturing screenshot ===" -ForegroundColor Cyan
+    Write-Host "=== Step 1: Clicking '本日のシグナル実行' and capturing screenshot ===" -ForegroundColor Cyan
 
     $CaptureArgs = @(
         "tools/capture_ui_screenshot.py",
         "--url", $Url,
         "--output", "results_images/today_signals_complete.png",
-        "--click-button", "▶ 本日のシグナル実行",
+        "--click-button", "本日のシグナル実行",
         "--wait-after-click", $WaitAfterClick
     )
 
@@ -103,6 +103,12 @@ with sync_playwright() as p:
     }
     if (-not $NoWaitResults.IsPresent) {
         $CaptureArgs += "--wait-results"
+        # Wait until UI progress reaches >=87% to avoid capturing intermediate loading screens
+        $CaptureArgs += "--wait-progress-pct"
+        $CaptureArgs += "87"
+        # Also explicitly wait for the app's completion marker text to appear
+        $CaptureArgs += "--wait-text"
+        $CaptureArgs += "本日のシグナル実行完了"
     }
 
     if ($ShowBrowser) {

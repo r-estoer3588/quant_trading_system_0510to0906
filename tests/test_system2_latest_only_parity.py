@@ -5,9 +5,7 @@ import pandas as pd
 from core.system2 import generate_candidates_system2
 
 
-def _make_prepared(
-    symbol: str, dates: pd.DatetimeIndex, adx_vals: list[float]
-) -> pd.DataFrame:
+def _make_prepared(symbol: str, dates: pd.DatetimeIndex, adx_vals: list[float]) -> pd.DataFrame:
     assert len(dates) == len(adx_vals)
     return pd.DataFrame(
         {
@@ -33,18 +31,12 @@ def test_system2_latest_only_parity_latest_day():
     }
 
     top_n = 3
-    fast_by_date, fast_df = generate_candidates_system2(
-        prepared, top_n=top_n, latest_only=True
-    )
+    fast_by_date, fast_df = generate_candidates_system2(prepared, top_n=top_n, latest_only=True)
     assert fast_df is not None
-    full_by_date, full_df = generate_candidates_system2(
-        prepared, top_n=top_n, latest_only=False
-    )
+    full_by_date, full_df = generate_candidates_system2(prepared, top_n=top_n, latest_only=False)
     assert full_df is not None and latest in full_by_date
 
-    fast_syms = list(
-        fast_df[fast_df["date"] == latest]["symbol"]
-    )  # ranking desc by adx7
+    fast_syms = list(fast_df[fast_df["date"] == latest]["symbol"])  # ranking desc by adx7
     # full_by_date は {date: {symbol: payload}} 正規化済み
     full_syms = list(full_by_date[latest].keys())
     expected = ["AAA", "BBB", "CCC"]  # 40 > 30 > 25

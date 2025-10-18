@@ -160,20 +160,14 @@ def generate_all_docs(output_dir: Path):
         if generate_module_doc(module_name, output_path):
             success_count += 1
 
-    print(
-        f"\n📊 結果: {success_count}/{total_count} モジュールのドキュメントを生成しました"
-    )
+    print(f"\n📊 結果: {success_count}/{total_count} モジュールのドキュメントを生成しました")
 
 
 def main():
     parser = argparse.ArgumentParser(description="API ドキュメント自動生成")
-    parser.add_argument(
-        "--module", type=str, help="生成対象のモジュール名（例: core.system1）"
-    )
+    parser.add_argument("--module", type=str, help="生成対象のモジュール名（例: core.system1）")
     parser.add_argument("--output", type=Path, help="出力ファイルパス")
-    parser.add_argument(
-        "--all", action="store_true", help="全モジュールのドキュメントを生成"
-    )
+    parser.add_argument("--all", action="store_true", help="全モジュールのドキュメントを生成")
     parser.add_argument(
         "--output-dir",
         type=Path,

@@ -115,9 +115,7 @@ def clean_date_column(df: pd.DataFrame, col_name: str = "Date") -> pd.DataFrame:
     return df
 
 
-def default_log_callback(
-    processed: int, total: int, start_time: float, prefix: str = "📊 状況"
-) -> str:
+def default_log_callback(processed: int, total: int, start_time: float, prefix: str = "📊 状況") -> str:
     elapsed = time.time() - start_time
     remain = (elapsed / processed) * (total - processed) if processed else 0
     return (
@@ -144,9 +142,7 @@ def _load_symbol_cached(
     戻り値は (symbol, DataFrame|None)
     """
     try:
-        df = load_base_cache(
-            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
         if df is not None and not df.empty:
             return symbol, df
     except Exception:
@@ -156,9 +152,7 @@ def _load_symbol_cached(
     return symbol, None
 
 
-def load_symbol(
-    symbol: str, cache_dir: str = "data_cache"
-) -> tuple[str, pd.DataFrame | None]:
+def load_symbol(symbol: str, cache_dir: str = "data_cache") -> tuple[str, pd.DataFrame | None]:
     base_path = str(base_cache_path(symbol))
     raw_path = os.path.join(cache_dir, f"{safe_filename(symbol)}.csv")
     return _load_symbol_cached(
@@ -226,11 +220,7 @@ def fetch_data(
                     start_time,
                     prefix="データ取得",
                     batch=50,
-                    log_func=(
-                        (lambda msg: (log_area.text(msg), None)[1])
-                        if hasattr(log_area, "text")
-                        else None
-                    ),
+                    log_func=((lambda msg: (log_area.text(msg), None)[1]) if hasattr(log_area, "text") else None),
                     progress_func=(
                         (lambda val: (progress_bar.progress(val), None)[1])
                         if hasattr(progress_bar, "progress")
@@ -283,9 +273,7 @@ def prepare_backtest_data(
     if use_process_pool:
         data_dict = None
     else:
-        data_dict = fetch_data(
-            symbols, ui_manager=ui_manager, enable_debug_logs=enable_debug_logs
-        )
+        data_dict = fetch_data(symbols, ui_manager=ui_manager, enable_debug_logs=enable_debug_logs)
         if not data_dict:
             st.error(tr("no valid data"))
             return None, None, None
@@ -438,11 +426,7 @@ def run_backtest_with_logging(
         progress = bt_phase.progress_bar
         log_area = bt_phase.log_area
         # 資金推移は最新行のみ、エクスパンダーは使わず単一プレースホルダに出力
-        fund_log_area = (
-            bt_phase.fund_log_area
-            if hasattr(bt_phase, "fund_log_area")
-            else bt_phase.container.empty()
-        )
+        fund_log_area = bt_phase.fund_log_area if hasattr(bt_phase, "fund_log_area") else bt_phase.container.empty()
         try:
             bt_phase.fund_log_area = fund_log_area
         except Exception:
@@ -486,16 +470,8 @@ def run_backtest_with_logging(
             total,
             start,
             prefix="bt",
-            log_func=(
-                (lambda msg: (log_area.text(msg), None)[1])
-                if hasattr(log_area, "text")
-                else None
-            ),
-            progress_func=(
-                (lambda val: (progress.progress(val), None)[1])
-                if hasattr(progress, "progress")
-                else None
-            ),
+            log_func=((lambda msg: (log_area.text(msg), None)[1]) if hasattr(log_area, "text") else None),
+            progress_func=((lambda val: (progress.progress(val), None)[1]) if hasattr(progress, "progress") else None),
             unit="days",
         ),
         on_log=lambda msg: handle_log(msg),
@@ -569,9 +545,7 @@ def run_backtest_app(
         )
         # 普通株 全銘柄を一括利用するオプション（制限数入力を無視する）
         all_common_key = f"{system_name}_use_all_common"
-        st.checkbox(
-            tr("use full common stocks universe"), value=True, key=all_common_key
-        )
+        st.checkbox(tr("use full common stocks universe"), value=True, key=all_common_key)
         # Fast Preview / 挙動確認モード (MVP)
         fast_key = f"{system_name}_fast_mode"
         if fast_key not in st.session_state:
@@ -579,11 +553,7 @@ def run_backtest_app(
         from common.i18n import get_language as _get_lang  # 遅延 import
 
         st.checkbox(
-            (
-                "Fast Preview Mode"
-                if _get_lang() == "en"
-                else tr("fast preview mode (mvp)")
-            ),
+            ("Fast Preview Mode" if _get_lang() == "en" else tr("fast preview mode (mvp)")),
             key=fast_key,
             help=(
                 "Skip heavy indicators & shorten lookback (~120d) for quicker approximate preview"
@@ -661,11 +631,7 @@ def run_backtest_app(
                 if sizes:
                     target_min = max_allowed * 0.95
                     target_max = max_allowed * 1.05
-                    filt = [
-                        d
-                        for s, d in zip(sizes, durations)
-                        if target_min <= s <= target_max and d > 0
-                    ]
+                    filt = [d for s, d in zip(sizes, durations) if target_min <= s <= target_max and d > 0]
                     if len(filt) >= 3:
                         filt.sort()
                         p25 = filt[max(0, math.floor(len(filt) * 0.25) - 1)]
@@ -727,9 +693,7 @@ def run_backtest_app(
             try:
                 import os as _os
 
-                if not (
-                    _os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")
-                ):
+                if not (_os.getenv("DISCORD_WEBHOOK_URL") or _os.getenv("SLACK_BOT_TOKEN")):
                     st.caption(tr("Webhook/Bot 設定が未設定です（.env を確認）"))
             except Exception:
                 pass
@@ -743,16 +707,11 @@ def run_backtest_app(
     key_merged = f"{system_name}_merged_df"
     key_debug = f"{system_name}_debug_logs"
 
-    has_prev = any(
-        k in st.session_state
-        for k in [key_results, key_cands, f"{system_name}_capital_saved"]
-    )
+    has_prev = any(k in st.session_state for k in [key_results, key_cands, f"{system_name}_capital_saved"])
     if has_prev:
         with st.expander("前回の結果（リランでも保持）", expanded=False):
             prev_res = st.session_state.get(key_results)
-            prev_cap = st.session_state.get(
-                key_capital_saved, st.session_state.get(key_capital, 0)
-            )
+            prev_cap = st.session_state.get(key_capital_saved, st.session_state.get(key_capital, 0))
             if prev_res is not None and getattr(prev_res, "empty", False) is False:
                 show_results(prev_res, prev_cap, system_name, key_context="prev")
             dbg = st.session_state.get(key_debug)
@@ -806,9 +765,7 @@ def run_backtest_app(
             if _get_lang2() == "en":
                 mode_caption_placeholder.caption("Mode: Fast Preview (approximate)")
             else:
-                mode_caption_placeholder.caption(
-                    tr("fast preview mode enabled (approximate results)")
-                )
+                mode_caption_placeholder.caption(tr("fast preview mode enabled (approximate results)"))
         else:
             if _get_lang2() == "en":
                 mode_caption_placeholder.caption("Mode: Normal")
@@ -870,9 +827,7 @@ def run_backtest_app(
                 if use_json:
                     try:
                         settings_local = get_settings(create_dirs=True)
-                        log_dir = (
-                            pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
-                        )
+                        log_dir = pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
                     except Exception:
                         log_dir = pathlib.Path("logs") / "backtest_events"
                     log_dir.mkdir(parents=True, exist_ok=True)
@@ -886,9 +841,7 @@ def run_backtest_app(
                         "status": "running",
                         "exception": None,
                     }
-                    with (log_dir / f"{system_name.lower()}_events.jsonl").open(
-                        "a", encoding="utf-8"
-                    ) as jf:
+                    with (log_dir / f"{system_name.lower()}_events.jsonl").open("a", encoding="utf-8") as jf:
                         jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
             except Exception:
                 pass
@@ -925,9 +878,7 @@ def run_backtest_app(
             # fast_mode 実行後に通常モードでの再実行ボタンを提供
             try:
                 if fast_mode_flag:
-                    if st.button(
-                        tr("re-run in normal mode"), key=f"{system_name}_rerun_normal"
-                    ):
+                    if st.button(tr("re-run in normal mode"), key=f"{system_name}_rerun_normal"):
                         # フラグを False にして再実行。ユーザー操作簡略化。
                         st.session_state[f"{system_name}_fast_mode"] = False
                         rerun = getattr(st, "experimental_rerun", None)
@@ -966,11 +917,7 @@ def run_backtest_app(
                     s = _elapsed % 60
                     trades_cnt = 0
                     try:
-                        if (
-                            results_df is not None
-                            and hasattr(results_df, "empty")
-                            and not results_df.empty
-                        ):
+                        if results_df is not None and hasattr(results_df, "empty") and not results_df.empty:
                             trades_cnt = len(results_df)
                     except Exception:
                         trades_cnt = 0
@@ -1011,10 +958,7 @@ def run_backtest_app(
                     if use_json:
                         try:
                             settings_local = get_settings(create_dirs=True)
-                            log_dir = (
-                                pathlib.Path(settings_local.LOGS_DIR)
-                                / "backtest_events"
-                            )
+                            log_dir = pathlib.Path(settings_local.LOGS_DIR) / "backtest_events"
                         except Exception:
                             log_dir = pathlib.Path("logs") / "backtest_events"
                         log_dir.mkdir(parents=True, exist_ok=True)
@@ -1031,9 +975,7 @@ def run_backtest_app(
                             "status": "success",
                             "exception": None,
                         }
-                        with (log_dir / f"{system_name.lower()}_events.jsonl").open(
-                            "a", encoding="utf-8"
-                        ) as jf:
+                        with (log_dir / f"{system_name.lower()}_events.jsonl").open("a", encoding="utf-8") as jf:
                             jf.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 except Exception:
                     pass
@@ -1085,19 +1027,13 @@ def _export_holding_heatmap_silent(matrix, system_name: str) -> None:
 def summarize_results(results_df: pd.DataFrame, capital: float):
     # 防御: 必須列不足時は空サマリ返却（呼び出し側でinfo表示済）
     required_cols = {"entry_date", "exit_date"}
-    if (
-        results_df is None
-        or results_df.empty
-        or not required_cols.issubset(set(results_df.columns))
-    ):
+    if results_df is None or results_df.empty or not required_cols.issubset(set(results_df.columns)):
         return {
             "trades": 0,
             "total_return": 0.0,
             "win_rate": 0.0,
             "max_dd": 0.0,
-        }, pd.DataFrame(
-            columns=["cumulative_pnl"]
-        )  # type: ignore
+        }, pd.DataFrame(columns=["cumulative_pnl"])  # type: ignore
     df = results_df.copy()
 
     # 日付を確実に日時型に
@@ -1147,11 +1083,7 @@ def show_results(
 ):
     # 追加防御: results_dfが期待列を欠く場合は早期returnでUI崩壊防止
     minimal_cols = {"entry_date", "exit_date"}
-    if (
-        results_df is None
-        or results_df.empty
-        or not minimal_cols.issubset(set(results_df.columns))
-    ):
+    if results_df is None or results_df.empty or not minimal_cols.issubset(set(results_df.columns)):
         st.info(i18n.tr("no trades"))
         return
 
@@ -1236,33 +1168,21 @@ def show_results(
 
     st.subheader(i18n.tr("yearly summary"))
     if len(df2) > 0:
-        yearly = (
-            df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
-        )
+        yearly = df2.groupby(df2["exit_date"].dt.to_period("Y"))["pnl"].sum().reset_index()
         yearly["損益"] = yearly["pnl"].round(2)
         yearly["リターン(%)"] = yearly["pnl"] / (capital if capital else 1) * 100
         yearly = yearly.rename(columns={"exit_date": "年"})
-        st.dataframe(
-            yearly[["年", "損益", "リターン(%)"]].style.format(
-                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
-            )
-        )
+        st.dataframe(yearly[["年", "損益", "リターン(%)"]].style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
     else:
         st.info("トレードデータがありません")
 
     st.subheader(i18n.tr("monthly summary"))
     if len(df2) > 0:
-        monthly = (
-            df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
-        )
+        monthly = df2.groupby(df2["exit_date"].dt.to_period("M"))["pnl"].sum().reset_index()
         monthly["損益"] = monthly["pnl"].round(2)
         monthly["リターン(%)"] = monthly["pnl"] / (capital if capital else 1) * 100
         monthly = monthly.rename(columns={"exit_date": "月"})
-        st.dataframe(
-            monthly[["月", "損益", "リターン(%)"]].style.format(
-                {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
-            )
-        )
+        st.dataframe(monthly[["月", "損益", "リターン(%)"]].style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
     else:
         st.info("トレードデータがありません")
 
@@ -1273,39 +1193,26 @@ def show_results(
         holding_matrix = generate_holding_matrix(df2)
         _export_holding_heatmap_silent(holding_matrix, system_name)
         st.caption(i18n.tr("heatmap generated"))
-        st.session_state[f"{system_name}_heatmap_export_secs"] = round(
-            time.time() - export_start, 3
-        )
+        st.session_state[f"{system_name}_heatmap_export_secs"] = round(time.time() - export_start, 3)
     except Exception as _e:
         # 失敗しても致命的でないため warning のみに留める
         st.warning(f"heatmap export skipped: {_e}")
 
 
-def show_signal_trade_summary(
-    source_df, trades_df, system_name: str, display_name: str | None = None
-):
+def show_signal_trade_summary(source_df, trades_df, system_name: str, display_name: str | None = None):
     if system_name == "System1" and isinstance(source_df, pd.DataFrame):
         signal_counts = source_df["symbol"].value_counts().reset_index()
         signal_counts.columns = ["symbol", "Signal_Count"]
     else:
-        signal_counts = {
-            sym: int(df.get("setup", pd.Series(dtype=int)).sum())
-            for sym, df in (source_df or {}).items()
-        }
-        signal_counts = pd.DataFrame(
-            signal_counts.items(), columns=["symbol", "Signal_Count"]
-        )
+        signal_counts = {sym: int(df.get("setup", pd.Series(dtype=int)).sum()) for sym, df in (source_df or {}).items()}
+        signal_counts = pd.DataFrame(signal_counts.items(), columns=["symbol", "Signal_Count"])
 
     if trades_df is not None and not trades_df.empty:
-        trade_counts = (
-            trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
-        )
+        trade_counts = trades_df.groupby("symbol").size().reset_index(name="Trade_Count")
     else:
         trade_counts = pd.DataFrame(columns=["symbol", "Trade_Count"])
 
-    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(
-        0
-    )
+    summary_df = pd.merge(signal_counts, trade_counts, on="symbol", how="outer").fillna(0)
     summary_df["Signal_Count"] = summary_df["Signal_Count"].astype(int)
     summary_df["Trade_Count"] = summary_df["Trade_Count"].astype(int)
 
@@ -1348,14 +1255,10 @@ def display_roc200_ranking(
         st.info(tr("ランキングデータがありません"))
         return
     df = ranking_df.copy()
-    df["Date"] = (
-        pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
-    )
+    df["Date"] = pd.to_datetime(df["Date"]) if "Date" in df.columns else pd.to_datetime(df.index)
     df = df.reset_index(drop=True)
     if "ROC200_Rank" not in df.columns and "ROC200" in df.columns:
-        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(
-            ascending=False, method="first"
-        )
+        df["ROC200_Rank"] = df.groupby("Date")["ROC200"].rank(ascending=False, method="first")
     if years:
         start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
         df = df[df["Date"] >= start_date]
@@ -1386,9 +1289,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
     os.makedirs(trade_dir, exist_ok=True)
 
     if signal_counts_df is not None and not signal_counts_df.empty:
-        signal_path = os.path.join(
-            sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv"
-        )
+        signal_path = os.path.join(sig_dir, f"{system_name}_signals_{today_str}_{int(capital)}.csv")
         try:
             settings = get_settings(create_dirs=True)
             round_dec = getattr(settings.cache, "round_decimals", None)
@@ -1426,9 +1327,7 @@ def save_signal_and_trade_logs(signal_counts_df, results, system_name, capital):
             st.dataframe(trades_df[cols] if cols else trades_df)
         except Exception:
             pass
-        trade_path = os.path.join(
-            trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv"
-        )
+        trade_path = os.path.join(trade_dir, f"{system_name}_trades_{today_str}_{int(capital)}.csv")
         try:
             try:
                 settings = get_settings(create_dirs=True)
@@ -1526,9 +1425,7 @@ def display_cache_health_dashboard() -> None:
             if st.button("🧹 Rolling Cache Prune実行"):
                 with st.spinner("Prune実行中..."):
                     prune_result = cache_manager.prune_rolling_if_needed()
-                    st.success(
-                        f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理"
-                    )
+                    st.success(f"✅ Prune完了: {prune_result['pruned_files']}ファイル処理")
 
     except Exception as e:
         st.error(f"Cache health dashboard エラー: {str(e)}")
@@ -1608,9 +1505,7 @@ def display_system_cache_coverage() -> None:
         overall_analysis = cache_manager.analyze_rolling_gaps()
 
         # システム別カバレッジ分析
-        coverage_analysis = analyze_system_symbols_coverage(
-            system_symbols_map, overall_analysis
-        )
+        coverage_analysis = analyze_system_symbols_coverage(system_symbols_map, overall_analysis)
 
         # グループ別サマリー表示
         st.write("### 📈 グループ別サマリー")
@@ -1621,9 +1516,7 @@ def display_system_cache_coverage() -> None:
                 group_stats = group_data[group_name]
                 col1, col2, col3, col4 = st.columns(4)
 
-                group_display = (
-                    "Long Systems" if group_name == "long" else "Short Systems"
-                )
+                group_display = "Long Systems" if group_name == "long" else "Short Systems"
                 st.write(f"**{group_display}**")
 
                 with col1:

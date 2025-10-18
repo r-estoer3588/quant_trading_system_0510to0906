@@ -44,13 +44,9 @@ class TestSystem7NormalizationAndDiagnostics:
     def test_normalized_full_dict_construction(self):
         """Test normalized_full dict construction (lines 369-377)."""
         raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=True)
         normalized_dict = result_tuple[0]
 
         # Lines 369-377: normalized_full construction
@@ -62,13 +58,9 @@ class TestSystem7NormalizationAndDiagnostics:
     def test_diagnostics_ranked_top_n_count_full_scan(self):
         """Test ranked_top_n_count in full_scan mode (lines 378-380)."""
         raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=True)
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         # Lines 378-380: diagnostics["ranked_top_n_count"] = len(...)
@@ -80,13 +72,9 @@ class TestSystem7NormalizationAndDiagnostics:
     def test_diagnostics_ranking_source_full_scan(self):
         """Test ranking_source is set to 'full_scan' (line 381)."""
         raw_data = self.create_spy_with_setups(num_dates=5, periods=100)
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=True)
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         # Line 381: diagnostics["ranking_source"] = "full_scan"
@@ -115,13 +103,9 @@ class TestSystem7NormalizationAndDiagnostics:
             index=dates,
         )
         raw_data = {"SPY": df}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=True)
 
         # Lines 374-375: if sym_val != "SPY": continue
         assert isinstance(result_tuple[0], dict)
@@ -146,13 +130,9 @@ class TestSystem7NormalizationAndDiagnostics:
             index=dates,
         )
         raw_data = {"SPY": df}
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
 
-        _ = generate_candidates_system7(
-            prepared_data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        _ = generate_candidates_system7(prepared_data, top_n=3, latest_only=False, include_diagnostics=True)
 
         # Line 382-383: Exception handling for max(normalized_full.keys())
         assert True  # Function executed without crash
@@ -246,9 +226,7 @@ class TestSystem7ProgressCallback:
             nonlocal callback_called
             callback_called = True
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
         _ = generate_candidates_system7(
             prepared_data,
             top_n=3,
@@ -267,9 +245,7 @@ class TestSystem7ProgressCallback:
         def failing_progress_cb(current, total):
             raise ValueError("Simulated callback error")
 
-        prepared_data = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False
-        )
+        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
         _ = generate_candidates_system7(
             prepared_data,
             top_n=3,

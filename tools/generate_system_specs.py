@@ -43,9 +43,7 @@ def extract_system_spec(system_num: int) -> dict:
                 if isinstance(node, ast.FunctionDef):
                     if f"generate_system{system_num}_candidates" in node.name:
                         # 関数のソースコードを抽出（簡易版）
-                        spec["code_snippets"]["generate_candidates"] = (
-                            ast.get_source_segment(f.read(), node)
-                        )
+                        spec["code_snippets"]["generate_candidates"] = ast.get_source_segment(f.read(), node)
 
     # strategy ファイルを解析
     if strategy_file.exists():

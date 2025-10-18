@@ -50,9 +50,7 @@ def test_max70_calculated_when_missing():
 
     # Should be calculated correctly (rolling max of constant 100 should be 100)
     expected_max70 = spy_data["SPY"]["Close"].rolling(window=70).max()
-    pd.testing.assert_series_equal(
-        result["SPY"]["max_70"], expected_max70, check_names=False
-    )
+    pd.testing.assert_series_equal(result["SPY"]["max_70"], expected_max70, check_names=False)
 
 
 def test_max70_preserved_when_present():
@@ -66,9 +64,7 @@ def test_max70_preserved_when_present():
     assert "max_70" in result["SPY"].columns
 
     # Should preserve the original values (110), not recalculate to 100
-    pd.testing.assert_series_equal(
-        result["SPY"]["max_70"], original_max70, check_names=False
-    )
+    pd.testing.assert_series_equal(result["SPY"]["max_70"], original_max70, check_names=False)
 
     # Verify it wasn't recalculated (would be 100 if recalculated)
     assert all(result["SPY"]["max_70"] == 110)

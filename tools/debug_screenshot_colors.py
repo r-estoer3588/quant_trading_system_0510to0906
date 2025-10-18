@@ -41,10 +41,7 @@ def analyze_color_distribution(image_path: Path):
 
     for i, ((r, g, b), count) in enumerate(sorted_colors[:10], 1):
         percent = (count / len(pixels)) * 100
-        print(
-            f"   {i:2d}. RGB({r:3d}, {g:3d}, {b:3d}): "
-            f"{count:6d} px ({percent:5.1f}%)"
-        )
+        print(f"   {i:2d}. RGB({r:3d}, {g:3d}, {b:3d}): {count:6d} px ({percent:5.1f}%)")
 
 
 if __name__ == "__main__":

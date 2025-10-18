@@ -109,19 +109,13 @@ def _classify_reason(
     if not have_expected_in_full:
         return "no_expected_in_full"
 
-    if (
-        full_latest is not None
-        and pd.notna(full_latest)
-        and full_latest > last_rolling_date
-    ):
+    if full_latest is not None and pd.notna(full_latest) and full_latest > last_rolling_date:
         return "full_newer_than_rolling"
 
     return "unknown"
 
 
-def classify_and_report(
-    patch_samples: int = 0, include_derivatives: bool = False
-) -> int:
+def classify_and_report(patch_samples: int = 0, include_derivatives: bool = False) -> int:
     settings = get_settings(create_dirs=True)
     cm = CacheManager(settings)
 
@@ -180,9 +174,7 @@ def classify_and_report(
     # 保存
     out_dir = Path("logs")
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / (
-        f"rolling_latest_day_classified_{expected.strftime('%Y%m%d')}.csv"
-    )
+    out_path = out_dir / (f"rolling_latest_day_classified_{expected.strftime('%Y%m%d')}.csv")
     pd.DataFrame(out_rows).sort_values(["reason", "diff_days", "symbol"]).to_csv(
         out_path, index=False, encoding="utf-8"
     )
@@ -219,15 +211,12 @@ def classify_and_report(
             # 1行DataFrameへ成形
             try:
                 row = {
-                    "date": pd.to_datetime(
-                        data.get("date") or data.get("Date") or expected_str
-                    ),
+                    "date": pd.to_datetime(data.get("date") or data.get("Date") or expected_str),
                     "open": data.get("open") or data.get("Open"),
                     "high": data.get("high") or data.get("High"),
                     "low": data.get("low") or data.get("Low"),
                     "close": data.get("close") or data.get("Close"),
-                    "adjusted_close": data.get("adjusted_close")
-                    or data.get("AdjClose"),
+                    "adjusted_close": data.get("adjusted_close") or data.get("AdjClose"),
                     "volume": data.get("volume") or data.get("Volume"),
                 }
                 df_one = pd.DataFrame([row])

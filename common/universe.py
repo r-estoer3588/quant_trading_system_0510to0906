@@ -119,9 +119,7 @@ def get_all_symbols_from_cache(cache_dir: str | Path | None = None) -> list[str]
     return out
 
 
-def save_universe_from_cache(
-    cache_dir: str | Path | None = None, out_path: str | Path | None = None
-) -> str:
+def save_universe_from_cache(cache_dir: str | Path | None = None, out_path: str | Path | None = None) -> str:
     """
     data_cache フォルダ内の全CSVファイル名（拡張子除く）を universe_auto.txt に保存する。
     """

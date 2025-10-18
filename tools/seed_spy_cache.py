@@ -34,9 +34,7 @@ def _make_synthetic_spy(days: int = 260) -> pd.DataFrame:
 
     # Use business days to align with typical caches
     end = pd.Timestamp.today().normalize()
-    idx = pd.bdate_range(
-        end=end, periods=max(210, int(days))
-    )  # ensure >= 210 for SMA200
+    idx = pd.bdate_range(end=end, periods=max(210, int(days)))  # ensure >= 210 for SMA200
 
     # Build a smooth, positive close series
     t = np.arange(len(idx))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify that trade management is actually integrated into allocation."""
+# ruff: noqa: E402
 
 from pathlib import Path
 import sys
@@ -11,7 +12,19 @@ import pandas as pd
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.final_allocation import finalize_allocation
+from core.final_allocation import (  # noqa: E402
+    finalize_allocation,
+    load_symbol_system_map,
+)
+
+# Import strategies so finalize_allocation has access to per-system sizing funcs
+from strategies.system1_strategy import System1Strategy  # noqa: E402
+from strategies.system2_strategy import System2Strategy  # noqa: E402
+from strategies.system3_strategy import System3Strategy  # noqa: E402
+from strategies.system4_strategy import System4Strategy  # noqa: E402
+from strategies.system5_strategy import System5Strategy  # noqa: E402
+from strategies.system6_strategy import System6Strategy  # noqa: E402
+from strategies.system7_strategy import System7Strategy  # noqa: E402
 
 
 def create_sample_market_data(symbol: str, days: int = 100) -> pd.DataFrame:
@@ -81,6 +94,22 @@ def test_trade_management_integration():
 
     # Test 1: Without trade management
     print("1. Testing WITHOUT trade management:")
+    # Create strategies mapping and symbol_system_map to mirror production callers
+    strategy_objs = [
+        System1Strategy(),
+        System2Strategy(),
+        System3Strategy(),
+        System4Strategy(),
+        System5Strategy(),
+        System6Strategy(),
+        System7Strategy(),
+    ]
+    strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in strategy_objs}
+    try:
+        symbol_system_map = load_symbol_system_map()
+    except Exception:
+        symbol_system_map = {}
+
     final_df_without, summary_without = finalize_allocation(
         per_system,
         long_allocations={"system1": 1.0},
@@ -88,6 +117,8 @@ def test_trade_management_integration():
         slots_long=2,
         slots_short=1,
         include_trade_management=False,
+        strategies=strategies,
+        symbol_system_map=symbol_system_map,
     )
 
     print(f"   Columns WITHOUT trade management: {list(final_df_without.columns)}")
@@ -105,6 +136,8 @@ def test_trade_management_integration():
             market_data_dict=market_data_dict,
             signal_date=signal_date,
             include_trade_management=True,
+            strategies=strategies,
+            symbol_system_map=symbol_system_map,
         )
 
         print(f"   Columns WITH trade management: {list(final_df_with.columns)}")
@@ -182,9 +215,7 @@ def test_trade_management_integration():
         print("\n=== Test Summary ===")
         if found_columns:
             print("✅ Trade management IS integrated!")
-            print(
-                f"   Found {len(found_columns)}/{len(trade_mgmt_columns)} expected columns"
-            )
+            print("   Found " + str(len(found_columns)) + "/" + str(len(trade_mgmt_columns)) + " expected columns")
             if missing_columns:
                 print(f"   Missing: {missing_columns}")
             return True

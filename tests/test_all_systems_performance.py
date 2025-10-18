@@ -90,9 +90,7 @@ def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
         symbol = "".join(random.choices(alphabet, k=length))
         additional_symbols.append(symbol)
 
-    all_symbols = (
-        common_symbols + additional_symbols[: num_symbols - len(common_symbols)]
-    )
+    all_symbols = common_symbols + additional_symbols[: num_symbols - len(common_symbols)]
 
     raw_data = {}
     loaded_count = 0
@@ -100,9 +98,7 @@ def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
     for symbol in all_symbols:
         try:
             df = load_base_cache(symbol, prefer_precomputed_indicators=True)
-            if (
-                df is not None and not df.empty and len(df) > 100
-            ):  # 十分なデータがある場合のみ
+            if df is not None and not df.empty and len(df) > 100:  # 十分なデータがある場合のみ
                 raw_data[symbol] = df
                 loaded_count += 1
                 if loaded_count >= num_symbols:
@@ -114,13 +110,11 @@ def load_sample_data(num_symbols: int = 1000) -> dict[str, Any]:
     return raw_data
 
 
-def test_system_performance(
-    system_class, system_name: str, raw_data: dict[str, Any]
-) -> dict[str, float]:
+def run_system_performance(system_class, system_name: str, raw_data: dict[str, Any]) -> dict[str, float]:
     """個別システムの性能テスト"""
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"🔍 {system_name} 性能テスト開始")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
     strategy = system_class()
     results = {}
@@ -165,9 +159,7 @@ def test_system_performance(
             use_process_pool=True,  # 並列処理
         )
 
-        candidates_parallel = strategy.generate_candidates(
-            prepared_data_parallel, top_n=10
-        )
+        candidates_parallel = strategy.generate_candidates(prepared_data_parallel, top_n=10)
 
         end_time = time.time()
         parallel_time = end_time - start_time
@@ -192,16 +184,10 @@ def test_system_performance(
     if "optimized_parallel" in results:
         print(f"並列処理:       {results['optimized_parallel']:.2f}秒")
 
-        if (
-            "optimized_single" in results
-            and results["optimized_single"] > 0
-            and results["optimized_parallel"] > 0
-        ):
+        if "optimized_single" in results and results["optimized_single"] > 0 and results["optimized_parallel"] > 0:
             speedup = results["optimized_single"] / results["optimized_parallel"]
             print(f"🚀 並列処理効果: {speedup:.1f}x高速化")
-            print(
-                f"💾 時間短縮: {results['optimized_single'] - results['optimized_parallel']:.2f}秒"
-            )
+            print(f"💾 時間短縮: {results['optimized_single'] - results['optimized_parallel']:.2f}秒")
 
     return results
 
@@ -234,7 +220,7 @@ def main():
 
     for system_class, system_name in systems:
         try:
-            results = test_system_performance(system_class, system_name, raw_data)
+            results = run_system_performance(system_class, system_name, raw_data)
             all_results[system_name] = results
         except Exception as e:
             print(f"❌ {system_name}のテストでエラー発生: {e}")
@@ -245,9 +231,7 @@ def main():
     print("📊 全システム性能サマリー")
     print("=" * 80)
 
-    print(
-        f"{'System':<10} {'Single(秒)':<12} {'Parallel(秒)':<13} {'Speedup':<8} {'Status'}"
-    )
+    print(f"{'System':<10} {'Single(秒)':<12} {'Parallel(秒)':<13} {'Speedup':<8} {'Status'}")
     print("-" * 60)
 
     for system_name in [
@@ -280,9 +264,7 @@ def main():
             parallel_str = f"{parallel:.1f}" if parallel > 0 else "N/A"
             speedup_str = f"{speedup:.1f}x" if speedup > 0 else "N/A"
 
-            print(
-                f"{system_name:<10} {single_str:<12} {parallel_str:<13} {speedup_str:<8} {status}"
-            )
+            print(f"{system_name:<10} {single_str:<12} {parallel_str:<13} {speedup_str:<8} {status}")
 
     print("\n🎯 テスト完了！")
 

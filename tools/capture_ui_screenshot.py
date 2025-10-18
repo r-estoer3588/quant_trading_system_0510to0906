@@ -90,7 +90,7 @@ def capture_streamlit_screenshot(
                     try:
                         locator.wait_for(state="visible", timeout=4000)
                         locator.evaluate(
-                            "el => el.scrollIntoView({behavior: 'instant', " "block: 'center', inline: 'center'})"
+                            "el => el.scrollIntoView({behavior: 'instant', block: 'center', inline: 'center'})"
                         )
                         time.sleep(0.2)
                         box = locator.bounding_box()
@@ -183,7 +183,7 @@ def capture_streamlit_screenshot(
                                 continue
 
                     # 最後まで見つからなければ警告
-                    print("Warning: Could not detect Streamlit columns in time; " "proceeding with fallback waits.")
+                    print("Warning: Could not detect Streamlit columns in time; proceeding with fallback waits.")
 
                 wait_for_columns_robust(total_timeout_ms=15000)
 
@@ -207,7 +207,7 @@ def capture_streamlit_screenshot(
                         button.click()
                     except Exception as e_role:
                         # フォールバック: テキスト検索でクリック
-                        print("Primary click failed (" + str(e_role) + "); " "trying text-based fallback...")
+                        print("Primary click failed (" + str(e_role) + "); trying text-based fallback...")
                         fallback = page.get_by_text(click_button, exact=False).first
                         fallback.wait_for(state="visible", timeout=8000)
                         fallback.click()
@@ -367,7 +367,7 @@ def capture_streamlit_screenshot(
                         if wait_progress_pct is not None:
                             pct = _dom_progress_pct()
                             if isinstance(pct, int) and pct >= int(wait_progress_pct):
-                                print(f"Detected progress >= {wait_progress_pct}% " f"(now {pct}%).")
+                                print(f"Detected progress >= {wait_progress_pct}% (now {pct}%).")
                                 waited = True
                                 break
                         # 軽負荷スリープ
@@ -390,7 +390,7 @@ def capture_streamlit_screenshot(
             content_width = int(page.evaluate("document.body.scrollWidth") or 0)
             content_height = int(page.evaluate("document.body.scrollHeight") or 0)
             vp = page.viewport_size or {"width": 1920, "height": 1080}
-            print(f"Content size: {content_width}x{content_height} px " f"(viewport: {vp['width']}x{vp['height']})")
+            print(f"Content size: {content_width}x{content_height} px (viewport: {vp['width']}x{vp['height']})")
 
             # 横方向の見切れ回避: コンテンツ幅がビューポートを超える場合は一時的に拡張
             # 安全上限（ユーザー画面に過度にならない範囲）を設定
@@ -398,7 +398,7 @@ def capture_streamlit_screenshot(
             if content_width and vp and content_width > int(vp.get("width", 1920)):
                 new_width = min(int(content_width), MAX_VIEWPORT_WIDTH)
                 if new_width > vp["width"]:
-                    print("Expanding viewport width: " f"{vp['width']} -> {new_width} " "to avoid horizontal cutoff")
+                    print(f"Expanding viewport width: {vp['width']} -> {new_width} to avoid horizontal cutoff")
                     page.set_viewport_size(
                         {
                             "width": new_width,
@@ -425,7 +425,7 @@ def capture_streamlit_screenshot(
                 if right_edge > viewport_width and viewport_width < MAX_VIEWPORT_WIDTH:
                     new_width = min(int(right_edge) + 40, MAX_VIEWPORT_WIDTH)
                     if new_width > viewport_width:
-                        print("Expanding viewport for System5: " f"{viewport_width} -> {new_width}")
+                        print(f"Expanding viewport for System5: {viewport_width} -> {new_width}")
                         page.set_viewport_size(
                             {
                                 "width": new_width,

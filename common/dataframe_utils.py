@@ -45,12 +45,7 @@ def normalize_date_column(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # NaN日付の除去、ソート、重複除去
-    normalized = (
-        normalized.dropna(subset=["date"])
-        .sort_values("date")
-        .drop_duplicates("date")
-        .reset_index(drop=True)
-    )
+    normalized = normalized.dropna(subset=["date"]).sort_values("date").drop_duplicates("date").reset_index(drop=True)
 
     return normalized
 
@@ -107,9 +102,7 @@ def standardize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def validate_required_columns(
-    df: pd.DataFrame, required_cols: set[str]
-) -> tuple[bool, set[str]]:
+def validate_required_columns(df: pd.DataFrame, required_cols: set[str]) -> tuple[bool, set[str]]:
     """必須列の存在チェック"""
     if df is None or df.empty:
         return False, required_cols
@@ -175,17 +168,13 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     rounded_columns = set()
 
     for ndigits, column_names in rounding_groups.items():
-        cols_to_round = [
-            lowercase_map[name] for name in column_names if name in lowercase_map
-        ]
+        cols_to_round = [lowercase_map[name] for name in column_names if name in lowercase_map]
         for col in cols_to_round:
             result[col] = _safe_round(result[col], ndigits)
         rounded_columns.update(cols_to_round)
 
     # Volume系列の特別処理
-    vol_cols_to_round = [
-        lowercase_map[name] for name in volume_cols if name in lowercase_map
-    ]
+    vol_cols_to_round = [lowercase_map[name] for name in volume_cols if name in lowercase_map]
     for col in vol_cols_to_round:
         try:
             series = pd.to_numeric(result[col], errors="coerce").round(0)

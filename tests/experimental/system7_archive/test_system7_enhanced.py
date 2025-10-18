@@ -66,9 +66,7 @@ class TestSystem7LatestOnlyFastPath:
         """Test latest_only fast-path when setup=True today (lines 206-268)."""
         data = self.create_spy_data_with_setup(setup_today=True)
 
-        result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data, top_n=5, latest_only=True, include_diagnostics=True)
         candidates_dict = result_tuple[0]
         candidates_df = result_tuple[1]
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
@@ -90,9 +88,7 @@ class TestSystem7LatestOnlyFastPath:
         data = self.create_spy_data_with_setup(setup_today=False)
         log_mock = Mock()
 
-        result_tuple = generate_candidates_system7(
-            data, top_n=5, latest_only=True, log_callback=log_mock
-        )
+        result_tuple = generate_candidates_system7(data, top_n=5, latest_only=True, log_callback=log_mock)
         candidates_dict = result_tuple[0]
         candidates_df = result_tuple[1]
 
@@ -110,9 +106,7 @@ class TestSystem7LatestOnlyFastPath:
         data = self.create_spy_data_with_setup(setup_today=True)
         progress_mock = Mock()
 
-        _ = generate_candidates_system7(
-            data, top_n=5, latest_only=True, progress_callback=progress_mock
-        )
+        _ = generate_candidates_system7(data, top_n=5, latest_only=True, progress_callback=progress_mock)
 
         # Progress callback should be called with (1, 1)
         assert progress_mock.call_count == 1
@@ -133,9 +127,7 @@ class TestSystem7LatestOnlyFastPath:
         }
         log_mock = Mock()
 
-        result_tuple = generate_candidates_system7(
-            incomplete_data, top_n=5, latest_only=True, log_callback=log_mock
-        )
+        result_tuple = generate_candidates_system7(incomplete_data, top_n=5, latest_only=True, log_callback=log_mock)
         candidates_dict = result_tuple[0]
 
         # Should fallback to full scan (likely 0 candidates due to missing data)
@@ -191,9 +183,7 @@ class TestSystem7DateModeGrouping:
         """Test full scan with multiple setup dates (lines 318-343)."""
         data = self.create_multi_date_spy_data()
 
-        result_tuple = generate_candidates_system7(
-            data, top_n=3, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data, top_n=3, latest_only=False, include_diagnostics=True)
         candidates_dict = result_tuple[0]
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
@@ -293,11 +283,7 @@ class TestSystem7EdgeCases:
     def test_spy_missing_from_dict(self):
         """Test when SPY is not in prepared data."""
         dates = pd.date_range("2023-01-01", periods=50, freq="D")
-        other_data = {
-            "AAPL": pd.DataFrame(
-                {"Close": [150.0] * 50, "atr50": [3.0] * 50}, index=dates
-            )
-        }
+        other_data = {"AAPL": pd.DataFrame({"Close": [150.0] * 50, "atr50": [3.0] * 50}, index=dates)}
 
         result_tuple = generate_candidates_system7(other_data, top_n=5)
         candidates_dict = result_tuple[0]
@@ -336,9 +322,7 @@ class TestSystem7EdgeCases:
             )
         }
 
-        result_tuple = generate_candidates_system7(
-            spy_data, top_n=5, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(spy_data, top_n=5, include_diagnostics=True)
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         if diagnostics and isinstance(diagnostics, dict):

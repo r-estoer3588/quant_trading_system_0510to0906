@@ -1,29 +1,32 @@
 import time
-from typing import Any
+from typing import Any, Optional, Tuple
 
 import pandas as pd
 
 
 def _compute_entry(
-    strategy,
+    strategy: Any,
     df: pd.DataFrame,
     candidate: dict,
     current_capital: float,
-    side: str | None,
-) -> tuple[float | None, float | None]:
-    """戦略フックを用いたエントリー価格とストップを計算"""
+    side: Optional[str],
+) -> Tuple[Optional[float], Optional[float]]:
+    """Compute entry price and stop loss for a candidate.
+
+    If the strategy exposes ``compute_entry`` use that, otherwise infer a
+    default entry from the candidate index and a simple ATR-based stop.
+    """
     if hasattr(strategy, "compute_entry"):
         try:
             computed = strategy.compute_entry(df, candidate, current_capital)
         except Exception:
             return None, None
-        # Normalize returned values to simple floats or None
         try:
             if not computed:
                 return None, None
             a, b = computed
 
-            def _to_num(x):
+            def _to_num(x: Any) -> Optional[float]:
                 try:
                     return float(x)
                 except Exception:
@@ -38,7 +41,7 @@ def _compute_entry(
 
         entry_idx = cast(int, df.index.get_loc(candidate["entry_date"]))
         entry_price = float(df.iloc[entry_idx]["Open"])
-        atr = float(df.iloc[entry_idx - 1]["ATR20"])
+        atr = float(df.iloc[max(0, entry_idx - 1)]["ATR20"])
         if (side or "long") == "short":
             stop_loss_price = entry_price + 5 * atr
         else:
@@ -49,7 +52,7 @@ def _compute_entry(
 
 
 def _calculate_shares(
-    strategy,
+    strategy: Any,
     capital: float,
     entry_price: float,
     stop_loss_price: float,
@@ -58,25 +61,32 @@ def _calculate_shares(
     max_pct: float,
 ) -> int:
     try:
-        return strategy.calculate_position_size(
-            capital,
-            entry_price,
-            stop_loss_price,
-            risk_pct=risk_pct,
-            max_pct=max_pct,
+        return int(
+            strategy.calculate_position_size(
+                capital,
+                entry_price,
+                stop_loss_price,
+                risk_pct=risk_pct,
+                max_pct=max_pct,
+            )
         )
     except Exception:
         return 0
 
 
 def _compute_exit(
-    strategy,
+    strategy: Any,
     df: pd.DataFrame,
     entry_idx: int,
     entry_price: float,
     stop_loss_price: float,
-    side: str | None,
-) -> tuple[float | None, pd.Timestamp | None]:
+    side: Optional[str],
+) -> Tuple[Optional[float], Optional[pd.Timestamp]]:
+    """Compute exit price and date.
+
+    Prefer strategy.compute_exit if present, otherwise use a trailing-stop
+    scan that returns a price and the index timestamp.
+    """
     if hasattr(strategy, "compute_exit"):
         try:
             exit_calc = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
@@ -85,38 +95,40 @@ def _compute_exit(
         return exit_calc if exit_calc else (None, None)
 
     trail_pct = 0.25
-    exit_price, exit_date = entry_price, df.index[-1]
+    exit_price: float = entry_price
+    exit_date: pd.Timestamp = df.index[-1]
+
     if (side or "long") == "short":
         low_since_entry = entry_price
         for j in range(entry_idx + 1, len(df)):
-            low_since_entry = min(low_since_entry, df["Low"].iloc[j])
+            low_since_entry = min(low_since_entry, float(df["Low"].iloc[j]))
             trailing_stop = low_since_entry * (1 + trail_pct)
-            if df["High"].iloc[j] > stop_loss_price:
+            if float(df["High"].iloc[j]) > stop_loss_price:
                 return stop_loss_price, df.index[j]
-            if df["High"].iloc[j] > trailing_stop:
+            if float(df["High"].iloc[j]) > trailing_stop:
                 return trailing_stop, df.index[j]
     else:
         high_since_entry = entry_price
         for j in range(entry_idx + 1, len(df)):
-            high_since_entry = max(high_since_entry, df["High"].iloc[j])
+            high_since_entry = max(high_since_entry, float(df["High"].iloc[j]))
             trailing_stop = high_since_entry * (1 - trail_pct)
-            if df["Low"].iloc[j] < stop_loss_price:
+            if float(df["Low"].iloc[j]) < stop_loss_price:
                 return stop_loss_price, df.index[j]
-            if df["Low"].iloc[j] < trailing_stop:
+            if float(df["Low"].iloc[j]) < trailing_stop:
                 return trailing_stop, df.index[j]
     return exit_price, exit_date
 
 
 def _compute_pnl(
-    strategy,
+    strategy: Any,
     entry_price: float,
     exit_price: float,
     shares: int,
-    side: str | None,
+    side: Optional[str],
 ) -> float:
     if hasattr(strategy, "compute_pnl"):
         try:
-            return strategy.compute_pnl(entry_price, exit_price, shares)
+            return float(strategy.compute_pnl(entry_price, exit_price, shares))
         except Exception:
             pass
     if (side or "long") == "short":
@@ -128,15 +140,15 @@ def simulate_trades_with_risk(
     candidates_by_date: dict,
     data_dict: dict,
     capital: float,
-    strategy,
+    strategy: Any,
     on_progress=None,
     on_log=None,
     *,
-    side: str | None = None,
-):
-    """
-    複利モード＋保有数ログ＋資金チェック付きバックテスト共通関数
-    戻り値: (trades_df, logs_df)
+    side: Optional[str] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Run a simple position-sized backtest over candidates grouped by date.
+
+    Returns: (trades_df, logs_df)
     """
     results = []
     log_records = []
@@ -146,17 +158,14 @@ def simulate_trades_with_risk(
     total_days = len(candidates_by_date)
     start_time = time.time()
 
-    # --- load optional config from strategy ---
     cfg: dict[str, Any] = getattr(strategy, "config", {}) or {}
     max_positions = int(cfg.get("max_positions", 10))
     risk_pct = float(cfg.get("risk_pct", 0.02))
     max_pct = float(cfg.get("max_pct", 0.10))
 
     for i, (date, candidates) in enumerate(sorted(candidates_by_date.items()), start=1):
-        # 互換性確保: {date: {symbol: payload}} 形式にも対応
         try:
             if isinstance(candidates, dict):
-                # dict-of-dicts -> list-of-dicts へ正規化
                 candidates = [
                     {
                         "symbol": str(sym),
@@ -167,12 +176,12 @@ def simulate_trades_with_risk(
                     if isinstance(sym, str) and sym
                 ]
         except Exception:
-            # 正規化に失敗した場合は元の candidates をそのまま使用（後続でフィルタ）
             pass
-        # --- exit 済みポジションの損益反映 ---
+
+        # update exits
         current_capital, active_positions = strategy.update_capital_with_exits(current_capital, active_positions, date)
 
-        # --- 保有枠チェック ---
+        # filter active positions
         active_positions = [p for p in active_positions if p["exit_date"] >= date]
         available_slots = max(0, max_positions - len(active_positions))
 
@@ -187,11 +196,11 @@ def simulate_trades_with_risk(
                     continue
                 try:
                     entry_idx = df.index.get_loc(c["entry_date"])
-                except KeyError:
+                except Exception:
                     continue
 
                 entry_price, stop_loss_price = _compute_entry(strategy, df, c, current_capital, side)
-                if not entry_price or not stop_loss_price:
+                if entry_price is None or stop_loss_price is None:
                     continue
 
                 shares = _calculate_shares(
@@ -205,7 +214,6 @@ def simulate_trades_with_risk(
                 if shares <= 0:
                     continue
 
-                # --- 資金不足チェック ---
                 if shares * abs(entry_price) > current_capital:
                     continue
 
@@ -224,7 +232,7 @@ def simulate_trades_with_risk(
                         "exit_price": round(exit_price, 2),
                         "shares": int(shares),
                         "pnl": round(pnl, 2),
-                        "return_%": round((pnl / current_capital) * 100, 2),
+                        "return_%": round((pnl / max(1.0, current_capital)) * 100, 2),
                     }
                 )
 
@@ -236,36 +244,23 @@ def simulate_trades_with_risk(
                     }
                 )
 
-        # --- 資金・保有数ログ ---
+        # logging
         log_records.append(
             {
                 "date": date,
-                "capital": round(current_capital, 2),
-                "active_count": len(active_positions),
+                "capital": current_capital,
+                "active_positions": len(active_positions),
+                "message": (f"💰 {date} | Capital: {current_capital:.2f} USD | Active: {len(active_positions)}"),
             }
         )
 
-        # --- per-day capital log ---
-        if on_log:
+        if on_log and (i % 10 == 0 or i == total_days):
             try:
-                try:
-                    msg = f"💰 {date.date()} | Capital: {current_capital:.2f} USD " f"| Active: {len(active_positions)}"
-                    on_log(msg)
-                except Exception:
-                    pass
+                on_log(log_records[-1]["message"])
             except Exception:
                 pass
 
-        # --- 進捗ログ ---
         if on_progress:
             on_progress(i, total_days, start_time)
-        if on_log and (i % 10 == 0 or i == total_days):
-            elapsed = time.time() - start_time
-            remain = elapsed / i * (total_days - i)
-            on_log(
-                f"💹 バックテスト: {i}/{total_days} 日処理完了"
-                f" | 経過: {int(elapsed // 60)}分{int(elapsed % 60)}秒"
-                f" / 残り: 約 {int(remain // 60)}分{int(remain % 60)}秒",
-            )
 
     return pd.DataFrame(results), pd.DataFrame(log_records)

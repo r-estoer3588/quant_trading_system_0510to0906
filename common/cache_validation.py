@@ -120,8 +120,7 @@ class CacheValidator:
         self._aggregate_to_file = bool(compact or to_file)
         try:
             self._silent_cli = self._aggregate_to_file or (
-                (os.getenv("CACHE_VALIDATION_SILENT_CLI") or "").strip().lower()
-                in {"1", "true", "yes", "on"}
+                (os.getenv("CACHE_VALIDATION_SILENT_CLI") or "").strip().lower() in {"1", "true", "yes", "on"}
             )
         except Exception:
             self._silent_cli = self._aggregate_to_file
@@ -189,9 +188,7 @@ class CacheValidator:
         if df is None or df.empty:
             return
 
-        present_indicators = [
-            col for col in MAIN_INDICATOR_COLUMNS if col in df.columns
-        ]
+        present_indicators = [col for col in MAIN_INDICATOR_COLUMNS if col in df.columns]
         if not present_indicators:
             return
 
@@ -230,7 +227,7 @@ class CacheValidator:
             msg_exp = (
                 f"[{profile}] {ticker}: 指標NaN(データ不足で想定内): "
                 f"{', '.join(expected_cols[:5])}"
-                + (f" (+{len(expected_cols)-5})" if len(expected_cols) > 5 else "")
+                + (f" (+{len(expected_cols) - 5})" if len(expected_cols) > 5 else "")
                 + f" (rows={total_rows})"
             )
             # 既定はDEBUG、コンパクト時はINFOに一段上げる（見たいときだけ見えるように）
@@ -241,7 +238,7 @@ class CacheValidator:
         if severe_cols:
             msg = (
                 f"[{profile}] {ticker}: 指標NaN率が高い列: {', '.join(severe_cols[:5])}"
-                + (f" (+{len(severe_cols)-5})" if len(severe_cols) > 5 else "")
+                + (f" (+{len(severe_cols) - 5})" if len(severe_cols) > 5 else "")
                 + f" (rows={total_rows})"
             )
             if compact:
