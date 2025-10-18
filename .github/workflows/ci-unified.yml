@@ -27,7 +27,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install ruff black
+          pip install ruff black isort
+      - name: isort (import order check)
+        run: |
+          # Run isort in check mode in CI so PRs fail when import ordering differs
+          isort --check-only .
       - name: Ruff (lint)
         run: ruff check . --output-format=github
       - name: Black (format check)

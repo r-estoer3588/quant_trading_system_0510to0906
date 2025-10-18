@@ -42,7 +42,7 @@ exclude = [
   "**\\tests\\experimental\\system7_archive\\**",
 ]
 
-[tool.ruff.lint]
+# Lint selection and ignores for ruff
 select = [
   "E",  # pycodestyle errors
   "F",  # pyflakes
@@ -64,6 +64,10 @@ ignore = [
   "E731", # Lambda assignment - テストコード内
   # Security checks - 既存コードとの互換性
   "S101", # Use of assert (pytest uses it)
+  # Disable ruff's specific import-sorting rule (I001) to avoid conflicts with isort
+  # We prefer isort to perform import sorting; keep other I-codes enabled so ruff
+  # still reports non-ordering import issues.
+  "I001",
 ]
 
 [tool.pytest.ini_options]
