@@ -1,9 +1,9 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
+from collections.abc import Callable
 import logging
 import math
 import time
-from collections.abc import Callable
 from typing import Any, cast
 
 import pandas as pd
