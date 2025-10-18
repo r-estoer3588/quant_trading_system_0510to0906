@@ -80,6 +80,8 @@ venv*/
 env/
 .wslvenv/
 
+# Ignore isort temporary files
+*.isorted
 results_csv_test/
 
 # Playwright
