@@ -21,9 +21,7 @@ def _load_alpaca_modules() -> tuple[Any, Any, Any] | None:
         trading_enums_mod = importlib.import_module("alpaca.trading.enums")
         return trading_client_mod, trading_requests_mod, trading_enums_mod
     except ModuleNotFoundError:
-        print(
-            "Alpaca SDK (alpaca-py) が見つかりません。`pip install alpaca-py` を実行してください。"
-        )
+        print("Alpaca SDK (alpaca-py) が見つかりません。`pip install alpaca-py` を実行してください。")
         return None
 
 
@@ -74,9 +72,7 @@ def main() -> None:
                     f"現在価格: {position.current_price}, 評価額: {position.market_value}"
                 )
                 unrealized_plpc_percent = (
-                    position.unrealized_plpc * 100
-                    if getattr(position, "unrealized_plpc", None) is not None
-                    else 0.0
+                    position.unrealized_plpc * 100 if getattr(position, "unrealized_plpc", None) is not None else 0.0
                 )
                 print(
                     f"  平均取得価格: {position.avg_entry_price}, 損益: {position.unrealized_pl}, "
@@ -86,9 +82,7 @@ def main() -> None:
                 print(f"ポジション情報: {position}")
 
     # 直近の注文を取得
-    request_params = GetOrdersRequest(
-        status=QueryOrderStatus.ALL, limit=5
-    )  # 例: ALL / OPEN / CLOSED
+    request_params = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=5)  # 例: ALL / OPEN / CLOSED
     orders = trading_client.get_orders(filter=request_params)
 
     if not orders:

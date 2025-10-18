@@ -42,9 +42,7 @@ class TestBacktestWorkflow:
         mock_strategy = Mock()
         mock_strategy.prepare_data = Mock(return_value=mock_data.copy())
         mock_strategy.generate_signals = Mock(
-            return_value=pd.DataFrame(
-                {"Date": pd.date_range("2023-01-01", periods=10), "signal": [1] * 10}
-            )
+            return_value=pd.DataFrame({"Date": pd.date_range("2023-01-01", periods=10), "signal": [1] * 10})
         )
         mock_strategy.compute_entry = Mock(return_value=True)
         mock_strategy.compute_exit = Mock(return_value=False)
@@ -137,13 +135,9 @@ class TestDataQuality:
                 }
             ),
             # With NaN values
-            pd.DataFrame(
-                {"Date": ["2023-01-01", None, "2023-01-03"], "Close": [100, 101, 102]}
-            ),
+            pd.DataFrame({"Date": ["2023-01-01", None, "2023-01-03"], "Close": [100, 101, 102]}),
             # Empty strings
-            pd.DataFrame(
-                {"Date": ["2023-01-01", "", "2023-01-03"], "Close": [100, 101, 102]}
-            ),
+            pd.DataFrame({"Date": ["2023-01-01", "", "2023-01-03"], "Close": [100, 101, 102]}),
         ]
 
         for df in test_cases:

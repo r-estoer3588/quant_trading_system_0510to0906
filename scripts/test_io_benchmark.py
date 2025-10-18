@@ -19,9 +19,7 @@ def test_io_optimization():
     """I/O最適化テスト実行"""
 
     # ロギング設定
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
 
     print("=== 並列I/O最適化ベンチマークテスト ===")
@@ -44,9 +42,7 @@ def test_io_optimization():
 
     try:
         print("\nベンチマーク実行開始...")
-        results = benchmark.run_comprehensive_benchmark(
-            profile=profile, sample_size=sample_size
-        )
+        results = benchmark.run_comprehensive_benchmark(profile=profile, sample_size=sample_size)
 
         if not results:
             print("⚠️ ベンチマーク結果が空です - ファイルが見つからない可能性があります")
@@ -101,18 +97,9 @@ def test_io_optimization():
         # パフォーマンスサマリー
         perf = report["performance_summary"]
         print("=== 最優秀結果 ===")
-        print(
-            f"最高スループット: {perf['best_throughput']['method']} "
-            f"({perf['best_throughput']['value']:.2f} MB/s)"
-        )
-        print(
-            f"最速実行: {perf['fastest_wall_time']['method']} "
-            f"({perf['fastest_wall_time']['value']:.3f}秒)"
-        )
-        print(
-            f"最小メモリ: {perf['lowest_memory']['method']} "
-            f"({perf['lowest_memory']['value']:.1f}MB)"
-        )
+        print(f"最高スループット: {perf['best_throughput']['method']} ({perf['best_throughput']['value']:.2f} MB/s)")
+        print(f"最速実行: {perf['fastest_wall_time']['method']} ({perf['fastest_wall_time']['value']:.3f}秒)")
+        print(f"最小メモリ: {perf['lowest_memory']['method']} ({perf['lowest_memory']['value']:.1f}MB)")
 
         # 推奨事項
         recommendations = report.get("recommendations", [])

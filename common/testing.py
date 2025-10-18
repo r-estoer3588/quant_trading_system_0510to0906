@@ -16,9 +16,7 @@ import os
 import random
 
 
-def set_test_determinism(
-    seed: int = 42, tz: str = "UTC", frozen_date: str | None = None
-) -> None:
+def set_test_determinism(seed: int = 42, tz: str = "UTC", frozen_date: str | None = None) -> None:
     """テストの決定性を確保するための初期化を実施。
 
     Args:

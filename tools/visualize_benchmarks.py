@@ -15,9 +15,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description="ベンチマーク履歴の可視化")
-    parser.add_argument(
-        "--days", type=int, default=14, help="表示する日数（デフォルト: 14日）"
-    )
+    parser.add_argument("--days", type=int, default=14, help="表示する日数（デフォルト: 14日）")
     parser.add_argument(
         "--output",
         type=Path,
@@ -68,9 +66,7 @@ def main():
         for h in filtered[-10:]:  # 最新10件
             timestamp = datetime.fromisoformat(h["timestamp"])
             total_time = h.get("total_time", 0)
-            print(
-                f"  {timestamp:%Y-%m-%d %H:%M} | {total_time:.2f}s | {h.get('git_commit', 'N/A')[:8]}"
-            )
+            print(f"  {timestamp:%Y-%m-%d %H:%M} | {total_time:.2f}s | {h.get('git_commit', 'N/A')[:8]}")
 
         return 0
 

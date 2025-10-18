@@ -21,10 +21,7 @@ def extract_timestamp_from_filename(filename: str) -> str:
     if match:
         date_str = match.group(1)
         time_str = match.group(2)
-        return (
-            f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:8]} "
-            f"{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
-        )
+        return f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:8]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
     return ""
 
 
@@ -118,7 +115,7 @@ def main():
             results.append(result)
 
             if i % 50 == 0 or i == len(sys.argv) - 1:
-                print(f"   処理中: {i}/{len(sys.argv)-1} 枚...")
+                print(f"   処理中: {i}/{len(sys.argv) - 1} 枚...")
 
     # 結果をJSON出力
     output_path = Path("screenshots/progress_tracking/analysis_simple.json")
@@ -135,11 +132,8 @@ def main():
     progress_values = [r["progress_percent"] for r in valid_results]
 
     if progress_values:
-        print(
-            f"   進捗バー範囲: {min(progress_values):.1f}% - "
-            f"{max(progress_values):.1f}%"
-        )
-        print(f"   平均進捗: {sum(progress_values)/len(progress_values):.1f}%")
+        print(f"   進捗バー範囲: {min(progress_values):.1f}% - {max(progress_values):.1f}%")
+        print(f"   平均進捗: {sum(progress_values) / len(progress_values):.1f}%")
 
         # タイムスタンプ範囲
         timestamps = [r["timestamp"] for r in valid_results if r["timestamp"]]

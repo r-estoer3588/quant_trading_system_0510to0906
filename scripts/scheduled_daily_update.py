@@ -138,9 +138,7 @@ class SafeDailyUpdater:
             self.log(f"実行コマンド: {' '.join(cmd)}", "INFO")
 
             start_time = time.time()
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=1800, cwd=ROOT
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, cwd=ROOT)
             elapsed = time.time() - start_time
 
             self.log(f"Bulk更新完了: {elapsed:.1f}秒", "INFO")
@@ -164,9 +162,7 @@ class SafeDailyUpdater:
             ]
 
             start_rolling = time.time()
-            result_rolling = subprocess.run(
-                cmd_rolling, capture_output=True, text=True, timeout=900, cwd=ROOT
-            )
+            result_rolling = subprocess.run(cmd_rolling, capture_output=True, text=True, timeout=900, cwd=ROOT)
             elapsed_rolling = time.time() - start_rolling
 
             if result_rolling.returncode != 0:
@@ -211,9 +207,7 @@ class SafeDailyUpdater:
             self.log(f"実行コマンド: {' '.join(cmd)}", "INFO")
 
             start_time = time.time()
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=7200, cwd=ROOT
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200, cwd=ROOT)
             elapsed = time.time() - start_time
 
             self.log(f"個別API更新完了: {elapsed / 60:.1f}分", "INFO")
@@ -255,9 +249,7 @@ class SafeDailyUpdater:
                 "--skip-external",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120, cwd=ROOT
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=ROOT)
 
             if result.returncode == 0:
                 self.log("✅ 更新後検証: シグナル生成テスト成功", "SUCCESS")

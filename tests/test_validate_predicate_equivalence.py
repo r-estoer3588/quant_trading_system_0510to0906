@@ -202,9 +202,7 @@ class TestValidatePredicateEquivalence:
         assert len(log_messages) == 0
 
         # Dict with empty DataFrame
-        validate_predicate_equivalence(
-            {"TEST": pd.DataFrame()}, "System1", log_fn=log_fn
-        )
+        validate_predicate_equivalence({"TEST": pd.DataFrame()}, "System1", log_fn=log_fn)
         assert len(log_messages) == 0
 
     def test_missing_setup_column(self):

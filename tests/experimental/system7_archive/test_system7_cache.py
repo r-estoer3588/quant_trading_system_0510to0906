@@ -45,9 +45,7 @@ class TestSystem7CacheIncrementalUpdate:
 
     @patch("os.path.exists")
     @patch("pandas.read_feather")
-    def test_cache_incremental_update_with_new_data(
-        self, mock_read_feather, mock_exists
-    ):
+    def test_cache_incremental_update_with_new_data(self, mock_read_feather, mock_exists):
         """Test cache incremental update when new data is available."""
         # Create base cached data (first 80 days)
         cached_data = self.create_spy_data_with_history(periods=80)
@@ -102,9 +100,7 @@ class TestSystem7CacheIncrementalUpdate:
     @patch("os.path.exists")
     @patch("pandas.read_feather")
     @patch("pandas.DataFrame.to_feather")
-    def test_cache_save_exception_handling(
-        self, mock_to_feather, mock_read_feather, mock_exists
-    ):
+    def test_cache_save_exception_handling(self, mock_to_feather, mock_read_feather, mock_exists):
         """Test cache save exception is handled gracefully (lines 114-116)."""
         cached_data = self.create_spy_data_with_history(periods=80)
         new_data = self.create_spy_data_with_history(periods=100)
@@ -189,20 +185,12 @@ class TestSystem7LatestOnlyEdgeCases:
 
         spy_data = self.create_spy_data_minimal(setup_today=True).copy()
         # Remove ATR50 columns by creating new DataFrame without them
-        spy_data = pd.DataFrame(
-            {
-                col: spy_data[col]
-                for col in spy_data.columns
-                if col not in ["atr50", "ATR50"]
-            }
-        )
+        spy_data = pd.DataFrame({col: spy_data[col] for col in spy_data.columns if col not in ["atr50", "ATR50"]})
 
         data_dict = {"SPY": spy_data}
 
         # Should handle missing ATR by setting atr_val to None
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         candidates = result_tuple[0]
 
         # Should still return valid structure even if ATR is None
@@ -214,16 +202,12 @@ class TestSystem7LatestOnlyEdgeCases:
 
         spy_data = self.create_spy_data_minimal(setup_today=True).copy()
         # Remove Close column by creating new DataFrame without it
-        spy_data = pd.DataFrame(
-            {col: spy_data[col] for col in spy_data.columns if col != "Close"}
-        )
+        spy_data = pd.DataFrame({col: spy_data[col] for col in spy_data.columns if col != "Close"})
 
         data_dict = {"SPY": spy_data}
 
         # Should handle missing Close by setting entry_price to None
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         candidates = result_tuple[0]
 
         # Should still return valid structure
@@ -239,9 +223,7 @@ class TestSystem7LatestOnlyEdgeCases:
 
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         candidates = result_tuple[0]
 
         # Should handle empty Close gracefully

@@ -5,9 +5,7 @@ import pandas as pd
 from core.system1 import generate_candidates_system1
 
 
-def _make_prepared(
-    symbol: str, dates: pd.DatetimeIndex, roc_vals: list[float]
-) -> pd.DataFrame:
+def _make_prepared(symbol: str, dates: pd.DatetimeIndex, roc_vals: list[float]) -> pd.DataFrame:
     """Helper to build a minimal prepared DataFrame for System1.
 
     We only include columns referenced in fast/full candidate paths:
@@ -61,9 +59,7 @@ def test_system1_latest_only_parity_latest_day():
     assert fast_df is not None, "Fast path returned None unexpectedly"
 
     # Full path
-    full_by_date, full_df, _ = generate_candidates_system1(
-        prepared, top_n=top_n, latest_only=False
-    )
+    full_by_date, full_df, _ = generate_candidates_system1(prepared, top_n=top_n, latest_only=False)
     assert full_df is not None, "Full path returned None unexpectedly"
     assert latest_day in full_by_date, "Full path missing latest day candidates"
 
@@ -77,9 +73,7 @@ def test_system1_latest_only_parity_latest_day():
     assert full_symbols == expected_rank
 
     # Cross-validate metric equality for each symbol
-    fast_map = {
-        row.symbol: row for row in fast_df.itertuples() if row.date == latest_day
-    }
+    fast_map = {row.symbol: row for row in fast_df.itertuples() if row.date == latest_day}
     full_map = {c["symbol"]: c for c in full_by_date[latest_day]}
     for sym in expected_rank:
         assert sym in fast_map

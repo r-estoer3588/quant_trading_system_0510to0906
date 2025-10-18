@@ -145,9 +145,7 @@ class SystemLogger:
         """CRITICALレベルのログ出力"""
         self._log(logging.CRITICAL, message, **context)
 
-    def exception(
-        self, message: str, exc_info: Exception | None = None, **context: Any
-    ) -> None:
+    def exception(self, message: str, exc_info: Exception | None = None, **context: Any) -> None:
         """例外情報付きのERRORレベルログ出力"""
         formatted_msg = self._format_message(message, **context)
         self.logger.error(formatted_msg, exc_info=exc_info or True)
@@ -187,9 +185,7 @@ def setup_logging(settings: Settings) -> logging.Logger:
     )
 
     rotation = settings.logging.rotation.lower()
-    handler: (
-        logging.handlers.TimedRotatingFileHandler | logging.handlers.RotatingFileHandler
-    )
+    handler: logging.handlers.TimedRotatingFileHandler | logging.handlers.RotatingFileHandler
     if rotation == "daily":
         handler = logging.handlers.TimedRotatingFileHandler(
             filename=str(log_path), when="midnight", backupCount=7, encoding="utf-8"

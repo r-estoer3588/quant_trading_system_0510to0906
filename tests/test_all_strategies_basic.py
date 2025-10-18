@@ -22,9 +22,7 @@ def create_basic_strategy_tests(strategy_class, system_name, core_module_path):
             """Test strategy initialization"""
             assert self.strategy.SYSTEM_NAME == system_name
             assert hasattr(self.strategy, "prepare_data")
-            assert hasattr(self.strategy, "generate_candidates") or hasattr(
-                self.strategy, "run_backtest"
-            )
+            assert hasattr(self.strategy, "generate_candidates") or hasattr(self.strategy, "run_backtest")
 
         def test_prepare_data_basic(self):
             """Test basic prepare_data functionality"""
@@ -40,9 +38,7 @@ def create_basic_strategy_tests(strategy_class, system_name, core_module_path):
                 mock_prepare.return_value = {"AAPL": mock_raw_data["AAPL"]}
 
                 try:
-                    result = self.strategy.prepare_data(
-                        mock_raw_data, use_process_pool=False
-                    )
+                    result = self.strategy.prepare_data(mock_raw_data, use_process_pool=False)
                     assert result is not None
                 except Exception:
                     # Some strategies may have different signatures
@@ -77,9 +73,7 @@ def test_system3_strategy():
     try:
         from strategies.system3_strategy import System3Strategy
 
-        TestClass = create_basic_strategy_tests(
-            System3Strategy, "system3", "core.system3"
-        )
+        TestClass = create_basic_strategy_tests(System3Strategy, "system3", "core.system3")
         test_instance = TestClass()
         test_instance.setup_method()
         test_instance.test_init()
@@ -93,9 +87,7 @@ def test_system4_strategy():
     try:
         from strategies.system4_strategy import System4Strategy
 
-        TestClass = create_basic_strategy_tests(
-            System4Strategy, "system4", "core.system4"
-        )
+        TestClass = create_basic_strategy_tests(System4Strategy, "system4", "core.system4")
         test_instance = TestClass()
         test_instance.setup_method()
         test_instance.test_init()
@@ -109,9 +101,7 @@ def test_system5_strategy():
     try:
         from strategies.system5_strategy import System5Strategy
 
-        TestClass = create_basic_strategy_tests(
-            System5Strategy, "system5", "core.system5"
-        )
+        TestClass = create_basic_strategy_tests(System5Strategy, "system5", "core.system5")
         test_instance = TestClass()
         test_instance.setup_method()
         test_instance.test_init()
@@ -125,9 +115,7 @@ def test_system6_strategy():
     try:
         from strategies.system6_strategy import System6Strategy
 
-        TestClass = create_basic_strategy_tests(
-            System6Strategy, "system6", "core.system6"
-        )
+        TestClass = create_basic_strategy_tests(System6Strategy, "system6", "core.system6")
         test_instance = TestClass()
         test_instance.setup_method()
         test_instance.test_init()
@@ -141,9 +129,7 @@ def test_system7_strategy():
     try:
         from strategies.system7_strategy import System7Strategy
 
-        TestClass = create_basic_strategy_tests(
-            System7Strategy, "system7", "core.system7"
-        )
+        TestClass = create_basic_strategy_tests(System7Strategy, "system7", "core.system7")
         test_instance = TestClass()
         test_instance.setup_method()
         test_instance.test_init()

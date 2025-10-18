@@ -81,9 +81,7 @@ def run_system6_historical_analysis(data_dict: dict) -> pd.DataFrame | None:
                 continue
 
             # System6の条件をチェック
-            filter_ok = (df["Close"] >= 5.0) & (
-                df.get("dollarvolume50", df.get("DollarVolume50", 0)) > 10_000_000
-            )
+            filter_ok = (df["Close"] >= 5.0) & (df.get("dollarvolume50", df.get("DollarVolume50", 0)) > 10_000_000)
             setup_ok = (
                 filter_ok
                 & (df.get("return_6d", df.get("Return_6D", 0)) > 0.20)
@@ -170,9 +168,7 @@ def display_return6d_ranking(
         top_n=top_n,
     )
     with st.expander(title, expanded=False):
-        display_df = df.reset_index(drop=True)[
-            ["Date", "return_6d_Rank", "symbol", "return_6d_pct"]
-        ]
+        display_df = df.reset_index(drop=True)[["Date", "return_6d_Rank", "symbol", "return_6d_pct"]]
         display_df = display_df.rename(columns={"return_6d_pct": "return_6d (%)"})
         st.dataframe(display_df, hide_index=False)
 
@@ -185,11 +181,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
     )
 
     # UIManager を必要最低限で初期化（事前フェーズプレースホルダーは生成しない）
-    ui_base: UIManager = (
-        ui_manager.system(SYSTEM_NAME)
-        if ui_manager
-        else UIManager().system(SYSTEM_NAME)
-    )
+    ui_base: UIManager = ui_manager.system(SYSTEM_NAME) if ui_manager else UIManager().system(SYSTEM_NAME)
 
     # 通知トグルは共通UI(run_backtest_app)内に配置して順序を統一
     notify_key = f"{SYSTEM_NAME}_notify_backtest"
@@ -239,9 +231,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         except Exception:
             _max_dd = float(getattr(summary, "max_drawdown", 0.0))
         try:
-            _dd_pct = float(
-                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
-            )
+            _dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
         except Exception:
             _dd_pct = 0.0
         stats: dict[str, Any] = {
@@ -273,11 +263,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             _ = yearly_df
         except Exception:
             pass
-        ranking: list[str] = (
-            [str(s) for s in results_df["symbol"].head(10)]
-            if "symbol" in results_df.columns
-            else []
-        )
+        ranking: list[str] = [str(s) for s in results_df["symbol"].head(10)] if "symbol" in results_df.columns else []
         period = ""
         if "entry_date" in results_df.columns and "exit_date" in results_df.columns:
             start = pd.to_datetime(results_df["entry_date"]).min()
@@ -286,9 +272,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
-                    0
-                ]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None
@@ -296,9 +280,7 @@ def run_tab(ui_manager: UIManager | None = None) -> None:
             sent = False
             for n in notifiers:
                 try:
-                    _mention: str | None = (
-                        "channel" if getattr(n, "platform", None) == "slack" else None
-                    )
+                    _mention: str | None = "channel" if getattr(n, "platform", None) == "slack" else None
                     if hasattr(n, "send_backtest_ex"):
                         n.send_backtest_ex(
                             SYSTEM_NAME.lower(),

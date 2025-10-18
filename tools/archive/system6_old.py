@@ -38,14 +38,10 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
     if len(x) < 50:
         raise ValueError("insufficient rows")
     try:
-        x["atr10"] = AverageTrueRange(
-            x["High"], x["Low"], x["Close"], window=10
-        ).average_true_range()
+        x["atr10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
         x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
         x["return_6d"] = x["Close"].pct_change(6)
-        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-            x["Close"].shift(1) > x["Close"].shift(2)
-        )
+        x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
         x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
@@ -206,8 +202,7 @@ def prepare_data_vectorized_system6(
                     em, es = divmod(int(elapsed), 60)
                     rm, rs = divmod(int(remain), 60)
                     msg = tr(
-                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                        "remain: ~{rm}m{rs}s",
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                         done=i,
                         total=total,
                         em=em,
@@ -293,20 +288,14 @@ def prepare_data_vectorized_system6(
                 if "atr10" in df.columns:
                     x["atr10"] = pd.to_numeric(df["atr10"], errors="coerce")
                 else:
-                    x["atr10"] = AverageTrueRange(
-                        x["High"], x["Low"], x["Close"], window=10
-                    ).average_true_range()
+                    x["atr10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
                 if "dollarvolume50" in df.columns:
-                    x["dollarvolume50"] = pd.to_numeric(
-                        df["dollarvolume50"], errors="coerce"
-                    )
+                    x["dollarvolume50"] = pd.to_numeric(df["dollarvolume50"], errors="coerce")
                 else:
                     x["dollarvolume50"] = (x["Close"] * x["Volume"]).rolling(50).mean()
                 # 派生（軽量）
                 x["return_6d"] = x["Close"].pct_change(6)
-                x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
-                    x["Close"].shift(1) > x["Close"].shift(2)
-                )
+                x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
                 x["filter"] = (x["Low"] >= 5) & (x["dollarvolume50"] > 10_000_000)
                 x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
                 x = x.dropna(subset=SYSTEM6_NUMERIC_COLUMNS)
@@ -330,9 +319,7 @@ def prepare_data_vectorized_system6(
                         recomputed = _calc_indicators(recompute_src)
                         recomputed = recomputed[recomputed.index > last_date]
                         result_df = pd.concat([cached, recomputed])
-                        result_df = result_df.loc[
-                            ~result_df.index.duplicated(keep="last")
-                        ].sort_index()
+                        result_df = result_df.loc[~result_df.index.duplicated(keep="last")].sort_index()
                 else:
                     result_df = _calc_indicators(df)
                 _save_system6_cache(cache_path, result_df)
@@ -382,8 +369,7 @@ def prepare_data_vectorized_system6(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
+                "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,
@@ -478,17 +464,13 @@ def generate_candidates_system6(
         missing_cols = [c for c in SYSTEM6_ALL_COLUMNS if c not in df.columns]
         if missing_cols:
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}"
-                )
+                log_callback(f"[警告] {sym} のデータに必須列が不足しています: {', '.join(missing_cols)}")
             skipped += 1
             skipped_missing_cols += 1
             continue
         if df[SYSTEM6_NUMERIC_COLUMNS].isnull().any().any():
             if log_callback:
-                log_callback(
-                    f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）"
-                )
+                log_callback(f"[警告] {sym} のデータにNaNが含まれています（featherキャッシュ不完全）")
 
         # last_price（直近終値）を取得
         last_price = None
@@ -532,8 +514,7 @@ def generate_candidates_system6(
             em, es = divmod(int(elapsed), 60)
             rm, rs = divmod(int(remain), 60)
             msg = tr(
-                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / "
-                "remain: ~{rm}m{rs}s",
+                "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                 done=processed,
                 total=total,
                 em=em,

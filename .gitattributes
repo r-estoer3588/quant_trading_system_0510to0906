@@ -1,3 +1,10 @@
+# Normalize line endings to LF to avoid repeated formatting churn on Windows
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
 # Normalize line endings and define text/binary handling across OSes
 
 # Default: treat all files as text and enforce LF in repo

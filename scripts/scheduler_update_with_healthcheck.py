@@ -92,7 +92,7 @@ def main() -> None:
     out = log_dir / f"scheduler_update_health_{datetime.now().strftime('%Y%m%d')}.log"
     with out.open("a", encoding="utf-8") as f:
         status = "OK" if ok else "NG"
-        f.write(f"[{now}] prev_bd={prev_bd} latest(SPY)={latest} " f"status={status}\n")
+        f.write(f"[{now}] prev_bd={prev_bd} latest(SPY)={latest} status={status}\n")
 
     # 環境によっては終了コードで成否を知らせたい場合もある
     if not ok:
@@ -112,9 +112,7 @@ if __name__ == "__main__":
             log_base = getattr(settings, "LOG_DIR", None)
             log_dir = Path(log_base) if log_base else (ROOT / "logs")
             log_dir.mkdir(parents=True, exist_ok=True)
-            out = log_dir / (
-                f"scheduler_update_health_{datetime.now().strftime('%Y%m%d')}.log"
-            )
+            out = log_dir / (f"scheduler_update_health_{datetime.now().strftime('%Y%m%d')}.log")
             with out.open("a", encoding="utf-8") as f:
                 f.write("[EXCEPTION]\n")
                 f.write(traceback.format_exc())

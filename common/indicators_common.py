@@ -54,9 +54,7 @@ def add_indicators(df):
             df[atr_col] = np.nan
             continue
         try:
-            df[atr_col] = AverageTrueRange(
-                high, low, close, window=w
-            ).average_true_range()
+            df[atr_col] = AverageTrueRange(high, low, close, window=w).average_true_range()
         except Exception:
             df[atr_col] = np.nan
 
@@ -323,9 +321,7 @@ def _add_indicators_optimized(df: pd.DataFrame) -> pd.DataFrame:
         try:
             from ta.volatility import AverageTrueRange
 
-            atr_calculator = AverageTrueRange(
-                high, low, close, window=10
-            )  # 基準を10で作成
+            atr_calculator = AverageTrueRange(high, low, close, window=10)  # 基準を10で作成
             base_atr = atr_calculator.average_true_range()
 
             # 10期間ATRから他期間を効率計算
@@ -342,9 +338,7 @@ def _add_indicators_optimized(df: pd.DataFrame) -> pd.DataFrame:
                                 np.abs(low - close.shift(1)),
                             ),
                         )
-                        work[f"atr{w}"] = true_range.rolling(
-                            window=w, min_periods=1
-                        ).mean()
+                        work[f"atr{w}"] = true_range.rolling(window=w, min_periods=1).mean()
                     except Exception:
                         work[f"atr{w}"] = np.nan
         except Exception:
@@ -402,9 +396,7 @@ def _add_indicators_optimized(df: pd.DataFrame) -> pd.DataFrame:
         try:
             dollar_volume = close * volume
             for w in [20, 50]:
-                work[f"dollarvolume{w}"] = dollar_volume.rolling(
-                    window=w, min_periods=1
-                ).mean()
+                work[f"dollarvolume{w}"] = dollar_volume.rolling(window=w, min_periods=1).mean()
         except Exception:
             for w in [20, 50]:
                 work[f"dollarvolume{w}"] = np.nan
@@ -459,9 +451,7 @@ def _add_indicators_optimized(df: pd.DataFrame) -> pd.DataFrame:
         if close_nozero is not None:
             try:
                 log_ret = np.log(close_nozero / close_nozero.shift(1))
-                work["hv50"] = (
-                    log_ret.rolling(window=50, min_periods=1).std() * np.sqrt(252) * 100
-                )
+                work["hv50"] = log_ret.rolling(window=50, min_periods=1).std() * np.sqrt(252) * 100
             except Exception:
                 work["hv50"] = np.nan
         else:

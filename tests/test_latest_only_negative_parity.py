@@ -63,12 +63,8 @@ def test_system1_negative_parity_empty_latest_day():
     diagnostics 対応: include_diagnostics=True を追加し、3要素タプルを展開。
     """
     prepared = {"TEST1": _make_df_no_setup_latest()}
-    result_fast = generate_candidates_system1(
-        prepared, latest_only=True, include_diagnostics=True
-    )
-    result_full = generate_candidates_system1(
-        prepared, latest_only=False, include_diagnostics=True
-    )
+    result_fast = generate_candidates_system1(prepared, latest_only=True, include_diagnostics=True)
+    result_full = generate_candidates_system1(prepared, latest_only=False, include_diagnostics=True)
 
     # タプル展開: diagnostics 対応
     if isinstance(result_fast, tuple) and len(result_fast) == 3:
@@ -103,12 +99,8 @@ def test_system6_negative_parity_no_entry_due_to_nan():
     diagnostics 対応: include_diagnostics=True を追加し、3要素タプル展開。
     """
     prepared = {"TEST6": _make_df_system6_nan()}
-    result_fast = generate_candidates_system6(
-        prepared, latest_only=True, include_diagnostics=True
-    )
-    result_full = generate_candidates_system6(
-        prepared, latest_only=False, include_diagnostics=True
-    )
+    result_fast = generate_candidates_system6(prepared, latest_only=True, include_diagnostics=True)
+    result_full = generate_candidates_system6(prepared, latest_only=False, include_diagnostics=True)
 
     # タプル展開: diagnostics 対応
     if isinstance(result_fast, tuple) and len(result_fast) == 3:

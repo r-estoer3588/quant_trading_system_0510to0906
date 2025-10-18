@@ -35,14 +35,8 @@ def sample_stock_data():
             # Add required indicators
             "RSI_14": np.random.uniform(20, 80, 100),
             "RSI_4": np.random.uniform(20, 80, 100),
-            "SMA_200": [
-                sum(close_prices[max(0, i - 199) : i + 1]) / min(i + 1, 200)
-                for i in range(100)
-            ],
-            "SMA_50": [
-                sum(close_prices[max(0, i - 49) : i + 1]) / min(i + 1, 50)
-                for i in range(100)
-            ],
+            "SMA_200": [sum(close_prices[max(0, i - 199) : i + 1]) / min(i + 1, 200) for i in range(100)],
+            "SMA_50": [sum(close_prices[max(0, i - 49) : i + 1]) / min(i + 1, 50) for i in range(100)],
             "ADX_7": np.random.uniform(10, 50, 100),
             "ROC_200": np.random.uniform(-0.2, 0.2, 100),
         },

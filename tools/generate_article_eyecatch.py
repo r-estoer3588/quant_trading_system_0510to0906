@@ -10,6 +10,7 @@ note記事用アイキャッチ画像生成スクリプト
 
 import argparse
 import os
+import re
 import sys
 
 from PIL import (
@@ -21,6 +22,7 @@ from PIL import (
     ImageFont,
     ImageOps,
 )
+from typing import List
 
 
 def create_gradient_background(width, height):
@@ -572,6 +574,13 @@ def main():
         action="store_true",
         help="人物ドロップシャドウを無効化",
     )
+    # Nano Banana prompt generation helper
+    parser.add_argument(
+        "--generate-prompts",
+        dest="generate_prompts",
+        action="store_true",
+        help="記事タイトルから Nano Banana 用の一行プロンプトを生成して docs/ に保存",
+    )
 
     args = parser.parse_args()
 
@@ -585,6 +594,73 @@ def main():
         "Downloads",
         "eyecatch_playwright_ai.png",
     )
+
+    # --- Nano Banana プロンプト生成オプション ---
+    if args.generate_prompts:
+        # タイトル文字列を一つにまとめてプロンプト生成
+        title_text = ("" if args.no_title else args.title1) or ""
+        if (not title_text) and args.title2:
+            title_text = args.title2
+        if args.title2:
+            # 補助行がある場合は結合
+            title_text = (title_text + " " + args.title2).strip()
+
+        def slugify(text: str) -> str:
+            s = text.lower()
+            s = re.sub(r"[^a-z0-9]+", "-", s)
+            s = re.sub(r"^-+|-+$", "", s)
+            return s or "prompt"
+
+        def build_prompts(title: str) -> List[str]:
+            base_meta = "1280x670, high detail, clean composition, flat colors"
+            prompts = [
+                (
+                    f"{title} — a focused developer scene showing a laptop screen "
+                    f"with console logs and highlighted error lines, cool blue "
+                    f"gradient background, subtle speech bubble, {base_meta}"
+                ),
+                (
+                    f"{title} — two flat-style characters in conversation, "
+                    f"speech bubbles with simple icons, friendly illustration, "
+                    f"warm accent color, {base_meta}"
+                ),
+                (
+                    f"{title} — abstract visualization of logs and metrics, "
+                    f"stylized waveform and highlighted failure point, modern "
+                    f"infographic style, {base_meta}"
+                ),
+                (
+                    f"{title} — bold typographic composition, large readable "
+                    f"Japanese text, minimal background, high contrast, "
+                    f"{base_meta}"
+                ),
+                (
+                    f"{title} — cinematic photo-style of an engineer at a desk "
+                    f"with a laptop showing test failures, moody lighting, "
+                    f"cinematic crop, {base_meta}"
+                ),
+            ]
+            negative = "lowres, watermark, signature, extra text, deformed, " "blurry, oversaturated"
+            return [p.strip() for p in prompts] + [f"Negative prompt: {negative}"]
+
+        prompts = build_prompts(title_text or "eyecatch")
+        slug = slugify(title_text or "eyecatch")
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "docs")
+        out_dir = os.path.abspath(out_dir)
+        os.makedirs(out_dir, exist_ok=True)
+        out_file = os.path.join(out_dir, f"nano_banana_prompts_{slug}.txt")
+        try:
+            with open(out_file, "w", encoding="utf-8") as f:
+                for line in prompts:
+                    f.write(line + "\n")
+            print(f"Generated {len(prompts)} prompts -> {out_file}")
+        except Exception as e:
+            print(f"Error writing prompts file: {e}")
+            for line in prompts:
+                print(line)
+
+        return
+    # --- end generate_prompts ---
 
     # ベース画像モード: 既存画像にタイトルのみ追加
     if args.base_image:

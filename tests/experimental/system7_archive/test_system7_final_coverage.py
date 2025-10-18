@@ -121,9 +121,7 @@ class TestSystem7IndicatorCalculationEdgeCases:
         def mock_log(msg):
             log_messages.append(msg)
 
-        result = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False, log_callback=mock_log
-        )
+        result = prepare_data_vectorized_system7(raw_data, reuse_indicators=False, log_callback=mock_log)
 
         # Log should be called with completion message
         if "SPY" in result:
@@ -160,9 +158,7 @@ class TestSystem7IndicatorCalculationEdgeCases:
         def mock_progress(current, total):
             progress_calls.append((current, total))
 
-        result = prepare_data_vectorized_system7(
-            raw_data, reuse_indicators=False, progress_callback=mock_progress
-        )
+        result = prepare_data_vectorized_system7(raw_data, reuse_indicators=False, progress_callback=mock_progress)
 
         # Progress should be called with (1, 1)
         if "SPY" in result:
@@ -201,9 +197,7 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_with_setup_and_close(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         normalized = result_tuple[0]
 
         # Should have entry_price from Close
@@ -244,9 +238,7 @@ class TestSystem7LatestOnlyDataConstruction:
 
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         normalized = result_tuple[0]
 
         # Should extract ATR value
@@ -262,9 +254,7 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_with_setup_and_close(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         df_fast = result_tuple[1]
 
         # df_fast should be a DataFrame with rank columns
@@ -280,9 +270,7 @@ class TestSystem7LatestOnlyDataConstruction:
         spy_data = self.create_spy_with_setup_and_close(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
         normalized = result_tuple[0]
 
         # Normalized should be dict[Timestamp, dict[str, dict]]
@@ -339,9 +327,7 @@ class TestSystem7DateGroupingWindowCalculation:
         def mock_log(msg):
             log_messages.append(msg)
 
-        _ = generate_candidates_system7(
-            data_dict, top_n=10, log_callback=mock_log, include_diagnostics=True
-        )
+        _ = generate_candidates_system7(data_dict, top_n=10, log_callback=mock_log, include_diagnostics=True)
 
         # Should log message about 50-day window
         assert any("50" in msg or "日間" in msg for msg in log_messages)
@@ -356,9 +342,7 @@ class TestSystem7DateGroupingWindowCalculation:
         def mock_log(msg):
             log_messages.append(msg)
 
-        _ = generate_candidates_system7(
-            data_dict, top_n=5, log_callback=mock_log, include_diagnostics=True
-        )
+        _ = generate_candidates_system7(data_dict, top_n=5, log_callback=mock_log, include_diagnostics=True)
 
         # Should log message with candidate count
         assert any("候補" in msg for msg in log_messages)

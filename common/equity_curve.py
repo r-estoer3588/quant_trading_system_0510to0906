@@ -49,9 +49,7 @@ def save_equity_curve(
     df = df.sort_values("_t")
 
     if "pnl" not in df.columns:
-        logging.getLogger("equity_curve").warning(
-            "'pnl' column missing; using zeros for equity curve"
-        )
+        logging.getLogger("equity_curve").warning("'pnl' column missing; using zeros for equity curve")
     pnl = pd.to_numeric(df.get("pnl", 0), errors="coerce").fillna(0.0)
     equity = float(initial_capital) + pnl.cumsum()
 

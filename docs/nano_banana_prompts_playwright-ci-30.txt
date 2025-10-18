@@ -1,0 +1,6 @@
+対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド — a focused developer scene showing a laptop screen with console logs and highlighted error lines, shallow depth of field, cool blue gradient background, subtle speech bubble, 1280x670, high detail, clean composition, flat colors
+対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド — two flat-style characters (junior and senior) in conversation, speech bubbles with simple icons, friendly illustration, warm accent color, 1280x670, high detail, clean composition, flat colors
+対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド — abstract visualization of logs and metrics, stylized waveform and highlighted failure point, modern infographic style, teal and navy palette, 1280x670, high detail, clean composition, flat colors
+対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド — bold typographic composition of the title, large readable Japanese text, minimal background, subtle texture, high contrast, 1280x670, high detail, clean composition, flat colors
+対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド — cinematic photo-style of an engineer at a desk with a laptop showing test failures, moody lighting, cinematic crop, 1280x670, high detail, clean composition, flat colors
+Negative prompt: lowres, watermark, signature, extra text, deformed, blurry, oversaturated

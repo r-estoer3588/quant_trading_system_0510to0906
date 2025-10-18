@@ -159,9 +159,7 @@ class TestSystem7LatestOnlyDetailedConstruction:
         spy_data = self.create_spy_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
         candidates_dict = result_tuple[0]
 
         if candidates_dict and "SPY" in candidates_dict:
@@ -175,9 +173,7 @@ class TestSystem7LatestOnlyDetailedConstruction:
         spy_data = self.create_spy_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
         candidates_dict = result_tuple[0]
 
         # Should successfully extract ATR (either atr50 or ATR50)
@@ -189,9 +185,7 @@ class TestSystem7LatestOnlyDetailedConstruction:
         spy_data = self.create_spy_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
         candidates_df = result_tuple[1]
 
         # df_fast should have rank columns
@@ -207,9 +201,7 @@ class TestSystem7LatestOnlyDetailedConstruction:
         spy_data = self.create_spy_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, latest_only=True, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
         candidates_dict = result_tuple[0]
 
         # Normalized dict should have timestamp structure
@@ -304,9 +296,7 @@ class TestSystem7DateGroupingWindowDetails:
         spy_data = self.create_spy_with_multiple_setups(num_setups=10)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(
-            data_dict, top_n=5, latest_only=False, include_diagnostics=True
-        )
+        result_tuple = generate_candidates_system7(data_dict, top_n=5, latest_only=False, include_diagnostics=True)
         candidates_dict = result_tuple[0]
 
         # atr_val_map should be used for ranking

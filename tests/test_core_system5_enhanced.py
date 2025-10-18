@@ -56,9 +56,7 @@ class TestSystem5Utilities:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert (
-            total_days >= 60
-        )  # Should need at least 60 days for ADX7 and other indicators
+        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""
@@ -374,9 +372,7 @@ class TestSystem5UtilitiesExtended:
         # Should return reasonable number for System5 analysis
         assert isinstance(total_days, int)
         assert total_days > 0
-        assert (
-            total_days >= 60
-        )  # Should need at least 60 days for ADX7 and other indicators
+        assert total_days >= 60  # Should need at least 60 days for ADX7 and other indicators
 
     def test_get_total_days_system5_consistency(self):
         """Test that get_total_days_system5 returns consistent values."""
@@ -458,9 +454,7 @@ class TestSystem5Integration:
 
         # Create symbol with high ATR_Pct (should pass)
         dates = pd.date_range(start="2023-01-01", periods=60, freq="D")
-        high_atr_prices = [50] + [
-            50 * (1 + 0.05 * ((-1) ** i)) for i in range(59)
-        ]  # High volatility
+        high_atr_prices = [50] + [50 * (1 + 0.05 * ((-1) ** i)) for i in range(59)]  # High volatility
 
         symbol_data["HIGH_ATR"] = pd.DataFrame(
             {
@@ -494,10 +488,7 @@ class TestSystem5Integration:
         if len(candidates) > 0:
             for candidate in candidates:
                 # Should have ATR_Pct above threshold
-                assert (
-                    candidate.get("atr_pct", 0) >= DEFAULT_ATR_PCT_THRESHOLD
-                    or candidate.get("atr_pct", 0) == 0
-                )
+                assert candidate.get("atr_pct", 0) >= DEFAULT_ATR_PCT_THRESHOLD or candidate.get("atr_pct", 0) == 0
 
     def test_system5_error_handling(self):
         """Test error handling in System5 functions."""

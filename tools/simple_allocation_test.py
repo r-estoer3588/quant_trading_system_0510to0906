@@ -1,23 +1,29 @@
 #!/usr/bin/env python
+# ruff: noqa: E402
 """簡単な配分テスト - TRDlist 10件→Entry 0件問題の検証"""
 
-import logging
-import os
 from pathlib import Path
 import sys
-
-import pandas as pd
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from core.final_allocation import finalize_allocation
+import logging
+import os
+
+import pandas as pd
+
+from core.final_allocation import (  # noqa: E402
+    finalize_allocation,
+    load_symbol_system_map,
+)
 
 # ロギング設定
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -182,9 +188,15 @@ def main():
     logger.info("\n🎯 配分プロセス実行")
 
     try:
+        try:
+            symbol_system_map = load_symbol_system_map()
+        except Exception:
+            symbol_system_map = {}
+
         final_result = finalize_allocation(
             per_system,
             strategies=strategies,  # 戦略インスタンスを渡す
+            symbol_system_map=symbol_system_map,
             capital_long=100000,  # $100k
             capital_short=50000,  # $50k
             slots_long=5,  # 5スロット

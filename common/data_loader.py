@@ -15,9 +15,7 @@ from common.utils import get_cached_data
 def _load_one(symbol: str, cache_dir: Path) -> tuple[str, pd.DataFrame | None]:
     # 1) 新キャッシュ（base_cache）優先
     try:
-        df = load_base_cache(
-            symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False
-        )
+        df = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
         if df is not None and not df.empty:
             return symbol, df
     except Exception:
@@ -150,12 +148,7 @@ def load_price(ticker: str, cache_profile: str = "full") -> pd.DataFrame:
             df_work = df_work.rename(columns=rename_map)
         if "date" in df_work.columns:
             df_work["date"] = pd.to_datetime(df_work["date"], errors="coerce")
-            df_work = (
-                df_work.dropna(subset=["date"])
-                .sort_values("date")
-                .drop_duplicates("date")
-                .reset_index(drop=True)
-            )
+            df_work = df_work.dropna(subset=["date"]).sort_values("date").drop_duplicates("date").reset_index(drop=True)
         try:
             df_work.columns = [str(col).lower() for col in df_work.columns]
         except Exception:

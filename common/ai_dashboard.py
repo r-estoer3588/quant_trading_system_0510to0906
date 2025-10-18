@@ -41,9 +41,7 @@ def render_ai_analysis_page() -> None:
         render_ai_summary_cards(analysis_summary)
 
         # タブで機能を分割
-        tab1, tab2, tab3, tab4 = st.tabs(
-            ["📈 モデル状態", "🔍 異常検知", "📊 パフォーマンス予測", "💡 最適化提案"]
-        )
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 モデル状態", "🔍 異常検知", "📊 パフォーマンス予測", "💡 最適化提案"])
 
         with tab1:
             render_model_status_tab(analysis_summary)
@@ -105,9 +103,7 @@ def render_ai_summary_cards(summary: Dict[str, Any]) -> None:
             label=f"{status_emoji} 分析状態",
             value=analysis_status,
             delta=(
-                current_analysis.get("timestamp", "").split("T")[1][:8]
-                if current_analysis.get("timestamp")
-                else None
+                current_analysis.get("timestamp", "").split("T")[1][:8] if current_analysis.get("timestamp") else None
             ),
         )
 
@@ -168,24 +164,10 @@ def render_model_status_tab(summary: Dict[str, Any]) -> None:
         last_training = model_status.get("last_training")
 
         status_data = {
-            "異常検知モデル": (
-                "✅ 利用可能" if capabilities.get("anomaly_detection") else "❌ 未訓練"
-            ),
-            "パフォーマンス予測": (
-                "✅ 利用可能"
-                if capabilities.get("performance_prediction")
-                else "❌ 未訓練"
-            ),
-            "最適化提案": (
-                "✅ 利用可能"
-                if capabilities.get("optimization_suggestions")
-                else "❌ 未対応"
-            ),
-            "scikit-learn": (
-                "✅ インストール済み"
-                if model_status.get("has_sklearn")
-                else "❌ 未インストール"
-            ),
+            "異常検知モデル": ("✅ 利用可能" if capabilities.get("anomaly_detection") else "❌ 未訓練"),
+            "パフォーマンス予測": ("✅ 利用可能" if capabilities.get("performance_prediction") else "❌ 未訓練"),
+            "最適化提案": ("✅ 利用可能" if capabilities.get("optimization_suggestions") else "❌ 未対応"),
+            "scikit-learn": ("✅ インストール済み" if model_status.get("has_sklearn") else "❌ 未インストール"),
         }
 
         for feature, status in status_data.items():
@@ -263,9 +245,7 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
 
     with col2:
         anomaly_score = current_analysis.get("anomaly_score", 0)
-        score_color = (
-            "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
-        )
+        score_color = "🔴" if anomaly_score < -0.1 else "🟡" if anomaly_score < 0 else "🟢"
         st.metric(
             label=f"{score_color} 異常スコア",
             value=f"{anomaly_score:.3f}",
@@ -275,9 +255,7 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
     with col3:
         predicted_time = current_analysis.get("predicted_performance")
         if predicted_time:
-            st.metric(
-                label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None
-            )
+            st.metric(label="⏱️ 予測実行時間", value=f"{predicted_time:.1f}秒", delta=None)
         else:
             st.metric(label="⏱️ 予測実行時間", value="N/A", delta="データ不足")
 
@@ -289,8 +267,8 @@ def render_anomaly_detection_tab(summary: Dict[str, Any]) -> None:
         st.markdown(
             f"""
         - **異常スコア**: {anomaly_score:.3f}（通常: > -0.1）
-        - **検出時刻**: {current_analysis.get('timestamp', 'N/A')}
-        - **特徴量数**: {current_analysis.get('feature_count', 0)}
+        - **検出時刻**: {current_analysis.get("timestamp", "N/A")}
+        - **特徴量数**: {current_analysis.get("feature_count", 0)}
         """
         )
 
@@ -355,15 +333,9 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
             # 過去の実行時間との比較（模擬データ）
             ai_analyzer = get_ai_analyzer()
             if len(ai_analyzer.performance_history) > 0:
-                recent_times = [
-                    r["total_time"] for r in list(ai_analyzer.performance_history)[-10:]
-                ]
+                recent_times = [r["total_time"] for r in list(ai_analyzer.performance_history)[-10:]]
                 avg_time = np.mean(recent_times) if recent_times else predicted_time
-                diff_percent = (
-                    ((predicted_time - avg_time) / avg_time * 100)
-                    if avg_time > 0
-                    else 0
-                )
+                diff_percent = ((predicted_time - avg_time) / avg_time * 100) if avg_time > 0 else 0
 
                 st.metric(
                     label="📈 過去平均との差",
@@ -380,9 +352,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
 
             actual_times = [r["total_time"] for r in recent_data]
             # 模擬的な予測値（実際の実装では保存された予測値を使用）
-            predicted_times = [
-                t * (0.9 + 0.2 * np.random.random()) for t in actual_times
-            ]
+            predicted_times = [t * (0.9 + 0.2 * np.random.random()) for t in actual_times]
 
             fig = go.Figure()
 
@@ -432,11 +402,7 @@ def render_performance_prediction_tab(summary: Dict[str, Any]) -> None:
         importance_scores = np.random.random(len(feature_names))
         importance_scores = importance_scores / importance_scores.sum() * 100
 
-        fig = go.Figure(
-            data=[
-                go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")
-            ]
-        )
+        fig = go.Figure(data=[go.Bar(x=feature_names, y=importance_scores, marker_color="lightblue")])
 
         fig.update_layout(
             title="パフォーマンスへの影響度",
@@ -525,13 +491,13 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
             st.markdown(
                 f"""
             <div style="
-                border-left: 4px solid {config['color']};
+                border-left: 4px solid {config["color"]};
                 padding: 1rem;
                 margin: 1rem 0;
                 background-color: #f8f9fa;
                 border-radius: 0 8px 8px 0;
             ">
-                <h4>{config['icon']} {title}</h4>
+                <h4>{config["icon"]} {title}</h4>
                 <p><strong>タイプ:</strong> {suggestion_type}</p>
                 <p><strong>詳細:</strong> {description}</p>
                 <p><strong>予想効果:</strong> {estimated_improvement}</p>
@@ -568,9 +534,7 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
 
     # 優先度順でソート
     priority_order = {"high": 0, "medium": 1, "info": 2}
-    sorted_suggestions = sorted(
-        suggestions, key=lambda x: priority_order.get(x.get("priority", "info"), 2)
-    )
+    sorted_suggestions = sorted(suggestions, key=lambda x: priority_order.get(x.get("priority", "info"), 2))
 
     for i, suggestion in enumerate(sorted_suggestions[:5]):  # 上位5件のみ表示
         priority = suggestion.get("priority", "info")
@@ -598,9 +562,7 @@ def render_optimization_suggestions_tab(summary: Dict[str, Any]) -> None:
                 try:
                     # "20-40%の時間短縮" -> 30%として計算
                     numbers = [
-                        int(s)
-                        for s in improvement_text.split()
-                        if s.replace("-", "").replace("%", "").isdigit()
+                        int(s) for s in improvement_text.split() if s.replace("-", "").replace("%", "").isdigit()
                     ]
                     if numbers:
                         avg_improvement = sum(numbers) / len(numbers)

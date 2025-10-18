@@ -123,8 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg_round = getattr(settings.cache, "round_decimals", None)
     if cfg_round is None:
         print(
-            "round_decimals が設定されていません。--decimals で指定するか"
-            " config/config.yaml を編集してください。",
+            "round_decimals が設定されていません。--decimals で指定するか config/config.yaml を編集してください。",
         )
         return 1
 

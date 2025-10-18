@@ -72,11 +72,7 @@ def test_evaluate_position_for_exit_system3_includes_entry_and_stop(monkeypatch)
     assert system == "system3"
     assert qty == 10
     # ここが今回の修正の本質: entry/stopが含まれ、正の値
-    assert "entry_price" in row_base and isinstance(
-        row_base["entry_price"], (int, float)
-    )
+    assert "entry_price" in row_base and isinstance(row_base["entry_price"], (int, float))
     assert "stop_price" in row_base and isinstance(row_base["stop_price"], (int, float))
     assert row_base["entry_price"] > 0
-    assert (
-        row_base["stop_price"] > 0 or row_base["stop_price"] < row_base["entry_price"]
-    )
+    assert row_base["stop_price"] > 0 or row_base["stop_price"] < row_base["entry_price"]

@@ -562,11 +562,7 @@ def generate_candidates_system3(
                             ) = _evaluate_row(s_last)
                             drop_txt = f"{s_drop_val:.4f}" if not pd.isna(s_drop_val) else "nan"
                             samples.append(
-                                (
-                                    f"{s_sym}: date={s_dt.date()} "
-                                    f"setup_col={s_setup} final={s_final} "
-                                    f"drop3d={drop_txt}"
-                                )
+                                (f"{s_sym}: date={s_dt.date()} setup_col={s_setup} final={s_final} drop3d={drop_txt}")
                             )
                             taken += 1
                             if taken >= 2:
@@ -772,7 +768,7 @@ def generate_candidates_system3(
                 reason = "unknown"
             diagnostics["ranking_zero_reason"] = reason
             if log_callback:
-                log_callback(f"[DEBUG_S3_RANK0] reason={reason} " f"stats={diagnostics.get('ranking_stats')}")
+                log_callback(f"[DEBUG_S3_RANK0] reason={reason} stats={diagnostics.get('ranking_stats')}")
 
         # Build per-date list of candidate dicts (public API expectation)
         by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
@@ -797,7 +793,7 @@ def generate_candidates_system3(
                 by_date[dt].append(item)
 
         if log_callback:
-            log_callback(("System3: latest_only fast-path -> " f"{len(df_all)} candidates (symbols={len(rows)})"))
+            log_callback((f"System3: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
 
         return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
 
@@ -889,7 +885,7 @@ def generate_candidates_system3(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback(("System3: Generated " f"{total_candidates} candidates across {unique_dates} dates"))
+        log_callback((f"System3: Generated {total_candidates} candidates across {unique_dates} dates"))
 
     # Keep original API: date -> list[dict]
     return (

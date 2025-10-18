@@ -33,10 +33,7 @@ class TestSystem5Constants:
             "filter",
             "setup",
         ]
-        assert all(
-            indicator in SYSTEM5_REQUIRED_INDICATORS
-            for indicator in expected_indicators
-        )
+        assert all(indicator in SYSTEM5_REQUIRED_INDICATORS for indicator in expected_indicators)
 
     def test_format_atr_pct_threshold_label(self):
         """Test format_atr_pct_threshold_label formatting."""
@@ -185,9 +182,7 @@ class TestSystem5CandidateGeneration:
         prepared_data = self.create_prepared_data()
         progress_mock = Mock()
 
-        result_dict, result_df = generate_candidates_system5(
-            prepared_data, top_n=5, progress_callback=progress_mock
-        )
+        result_dict, result_df = generate_candidates_system5(prepared_data, top_n=5, progress_callback=progress_mock)
 
         assert isinstance(result_dict, dict)
 
@@ -280,9 +275,7 @@ class TestSystem5Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system5(
-            prepared_data, top_n=5
-        )
+        candidates_dict, candidates_df = generate_candidates_system5(prepared_data, top_n=5)
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days
@@ -297,9 +290,7 @@ class TestSystem5Integration:
         prepared_empty = prepare_data_vectorized_system5(empty_data)
         assert isinstance(prepared_empty, dict)
 
-        candidates_dict, candidates_df = generate_candidates_system5(
-            prepared_empty, top_n=5
-        )
+        candidates_dict, candidates_df = generate_candidates_system5(prepared_empty, top_n=5)
         assert isinstance(candidates_dict, dict)
 
         total_days_empty = get_total_days_system5(prepared_empty)

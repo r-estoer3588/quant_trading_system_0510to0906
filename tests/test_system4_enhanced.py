@@ -110,9 +110,7 @@ class TestSystem4MainFunctions:
         with patch("core.system4.process_symbols_batch") as mock_batch:
             mock_batch.return_value = ({"AAPL": mock_compute_indicators("AAPL")[1]}, [])
 
-            result = prepare_data_vectorized_system4(
-                raw_data_dict=None, symbols=symbols, reuse_indicators=False
-            )
+            result = prepare_data_vectorized_system4(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
 
         assert isinstance(result, dict)
         assert len(result) > 0
@@ -141,9 +139,7 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        res = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res, tuple)
         if len(res) == 3:
             candidates, df, diagnostics = res
@@ -180,9 +176,7 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        res = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=False, include_diagnostics=True
-        )
+        res = generate_candidates_system4(prepared_dict, top_n=10, latest_only=False, include_diagnostics=True)
         assert isinstance(res, tuple)
         if len(res) == 3:
             candidates, df, diagnostics = res
@@ -225,9 +219,7 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        res = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res, tuple)
         if len(res) == 3:
             candidates, df, diagnostics = res
@@ -262,9 +254,7 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        res = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res, tuple)
         if len(res) == 3:
             _candidates, df, _ = res
@@ -279,12 +269,8 @@ class TestSystem4MainFunctions:
     def test_get_total_days_system4_basic(self):
         """Test get_total_days_system4 with basic data"""
         data_dict = {
-            "AAPL": pd.DataFrame(
-                {"Close": [100, 110, 120]}, index=pd.date_range("2023-01-01", periods=3)
-            ),
-            "MSFT": pd.DataFrame(
-                {"Close": [200, 210]}, index=pd.date_range("2023-01-01", periods=2)
-            ),
+            "AAPL": pd.DataFrame({"Close": [100, 110, 120]}, index=pd.date_range("2023-01-01", periods=3)),
+            "MSFT": pd.DataFrame({"Close": [200, 210]}, index=pd.date_range("2023-01-01", periods=2)),
         }
 
         total_days = get_total_days_system4(data_dict)
@@ -308,9 +294,7 @@ class TestSystem4MainFunctions:
             ),
         }
 
-        res1 = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res1 = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res1, tuple)
         if len(res1) == 3:
             _candidates1, _df1, diagnostics1 = res1
@@ -318,9 +302,7 @@ class TestSystem4MainFunctions:
             _candidates1, _df1 = res1
             diagnostics1 = {}
 
-        res2 = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res2 = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res2, tuple)
         if len(res2) == 3:
             _candidates2, _df2, diagnostics2 = res2
@@ -330,10 +312,7 @@ class TestSystem4MainFunctions:
 
         # Diagnostics should be consistent
         assert diagnostics1["ranking_source"] == diagnostics2["ranking_source"]
-        assert (
-            diagnostics1["setup_predicate_count"]
-            == diagnostics2["setup_predicate_count"]
-        )
+        assert diagnostics1["setup_predicate_count"] == diagnostics2["setup_predicate_count"]
         assert diagnostics1["ranked_top_n_count"] == diagnostics2["ranked_top_n_count"]
 
 
@@ -383,9 +362,7 @@ class TestSystem4EdgeCases:
         }
 
         # Should handle NaN values gracefully
-        res = generate_candidates_system4(
-            prepared_dict, top_n=10, latest_only=True, include_diagnostics=True
-        )
+        res = generate_candidates_system4(prepared_dict, top_n=10, latest_only=True, include_diagnostics=True)
         assert isinstance(res, tuple)
         if len(res) == 3:
             candidates, df, diagnostics = res

@@ -537,8 +537,13 @@ def main():
 
     # デフォルト配分設定で実行
     try:
+        # Pass strategies and symbol_system_map so that per-system
+        # calculate_position_size functions are available during sizing.
+        symbol_system_map = load_symbol_system_map()
         final_df, _summary = finalize_allocation(
             per_system,
+            strategies=strategies,
+            symbol_system_map=symbol_system_map,
             capital_long=100000.0,  # $100k
             capital_short=100000.0,  # $100k
         )

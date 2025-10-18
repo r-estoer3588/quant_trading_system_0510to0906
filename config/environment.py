@@ -363,18 +363,15 @@ class EnvironmentConfig:
         # テスト用閾値が本番環境で設定されていないかチェック
         if not self.compact_logs:  # 本番環境の可能性
             if self.min_drop3d_for_test is not None:
-                errors.append("⚠️ MIN_DROP3D_FOR_TEST が設定されています。" "本番環境では絶対に使用しないでください。")
+                errors.append("⚠️ MIN_DROP3D_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。")
             if self.min_atr_ratio_for_test is not None:
-                errors.append(
-                    "⚠️ MIN_ATR_RATIO_FOR_TEST が設定されています。" "本番環境では絶対に使用しないでください。"
-                )
+                errors.append("⚠️ MIN_ATR_RATIO_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。")
 
         # Alpacaペーパートレード警告
         if not self.alpaca_paper and self.apca_api_key_id:
             # 本番取引モード
             errors.append(
-                "⚠️ ALPACA_PAPER=false（本番取引モード）が設定されています。"
-                "本番取引を実行する場合のみ使用してください。"
+                "⚠️ ALPACA_PAPER=false（本番取引モード）が設定されています。本番取引を実行する場合のみ使用してください。"
             )
 
         return errors

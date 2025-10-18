@@ -123,9 +123,7 @@ def _attempt_bulk_refresh(symbols: list[str] | None, progress_interval: int = 50
             progress_callback=progress_callback,
         )
     except Exception as exc:  # pragma: no cover - defensive fallback
-        if CacheUpdateInterrupted is not None and isinstance(
-            exc, CacheUpdateInterrupted
-        ):
+        if CacheUpdateInterrupted is not None and isinstance(exc, CacheUpdateInterrupted):
             raise
         return None
 
@@ -143,10 +141,7 @@ def _report_bulk_interrupt(exc: BaseException, total_symbols: int) -> None:
         total_for_report = max(total_for_report, processed)
 
     print("🛑 Bulk 更新がユーザーにより中断されました。", flush=True)
-    summary = (
-        f"   ↳ {timestamp} 時点 | 処理済み: {processed}/{total_for_report} 銘柄 / "
-        f"更新済み: {updated} 銘柄"
-    )
+    summary = f"   ↳ {timestamp} 時点 | 処理済み: {processed}/{total_for_report} 銘柄 / 更新済み: {updated} 銘柄"
     print(summary, flush=True)
 
 
@@ -183,9 +178,7 @@ except Exception:
     LOG_DIR = Path(os.path.dirname(__file__)) / "logs"
     DATA_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache"
     LEGACY_RECENT_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache_recent"
-    BASE_CACHE_DIR = (
-        Path(os.path.dirname(__file__)) / ".." / "data_cache" / BASE_SUBDIR_NAME
-    )
+    BASE_CACHE_DIR = Path(os.path.dirname(__file__)) / ".." / "data_cache" / BASE_SUBDIR_NAME
     THREADS_DEFAULT = int(os.getenv("THREADS_DEFAULT", 8))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 10))
     DOWNLOAD_RETRIES = int(os.getenv("DOWNLOAD_RETRIES", 3))
@@ -308,9 +301,7 @@ class _ThrottleController:
 _throttle_controller = _ThrottleController(API_THROTTLE_SECONDS)
 
 
-def _configure_api_throttle(
-    concurrency_scale: int = 1, throttle_seconds: float | None = None
-) -> float:
+def _configure_api_throttle(concurrency_scale: int = 1, throttle_seconds: float | None = None) -> float:
     """Fetch ワーカー数に応じて API レート制限を調整する。"""
     throttle = API_THROTTLE_SECONDS if throttle_seconds is None else throttle_seconds
     return _throttle_controller.configure(throttle, concurrency_scale)
@@ -498,9 +489,7 @@ def get_with_retry(url: str, retries: int = DOWNLOAD_RETRIES, delay: float = 2.0
                 return r
             if r.status_code == 429:
                 sleep_for = max(delay, API_THROTTLE_SECONDS) * (i + 1)
-                logging.warning(
-                    "429 Too Many Requests (%s/%s) - %s", i + 1, retries, url
-                )
+                logging.warning("429 Too Many Requests (%s/%s) - %s", i + 1, retries, url)
                 _throttle_controller.backoff(sleep_for)
             else:
                 logging.warning(f"ステータスコード {r.status_code} - {url}")
@@ -792,9 +781,7 @@ def cache_data(
     save_workers = max(1, int(save_workers))
 
     effective_throttle = _configure_api_throttle(fetch_workers, throttle_seconds)
-    configured_throttle = (
-        0.0667 if throttle_seconds is None else float(throttle_seconds)
-    )
+    configured_throttle = 0.0667 if throttle_seconds is None else float(throttle_seconds)
     if effective_throttle > 0:
         print(
             f"ℹ️ APIスロットリング: 設定値 {configured_throttle:.3f} 秒 → "
@@ -830,8 +817,7 @@ def cache_data(
         if progress_interval > 0 and completed_count % progress_interval == 0:
             total = len(symbols_to_fetch)
             print(
-                f"📊 進捗: {completed_count}/{total} 銘柄完了 "
-                f"({completed_count / total * 100:.1f}%)",
+                f"📊 進捗: {completed_count}/{total} 銘柄完了 ({completed_count / total * 100:.1f}%)",
                 flush=True,
             )
         if not result.success:
@@ -876,9 +862,7 @@ def cache_data(
             pending_writers -= 1
         return result
 
-    results_queue: queue.Queue[CacheResult] = queue.Queue(
-        maxsize=1000
-    )  # メモリ制限: 最大1000件
+    results_queue: queue.Queue[CacheResult] = queue.Queue(maxsize=1000)  # メモリ制限: 最大1000件
 
     print(
         f"🚀 データキャッシュ処理を開始します: {len(symbols_to_fetch)} 銘柄 "
@@ -889,8 +873,7 @@ def cache_data(
     # 動作方針の明示: API取得は常に順次実行(fetch_workers=1)し、
     # CSV保存と指標計算のみを並列化して I/O を効率化します。
     print(
-        "ℹ️ 動作方針: API取得は順次実行(fetch_workers=1)し、"
-        "CSV保存と指標計算は並列化(save_workers)して効率化します。",
+        "ℹ️ 動作方針: API取得は順次実行(fetch_workers=1)し、CSV保存と指標計算は並列化(save_workers)して効率化します。",
         flush=True,
     )
 
@@ -910,7 +893,7 @@ def cache_data(
             pending = pending_writers
             pct = (processed / total * 100) if total else 0.0
             elapsed = time.time() - start_time
-            elapsed_str = f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
+            elapsed_str = f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
             # 日付付きのシンプルなタイムスタンプ + 経過時間を表示
             # 例: 2025-09-29 20:30:54 [HEARTBEAT] ⏱ 進捗: 831/6219 銘柄完了 (13.4%) - pending_writers=8 - 経過: 02:15
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -997,9 +980,7 @@ def cache_data(
 
 
 def _cli_main() -> None:
-    parser = argparse.ArgumentParser(
-        description="EODHD デイリーデータのキャッシュを作成する"
-    )
+    parser = argparse.ArgumentParser(description="EODHD デイリーデータのキャッシュを作成する")
     parser.add_argument(
         "--chunk-size",
         type=int,
@@ -1090,13 +1071,10 @@ def _cli_main() -> None:
     if not args.full and not args.skip_bulk:
         stats = None
         try:
-            stats = _attempt_bulk_refresh(
-                symbols, progress_interval=args.progress_interval
-            )
+            stats = _attempt_bulk_refresh(symbols, progress_interval=args.progress_interval)
         except BaseException as exc:  # noqa: BLE001 - 中断検知のため
             if isinstance(exc, KeyboardInterrupt) or (
-                CacheUpdateInterrupted is not None
-                and isinstance(exc, CacheUpdateInterrupted)
+                CacheUpdateInterrupted is not None and isinstance(exc, CacheUpdateInterrupted)
             ):
                 _report_bulk_interrupt(exc, total_symbols)
                 return
@@ -1115,8 +1093,7 @@ def _cli_main() -> None:
             return
         elif stats.filtered_rows == 0:
             print(
-                "⚠️ Bulk データに処理対象銘柄が存在しなかったため "
-                "API 再取得にフォールバックします。",
+                "⚠️ Bulk データに処理対象銘柄が存在しなかったため API 再取得にフォールバックします。",
                 flush=True,
             )
             fallback_to_full = True
@@ -1149,10 +1126,7 @@ def _cli_main() -> None:
             chunk_index = max(1, args.chunk_index)
             start = chunk_size * (chunk_index - 1)
             if start >= total_symbols:
-                print(
-                    f"⚠️ チャンク開始位置 {start + 1} が銘柄数 {total_symbols} を超えています。"
-                    "処理をスキップします。"
-                )
+                print(f"⚠️ チャンク開始位置 {start + 1} が銘柄数 {total_symbols} を超えています。処理をスキップします。")
                 return
             end = min(total_symbols, start + chunk_size)
             symbols = symbols[start:end]
@@ -1161,9 +1135,7 @@ def _cli_main() -> None:
                 f"取得します（チャンク {chunk_index}、サイズ {chunk_size}）。"
             )
         else:
-            print(
-                f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）"
-            )
+            print(f"{len(symbols)}銘柄を取得します（クールダウン月次ブラックリスト適用後に除外）")
 
         cache_data(
             symbols,

@@ -36,15 +36,9 @@ class TestAdvancedDataOperations:
             {"price": ["mean", "std", "min", "max"], "volume": ["sum", "mean"]}
         )
 
-        pivot_table = df.pivot_table(
-            values="price", index="symbol", columns="sector", aggfunc="mean"
-        )
+        pivot_table = df.pivot_table(values="price", index="symbol", columns="sector", aggfunc="mean")
 
-        rolling_stats = (
-            df.set_index("date")["price"]
-            .rolling(window=10)
-            .agg(["mean", "std", "min", "max"])
-        )
+        rolling_stats = df.set_index("date")["price"].rolling(window=10).agg(["mean", "std", "min", "max"])
 
         # 結果検証
         assert grouped.shape[0] > 0
@@ -112,16 +106,9 @@ class TestCommonModulesDeepExecution:
 
             # モジュール内の全属性取得
             all_attrs = dir(system_constants)
-            constants = [
-                attr
-                for attr in all_attrs
-                if not attr.startswith("_") and attr.isupper()
-            ]
+            constants = [attr for attr in all_attrs if not attr.startswith("_") and attr.isupper()]
             functions = [
-                attr
-                for attr in all_attrs
-                if callable(getattr(system_constants, attr))
-                and not attr.startswith("_")
+                attr for attr in all_attrs if callable(getattr(system_constants, attr)) and not attr.startswith("_")
             ]
 
             # データ型確認
@@ -139,9 +126,7 @@ class TestCommonModulesDeepExecution:
 
             # 関数リスト取得
             util_functions = [
-                attr
-                for attr in dir(utils)
-                if callable(getattr(utils, attr)) and not attr.startswith("_")
+                attr for attr in dir(utils) if callable(getattr(utils, attr)) and not attr.startswith("_")
             ]
 
             # 基本的な文字列/数値処理があることを確認
@@ -165,15 +150,12 @@ class TestCommonModulesDeepExecution:
 
             # 両モジュールの関数リスト取得
             cache_util_funcs = [
-                attr
-                for attr in dir(cache_utils)
-                if callable(getattr(cache_utils, attr)) and not attr.startswith("_")
+                attr for attr in dir(cache_utils) if callable(getattr(cache_utils, attr)) and not attr.startswith("_")
             ]
             cache_validation_funcs = [
                 attr
                 for attr in dir(cache_validation)
-                if callable(getattr(cache_validation, attr))
-                and not attr.startswith("_")
+                if callable(getattr(cache_validation, attr)) and not attr.startswith("_")
             ]
 
             # 存在確認
@@ -202,17 +184,11 @@ class TestStrategiesDeepDive:
         imported_count = 0
         for strategy_name in strategy_modules:
             try:
-                strategy_module = __import__(
-                    f"strategies.{strategy_name}", fromlist=[strategy_name]
-                )
+                strategy_module = __import__(f"strategies.{strategy_name}", fromlist=[strategy_name])
 
                 # モジュール属性確認
                 attrs = dir(strategy_module)
-                classes = [
-                    attr
-                    for attr in attrs
-                    if not attr.startswith("_") and "Strategy" in attr
-                ]
+                classes = [attr for attr in attrs if not attr.startswith("_") and "Strategy" in attr]
 
                 if classes:
                     imported_count += 1
@@ -229,14 +205,11 @@ class TestStrategiesDeepDive:
             from strategies import base_strategy
 
             # クラス定義の詳細確認
-            strategy_classes = [
-                attr for attr in dir(base_strategy) if not attr.startswith("_")
-            ]
+            strategy_classes = [attr for attr in dir(base_strategy) if not attr.startswith("_")]
             methods = [
                 attr
                 for attr in dir(base_strategy)
-                if callable(getattr(base_strategy, attr, None))
-                and not attr.startswith("_")
+                if callable(getattr(base_strategy, attr, None)) and not attr.startswith("_")
             ]
 
             assert len(strategy_classes) >= 0
@@ -267,20 +240,11 @@ class TestComplexDataStructures:
         }
 
         # 複雑な操作
-        enabled_systems = {
-            k: v for k, v in complex_data["systems"].items() if v["config"]["enabled"]
-        }
+        enabled_systems = {k: v for k, v in complex_data["systems"].items() if v["config"]["enabled"]}
 
-        total_weight = sum(
-            system["config"]["weight"] for system in complex_data["systems"].values()
-        )
+        total_weight = sum(system["config"]["weight"] for system in complex_data["systems"].values())
 
-        avg_sharpe = np.mean(
-            [
-                system["performance"]["sharpe"]
-                for system in complex_data["systems"].values()
-            ]
-        )
+        avg_sharpe = np.mean([system["performance"]["sharpe"] for system in complex_data["systems"].values()])
 
         # 検証
         assert len(enabled_systems) == 7
@@ -306,9 +270,7 @@ class TestComplexDataStructures:
         )
 
         # 高度な操作
-        monthly_stats = df.groupby("date").agg(
-            {"price": "mean", "volume": "sum", "returns": ["mean", "std"]}
-        )
+        monthly_stats = df.groupby("date").agg({"price": "mean", "volume": "sum", "returns": ["mean", "std"]})
 
         symbol_performance = df.loc["AAPL"]
         cross_section = df.xs("2024-01", level="date")

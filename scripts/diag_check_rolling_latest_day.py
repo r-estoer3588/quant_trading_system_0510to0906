@@ -40,9 +40,7 @@ def _expected_base_day(cm: CacheManager, symbols: Iterable[str]) -> pd.Timestamp
         )
 
         entry_day = get_signal_target_trading_day()
-        base_day = pd.Timestamp(
-            get_latest_nyse_trading_day(entry_day - pd.Timedelta(days=1))
-        ).normalize()
+        base_day = pd.Timestamp(get_latest_nyse_trading_day(entry_day - pd.Timedelta(days=1))).normalize()
         return base_day
     except Exception:
         # フォールバック: rolling最終日の最頻値
@@ -123,9 +121,7 @@ def main() -> int:
     out_dir = Path("logs")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"rolling_latest_day_check_{expected.strftime('%Y%m%d')}.csv"
-    pd.DataFrame(rows).sort_values(["diff_days", "symbol"]).to_csv(
-        out_path, index=False, encoding="utf-8"
-    )
+    pd.DataFrame(rows).sort_values(["diff_days", "symbol"]).to_csv(out_path, index=False, encoding="utf-8")
     print("------------------------------------------------------------")
     print(f"[保存] {out_path} に詳細を書き出しました（差分日数や対象銘柄の一覧）。")
 

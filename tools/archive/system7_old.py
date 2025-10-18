@@ -126,9 +126,7 @@ def prepare_data_vectorized_system7(
 
     if log_callback:
         try:
-            log_callback(
-                "SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)"
-            )
+            log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)")
         except Exception:
             pass
     if progress_callback:
@@ -183,19 +181,14 @@ def generate_candidates_system7(
         try:
             # 直近のセットアップ（50日安値ブレイク）に基づく、
             # 翌営業日のユニークなエントリー予定日数を、過去50営業日に限定して集計
-            all_dates = (
-                pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
-            )
+            all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
             window_size = int(min(50, len(all_dates)) or 50)
             if window_size > 0:
                 recent_set = set(all_dates[-window_size:])
             else:
                 recent_set = set()
             count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
-            log_callback(
-                f"候補日数: {count_50} "
-                f"(直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
-            )
+            log_callback(f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)")
         except Exception:
             pass
     if progress_callback:

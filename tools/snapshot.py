@@ -68,15 +68,11 @@ def _ensure_manifest(base: Path, sources: Iterable[str], timestamp: str) -> None
         manifest["git_commit"] = commit.decode("utf-8").strip()
     except (subprocess.SubprocessError, OSError, UnicodeDecodeError):
         pass
-    (base / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    (base / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Capture project snapshots into snapshots/<timestamp>/."
-    )
+    parser = argparse.ArgumentParser(description="Capture project snapshots into snapshots/<timestamp>/.")
     parser.add_argument(
         "--sources",
         help="Comma separated list of directories to copy.",

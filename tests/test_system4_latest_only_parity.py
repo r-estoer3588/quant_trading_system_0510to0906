@@ -5,9 +5,7 @@ import pandas as pd
 from core.system4 import generate_candidates_system4
 
 
-def _make_prepared(
-    symbol: str, dates: pd.DatetimeIndex, rsi_vals: list[float]
-) -> pd.DataFrame:
+def _make_prepared(symbol: str, dates: pd.DatetimeIndex, rsi_vals: list[float]) -> pd.DataFrame:
     assert len(dates) == len(rsi_vals)
     return pd.DataFrame(
         {
@@ -35,13 +33,9 @@ def test_system4_latest_only_parity_latest_day():
     }
 
     top_n = 3
-    fast_by_date, fast_df = generate_candidates_system4(
-        prepared, top_n=top_n, latest_only=True
-    )
+    fast_by_date, fast_df = generate_candidates_system4(prepared, top_n=top_n, latest_only=True)
     assert fast_df is not None
-    full_by_date, full_df = generate_candidates_system4(
-        prepared, top_n=top_n, latest_only=False
-    )
+    full_by_date, full_df = generate_candidates_system4(prepared, top_n=top_n, latest_only=False)
     assert full_df is not None and latest in full_by_date
 
     # Ascending rsi4 => 5 < 12 < 18 < 29 (top_n=3 keeps first 3)

@@ -23,9 +23,9 @@ import sys
 
 def run_command(cmd: list[str], description: str) -> bool:
     """コマンド実行ヘルパー"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🔧 {description}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Command: {' '.join(cmd)}\n")
 
     try:

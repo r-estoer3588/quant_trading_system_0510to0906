@@ -29,9 +29,7 @@ class _DummyStrategy:
         return int(shares)
 
 
-def _make_candidates(
-    symbols: list[str], *, system: str, score_start: float
-) -> pd.DataFrame:
+def _make_candidates(symbols: list[str], *, system: str, score_start: float) -> pd.DataFrame:
     data = []
     score = score_start
     for sym in symbols:
@@ -50,12 +48,8 @@ def _make_candidates(
 
 def test_finalize_allocation_slot_mode() -> None:
     per_system = {
-        "system1": _make_candidates(
-            ["AAA", "BBB", "CCC"], system="system1", score_start=10
-        ),
-        "system6": _make_candidates(
-            ["XXX", "YYY", "ZZZ"], system="system6", score_start=5
-        ),
+        "system1": _make_candidates(["AAA", "BBB", "CCC"], system="system1", score_start=10),
+        "system6": _make_candidates(["XXX", "YYY", "ZZZ"], system="system6", score_start=5),
     }
     strategies = {
         "system1": _DummyStrategy(max_positions=3),

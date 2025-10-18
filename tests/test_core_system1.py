@@ -239,9 +239,7 @@ class TestSystem1MainFunctions:
         }
 
         # Test with top_n=3
-        result = generate_candidates_system1(
-            data_dict, target_date="2023-01-05", top_n=3
-        )
+        result = generate_candidates_system1(data_dict, target_date="2023-01-05", top_n=3)
 
         assert isinstance(result, dict)
 

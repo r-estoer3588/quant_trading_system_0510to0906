@@ -10,9 +10,7 @@ import time
 from playwright.async_api import async_playwright
 
 # ログ設定
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 # 設定
@@ -42,7 +40,7 @@ async def capture_screenshots_after_ui_ready():
                 break
             except Exception as e:
                 if attempt < 29:
-                    logger.info(f"⏳ UI起動待機中... ({attempt+1}/30)")
+                    logger.info(f"⏳ UI起動待機中... ({attempt + 1}/30)")
                     await asyncio.sleep(2)
                 else:
                     logger.error(f"❌ UI接続タイムアウト: {e}")
@@ -99,9 +97,7 @@ async def capture_screenshots_after_ui_ready():
             return
 
         # スクリーンショット撮影開始
-        logger.info(
-            f"📸 撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）"
-        )
+        logger.info(f"📸 撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）")
         screenshot_count = 0
 
         try:
@@ -128,7 +124,7 @@ async def capture_screenshots_after_ui_ready():
                             for i in range(3):
                                 await asyncio.sleep(1.0)
                                 ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                                fn = f"progress_{ts2}_final{i+1}.png"
+                                fn = f"progress_{ts2}_final{i + 1}.png"
                                 fp = SCREENSHOT_DIR / fn
                                 await page.screenshot(path=str(fp), full_page=False)
                                 screenshot_count += 1

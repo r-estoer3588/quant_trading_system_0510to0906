@@ -1,0 +1,46 @@
+
+# Nano Banana プロンプト集 — noteでクリックされやすいアイキャッチ向け
+
+-- 注意 --
+・画像にはテキストを埋め込まないでください（スクリプトでタイトルを重ねます）
+・アスペクト比は 16:9 想定
+・生成時は seed を指定して再現性を確保すると選定が楽です
+
+=== 共通ネガティブ ===
+negative_common: "text, letters, watermark, logo, brand marks, lowres, noisy background, extra fingers, deformed hands, blurry, jpeg artifacts, oversaturated, heavy gradients"
+
+=== Variant A: Week1 ヒーロー（会話×コード） ===
+prompt: "hero magazine cover style: two developers in an engaging mentor-mentee conversation beside a glowing large code editor UI, subtle chat bubbles with soft AI glow, warm friendly expressions, cinematic lighting, clean flat-modern illustration, blue and white palette with neon green accent, strong focal point, shallow depth, no text, no logos, 16:9"
+negative: "{{negative_common}}"
+overlay_title_jp: "対話で学ぶ Copilot Chat"
+overlay_sub_jp: "隠れた便利機能 10 選"
+overlay_title_en: "10 Hidden Features"
+overlay_sub_en: "of GitHub Copilot Chat"
+
+=== Variant B: Week1 アイコングリッド（視認性高め） ===
+prompt: "clean editorial grid of 10 large minimal icons, each icon clearly representing a developer task (diff summary, test generation, log triage, selector strategy, waiting strategy, minimal config, refactoring, test data design, CI failure clustering, writing assistant), generous spacing, soft shadows, consistent stroke and fill, blue/white with neon green accents, airy negative space, no text, no logos, 16:9"
+negative: "{{negative_common}}"
+overlay_title_jp: "Copilot Chat の 10 の裏技"
+overlay_sub_jp: "開発を爆速化する会話パターン"
+
+=== Variant C: Week2 抽象ダッシュボード（4象限） ===
+prompt: "stylized 4-quadrant dashboard with clear pictograms for timing (clock), selectors (cursor+target), environment (monitor+globe), concurrency (parallel nodes), subtle code-editor texture in the background, minimalist color blocks in blue/white with neon green accents, editorial layout, high contrast focal areas, no text, no logos, 16:9"
+negative: "{{negative_common}}"
+overlay_title_jp: "Playwright の CI 失敗"
+overlay_sub_jp: "4 パターンで 30 分解決"
+
+=== Variant D: Week2 コンソール＋信号（実用寄り） ===
+prompt: "close-up of a stylized CI console panel with minimal abstract log lines and three clear status indicators (green/yellow/red), selective highlights on failure lines, soft glow, calm blue/white palette with neon green accents, magazine-style crop, no text, no logos, 16:9"
+negative: "{{negative_common}}"
+overlay_title_jp: "CI ログを 30 分で読む"
+overlay_sub_jp: "原因・再現・修正を即決"
+
+=== 追加オプション: ターゲット別バリエーション（短い補助プロンプト） ===
+# 人物強調: add "focus on facial expressions, empathetic, warm, authentic" to make thumbnails more engaging
+# 抽象・図形寄り: add "flat geometric shapes, bold silhouette, high icon readability" for small thumbnails
+# コントラスト強化: add "increase contrast, strong vignette, clear subject isolation" for crowded note feed
+
+-- 使い方メモ --
+- Nano Banana に prompt をコピペして生成（必要に応じて seed を指定）
+- Variant A/B/C/D のいずれかをまず 4～6 枚試し、サムネイルでの視認性を確認して最良を選んでください
+- 選定後、`tools/generate_article_eyecatch.py` でオーバーレイタイトルを追加します（埋め込みテキストは避けてください）

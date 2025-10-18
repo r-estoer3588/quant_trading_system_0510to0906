@@ -37,9 +37,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [
-            col for col in SYSTEM4_REQUIRED_INDICATORS if col not in df.columns
-        ]
+        missing_indicators = [col for col in SYSTEM4_REQUIRED_INDICATORS if col not in df.columns]
         if missing_indicators:
             return symbol, None
 
@@ -104,9 +102,7 @@ def prepare_data_vectorized_system4(
                     x = df.copy()
 
                     # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
-                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x[
-                        "hv50"
-                    ].between(10, 40)
+                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x["hv50"].between(10, 40)
 
                     # Setup: Filter + Close>SMA200 (trend confirmation)
                     x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
@@ -114,9 +110,7 @@ def prepare_data_vectorized_system4(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(
-                        f"System4: Fast-path processed {len(prepared_dict)} symbols"
-                    )
+                    log_callback(f"System4: Fast-path processed {len(prepared_dict)} symbols")
 
                 return prepared_dict
 
@@ -126,9 +120,7 @@ def prepare_data_vectorized_system4(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback(
-                    "System4: Fast-path failed, falling back to normal processing"
-                )
+                log_callback("System4: Fast-path failed, falling back to normal processing")
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -141,9 +133,7 @@ def prepare_data_vectorized_system4(
         return {}
 
     if log_callback:
-        log_callback(
-            f"System4: Starting normal processing for {len(target_symbols)} symbols"
-        )
+        log_callback(f"System4: Starting normal processing for {len(target_symbols)} symbols")
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -296,24 +286,14 @@ def generate_candidates_system4(
                                     s_rsi_f = float(s_rsi)
                                 except Exception:
                                     s_rsi_f = float("nan")
-                                samples.append(
-                                    (
-                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} "
-                                        f"rsi4={s_rsi_f:.4f}"
-                                    )
-                                )
+                                samples.append((f"{s_sym}: date={s_dt.date()} setup={s_setup} rsi4={s_rsi_f:.4f}"))
                                 taken += 1
                                 if taken >= 2:
                                     break
                             except Exception:
                                 continue
                         if samples:
-                            log_callback(
-                                (
-                                    "System4: DEBUG latest_only 0 candidates. "
-                                    + " | ".join(samples)
-                                )
-                            )
+                            log_callback(("System4: DEBUG latest_only 0 candidates. " + " | ".join(samples)))
                     except Exception:
                         pass
                     log_callback("System4: latest_only fast-path produced 0 rows")
@@ -324,9 +304,7 @@ def generate_candidates_system4(
                 df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(
-                top_n
-            )
+            df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(top_n)
             diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -338,23 +316,12 @@ def generate_candidates_system4(
                     sym = rec.get("symbol")
                     if not sym:
                         continue
-                    payload: dict[str, Any] = {
-                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
-                    }
+                    payload: dict[str, Any] = {str(k): v for k, v in rec.items() if k not in ("symbol", "date")}
                     symbol_map[str(sym)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
-                log_callback(
-                    (
-                        "System4: latest_only fast-path -> "
-                        f"{len(df_all)} candidates (symbols={len(rows)})"
-                    )
-                )
-            return (
-                (by_date, df_all.copy(), diagnostics)
-                if include_diagnostics
-                else (by_date, df_all.copy())
-            )
+                log_callback((f"System4: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
+            return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
         except Exception as e:
             if log_callback:
                 log_callback(f"System4: fast-path failed -> fallback ({e})")
@@ -437,9 +404,7 @@ def generate_candidates_system4(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(
-            ["date", "rsi4"], ascending=[True, True]
-        )
+        candidates_df = candidates_df.sort_values(["date", "rsi4"], ascending=[True, True])
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -452,12 +417,7 @@ def generate_candidates_system4(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback(
-            (
-                "System4: Generated "
-                f"{total_candidates} candidates across {unique_dates} dates"
-            )
-        )
+        log_callback((f"System4: Generated {total_candidates} candidates across {unique_dates} dates"))
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
     for dt, recs in candidates_by_date.items():
@@ -469,11 +429,7 @@ def generate_candidates_system4(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return (
-        (normalized, candidates_df, diagnostics)
-        if include_diagnostics
-        else (normalized, candidates_df)
-    )
+    return (normalized, candidates_df, diagnostics) if include_diagnostics else (normalized, candidates_df)
 
 
 def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:

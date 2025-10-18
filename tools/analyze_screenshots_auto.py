@@ -171,7 +171,7 @@ def main():
 
             # 進捗表示
             if i % 10 == 0 or i == len(sys.argv) - 1:
-                print(f"   処理中: {i}/{len(sys.argv)-1} 枚...")
+                print(f"   処理中: {i}/{len(sys.argv) - 1} 枚...")
         else:
             print(f"⚠️ スキップ: {arg}")
 
@@ -185,13 +185,9 @@ def main():
 
     # サマリー表示
     print("\n【サマリー】")
-    progress_values = [
-        r.get("progress_percent", 0) for r in results if "error" not in r
-    ]
+    progress_values = [r.get("progress_percent", 0) for r in results if "error" not in r]
     if progress_values:
-        print(
-            f"   進捗バー範囲: {min(progress_values):.1f}% - {max(progress_values):.1f}%"
-        )
+        print(f"   進捗バー範囲: {min(progress_values):.1f}% - {max(progress_values):.1f}%")
 
     system_names = [r.get("system_name") for r in results if "error" not in r]
     unique_systems = set(system_names)

@@ -189,15 +189,9 @@ def main():
     if args.check_system7 and system7_cov is not None:
         threshold = 66.0
         if system7_cov < threshold:
-            print(
-                f"\n❌ System7 coverage ({system7_cov:.2f}%) "
-                f"below threshold ({threshold}%)"
-            )
+            print(f"\n❌ System7 coverage ({system7_cov:.2f}%) below threshold ({threshold}%)")
             sys.exit(1)
-        print(
-            f"\n✅ System7 coverage ({system7_cov:.2f}%) "
-            f"meets threshold ({threshold}%)"
-        )
+        print(f"\n✅ System7 coverage ({system7_cov:.2f}%) meets threshold ({threshold}%)")
 
     print(f"\n📁 Reports saved to: {args.output_dir.absolute()}")
     if "html" in args.format:

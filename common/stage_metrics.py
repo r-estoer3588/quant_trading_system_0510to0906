@@ -204,9 +204,7 @@ class StageMetricsStore:
 
             return snapshot.copy()
 
-    def record_exit(
-        self, system: str, exit_count: object | None, *, emit_event: bool = False
-    ) -> StageSnapshot:
+    def record_exit(self, system: str, exit_count: object | None, *, emit_event: bool = False) -> StageSnapshot:
         """Update the exit count for a system and return the snapshot."""
 
         system_key = self._normalize_system_name(system)
