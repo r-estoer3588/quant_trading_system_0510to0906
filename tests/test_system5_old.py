@@ -253,9 +253,9 @@ def test_atr_pct_calculation():
 
     # 同じ相対的なボラティリティなら、ATR_Pctは近い値になるはず
     ratio = high_atr_pct / low_atr_pct if low_atr_pct > 0 else 0
-    assert (
-        0.8 <= ratio <= 1.2
-    ), f"ATR_Pct should be similar regardless of price level: {high_atr_pct:.4f} vs {low_atr_pct:.4f}"
+    assert 0.8 <= ratio <= 1.2, (
+        f"ATR_Pct should be similar regardless of price level: {high_atr_pct:.4f} vs {low_atr_pct:.4f}"
+    )
 
 
 def test_ohlcv_column_normalization():

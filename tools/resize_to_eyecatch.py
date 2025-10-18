@@ -98,7 +98,7 @@ def main() -> int:
         dest="mode",
         choices=["cover", "contain", "smart"],
         default="cover",
-        help=("cover: fill and crop (default); contain: fit with padding; " "smart: detect content and center crop"),
+        help=("cover: fill and crop (default); contain: fit with padding; smart: detect content and center crop"),
     )
     args = parser.parse_args()
 

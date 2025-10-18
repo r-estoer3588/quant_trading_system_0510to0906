@@ -48,7 +48,9 @@ def _to_timestamp_safe(dt: Any) -> pd.Timestamp:
     return pd.Timestamp("NaT")
 
 
-def _sorted_items_by_priority(d: Dict[str, Dict[str, Any]]) -> Iterable[tuple[str, Dict[str, Any]]]:
+def _sorted_items_by_priority(
+    d: Dict[str, Dict[str, Any]],
+) -> Iterable[tuple[str, Dict[str, Any]]]:
     """Yield (symbol, payload) pairs in preferred order.
 
     Priority:

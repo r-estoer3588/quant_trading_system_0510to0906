@@ -158,9 +158,9 @@ class TestSystem7LatestOnlyPath:
         normalized, df_fast, diagnostics = result_tuple
 
         # Verify fast path was taken
-        assert (
-            diagnostics.get("ranking_source") == "latest_only"
-        ), f"Expected 'latest_only', got {diagnostics.get('ranking_source')}"
+        assert diagnostics.get("ranking_source") == "latest_only", (
+            f"Expected 'latest_only', got {diagnostics.get('ranking_source')}"
+        )
 
         # Should have single candidate for most recent setup
         assert len(normalized) >= 1, "Should have at least one candidate"
@@ -312,9 +312,9 @@ class TestSystem7LatestOnlyPath:
         # Verify diagnostics structure
         assert "ranking_source" in diagnostics
         # Should be "latest_only" when setup exists
-        assert (
-            diagnostics["ranking_source"] == "latest_only"
-        ), f"Expected 'latest_only', got {diagnostics['ranking_source']}"
+        assert diagnostics["ranking_source"] == "latest_only", (
+            f"Expected 'latest_only', got {diagnostics['ranking_source']}"
+        )
 
         # Should have ranked_top_n_count
         assert "ranked_top_n_count" in diagnostics

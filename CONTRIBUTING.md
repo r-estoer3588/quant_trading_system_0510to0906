@@ -64,3 +64,24 @@ CI（推奨）
 ---
 
 短い背景: このファイルは自動フォーマットや pre-commit によるコミットブロックの再発を防ぐための最低限のドキュメントです。必要に応じて CI の example ワークフローやより詳しい Powershell スクリプト（`tools/auto_format_converge.ps1` の使い方）を追加します。
+
+注意: `pre-commit autoupdate` を実行して hooks の rev を上げた場合の推奨手順
+
+- 1. `pre-commit autoupdate` を実行したら、必ずローカル仮想環境のツールをフック側のバージョンに揃えてください。
+
+  - 例（今回のプロジェクトで使っているバージョン例）:
+    ```powershell
+    # PowerShell 例: UTF-8 モード推奨
+    .\venv\Scripts\python.exe -m pip install "black==25.9.0" "ruff==0.14.1"
+    ```
+  - これは `pre-commit` が内部で利用するツールとローカル実行の挙動を一致させるためです。
+
+- 2. ローカルで整形を一括適用して差分を安定させます:
+
+  ```powershell
+  .\venv\Scripts\python.exe -X utf8 -m pre_commit run --all-files
+  git add -A
+  git commit -m "style: sync formatting with updated pre-commit hooks"
+  ```
+
+- 3. CI でも同じバージョンを使うため、ワークフローに black/ruff の固定バージョンを明記してください（以下の `CONTRIBUTING.md` の CI セクション参照）。

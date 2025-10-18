@@ -228,7 +228,7 @@ def prepare_data_vectorized_system4(
                     em, es = divmod(int(elapsed), 60)
                     rm, rs = divmod(int(remain), 60)
                     msg = tr(
-                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+                        "📊 indicators progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                         done=i,
                         total=total,
                         em=em,
@@ -584,7 +584,7 @@ def generate_candidates_system4(
                 em, es = divmod(int(elapsed), 60)
                 rm, rs = divmod(int(remain), 60)
                 msg = tr(
-                    "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / " "remain: ~{rm}m{rs}s",
+                    "📊 candidates progress: {done}/{total} | elapsed: {em}m{es}s / remain: ~{rm}m{rs}s",
                     done=processed,
                     total=total,
                     em=em,

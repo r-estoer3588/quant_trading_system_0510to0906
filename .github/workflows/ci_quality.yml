@@ -26,7 +26,8 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          pip install ruff mypy isort
+          # Install and pin formatting tool versions so CI matches local pre-commit hooks
+          pip install "black==25.9.0" "ruff==0.14.1" mypy isort
       - name: isort (import order check)
         run: isort --check-only .
 

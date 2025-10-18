@@ -264,9 +264,9 @@ def generate_candidates_system6(
     #   - env.full_scan_today が False （明示 full 走査要求がない）
     #   - include_diagnostics は影響なし（fast path も診断返却対応済み）
     try:  # 環境依存のため失敗しても安全に継続
-        from config.environment import (
+        from config.environment import (  # 遅延インポートで初期化コスト最小化
             get_env_config,
-        )  # 遅延インポートで初期化コスト最小化
+        )
 
         env = get_env_config()
         if (
@@ -276,10 +276,10 @@ def generate_candidates_system6(
         ):
             latest_only = True  # 強制切替
             if logger:
-                logger.info("System6: forcing latest_only " "(system6_force_latest_only=1, full_scan_today=0)")
+                logger.info("System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)")
                 if log_callback:
                     try:
-                        log_callback("System6: forcing latest_only " "(system6_force_latest_only=1, full_scan_today=0)")
+                        log_callback("System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)")
                     except Exception:
                         pass
                 try:  # メトリクス環境が無い状況でも安全に続行
@@ -425,9 +425,7 @@ def generate_candidates_system6(
                                     s_ret_f = float(s_ret)
                                 except Exception:
                                     s_ret_f = float("nan")
-                                samples.append(
-                                    (f"{s_sym}: date={s_dt.date()} setup={s_setup} " f"return_6d={s_ret_f:.4f}")
-                                )
+                                samples.append((f"{s_sym}: date={s_dt.date()} setup={s_setup} return_6d={s_ret_f:.4f}"))
                                 taken += 1
                                 if taken >= 2:
                                     break
@@ -474,9 +472,7 @@ def generate_candidates_system6(
 
             if log_callback:
                 try:
-                    log_callback(
-                        f"System6: latest_only fast-path -> {len(df_all)} " f"candidates (symbols={len(rows)})"
-                    )
+                    log_callback(f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})")
                 except Exception:
                     pass
             diagnostics["ranked_top_n_count"] = len(df_all)
@@ -710,7 +706,7 @@ def generate_candidates_system6(
     if log_callback:
         try:
             log_callback(
-                f"📊 System6 候補生成完了: {total_candidates}件の候補 " f"({unique_dates}日分, {processed}シンボル処理)"
+                f"📊 System6 候補生成完了: {total_candidates}件の候補 ({unique_dates}日分, {processed}シンボル処理)"
             )
         except Exception:
             pass

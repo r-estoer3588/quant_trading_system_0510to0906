@@ -8,7 +8,8 @@ while ($i -lt $max) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "commit succeeded"
         exit 0
-    } else {
+    }
+    else {
         Write-Host "commit failed, retrying..."
         Start-Sleep -Seconds 1
         $i = $i + 1

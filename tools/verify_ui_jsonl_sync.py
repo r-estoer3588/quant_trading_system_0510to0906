@@ -171,7 +171,9 @@ def verify_single_screenshot(
     return result
 
 
-def detect_progress_regression(screenshot_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def detect_progress_regression(
+    screenshot_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """連続スクショ間の進捗後退を検出"""
     regressions = []
 

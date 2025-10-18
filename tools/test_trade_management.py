@@ -409,9 +409,9 @@ def test_market_order_fallback_to_close():
     if trade_entry:
         # Should fallback to Close since Open is missing
         expected_price = 102.5
-        assert (
-            trade_entry.entry_price == expected_price
-        ), f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
+        assert trade_entry.entry_price == expected_price, (
+            f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
+        )
         print(f"✅ Fallback to Close successful: entry_price={trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")
@@ -458,9 +458,9 @@ def test_entry_price_fallback_to_allocation():
 
     if trade_entry:
         # Should use allocation entry_price since Open/Close are missing
-        assert (
-            trade_entry.entry_price == allocation_entry
-        ), f"Expected {allocation_entry}, got {trade_entry.entry_price}"
+        assert trade_entry.entry_price == allocation_entry, (
+            f"Expected {allocation_entry}, got {trade_entry.entry_price}"
+        )
         print(f"✅ Fallback to allocation entry_price successful: {trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")

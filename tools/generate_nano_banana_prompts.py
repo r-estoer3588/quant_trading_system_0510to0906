@@ -65,7 +65,7 @@ def build_prompts(title: str) -> List[str]:
         ),
     ]
 
-    negative = "lowres, watermark, signature, extra text, deformed, blurry, " "oversaturated"
+    negative = "lowres, watermark, signature, extra text, deformed, blurry, oversaturated"
 
     # Ensure short lines: strip repeated whitespace
     prompts = [re.sub(r"\s+", " ", p).strip() for p in prompts]
@@ -82,7 +82,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     p.add_argument(
         "--out",
         required=False,
-        help=("Optional output path (if omitted will write to " "docs/nano_banana_prompts_{slug}.txt)"),
+        help=("Optional output path (if omitted will write to docs/nano_banana_prompts_{slug}.txt)"),
     )
     args = p.parse_args(list(argv) if argv is not None else None)
 

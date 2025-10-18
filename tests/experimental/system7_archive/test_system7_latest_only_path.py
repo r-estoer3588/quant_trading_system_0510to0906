@@ -104,9 +104,9 @@ class TestSystem7LatestOnlyFastPath:
         # ATR50 が正しく設定されている
         first_date = list(normalized.keys())[0]
         spy_payload = normalized[first_date]["SPY"]
-        assert (
-            spy_payload.get("ATR50") == expected_atr
-        ), f"Expected ATR50={expected_atr}, got {spy_payload.get('ATR50')}"
+        assert spy_payload.get("ATR50") == expected_atr, (
+            f"Expected ATR50={expected_atr}, got {spy_payload.get('ATR50')}"
+        )
 
     def test_latest_only_df_result_structure(self):
         """latest_only の DataFrame 結果が正しい構造を持つ (Lines 233-244)"""
@@ -148,9 +148,9 @@ class TestSystem7LatestOnlyFastPath:
 
         # log_callback が呼ばれたことを確認
         assert len(log_messages) > 0, "log_callback should be called"
-        assert any(
-            "latest_only" in msg for msg in log_messages
-        ), f"Expected 'latest_only' in log messages, got {log_messages}"
+        assert any("latest_only" in msg for msg in log_messages), (
+            f"Expected 'latest_only' in log messages, got {log_messages}"
+        )
 
     def test_latest_only_progress_callback_invocation(self):
         """latest_only で progress_callback が呼ばれる (Lines 257-261)"""
@@ -189,9 +189,9 @@ class TestSystem7LatestOnlyFastPath:
 
         # setup が False なので候補なし
         assert diagnostics.get("ranked_top_n_count") == 0, "Should have 0 candidates when setup=False"
-        assert (
-            diagnostics.get("ranking_source") is None or diagnostics.get("ranking_source") != "latest_only"
-        ), "Should not use latest_only path"
+        assert diagnostics.get("ranking_source") is None or diagnostics.get("ranking_source") != "latest_only", (
+            "Should not use latest_only path"
+        )
 
     def test_latest_only_normalized_structure(self):
         """latest_only の normalized dict が正しい構造を持つ (Lines 244-248)"""

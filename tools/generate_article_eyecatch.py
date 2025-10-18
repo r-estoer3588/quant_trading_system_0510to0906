@@ -640,7 +640,7 @@ def main():
                     f"cinematic crop, {base_meta}"
                 ),
             ]
-            negative = "lowres, watermark, signature, extra text, deformed, " "blurry, oversaturated"
+            negative = "lowres, watermark, signature, extra text, deformed, blurry, oversaturated"
             return [p.strip() for p in prompts] + [f"Negative prompt: {negative}"]
 
         prompts = build_prompts(title_text or "eyecatch")
