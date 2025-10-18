@@ -12,6 +12,7 @@ import argparse
 import os
 import re
 import sys
+from typing import List
 
 from PIL import (
     Image,
@@ -22,7 +23,6 @@ from PIL import (
     ImageFont,
     ImageOps,
 )
-from typing import List
 
 
 def create_gradient_background(width, height):
