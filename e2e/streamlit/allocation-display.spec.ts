@@ -31,17 +31,17 @@ test.describe("配分結果表示", () => {
     // summary (allocation) is produced and visible for assertions.
     try {
       // Debug: list top-level tabs and their labels so we can see what the UI shows
-      const tabLoc = page.locator('role=tab');
+      const tabLoc = page.locator("role=tab");
       const tcount = await tabLoc.count();
-      console.log('[DEBUG] found tabs count=', tcount);
+      console.log("[DEBUG] found tabs count=", tcount);
       let clicked = false;
       for (let i = 0; i < tcount; i++) {
         const t = tabLoc.nth(i);
-        let txt = '';
+        let txt = "";
         try {
           txt = (await t.innerText()).trim();
         } catch (e) {
-          txt = (await t.textContent()) || '';
+          txt = (await t.textContent()) || "";
         }
         console.log(`[DEBUG] top-tab[${i}]='${txt}'`);
         if (/統合|Integrated/i.test(txt)) {
@@ -56,7 +56,7 @@ test.describe("配分結果表示", () => {
           const t = tabLoc.nth(i);
           const txt = (await t.innerText()).trim();
           if (!/^system\d+/i.test(txt) && txt.length > 0) {
-            console.log('[DEBUG] fallback clicking top-tab index=', i, 'text=', txt);
+            console.log("[DEBUG] fallback clicking top-tab index=", i, "text=", txt);
             await t.click().catch(() => null);
             clicked = true;
             break;
@@ -66,26 +66,41 @@ test.describe("配分結果表示", () => {
 
       // Capture a trimmed body snippet for debugging so we can inspect what was rendered
       try {
-        const body = await page.textContent('body');
-        console.log('[DEBUG] body snippet:', (body || '').slice(0, 2000));
+        const body = await page.textContent("body");
+        console.log("[DEBUG] body snippet:", (body || "").slice(0, 2000));
       } catch (e) {
         // ignore
       }
 
       // Robustly find the run-integrated button via role matching or text
       const integratedBtn = page.locator(
-        'role=button[name=/統合実行|run integrated|統合実行開始|run today signals|当日シグナル実行|▶ 本日のシグナル実行/i]'
+        "role=button[name=/統合実行|run integrated|統合実行開始|run today signals|当日シグナル実行|▶ 本日のシグナル実行/i]"
       );
       if ((await integratedBtn.count()) > 0) {
-        await integratedBtn.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
-        await integratedBtn.first().click().catch(() => null);
+        await integratedBtn
+          .first()
+          .waitFor({ state: "visible", timeout: 10000 })
+          .catch(() => null);
+        await integratedBtn
+          .first()
+          .click()
+          .catch(() => null);
       } else {
         // fallback to button:has-text for likely candidates
-        const fallbackTexts = ['統合実行', 'run integrated', '本日のシグナル実行', '▶ 本日のシグナル実行', 'run today signals'];
+        const fallbackTexts = [
+          "統合実行",
+          "run integrated",
+          "本日のシグナル実行",
+          "▶ 本日のシグナル実行",
+          "run today signals",
+        ];
         for (const ft of fallbackTexts) {
           const fb = page.locator(`button:has-text("${ft}")`);
           if ((await fb.count()) > 0) {
-            await fb.first().click().catch(() => null);
+            await fb
+              .first()
+              .click()
+              .catch(() => null);
             break;
           }
         }
@@ -93,14 +108,20 @@ test.describe("配分結果表示", () => {
 
       // Wait for integrated summary heading or table to appear
       await Promise.race([
-        page.waitForSelector('text=統合サマリー', { timeout: 120000 }).catch(() => null),
-        page.waitForSelector('text=Integrated Summary', { timeout: 120000 }).catch(() => null),
-        page.waitForSelector('[data-testid="stDataFrame"]', { timeout: 120000 }).catch(() => null),
-        page.waitForSelector('table', { timeout: 120000 }).catch(() => null),
+        page
+          .waitForSelector("text=統合サマリー", { timeout: 120000 })
+          .catch(() => null),
+        page
+          .waitForSelector("text=Integrated Summary", { timeout: 120000 })
+          .catch(() => null),
+        page
+          .waitForSelector('[data-testid="stDataFrame"]', { timeout: 120000 })
+          .catch(() => null),
+        page.waitForSelector("table", { timeout: 120000 }).catch(() => null),
       ]);
     } catch (e) {
       // ignore errors here; tests will assert and fail if summary not available
-      console.log('[DEBUG] beforeEach integration click error:', e);
+      console.log("[DEBUG] beforeEach integration click error:", e);
     }
   });
 
