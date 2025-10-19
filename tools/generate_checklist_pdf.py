@@ -1,11 +1,12 @@
+import os
+import tempfile
+import urllib.request
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-import os
-import urllib.request
-import tempfile
+from reportlab.pdfgen import canvas
 
 
 def make_checklist(path: str) -> None:
@@ -61,11 +62,14 @@ def make_checklist(path: str) -> None:
     margin = 20 * mm
 
     # Header
-    c.setFont(font_name, 18)
-    c.drawString(margin, height - margin, "Week2: Playwright CI 整備チェックリスト")
+    # Title
+    title = "Week2: Playwright CI 整備チェックリスト"
+    c.setFont(font_name, 20)
+    title_w = c.stringWidth(title, font_name, 20)
+    c.drawString((width - title_w) / 2.0, height - margin, title)
 
-    c.setFont(font_name, 10)
-    y = height - margin - 18 - 8
+    c.setFont(font_name, 11)
+    y = height - margin - 26 - 8
 
     intro = (
         "このチェックリストは、Playwright を使った E2E テストの CI でよく起きる失敗を減らすための"
@@ -82,16 +86,16 @@ def make_checklist(path: str) -> None:
     y -= 6
 
     checklist = [
-        "固定待機(waitForTimeout)を条件待機(waitForSelector/getByRole等)に置き換えた",
-        "主要なセレクタを getByRole / data-testid に置き換え、UI 依存を減らした",
-        "playwright.config.ts で viewport/locale/timezone を固定した",
-        "CI コンテナに必要なフォントをインストールする Dockerfile を用意した",
-        "スクリーンショット比較の閾値と差分ポリシーを定めた",
-        "並列実行による共有リソース競合を検出し、該当テストを serial に分離した",
-        "テストごとに一意のテストデータ（UUID サフィックス等）を導入した",
-        "外部 API はモック/フェイクを利用するか、安定版のステージ環境を用意した",
-        "重要な失敗時のログ/スクショ収集テンプレを導入した",
-        "CI 実行設定とローカル環境の依存バージョンをドキュメント化した",
+        "固定待機(waitForTimeout)を条件待機(waitForSelector/getByRole等)に置き換える",
+        "主要セレクタを getByRole / data-testid に変更し、UI依存を減らす",
+        "`playwright.config.ts` で viewport / locale / timezone を固定する",
+        "CI コンテナに必要な日本語フォントをインストールする Dockerfile を用意する",
+        "スクリーンショット比較の閾値と差分ポリシーを決める",
+        "並列実行時の共有リソース競合を検出し、問題テストは serial に分離する",
+        "テストごとに UUID サフィックス等の一意データを付与する",
+        "外部 API は可能な限りモック/フェイクを利用する",
+        "失敗時に必要なログ／スクショ収集テンプレを整備する",
+        "CI とローカルの依存バージョンをドキュメント化する",
     ]
 
     c.setFont(font_name, 12)
@@ -99,29 +103,46 @@ def make_checklist(path: str) -> None:
     y -= 18
 
     c.setFont(font_name, 11)
+    box_size = 6 * mm
+    leading = 16
     for i, item in enumerate(checklist, start=1):
-        # wrap text if necessary
-        item_lines = simpleSplit(f"{i}. {item}", "Helvetica", 11, text_width)
-        for ln in item_lines:
-            c.drawString(margin + 6, y, ln)
-            y -= 14
+        item_text = f"{i}. {item}"
+        item_lines = simpleSplit(item_text, font_name, 11, text_width - box_size - 6)
+
+        # draw checkbox square
+        c.rect(margin, y - (box_size - 3), box_size, box_size, stroke=1, fill=0)
+
+        # draw the first line next to box
+        if item_lines:
+            c.drawString(margin + box_size + 6, y, item_lines[0])
+            y -= leading
+            for ln in item_lines[1:]:
+                c.drawString(margin + box_size + 6, y, ln)
+                y -= leading
+        else:
+            c.drawString(margin + box_size + 6, y, "")
+            y -= leading
+
         y -= 4
         if y < 40 * mm:
             c.showPage()
             y = height - margin
-            c.setFont("Helvetica", 11)
+            c.setFont(font_name, 11)
 
     # Footer / usage note
     if y < 60 * mm:
         c.showPage()
         y = height - margin
 
+    # Footer: generation info
+    from datetime import datetime
+
     c.setFont(font_name, 9)
-    c.drawString(
-        margin,
-        30 * mm,
-        "Generated checklist — adapt to your CI environment before use.",
-    )
+    gen_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    footer = f"Generated: {gen_str}"
+    note = "Adapt to your CI environment before use."
+    c.drawRightString(width - margin, 24 * mm, footer)
+    c.drawRightString(width - margin, 18 * mm, note)
 
     c.save()
 

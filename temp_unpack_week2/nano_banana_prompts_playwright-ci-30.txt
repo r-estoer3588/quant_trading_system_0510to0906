@@ -1,0 +1,9 @@
+# Nano Banana prompts for "対話で学ぶ Playwright の CI 失敗を 30 分で潰す実践ガイド"
+
+1) Playwright CI failure triage, minimal English one-line prompt, cinematic, high-detail
+2) Japanese developer debugging Playwright CI errors screenshot differences, clear UI
+3) Technical tutorial cover with laptop and code snippets, flat colors, no people close-ups
+4) Clean UI testing dashboard illustration, focused elements, soft shadows
+5) Playwright test failure flowchart, simplified icons, pastel palette
+
+Negative prompt: lowres, text readable, watermark, signature, extra limbs

@@ -12,13 +12,14 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 import json
 import logging
+import os
+import warnings
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeAlias, TypedDict
-import warnings
 
 import pandas as pd
 
@@ -1342,6 +1343,19 @@ def finalize_allocation(
         except Exception:
             symbol_system_map = {}
             logger.debug("[ALLOC_DEBUG] could not load symbol_system_map fallback")
+
+    # Production safety: optionally require strategies to be explicitly provided.
+    # Controlled by env var ALLOCATION_REQUIRE_STRATEGIES. Default is permissive
+    # (do not raise) to avoid breaking existing tests/tools. When enabled, this
+    # forces callers to pass strategies and helps catch omission errors early.
+    try:
+        require_strat = os.environ.get("ALLOCATION_REQUIRE_STRATEGIES", "0") == "1"
+    except Exception:
+        require_strat = False
+
+    if require_strat and not diagnostics["callers"].get("strategies_provided", False):
+        # In strict mode, raise to make omission explicit.
+        raise RuntimeError("finalize_allocation: strategies required")
 
     # Determine allocation mode.
     mode = "slot"
