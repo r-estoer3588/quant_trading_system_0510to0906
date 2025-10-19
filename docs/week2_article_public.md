@@ -107,6 +107,8 @@ await page.getByRole("button", { name: "結果を表示" }).click();
 
 - ダウンロード（購入者向け ZIP）: [week2_paid_assets.zip](https://drive.google.com/file/d/1xP2VHXau6dNkbKbjpvClyudCO327Ku00/view?usp=sharing)
 
+- note プレビュー: [プレビューを見る](https://note.com/preview/n41dd988dd5f9?prev_access_key=e1c1102936b85fd4b6c526c93c0c2e3d)
+
 ---
 
 <!-- 有料パート開始 -->
