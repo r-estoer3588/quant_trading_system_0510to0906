@@ -1,5 +1,40 @@
 {
-  // Use workspace venv Python to avoid WindowsApps stub issues
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "ms-python.python",
+  "python.formatting.provider": "black",
+  "python.formatting.blackArgs": [
+    "--fast"
+  ],
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python"
+  },
+  "ruff.enable": true,
+  "ruff.args": [
+    "--fix"
+  ]
+}
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "ms-python.python",
+  "python.formatting.provider": "black",
+  "python.formatting.blackArgs": [
+    "--fast"
+  ],
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true,
+    "source.fixAll.ruff": true
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python"
+  },
+  "ruff.enable": true,
+  "ruff.lint.args": [
+    "--fix"
+  ],
+  // Workspace interpreter and environment
   "python.defaultInterpreterPath": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
   "python.terminal.activateEnvironment": true,
   "python.terminal.executeInFileDir": false,
@@ -20,86 +55,23 @@
     "**/__pycache__": true,
     "**/.git": true
   },
-  // Pylint を完全に無効化（外部ライブラリのエラーを表示しない）
   "python.linting.enabled": false,
   "python.linting.pylintEnabled": false,
-  "editor.formatOnSave": true,
-  "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter",
-    "python.formatting.blackArgs": [
-      "--line-length",
-      "88"
-    ]
-  },
-  "black-formatter.importStrategy": "fromEnvironment",
-  // Force Black formatter to use the same venv interpreter
-  "black-formatter.interpreter": [
-    "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe"
-  ],
-  // "black-formatter.importStrategy": "fromEnvironment",
   "files.autoGuessEncoding": false,
   "files.encoding": "utf8",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
   "python.testing.pytestArgs": [
     "tests"
   ],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
-  "chat.mcp.autostart": "newAndOutdated",
-  "github.copilot.editor.enableAutoCompletions": true,
-  "github.copilot.chat.runCommands": "always",
-  "github.copilot.chat.executeCommand": "always",
-  "github.copilot.terminal.executeCommand": "always",
-  "github.copilot.chat.useProjectFiles": true,
-  "github.copilot.advanced": {
-    "automaticCommands": true,
-    "autoExecute": true
-  },
-  "github.copilot.chat.allowExecuteCommand": true,
-  "github.copilot.chat.executeCommandInTerminal": "always",
-  "terminal.integrated.confirmOnExit": "never",
-  "terminal.integrated.confirmOnKill": "never",
-  // AI開発効率向上設定
-  "github.copilot.enable": {
-    "*": true,
-    "yaml": true,
-    "plaintext": true,
-    "markdown": true,
-    "json": true,
-    "jsonc": true
-  },
-  "github.copilot.chat.welcomeMessage": "never",
-  "github.copilot.chat.focusOnNewConversation": false,
-  "github.copilot.advanced.listCount": 10,
-  "github.copilot.advanced.inlineSuggestCount": 5,
-  // Python開発効率設定
-  "python.analysis.autoImportCompletions": true,
-  "python.analysis.completeFunctionParens": true,
-  "python.analysis.autoFormatStrings": true,
-  // 型チェックの強度を basic に下げ、エディタのノイズを低減（CI は mypy で担保）
-  "python.analysis.typeCheckingMode": "basic",
-  "python.analysis.inlayHints.functionReturnTypes": true,
-  "python.analysis.inlayHints.variableTypes": true,
-  "python.analysis.inlayHints.parameterTypes": true,
-  // ファイル自動保存・フォーマット設定
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 1000,
-  "editor.codeActionsOnSave": {
-    "source.organizeImports": "explicit",
-    "source.fixAll.ruff": "explicit"
-  },
   "editor.rulers": [
     88
   ],
   "editor.wordWrap": "wordWrapColumn",
   "editor.wordWrapColumn": 88,
-  // テスト・デバッグ効率化
-  "python.testing.autoTestDiscoverOnSaveEnabled": true,
-  // Git効率化
-  "git.autofetch": true,
-  "git.confirmSync": false,
-  "git.enableSmartCommit": true,
-  "git.postCommitCommand": "none",
-  // ターミナル効率化
+  "python.analysis.typeCheckingMode": "basic",
   "terminal.integrated.defaultProfile.windows": "PowerShell",
   "terminal.integrated.profiles.windows": {
     "PowerShell": {
@@ -108,29 +80,5 @@
         "-NoLogo"
       ]
     }
-  },
-  // エラー・警告の即座表示
-  "problems.decorations.enabled": true,
-  "editor.lightbulb.enabled": "onCode",
-  // 外部ライブラリのエラーを除外
-  "mypy-type-checker.ignorePatterns": [
-    "**/.wslvenv/**",
-    "**/.venv/**",
-    "**/site-packages/**",
-    "**/venv/**"
-  ],
-  // Force Mypy Type Checker extension to use the workspace venv
-  "mypy-type-checker.interpreter": [
-    "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe"
-  ],
-  "python.analysis.exclude": [
-    "**/.wslvenv/**",
-    "**/.venv/**",
-    "**/site-packages/**",
-    "**/__pycache__/**"
-  ],
-  "python.analysis.ignore": [
-    "**/.wslvenv/**",
-    "**/.venv/**"
-  ]
+  }
 }

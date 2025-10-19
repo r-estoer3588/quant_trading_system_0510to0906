@@ -1,25 +1,13 @@
 repos:
-  - repo: https://github.com/pycqa/isort
-    rev: 7.0.0
-    hooks:
-      - id: isort
-        # 自動修正モードにして先に import 整理を行う（black と整合させる）
-        args: ["--profile", "black", "--line-length=88"]
-
-  - repo: https://github.com/psf/black
-    rev: 25.9.0 # 統一: 開発環境の black 24.10.0 と合わせ phantom 変更防止
-    hooks:
-      - id: black
-        language_version: python3
-        # 自動整形モード: black の line-length は pyproject.toml と整合
-        args: ["--line-length", "88"]
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.1
-    hooks:
-      - id: ruff
-        args: ["--fix"]
-      - id: ruff-format
+  # isort hook removed from local pre-commit by request (CI still runs isort checks).
+  # If you want to re-enable local isort auto-fix, restore the block below:
+  # - repo: https://github.com/pycqa/isort
+  #   rev: 7.0.0
+  #   hooks:
+  #     - id: isort
+  #       # 自動修正モードにして先に import 整理を行う（black と整合させる）
+  #       args: ["--profile", "black", "--line-length=88"]
+  # black and ruff hooks removed by request (formatting handled by editor/workspace)
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
