@@ -1285,12 +1285,19 @@ def finalize_allocation(
     for name in systems:
         candidate_counts[name] = _candidate_count(per_system_norm.get(name))
 
+    # Remember whether strategies was explicitly provided by the caller
+    original_strategies_provided = strategies is not None
+
     # Structured diagnostics to assist root-cause analysis when allocations
     # produce zero final entries. Populated and attached to AllocationSummary
     # before return. This includes whether callers provided strategies/symbol map
     # and per-system candidacy/slot/budget info.
     diagnostics: dict[str, Any] = {}
     diagnostics["callers"] = {
+        # strategies_provided_initial reflects whether the caller passed
+        # strategies explicitly. strategies_provided reflects the final
+        # state after any fallback construction.
+        "strategies_provided_initial": bool(original_strategies_provided),
         "strategies_provided": bool(strategies),
         "symbol_system_map_provided": bool(symbol_system_map),
         "include_trade_management": bool(include_trade_management),
@@ -1353,8 +1360,10 @@ def finalize_allocation(
     except Exception:
         require_strat = False
 
-    if require_strat and not diagnostics["callers"].get("strategies_provided", False):
-        # In strict mode, raise to make omission explicit.
+    if require_strat and not original_strategies_provided:
+        # In strict mode, raise to make omission explicit. We check the
+        # original flag so that internal fallback construction does not
+        # bypass the safety guard.
         raise RuntimeError("finalize_allocation: strategies required")
 
     # Determine allocation mode.

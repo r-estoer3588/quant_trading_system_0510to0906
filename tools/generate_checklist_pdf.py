@@ -64,12 +64,13 @@ def make_checklist(path: str) -> None:
     # Header
     # Title
     title = "Week2: Playwright CI 整備チェックリスト"
-    c.setFont(font_name, 20)
-    title_w = c.stringWidth(title, font_name, 20)
+    title_size = 18
+    c.setFont(font_name, title_size)
+    title_w = c.stringWidth(title, font_name, title_size)
     c.drawString((width - title_w) / 2.0, height - margin, title)
 
     c.setFont(font_name, 11)
-    y = height - margin - 26 - 8
+    y = height - margin - title_size - 8
 
     intro = (
         "このチェックリストは、Playwright を使った E2E テストの CI でよく起きる失敗を減らすための"
@@ -78,7 +79,7 @@ def make_checklist(path: str) -> None:
     text_width = width - margin * 2
     from reportlab.lib.utils import simpleSplit
 
-    lines = simpleSplit(intro, "Helvetica", 9, text_width)
+    lines = simpleSplit(intro, font_name, 9, text_width)
     for ln in lines:
         c.drawString(margin, y, ln)
         y -= 12
@@ -103,8 +104,8 @@ def make_checklist(path: str) -> None:
     y -= 18
 
     c.setFont(font_name, 11)
-    box_size = 6 * mm
-    leading = 16
+    box_size = 8 * mm
+    leading = 18
     for i, item in enumerate(checklist, start=1):
         item_text = f"{i}. {item}"
         item_lines = simpleSplit(item_text, font_name, 11, text_width - box_size - 6)
