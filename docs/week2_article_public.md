@@ -105,9 +105,16 @@ await page.getByRole("button", { name: "結果を表示" }).click();
 - `docs/downloads/eyecatch_week2_1280x670.png` / `docs/downloads/eyecatch_week2_titleband.png`
 - `docs/downloads/checklist_week2.pdf`（印刷用）
 
-- ダウンロード（購入者向け ZIP）: [week2_paid_assets.zip](https://drive.google.com/file/d/1xP2VHXau6dNkbKbjpvClyudCO327Ku00/view?usp=sharing)
+注記（ファイル形式・目安サイズ）:
 
-- note プレビュー: [プレビューを見る](https://note.com/preview/n41dd988dd5f9?prev_access_key=e1c1102936b85fd4b6c526c93c0c2e3d)
+- `playwright.config.example.ts` — TypeScript 設定例（約 2 KB）
+- `ci.Dockerfile.example` — Dockerfile テンプレ（約 1 KB）
+- `nano_banana_prompts_playwright-ci-30.txt` — テキスト（約 4 KB）
+- `eyecatch_week2_1280x670.png` — PNG（1280×670、約 60 KB）
+- `eyecatch_week2_titleband.png` — PNG（透過、約 35 KB）
+- `checklist_week2.pdf` — A4 PDF（日本語埋め込みフォント、約 53 KB）
+
+- ダウンロード（購入者向け ZIP）: [week2_paid_assets.zip](https://drive.google.com/file/d/1xP2VHXau6dNkbKbjpvClyudCO327Ku00/view?usp=sharing)
 
 ---
 
@@ -237,8 +244,10 @@ export default defineConfig({
 ---
 
 ## ダウンロード資産（購入で提供）
-
-- `playwright.config.ts`（最小セット）
+-
+- **購入はこちら（ZIP をダウンロード）** — 含まれる主なファイルと簡易メタ情報を下に記載しています。
+-
+- `playwright.config.ts`（最小セット） — TypeScript 設定例
 - `ci/Dockerfile`（CI runner 用テンプレ）
 - `nano_banana_prompts_playwright-ci-30.txt`（プロンプト集）
 - `eyecatch_week2_1280x670.png` / `eyecatch_week2_titleband.png`
