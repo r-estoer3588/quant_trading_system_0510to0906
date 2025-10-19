@@ -91,3 +91,32 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# === Additional common temp / IDE / build files ===
+# Editor swap / backup
+*~
+*.swp
+*.swo
+
+# Editors / IDE
+.vscode/
+.idea/
+*.iml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python packaging / build
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Caches
+.cache/
+
+# Logs (generic)
+*.log
+
+# Notebook checkpoints
+.ipynb_checkpoints/
