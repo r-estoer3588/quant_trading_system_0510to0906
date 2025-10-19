@@ -493,6 +493,19 @@ ruff check --fix .
 isort .
 ```
 
+#### PR 前チェック（重要）
+
+CI は `isort --check-only .` を実行します。ローカルで自動 isort フックを無効化している場合は、PR を作成する前に手動で import 整理を行ってください。そうしないと CI で import 順序の差分が原因で PR が落ちます。
+
+```bash
+# PR 前に実行
+python -m isort .
+git add -u
+git commit -m "style: apply isort before PR"
+```
+
+この運用で、ローカルコミットは止まらず、CI でも import 順序の一貫性が保たれます。
+
 #### コミット前チェック
 
 pre-commit フックが以下を自動実行します：

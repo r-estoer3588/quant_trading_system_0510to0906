@@ -1,6 +1,16 @@
 {
   "recommendations": [
     "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.black-formatter",
+    "charliermarsh.ruff",
+    "josetr.python-black"
+  ],
+  "unwantedRecommendations": []
+}
+{
+  "recommendations": [
+    "ms-python.python",
     "ms-python.black-formatter",
     "github.copilot",
     "github.copilot-chat",
