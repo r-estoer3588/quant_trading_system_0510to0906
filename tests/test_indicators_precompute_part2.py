@@ -60,7 +60,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
                         if df is not None and not df.empty:
                             # Date 正規化
                             if "Date" in df.columns:
-                                df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                                df["Date"] = pd.to_datetime(
+                                    df["Date"], errors="coerce"
+                                ).dt.normalize()
                             return df
                     except Exception:
                         continue
@@ -101,7 +103,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
     def test_cache_read_write_parquet_fallback(self):
         """Feather 失敗時の Parquet フォールバック テスト"""
 
-        def _write_cache_parquet_mock(sym: str, df: pd.DataFrame, cache_dir: Path) -> None:
+        def _write_cache_parquet_mock(
+            sym: str, df: pd.DataFrame, cache_dir: Path
+        ) -> None:
             cache_dir.mkdir(parents=True, exist_ok=True)
             # Feather を意図的に失敗させ、Parquet を使用
             try:
@@ -118,7 +122,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
                     df = pd.read_parquet(fp)
                     if df is not None and not df.empty:
                         if "Date" in df.columns:
-                            df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
+                            df["Date"] = pd.to_datetime(
+                                df["Date"], errors="coerce"
+                            ).dt.normalize()
                         return df
                 except Exception:
                     pass
@@ -149,14 +155,23 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
                 # 模擬キャッシュヒット
                 if cached_data is not None and not cached_data.empty:
                     # 既存キャッシュの最新日時と入力データの比較
-                    src_dates = pd.to_datetime(df["Date"], errors="coerce").dt.normalize()
-                    cached_dates = pd.to_datetime(cached_data["Date"], errors="coerce").dt.normalize()
+                    src_dates = pd.to_datetime(
+                        df["Date"], errors="coerce"
+                    ).dt.normalize()
+                    cached_dates = pd.to_datetime(
+                        cached_data["Date"], errors="coerce"
+                    ).dt.normalize()
 
                     last = cached_dates.max()
                     src_latest = src_dates.max()
 
                     # キャッシュが最新の場合はそのまま使用
-                    if pd.notna(last) and pd.notna(src_latest) and src_latest <= last and len(cached_data) == len(df):
+                    if (
+                        pd.notna(last)
+                        and pd.notna(src_latest)
+                        and src_latest <= last
+                        and len(cached_data) == len(df)
+                    ):
                         ind_df = cached_data.copy()
                         ind_df.attrs["_precompute_skip_cache"] = True
 
@@ -187,16 +202,22 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
 
         # キャッシュヒットケース
         cached_data = self.test_df_with_indicators.copy()
-        result_sym, result_df = _calc_mock(("AAPL", self.test_df), mock_add_indicators, cached_data)
+        result_sym, result_df = _calc_mock(
+            ("AAPL", self.test_df), mock_add_indicators, cached_data
+        )
 
         self.assertEqual(result_sym, "AAPL")
         self.assertIn("SMA25", result_df.columns)
-        self.assertTrue(getattr(result_df, "attrs", {}).get("_precompute_skip_cache", False))
+        self.assertTrue(
+            getattr(result_df, "attrs", {}).get("_precompute_skip_cache", False)
+        )
 
     def test_calc_function_with_cache_miss(self):
         """_calc 関数のキャッシュミス時の動作テスト"""
 
-        def _calc_mock(sym_df: tuple[str, pd.DataFrame], mock_add_indicators) -> tuple[str, pd.DataFrame]:
+        def _calc_mock(
+            sym_df: tuple[str, pd.DataFrame], mock_add_indicators
+        ) -> tuple[str, pd.DataFrame]:
             sym, df = sym_df
             try:
                 if df is None or getattr(df, "empty", True):
@@ -226,7 +247,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
     def test_calc_function_error_handling(self):
         """_calc 関数のエラーハンドリングテスト"""
 
-        def _calc_mock_with_error(sym_df: tuple[str, pd.DataFrame], mock_add_indicators) -> tuple[str, pd.DataFrame]:
+        def _calc_mock_with_error(
+            sym_df: tuple[str, pd.DataFrame], mock_add_indicators
+        ) -> tuple[str, pd.DataFrame]:
             sym, df = sym_df
             try:
                 if df is None or getattr(df, "empty", True):
@@ -241,7 +264,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
 
         mock_add_indicators = Mock()
 
-        result_sym, result_df = _calc_mock_with_error(("ERROR_STOCK", self.test_df), mock_add_indicators)
+        result_sym, result_df = _calc_mock_with_error(
+            ("ERROR_STOCK", self.test_df), mock_add_indicators
+        )
 
         self.assertEqual(result_sym, "ERROR_STOCK")
         # エラー時は元のDataFrameがそのまま返される
@@ -308,7 +333,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         def mock_log(msg: str) -> None:
             log_calls.append(msg)
 
-        result = precompute_shared_indicators_mock(basic_data, parallel=True, max_workers=2, log=mock_log)
+        result = precompute_shared_indicators_mock(
+            basic_data, parallel=True, max_workers=2, log=mock_log
+        )
 
         self.assertEqual(len(result), 3)
         self.assertIn("AAPL", result)
@@ -368,7 +395,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         def mock_log(msg: str) -> None:
             log_calls.append(msg)
 
-        result = precompute_shared_indicators_mock(basic_data, parallel=False, log=mock_log)
+        result = precompute_shared_indicators_mock(
+            basic_data, parallel=False, log=mock_log
+        )
 
         self.assertEqual(len(result), 2)
         self.assertIn("NVDA", result)
@@ -448,7 +477,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
     def test_empty_input_handling(self):
         """空入力の処理テスト"""
 
-        def precompute_shared_indicators_mock(basic_data: dict[str, pd.DataFrame], **kwargs) -> dict[str, pd.DataFrame]:
+        def precompute_shared_indicators_mock(
+            basic_data: dict[str, pd.DataFrame], **kwargs
+        ) -> dict[str, pd.DataFrame]:
             if not basic_data:
                 return basic_data
             # 通常の処理は省略
@@ -492,7 +523,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
 
         # attrs でキャッシュスキップフラグがセットされているかチェック
         try:
-            skip_flag = getattr(result_df, "attrs", {}).get("_precompute_skip_cache", False)
+            skip_flag = getattr(result_df, "attrs", {}).get(
+                "_precompute_skip_cache", False
+            )
             self.assertTrue(skip_flag)
         except Exception:
             pass  # attrs が使えない環境では無視
@@ -515,7 +548,9 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         def _normalize_date_mock(df: pd.DataFrame) -> pd.DataFrame:
             result = df.copy()
             if "Date" in result.columns:
-                result["Date"] = pd.to_datetime(result["Date"], errors="coerce").dt.normalize()
+                result["Date"] = pd.to_datetime(
+                    result["Date"], errors="coerce"
+                ).dt.normalize()
             return result
 
         normalized_df = _normalize_date_mock(df_with_time)
@@ -547,7 +582,10 @@ class TestIndicatorsPrecomputePart2(unittest.TestCase):
         workers = min(2, total)  # 最大2ワーカー
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = {ex.submit(_calc_simulation, item): item[0] for item in basic_data.items()}
+            futures = {
+                ex.submit(_calc_simulation, item): item[0]
+                for item in basic_data.items()
+            }
             done = 0
             for fut in as_completed(futures):
                 sym, res = fut.result()

@@ -109,7 +109,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             pass
         else:
             _metrics.record_metric("system6_fallback_atr10", 1, "count")
-            x["atr10"] = AverageTrueRange(x["High"], x["Low"], x["Close"], window=10).average_true_range()
+            x["atr10"] = AverageTrueRange(
+                x["High"], x["Low"], x["Close"], window=10
+            ).average_true_range()
 
         # DollarVolume50
         if "DollarVolume50" in x.columns:
@@ -136,7 +138,9 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
             x["UpTwoDays"] = x["uptwodays"]
         else:
             _metrics.record_metric("system6_fallback_uptwodays", 1, "count")
-            x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (x["Close"].shift(1) > x["Close"].shift(2))
+            x["UpTwoDays"] = (x["Close"] > x["Close"].shift(1)) & (
+                x["Close"].shift(1) > x["Close"].shift(2)
+            )
 
         # HV50 (historical volatility)
         hv50_series = None
@@ -155,7 +159,11 @@ def _compute_indicators_from_frame(df: pd.DataFrame) -> pd.DataFrame:
         hv50_condition = (hv50_percent | hv50_fraction).fillna(False)
 
         # フィルターとセットアップ
-        x["filter"] = (x["Low"] >= MIN_PRICE) & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50) & hv50_condition
+        x["filter"] = (
+            (x["Low"] >= MIN_PRICE)
+            & (x["dollarvolume50"] > MIN_DOLLAR_VOLUME_50)
+            & hv50_condition
+        )
         x["setup"] = x["filter"] & (x["return_6d"] > 0.20) & x["UpTwoDays"]
     except Exception as exc:
         raise ValueError(f"calc_error: {type(exc).__name__}: {exc}") from exc
@@ -276,10 +284,14 @@ def generate_candidates_system6(
         ):
             latest_only = True  # 強制切替
             if logger:
-                logger.info("System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)")
+                logger.info(
+                    "System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)"
+                )
                 if log_callback:
                     try:
-                        log_callback("System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)")
+                        log_callback(
+                            "System6: forcing latest_only (system6_force_latest_only=1, full_scan_today=0)"
+                        )
                     except Exception:
                         pass
                 try:  # メトリクス環境が無い状況でも安全に続行
@@ -320,7 +332,9 @@ def generate_candidates_system6(
                         if target_dt in df.index:
                             last_row = df.loc[target_dt]
                             # loc で Series 以外が来たら最終要素へ
-                            if hasattr(last_row, "iloc") and (getattr(last_row, "ndim", 1) > 1):
+                            if hasattr(last_row, "iloc") and (
+                                getattr(last_row, "ndim", 1) > 1
+                            ):
                                 last_row = last_row.iloc[-1]
                             dt = target_dt
                         else:
@@ -367,7 +381,9 @@ def generate_candidates_system6(
                         ret_6d_val = last_row.get("return_6d")
                         if ret_6d_val is not None:
                             ret_6d_float = float(ret_6d_val)
-                            uptwo = bool(last_row.get("uptwodays") or last_row.get("UpTwoDays"))
+                            uptwo = bool(
+                                last_row.get("uptwodays") or last_row.get("UpTwoDays")
+                            )
                             setup_ok = (ret_6d_float > 0.20) and uptwo
                     except Exception:
                         setup_ok = False
@@ -380,7 +396,9 @@ def generate_candidates_system6(
                 # 必要指標取得 (存在しない場合はスキップ)
                 # return_6d はスカラーに正規化してから float へ
                 try:
-                    val = last_row["return_6d"]  # 型: Any（Series ではなくスカラー想定）
+                    val = last_row[
+                        "return_6d"
+                    ]  # 型: Any（Series ではなくスカラー想定）
                 except Exception:
                     continue
                 # to_numeric で Series になる可能性を排除するため 1 要素 Series 経由で取得
@@ -425,7 +443,11 @@ def generate_candidates_system6(
                                     s_ret_f = float(s_ret)
                                 except Exception:
                                     s_ret_f = float("nan")
-                                samples.append((f"{s_sym}: date={s_dt.date()} setup={s_setup} return_6d={s_ret_f:.4f}"))
+                                samples.append(
+                                    (
+                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} return_6d={s_ret_f:.4f}"
+                                    )
+                                )
                                 taken += 1
                                 if taken >= 2:
                                     break
@@ -433,7 +455,10 @@ def generate_candidates_system6(
                                 continue
                         if samples:
                             try:
-                                debug_msg = "System6: DEBUG latest_only 0 candidates. " + " | ".join(samples)
+                                debug_msg = (
+                                    "System6: DEBUG latest_only 0 candidates. "
+                                    + " | ".join(samples)
+                                )
                                 log_callback(debug_msg)
                             except Exception:
                                 pass
@@ -466,13 +491,17 @@ def generate_candidates_system6(
                     sym_val = rec.get("symbol")
                     if not isinstance(sym_val, str) or not sym_val:
                         continue
-                    payload: dict[str, Any] = {str(k): v for k, v in rec.items() if k not in ("symbol", "date")}
+                    payload: dict[str, Any] = {
+                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
                     symbol_map[sym_val] = payload
                 normalized[dt] = symbol_map
 
             if log_callback:
                 try:
-                    log_callback(f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})")
+                    log_callback(
+                        f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    )
                 except Exception:
                     pass
             diagnostics["ranked_top_n_count"] = len(df_all)
@@ -524,7 +553,9 @@ def generate_candidates_system6(
 
     # 処理開始のログを追加
     if log_callback:
-        log_callback(f"📊 System6 候補抽出開始: {total}銘柄を処理中... (バッチサイズ: {batch_size})")
+        log_callback(
+            f"📊 System6 候補抽出開始: {total}銘柄を処理中... (バッチサイズ: {batch_size})"
+        )
 
     for sym, df in prepared_dict.items():
         # featherキャッシュの健全性チェック
@@ -616,7 +647,9 @@ def generate_candidates_system6(
             except Exception:
                 pass
         effective_batch_size = batch_size if batch_size is not None else 100
-        if (processed % effective_batch_size == 0 or processed == total) and log_callback:
+        if (
+            processed % effective_batch_size == 0 or processed == total
+        ) and log_callback:
             elapsed = time.time() - start_time
             remain = (elapsed / processed) * (total - processed) if processed else 0
             em, es = divmod(int(elapsed), 60)
@@ -658,7 +691,9 @@ def generate_candidates_system6(
             batch_duration = time.time() - batch_start
             if batch_duration > 0:
                 symbols_per_second = len(buffer) / batch_duration
-                _metrics.record_metric("system6_candidates_batch_duration", batch_duration, "seconds")
+                _metrics.record_metric(
+                    "system6_candidates_batch_duration", batch_duration, "seconds"
+                )
                 _metrics.record_metric(
                     "system6_candidates_symbols_per_second",
                     symbols_per_second,
@@ -697,7 +732,9 @@ def generate_candidates_system6(
             pass
 
     # 最終メトリクス記録
-    total_candidates = sum(len(candidates) for candidates in candidates_by_date.values())
+    total_candidates = sum(
+        len(candidates) for candidates in candidates_by_date.values()
+    )
     unique_dates = len(candidates_by_date)
     _metrics.record_metric("system6_total_candidates", total_candidates, "count")
     _metrics.record_metric("system6_unique_entry_dates", unique_dates, "count")
@@ -720,7 +757,9 @@ def generate_candidates_system6(
             if not isinstance(sym_val, str) or not sym_val:
                 continue
             # rec may contain entry_date; unify key name 'date' for DF compatibility
-            payload = {str(k): v for k, v in rec.items() if k not in ("symbol", "entry_date")}
+            payload = {
+                str(k): v for k, v in rec.items() if k not in ("symbol", "entry_date")
+            }
             # 保持: 元々 'entry_date' をキー化しているのでそのまま payload にも残す
             payload["entry_date"] = rec.get("entry_date")
             symbol_dict[sym_val] = payload

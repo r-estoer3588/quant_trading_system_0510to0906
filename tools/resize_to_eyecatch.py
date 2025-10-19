@@ -45,7 +45,9 @@ def detect_content_center(image: Image.Image) -> tuple[int, int]:
     return (minx + maxx) // 2, (miny + maxy) // 2
 
 
-def resize_and_crop(in_path: str, out_path: str, width: int = 1280, height: int = 670) -> str:
+def resize_and_crop(
+    in_path: str, out_path: str, width: int = 1280, height: int = 670
+) -> str:
     if not os.path.exists(in_path):
         raise FileNotFoundError(in_path)
 
@@ -98,7 +100,9 @@ def main() -> int:
         dest="mode",
         choices=["cover", "contain", "smart"],
         default="cover",
-        help=("cover: fill and crop (default); contain: fit with padding; smart: detect content and center crop"),
+        help=(
+            "cover: fill and crop (default); contain: fit with padding; smart: detect content and center crop"
+        ),
     )
     args = parser.parse_args()
 
@@ -106,7 +110,9 @@ def main() -> int:
     out_path = args.out
     if not out_path:
         base = os.path.splitext(os.path.basename(in_path))[0]
-        out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "docs", "eyecatch_final"))
+        out_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "docs", "eyecatch_final")
+        )
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, base + "_1280x670.png")
 

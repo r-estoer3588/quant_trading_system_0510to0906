@@ -1239,9 +1239,14 @@ def finalize_allocation(
     # デバッグ時のみ警告を出す。
     if debug_mode:
         if strategies is None:
-            logger.warning("[ALLOC_DEBUG] finalize_allocation called without strategies")
+            logger.warning(
+                "[ALLOC_DEBUG] finalize_allocation called without strategies"
+            )
         if symbol_system_map is None:
-            logger.warning("[ALLOC_DEBUG] called without symbol_system_map; active counts may be incomplete")
+            logger.warning(
+                "[ALLOC_DEBUG] called without symbol_system_map; "
+                "active counts may be incomplete"
+            )
 
     per_system_norm: dict[str, pd.DataFrame] = {}
     for name, df in per_system.items():
@@ -1293,6 +1298,50 @@ def finalize_allocation(
     diagnostics["active_positions"] = dict(active_positions)
     diagnostics["available_slots"] = dict(available_slots)
     diagnostics["max_pos_map"] = dict(max_pos_map)
+
+    # Fallbacks: if callers didn't provide strategies or symbol_system_map,
+    # attempt to build safe defaults. This reduces the chance of getting
+    # zero entries when callers simply omitted these optional arguments.
+    if not strategies:
+        try:
+            # Import known strategy classes and build mapping similar to other
+            # tools/scripts that construct strategies. This is a best-effort
+            # fallback and will be skipped on import errors.
+            from strategies.system1_strategy import System1Strategy
+            from strategies.system2_strategy import System2Strategy
+            from strategies.system3_strategy import System3Strategy
+            from strategies.system4_strategy import System4Strategy
+            from strategies.system5_strategy import System5Strategy
+            from strategies.system6_strategy import System6Strategy
+            from strategies.system7_strategy import System7Strategy
+
+            objs = [
+                System1Strategy(),
+                System2Strategy(),
+                System3Strategy(),
+                System4Strategy(),
+                System5Strategy(),
+                System6Strategy(),
+                System7Strategy(),
+            ]
+            strategies = {getattr(s, "SYSTEM_NAME", "").lower(): s for s in objs}
+            diagnostics["callers"]["strategies_provided"] = bool(strategies)
+            logger.debug("[ALLOC_DEBUG] built fallback strategies mapping")
+        except Exception:
+            # Leave strategies as-is (None) if build fails
+            logger.debug("[ALLOC_DEBUG] could not build fallback strategies mapping")
+
+    if not symbol_system_map:
+        try:
+            # Use the module helper to load persisted mapping if available
+            symbol_system_map = load_symbol_system_map()
+            diagnostics["callers"]["symbol_system_map_provided"] = bool(
+                symbol_system_map
+            )
+            logger.debug("[ALLOC_DEBUG] loaded symbol_system_map fallback")
+        except Exception:
+            symbol_system_map = {}
+            logger.debug("[ALLOC_DEBUG] could not load symbol_system_map fallback")
 
     # Determine allocation mode.
     mode = "slot"
@@ -1582,7 +1631,10 @@ def finalize_allocation(
 
     if include_trade_management:
         if market_data_dict is None or signal_date is None:
-            raise ValueError("market_data_dict and signal_date must be provided when include_trade_management is True.")
+            raise ValueError(
+                "market_data_dict and signal_date must be provided "
+                "when include_trade_management is True."
+            )
         # Convert cached frames so TradeManager receives a datetime index
         # Rolling cache commonly stores an integer index
         prepared_market_data = {}
@@ -1600,40 +1652,62 @@ def finalize_allocation(
 
         # TradeManager API: instantiate without args and enhance allocation
         tm = TradeManager()
-        final_df = tm.enhance_allocation_with_trade_management(final_df, prepared_market_data, signal_date)
+        final_df = tm.enhance_allocation_with_trade_management(
+            final_df, prepared_market_data, signal_date
+        )
 
     # Final summary diagnostics
     if system_diagnostics:
         summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
+
+    # final_count
     try:
         summary.final_count = int(len(final_df))
     except Exception:
         summary.final_count = 0
-        try:
-            if "symbol" in final_df.columns:
-                summary.final_symbols = [str(s) for s in final_df["symbol"].tolist()]
-            else:
-                summary.final_symbols = []
-        except Exception:
+
+    # final_symbols
+    try:
+        if "symbol" in final_df.columns:
+            summary.final_symbols = [str(s) for s in final_df["symbol"].tolist()]
+        else:
             summary.final_symbols = []
+    except Exception:
+        summary.final_symbols = []
 
-        try:
-            if "long" in final_df.columns:
-                long_series = pd.to_numeric(final_df["long"], errors="coerce").fillna(0)
-                summary.final_long_count = int(long_series.sum())
-            else:
+    # Compute long/short counts. Prefer 'side' column if available, otherwise
+    # fall back to numeric 'long'/'short' columns when present.
+    try:
+        if "side" in final_df.columns:
+            side_series = final_df["side"].astype(str).str.lower()
+            summary.final_long_count = int((side_series == "long").sum())
+            summary.final_short_count = int((side_series == "short").sum())
+        else:
+            # Fallback to numeric columns named 'long'/'short'
+            try:
+                if "long" in final_df.columns:
+                    long_series = pd.to_numeric(
+                        final_df["long"], errors="coerce"
+                    ).fillna(0)
+                    summary.final_long_count = int(long_series.sum())
+                else:
+                    summary.final_long_count = 0
+            except Exception:
                 summary.final_long_count = 0
-        except Exception:
-            summary.final_long_count = 0
 
-        try:
-            if "short" in final_df.columns:
-                short_series = pd.to_numeric(final_df["short"], errors="coerce").fillna(0)
-                summary.final_short_count = int(short_series.sum())
-            else:
+            try:
+                if "short" in final_df.columns:
+                    short_series = pd.to_numeric(
+                        final_df["short"], errors="coerce"
+                    ).fillna(0)
+                    summary.final_short_count = int(short_series.sum())
+                else:
+                    summary.final_short_count = 0
+            except Exception:
                 summary.final_short_count = 0
-        except Exception:
-            summary.final_short_count = 0
+    except Exception:
+        summary.final_long_count = 0
+        summary.final_short_count = 0
 
     return final_df, summary
 

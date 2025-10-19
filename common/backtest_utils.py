@@ -89,7 +89,9 @@ def _compute_exit(
     """
     if hasattr(strategy, "compute_exit"):
         try:
-            exit_calc = strategy.compute_exit(df, entry_idx, entry_price, stop_loss_price)
+            exit_calc = strategy.compute_exit(
+                df, entry_idx, entry_price, stop_loss_price
+            )
         except Exception:
             return None, None
         return exit_calc if exit_calc else (None, None)
@@ -179,16 +181,20 @@ def simulate_trades_with_risk(
             pass
 
         # update exits
-        current_capital, active_positions = strategy.update_capital_with_exits(current_capital, active_positions, date)
+        current_capital, active_positions = strategy.update_capital_with_exits(
+            current_capital, active_positions, date
+        )
 
         # filter active positions
         active_positions = [p for p in active_positions if p["exit_date"] >= date]
         available_slots = max(0, max_positions - len(active_positions))
 
         if available_slots > 0:
-            day_candidates = [c for c in candidates if c["symbol"] not in {p["symbol"] for p in active_positions}][
-                :available_slots
-            ]
+            day_candidates = [
+                c
+                for c in candidates
+                if c["symbol"] not in {p["symbol"] for p in active_positions}
+            ][:available_slots]
 
             for c in day_candidates:
                 df = data_dict.get(c["symbol"])
@@ -199,7 +205,9 @@ def simulate_trades_with_risk(
                 except Exception:
                     continue
 
-                entry_price, stop_loss_price = _compute_entry(strategy, df, c, current_capital, side)
+                entry_price, stop_loss_price = _compute_entry(
+                    strategy, df, c, current_capital, side
+                )
                 if entry_price is None or stop_loss_price is None:
                     continue
 
@@ -217,7 +225,9 @@ def simulate_trades_with_risk(
                 if shares * abs(entry_price) > current_capital:
                     continue
 
-                exit_price, exit_date = _compute_exit(strategy, df, entry_idx, entry_price, stop_loss_price, side)
+                exit_price, exit_date = _compute_exit(
+                    strategy, df, entry_idx, entry_price, stop_loss_price, side
+                )
                 if exit_price is None or exit_date is None:
                     continue
 
@@ -250,7 +260,9 @@ def simulate_trades_with_risk(
                 "date": date,
                 "capital": current_capital,
                 "active_positions": len(active_positions),
-                "message": (f"💰 {date} | Capital: {current_capital:.2f} USD | Active: {len(active_positions)}"),
+                "message": (
+                    f"💰 {date} | Capital: {current_capital:.2f} USD | Active: {len(active_positions)}"
+                ),
             }
         )
 

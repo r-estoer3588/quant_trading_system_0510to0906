@@ -43,7 +43,9 @@ from strategies.system6_strategy import System6Strategy  # noqa: E402
 from strategies.system7_strategy import System7Strategy  # noqa: E402
 
 
-def create_test_market_data(symbols: list[str], days: int = 100) -> dict[str, pd.DataFrame]:
+def create_test_market_data(
+    symbols: list[str], days: int = 100
+) -> dict[str, pd.DataFrame]:
     """Create synthetic market data for testing."""
     market_data = {}
 
@@ -268,7 +270,9 @@ def test_trade_management_system():
                 "total_risk",
             ]
 
-            available_cols = [col for col in trade_mgmt_cols if col in allocation_df.columns]
+            available_cols = [
+                col for col in trade_mgmt_cols if col in allocation_df.columns
+            ]
             print(f"Available: {available_cols}")
 
             # Display sample results
@@ -409,10 +413,12 @@ def test_market_order_fallback_to_close():
     if trade_entry:
         # Should fallback to Close since Open is missing
         expected_price = 102.5
-        assert trade_entry.entry_price == expected_price, (
-            f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
+        assert (
+            trade_entry.entry_price == expected_price
+        ), f"Expected {expected_price} (Close), got {trade_entry.entry_price}"
+        print(
+            f"✅ Fallback to Close successful: entry_price={trade_entry.entry_price:.2f}"
         )
-        print(f"✅ Fallback to Close successful: entry_price={trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")
 
@@ -458,10 +464,12 @@ def test_entry_price_fallback_to_allocation():
 
     if trade_entry:
         # Should use allocation entry_price since Open/Close are missing
-        assert trade_entry.entry_price == allocation_entry, (
-            f"Expected {allocation_entry}, got {trade_entry.entry_price}"
+        assert (
+            trade_entry.entry_price == allocation_entry
+        ), f"Expected {allocation_entry}, got {trade_entry.entry_price}"
+        print(
+            f"✅ Fallback to allocation entry_price successful: {trade_entry.entry_price:.2f}"
         )
-        print(f"✅ Fallback to allocation entry_price successful: {trade_entry.entry_price:.2f}")
     else:
         print("❌ Trade entry creation failed")
 
