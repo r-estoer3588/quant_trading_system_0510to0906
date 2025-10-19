@@ -52,10 +52,14 @@ class TestSystem7LatestOnlyFastPath:
         raw_dict = {"SPY": spy_data}
 
         # prepare_data で指標計算 (既にatr50, min_50, max_70は含まれている)
-        prepared_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+        prepared_dict = prepare_data_vectorized_system7(
+            raw_dict, reuse_indicators=False
+        )
 
         # latest_only=True で呼び出し
-        result = generate_candidates_system7(prepared_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            prepared_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
 
         # 結果検証
         assert len(result) == 3, "Should return (normalized, df, diagnostics)"
@@ -63,8 +67,12 @@ class TestSystem7LatestOnlyFastPath:
 
         # fast-path が実行されたことを確認
         ranking_src = diagnostics.get("ranking_source")
-        assert ranking_src == "latest_only", f"Expected 'latest_only', got {ranking_src}"
-        assert diagnostics.get("ranked_top_n_count") == 1, "latest_only should return 1 candidate"
+        assert (
+            ranking_src == "latest_only"
+        ), f"Expected 'latest_only', got {ranking_src}"
+        assert (
+            diagnostics.get("ranked_top_n_count") == 1
+        ), "latest_only should return 1 candidate"
 
         # normalized に SPY が含まれる
         assert len(normalized) > 0, "Should have at least one date"
@@ -81,16 +89,22 @@ class TestSystem7LatestOnlyFastPath:
         expected_close = spy_data["Close"].iloc[-1]
         raw_dict = {"SPY": spy_data}
 
-        prepared_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
+        prepared_dict = prepare_data_vectorized_system7(
+            raw_dict, reuse_indicators=False
+        )
 
-        result = generate_candidates_system7(prepared_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            prepared_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
         normalized, df_result, diagnostics = result
 
         # entry_price が Close と一致
         first_date = list(normalized.keys())[0]
         spy_payload = normalized[first_date]["SPY"]
         actual_price = spy_payload.get("entry_price")
-        assert actual_price == expected_close, f"Expected {expected_close}, got {actual_price}"
+        assert (
+            actual_price == expected_close
+        ), f"Expected {expected_close}, got {actual_price}"
 
     def test_latest_only_with_atr50_lowercase(self):
         """latest_only で atr50 (lowercase) が ATR50 として取得される (Line 230-232)"""
@@ -98,22 +112,26 @@ class TestSystem7LatestOnlyFastPath:
         expected_atr = spy_data["atr50"].iloc[-1]
         data_dict = {"SPY": spy_data}
 
-        result = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            data_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
         normalized, df_result, diagnostics = result
 
         # ATR50 が正しく設定されている
         first_date = list(normalized.keys())[0]
         spy_payload = normalized[first_date]["SPY"]
-        assert spy_payload.get("ATR50") == expected_atr, (
-            f"Expected ATR50={expected_atr}, got {spy_payload.get('ATR50')}"
-        )
+        assert (
+            spy_payload.get("ATR50") == expected_atr
+        ), f"Expected ATR50={expected_atr}, got {spy_payload.get('ATR50')}"
 
     def test_latest_only_df_result_structure(self):
         """latest_only の DataFrame 結果が正しい構造を持つ (Lines 233-244)"""
         spy_data = self.create_spy_data_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            data_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
         normalized, df_result, diagnostics = result
 
         # DataFrame の必須カラム
@@ -148,9 +166,9 @@ class TestSystem7LatestOnlyFastPath:
 
         # log_callback が呼ばれたことを確認
         assert len(log_messages) > 0, "log_callback should be called"
-        assert any("latest_only" in msg for msg in log_messages), (
-            f"Expected 'latest_only' in log messages, got {log_messages}"
-        )
+        assert any(
+            "latest_only" in msg for msg in log_messages
+        ), f"Expected 'latest_only' in log messages, got {log_messages}"
 
     def test_latest_only_progress_callback_invocation(self):
         """latest_only で progress_callback が呼ばれる (Lines 257-261)"""
@@ -184,21 +202,28 @@ class TestSystem7LatestOnlyFastPath:
         spy_data.loc[spy_data.index[-1], "setup"] = False
         data_dict = {"SPY": spy_data}
 
-        result = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            data_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
         normalized, df_result, diagnostics = result
 
         # setup が False なので候補なし
-        assert diagnostics.get("ranked_top_n_count") == 0, "Should have 0 candidates when setup=False"
-        assert diagnostics.get("ranking_source") is None or diagnostics.get("ranking_source") != "latest_only", (
-            "Should not use latest_only path"
-        )
+        assert (
+            diagnostics.get("ranked_top_n_count") == 0
+        ), "Should have 0 candidates when setup=False"
+        assert (
+            diagnostics.get("ranking_source") is None
+            or diagnostics.get("ranking_source") != "latest_only"
+        ), "Should not use latest_only path"
 
     def test_latest_only_normalized_structure(self):
         """latest_only の normalized dict が正しい構造を持つ (Lines 244-248)"""
         spy_data = self.create_spy_data_for_latest_only(setup_today=True)
         data_dict = {"SPY": spy_data}
 
-        result = generate_candidates_system7(data_dict, top_n=5, latest_only=True, include_diagnostics=True)
+        result = generate_candidates_system7(
+            data_dict, top_n=5, latest_only=True, include_diagnostics=True
+        )
         normalized, df_result, diagnostics = result
 
         # normalized の構造確認

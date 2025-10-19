@@ -75,6 +75,46 @@ await page.getByRole("button", { name: "結果を表示" }).click();
 
 ---
 
+**--- ↑ここまで無料（試し読み）↑ ---**
+
+### 今すぐ試せるクイックチェック（3分以内）
+
+1. 固定待機（waitForTimeout）をまずは条件待機に置き換える。  
+2. 失敗が UI の変更で起きているか、セレクタ依存かを確認する。  
+3. スクショ差分が出る場合はフォント／ロケールを揃えてみる。
+
+---
+
+## 続き（有料パート）
+
+**この先の詳細（失敗パターン 2〜4、拡張チェックリスト、テンプレ・設定ファイル、ダウンロード資産）は購入でアンロックされます。**
+
+購入で得られる主要コンテンツ例：
+
+- 失敗パターン 2〜4 の詳細＋実践テンプレ（コピペ可）
+- `playwright.config.ts`（最小セット）と CI Dockerfile のテンプレ
+- Nano Banana 用プロンプト集（.txt）
+- 1280×670 eyecatch PNG + 透過タイトルバンド PNG
+- 印刷/配布用チェックリスト PDF
+ 
+ダウンロード資産例（ファイルは記事配下の `docs/downloads/` に配置しています）:
+
+- `docs/downloads/playwright.config.example.ts`（最小セット）
+- `docs/downloads/ci.Dockerfile.example`（CI runner 用テンプレ）
+- `docs/downloads/nano_banana_prompts_playwright-ci-30.txt`（プロンプト集）
+- `docs/downloads/eyecatch_week2_1280x670.png` / `docs/downloads/eyecatch_week2_titleband.png`
+- `docs/downloads/checklist_week2.pdf`（印刷用）
+
+- ダウンロード（購入者向け ZIP）: [week2_paid_assets.zip](https://drive.google.com/file/d/1xP2VHXau6dNkbKbjpvClyudCO327Ku00/view?usp=sharing)
+
+---
+
+<!-- 有料パート開始 -->
+
+## 有料パート（購入者向け）
+
+以下は購入者向けのフルコンテンツです。購入後はこのセクション全文とダウンロード資産がアンロックされます。
+
 ## 失敗パターン 2: セレクタが突然壊れる
 
 ### TL;DR
@@ -179,18 +219,38 @@ export default defineConfig({
 
 ---
 
-## 現場で使えるチェックリスト（10 項目）
+## 拡張チェックリスト（購入者向け、注釈付き）
 
-1. 固定待機を条件待機へ置換したか（`visible/attached` の選定理由は）
-2. セレクタは `role/testid` 優先か（i18n/デザイン変更で壊れないか）
-3. ビューポート／フォント／タイムゾーンは固定したか
-4. 画像比較のしきい値は現実的か（誤検知を抑制）
+1. 固定待機を条件待機へ置換したか（`visible/attached` の選定理由を記載）
+2. セレクタを `role/testid` 優先に置き換えたか（変更前/後の例を保存）
+3. ビューポート／フォント／タイムゾーンは固定したか（CI の Dockerfile 例あり）
+4. 画像比較のしきい値は現実的か（差分例と閾値ガイドを提供）
 5. 並列で競合するテストを切り出したか（`serial`/タグ）
-6. データ分離（UUID 接尾辞/一時スキーマ/テナント分離）
-7. 外部 API はモック化/リトライ設定を適用したか
-8. ログ収集に「原因/再現/優先度」テンプレを使ったか
-9. CI の失敗を 環境/時間/データ の 3 軸で分類したか
-10. 再発防止を config/practice に恒久反映したか
+6. データ分離（UUID 接尾辞/一時スキーマ/テナント分離）を実装したか
+7. 外部 API はモック化/フェイルセーフ/リトライを適用したか
+8. ログ収集に「原因/再現/優先度」テンプレを使ったか（テンプレ付き）
+9. CI の失敗を 環境/時間/データ の 3 軸で分類したか（記録例あり）
+10. 再発防止を config/practice に恒久反映したか（PR テンプレ案あり）
+
+---
+
+## ダウンロード資産（購入で提供）
+
+- `playwright.config.ts`（最小セット）
+- `ci/Dockerfile`（CI runner 用テンプレ）
+- `nano_banana_prompts_playwright-ci-30.txt`（プロンプト集）
+- `eyecatch_week2_1280x670.png` / `eyecatch_week2_titleband.png`
+- `checklist_week2.pdf`（印刷用、10 項目の拡張版）
+
+※ 実際の配布形式は販売プラットフォームに合わせます（ファイル名は例）。
+
+---
+
+## 購入方法と注意点
+
+1. 購入すると「有料パート」がアンロックされ、上記ファイルがダウンロード可能になります。  
+2. プラットフォーム（note 等）に合わせてリンクを配置します。URL をここに貼るか、購入後の自動配布を想定してください。  
+3. 追加質問や軽微な更新は購入者向けに1回無料で対応するオプションを付けられます（希望する場合は設定します）。
 
 ---
 

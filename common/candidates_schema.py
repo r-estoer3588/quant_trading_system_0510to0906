@@ -61,7 +61,9 @@ def _sorted_items_by_priority(
     # rank available? sort ascending
     if any(isinstance(v, dict) and "rank" in v for v in d.values()):
         try:
-            return sorted(d.items(), key=lambda kv: (float(kv[1].get("rank", float("inf")))))
+            return sorted(
+                d.items(), key=lambda kv: (float(kv[1].get("rank", float("inf"))))
+            )
         except Exception:
             # fall through to return_6d ordering
             pass
