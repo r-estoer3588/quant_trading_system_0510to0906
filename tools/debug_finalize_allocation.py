@@ -9,6 +9,7 @@ so you can quickly see why allocations may be empty.
 """
 
 from __future__ import annotations
+
 import json
 import os
 import sys
