@@ -8,6 +8,7 @@ the System1Diagnostics dataclass.
 The helper is intentionally defensive: it will not raise on malformed
 inputs and will try to preserve existing diagnostics shape where possible.
 """
+
 from __future__ import annotations
 
 from typing import Any

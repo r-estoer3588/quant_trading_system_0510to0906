@@ -50,6 +50,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
             def _norm_col(name: str) -> str:
                 return name.lower().replace("_", "").replace(" ", "")
+
             for req in SYSTEM3_REQUIRED_INDICATORS:
                 req_key = str(req)
                 if req_key in df.columns:
@@ -121,11 +122,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         except Exception:
             _atr_ratio = pd.Series(0.0, index=x.index)
 
-        x["filter"] = (
-            (_close >= 5.0)
-            & (_dvol > 25_000_000)
-            & (_atr_ratio >= _atr_thr)
-        )
+        x["filter"] = (_close >= 5.0) & (_dvol > 25_000_000) & (_atr_ratio >= _atr_thr)
 
         try:
             _val_drop = x.get("drop3d")
@@ -526,19 +523,19 @@ def generate_candidates_system3(
                                 diagnostics["mismatch_flag"] = 1
                             if (not final_ok_ex) or pd.isna(drop_val_ex):
                                 try:
-                                        if pred_reason_ex:
-                                            try:
-                                                from common.diagnostics_utils import (
-                                                    record_exclude,
-                                                )
+                                    if pred_reason_ex:
+                                        try:
+                                            from common.diagnostics_utils import (
+                                                record_exclude,
+                                            )
 
-                                                record_exclude(
-                                                    diagnostics,
-                                                    str(pred_reason_ex),
-                                                    sym,
-                                                )
-                                            except Exception:
-                                                pass
+                                            record_exclude(
+                                                diagnostics,
+                                                str(pred_reason_ex),
+                                                sym,
+                                            )
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
                                 continue
@@ -818,7 +815,7 @@ def generate_candidates_system3(
             log_callback(
                 f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}"
             )
-        # 診断用: 入力件数
+            # 診断用: 入力件数
             try:
                 diag_counts = diagnostics["ranking_input_counts"]
                 diag_counts["rows_total"] = int(len(df_all_original))
@@ -1015,9 +1012,8 @@ def generate_candidates_system3(
                     reason = "no_rows_for_label_date"
                 elif ("drop3d" in filtered.columns) and filtered["drop3d"].isna().all():
                     reason = "all_drop3d_nan"
-                elif (
-                    ("drop3d" in filtered.columns)
-                    and (filtered["drop3d"].dropna().size > 0)
+                elif ("drop3d" in filtered.columns) and (
+                    filtered["drop3d"].dropna().size > 0
                 ):
                     # 閾値未満のみ（参考判定）
                     try:
