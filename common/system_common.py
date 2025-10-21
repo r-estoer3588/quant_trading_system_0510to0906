@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pandas as pd
 
 from common.i18n import tr
@@ -173,8 +175,16 @@ def get_date_range(data_dict: dict[str, pd.DataFrame]) -> tuple[str | None, str 
     max_date = max(all_dates)
 
     return (
-        (min_date.strftime("%Y-%m-%d") if hasattr(min_date, "strftime") else str(min_date)),
-        (max_date.strftime("%Y-%m-%d") if hasattr(max_date, "strftime") else str(max_date)),
+        (
+            min_date.strftime("%Y-%m-%d")
+            if hasattr(min_date, "strftime")
+            else str(min_date)
+        ),
+        (
+            max_date.strftime("%Y-%m-%d")
+            if hasattr(max_date, "strftime")
+            else str(max_date)
+        ),
     )
 
 
@@ -182,7 +192,7 @@ def check_precomputed_indicators(
     data_dict: dict[str, pd.DataFrame],
     required_indicators: list[str],
     system_name: str,
-    skip_callback=None,
+    skip_callback: Callable[[str, str], None] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], list[str]]:
     """プリコンピューテッド指標の存在をチェックし、不足している場合は早期終了する。
 
@@ -203,7 +213,6 @@ def check_precomputed_indicators(
 
     valid_data_dict = {}
     error_symbols = []
-
     for symbol, df in data_dict.items():
         if df is None or df.empty:
             error_symbols.append(symbol)
@@ -211,16 +220,69 @@ def check_precomputed_indicators(
                 skip_callback(symbol, "empty_data")
             continue
 
-        # 必須指標の存在チェック
-        missing_indicators = [col for col in required_indicators if col not in df.columns]
+        # 必須指標の存在チェック (列名の大文字小文字やアンダースコア差分を吸収して判定)
+        try:
+            cols = [c for c in df.columns if isinstance(c, str)]
+            # normalized column keys: lower + remove underscores/spaces for fuzzy match
+            norm_cols = {c.lower().replace("_", "").replace(" ", "") for c in cols}
+        except Exception:
+            cols = []
+            norm_cols = set()
+
+        missing_indicators: list[str] = []
+        for req in required_indicators:
+            try:
+                key = str(req or "").lower()
+                # direct case-insensitive membership
+                if any(key == c.lower() for c in cols):
+                    continue
+                # fuzzy membership: compare normalized forms (drop underscores/spaces)
+                if key.replace("_", "") in norm_cols:
+                    continue
+                # not found
+                missing_indicators.append(req)
+            except Exception:
+                missing_indicators.append(req)
 
         if missing_indicators:
-            error_msg = f"{system_name}_{symbol}_missing_indicators: {','.join(missing_indicators)}"
+            joined = ",".join(missing_indicators)
+            error_msg = f"{system_name}_{symbol}_missing_indicators: {joined}"
             error_symbols.append(symbol)
             if skip_callback:
                 skip_callback(symbol, error_msg)
             continue
 
+        # If indicators are present, normalize the column names so that
+        # downstream code can use canonical names (lowercase, no
+        # underscores) like 'drop3d', 'atr_ratio', 'dollarvolume20'.
+        try:
+            rename_map: dict[str, str] = {}
+            for req in required_indicators:
+                canonical = str(req)
+                # If canonical already present, no need to rename
+                if canonical in df.columns:
+                    continue
+                # 1) case-insensitive exact match
+                found = next((c for c in cols if c.lower() == canonical.lower()), None)
+                if found and found != canonical:
+                    rename_map[found] = canonical
+                    continue
+                # 2) fuzzy normalized match (lower + remove underscores/spaces)
+                norm_key = canonical.lower().replace("_", "").replace(" ", "")
+
+                def _norm(col: str) -> str:
+                    return col.lower().replace("_", "").replace(" ", "")
+                found2 = next((c for c in cols if _norm(str(c)) == norm_key), None)
+                if found2 and found2 != canonical:
+                    rename_map[found2] = canonical
+                    continue
+            if rename_map:
+                try:
+                    df = df.rename(columns=rename_map)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         valid_data_dict[symbol] = df
 
     # 有効なデータが一つもない場合はエラー
@@ -237,7 +299,9 @@ def check_precomputed_indicators(
     return valid_data_dict, error_symbols
 
 
-def validate_data_frame_basic(df: pd.DataFrame, symbol: str, min_rows: int = 150) -> None:
+def validate_data_frame_basic(
+    df: pd.DataFrame, symbol: str, min_rows: int = 150
+) -> None:
     """データフレームの基本検証を行う。
 
     Args:

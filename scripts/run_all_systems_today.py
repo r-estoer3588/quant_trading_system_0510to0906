@@ -2,6 +2,11 @@
 
 NOTE: This file experienced prior encoding corruption. Incremental repairs are
 being applied. The current patch introduces:
+    parser.add_argument(
+        "--run-namespace",
+        default=None,
+        help="任意のラン識別子: 出力を results_csv/<NAMESPACE>/ に分離するために使用します",
+    )
  1. Explicit project root insertion into sys.path so that running the script
      via ``python scripts/run_all_systems_today.py`` correctly resolves top-level
      modules like ``common``.
@@ -17,19 +22,19 @@ from __future__ import annotations
 
 # flake8: noqa: E501
 import argparse
-from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextvars import ContextVar
-from dataclasses import dataclass, field
-from datetime import datetime
 import io
 import json
 import logging
 import multiprocessing
 import os
-from pathlib import Path
 import sys
 import threading
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
@@ -81,6 +86,7 @@ from common.latest_day_validator import (
 from common.notification import notify_zero_trd_all_systems
 from common.notifier import create_notifier
 from common.position_age import load_entry_dates, save_entry_dates
+from common.run_lock import RunLock
 from common.signal_merge import Signal, merge_signals
 from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
 from common.structured_logging import MetricsCollector
@@ -664,6 +670,8 @@ class TodayRunContext:
     entry_day: pd.Timestamp | None = None
     # latest_only モードで許容する最新日からの遅延日数（営業日ベース）
     max_date_lag_days: int = 1
+    # 任意のラン識別子（テスト/CI用）。ディレクトリ分離やログのプレフィックスに使用。
+    run_namespace: str | None = None
 
 
 def _get_account_equity() -> float:
@@ -686,7 +694,7 @@ def _configure_today_logger(
 
     mode:
       - "single": 固定ファイル `today_signals.log`
-      - "dated":  日付付き `today_signals_YYYYMMDD_HHMM.log`（JST）
+                if os.environ.get("ALLOCATION_DEBUG", "1") == "1":
     run_id: 予約（現状未使用）。将来、ファイル名に含めたい場合に利用。
     """
     global _LOG_FILE_PATH, _LOG_FILE_MODE
@@ -1321,38 +1329,106 @@ def _log_zero_candidate_diagnostics(
     diag_payload: Mapping[str, Any] | None,
 ) -> None:
     """Emit helpful diagnostics when a system ends up with zero candidates."""
-
-    if str(system_name).strip().lower() != "system1":
-        return
+    name = str(system_name or "").strip().lower()
     if candidate_count != 0:
         return
 
-    summary = summarize_system1_diagnostics(diag_payload)
-    if not summary:
+    # Existing specialized summary for system1
+    if name == "system1":
+        summary = summarize_system1_diagnostics(diag_payload)
+        if not summary:
+            return
+        top_n = summary.get("top_n")
+        prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        message_parts = [
+            f"フィルター通過 {summary.get('filter_pass', 0)} 件",
+            f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件",
+            f"代替判定成立 {summary.get('fallback_pass', 0)} 件",
+            f"ROC200>0 {summary.get('roc200_positive', 0)} 件",
+            f"最終通過 {summary.get('final_pass', 0)} 件",
+        ]
+        detail_line = f"[system1] 候補0件理由: {prefix}{', '.join(message_parts)}。"
+        _log(detail_line)
+
+        reasons = summary.get("exclude_reasons")
+        if isinstance(reasons, Mapping) and reasons:
+            reason_parts: list[str] = []
+            for key, count in reasons.items():
+                if not isinstance(count, int) or count <= 0:
+                    continue
+                label = _SYSTEM1_REASON_LABELS.get(str(key), str(key))
+                reason_parts.append(f"{label} {count} 件")
+            if reason_parts:
+                _log("[system1] 候補0件の除外内訳: " + ", ".join(reason_parts))
         return
 
-    top_n = summary.get("top_n")
-    prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
-    message_parts = [
-        f"フィルター通過 {summary.get('filter_pass', 0)} 件",
-        f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件",
-        f"代替判定成立 {summary.get('fallback_pass', 0)} 件",
-        f"ROC200>0 {summary.get('roc200_positive', 0)} 件",
-        f"最終通過 {summary.get('final_pass', 0)} 件",
-    ]
-    detail_line = f"[system1] 候補0件理由: {prefix}{', '.join(message_parts)}。"
-    _log(detail_line)
+    # Add enriched diagnostics logging for system3 (common cause: drop3d/atr thresholds or missing ranking input)
+    if name == "system3":
+        if not isinstance(diag_payload, Mapping):
+            _log("[system3] 候補0件: 診断情報がありません")
+            return
+        try:
+            reason = diag_payload.get("ranking_zero_reason")
+            inputs = diag_payload.get("ranking_input_counts") or {}
+            stats = diag_payload.get("ranking_stats") or {}
+            thresholds = diag_payload.get("thresholds") or {}
+            exclude_reasons = diag_payload.get("exclude_reasons") or {}
+            top_n = diag_payload.get("top_n")
+            label_date = diag_payload.get("label_date")
 
-    reasons = summary.get("exclude_reasons")
-    if isinstance(reasons, Mapping) and reasons:
-        reason_parts: list[str] = []
-        for key, count in reasons.items():
-            if not isinstance(count, int) or count <= 0:
-                continue
-            label = _SYSTEM1_REASON_LABELS.get(str(key), str(key))
-            reason_parts.append(f"{label} {count} 件")
-        if reason_parts:
-            _log("[system1] 候補0件の除外内訳: " + ", ".join(reason_parts))
+            parts: list[str] = []
+            parts.append(f"reason={reason or 'unknown'}")
+            if label_date:
+                parts.append(f"label_date={label_date}")
+            parts.append(
+                (
+                    f"rows_total={inputs.get('rows_total', '?')}, "
+                    f"rows_for_label_date={inputs.get('rows_for_label_date', '?')}, "
+                    f"lagged_rows={inputs.get('lagged_rows', '?')}"
+                )
+            )
+            # drop3d distribution (safe formatting)
+            dmin = stats.get("drop3d_min")
+            dmax = stats.get("drop3d_max")
+            dmean = stats.get("drop3d_mean")
+            dmedian = stats.get("drop3d_median")
+            dnan = stats.get("drop3d_nan_count")
+            drop_stats_str = "n/a"
+            try:
+                if dmin is not None and dmax is not None and dmean is not None and dmedian is not None:
+                    drop_stats_str = (
+                        f"min={float(dmin):.4f}, max={float(dmax):.4f}, "
+                        f"mean={float(dmean):.4f}, median={float(dmedian):.4f}, "
+                        f"nan_count={int(dnan) if dnan is not None else 0}"
+                    )
+                elif dnan is not None:
+                    drop_stats_str = f"nan_count={int(dnan)}"
+            except Exception:
+                drop_stats_str = "n/a"
+            parts.append("drop3d_stats=" + drop_stats_str)
+            thr_drop = thresholds.get("drop3d")
+            thr_atr = thresholds.get("atr_ratio")
+            thr_str = f"thresholds=drop3d:{thr_drop or 0.125}, atr_ratio:{thr_atr or 0.05}"
+            excl_str = ", ".join(f"{k}:{v}" for k, v in (exclude_reasons.items() if isinstance(exclude_reasons, Mapping) else []))
+
+            header = f"[system3] 候補0件診断: {('top_n=' + str(top_n) + ', ') if isinstance(top_n, int) else ''}"
+            _log(header + ", ".join(parts))
+            _log(f"[system3] {thr_str}; exclude_reasons: {excl_str or 'none'}")
+
+            # Helpful actionable hints for common zero causes
+            try:
+                if reason == "all_below_drop3d_threshold":
+                    if dmax is not None:
+                        _log(f"[system3] 最大drop3d={dmax:.4f} は閾値 {float(thr_drop or 0.125):.4f} 未満です。閾値緩和やFULL_SCAN_TODAYで確認してください。")
+                elif reason == "all_drop3d_nan":
+                    _log("[system3] 全候補で drop3d が NaN のためランキング不能です。指標計算パイプラインを確認してください。")
+                elif reason == "no_rows_for_label_date":
+                    _log("[system3] ラベル日に該当する行がありません。データ鮮度や label_date の解決を確認してください。FULL_SCAN_TODAY を試すと過去日で候補が存在するか確認できます。")
+            except Exception:
+                pass
+        except Exception:
+            _log("[system3] 候補0件: 診断の解析中に例外が発生しました")
+        return
 
 
 def _export_diagnostics_snapshot(
@@ -2460,10 +2536,22 @@ def _initialize_run_context(
         symbol_data=symbol_data,
         parallel=parallel,
         test_mode=test_mode,
+        # propagate run namespace into ctx if provided via CLI
+        # stored as ctx.run_namespace for later use
         skip_external=skip_external,
     )
     ctx.run_start_time = datetime.now()
     ctx.start_equity = _get_account_equity()
+    # run namespace support: read from env var or passed CLI flag via globals
+    try:
+        rn = os.getenv("RUN_NAMESPACE", "")
+        # globals may contain a parsed CLI arg
+        cli_ns = globals().get("_CLI_RUN_NAMESPACE")
+        if cli_ns:
+            rn = str(cli_ns)
+        ctx.run_namespace = rn if rn else None
+    except Exception:
+        ctx.run_namespace = None
 
     try:
         freshness_tolerance = int(settings.cache.rolling.max_staleness_days)
@@ -2814,8 +2902,14 @@ def _save_and_notify_phase(
     per_system: Mapping[str, pd.DataFrame],
     order_1_7: Sequence[str],
     metrics_summary_context: Mapping[str, Any] | None,
+    output_root_for_final: Path | None = None,
 ) -> None:
-    """保存および通知フェーズを担当する補助関数。"""
+    """保存および通知フェーズを担当する補助関数。
+
+    If ``output_root_for_final`` is provided, final CSVs and validation
+    outputs are written under that path. We do not modify ``ctx.signals_dir``
+    since it is used for cache semantics elsewhere.
+    """
 
     signals_dir = ctx.signals_dir
     notify = ctx.notify
@@ -2826,6 +2920,8 @@ def _save_and_notify_phase(
     start_equity = ctx.start_equity
     today = ctx.today or get_latest_nyse_trading_day().normalize()
     run_id = ctx.run_id
+    # Final destination root (override when provided explicitly)
+    final_base: Path = Path(output_root_for_final) if output_root_for_final is not None else signals_dir
 
     try:
         final_counts: dict[str, int] = {}
@@ -2978,7 +3074,12 @@ def _save_and_notify_phase(
         elif mode == "runid":
             suffix = f"{date_str}_{run_id}" if run_id else date_str
 
-        out_all = signals_dir / f"signals_final_{suffix}.csv"
+        # Ensure final destination exists
+        try:
+            final_base.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        out_all = final_base / f"signals_final_{suffix}.csv"
         try:
             try:
                 round_dec = getattr(
@@ -2989,11 +3090,24 @@ def _save_and_notify_phase(
             out_df = round_dataframe(final_df, round_dec)
         except Exception:
             out_df = final_df
-        out_df.to_csv(out_all, index=False)
+        # Atomic write: write to temporary file then replace to avoid partial files
+        try:
+            tmp_all = final_base / f".signals_final_{suffix}.{ctx.run_id}.tmp"
+            out_df.to_csv(tmp_all, index=False)
+            try:
+                tmp_all.replace(out_all)
+            except Exception:
+                # fallback to os.replace if Path.replace fails on some platforms
+                import os as _os
+
+                _os.replace(str(tmp_all), str(out_all))
+        except Exception:
+            # Best-effort: fallback to direct write
+            out_df.to_csv(out_all, index=False)
         for name, df in per_system.items():
             if df is None or getattr(df, "empty", True):
                 continue
-            out = signals_dir / f"signals_{name}_{suffix}.csv"
+            out = final_base / f"signals_{name}_{suffix}.csv"
             try:
                 try:
                     round_dec = getattr(
@@ -3001,11 +3115,27 @@ def _save_and_notify_phase(
                     )
                 except Exception:
                     round_dec = None
-                out_df = round_dataframe(df, round_dec)
+                out_df_per = round_dataframe(df, round_dec)
             except Exception:
-                out_df = df
-            out_df.to_csv(out, index=False)
-        _log(f"💾 保存: {signals_dir} にCSVを書き出しました")
+                out_df_per = df
+            try:
+                tmp_out = final_base / f".signals_{name}_{suffix}.{ctx.run_id}.tmp"
+                out_df_per.to_csv(tmp_out, index=False)
+                try:
+                    tmp_out.replace(out)
+                except Exception:
+                    import os as _os
+
+                    _os.replace(str(tmp_out), str(out))
+            except Exception:
+                try:
+                    out_df_per.to_csv(out, index=False)
+                except Exception:
+                    _log(f"⚠️ CSV書き込み失敗: {out}", ui=False)
+        try:
+            _log(f"💾 保存: {final_base} にCSVを書き出しました")
+        except Exception:
+            pass
 
         # 保存確認（同期検証用）
         if out_all.exists():
@@ -3023,19 +3153,37 @@ def _save_and_notify_phase(
             except Exception:
                 _test_mode_val = None
             try:
-                base_dir = (
-                    Path("results_csv_test")
-                    if _test_mode_val
-                    else Path(getattr(ctx.settings, "RESULTS_DIR", "results_csv"))
-                )
+                if output_root_for_final is not None:
+                    base_dir = Path(output_root_for_final)
+                else:
+                    base_dir = (
+                        Path("results_csv_test")
+                        if _test_mode_val
+                        else Path(getattr(ctx.settings, "RESULTS_DIR", "results_csv"))
+                    )
             except Exception:
                 base_dir = Path("results_csv")
             out_dir = base_dir / "validation"
             out_dir.mkdir(parents=True, exist_ok=True)
-            with open(
-                out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8"
-            ) as f:
-                json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+            try:
+                out_file = out_dir / f"validation_report_{suffix}.json"
+                tmp_file = out_dir / f".validation_report_{suffix}.{ctx.run_id}.tmp"
+                with tmp_file.open("w", encoding="utf-8") as f:
+                    json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+                try:
+                    tmp_file.replace(out_file)
+                except Exception:
+                    import os as _os
+
+                    _os.replace(str(tmp_file), str(out_file))
+            except Exception:
+                try:
+                    with open(
+                        out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8"
+                    ) as f:
+                        json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+                except Exception:
+                    _log("⚠️ validation report 保存に失敗しました", ui=False)
             if int(report.get("summary", {}).get("errors", 0)) > 0:
                 _log_warning(
                     f"検証エラーあり: validation_report_{suffix}.json を確認してください",
@@ -5174,6 +5322,13 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         _log(
                             f"[ALLOC_DEBUG] {system_name} sample row: {df.iloc[0].to_dict()}"
                         )
+                    # If the strategy attached entry-skip diagnostics to DataFrame.attrs, log them
+                    try:
+                        for akey in ("entry_skip_counts", "entry_skip_details", "entry_skip_samples"):
+                            if akey in getattr(df, "attrs", {}):
+                                _log(f"[ALLOC_DEBUG] {system_name} attrs[{akey}]: {df.attrs.get(akey)!r}")
+                    except Exception:
+                        _log(f"[ALLOC_DEBUG] {system_name} attrs debug failed: {sys.exc_info()[0]}")
 
             per_system[system_name] = df
             count = len(df) if not df.empty else 0
@@ -5313,15 +5468,49 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # デバッグ: 配分前の候補データを出力
         if os.environ.get("ALLOCATION_DEBUG", "0") == "1":
             _log("[ALLOC_DEBUG] === PRE-ALLOCATION CANDIDATES ===")
+            # Persist per-system frames for offline inspection (test-mode results area)
+            out_dir = Path("results_csv_test")
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             for sys_name, df in per_system.items():
-                if not df.empty:
-                    _log(f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows")
-                    _log(f"[ALLOC_DEBUG] {sys_name} columns: {list(df.columns)}")
-                    if len(df) > 0:
-                        sample = df.iloc[0].to_dict()
-                        _log(f"[ALLOC_DEBUG] {sys_name} sample: {sample}")
-                else:
-                    _log(f"[ALLOC_DEBUG] {sys_name}: EMPTY")
+                try:
+                    if not df.empty:
+                        _log(f"[ALLOC_DEBUG] {sys_name}: {len(df)} rows")
+                        _log(f"[ALLOC_DEBUG] {sys_name} columns: {list(df.columns)}")
+                        if len(df) > 0:
+                            sample = df.iloc[0].to_dict()
+                            _log(f"[ALLOC_DEBUG] {sys_name} sample: {sample}")
+                        # try to persist to feather for later offline debug
+                        try:
+                            fp = out_dir / f"per_system_{sys_name}.feather"
+                            # preserve index as a column to avoid losing information
+                            try:
+                                df.reset_index(drop=False).to_feather(fp)
+                            except Exception:
+                                # Fallback: write without resetting index
+                                df.to_feather(fp)
+                            _log(f"[ALLOC_DEBUG] Saved per-system candidates to {fp}")
+                        except Exception as _e:
+                            # If feather writing failed (pyarrow etc), fallback to CSV
+                            try:
+                                csv_fp = out_dir / f"per_system_{sys_name}.csv"
+                                try:
+                                    df.reset_index(drop=False).to_csv(csv_fp, index=False)
+                                except Exception:
+                                    df.to_csv(csv_fp, index=False)
+                                _log(f"[ALLOC_DEBUG] Saved per-system candidates to CSV fallback {csv_fp}")
+                            except Exception as _e2:
+                                # Log both exceptions for easier triage
+                                _log(
+                                    f"[ALLOC_DEBUG] Failed to save per-system {sys_name}: {_e}; fallback error: {_e2}"
+                                )
+                    else:
+                        _log(f"[ALLOC_DEBUG] {sys_name}: EMPTY")
+                except Exception:
+                    # Per-system debug must never break the allocation flow
+                    _log(f"[ALLOC_DEBUG] Error inspecting per-system {sys_name}")
 
         final_df, allocation_summary = finalize_allocation(
             per_system,
@@ -6124,9 +6313,19 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="フィルタ段階通過数のFDBGログを有効化 (環境変数 FILTER_DEBUG=1 を内部設定)",
     )
     parser.add_argument(
+        "--run-namespace",
+        default=None,
+        help="任意のラン識別子: 出力を results_csv/<NAMESPACE>/ に分離するために使用します",
+    )
+    parser.add_argument(
         "--skip-latest-check",
         action="store_true",
         help="Phase 0 の最新営業日チェックをスキップ (デバッグ用)",
+    )
+    parser.add_argument(
+        "--force-per-system-save",
+        action="store_true",
+        help="内部デバッグ: per-system の候補を results_csv_test に強制保存 (ALLOCATION_DEBUG をプロセス内で有効化)",
     )
     return parser
 
@@ -6336,20 +6535,29 @@ def maybe_submit_orders(final_df: pd.DataFrame, args: argparse.Namespace) -> Non
 
 
 def maybe_run_planned_exits(args: argparse.Namespace) -> None:
+    """Run scheduled exits if the flags/environment request it.
+
+    This helper is intentionally small and side-effect free in failure cases.
+    """
     try:
         from schedulers.next_day_exits import submit_planned_exits as _run_planned
     except Exception:
         _run_planned = None
+
     env_run = os.environ.get("RUN_PLANNED_EXITS", "").lower()
     run_mode = (
-        args.run_planned_exits
+        getattr(args, "run_planned_exits", None)
         or (env_run if env_run in {"off", "open", "close", "auto"} else None)
         or "off"
     )
-    dry_run = True if args.planned_exits_dry_run else False
-    if _run_planned is not None and run_mode != "off":
-        sel = run_mode
-        if run_mode == "auto":
+    dry_run = bool(getattr(args, "planned_exits_dry_run", False))
+
+    if _run_planned is None or run_mode == "off":
+        return
+
+    sel = run_mode
+    if run_mode == "auto":
+        try:
             now = datetime.now(ZoneInfo("America/New_York"))
             hhmm = now.strftime("%H%M")
             sel = (
@@ -6357,202 +6565,153 @@ def maybe_run_planned_exits(args: argparse.Namespace) -> None:
                 if ("0930" <= hhmm <= "0945")
                 else ("close" if ("1550" <= hhmm <= "1600") else "off")
             )
-        if sel in {"open", "close"}:
-            _log(f"⏱️ 手仕舞い計画の自動実行: {sel} (dry_run={dry_run})")
-            try:
-                df_exec = _run_planned(sel, dry_run=dry_run)
-                if df_exec is not None and not df_exec.empty:
-                    _log(df_exec.to_string(index=False), ui=False)
-                else:
-                    _log("対象の手仕舞い計画はありません。", ui=False)
-            except Exception as e:
-                _log(f"⚠️ 手仕舞い計画の自動実行に失敗: {e}")
+        except Exception:
+            sel = "off"
+
+    if sel not in {"open", "close"}:
+        return
+
+    _log(f"⏱️ 手仕舞い計画の自動実行: {sel} (dry_run={dry_run})")
+    try:
+        _run_planned(sel, dry_run=dry_run)
+    except Exception as e:
+        _log(f"⚠️ 手仕舞い計画の自動実行に失敗: {e}", level="ERROR")
 
 
-def main():
+def main() -> int:
+    """Entry point for CLI execution.
+
+    Responsibilities:
+    - parse CLI
+    - configure logging
+    - set RUN_NAMESPACE if provided
+    - run the pipeline
+    - perform save/notify under optional RunLock and per-run subdir
+    """
     args = parse_cli_args()
-    configure_logging_for_cli(args)
 
-    # 進捗イベントログを初期化（実行ごとにクリア）
-    if ENABLE_PROGRESS_EVENTS:
-        try:
-            from common.progress_events import reset_progress_log
-
-            reset_progress_log()
-        except Exception:
-            pass
-
-    # 他スコープ（compute_today_signals 内）で --full-scan-today を参照できるように一時保存
+    # Developer helper: allow CLI to force ALLOCATION_DEBUG inside process
     try:
-        globals()["_CLI_ARGS"] = args
-    except Exception:
-        pass
-    if getattr(args, "full_scan_today", False):
-        # 環境変数で明示しておくと将来他コンポーネントでも利用可能
-        os.environ.setdefault("FULL_SCAN_TODAY", "1")
-
-    final_df, _per_system = run_signal_pipeline(args)
-
-    # Phase 6: CSV保存・通知・注文送信
-    if _LIGHTWEIGHT_BENCHMARK:
-        _LIGHTWEIGHT_BENCHMARK.start_phase("phase6_save_notify")
-    perf_monitor = None
-    if getattr(args, "detailed_perf", False):
-        try:
-            from common.performance_monitor import get_global_monitor
-
-            perf_monitor = get_global_monitor()
-        except Exception:
-            pass
-
-    _phase6_measure = (
-        perf_monitor.measure("phase6_save_notify") if perf_monitor else None
-    )
-    if _phase6_measure:
-        _phase6_measure.__enter__()
-
-    # Progress: phase6 save/notify start
-    try:
-        emit_progress_event(
-            "phase6_save_notify_start",
-            {
-                "final_rows": int(
-                    0
-                    if final_df is None or getattr(final_df, "empty", True)
-                    else len(final_df)
-                )
-            },
-        )
+        if getattr(args, "force_per_system_save", False):
+            os.environ.setdefault("ALLOCATION_DEBUG", "1")
+            _log("[DEBUG] --force-per-system-save enabled: ALLOCATION_DEBUG=1 set in process")
     except Exception:
         pass
 
-    signals_for_merge = log_final_candidates(final_df)
-    merge_signals_for_cli(signals_for_merge)
-    maybe_submit_orders(final_df, args)
-
-    # Save CSVs (final and per-system) when requested via CLI
-    # Note: We reuse the existing save/notify helper but disable notify to avoid
-    # side-effects from the CLI path. This restores signals_final_* outputs under
-    # settings.outputs.signals_dir for --save-csv runs.
     try:
-        if (
-            getattr(args, "save_csv", False)
-            and final_df is not None
-            and not getattr(final_df, "empty", True)
-        ):
+        configure_logging_for_cli(args)
+    except Exception:
+        pass
+
+    # Persist CLI args for internal helpers
+    try:
+        globals()['_CLI_ARGS'] = args
+    except Exception:
+        pass
+
+    # CLI provided namespace has highest precedence for this process
+    try:
+        if getattr(args, 'run_namespace', None):
+            cli_ns = str(args.run_namespace)
+            os.environ['RUN_NAMESPACE'] = cli_ns
+            globals()['_CLI_RUN_NAMESPACE'] = cli_ns
+    except Exception:
+        pass
+
+    # Run the core pipeline
+    try:
+        final_df, per_system = run_signal_pipeline(args)
+    except Exception as e:
+        _log(f"⚠️ パイプライン実行に失敗しました: {e}", level="ERROR")
+        return 2
+
+    # If user requested CSV saving, perform atomic save/notify with optional RunLock
+    if getattr(args, 'save_csv', False) and final_df is not None and not getattr(final_df, 'empty', True):
+        # Build a context for saving (notify suppressed for CLI save)
+        try:
             ctx = _initialize_run_context(
-                slots_long=args.slots_long,
-                slots_short=args.slots_short,
-                capital_long=args.capital_long,
-                capital_short=args.capital_short,
+                slots_long=getattr(args, 'slots_long', None),
+                slots_short=getattr(args, 'slots_short', None),
+                capital_long=getattr(args, 'capital_long', None),
+                capital_short=getattr(args, 'capital_short', None),
                 save_csv=True,
-                csv_name_mode=args.csv_name_mode,
-                notify=False,  # CLI からの保存では通知は抑制
+                csv_name_mode=getattr(args, 'csv_name_mode', None),
+                notify=False,
                 log_callback=None,
                 progress_callback=None,
                 per_system_progress=None,
                 symbol_data=None,
-                parallel=args.parallel,
-                test_mode=getattr(args, "test_mode", None),
-                skip_external=getattr(args, "skip_external", False),
+                parallel=getattr(args, 'parallel', False),
+                test_mode=getattr(args, 'test_mode', None),
+                skip_external=getattr(args, 'skip_external', False),
             )
-            # per_system は最終CSV保存には不要なため空で十分
+        except Exception:
+            ctx = _initialize_run_context(save_csv=True)
+
+        # Determine env-controlled behavior
+        try:
+            env_cfg = get_env_config()
+            use_lock = bool(getattr(env_cfg, 'use_run_lock', False))
+            use_subdir = bool(getattr(env_cfg, 'use_run_subdir', False))
+        except Exception:
+            use_lock = False
+            use_subdir = False
+
+        # If CLI provided a run_namespace, prefer it
+        ns_val: str | None = getattr(args, 'run_namespace', None)
+        ns: str | None = None
+        if ns_val is not None and str(ns_val).strip() != "":
+            ns = str(ns_val).strip()
+        else:
+            ns_env = os.environ.get('RUN_NAMESPACE')
+            if ns_env:
+                ns = str(ns_env)
+            else:
+                try:
+                    cfg_ns = getattr(get_env_config(), 'run_namespace', None)
+                    ns = str(cfg_ns) if (cfg_ns is not None and str(cfg_ns).strip() != "") else None
+                except Exception:
+                    ns = getattr(ctx, 'run_namespace', None)
+        out_root: Path | None = None
+        if use_subdir and ns:
+            try:
+                base = Path(getattr(ctx.settings, 'RESULTS_DIR', 'results_csv'))
+                out_root = base / f"run_{ns}"
+            except Exception:
+                out_root = None
+
+        rl = None
+        try:
+            if use_lock:
+                rl = RunLock('today_signals')
+                rl.acquire()
+        except Exception:
+            rl = None
+
+        try:
             _save_and_notify_phase(
                 ctx,
                 final_df=final_df,
-                per_system={},
+                per_system=per_system or {},
                 order_1_7=[f"system{i}" for i in range(1, 8)],
                 metrics_summary_context=None,
+                output_root_for_final=out_root,
             )
-    except Exception:
-        # 保存失敗は致命ではないため握りつぶし（ログは _save_and_notify_phase 内で出力）
-        pass
+        finally:
+            if rl is not None:
+                try:
+                    rl.release()
+                except Exception:
+                    pass
 
-    # Progress: phase6 save/notify complete
+    # Run planned exits if requested
     try:
-        emit_progress_event(
-            "phase6_save_notify_complete",
-            {
-                "final_rows": int(
-                    0
-                    if final_df is None or getattr(final_df, "empty", True)
-                    else len(final_df)
-                )
-            },
-        )
+        maybe_run_planned_exits(args)
     except Exception:
         pass
 
-    if _phase6_measure:
-        _phase6_measure.__exit__(None, None, None)
-    if _LIGHTWEIGHT_BENCHMARK:
-        _LIGHTWEIGHT_BENCHMARK.end_phase()
-
-    maybe_run_planned_exits(args)
-
-    # PerformanceMonitor のレポート保存とサマリー出力(全フェーズ測定完了後)
-    if getattr(args, "detailed_perf", False) and perf_monitor is not None:
-        try:
-            from datetime import datetime
-            from pathlib import Path
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            perf_dir = Path("logs/perf")
-            perf_dir.mkdir(parents=True, exist_ok=True)
-            report_path = perf_dir / f"detailed_metrics_{timestamp}.json"
-
-            perf_monitor.save_report(str(report_path))
-            _log(f"📊 詳細パフォーマンスレポート保存: {report_path}")
-
-            # コンソールにサマリー出力
-            perf_monitor.print_summary()
-        except Exception as e:
-            _log(f"⚠️ PerformanceMonitorレポート保存失敗: {e}")
-
-    # Lightweight Benchmark のレポート保存（--benchmark 指定時）
-    if getattr(args, "benchmark", False) and _LIGHTWEIGHT_BENCHMARK is not None:
-        try:
-            from datetime import datetime
-            from pathlib import Path
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            test_mode_suffix = f"_{getattr(args, 'test_mode', 'full')}"
-            bench_dir = Path(
-                "results_csv_test"
-                if getattr(args, "test_mode", None)
-                else "results_csv"
-            )
-            bench_dir.mkdir(parents=True, exist_ok=True)
-            report_path = bench_dir / f"benchmark{test_mode_suffix}_{timestamp}.json"
-
-            _LIGHTWEIGHT_BENCHMARK.save_report(str(report_path))
-            _log(f"⏱️  ベンチマークレポート保存: {report_path}")
-
-            # コンソールにサマリー出力
-            report = _LIGHTWEIGHT_BENCHMARK.get_report()
-            total_duration = report.get("total_duration_sec", 0.0)
-            _log(f"⏱️  総実行時間: {total_duration:.2f} 秒")
-            for phase_name, phase_data in report.get("phases", {}).items():
-                duration = phase_data.get("duration_sec", 0.0)
-                _log(f"    {phase_name}: {duration:.2f} 秒")
-        except Exception as e:
-            _log(f"⚠️ ベンチマークレポート保存失敗: {e}")
-
-    # Final completion event (Phase 7 equivalent)
-    try:
-        emit_progress_event(
-            "pipeline_complete",
-            {
-                "final_rows": int(
-                    0
-                    if final_df is None or getattr(final_df, "empty", True)
-                    else len(final_df)
-                )
-            },
-        )
-    except Exception:
-        pass
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())

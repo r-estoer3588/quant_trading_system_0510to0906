@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { addTestIds, getRunButton } from "../helpers/annotateTestIds";
 
 // Allow enough time for the full pipeline + Streamlit client render (20 minutes)
 test.setTimeout(20 * 60 * 1000);
@@ -66,6 +67,8 @@ test.describe("配分結果表示", () => {
 
       // Capture a trimmed body snippet for debugging so we can inspect what was rendered
       try {
+        // Add stable test ids to DOM so we can use them reliably
+        await addTestIds(page);
         const body = await page.textContent("body");
         console.log("[DEBUG] body snippet:", (body || "").slice(0, 2000));
       } catch (e) {
@@ -73,9 +76,7 @@ test.describe("配分結果表示", () => {
       }
 
       // Robustly find the run-integrated button via role matching or text
-      const integratedBtn = page.locator(
-        "role=button[name=/統合実行|run integrated|統合実行開始|run today signals|当日シグナル実行|▶ 本日のシグナル実行/i]"
-      );
+      const integratedBtn = await getRunButton(page);
       if ((await integratedBtn.count()) > 0) {
         await integratedBtn
           .first()

@@ -36,6 +36,12 @@ export default defineConfig({
 
     /* Video recording for failed tests */
     video: "retain-on-failure",
+    /* Common CI-friendly defaults to reduce flaky behavior */
+    viewport: { width: 1280, height: 800 },
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    testIdAttribute: "data-testid",
+    actionTimeout: 30 * 1000,
   },
 
   /* Configure projects for major browsers */

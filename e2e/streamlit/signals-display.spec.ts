@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { addTestIds, getRunButton } from "../helpers/annotateTestIds";
 
 // Allow enough time for the full pipeline + Streamlit client render (20 minutes)
 test.setTimeout(20 * 60 * 1000);
@@ -37,16 +38,14 @@ test.describe("当日シグナル表示", () => {
         .catch(() => null);
 
       // Log all button texts and aria-labels
-      const candidateButtons = await page
-        .locator("button")
-        .evaluateAll((els) =>
-          els.map((el) => ({
-            text: (el as any).innerText || el.textContent || "",
-            aria: (el as any).getAttribute
-              ? (el as any).getAttribute("aria-label")
-              : null,
-          }))
-        );
+      const candidateButtons = await page.locator("button").evaluateAll((els) =>
+        els.map((el) => ({
+          text: (el as any).innerText || el.textContent || "",
+          aria: (el as any).getAttribute
+            ? (el as any).getAttribute("aria-label")
+            : null,
+        }))
+      );
       // eslint-disable-next-line no-console
       console.log(
         "[DEBUG] candidateButtons:",
@@ -77,34 +76,14 @@ test.describe("当日シグナル表示", () => {
       // small pause to allow any dynamic buttons to appear
       await page.waitForTimeout(500);
 
-      // Prefer ARIA role lookup with a regex so that emoji / prefix variations
-      // (e.g. "▶ 本日のシグナル実行") still match reliably.
-      const roleBtn = page.locator("role=button[name=/本日のシグナル/i]");
-      if ((await roleBtn.count()) > 0) {
-        await roleBtn
-          .first()
-          .waitFor({ state: "visible", timeout: 5000 })
-          .catch(() => null);
-        await roleBtn.first().click();
-      } else {
-        // Fallback: find any button element containing the phrase
-        const fallback = page.locator('button:has-text("本日のシグナル")');
-        if ((await fallback.count()) > 0) {
-          await fallback
-            .first()
-            .waitFor({ state: "visible", timeout: 5000 })
-            .catch(() => null);
-          await fallback.first().click();
-        } else {
-          // Final fallback to english/i18n label
-          const eng = page.locator(
-            "role=button[name=/run today signals|当日シグナル実行/i]"
-          );
-          if ((await eng.count()) > 0) {
-            await eng.first().click();
-          }
-        }
-      }
+      // Add stable data-testid attributes dynamically in the browser so
+      // tests can prefer getByTestId() without modifying the app code.
+      await addTestIds(page);
+
+      // Prefer testId-based lookup, fallback to role-based lookup.
+      const runBtn = await getRunButton(page);
+      await runBtn.waitFor({ state: "visible", timeout: 5000 }).catch(() => null);
+      await runBtn.click();
 
       // Wait for either the localized success message or the data frame/table
       await Promise.race([
@@ -150,5 +129,12 @@ test.describe("当日シグナル表示", () => {
         bodyText.includes("📈 本日のシグナル（全システム）"))
     );
     expect(hasPerSystem).toBeTruthy();
+  });
+
+  // Add an additional quick smoke test to reduce flakiness by checking a lightweight health endpoint
+  test("health endpoint responds", async ({ request }) => {
+    const res = await request.get("/__healthcheck__/ready");
+    // Accept either 200 or 204 depending on server setup
+    expect([200, 204]).toContain(res.status());
   });
 });

@@ -1,0 +1,104 @@
+{
+  "cookies": [
+    {
+      "name": "XSRF-TOKEN",
+      "value": "4hBbVAF8PW40apRE0VKvOR-zAZQvO-VXke8lSAtwEPo",
+      "domain": "note.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "fp",
+      "value": "17ec1288306ff90dd825ca6ce6675e4c4",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_vid_v1",
+      "value": "0b884193a71592f8eac5a7010e8858f6",
+      "domain": "note.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_vid_v1",
+      "value": "0b884193a71592f8eac5a7010e8858f6",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.2.593469138.1761023428",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": 1795583428.105178,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_gid",
+      "value": "GA1.2.328688608.1761023428",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": 1761109828,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_note_session_v5",
+      "value": "9b9658c2d2743a9c175e7d0664f56d99",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": 1768972235.169591,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_J9CPC3WE56",
+      "value": "GS2.1.s1761023427$o1$g0$t1761023435$j52$l0$h0",
+      "domain": ".note.com",
+      "path": "/",
+      "expires": 1795583435.175429,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://note.com",
+      "localStorage": [
+        {
+          "name": "note-client-code",
+          "value": "70f0553ea0ef7109fd19d0e4463fe41c4c74b88a57a682a18196631f8185c036"
+        }
+      ]
+    },
+    {
+      "origin": "https://www.google.com",
+      "localStorage": [
+        {
+          "name": "rc::a",
+          "value": "Z2R0ajR0MTM3M2t6cA=="
+        }
+      ]
+    }
+  ]
+}

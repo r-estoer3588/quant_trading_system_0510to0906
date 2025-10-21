@@ -29,5 +29,11 @@
   "devDependencies": {
     "@playwright/test": "^1.56.0",
     "@types/node": "^24.7.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.23",
+    "playwright": "^1.56.1",
+    "playwright-core": "^1.56.0",
+    "undici-types": "^7.14.0"
   }
 }

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { addTestIds } from "../helpers/annotateTestIds";
 
 // Allow enough time for the full pipeline + Streamlit client render (20 minutes)
 test.setTimeout(20 * 60 * 1000);
@@ -14,6 +15,7 @@ test.describe("Streamlit 統合アプリ - 基本動作", () => {
   test("アプリが正常に起動する", async ({ page }) => {
     // Streamlit UI にアクセス
     await page.goto("/", { timeout: 20 * 60 * 1000 });
+    await addTestIds(page);
 
     // ページタイトルが存在することを確認
     await expect(page).toHaveTitle(/.*/, { timeout: 10000 });

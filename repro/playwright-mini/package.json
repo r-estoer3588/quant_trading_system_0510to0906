@@ -1,0 +1,11 @@
+{
+  "name": "playwright-mini-repro",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.38.0"
+  },
+  "scripts": {
+    "test": "npx playwright test"
+  }
+}

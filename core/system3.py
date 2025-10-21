@@ -42,30 +42,102 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         if df is None or df.empty:
             return symbol, None
 
-        # Check for required indicators
-        missing_indicators = [col for col in SYSTEM3_REQUIRED_INDICATORS if col not in df.columns]
+        # Normalize/rename potential variant column names so downstream
+        # logic can rely on the canonical indicator names.
+        try:
+            cols = [c for c in df.columns if isinstance(c, str)]
+            rename_map: dict[str, str] = {}
+
+            def _norm_col(name: str) -> str:
+                return name.lower().replace("_", "").replace(" ", "")
+            for req in SYSTEM3_REQUIRED_INDICATORS:
+                req_key = str(req)
+                if req_key in df.columns:
+                    continue
+                # case-insensitive direct match
+                found = next((c for c in cols if c.lower() == req_key.lower()), None)
+                if found and found != req_key:
+                    rename_map[found] = req_key
+                    continue
+                # fuzzy normalized match
+                req_norm = req_key.lower().replace("_", "")
+                found2 = next((c for c in cols if _norm_col(str(c)) == req_norm), None)
+                if found2 and found2 != req_key:
+                    rename_map[found2] = req_key
+                    continue
+            if rename_map:
+                try:
+                    df = df.rename(columns=rename_map)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Ensure required indicators exist (after potential renames)
+        missing_indicators = []
+        for c in SYSTEM3_REQUIRED_INDICATORS:
+            if c not in df.columns:
+                missing_indicators.append(c)
         if missing_indicators:
             return symbol, None
 
-        # Apply System3-specific filters and setup
         x = df.copy()
 
-        # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>=0.05 (test override allowed)
+        # ATR ratio threshold (allow test override)
         _atr_thr = 0.05
         try:
             if _get_env is not None:
                 _env = _get_env()
-                if _env.min_atr_ratio_for_test is not None:
-                    _atr_thr = float(_env.min_atr_ratio_for_test)
+                v = getattr(_env, "min_atr_ratio_for_test", None)
+                if v is not None:
+                    _atr_thr = float(v)
         except Exception:
             _atr_thr = 0.05
-        x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= _atr_thr)
 
-        # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
-        x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
+        # Apply per-row filter and setup flags. Coerce to numeric to avoid
+        # runtime/type issues when series contain None/NaN.
+        try:
+            _val_close = x.get("Close")
+            if _val_close is None:
+                _close = pd.Series(0.0, index=x.index)
+            else:
+                _close = pd.to_numeric(_val_close, errors="coerce").fillna(0.0)
+        except Exception:
+            _close = pd.Series(0.0, index=x.index)
+        try:
+            _val_dvol = x.get("dollarvolume20")
+            if _val_dvol is None:
+                _dvol = pd.Series(0.0, index=x.index)
+            else:
+                _dvol = pd.to_numeric(_val_dvol, errors="coerce").fillna(0.0)
+        except Exception:
+            _dvol = pd.Series(0.0, index=x.index)
+        try:
+            _val_atr = x.get("atr_ratio")
+            if _val_atr is None:
+                _atr_ratio = pd.Series(0.0, index=x.index)
+            else:
+                _atr_ratio = pd.to_numeric(_val_atr, errors="coerce").fillna(0.0)
+        except Exception:
+            _atr_ratio = pd.Series(0.0, index=x.index)
+
+        x["filter"] = (
+            (_close >= 5.0)
+            & (_dvol > 25_000_000)
+            & (_atr_ratio >= _atr_thr)
+        )
+
+        try:
+            _val_drop = x.get("drop3d")
+            if _val_drop is None:
+                _drop3d = pd.Series(dtype=float, index=x.index)
+            else:
+                _drop3d = pd.to_numeric(_val_drop, errors="coerce")
+        except Exception:
+            _drop3d = pd.Series(dtype=float, index=x.index)
+        x["setup"] = x["filter"] & (~_drop3d.isna()) & (_drop3d >= 0.125)
 
         return symbol, x
-
     except Exception:
         return symbol, None
 
@@ -125,9 +197,11 @@ def prepare_data_vectorized_system3(
                                 _atr_thr = float(_env.min_atr_ratio_for_test)
                     except Exception:
                         _atr_thr = 0.05
-                    x["filter"] = (
-                        (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] >= _atr_thr)
-                    )
+                    # Build filter mask in steps to avoid too-long expressions
+                    close_ok = x["Close"] >= 5.0
+                    vol_ok = x["dollarvolume20"] > 25_000_000
+                    atr_ok = x["atr_ratio"] >= _atr_thr
+                    x["filter"] = close_ok & vol_ok & atr_ok
 
                     # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
                     x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
@@ -135,7 +209,9 @@ def prepare_data_vectorized_system3(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System3: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System3: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -145,7 +221,9 @@ def prepare_data_vectorized_system3(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System3: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System3: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -158,7 +236,9 @@ def prepare_data_vectorized_system3(
         return {}
 
     if log_callback:
-        log_callback(f"System3: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System3: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -244,6 +324,13 @@ def generate_candidates_system3(
     if not prepared_dict:
         if log_callback:
             log_callback("System3: No data provided for candidate generation")
+        # Populate explicit diagnostics for the empty-input case so callers
+        # can understand why no candidates were returned.
+        try:
+            diagnostics["ranking_input_counts"]["rows_total"] = 0
+            diagnostics["ranking_zero_reason"] = "no_prepared_data"
+        except Exception:
+            pass
         return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
     if top_n is None:
@@ -379,7 +466,10 @@ def generate_candidates_system3(
                     continue
                 # 日付サニタイズ関数（System1 と同等の安全ガード）
 
-                def _sanitize_signal_date(dt_obj: object, fallback: pd.Timestamp | None) -> pd.Timestamp | None:
+                def _sanitize_signal_date(
+                    dt_obj: object,
+                    fallback: pd.Timestamp | None,
+                ) -> pd.Timestamp | None:
                     try:
                         ts = pd.Timestamp(str(dt_obj)).normalize()
                     except Exception:
@@ -407,7 +497,11 @@ def generate_candidates_system3(
                                 lag_days = int((target_date - latest_idx_norm).days)
                         except Exception:
                             lag_days = None
-                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
+                        if (
+                            lag_days is not None
+                            and lag_days >= 0
+                            and lag_days <= max_date_lag_days
+                        ):
                             last_row = _to_series(df.loc[latest_idx_raw])
                             dt = _sanitize_signal_date(target_date, fallback=None)
                         else:
@@ -433,9 +527,17 @@ def generate_candidates_system3(
                             if (not final_ok_ex) or pd.isna(drop_val_ex):
                                 try:
                                     if pred_reason_ex:
-                                        diagnostics["exclude_reasons"][str(pred_reason_ex)] = (
-                                            diagnostics["exclude_reasons"].get(str(pred_reason_ex), 0) + 1
-                                        )
+                                        try:
+                                            key_ex = str(pred_reason_ex)
+                                            ex_reasons = diagnostics.get(
+                                                "exclude_reasons",
+                                                {},
+                                            )
+                                            prev_count = ex_reasons.get(key_ex, 0)
+                                            ex_reasons[key_ex] = prev_count + 1
+                                            diagnostics["exclude_reasons"] = ex_reasons
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
                                 continue
@@ -461,16 +563,26 @@ def generate_candidates_system3(
                             continue
                 else:
                     last_row = _to_series(df.iloc[-1])
-                    dt = _sanitize_signal_date(pd.Timestamp(str(df.index[-1])).normalize(), fallback=None)
+                    try:
+                        last_idx = df.index[-1]
+                        last_idx_ts = pd.Timestamp(str(last_idx)).normalize()
+                        dt = _sanitize_signal_date(last_idx_ts, fallback=None)
+                    except Exception:
+                        last_idx_ts2 = pd.Timestamp(str(df.index[-1])).normalize()
+                        dt = _sanitize_signal_date(last_idx_ts2, fallback=None)
 
                 if last_row is None:
                     continue
                 if dt is None:
                     # ラベル日が解決できない場合は除外
                     try:
-                        diagnostics["exclude_reasons"]["invalid_date_label"] = (
-                            diagnostics["exclude_reasons"].get("invalid_date_label", 0) + 1
+                        ex_reasons = diagnostics.get(
+                            "exclude_reasons",
+                            {},
                         )
+                        prev_inv = ex_reasons.get("invalid_date_label", 0)
+                        ex_reasons["invalid_date_label"] = prev_inv + 1
+                        diagnostics["exclude_reasons"] = ex_reasons
                     except Exception:
                         pass
                     continue
@@ -494,8 +606,9 @@ def generate_candidates_system3(
                 if not final_ok:
                     try:
                         if pred_reason:
-                            diagnostics["exclude_reasons"][str(pred_reason)] = (
-                                diagnostics["exclude_reasons"].get(str(pred_reason), 0) + 1
+                            key = str(pred_reason)
+                            diagnostics["exclude_reasons"][key] = (
+                                diagnostics["exclude_reasons"].get(key, 0) + 1
                             )
                     except Exception:
                         pass
@@ -540,10 +653,136 @@ def generate_candidates_system3(
                 continue
 
         if not rows:
+            # Populate diagnostic counts for zero-row fast-path so callers can
+            # immediately understand why no candidates were produced.
+            # Safe defaults for values used later in diagnostics
+            total_sampled = 0
+            drop_vals: list[float] = []
+            try:
+                diag_counts = diagnostics.get("ranking_input_counts", {})
+                diag_counts["rows_total"] = int(len(rows))
+                diag_counts["lagged_rows"] = int(len(lagged_rows))
+                diag_counts["rows_for_label_date"] = 0
+                if prepared_dict:
+                    prepared_symbols_count = len(prepared_dict)
+                else:
+                    prepared_symbols_count = 0
+                diag_counts["prepared_symbols"] = int(prepared_symbols_count)
+                diagnostics["ranking_input_counts"] = diag_counts
+            except Exception:
+                pass
+
+            # Compute simple filter-level counts from the latest row per symbol
+            try:
+                filter_counts: dict[str, int] = {
+                    "close_lt_5": 0,
+                    "dvol_le_25m": 0,
+                    "atr_ratio_lt_thr": 0,
+                    "drop3d_nan": 0,
+                }
+                drop_vals = []
+                total_sampled = 0
+                for s_sym, s_df in prepared_dict.items():
+                    if s_df is None or getattr(s_df, "empty", True):
+                        continue
+                    try:
+                        s_last = s_df.iloc[-1]
+                        total_sampled += 1
+                        # Close
+                        try:
+                            c = float(s_last.get("Close", float("nan")))
+                            if c < 5.0:
+                                filter_counts["close_lt_5"] += 1
+                        except Exception:
+                            filter_counts["close_lt_5"] += 1
+                        # Dollar volume
+                        try:
+                            dv = float(s_last.get("dollarvolume20", float("nan")))
+                            if dv <= 25_000_000:
+                                filter_counts["dvol_le_25m"] += 1
+                        except Exception:
+                            filter_counts["dvol_le_25m"] += 1
+                        # ATR ratio
+                        try:
+                            av = float(s_last.get("atr_ratio", float("nan")))
+                            thr_map = diagnostics.get("thresholds", {})
+                            try:
+                                atr_thr = float(thr_map.get("atr_ratio", 0.05))
+                            except Exception:
+                                atr_thr = 0.05
+                            if av < atr_thr:
+                                filter_counts["atr_ratio_lt_thr"] += 1
+                        except Exception:
+                            filter_counts["atr_ratio_lt_thr"] += 1
+                        # drop3d
+                        try:
+                            dv3 = s_last.get("drop3d")
+                            if dv3 is None or (pd.isna(dv3)):
+                                filter_counts["drop3d_nan"] += 1
+                            else:
+                                drop_vals.append(float(dv3))
+                        except Exception:
+                            filter_counts["drop3d_nan"] += 1
+                    except Exception:
+                        continue
+
+                diagnostics["filter_counts"] = filter_counts
+                # compute basic drop3d stats
+                try:
+                    if drop_vals:
+                        sser = pd.Series(drop_vals)
+                        rstats = diagnostics.get("ranking_stats", {})
+                        rstats["drop3d_min"] = float(sser.min())
+                        rstats["drop3d_max"] = float(sser.max())
+                        rstats["drop3d_mean"] = float(sser.mean())
+                        rstats["drop3d_median"] = float(sser.median())
+                        rstats["drop3d_nan_count"] = int(total_sampled - len(drop_vals))
+                        diagnostics["ranking_stats"] = rstats
+                    else:
+                        rstats = diagnostics.get("ranking_stats", {})
+                        rstats["drop3d_nan_count"] = int(total_sampled)
+                        diagnostics["ranking_stats"] = rstats
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # Derive a likely zero reason from per-symbol exclude reasons or
+            # from the simple filter counts we just computed.
+            try:
+                reason = None
+                excl = diagnostics.get("exclude_reasons", {}) or {}
+                try:
+                    # If every sampled symbol was rejected by phase2 filter
+                    if total_sampled > 0:
+                        filt_count = int(excl.get("filter_phase2", 0))
+                        drop3d_nan_count = int(
+                            diagnostics.get("filter_counts", {}).get("drop3d_nan", 0)
+                        )
+                        if filt_count >= total_sampled:
+                            reason = "all_filtered_phase2"
+                        elif drop3d_nan_count >= total_sampled:
+                            reason = "all_drop3d_nan"
+                        else:
+                            thr_raw = diagnostics.get("thresholds", {}).get(
+                                "drop3d", 0.125
+                            )
+                            try:
+                                thr = float(thr_raw)
+                            except Exception:
+                                thr = 0.125
+                            if drop_vals and max(drop_vals) < thr:
+                                reason = "all_below_drop3d_threshold"
+                except Exception:
+                    reason = None
+                diagnostics["ranking_zero_reason"] = reason
+            except Exception:
+                diagnostics["ranking_zero_reason"] = None
+
             if log_callback:
                 try:
-                    # 代表サンプルを 1-2 件だけ出力して切り分けを容易にする
-                    samples: list[str] = []
+                    # Representative sample logging
+                    samples = []
                     taken = 0
                     for s_sym, s_df in prepared_dict.items():
                         if s_df is None or getattr(s_df, "empty", True):
@@ -551,18 +790,17 @@ def generate_candidates_system3(
                         try:
                             s_last = s_df.iloc[-1]
                             s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
-                            (
-                                s_setup,
-                                _s_predicate,
-                                s_final,
-                                s_drop_val,
-                                _s_atr,
-                                _s_filter,
-                                _s_reason,
-                            ) = _evaluate_row(s_last)
-                            drop_txt = f"{s_drop_val:.4f}" if not pd.isna(s_drop_val) else "nan"
+                            s_setup = bool(s_last.get("setup", False))
+                            try:
+                                dv3v = s_last.get("drop3d")
+                                if dv3v is not None and not pd.isna(dv3v):
+                                    drop_txt = f"{float(dv3v):.4f}"
+                                else:
+                                    drop_txt = "nan"
+                            except Exception:
+                                drop_txt = "nan"
                             samples.append(
-                                (f"{s_sym}: date={s_dt.date()} setup_col={s_setup} final={s_final} drop3d={drop_txt}")
+                                f"{s_sym}:{s_dt.date()} setup={s_setup} d3={drop_txt}"
                             )
                             taken += 1
                             if taken >= 2:
@@ -570,7 +808,8 @@ def generate_candidates_system3(
                         except Exception:
                             continue
                     if samples:
-                        log_callback(("System3: DEBUG latest_only 0 candidates. " + " | ".join(samples)))
+                        prefix = "System3: DEBUG latest_only 0 candidates. "
+                        log_callback(prefix + " | ".join(samples))
                 except Exception:
                     pass
                 log_callback("System3: latest_only fast-path produced 0 rows")
@@ -580,13 +819,16 @@ def generate_candidates_system3(
         # top-off用に元の全候補を保持
         df_all_original = df_all.copy()
         if log_callback:
-            log_callback(f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}")
+            log_callback(
+                f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}"
+            )
         # 診断用: 入力件数
-        try:
-            diagnostics["ranking_input_counts"]["rows_total"] = int(len(df_all_original))
-            diagnostics["ranking_input_counts"]["lagged_rows"] = int(len(lagged_rows))
-        except Exception:
-            pass
+            try:
+                diag_counts = diagnostics["ranking_input_counts"]
+                diag_counts["rows_total"] = int(len(df_all_original))
+                diag_counts["lagged_rows"] = int(len(lagged_rows))
+            except Exception:
+                pass
 
         # target_date 優先でフィルタ。0件/不足時は安全フォールバックで補充する
         try:
@@ -629,13 +871,16 @@ def generate_candidates_system3(
         # 診断用: ラベル日・フィルタ後件数・統計
         try:
             if final_label_date is not None:
-                diagnostics["label_date"] = pd.Timestamp(str(final_label_date)).isoformat()
+                diag_label = pd.Timestamp(str(final_label_date)).isoformat()
+                diagnostics["label_date"] = diag_label
         except Exception:
             diagnostics["label_date"] = None
-        try:
-            diagnostics["ranking_input_counts"]["rows_for_label_date"] = int(len(filtered))
-        except Exception:
-            pass
+            try:
+                diag_counts = diagnostics.get("ranking_input_counts", {})
+                diag_counts["rows_for_label_date"] = int(len(filtered))
+                diagnostics["ranking_input_counts"] = diag_counts
+            except Exception:
+                pass
 
         # 有効な drop3d 指標の分布を可視化（NaN 含む）
         try:
@@ -643,11 +888,19 @@ def generate_candidates_system3(
                 s = pd.to_numeric(filtered["drop3d"], errors="coerce")
                 if s.size > 0:
                     s_no_nan = s.dropna()
-                    diagnostics["ranking_stats"]["drop3d_min"] = None if s_no_nan.empty else float(s_no_nan.min())
-                    diagnostics["ranking_stats"]["drop3d_max"] = None if s_no_nan.empty else float(s_no_nan.max())
-                    diagnostics["ranking_stats"]["drop3d_mean"] = None if s_no_nan.empty else float(s_no_nan.mean())
-                    diagnostics["ranking_stats"]["drop3d_median"] = None if s_no_nan.empty else float(s_no_nan.median())
-                    diagnostics["ranking_stats"]["drop3d_nan_count"] = int(s.isna().sum())
+                    r_stats = diagnostics.get("ranking_stats", {})
+                    if not s_no_nan.empty:
+                        r_stats["drop3d_min"] = float(s_no_nan.min())
+                        r_stats["drop3d_max"] = float(s_no_nan.max())
+                        r_stats["drop3d_mean"] = float(s_no_nan.mean())
+                        r_stats["drop3d_median"] = float(s_no_nan.median())
+                    else:
+                        r_stats["drop3d_min"] = None
+                        r_stats["drop3d_max"] = None
+                        r_stats["drop3d_mean"] = None
+                        r_stats["drop3d_median"] = None
+                    r_stats["drop3d_nan_count"] = int(s.isna().sum())
+                    diagnostics["ranking_stats"] = r_stats
         except Exception:
             pass
 
@@ -658,12 +911,13 @@ def generate_candidates_system3(
             if _get_env is not None:
                 try:
                     _env = _get_env()
+                    v = getattr(_env, "min_drop3d_for_test", None)
                     if (
                         hasattr(_env, "is_test_mode")
                         and bool(_env.is_test_mode())
-                        and getattr(_env, "min_drop3d_for_test", None) is not None
+                        and v is not None
                     ):
-                        _drop_thr = float(_env.min_drop3d_for_test)
+                        _drop_thr = float(v)
                 except Exception:
                     pass
             diagnostics["thresholds"]["drop3d"] = float(_drop_thr)
@@ -703,9 +957,14 @@ def generate_candidates_system3(
         # df_all_original または lagged_rows に補完候補がある場合に top-off を実行
         if missing > 0 and (len(df_all_original) > 0 or lagged_rows):
             try:
-                exists = set(top_cut["symbol"].astype(str)) if not top_cut.empty else set()
+                if not top_cut.empty:
+                    exists = set(top_cut["symbol"].astype(str))
+                else:
+                    exists = set()
                 extras_pool = (
-                    df_all_original.sort_values("drop3d", ascending=False, kind="stable")
+                    df_all_original.sort_values(
+                        "drop3d", ascending=False, kind="stable"
+                    )
                     .loc[~df_all_original["symbol"].astype(str).isin(exists)]
                     .copy()
                 )
@@ -714,7 +973,10 @@ def generate_candidates_system3(
                     lag_df = pd.DataFrame(lagged_rows)
                     if not lag_df.empty:
                         lag_df = lag_df.loc[~lag_df["symbol"].astype(str).isin(exists)]
-                        extras_pool = pd.concat([extras_pool, lag_df], ignore_index=True)
+                        extras_pool = pd.concat(
+                            [extras_pool, lag_df],
+                            ignore_index=True,
+                        )
                 if not extras_pool.empty:
                     if final_label_date is None:
                         try:
@@ -725,16 +987,17 @@ def generate_candidates_system3(
                             )
                         except Exception:
                             final_label_date = None
-                    if final_label_date is not None:
-                        extras_pool.loc[:, "date"] = final_label_date
-                        try:
-                            from common.utils_spy import (
-                                resolve_signal_entry_date as _resolve_entry_dt2,
-                            )
+                        if final_label_date is not None:
+                            extras_pool.loc[:, "date"] = final_label_date
+                            try:
+                                from common.utils_spy import (
+                                    resolve_signal_entry_date as _resolve_entry_dt2,
+                                )
 
-                            extras_pool.loc[:, "entry_date"] = _resolve_entry_dt2(final_label_date)
-                        except Exception:
-                            extras_pool.loc[:, "entry_date"] = final_label_date
+                                entry_dt_val = _resolve_entry_dt2(final_label_date)
+                                extras_pool.loc[:, "entry_date"] = entry_dt_val
+                            except Exception:
+                                extras_pool.loc[:, "entry_date"] = final_label_date
                     extras_take = extras_pool.head(missing)
                     top_cut = (
                         pd.concat([top_cut, extras_take], ignore_index=True)
@@ -756,7 +1019,10 @@ def generate_candidates_system3(
                     reason = "no_rows_for_label_date"
                 elif ("drop3d" in filtered.columns) and filtered["drop3d"].isna().all():
                     reason = "all_drop3d_nan"
-                elif ("drop3d" in filtered.columns) and (filtered["drop3d"].dropna().size > 0):
+                elif (
+                    ("drop3d" in filtered.columns)
+                    and (filtered["drop3d"].dropna().size > 0)
+                ):
                     # 閾値未満のみ（参考判定）
                     try:
                         _thr = float(diagnostics["thresholds"].get("drop3d", 0.125))
@@ -768,7 +1034,13 @@ def generate_candidates_system3(
                 reason = "unknown"
             diagnostics["ranking_zero_reason"] = reason
             if log_callback:
-                log_callback(f"[DEBUG_S3_RANK0] reason={reason} stats={diagnostics.get('ranking_stats')}")
+                stats_summary = diagnostics.get("ranking_stats")
+                # Keep the constructed message on short lines so linters
+                # do not complain about line length.
+                left = "[DEBUG_S3_RANK0] reason=" + str(reason)
+                right = " stats=" + str(stats_summary)
+                msg = left + right
+                log_callback(msg)
 
         # Build per-date list of candidate dicts (public API expectation)
         by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
@@ -793,9 +1065,15 @@ def generate_candidates_system3(
                 by_date[dt].append(item)
 
         if log_callback:
-            log_callback((f"System3: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
+            msg = (
+                f"System3: latest_only fast-path -> {len(df_all)} candidates "
+                f"(symbols={len(rows)})"
+            )
+            log_callback(msg)
 
-        return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
+        if include_diagnostics:
+            return by_date, df_all.copy(), diagnostics
+        return by_date, df_all.copy()
 
     # Aggregate all dates
     all_dates_set: set[pd.Timestamp] = set()
@@ -872,7 +1150,9 @@ def generate_candidates_system3(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "drop3d"], ascending=[True, False]
+        )
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -882,15 +1162,19 @@ def generate_candidates_system3(
     else:
         candidates_df = None
 
-    if log_callback:
-        total_candidates = len(all_candidates)
-        unique_dates = len(candidates_by_date)
-        log_callback((f"System3: Generated {total_candidates} candidates across {unique_dates} dates"))
+        if log_callback:
+            total_candidates = len(all_candidates)
+            unique_dates = len(candidates_by_date)
+            summary_msg = (
+                f"System3: Generated {total_candidates} candidates "
+                f"across {unique_dates} dates"
+            )
+            log_callback(summary_msg)
 
     # Keep original API: date -> list[dict]
-    return (
-        (candidates_by_date, candidates_df, diagnostics) if include_diagnostics else (candidates_by_date, candidates_df)
-    )
+    if include_diagnostics:
+        return candidates_by_date, candidates_df, diagnostics
+    return candidates_by_date, candidates_df
 
 
 def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:
