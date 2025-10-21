@@ -120,9 +120,7 @@ def overlay_title(
 
 
 def main():
-    p = argparse.ArgumentParser(
-        description=("Overlay title text onto an image for note eyecatch")
-    )
+    p = argparse.ArgumentParser(description=("Overlay title text onto an image for note eyecatch"))
     p.add_argument("--in", dest="in_path", required=True, help="Input image path")
     p.add_argument("--title", dest="title", required=True, help="Title text to overlay")
     p.add_argument(
@@ -150,9 +148,7 @@ def main():
     out_path = args.out
     if not out_path:
         base = os.path.splitext(os.path.basename(in_path))[0]
-        out_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "docs", "eyecatch_final")
-        )
+        out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "docs", "eyecatch_final"))
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, base + "_with_title.png")
 

@@ -7,6 +7,7 @@ with ALLOCATION_DEBUG output enabled.
 Run:
     $env:ALLOCATION_DEBUG='1'; python tools/repro_allocation_from_logs.py
 """
+
 from __future__ import annotations
 
 import os

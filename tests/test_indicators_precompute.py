@@ -231,9 +231,7 @@ class TestCacheFunctionality(TestIndicatorsPrecompute):
         """Parquetフォールバックでのキャッシュ書き込みテスト"""
         # Featherで失敗した場合のParquetフォールバックをテスト
         # 不正なデータでFeatherの書き込みを失敗させる
-        test_df = pd.DataFrame(
-            {"complex_col": [complex(1, 2), complex(3, 4)]}  # Featherでサポートされない型
-        )
+        test_df = pd.DataFrame({"complex_col": [complex(1, 2), complex(3, 4)]})  # Featherでサポートされない型
 
         # Featherでの保存を無効化してパッチ
         with patch("pandas.DataFrame.to_feather", side_effect=Exception("Feather failed")):

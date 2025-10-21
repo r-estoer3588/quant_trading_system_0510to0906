@@ -52,9 +52,7 @@ def load_jsonl_events(jsonl_path: Path) -> list[dict[str, Any]]:
     return events
 
 
-def calculate_expected_progress(
-    system_name: str, total_systems: int = 7
-) -> tuple[float, float]:
+def calculate_expected_progress(system_name: str, total_systems: int = 7) -> tuple[float, float]:
     """
     システム名から期待される進捗バー範囲を計算
 
@@ -158,9 +156,7 @@ def verify_single_screenshot(
     ui_system = screenshot_data.get("system_name")
     if ui_system and jsonl_system:
         if ui_system.lower() != jsonl_system.lower():
-            result["issues"].append(
-                f"システム名不一致: UI={ui_system}, JSONL={jsonl_system}"
-            )
+            result["issues"].append(f"システム名不一致: UI={ui_system}, JSONL={jsonl_system}")
             result["status"] = "issue"
 
     # 候補数検証
@@ -169,9 +165,7 @@ def verify_single_screenshot(
 
     if ui_candidates and jsonl_candidates is not None:
         if int(ui_candidates) != int(jsonl_candidates):
-            result["issues"].append(
-                f"候補数不一致: UI={ui_candidates}, JSONL={jsonl_candidates}"
-            )
+            result["issues"].append(f"候補数不一致: UI={ui_candidates}, JSONL={jsonl_candidates}")
             result["status"] = "issue"
 
     return result
@@ -267,9 +261,7 @@ def main():
         "summary": {
             "total_screenshots": len(screenshot_results),
             "verified_screenshots": len(verification_results),
-            "issues_found": sum(
-                1 for r in verification_results if r["status"] == "issue"
-            ),
+            "issues_found": sum(1 for r in verification_results if r["status"] == "issue"),
             "progress_regressions": len(regressions),
         },
         "verification_results": verification_results,
@@ -292,9 +284,7 @@ def main():
         print("")
         print("🔴 進捗後退の詳細:")
         for reg in regressions:
-            print(
-                f"  {reg['prev_progress']}% → {reg['curr_progress']}% (後退: {reg['regression_amount']}%)"
-            )
+            print(f"  {reg['prev_progress']}% → {reg['curr_progress']}% (後退: {reg['regression_amount']}%)")
             print(f"    {reg['prev_file']} → {reg['curr_file']}")
 
 

@@ -2337,9 +2337,7 @@ def main() -> None:
                             if values.sum() <= 0:
                                 st.info("評価額が取得できませんでした。")
                             elif go is None or not hasattr(go, "Figure"):
-                                st.info(
-                                    "Plotly がインストールされていないため、グラフを表示できません。"  # noqa: E501
-                                )
+                                st.info("Plotly がインストールされていないため、グラフを表示できません。")  # noqa: E501
                             else:
                                 fig = go.Figure(
                                     data=[

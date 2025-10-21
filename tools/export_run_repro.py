@@ -53,7 +53,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Export repro payload for allocation runs. Collect diagnostics, "
-            "per-system persisted frames and final signals into a single folder.")
+            "per-system persisted frames and final signals into a single folder."
+        )
     )
     parser.add_argument("--snapshot", help="Diagnostics snapshot path (optional)")
     default_out = str(repo_root / "repro_payloads")
@@ -112,9 +113,10 @@ def main() -> int:
         try:
             df = pd.read_feather(p)
             # write CSV and small head sample
-            df.to_csv(out_csv, index=False)
+            # Explicitly write CSVs with UTF-8 to ensure cross-platform
+            df.to_csv(out_csv, index=False, encoding="utf-8")
             head_csv = outdir / f"per_system_{name}.head.csv"
-            head_csv.write_text(df.head(5).to_csv(index=False))
+            head_csv.write_text(df.head(5).to_csv(index=False), encoding="utf-8")
             meta_entry = {
                 "system": name,
                 "rows": int(len(df)),
@@ -174,7 +176,8 @@ def main() -> int:
     # Write meta.json
     try:
         meta_path = outdir / "meta.json"
-        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+        meta_json = json.dumps(meta, ensure_ascii=False, indent=2)
+        meta_path.write_text(meta_json, encoding="utf-8")
         print(f"Wrote metadata: {meta_path}")
     except Exception as e:
         print(f"Failed to write meta.json: {e}")

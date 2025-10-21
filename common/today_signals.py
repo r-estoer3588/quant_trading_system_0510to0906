@@ -2567,7 +2567,7 @@ def get_today_signals_for_strategy(
     today: pd.Timestamp | None = None,
     progress_callback: Callable[..., None] | None = None,
     log_callback: Callable[[str], None] | None = None,
-    stage_progress: (Callable[[int, int | None, int | None, int | None, int | None], None] | None) = None,
+    stage_progress: Callable[[int, int | None, int | None, int | None, int | None], None] | None = None,
     use_process_pool: bool = False,
     max_workers: int | None = None,
     lookback_days: int | None = None,

@@ -7,6 +7,7 @@ per-read repairs which can slow down normal runtime behavior.
 Usage:
   python scripts/recompute_rolling_bulk.py --workers 4 --symbols-file mylist.txt
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,9 +61,7 @@ def _process_one(
             last_row = recomputed.tail(1).iloc[0].to_dict()
         except Exception:
             last_row = {}
-        meta["recomputed_sample"] = {
-            k: last_row.get(k) for k in ("drop3d", "atr_ratio", "dollarvolume20")
-        }
+        meta["recomputed_sample"] = {k: last_row.get(k) for k in ("drop3d", "atr_ratio", "dollarvolume20")}
 
         if not ok:
             meta["would_update"] = False
@@ -135,11 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.symbols:
         symbols = args.symbols
     elif args.symbols_file:
-        symbols = [
-            s.strip()
-            for s in Path(args.symbols_file).read_text().splitlines()
-            if s.strip()
-        ]
+        symbols = [s.strip() for s in Path(args.symbols_file).read_text().splitlines() if s.strip()]
     else:
         # Discover all symbols from full cache
         from common.symbols_manifest import load_symbol_manifest
@@ -159,10 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         "per_symbol": {},
     }
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {
-            ex.submit(_process_one, cm, sym, args.execute, args.backup): sym
-            for sym in symbols
-        }
+        futures = {ex.submit(_process_one, cm, sym, args.execute, args.backup): sym for sym in symbols}
         for fut in as_completed(futures):
             sym = futures[fut]
             try:

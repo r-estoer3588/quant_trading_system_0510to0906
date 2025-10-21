@@ -235,19 +235,13 @@ class EnvironmentConfig:
     """全履歴をスキャン（latest_only=False）。デバッグ用。"""
 
     # ===== 3.5. 並列競合制御（テスト/CI向け） =====
-    use_run_lock: bool = field(
-        default_factory=lambda: _get_bool_env("PIPELINE_USE_RUN_LOCK", False)
-    )
+    use_run_lock: bool = field(default_factory=lambda: _get_bool_env("PIPELINE_USE_RUN_LOCK", False))
     """True の場合、共通出力を行うフェーズでプロセス間ロックを取得します。"""
 
-    use_run_subdir: bool = field(
-        default_factory=lambda: _get_bool_env("PIPELINE_USE_RUN_SUBDIR", False)
-    )
+    use_run_subdir: bool = field(default_factory=lambda: _get_bool_env("PIPELINE_USE_RUN_SUBDIR", False))
     """True の場合、出力を run_<namespace> サブディレクトリへ分離します。"""
 
-    run_namespace: str = field(
-        default_factory=lambda: _get_str_env("RUN_NAMESPACE", "")
-    )
+    run_namespace: str = field(default_factory=lambda: _get_str_env("RUN_NAMESPACE", ""))
     """デフォルトのラン名前空間。CLI 引数や環境変数で上書き可能。"""
 
     # 戦略レイヤー出力スキーマの標準化（安全な外向き互換）

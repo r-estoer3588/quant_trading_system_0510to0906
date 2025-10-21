@@ -841,9 +841,7 @@ def _allocate_by_capital(
                     # record allocator exclusion for already-selected symbols
                     try:
                         if sym and sym in chosen_symbols:
-                            tmp_set = allocator_excludes.setdefault(
-                                "already_selected", set()
-                            )
+                            tmp_set = allocator_excludes.setdefault("already_selected", set())
                             tmp_set.add(sym)
                     except Exception:
                         pass
@@ -1294,21 +1292,42 @@ def finalize_allocation(
     # デバッグ時のみ警告を出す。
     if debug_mode:
         if strategies is None:
-            logger.warning(
-                "[ALLOC_DEBUG] finalize_allocation called without strategies"
-            )
+            logger.warning("[ALLOC_DEBUG] finalize_allocation called without strategies")
         if symbol_system_map is None:
-            logger.warning(
-                "[ALLOC_DEBUG] called without symbol_system_map; "
-                "active counts may be incomplete"
-            )
+            logger.warning("[ALLOC_DEBUG] called without symbol_system_map; " "active counts may be incomplete")
 
     per_system_norm: dict[str, pd.DataFrame] = {}
-    for name, df in per_system.items():
+    # Normalize and validate per-system candidate frames using canonical helper
+    try:
+        from common.candidate_utils import (
+            normalize_candidate_frame,
+            validate_candidate_frame,
+        )
+    except Exception as _exc:  # defensive: import failure is non-fatal
+        # Import errors here should not stop allocation processing; ensure
+        # the names exist and record a debug message for diagnostics.
         try:
-            per_system_norm[str(name).strip().lower()] = df
+            logger.debug("candidate_utils import failed: %s", _exc)
         except Exception:
-            continue
+            # Logging must never raise here
+            pass
+        normalize_candidate_frame = None
+        validate_candidate_frame = None
+
+    per_system_validation: dict[str, dict] = {}
+    for name, df in per_system.items():
+        key = str(name).strip().lower()
+        try:
+            if normalize_candidate_frame is not None:
+                norm = normalize_candidate_frame(df, system_name=key)
+            else:
+                norm = df.copy() if df is not None else pd.DataFrame()
+            per_system_norm[key] = norm
+            if validate_candidate_frame is not None:
+                per_system_validation[key] = validate_candidate_frame(norm)
+        except Exception:
+            per_system_norm[key] = df if df is not None else pd.DataFrame()
+            per_system_validation[key] = {"rows_total": 0}
 
     # 配分設定が提供されていない場合は、設定ファイルから読み込む
     if long_allocations is None and short_allocations is None:
@@ -1360,6 +1379,12 @@ def finalize_allocation(
     diagnostics["active_positions"] = dict(active_positions)
     diagnostics["available_slots"] = dict(available_slots)
     diagnostics["max_pos_map"] = dict(max_pos_map)
+    # Attach per-system validation results (missing Close/atr/entry counts)
+    try:
+        diagnostics.setdefault("per_system_validation", {})
+        diagnostics["per_system_validation"] = per_system_validation
+    except Exception:
+        pass
 
     # Fallbacks: if callers didn't provide strategies or symbol_system_map,
     # attempt to build safe defaults. This reduces the chance of getting
@@ -1397,9 +1422,7 @@ def finalize_allocation(
         try:
             # Use the module helper to load persisted mapping if available
             symbol_system_map = load_symbol_system_map()
-            diagnostics["callers"]["symbol_system_map_provided"] = bool(
-                symbol_system_map
-            )
+            diagnostics["callers"]["symbol_system_map_provided"] = bool(symbol_system_map)
             logger.debug("[ALLOC_DEBUG] loaded symbol_system_map fallback")
         except Exception:
             symbol_system_map = {}
@@ -1531,12 +1554,8 @@ def finalize_allocation(
                 # exported snapshots can attribute dropped symbols to allocator
                 try:
                     diagnostics.setdefault("allocator_excludes", {})
-                    diagnostics["allocator_excludes"]["long"] = (
-                        long_sized.allocator_excludes or {}
-                    )
-                    diagnostics["allocator_excludes"]["short"] = (
-                        short_sized.allocator_excludes or {}
-                    )
+                    diagnostics["allocator_excludes"]["long"] = long_sized.allocator_excludes or {}
+                    diagnostics["allocator_excludes"]["short"] = short_sized.allocator_excludes or {}
                 except Exception:
                     # non-fatal for allocation flow
                     pass
@@ -1679,12 +1698,8 @@ def finalize_allocation(
             # the capital allocation runs so snapshots include allocator reasons.
             try:
                 diagnostics.setdefault("allocator_excludes", {})
-                diagnostics["allocator_excludes"]["long"] = (
-                    long_result.allocator_excludes or {}
-                )
-                diagnostics["allocator_excludes"]["short"] = (
-                    short_result.allocator_excludes or {}
-                )
+                diagnostics["allocator_excludes"]["long"] = long_result.allocator_excludes or {}
+                diagnostics["allocator_excludes"]["short"] = short_result.allocator_excludes or {}
             except Exception:
                 pass
         except Exception:
@@ -1735,8 +1750,7 @@ def finalize_allocation(
     if include_trade_management:
         if market_data_dict is None or signal_date is None:
             raise ValueError(
-                "market_data_dict and signal_date must be provided "
-                "when include_trade_management is True."
+                "market_data_dict and signal_date must be provided " "when include_trade_management is True."
             )
         # Convert cached frames so TradeManager receives a datetime index
         # Rolling cache commonly stores an integer index
@@ -1755,9 +1769,7 @@ def finalize_allocation(
 
         # TradeManager API: instantiate without args and enhance allocation
         tm = TradeManager()
-        final_df = tm.enhance_allocation_with_trade_management(
-            final_df, prepared_market_data, signal_date
-        )
+        final_df = tm.enhance_allocation_with_trade_management(final_df, prepared_market_data, signal_date)
 
     # Final summary diagnostics
     if system_diagnostics:
@@ -1789,9 +1801,7 @@ def finalize_allocation(
             # Fallback to numeric columns named 'long'/'short'
             try:
                 if "long" in final_df.columns:
-                    long_series = pd.to_numeric(
-                        final_df["long"], errors="coerce"
-                    ).fillna(0)
+                    long_series = pd.to_numeric(final_df["long"], errors="coerce").fillna(0)
                     summary.final_long_count = int(long_series.sum())
                 else:
                     summary.final_long_count = 0
@@ -1800,9 +1810,7 @@ def finalize_allocation(
 
             try:
                 if "short" in final_df.columns:
-                    short_series = pd.to_numeric(
-                        final_df["short"], errors="coerce"
-                    ).fillna(0)
+                    short_series = pd.to_numeric(final_df["short"], errors="coerce").fillna(0)
                     summary.final_short_count = int(short_series.sum())
                 else:
                     summary.final_short_count = 0

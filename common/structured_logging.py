@@ -1629,9 +1629,7 @@ class PredictiveProgressTracker:
 
         # 類似サイズのタスクを検索
         similar_tasks = [
-            h
-            for h in history
-            if abs(h["total_items"] - total_items) / max(total_items, 1) <= 0.3  # 30%以内の差
+            h for h in history if abs(h["total_items"] - total_items) / max(total_items, 1) <= 0.3  # 30%以内の差
         ]
 
         if not similar_tasks:

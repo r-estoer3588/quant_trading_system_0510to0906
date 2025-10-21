@@ -182,9 +182,7 @@ class TestSystem2DirectFunctions:
         # ショート候補となる上昇トレンドデータ
         prepared_dict = {
             "AAPL": pd.DataFrame({"Close": [150, 155, 160, 165, 170]}),  # 上昇トレンド
-            "MSFT": pd.DataFrame(
-                {"Close": [300, 290, 280, 270, 260]}  # 下降トレンド（ショート対象外）
-            ),
+            "MSFT": pd.DataFrame({"Close": [300, 290, 280, 270, 260]}),  # 下降トレンド（ショート対象外）
             "GOOGL": pd.DataFrame({"Close": [2000, 2050, 2100, 2150, 2200]}),  # 上昇トレンド
         }
 

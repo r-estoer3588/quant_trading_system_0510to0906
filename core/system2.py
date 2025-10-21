@@ -311,8 +311,23 @@ def generate_candidates_system2(
                     symbol_map[str(sym)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
-                log_callback((f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
-            return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
+                log_callback((f"System2: latest_only fast-path -> {len(df_all)} " f"candidates (symbols={len(rows)})"))
+            # Normalize merged DataFrame to canonical candidate schema so
+            # downstream consumers receive stable column names.
+            merged_norm = df_all.copy()
+            try:
+                if df_all is not None and not getattr(df_all, "empty", False):
+                    from common.candidate_utils import normalize_candidate_frame
+
+                    merged_norm = normalize_candidate_frame(df_all, system_name="system2")
+            except Exception:
+                try:
+                    merged_norm = df_all.copy()
+                except Exception:
+                    merged_norm = df_all
+            if include_diagnostics:
+                return by_date, merged_norm, diagnostics
+            return by_date, merged_norm
         except Exception as e:
             if log_callback:
                 log_callback(f"System2: fast-path failed -> fallback ({e})")
@@ -398,7 +413,8 @@ def generate_candidates_system2(
         candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
-            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_date, []))
+            last_bucket = candidates_by_date.get(last_date, [])
+            diagnostics["ranked_top_n_count"] = len(last_bucket)
         diagnostics["ranking_source"] = "full_scan"
     else:
         candidates_df = None
@@ -406,7 +422,7 @@ def generate_candidates_system2(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback((f"System2: Generated {total_candidates} candidates across {unique_dates} dates"))
+        log_callback((f"System2: Generated {total_candidates} candidates " f"across {unique_dates} dates"))
 
     # Normalize to {date: {symbol: payload}}
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
@@ -419,7 +435,21 @@ def generate_candidates_system2(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return (normalized, candidates_df, diagnostics) if include_diagnostics else (normalized, candidates_df)
+    # Normalize final merged DataFrame before returning
+    merged_norm2 = candidates_df
+    if candidates_df is not None and not getattr(candidates_df, "empty", False):
+        try:
+            from common.candidate_utils import normalize_candidate_frame
+
+            merged_norm2 = normalize_candidate_frame(candidates_df, system_name="system2")
+        except Exception:
+            try:
+                merged_norm2 = candidates_df.copy()
+            except Exception:
+                merged_norm2 = candidates_df
+    if include_diagnostics:
+        return normalized, merged_norm2, diagnostics
+    return normalized, merged_norm2
 
 
 def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:

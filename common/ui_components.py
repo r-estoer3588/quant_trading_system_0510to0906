@@ -1033,7 +1033,9 @@ def summarize_results(results_df: pd.DataFrame, capital: float):
             "total_return": 0.0,
             "win_rate": 0.0,
             "max_dd": 0.0,
-        }, pd.DataFrame(columns=["cumulative_pnl"])  # type: ignore
+        }, pd.DataFrame(
+            columns=["cumulative_pnl"]
+        )  # type: ignore
     df = results_df.copy()
 
     # 日付を確実に日時型に

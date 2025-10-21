@@ -241,9 +241,7 @@ class ExtendedCacheHealthChecker:
             try:
                 volumes = pd.to_numeric(df["Volume"], errors="coerce").dropna()
                 if len(volumes) > 0:
-                    volume_anomalies = int(
-                        (volumes < 0).sum() + (volumes > 1e12).sum()  # 負値  # 異常高値
-                    )
+                    volume_anomalies = int((volumes < 0).sum() + (volumes > 1e12).sum())  # 負値  # 異常高値
             except Exception:
                 volume_anomalies = 0
 

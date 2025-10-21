@@ -60,9 +60,7 @@ def main() -> None:
 
     print("\nCalling finalize_allocation with ALLOCATION_DEBUG=1...\n")
     try:
-        final_df, summary = finalize_allocation(
-            per_system, include_trade_management=False
-        )
+        final_df, summary = finalize_allocation(per_system, include_trade_management=False)
     except Exception as e:
         print(f"finalize_allocation raised exception: {e}")
         return

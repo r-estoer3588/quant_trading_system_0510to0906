@@ -175,16 +175,8 @@ def get_date_range(data_dict: dict[str, pd.DataFrame]) -> tuple[str | None, str 
     max_date = max(all_dates)
 
     return (
-        (
-            min_date.strftime("%Y-%m-%d")
-            if hasattr(min_date, "strftime")
-            else str(min_date)
-        ),
-        (
-            max_date.strftime("%Y-%m-%d")
-            if hasattr(max_date, "strftime")
-            else str(max_date)
-        ),
+        (min_date.strftime("%Y-%m-%d") if hasattr(min_date, "strftime") else str(min_date)),
+        (max_date.strftime("%Y-%m-%d") if hasattr(max_date, "strftime") else str(max_date)),
     )
 
 
@@ -272,6 +264,7 @@ def check_precomputed_indicators(
 
                 def _norm(col: str) -> str:
                     return col.lower().replace("_", "").replace(" ", "")
+
                 found2 = next((c for c in cols if _norm(str(c)) == norm_key), None)
                 if found2 and found2 != canonical:
                     rename_map[found2] = canonical
@@ -299,9 +292,7 @@ def check_precomputed_indicators(
     return valid_data_dict, error_symbols
 
 
-def validate_data_frame_basic(
-    df: pd.DataFrame, symbol: str, min_rows: int = 150
-) -> None:
+def validate_data_frame_basic(df: pd.DataFrame, symbol: str, min_rows: int = 150) -> None:
     """データフレームの基本検証を行う。
 
     Args:

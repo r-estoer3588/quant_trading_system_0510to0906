@@ -114,9 +114,7 @@ def capture_streamlit_screenshot(
             print("Waiting for Streamlit to fully render...")
             try:
                 # 1. Streamlit のメインコンテナが表示されるまで待機
-                page.wait_for_selector(
-                    '[data-testid="stAppViewContainer"]', timeout=10000
-                )
+                page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=10000)
 
                 # 2. すべてのリソースとネットワーク読み込み完了を待機
                 page.wait_for_load_state("load")
@@ -185,9 +183,7 @@ def capture_streamlit_screenshot(
                                 continue
 
                     # 最後まで見つからなければ警告
-                    print(
-                        "Warning: Could not detect Streamlit columns in time; proceeding with fallback waits."
-                    )
+                    print("Warning: Could not detect Streamlit columns in time; proceeding with fallback waits.")
 
                 wait_for_columns_robust(total_timeout_ms=15000)
 
@@ -211,11 +207,7 @@ def capture_streamlit_screenshot(
                         button.click()
                     except Exception as e_role:
                         # フォールバック: テキスト検索でクリック
-                        print(
-                            "Primary click failed ("
-                            + str(e_role)
-                            + "); trying text-based fallback..."
-                        )
+                        print("Primary click failed (" + str(e_role) + "); trying text-based fallback...")
                         fallback = page.get_by_text(click_button, exact=False).first
                         fallback.wait_for(state="visible", timeout=8000)
                         fallback.click()
@@ -262,35 +254,25 @@ def capture_streamlit_screenshot(
                 def _wait_text(txt: str) -> bool:
                     try:
                         loc = page.get_by_text(txt, exact=False).first
-                        loc.wait_for(
-                            state="visible", timeout=max(1000, _remaining_ms())
-                        )
+                        loc.wait_for(state="visible", timeout=max(1000, _remaining_ms()))
                         return True
                     except Exception:
                         return False
 
                 def _wait_selector(sel: str) -> bool:
                     try:
-                        page.wait_for_selector(
-                            sel, state="visible", timeout=max(1000, _remaining_ms())
-                        )
+                        page.wait_for_selector(sel, state="visible", timeout=max(1000, _remaining_ms()))
                         return True
                     except Exception:
                         return False
 
                 # JSONL/pipeline 完了検出
-                def _jsonl_has_pipeline_complete_since(
-                    path: Path, since_epoch: float
-                ) -> bool:
+                def _jsonl_has_pipeline_complete_since(path: Path, since_epoch: float) -> bool:
                     try:
                         if not path.exists():
                             return False
-                        lines = path.read_text(
-                            encoding="utf-8", errors="ignore"
-                        ).splitlines()
-                        for ln in reversed(
-                            lines[-500:]
-                        ):  # 末尾側（最大500行）だけを見る
+                        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                        for ln in reversed(lines[-500:]):  # 末尾側（最大500行）だけを見る
                             if "pipeline_complete" not in ln:
                                 continue
                             # できればtimestampを確認
@@ -363,9 +345,7 @@ def capture_streamlit_screenshot(
                         for name in candidates_buttons:
                             try:
                                 loc = page.get_by_role("button", name=name).first
-                                loc.wait_for(
-                                    state="visible", timeout=max(1000, _remaining_ms())
-                                )
+                                loc.wait_for(state="visible", timeout=max(1000, _remaining_ms()))
                                 waited = True
                                 break
                             except Exception:
@@ -377,25 +357,17 @@ def capture_streamlit_screenshot(
                     jl_path = (
                         jsonl_path
                         if jsonl_path
-                        else (
-                            Path(__file__).resolve().parents[1]
-                            / "logs"
-                            / "progress_today.jsonl"
-                        )
+                        else (Path(__file__).resolve().parents[1] / "logs" / "progress_today.jsonl")
                     )
                     while time.time() < deadline:
-                        if wait_jsonl and _jsonl_has_pipeline_complete_since(
-                            jl_path, since_epoch=started
-                        ):
+                        if wait_jsonl and _jsonl_has_pipeline_complete_since(jl_path, since_epoch=started):
                             print("Detected pipeline_complete in JSONL.")
                             waited = True
                             break
                         if wait_progress_pct is not None:
                             pct = _dom_progress_pct()
                             if isinstance(pct, int) and pct >= int(wait_progress_pct):
-                                print(
-                                    f"Detected progress >= {wait_progress_pct}% (now {pct}%)."
-                                )
+                                print(f"Detected progress >= {wait_progress_pct}% (now {pct}%).")
                                 waited = True
                                 break
                         # 軽負荷スリープ
@@ -418,9 +390,7 @@ def capture_streamlit_screenshot(
             content_width = int(page.evaluate("document.body.scrollWidth") or 0)
             content_height = int(page.evaluate("document.body.scrollHeight") or 0)
             vp = page.viewport_size or {"width": 1920, "height": 1080}
-            print(
-                f"Content size: {content_width}x{content_height} px (viewport: {vp['width']}x{vp['height']})"
-            )
+            print(f"Content size: {content_width}x{content_height} px (viewport: {vp['width']}x{vp['height']})")
 
             # 横方向の見切れ回避: コンテンツ幅がビューポートを超える場合は一時的に拡張
             # 安全上限（ユーザー画面に過度にならない範囲）を設定
@@ -428,9 +398,7 @@ def capture_streamlit_screenshot(
             if content_width and vp and content_width > int(vp.get("width", 1920)):
                 new_width = min(int(content_width), MAX_VIEWPORT_WIDTH)
                 if new_width > vp["width"]:
-                    print(
-                        f"Expanding viewport width: {vp['width']} -> {new_width} to avoid horizontal cutoff"
-                    )
+                    print(f"Expanding viewport width: {vp['width']} -> {new_width} to avoid horizontal cutoff")
                     page.set_viewport_size(
                         {
                             "width": new_width,
@@ -440,9 +408,7 @@ def capture_streamlit_screenshot(
                     # レイアウト再計算待機
                     time.sleep(0.5)
                     # 再度サイズ取得（高さが変わる可能性がある）
-                    content_height = int(
-                        page.evaluate("document.body.scrollHeight") or content_height
-                    )
+                    content_height = int(page.evaluate("document.body.scrollHeight") or content_height)
                     vp = page.viewport_size or vp
                     print(
                         f"Adjusted content: {content_width}x{content_height} px "
@@ -459,9 +425,7 @@ def capture_streamlit_screenshot(
                 if right_edge > viewport_width and viewport_width < MAX_VIEWPORT_WIDTH:
                     new_width = min(int(right_edge) + 40, MAX_VIEWPORT_WIDTH)
                     if new_width > viewport_width:
-                        print(
-                            f"Expanding viewport for System5: {viewport_width} -> {new_width}"
-                        )
+                        print(f"Expanding viewport for System5: {viewport_width} -> {new_width}")
                         page.set_viewport_size(
                             {
                                 "width": new_width,
@@ -574,9 +538,7 @@ def main() -> None:
     project_root = Path(__file__).resolve().parents[1]
     output_path = project_root / args.output
 
-    jl_path = (
-        Path(args.jsonl_path).resolve() if getattr(args, "jsonl_path", None) else None
-    )
+    jl_path = Path(args.jsonl_path).resolve() if getattr(args, "jsonl_path", None) else None
     success = capture_streamlit_screenshot(
         args.url,
         output_path,

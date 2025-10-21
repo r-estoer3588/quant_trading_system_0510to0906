@@ -96,9 +96,7 @@ def fetch_entry_dates_from_alpaca(client: Any, symbols: Iterable[str]) -> dict[s
             continue
         seen.add(sym)
         try:
-            activities = client.get_activities(  # type: ignore[attr-defined]
-                symbol=sym, activity_types="FILL"
-            )
+            activities = client.get_activities(symbol=sym, activity_types="FILL")  # type: ignore[attr-defined]
         except Exception:
             continue
 

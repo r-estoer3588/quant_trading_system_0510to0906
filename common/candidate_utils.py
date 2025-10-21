@@ -4,6 +4,7 @@ Central place to enforce the candidate DataFrame contract used by the
 allocation stage. Provides normalization (canonical column names) and a
 lightweight validator that returns diagnostics useful for monitoring.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -77,13 +78,20 @@ def normalize_candidate_frame(df: pd.DataFrame | None, system_name: str | None =
         else:
             out["Close"] = pd.Series([float("nan")] * len(out))
 
-    # ATR10 canonicalization
+    # ATR canonicalization
+    # Systems sometimes emit 'atr', 'atr10', 'ATR10', or 'atr20' etc.
+    # Prefer explicit 'atr10' if present, then generic 'atr', then any
+    # column that starts with 'atr'. This maximises compatibility with
+    # downstream sizing code that expects 'atr10'.
     if "atr10" in out.columns:
         out["atr10"] = _to_float_series(out["atr10"])
     elif "ATR10" in out.columns:
         out["atr10"] = _to_float_series(out["ATR10"])
+    elif "atr" in out.columns:
+        out["atr10"] = _to_float_series(out["atr"])
     else:
-        found = next((c for c in out.columns if c.lower() == "atr10"), None)
+        # pick first column that looks like an ATR variant (atr*, ATR*)
+        found = next((c for c in out.columns if c.lower().startswith("atr")), None)
         if found:
             out["atr10"] = _to_float_series(out[found])
         else:
@@ -93,7 +101,10 @@ def normalize_candidate_frame(df: pd.DataFrame | None, system_name: str | None =
     if "entry_price" in out.columns:
         out["entry_price"] = _to_float_series(out["entry_price"])
     else:
-        found = next((c for c in out.columns if c.lower() in ("entry_price", "entryprice")), None)
+        found = next(
+            (c for c in out.columns if c.lower() in ("entry_price", "entryprice")),
+            None,
+        )
         if found:
             out["entry_price"] = _to_float_series(out[found])
         else:
@@ -102,7 +113,10 @@ def normalize_candidate_frame(df: pd.DataFrame | None, system_name: str | None =
     if "stop_price" in out.columns:
         out["stop_price"] = _to_float_series(out["stop_price"])
     else:
-        found = next((c for c in out.columns if c.lower() in ("stop_price", "stopprice")), None)
+        found = next(
+            (c for c in out.columns if c.lower() in ("stop_price", "stopprice")),
+            None,
+        )
         if found:
             out["stop_price"] = _to_float_series(out[found])
         else:
@@ -118,7 +132,15 @@ def normalize_candidate_frame(df: pd.DataFrame | None, system_name: str | None =
             out["side"] = out["side"].astype(str)
 
     # Ensure canonical order for readability
-    canonical = ["symbol", "system", "side", "entry_price", "stop_price", "Close", "atr10"]
+    canonical = [
+        "symbol",
+        "system",
+        "side",
+        "entry_price",
+        "stop_price",
+        "Close",
+        "atr10",
+    ]
     for c in canonical:
         if c not in out.columns:
             out.insert(len(out.columns), c, pd.Series([float("nan")] * len(out)))
@@ -132,25 +154,70 @@ def validate_candidate_frame(df: pd.DataFrame | None, required_fields: List[str]
     Does not raise; returns dict with counts useful for monitoring.
     """
     if df is None:
-        return {"rows_total": 0, "missing_counts": {}, "rows_missing_entry": 0}
+        return {
+            "rows_total": 0,
+            "missing_counts": {},
+            "rows_missing_entry": 0,
+            "rows_missing_price": 0,
+        }
+
     out: Dict[str, Any] = {}
     rows = int(len(df))
     out["rows_total"] = rows
-    if required_fields is None:
-        required_fields = ["symbol", "Close", "atr10"]
+
+    # Build a conservative set of fields to report missing counts for so
+    # diagnostics are stable across callers. We always report these keys
+    # even if the incoming frame doesn't contain them.
+    fields_to_report = ["symbol", "Close", "entry_price", "atr10"]
     missing: Dict[str, int] = {}
-    for f in required_fields:
+    for f in fields_to_report:
         if f in df.columns:
             try:
                 missing[f] = int(df[f].isna().sum())
             except Exception:
                 missing[f] = rows
         else:
+            # If column does not exist treat as all-missing for monitoring
             missing[f] = rows
+
     out["missing_counts"] = missing
-    # entry-specific
+
+    # entry-specific: rows where entry_price is absent/NaN
     try:
-        out["rows_missing_entry"] = int(df["entry_price"].isna().sum()) if "entry_price" in df.columns else rows
+        if "entry_price" in df.columns:
+            try:
+                out["rows_missing_entry"] = int(df["entry_price"].isna().sum())
+            except Exception:
+                out["rows_missing_entry"] = rows
+        else:
+            out["rows_missing_entry"] = rows
     except Exception:
         out["rows_missing_entry"] = rows
+
+    # price-specific: rows that have neither an entry_price nor a Close
+    try:
+        has_close = "Close" in df.columns and not df["Close"].isna().all()
+        has_entry = "entry_price" in df.columns and not df["entry_price"].isna().all()
+        if not has_close and not has_entry:
+            # All rows lack any usable price information
+            out["rows_missing_price"] = rows
+        else:
+            # Count rows where both are missing
+            try:
+                if "Close" in df.columns:
+                    cond_close = df["Close"].isna()
+                else:
+                    cond_close = pd.Series([True] * rows)
+
+                if "entry_price" in df.columns:
+                    cond_entry = df["entry_price"].isna()
+                else:
+                    cond_entry = pd.Series([True] * rows)
+
+                out["rows_missing_price"] = int((cond_close & cond_entry).sum())
+            except Exception:
+                out["rows_missing_price"] = rows
+    except Exception:
+        out["rows_missing_price"] = rows
+
     return out

@@ -11,6 +11,7 @@ This script calls each strategy's get_today_signals and prints
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import traceback
@@ -45,7 +46,7 @@ def run_one(StrategyCls, name: str) -> None:
         pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_one(System1Strategy, "system1")
     run_one(System4Strategy, "system4")
     print("done")

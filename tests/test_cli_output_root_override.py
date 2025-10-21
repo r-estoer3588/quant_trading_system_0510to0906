@@ -56,18 +56,16 @@ def test_cli_writes_to_results_subdir(tmp_path: Path) -> None:
         timeout=300,
     )
     if proc.returncode != 0:
-        raise AssertionError(
-            "CLI failed (rc={}). stdout:\n{}".format(proc.returncode, proc.stdout)
-        )
+        raise AssertionError("CLI failed (rc={}). stdout:\n{}".format(proc.returncode, proc.stdout))
 
     run_dir = results_dir / f"run_{ns}"
     assert run_dir.exists(), f"Expected run dir {run_dir} to exist"
 
-    csvs = list(run_dir.glob('signals_final_*.csv'))
+    csvs = list(run_dir.glob("signals_final_*.csv"))
     assert csvs, f"No signals_final CSV found under {run_dir}"
     assert any(p.stat().st_size > 0 for p in csvs), "signals_final CSVs seem empty"
 
     val_dir = run_dir / "validation"
     assert val_dir.exists(), f"Expected validation dir {val_dir}"
-    val_files = list(val_dir.glob('validation_report_*.json'))
+    val_files = list(val_dir.glob("validation_report_*.json"))
     assert val_files, f"No validation report JSON found under {val_dir}"

@@ -321,8 +321,21 @@ def generate_candidates_system5(
                     symbol_map[str(sym_val)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
-                log_callback((f"System5: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
-            return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
+                log_callback((f"System5: latest_only fast-path -> {len(df_all)} " f"candidates (symbols={len(rows)})"))
+            merged_norm = df_all.copy()
+            try:
+                if df_all is not None and not getattr(df_all, "empty", False):
+                    from common.candidate_utils import normalize_candidate_frame
+
+                    merged_norm = normalize_candidate_frame(df_all, system_name="system5")
+            except Exception:
+                try:
+                    merged_norm = df_all.copy()
+                except Exception:
+                    merged_norm = df_all
+            if include_diagnostics:
+                return by_date, merged_norm, diagnostics
+            return by_date, merged_norm
         except Exception as e:
             if log_callback:
                 log_callback(f"System5: fast-path failed -> fallback ({e})")
@@ -417,7 +430,7 @@ def generate_candidates_system5(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback((f"System5: Generated {total_candidates} candidates across {unique_dates} dates"))
+        log_callback((f"System5: Generated {total_candidates} candidates " f"across {unique_dates} dates"))
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
     for dt, recs in candidates_by_date.items():
@@ -429,7 +442,20 @@ def generate_candidates_system5(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return (normalized, candidates_df, diagnostics) if include_diagnostics else (normalized, candidates_df)
+    merged_norm2 = candidates_df
+    if candidates_df is not None and not getattr(candidates_df, "empty", False):
+        try:
+            from common.candidate_utils import normalize_candidate_frame
+
+            merged_norm2 = normalize_candidate_frame(candidates_df, system_name="system5")
+        except Exception:
+            try:
+                merged_norm2 = candidates_df.copy()
+            except Exception:
+                merged_norm2 = candidates_df
+    if include_diagnostics:
+        return normalized, merged_norm2, diagnostics
+    return normalized, merged_norm2
 
 
 def get_total_days_system5(data_dict: dict[str, pd.DataFrame]) -> int:

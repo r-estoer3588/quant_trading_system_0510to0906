@@ -120,9 +120,7 @@ class TestGetTotalDaysSystem3:
                     "Close": [100, 105, 101],
                 }
             ),
-            "GOOGL": pd.DataFrame(
-                {"Date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}  # 同じ日付
-            ),
+            "GOOGL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}),  # 同じ日付
         }
 
         result = get_total_days_system3(data_dict)

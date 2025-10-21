@@ -22,6 +22,7 @@ The lock directory lives under PROJECT_ROOT/locks by default. A stale-lock
 cleanup is attempted when the existing lock looks older than
 PIPELINE_LOCK_STALE_SECONDS (default 3600s).
 """
+
 from __future__ import annotations
 
 import os
@@ -50,9 +51,7 @@ class RunLock:
     ) -> None:
         self.name = str(name)
         self.timeout = None if timeout is None else float(timeout)
-        self.stale_seconds = (
-            DEFAULT_STALE_SECONDS if stale_seconds is None else int(stale_seconds)
-        )
+        self.stale_seconds = DEFAULT_STALE_SECONDS if stale_seconds is None else int(stale_seconds)
         if root is None:
             # repo root is two levels up from this file (common/ -> repo)
             root = Path(__file__).resolve().parents[1]
@@ -96,13 +95,8 @@ class RunLock:
                         # failed to clear stale lock - keep waiting
                         pass
                 # retry or time out
-                if self.timeout is not None and (
-                    time.monotonic() - start
-                ) >= self.timeout:
-                    raise TimeoutError(
-                        f"Timeout acquiring lock '{self.lock_path}' after "
-                        f"{self.timeout} seconds"
-                    )
+                if self.timeout is not None and (time.monotonic() - start) >= self.timeout:
+                    raise TimeoutError(f"Timeout acquiring lock '{self.lock_path}' after " f"{self.timeout} seconds")
                 time.sleep(poll_interval)
 
     def release(self) -> None:

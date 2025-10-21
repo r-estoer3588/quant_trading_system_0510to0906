@@ -1,4 +1,17 @@
 repos:
+  - repo: local
+    hooks:
+      - id: check-python-syntax
+        name: Check Python Syntax (py_compile)
+        entry: python -m py_compile
+        language: system
+        types: [python]
+      - id: validate-repro-payloads-utf8
+        name: Validate repro_payloads UTF-8
+        entry: python tools/validate_repro_payloads_utf8.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
   # isort hook removed from local pre-commit by request (CI still runs isort checks).
   # If you want to re-enable local isort auto-fix, restore the block below:
   # - repo: https://github.com/pycqa/isort

@@ -496,12 +496,8 @@ def create_article_eyecatch(
 def main():
     """メイン処理（CLI対応）"""
     parser = argparse.ArgumentParser(description="note記事用アイキャッチ画像生成")
-    parser.add_argument(
-        "--out", dest="out", default=None, help="出力ファイルパス (png)"
-    )
-    parser.add_argument(
-        "--title1", dest="title1", default="対話で学ぶ", help="タイトル1行目"
-    )
+    parser.add_argument("--out", dest="out", default=None, help="出力ファイルパス (png)")
+    parser.add_argument("--title1", dest="title1", default="対話で学ぶ", help="タイトル1行目")
     parser.add_argument(
         "--title2",
         dest="title2",
@@ -521,15 +517,9 @@ def main():
         help="ベース画像のパス（既存画像にタイトルのみ追加）",
     )
     parser.add_argument("--width", dest="width", type=int, default=1280, help="画像幅")
-    parser.add_argument(
-        "--height", dest="height", type=int, default=670, help="画像高さ"
-    )
-    parser.add_argument(
-        "--yui", dest="yui", default=None, help="ユイ画像のパス (透過PNG)"
-    )
-    parser.add_argument(
-        "--ren", dest="ren", default=None, help="レン先輩画像のパス (透過PNG)"
-    )
+    parser.add_argument("--height", dest="height", type=int, default=670, help="画像高さ")
+    parser.add_argument("--yui", dest="yui", default=None, help="ユイ画像のパス (透過PNG)")
+    parser.add_argument("--ren", dest="ren", default=None, help="レン先輩画像のパス (透過PNG)")
     parser.add_argument(
         "--no-circuit",
         dest="no_circuit",

@@ -64,9 +64,7 @@ def main() -> int:
             print(f"Could not load snapshot {snapshot_path}: {e}")
 
     # Load final signals CSV
-    final_signals_path = _resolve_path(
-        repo_root, meta.get("final_signals"), payload_dir
-    )
+    final_signals_path = _resolve_path(repo_root, meta.get("final_signals"), payload_dir)
     final_df = pd.DataFrame()
     if final_signals_path is not None:
         try:
@@ -76,11 +74,7 @@ def main() -> int:
 
     # Build final set of (system, symbol)
     final_set: set[tuple[str, str]] = set()
-    if (
-        not final_df.empty
-        and "system" in final_df.columns
-        and "symbol" in final_df.columns
-    ):
+    if not final_df.empty and "system" in final_df.columns and "symbol" in final_df.columns:
         for _, r in final_df.iterrows():
             final_set.add(
                 (
@@ -161,11 +155,9 @@ def main() -> int:
             ex = extra.get("exclude_symbols") or {}
             if isinstance(ex, dict):
                 for reason, syms in ex.items():
-                    gen_exclude_map[sid.lower()][reason] = set(
-                        map(lambda x: str(x).upper(), syms or [])
-                    )
-    # fallback: top-level __allocation__ payload may contain
-    # a diagnostics_extra mapping with per-system entries
+                    gen_exclude_map[sid.lower()][reason] = set(map(lambda x: str(x).upper(), syms or []))
+        # fallback: top-level __allocation__ payload may contain
+        # a diagnostics_extra mapping with per-system entries
         for s in snapshot.get("systems", []):
             if s.get("system_id") == "__allocation__":
                 alloc_extra = s.get("diagnostics_extra") or {}
@@ -174,9 +166,7 @@ def main() -> int:
                     if key.startswith("system") and isinstance(val, dict):
                         ex = val.get("exclude_symbols") or {}
                         for reason, syms in ex.items():
-                            gen_exclude_map[key.lower()][reason] = set(
-                                map(lambda x: str(x).upper(), syms or [])
-                            )
+                            gen_exclude_map[key.lower()][reason] = set(map(lambda x: str(x).upper(), syms or []))
     except Exception:
         pass
 
@@ -185,10 +175,7 @@ def main() -> int:
     try:
         from core.final_allocation import finalize_allocation
 
-        print(
-            "Running finalize_allocation on reconstructed per_system frames to "
-            "capture allocator excludes..."
-        )
+        print("Running finalize_allocation on reconstructed per_system frames to " "capture allocator excludes...")
         final_run_df, summary_run = finalize_allocation(
             per_system=per_system_map,
             strategies=None,
@@ -230,19 +217,9 @@ def main() -> int:
                         alloc_reasons.append(f"{side}:{reason}")
 
             # entry/close/atr values
-            entry_price = (
-                r.get("entry_price") if "entry_price" in r else r.get("entryprice")
-            )
-            close_val = (
-                r.get("Close")
-                if "Close" in r
-                else (r.get("close") if "close" in r else None)
-            )
-            atr_val = (
-                r.get("atr10")
-                if "atr10" in r
-                else (r.get("ATR10") if "ATR10" in r else None)
-            )
+            entry_price = r.get("entry_price") if "entry_price" in r else r.get("entryprice")
+            close_val = r.get("Close") if "Close" in r else (r.get("close") if "close" in r else None)
+            atr_val = r.get("atr10") if "atr10" in r else (r.get("ATR10") if "ATR10" in r else None)
 
             if included:
                 reason = "kept"
@@ -253,11 +230,22 @@ def main() -> int:
             else:
                 reason = "unknown"
 
+            # Safe conversion of index to integer for persistence
+            try:
+                # Coerce index to string then int to avoid type checker
+                # complaints when idx is a Hashable/pandas index type.
+                persisted_idx_val = int(str(idx))
+            except Exception:
+                try:
+                    persisted_idx_val = int(float(str(idx)))
+                except Exception:
+                    persisted_idx_val = -1
+
             rows.append(
                 {
                     "system": system_key,
                     "symbol": sym,
-                    "persisted_row_index": int(int(idx)),
+                    "persisted_row_index": persisted_idx_val,
                     "entry_price": entry_price,
                     "close": close_val,
                     "atr10": atr_val,
@@ -270,13 +258,16 @@ def main() -> int:
 
     out_df = pd.DataFrame(rows)
     out_csv = payload_dir / "exclusion_report.csv"
-    out_df.to_csv(out_csv, index=False)
+    # Ensure CSV is written using UTF-8 for cross-platform reproducibility
+    out_df.to_csv(out_csv, index=False, encoding="utf-8")
     print(f"Wrote exclusion report: {out_csv} ({len(out_df)} rows)")
 
     # Print concise summary
     print("\nSummary by reason:")
     reason_counts = out_df[~out_df["included_in_final"]]["reason"].value_counts()
-    for r, c in reason_counts.items():
+    # Ensure mapping types are simple Python primitives for downstream use
+    reason_counts_dict = {str(k): int(v) for k, v in reason_counts.to_dict().items()}
+    for r, c in reason_counts_dict.items():
         try:
             cnt = int(c)
         except Exception:
@@ -286,7 +277,8 @@ def main() -> int:
     print("\nTop systems with dropped symbols:")
     dropped = out_df[~out_df["included_in_final"]]
     sys_counts = dropped["system"].value_counts()
-    for s, c in sys_counts.items():
+    sys_counts_dict = {str(k): int(v) for k, v in sys_counts.to_dict().items()}
+    for s, c in sys_counts_dict.items():
         try:
             cnt = int(c)
         except Exception:
@@ -299,10 +291,11 @@ def main() -> int:
         summary_out = {
             "total_candidates": int(len(out_df)),
             "total_dropped": int((~out_df["included_in_final"]).sum()),
-            "reasons": reason_counts.to_dict(),
-            "dropped_by_system": sys_counts.to_dict(),
+            "reasons": reason_counts_dict,
+            "dropped_by_system": sys_counts_dict,
         }
-        summary_json.write_text(json.dumps(summary_out, ensure_ascii=False, indent=2))
+        json_text = json.dumps(summary_out, ensure_ascii=False, indent=2)
+        summary_json.write_text(json_text, encoding="utf-8")
         print(f"Wrote summary JSON: {summary_json}")
     except Exception:
         pass

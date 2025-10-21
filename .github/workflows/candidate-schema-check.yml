@@ -1,0 +1,32 @@
+name: Candidate Schema Check
+
+on:
+    pull_request:
+        paths:
+            - "**/*.py"
+            - ".github/workflows/**"
+    push:
+        branches: [main]
+
+jobs:
+    schema-check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.11"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; \
+                  else pip install -r requirements.txt; fi
+
+            - name: Run candidate schema tests
+              run: |
+                  # Run only the candidate/schema related tests to keep CI fast
+                  pytest -q tests/test_candidate_utils.py tests/test_candidate_pipeline_smoke.py -q

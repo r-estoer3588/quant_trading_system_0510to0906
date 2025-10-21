@@ -1,6 +1,6 @@
 index,symbol,system,side,signal_type,entry_date,entry_price,stop_price,score_key,score,score_rank,score_rank_total,reason,atr10,atr20,atr40,atr50
-0,ADM,system4,long,buy,2025-10-21,63.19,60.46,rsi4,66.23,,,SPYã¸‹Ç–Ê‚Ì‰Ÿ‚µ–ÚŒó•â‚Ì‚½‚ß,,1.7,1.55,
-1,SPY,system4,long,buy,2025-10-21,671.3,659.075,rsi4,68.31,,,SPYã¸‹Ç–Ê‚Ì‰Ÿ‚µ–ÚŒó•â‚Ì‚½‚ß,,6.96,6.58,
-2,ABBV,system4,long,buy,2025-10-21,232.06,225.595,rsi4,69.06,,,SPYã¸‹Ç–Ê‚Ì‰Ÿ‚µ–ÚŒó•â‚Ì‚½‚ß,,4.38,4.37,
-3,ACM,system4,long,buy,2025-10-21,133.65,129.495,rsi4,69.94,,,SPYã¸‹Ç–Ê‚Ì‰Ÿ‚µ–ÚŒó•â‚Ì‚½‚ß,,2.59,2.42,
-4,ADI,system4,long,buy,2025-10-21,246.22,236.845,rsi4,77.02,,,SPYã¸‹Ç–Ê‚Ì‰Ÿ‚µ–ÚŒó•â‚Ì‚½‚ß,,5.96,5.85,
+0,ADM,system4,long,buy,2025-10-21,63.19,60.46,rsi4,66.23,,,SPY uptrend dip candidate,,1.7,1.55,
+1,SPY,system4,long,buy,2025-10-21,671.3,659.075,rsi4,68.31,,,SPY uptrend dip candidate,,6.96,6.58,
+2,ABBV,system4,long,buy,2025-10-21,232.06,225.595,rsi4,69.06,,,SPY uptrend dip candidate,,4.38,4.37,
+3,ACM,system4,long,buy,2025-10-21,133.65,129.495,rsi4,69.94,,,SPY uptrend dip candidate,,2.59,2.42,
+4,ADI,system4,long,buy,2025-10-21,246.22,236.845,rsi4,77.02,,,SPY uptrend dip candidate,,5.96,5.85,

@@ -252,7 +252,9 @@ def generate_candidates_system7(
                             progress_callback(1, 1)
                         except Exception:
                             pass
-                    return (normalized, df_fast, diagnostics) if include_diagnostics else (normalized, df_fast)
+                    if include_diagnostics:
+                        return normalized, df_fast, diagnostics
+                    return normalized, df_fast
             # no setup today
             if log_callback:
                 try:
@@ -331,14 +333,15 @@ def generate_candidates_system7(
 
     if log_callback:
         try:
-            all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            all_dates = pd.Index(pd.to_datetime(df.index).normalize())
+            all_dates = all_dates.unique().sort_values()
             window_size = int(min(50, len(all_dates)) or 50)
             if window_size > 0:
                 recent_set = set(all_dates[-window_size:])
             else:
                 recent_set = set()
             count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
-            log_callback(f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)")
+            log_callback((f"候補日数: {count_50} " f"(直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"))
         except Exception:
             pass
     if progress_callback:
@@ -369,9 +372,8 @@ def generate_candidates_system7(
     else:
         diagnostics["ranked_top_n_count"] = 0
     if include_diagnostics:
-        return (normalized_full, None, diagnostics)
-    else:
-        return (normalized_full, None)
+        return normalized_full, None, diagnostics
+    return normalized_full, None
 
 
 def get_total_days_system7(data_dict: dict[str, pd.DataFrame]) -> int:

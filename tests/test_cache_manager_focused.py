@@ -279,9 +279,7 @@ class TestCacheManagerReadWrite:
         # Should handle gracefully
         assert result is None or isinstance(result, pd.DataFrame)
 
-    def test_recompute_on_read_for_missing_indicators(
-        self, simple_settings, sample_ohlcv
-    ):
+    def test_recompute_on_read_for_missing_indicators(self, simple_settings, sample_ohlcv):
         """
         If a rolling file exists but lacks key indicators, read() should
         attempt to recompute them and return an enriched DataFrame.

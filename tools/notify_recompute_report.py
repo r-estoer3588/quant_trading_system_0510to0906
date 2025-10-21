@@ -8,6 +8,7 @@ notifier machinery.
 Usage:
   python tools/notify_recompute_report.py path/to/report.json
 """
+
 from __future__ import annotations
 
 import json
@@ -69,9 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         title = "⚠️ Recompute failures detected"
         notifier.send(title, "\n".join(lines))
     except Exception:
-        logging.exception(
-            "failed to send recompute notification; writing to stderr instead"
-        )
+        logging.exception("failed to send recompute notification; writing to stderr instead")
         print("\n".join(lines), file=sys.stderr)
 
     return 0

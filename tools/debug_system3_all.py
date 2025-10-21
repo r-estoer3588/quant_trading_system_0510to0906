@@ -20,6 +20,7 @@ Notes:
   - This can take minutes for a large cache. Use --max-symbols to limit.
   - Default worker parallelism is 8; set --workers 1 for sequential execution.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,10 +50,7 @@ def _parse_args() -> argparse.Namespace:
         "--out",
         type=str,
         default=None,
-        help=(
-            "Output CSV path (default: "
-            "results_csv_test/system3_filter_debug_all_<ts>.csv)"
-        ),
+        help=("Output CSV path (default: " "results_csv_test/system3_filter_debug_all_<ts>.csv)"),
     )
     p.add_argument(
         "--workers",
@@ -60,9 +58,7 @@ def _parse_args() -> argparse.Namespace:
         default=8,
         help="Parallel worker threads (default: 8)",
     )
-    p.add_argument(
-        "--max-symbols", type=int, default=0, help="Limit processed symbols (0 = all)"
-    )
+    p.add_argument("--max-symbols", type=int, default=0, help="Limit processed symbols (0 = all)")
     p.add_argument(
         "--test-mode",
         type=str,
@@ -158,9 +154,7 @@ def _process_symbol(
             row["reason"] = "avgvol_fail"
         elif row["atr_ok"] is False:
             # try to inspect ATR series to distinguish missing vs below
-            atr_val = last_scalar_fn(
-                pick_fn(df, ["ATR_Ratio", "ATR_Pct", "atr_ratio", "atr_pct"])
-            )
+            atr_val = last_scalar_fn(pick_fn(df, ["ATR_Ratio", "ATR_Pct", "atr_ratio", "atr_pct"]))
             if atr_val is None:
                 row["reason"] = "atr_missing"
             else:
@@ -199,9 +193,7 @@ def _process_symbol(
     except Exception:
         row["dollarvolume20"] = None
     try:
-        row["atr_ratio"] = last_scalar_fn(
-            pick_fn(df, ["ATR_Ratio", "ATR_Pct", "atr_ratio", "atr_pct"])  # noqa: E501
-        )
+        row["atr_ratio"] = last_scalar_fn(pick_fn(df, ["ATR_Ratio", "ATR_Pct", "atr_ratio", "atr_pct"]))  # noqa: E501
     except Exception:
         row["atr_ratio"] = None
     try:
@@ -236,13 +228,7 @@ def main() -> None:
         raise
 
     # Collect unique symbol stems (prefer feather when present)
-    stems = sorted(
-        {
-            p.stem
-            for p in rc_dir.iterdir()
-            if p.suffix.lower() in (".feather", ".csv")
-        }
-    )
+    stems = sorted({p.stem for p in rc_dir.iterdir() if p.suffix.lower() in (".feather", ".csv")})
     total = len(stems)
     if args.max_symbols and int(args.max_symbols) > 0:
         max_symbols = int(args.max_symbols)
@@ -256,10 +242,7 @@ def main() -> None:
     if args.out:
         out_p = Path(args.out)
     else:
-        out_p = (
-            Path("results_csv_test")
-            / f"system3_filter_debug_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
+        out_p = Path("results_csv_test") / f"system3_filter_debug_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [

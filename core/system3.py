@@ -206,9 +206,7 @@ def prepare_data_vectorized_system3(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(
-                        f"System3: Fast-path processed {len(prepared_dict)} symbols"
-                    )
+                    log_callback(f"System3: Fast-path processed {len(prepared_dict)} symbols")
 
                 return prepared_dict
 
@@ -218,9 +216,7 @@ def prepare_data_vectorized_system3(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback(
-                    "System3: Fast-path failed, falling back to normal processing"
-                )
+                log_callback("System3: Fast-path failed, falling back to normal processing")
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -233,9 +229,7 @@ def prepare_data_vectorized_system3(
         return {}
 
     if log_callback:
-        log_callback(
-            f"System3: Starting normal processing for {len(target_symbols)} symbols"
-        )
+        log_callback(f"System3: Starting normal processing for {len(target_symbols)} symbols")
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -494,11 +488,7 @@ def generate_candidates_system3(
                                 lag_days = int((target_date - latest_idx_norm).days)
                         except Exception:
                             lag_days = None
-                        if (
-                            lag_days is not None
-                            and lag_days >= 0
-                            and lag_days <= max_date_lag_days
-                        ):
+                        if lag_days is not None and lag_days >= 0 and lag_days <= max_date_lag_days:
                             last_row = _to_series(df.loc[latest_idx_raw])
                             dt = _sanitize_signal_date(target_date, fallback=None)
                         else:
@@ -756,17 +746,13 @@ def generate_candidates_system3(
                     # If every sampled symbol was rejected by phase2 filter
                     if total_sampled > 0:
                         filt_count = int(excl.get("filter_phase2", 0))
-                        drop3d_nan_count = int(
-                            diagnostics.get("filter_counts", {}).get("drop3d_nan", 0)
-                        )
+                        drop3d_nan_count = int(diagnostics.get("filter_counts", {}).get("drop3d_nan", 0))
                         if filt_count >= total_sampled:
                             reason = "all_filtered_phase2"
                         elif drop3d_nan_count >= total_sampled:
                             reason = "all_drop3d_nan"
                         else:
-                            thr_raw = diagnostics.get("thresholds", {}).get(
-                                "drop3d", 0.125
-                            )
+                            thr_raw = diagnostics.get("thresholds", {}).get("drop3d", 0.125)
                             try:
                                 thr = float(thr_raw)
                             except Exception:
@@ -799,9 +785,7 @@ def generate_candidates_system3(
                                     drop_txt = "nan"
                             except Exception:
                                 drop_txt = "nan"
-                            samples.append(
-                                f"{s_sym}:{s_dt.date()} setup={s_setup} d3={drop_txt}"
-                            )
+                            samples.append(f"{s_sym}:{s_dt.date()} setup={s_setup} d3={drop_txt}")
                             taken += 1
                             if taken >= 2:
                                 break
@@ -819,9 +803,7 @@ def generate_candidates_system3(
         # top-off用に元の全候補を保持
         df_all_original = df_all.copy()
         if log_callback:
-            log_callback(
-                f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}"
-            )
+            log_callback(f"[DEBUG_S3_ROWS] rows={len(rows)} lagged_rows={len(lagged_rows)}")
             # 診断用: 入力件数
             try:
                 diag_counts = diagnostics["ranking_input_counts"]
@@ -922,11 +904,7 @@ def generate_candidates_system3(
                 try:
                     _env = _get_env()
                     v = getattr(_env, "min_drop3d_for_test", None)
-                    if (
-                        hasattr(_env, "is_test_mode")
-                        and bool(_env.is_test_mode())
-                        and v is not None
-                    ):
+                    if hasattr(_env, "is_test_mode") and bool(_env.is_test_mode()) and v is not None:
                         _drop_thr = float(v)
                 except Exception:
                     pass
@@ -972,9 +950,7 @@ def generate_candidates_system3(
                 else:
                     exists = set()
                 extras_pool = (
-                    df_all_original.sort_values(
-                        "drop3d", ascending=False, kind="stable"
-                    )
+                    df_all_original.sort_values("drop3d", ascending=False, kind="stable")
                     .loc[~df_all_original["symbol"].astype(str).isin(exists)]
                     .copy()
                 )
@@ -1029,9 +1005,7 @@ def generate_candidates_system3(
                     reason = "no_rows_for_label_date"
                 elif ("drop3d" in filtered.columns) and filtered["drop3d"].isna().all():
                     reason = "all_drop3d_nan"
-                elif ("drop3d" in filtered.columns) and (
-                    filtered["drop3d"].dropna().size > 0
-                ):
+                elif ("drop3d" in filtered.columns) and (filtered["drop3d"].dropna().size > 0):
                     # 閾値未満のみ（参考判定）
                     try:
                         _thr = float(diagnostics["thresholds"].get("drop3d", 0.125))
@@ -1078,15 +1052,26 @@ def generate_candidates_system3(
                 by_date[dt].append(item)
 
         if log_callback:
-            msg = (
-                f"System3: latest_only fast-path -> {len(df_all)} candidates "
-                f"(symbols={len(rows)})"
-            )
+            msg = f"System3: latest_only fast-path -> {len(df_all)} candidates " f"(symbols={len(rows)})"
             log_callback(msg)
 
+        # Normalize merged DataFrame so downstream consumers always see
+        # canonical candidate columns. Non-fatal: any normalization
+        # failure falls back to returning a copy of the original.
+        merged_norm = df_all.copy()
+        try:
+            if df_all is not None and not getattr(df_all, "empty", False):
+                from common.candidate_utils import normalize_candidate_frame
+
+                merged_norm = normalize_candidate_frame(df_all, system_name="system3")
+        except Exception:
+            try:
+                merged_norm = df_all.copy()
+            except Exception:
+                merged_norm = df_all
         if include_diagnostics:
-            return by_date, df_all.copy(), diagnostics
-        return by_date, df_all.copy()
+            return by_date, merged_norm, diagnostics
+        return by_date, merged_norm
 
     # Aggregate all dates
     all_dates_set: set[pd.Timestamp] = set()
@@ -1168,9 +1153,7 @@ def generate_candidates_system3(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(
-            ["date", "drop3d"], ascending=[True, False]
-        )
+        candidates_df = candidates_df.sort_values(["date", "drop3d"], ascending=[True, False])
         diagnostics["ranking_source"] = "full_scan"
         try:
             last_dt = max(candidates_by_date.keys())
@@ -1183,16 +1166,25 @@ def generate_candidates_system3(
         if log_callback:
             total_candidates = len(all_candidates)
             unique_dates = len(candidates_by_date)
-            summary_msg = (
-                f"System3: Generated {total_candidates} candidates "
-                f"across {unique_dates} dates"
-            )
+            summary_msg = f"System3: Generated {total_candidates} candidates " f"across {unique_dates} dates"
             log_callback(summary_msg)
 
     # Keep original API: date -> list[dict]
+    # Normalize the final merged DataFrame before returning.
+    merged_final = candidates_df
+    if candidates_df is not None and not getattr(candidates_df, "empty", False):
+        try:
+            from common.candidate_utils import normalize_candidate_frame
+
+            merged_final = normalize_candidate_frame(candidates_df, system_name="system3")
+        except Exception:
+            try:
+                merged_final = candidates_df.copy()
+            except Exception:
+                merged_final = candidates_df
     if include_diagnostics:
-        return candidates_by_date, candidates_df, diagnostics
-    return candidates_by_date, candidates_df
+        return candidates_by_date, merged_final, diagnostics
+    return candidates_by_date, merged_final
 
 
 def get_total_days_system3(data_dict: dict[str, pd.DataFrame]) -> int:

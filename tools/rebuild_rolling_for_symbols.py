@@ -9,6 +9,7 @@ calls). It re-creates rolling files using the existing extractor and then
 checks whether indicators such as ``drop3d`` and ``atr_ratio`` were written.
 Results are saved as JSON in ``results_csv_test/rebuild_rolling_report_<ts>.json``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,9 +48,7 @@ def _last_non_nan_value(s: pd.Series | None) -> float | None:
         return None
 
 
-def inspect_rolling_for_symbols(
-    symbols: list[str], cm: CacheManager, out_path: Path
-) -> dict[str, Any]:
+def inspect_rolling_for_symbols(symbols: list[str], cm: CacheManager, out_path: Path) -> dict[str, Any]:
     rc_dir = cm.rolling_dir
     summary: dict[str, Any] = {
         "generated_at": datetime.now().isoformat(),
@@ -83,9 +82,7 @@ def inspect_rolling_for_symbols(
                 entry["file_used"] = chosen.name
                 entry["exists"] = True
                 try:
-                    entry["file_mtime"] = (
-                        datetime.fromtimestamp(chosen.stat().st_mtime).isoformat()
-                    )
+                    entry["file_mtime"] = datetime.fromtimestamp(chosen.stat().st_mtime).isoformat()
                 except Exception:
                     entry["file_mtime"] = None
 
@@ -120,26 +117,20 @@ def inspect_rolling_for_symbols(
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+        json_text = json.dumps(summary, ensure_ascii=False, indent=2)
+        out_path.write_text(json_text, encoding="utf-8")
     except Exception:
         pass
     return summary
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
-        description=(
-            "Rebuild rolling cache and report whether key indicators were written."
-        )
-    )
+    p = argparse.ArgumentParser(description=("Rebuild rolling cache and report whether key indicators were written."))
     p.add_argument(
         "--symbols",
         nargs="+",
         default=DEFAULT_SYMBOLS,
-        help=(
-            "Symbols to rebuild (space separated). "
-            "Default: the 7 inspected symbols"
-        ),
+        help=("Symbols to rebuild (space separated). " "Default: the 7 inspected symbols"),
     )
     p.add_argument(
         "--workers",

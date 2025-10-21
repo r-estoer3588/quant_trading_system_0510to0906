@@ -35,10 +35,7 @@ def make_checklist(path: str) -> None:
             tmpdir = tempfile.gettempdir()
             ttf_path = os.path.join(tmpdir, "NotoSansCJKjp-Regular.otf")
             if not os.path.exists(ttf_path):
-                url = (
-                    "https://noto-website-2.storage.googleapis.com/pkgs/"
-                    "NotoSansCJKjp-hinted.zip"
-                )
+                url = "https://noto-website-2.storage.googleapis.com/pkgs/" "NotoSansCJKjp-hinted.zip"
                 zip_path = os.path.join(tmpdir, "noto_jp.zip")
                 urllib.request.urlretrieve(url, zip_path)
                 import zipfile

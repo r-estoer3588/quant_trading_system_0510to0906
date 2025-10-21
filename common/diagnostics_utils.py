@@ -14,9 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def record_exclude(
-    diagnostics: dict[str, Any], reason: str, symbol: str | None = None
-) -> None:
+def record_exclude(diagnostics: dict[str, Any], reason: str, symbol: str | None = None) -> None:
     """Record an exclusion in a diagnostics dict.
 
     Updates (in-place) the mapping keys:
