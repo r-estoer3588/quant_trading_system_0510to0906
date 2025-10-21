@@ -1,0 +1,11 @@
+index,symbol,system,side,signal_type,entry_date,entry_price,stop_price,score_key,score,score_rank,score_rank_total,reason,atr10,atr20,atr40,atr50
+0,ACI,system5,long,buy,2025-10-21,19.66,18.01,adx7,59.13,,,ADXが強く、反発期待のため,0.55,,,
+1,ACLX,system5,long,buy,2025-10-21,86.77,75.1,adx7,58.49,,,ADXが強く、反発期待のため,3.89,,,
+2,ACXP,system5,long,buy,2025-10-21,6.97,4.81,adx7,56.48,,,ADXが強く、反発期待のため,0.72,,,
+3,ABAT,system5,long,buy,2025-10-21,6.72,2.16,adx7,55.74,,,ADXが強く、反発期待のため,1.52,,,
+4,ABVX,system5,long,buy,2025-10-21,91.49,79.25,adx7,51.87,,,ADXが強く、反発期待のため,4.08,,,
+5,ABTC,system5,long,buy,2025-10-21,5.09,3.5,adx7,46.55,,,ADXが強く、反発期待のため,0.53,,,
+6,AAON,system5,long,buy,2025-10-21,100.96,88.0,adx7,39.59,,,ADXが強く、反発期待のため,4.32,,,
+7,ACIW,system5,long,buy,2025-10-21,49.01,44.72,adx7,39.21,,,ADXが強く、反発期待のため,1.43,,,
+8,ADI,system5,long,buy,2025-10-21,246.22,227.47,adx7,39.02,,,ADXが強く、反発期待のため,6.25,,,
+9,ACVA,system5,long,buy,2025-10-21,9.09,7.8,adx7,38.56,,,ADXが強く、反発期待のため,0.43,,,

@@ -1,0 +1,27 @@
+{
+  "collected_at": "2025-10-21T11:52:37.277735",
+  "snapshot": "repro_payloads\\diagnostics_snapshot_20251021_204958.json",
+  "per_system_files": [
+    {
+      "system": "system1",
+      "rows": 10,
+      "csv": "repro_payloads\\per_system_system1.csv"
+    },
+    {
+      "system": "system3",
+      "rows": 1,
+      "csv": "repro_payloads\\per_system_system3.csv"
+    },
+    {
+      "system": "system4",
+      "rows": 7,
+      "csv": "repro_payloads\\per_system_system4.csv"
+    },
+    {
+      "system": "system5",
+      "rows": 10,
+      "csv": "repro_payloads\\per_system_system5.csv"
+    }
+  ],
+  "final_signals": "repro_payloads\\signals_final_2025-10-21.csv"
+}

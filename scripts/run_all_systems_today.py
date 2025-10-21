@@ -5578,14 +5578,67 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     # Attach allocation-level diagnostics into ctx.system_diagnostics so the
     # diagnostics snapshot exporter can include allocator_excludes and other
-    # allocation metadata for triage tools.
+    # allocation metadata for triage tools. Do this defensively and ensure
+    # allocator_excludes (if present) is always reachable under
+    # ctx.system_diagnostics['__allocation__']['diagnostics_extra']['allocator_excludes']
     try:
-        alloc_diag = getattr(allocation_summary, "system_diagnostics", None)
+        # Normalize possible shapes: AllocationSummary object or plain dict
+        alloc_diag = None
+        try:
+            if isinstance(allocation_summary, dict):
+                alloc_diag = allocation_summary.get("system_diagnostics") or None
+            else:
+                alloc_diag = getattr(allocation_summary, "system_diagnostics", None)
+        except Exception:
+            alloc_diag = None
+
+        # Ensure ctx.system_diagnostics exists
+        try:
+            ctx.system_diagnostics = getattr(ctx, "system_diagnostics", {}) or {}
+        except Exception:
+            # If ctx is missing or broken, skip attaching diagnostics
+            ctx.system_diagnostics = {}
+
         if alloc_diag:
             try:
-                ctx.system_diagnostics = getattr(ctx, "system_diagnostics", {}) or {}
-                ctx.system_diagnostics.setdefault("__allocation__", alloc_diag)
+                existing = ctx.system_diagnostics.setdefault("__allocation__", {})
+
+                # If alloc_diag is a mapping, merge top-level keys conservatively
+                if isinstance(alloc_diag, dict):
+                    for k, v in alloc_diag.items():
+                        # do not overwrite existing keys unless absent
+                        if k not in existing:
+                            existing[k] = v
+                else:
+                    # attach non-dict diagnostics under a generic key
+                    existing.setdefault("diagnostics", alloc_diag)
+
+                # Extract allocator_excludes from various shapes and force it into
+                # diagnostics_extra for the snapshot exporter to pick up.
+                alloc_ex = None
+                try:
+                    if isinstance(alloc_diag, dict):
+                        alloc_ex = alloc_diag.get("allocator_excludes")
+                except Exception:
+                    alloc_ex = None
+
+                # Fallback: AllocationSummary may expose allocator_excludes attr
+                if alloc_ex is None:
+                    try:
+                        alloc_ex = getattr(allocation_summary, "allocator_excludes", None)
+                    except Exception:
+                        alloc_ex = None
+
+                if alloc_ex:
+                    try:
+                        extra = existing.setdefault("diagnostics_extra", {})
+                        # Preserve existing allocator_excludes if already present
+                        if "allocator_excludes" not in extra:
+                            extra["allocator_excludes"] = alloc_ex
+                    except Exception:
+                        pass
             except Exception:
+                # Non-fatal: diagnostics enrichment must not break allocation flow
                 pass
     except Exception:
         pass
@@ -5732,6 +5785,16 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     # Phase4: Discrepancy triage in test modes
     try:
         _export_discrepancy_triage(ctx)
+    except Exception:
+        pass
+
+    # 最終: UI に完了通知を送る（存在すれば）。これがないと全体進捗が 7/8 (≈87%) のままになる。
+    try:
+        if progress_callback:
+            try:
+                progress_callback(8, 8, "done")
+            except Exception:
+                pass
     except Exception:
         pass
 

@@ -1,0 +1,12 @@
+{
+  "total_candidates": 28,
+  "total_dropped": 8,
+  "reasons": {
+    "unknown": 8
+  },
+  "dropped_by_system": {
+    "system1": 4,
+    "system5": 3,
+    "system4": 1
+  }
+}

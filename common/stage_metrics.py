@@ -204,8 +204,20 @@ class StageMetricsStore:
 
             return snapshot.copy()
 
-    def record_exit(self, system: str, exit_count: object | None, *, emit_event: bool = False) -> StageSnapshot:
-        """Update the exit count for a system and return the snapshot."""
+    def record_exit(
+        self,
+        system: str,
+        exit_count: object | None,
+        *,
+        emit_event: bool = False,
+    ) -> StageSnapshot:
+        """Update the exit count for a system and return the snapshot.
+
+        When emit_event is True the exit update will also be queued as a
+        StageEvent so that any registered UI consumer will receive the
+        change through the normal event pump. By default the call only
+        updates the snapshot (compatibility with existing callers).
+        """
 
         system_key = self._normalize_system_name(system)
         exit_int = _normalize_count(exit_count)
@@ -213,7 +225,18 @@ class StageMetricsStore:
         with self._lock:
             snapshot = self._snapshots.setdefault(system_key, StageSnapshot())
             snapshot.exit_count = exit_int
-            # Exit は UI 表示のみであり現在はイベントキューに乗せない
+            if emit_event:
+                # Create an event with the latest snapshot data; note that
+                # progress remains unchanged when recording exit-only.
+                ev = StageEvent(
+                    system_key,
+                    snapshot.progress,
+                    snapshot.target,
+                    snapshot.setup_pass,
+                    snapshot.candidate_count,
+                    snapshot.entry_count,
+                )
+                self._events.append(ev)
             return snapshot.copy()
 
     # ------------------------------------------------------------------

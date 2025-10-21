@@ -116,3 +116,43 @@ jobs:
           path: coverage.json
           if-no-files-found: warn
           retention-days: 30
+
+  integration-cli:
+    name: "Integration: CLI smoke tests"
+    runs-on: ubuntu-latest
+    needs: [lint-and-format]
+    timeout-minutes: 20
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: 1
+      PYTHONUNBUFFERED: 1
+      COMPACT_TODAY_LOGS: "1"
+      ENABLE_PROGRESS_EVENTS: "0"
+      PYTEST_USE_FAKE_SYMBOLS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatlas-base-dev libopenblas-dev
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run RunLock + CLI integration tests (no coverage)
+        run: |
+          # Run only the small focused tests here and disable coverage plugins
+          pytest -q \
+            tests/test_run_lock.py \
+            tests/test_cli_output_root_override.py \
+            -p no:coverage -p no:pytest_cov --maxfail=1 --tb=short

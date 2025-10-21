@@ -1,0 +1,357 @@
+{
+  "export_date": "2025-10-21T20:49:58.416427",
+  "mode": "sample",
+  "systems": [
+    {
+      "system_id": "__allocation__",
+      "diagnostics": {
+        "ranking_source": "unknown",
+        "setup_predicate_count": -1,
+        "ranked_top_n_count": -1,
+        "final_top_n_count": -1,
+        "predicate_only_pass_count": -1,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "diagnostics_extra": {
+        "system1": {
+          "mode": "latest_only",
+          "top_n": 10,
+          "symbols_total": 26,
+          "symbols_with_data": 26,
+          "total_symbols": 26,
+          "filter_pass": 13,
+          "setup_flag_true": 13,
+          "fallback_pass": 0,
+          "roc200_positive": 13,
+          "final_pass": 13,
+          "setup_predicate_count": 13,
+          "ranked_top_n_count": 10,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0,
+          "date_fallback_count": 0,
+          "ranking_source": "latest_only",
+          "exclude_reasons": {
+            "sma_trend": 10,
+            "roc200": 3
+          },
+          "exclude_symbols": {
+            "sma_trend": [
+              "AAL",
+              "AAP",
+              "ABNB",
+              "ACAD",
+              "ACGL",
+              "ACI",
+              "ACN",
+              "ADBE",
+              "ADC",
+              "ADI"
+            ],
+            "roc200": [
+              "AAOI",
+              "AAON",
+              "ACHC"
+            ]
+          }
+        },
+        "system2": {
+          "ranking_source": null,
+          "setup_predicate_count": 0,
+          "ranked_top_n_count": 0,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0
+        },
+        "system3": {
+          "ranking_source": "latest_only",
+          "setup_predicate_count": 1,
+          "predicate_only_pass_count": 0,
+          "ranked_top_n_count": 1,
+          "exclude_reasons": {
+            "drop3d": 11,
+            "close_vs_sma150": 2
+          },
+          "mismatch_flag": 0,
+          "ranking_input_counts": {
+            "rows_total": 1,
+            "rows_for_label_date": 1,
+            "lagged_rows": 0
+          },
+          "ranking_stats": {
+            "drop3d_min": 0.25,
+            "drop3d_max": 0.25,
+            "drop3d_mean": 0.25,
+            "drop3d_median": 0.25,
+            "drop3d_nan_count": 0
+          },
+          "thresholds": {
+            "drop3d": 0.125,
+            "atr_ratio": 0.05
+          },
+          "ranking_zero_reason": null,
+          "top_n": 10,
+          "label_date": "2025-10-20T00:00:00",
+          "exclude_symbols": {
+            "drop3d": [
+              "AAOI",
+              "ABCL",
+              "ABSI",
+              "ABTC",
+              "ABUS",
+              "ABVE",
+              "ACB",
+              "ACHR",
+              "ACHV",
+              "ACMR",
+              "ACRV"
+            ],
+            "close_vs_sma150": [
+              "ACDC",
+              "ACVA"
+            ]
+          }
+        },
+        "system4": {
+          "ranking_source": "latest_only",
+          "setup_predicate_count": 7,
+          "ranked_top_n_count": 7,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0
+        },
+        "system5": {
+          "ranking_source": "latest_only",
+          "setup_predicate_count": 13,
+          "ranked_top_n_count": 10,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0
+        },
+        "system6": {
+          "ranking_source": "latest_only",
+          "setup_predicate_count": 0,
+          "ranked_top_n_count": 0,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0
+        },
+        "system7": {
+          "ranking_source": null,
+          "setup_predicate_count": 0,
+          "ranked_top_n_count": 0,
+          "predicate_only_pass_count": 0,
+          "mismatch_flag": 0
+        }
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system1",
+      "diagnostics": {
+        "ranking_source": "latest_only",
+        "setup_predicate_count": 13,
+        "ranked_top_n_count": 10,
+        "final_top_n_count": 10,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "diagnostics_extra": {
+        "mode": "latest_only",
+        "top_n": 10,
+        "symbols_total": 26,
+        "symbols_with_data": 26,
+        "total_symbols": 26,
+        "filter_pass": 13,
+        "setup_flag_true": 13,
+        "fallback_pass": 0,
+        "roc200_positive": 13,
+        "final_pass": 13,
+        "date_fallback_count": 0,
+        "exclude_reasons": {
+          "sma_trend": 10,
+          "roc200": 3
+        },
+        "exclude_symbols": {
+          "sma_trend": [
+            "AAL",
+            "AAP",
+            "ABNB",
+            "ACAD",
+            "ACGL",
+            "ACI",
+            "ACN",
+            "ADBE",
+            "ADC",
+            "ADI"
+          ],
+          "roc200": [
+            "AAOI",
+            "AAON",
+            "ACHC"
+          ]
+        }
+      },
+      "final_candidate_count": 6
+    },
+    {
+      "system_id": "system2",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system3",
+      "diagnostics": {
+        "ranking_source": "latest_only",
+        "setup_predicate_count": 1,
+        "ranked_top_n_count": 1,
+        "final_top_n_count": 1,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "diagnostics_extra": {
+        "exclude_reasons": {
+          "drop3d": 11,
+          "close_vs_sma150": 2
+        },
+        "ranking_input_counts": {
+          "rows_total": 1,
+          "rows_for_label_date": 1,
+          "lagged_rows": 0
+        },
+        "ranking_stats": {
+          "drop3d_min": 0.25,
+          "drop3d_max": 0.25,
+          "drop3d_mean": 0.25,
+          "drop3d_median": 0.25,
+          "drop3d_nan_count": 0
+        },
+        "thresholds": {
+          "drop3d": 0.125,
+          "atr_ratio": 0.05
+        },
+        "ranking_zero_reason": null,
+        "top_n": 10,
+        "label_date": "2025-10-20T00:00:00",
+        "exclude_symbols": {
+          "drop3d": [
+            "AAOI",
+            "ABCL",
+            "ABSI",
+            "ABTC",
+            "ABUS",
+            "ABVE",
+            "ACB",
+            "ACHR",
+            "ACHV",
+            "ACMR",
+            "ACRV"
+          ],
+          "close_vs_sma150": [
+            "ACDC",
+            "ACVA"
+          ]
+        }
+      },
+      "final_candidate_count": 1
+    },
+    {
+      "system_id": "system4",
+      "diagnostics": {
+        "ranking_source": "latest_only",
+        "setup_predicate_count": 7,
+        "ranked_top_n_count": 7,
+        "final_top_n_count": 7,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 6
+    },
+    {
+      "system_id": "system5",
+      "diagnostics": {
+        "ranking_source": "latest_only",
+        "setup_predicate_count": 13,
+        "ranked_top_n_count": 10,
+        "final_top_n_count": 10,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 7
+    },
+    {
+      "system_id": "system6",
+      "diagnostics": {
+        "ranking_source": "latest_only",
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    },
+    {
+      "system_id": "system7",
+      "diagnostics": {
+        "ranking_source": null,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "final_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": false,
+        "count_a": -1,
+        "count_b": -1,
+        "count_c": -1,
+        "count_d": -1,
+        "count_e": -1,
+        "count_f": -1
+      },
+      "final_candidate_count": 0
+    }
+  ]
+}

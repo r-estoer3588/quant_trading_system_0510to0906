@@ -1,0 +1,74 @@
+[
+  {
+    "system": "system1",
+    "symbol": "ABAT",
+    "persisted_index": 1,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system3",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system3 sample row: {'index': np.int64(0), 'symbol': 'ABAT', 'system': 'system3', 'side': 'long', 'signal_type': 'buy', 'entry_date': '2025-10-21', 'entry_price': np.float64(6.72), 'stop_price': np.float64(2.92), 'score_key': 'drop3d', 'score': np.float64(0.25), 'score_rank': np.int64(1), 'score_rank_total': np.int64(14), 'reason': '3日下落率が1位（全14銘柄中）のため', 'atr10': np.float64(1.52), 'atr20': np.float64(nan), 'atr40': np.float64(nan), 'atr50': np.float64(nan)}\nINFO: [ALLOC_DEBUG] system3 ABAT: shares_calc rem=$25000\nDEBUG: [A] system3 ABAT: risk=131 cap=372\nDEBUG: [A] system3 ABAT: cash=3720 desired=131\nINFO: [ALLOC_DEBUG] system3 ABAT: shares=131 (desired=131 maxcash=3720)\nDEBUG: [ALLOC_DEBUG] system3 ABAT: ALLOC shares=131 val=$880 rem=$24120"
+  },
+  {
+    "system": "system1",
+    "symbol": "ACM",
+    "persisted_index": 4,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system4",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system1 ACMR: shares_calc rem=$22713\nDEBUG: [A] system1 ACMR: risk=44 cap=57\nDEBUG: [A] system1 ACMR: cash=570 desired=44\nINFO: [ALLOC_DEBUG] system1 ACMR: shares=44 (desired=44 maxcash=570)\nDEBUG: [ALLOC_DEBUG] system1 ACMR: ALLOC shares=44 val=$1751 rem=$20962"
+  },
+  {
+    "system": "system1",
+    "symbol": "ADM",
+    "persisted_index": 5,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system4",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system4 sample row: {'index': np.int64(0), 'symbol': 'ADM', 'system': 'system4', 'side': 'long', 'signal_type': 'buy', 'entry_date': '2025-10-21', 'entry_price': np.float64(63.19), 'stop_price': np.float64(60.46), 'score_key': 'rsi4', 'score': np.float64(66.23), 'score_rank': np.float64(nan), 'score_rank_total': np.float64(nan), 'reason': 'SPY上昇局面の押し目候補のため', 'atr10': np.float64(nan), 'atr20': np.float64(1.7), 'atr40': np.float64(1.55), 'atr50': np.float64(nan)}\nINFO: [ALLOC_DEBUG] system4 ADM: shares_calc rem=$25000\nDEBUG: [A] system4 ADM: risk=183 cap=39\nDEBUG: [A] system4 ADM: cash=395 desired=39\nINFO: [ALLOC_DEBUG] system4 ADM: shares=39 (desired=39 maxcash=395)\nDEBUG: [ALLOC_DEBUG] system4 ADM: ALLOC shares=39 val=$2464 rem=$22536"
+  },
+  {
+    "system": "system1",
+    "symbol": "SPY",
+    "persisted_index": 8,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system4",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system4 sample row: {'index': np.int64(0), 'symbol': 'ADM', 'system': 'system4', 'side': 'long', 'signal_type': 'buy', 'entry_date': '2025-10-21', 'entry_price': np.float64(63.19), 'stop_price': np.float64(60.46), 'score_key': 'rsi4', 'score': np.float64(66.23), 'score_rank': np.float64(nan), 'score_rank_total': np.float64(nan), 'reason': 'SPY上昇局面の押し目候補のため', 'atr10': np.float64(nan), 'atr20': np.float64(1.7), 'atr40': np.float64(1.55), 'atr50': np.float64(nan)}\nINFO: [ALLOC_DEBUG] system4 SPY: shares_calc rem=$22536\nDEBUG: [A] system4 SPY: risk=36 cap=3\nDEBUG: [A] system4 SPY: cash=33 desired=3\nINFO: [ALLOC_DEBUG] system4 SPY: shares=3 (desired=3 maxcash=33)\nDEBUG: [ALLOC_DEBUG] system4 SPY: ALLOC shares=3 val=$2014 rem=$20522"
+  },
+  {
+    "system": "system4",
+    "symbol": "ABBV",
+    "persisted_index": 2,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system1",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system1 ABBV: shares_calc rem=$20962\nDEBUG: [A] system1 ABBV: risk=19 cap=9\nDEBUG: [A] system1 ABBV: cash=90 desired=9\nINFO: [ALLOC_DEBUG] system1 ABBV: shares=9 (desired=9 maxcash=90)\nDEBUG: [ALLOC_DEBUG] system1 ABBV: ALLOC shares=9 val=$2089 rem=$18873"
+  },
+  {
+    "system": "system5",
+    "symbol": "ABAT",
+    "persisted_index": 3,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system3",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system3 sample row: {'index': np.int64(0), 'symbol': 'ABAT', 'system': 'system3', 'side': 'long', 'signal_type': 'buy', 'entry_date': '2025-10-21', 'entry_price': np.float64(6.72), 'stop_price': np.float64(2.92), 'score_key': 'drop3d', 'score': np.float64(0.25), 'score_rank': np.int64(1), 'score_rank_total': np.int64(14), 'reason': '3日下落率が1位（全14銘柄中）のため', 'atr10': np.float64(1.52), 'atr20': np.float64(nan), 'atr40': np.float64(nan), 'atr50': np.float64(nan)}\nINFO: [ALLOC_DEBUG] system3 ABAT: shares_calc rem=$25000\nDEBUG: [A] system3 ABAT: risk=131 cap=372\nDEBUG: [A] system3 ABAT: cash=3720 desired=131\nINFO: [ALLOC_DEBUG] system3 ABAT: shares=131 (desired=131 maxcash=3720)\nDEBUG: [ALLOC_DEBUG] system3 ABAT: ALLOC shares=131 val=$880 rem=$24120"
+  },
+  {
+    "system": "system5",
+    "symbol": "ABVX",
+    "persisted_index": 4,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system1",
+    "inferred_reason": "allocated",
+    "log_snippet": "INFO: [ALLOC_DEBUG] system1 sample row: {'index': np.int64(0), 'symbol': 'ABVX', 'system': 'system1', 'side': 'long', 'signal_type': 'buy', 'entry_date': '2025-10-21', 'entry_price': np.float64(91.49), 'stop_price': np.float64(72.19), 'score_key': 'roc200', 'score': np.float64(1149.86), 'score_rank': np.int64(1), 'score_rank_total': np.int64(26), 'reason': 'ROC200が1位（全26銘柄中）のため', 'atr10': np.float64(nan), 'atr20': np.float64(3.86), 'atr40': np.float64(nan), 'atr50': np.float64(nan)}\nINFO: [ALLOC_DEBUG] system1 ABVX: shares_calc rem=$25000\nDEBUG: [A] system1 ABVX: risk=25 cap=27\nDEBUG: [A] system1 ABVX: cash=273 desired=25\nINFO: [ALLOC_DEBUG] system1 ABVX: shares=25 (desired=25 maxcash=273)\nDEBUG: [ALLOC_DEBUG] system1 ABVX: ALLOC shares=25 val=$2287 rem=$22713"
+  },
+  {
+    "system": "system5",
+    "symbol": "ADI",
+    "persisted_index": 8,
+    "in_final_anywhere": true,
+    "present_elsewhere_system": "system4",
+    "inferred_reason": "allocated",
+    "log_snippet": "DEBUG: [ALLOC_DEBUG] system4 ADI: ALLOC shares=7 val=$1724 rem=$16793"
+  }
+]

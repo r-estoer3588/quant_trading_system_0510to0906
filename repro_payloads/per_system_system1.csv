@@ -1,0 +1,11 @@
+index,symbol,system,side,signal_type,entry_date,entry_price,stop_price,score_key,score,score_rank,score_rank_total,reason,atr10,atr20,atr40,atr50
+0,ABVX,system1,long,buy,2025-10-21,91.49,72.19,roc200,1149.86,1,26,ROC200が1位（全26銘柄中）のため,,3.86,,
+1,ABAT,system1,long,buy,2025-10-21,6.72,1.47,roc200,173.17,2,26,ROC200が2位（全26銘柄中）のため,,1.05,,
+2,ACMR,system1,long,buy,2025-10-21,39.79,29.64,roc200,163.51,3,26,ROC200が3位（全26銘柄中）のため,,2.03,,
+3,ABBV,system1,long,buy,2025-10-21,232.06,210.16,roc200,30.59,4,26,ROC200が4位（全26銘柄中）のため,,4.38,,
+4,ACM,system1,long,buy,2025-10-21,133.65,120.7,roc200,25.12,5,26,ROC200が5位（全26銘柄中）のため,,2.59,,
+5,ADM,system1,long,buy,2025-10-21,63.19,54.69,roc200,25.08,6,26,ROC200が6位（全26銘柄中）のため,,1.7,,
+6,ACHR,system1,long,buy,2025-10-21,11.98,7.18,roc200,22.87,7,26,ROC200が7位（全26銘柄中）のため,,0.96,,
+7,ACLS,system1,long,buy,2025-10-21,83.88,65.28,roc200,20.05,8,26,ROC200が8位（全26銘柄中）のため,,3.72,,
+8,SPY,system1,long,buy,2025-10-21,671.3,636.5,roc200,14.54,10,26,ROC200が10位（全26銘柄中）のため,,6.96,,
+9,ABT,system1,long,buy,2025-10-21,129.51,115.91,roc200,14.5,11,26,ROC200が上位のため,,2.72,,

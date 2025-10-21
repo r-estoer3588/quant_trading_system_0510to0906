@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone, tzinfo
-
 # ruff: noqa: E402
 # flake8: noqa: E402
 import importlib
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import sys
-from threading import Lock
 import time
-from typing import TYPE_CHECKING, Any, cast
 import uuid
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
+from pathlib import Path
+from threading import Lock
+from typing import TYPE_CHECKING, Any, cast
 
 try:
     from zoneinfo import ZoneInfo
@@ -2041,19 +2040,50 @@ class StageTracker:
         self.refresh_all()
 
     def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
+        # Treat presence of exit_counts (even if all zero) as 'exit processed'
+        any_applied = bool(exit_counts)
         for name, cnt in exit_counts.items():
             if not cnt:
+                # If count is zero we still consider the exit update applied
+                # (no per-system snapshot update needed), so continue
                 continue
+            any_applied = True
             snapshot: StageSnapshot | None
             try:
-                snapshot = GLOBAL_STAGE_METRICS.record_exit(name, cnt, emit_event=False)
+                # record exit in the shared metrics store (UI-only by default)
+                snapshot = GLOBAL_STAGE_METRICS.record_exit(
+                    name, cnt, emit_event=False
+                )
             except Exception:
                 snapshot = None
             if snapshot is not None:
+                # Apply stored snapshot and ensure the per-system bar shows completion
                 self._apply_snapshot(name, snapshot)
+                try:
+                    self._update_bar(name, 100)
+                except Exception:
+                    pass
             else:
-                self._ensure_counts(name)["exit"] = int(cnt)
+                # Fallback: update the in-memory display counts and mark done
+                try:
+                    counts = self._ensure_counts(name)
+                    counts["exit"] = int(cnt)
+                except Exception:
+                    pass
+                try:
+                    self._update_bar(name, 100)
+                except Exception:
+                    pass
+
+        # Refresh UI metrics and — if any exit counts were applied — mark overall as done
         self.refresh_all()
+        if any_applied:
+            try:
+                # Setting overall progress to done (8/8) makes the top progress bar reach 100%
+                if self.progress_ui is not None:
+                    self.progress_ui.update(8, 8, "done")
+            except Exception:
+                pass
 
     def refresh_all(self) -> None:
         # まずJSONLから最新データを同期
