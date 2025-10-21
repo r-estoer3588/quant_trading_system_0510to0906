@@ -86,10 +86,35 @@ jobs:
         run: |
           node -e "import('@anthropic-ai/claude-agent-sdk').then(m=>console.log('AGENT_SDK_OK', Object.keys(m))).catch(e=>console.error('AGENT_SDK_IMPORT_FAIL', e && e.message ? e.message : e))" || true
 
+      - name: Create CLI wrapper to filter empty flags
+        run: |
+          mkdir -p tools
+          cat > tools/claude-cli-wrapper.js <<'JS'
+          #!/usr/bin/env node
+          const cp = require('child_process');
+          const path = require('path');
+          const fs = require('fs');
+          const real = path.resolve(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
+          const args = process.argv.slice(2);
+          const filtered = [];
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === '--setting-sources') {
+              const next = args[i+1];
+              if (!next || String(next).trim() === '') { i++; continue; }
+              filtered.push('--setting-sources', next); i++; continue;
+            }
+            filtered.push(args[i]);
+          }
+          const p = cp.spawn(process.execPath, [real, ...filtered], { stdio: 'inherit' });
+          p.on('exit', code => process.exit(code));
+          JS
+          chmod +x tools/claude-cli-wrapper.js || true
+
       - name: Research with Claude Agent SDK
         run: |
           cat > research.mjs <<'EOF'
           import fs from 'fs';
+          import path from 'path';
           const theme = process.env.THEME || '';
           const target = process.env.TARGET || '';
           const today = new Date().toISOString().slice(0,10);
@@ -154,11 +179,14 @@ jobs:
             try {
               const query = await loadQuery();
               const messages = [];
+              const wrapper = path.resolve(process.cwd(), 'tools', 'claude-cli-wrapper.js');
               for await (const msg of query({
                 prompt: userPrompt,
                 options: {
                   // Avoid launching the legacy CLI by specifying the model
                   model: 'claude-sonnet-4-5-20250929',
+                  // Use wrapper to avoid passing empty --setting-sources to the CLI
+                  pathToClaudeCodeExecutable: wrapper,
                   systemPrompt: sys,
                   allowedTools: ['WebSearch','WebFetch'],
                   permissionMode: 'acceptEdits',
@@ -791,15 +819,73 @@ jobs:
           echo '--- END CLI HELP ---'
           tail -n +1 cli-help.txt || true
 
+      - name: Create CLI wrapper for diagnostics
+        run: |
+          cat > claude-cli-wrapper.js <<'EOF'
+          #!/usr/bin/env node
+          const { spawn } = require('child_process');
+          const path = require('path');
+          // Filter out empty --setting-sources arguments which cause the CLI to exit.
+          const raw = process.argv.slice(2);
+          const filtered = [];
+          for (let i = 0; i < raw.length; i++) {
+            const a = raw[i];
+            if (a === '--setting-sources') {
+              const next = raw[i + 1];
+              if (!next) { i++; continue; }
+            }
+            if (typeof a !== 'undefined') filtered.push(a);
+          }
+          const real = path.resolve('node_modules/@anthropic-ai/claude-agent-sdk/cli.js');
+          const ps = spawn(process.execPath, [real, ...filtered], { stdio: 'inherit', env: process.env });
+          ps.on('exit', (code) => { process.exit(code); });
+          EOF
+          chmod +x claude-cli-wrapper.js || true
+
+      - name: Reproduce CLI command (with empty setting-sources)
+        run: |
+          echo 'Running CLI with explicit empty --setting-sources to reproduce agent spawn behavior' > cli-run-note.txt
+          node node_modules/@anthropic-ai/claude-agent-sdk/cli.js \
+            --output-format stream-json --verbose --input-format stream-json \
+            --system-prompt 'diagnostic' \
+            --model claude-sonnet-4-5-20250929 \
+            --allowedTools WebSearch,WebFetch \
+            --setting-sources '' --permission-mode acceptEdits \
+            > cli-run-raw.txt 2>&1 || true
+
+      - name: Reproduce CLI command (via wrapper, with empty setting-sources)
+        run: |
+          echo 'Running wrapper with explicit empty --setting-sources to show filtering' > cli-run-wrapper-note.txt
+          node ./claude-cli-wrapper.js \
+            --output-format stream-json --verbose --input-format stream-json \
+            --system-prompt 'diagnostic' \
+            --model claude-sonnet-4-5-20250929 \
+            --allowedTools WebSearch,WebFetch \
+            --setting-sources '' --permission-mode acceptEdits \
+            > cli-run-raw-wrapper.txt 2>&1 || true
+
+      - name: Reproduce CLI command (without setting-sources flag)
+        run: |
+          echo 'Running CLI without --setting-sources flag to compare behavior' > cli-run-note-nosetting.txt
+          node node_modules/@anthropic-ai/claude-agent-sdk/cli.js \
+            --output-format stream-json --verbose --input-format stream-json \
+            --system-prompt 'diagnostic' \
+            --model claude-sonnet-4-5-20250929 \
+            --allowedTools WebSearch,WebFetch \
+            --permission-mode acceptEdits \
+            > cli-run-raw-nosetting.txt 2>&1 || true
+
       - name: Agent SDK minimal query (diagnostic)
         run: |
           cat > agent_check.mjs <<'EOF'
           import fs from 'fs';
+          import path from 'path';
           try{
             const { query } = await import('@anthropic-ai/claude-agent-sdk');
             const prompt = '診断テスト: 簡潔に「動作確認」と返してください。';
             const msgs = [];
-            for await (const m of query({ prompt, options: { model: 'claude-sonnet-4-5-20250929', systemPrompt: { type: 'preset', preset: 'claude_code' } } })){
+            const wrapper = path.resolve(process.cwd(), './claude-cli-wrapper.js');
+            for await (const m of query({ prompt, options: { model: 'claude-sonnet-4-5-20250929', systemPrompt: 'diagnostic', allowedTools: ['WebSearch','WebFetch'], pathToClaudeCodeExecutable: wrapper, stderr: (c)=>{ try{ fs.appendFileSync('agent_check_cli_stderr.txt', String(c)+"\n"); }catch(e){} } } } )){
               msgs.push(m);
             }
             fs.writeFileSync('agent_check_trace.json', JSON.stringify(msgs, null, 2));
@@ -812,11 +898,45 @@ jobs:
           EOF
           node agent_check.mjs || true
 
+      - name: Agent SDK minimal query (diagnostic, verbose)
+        run: |
+          cat > agent_check_verbose.mjs <<'EOF'
+          import fs from 'fs';
+          import path from 'path';
+          try{
+            const { query } = await import('@anthropic-ai/claude-agent-sdk');
+            const prompt = '診断テスト: verbose';
+            const msgs = [];
+            const wrapper = path.resolve(process.cwd(), './claude-cli-wrapper.js');
+            for await (const m of query({ prompt, options: { model: 'claude-sonnet-4-5-20250929', systemPrompt: 'diagnostic', includePartialMessages: true, allowedTools: ['WebSearch','WebFetch'], pathToClaudeCodeExecutable: wrapper, stderr: (c)=>{ try{ fs.appendFileSync('agent_check_cli_stderr_verbose.txt', String(c)+"\n"); }catch(e){} } } } )){
+              msgs.push(m);
+            }
+            fs.writeFileSync('agent_check_trace_verbose.json', JSON.stringify(msgs, null, 2));
+            console.log('WROTE agent_check_trace_verbose.json');
+          }catch(e){
+            console.error('agent_check_verbose failed:', e && e.message ? e.message : e);
+            try{ fs.writeFileSync('agent_check_error_verbose.txt', String(e && e.stack ? e.stack : e)); }catch{}
+            process.exit(1);
+          }
+          EOF
+          NODE_OPTIONS='--trace-warnings' DEBUG='*' node agent_check_verbose.mjs || true
+
       - name: Upload agent SDK diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: agent-sdk-diagnostics
           path: |
             cli-help.txt
+            cli-run-raw.txt
+            cli-run-raw-wrapper.txt
+            cli-run-raw-nosetting.txt
+            cli-run-note.txt
+            cli-run-note-nosetting.txt
+            cli-run-wrapper-note.txt
+            claude-cli-wrapper.js
+            agent_check_cli_stderr.txt
+            agent_check_cli_stderr_verbose.txt
             agent_check_trace.json
             agent_check_error.txt
+            agent_check_trace_verbose.json
+            agent_check_error_verbose.txt

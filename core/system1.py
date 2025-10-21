@@ -9,9 +9,9 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-import math
 from typing import Any, Callable, DefaultDict, Mapping, Optional, cast
 
 import pandas as pd
@@ -75,10 +75,37 @@ class System1Diagnostics:
             "mismatch_flag": int(self.mismatch_flag),
             "date_fallback_count": int(self.date_fallback_count),
             "ranking_source": self.ranking_source,
-            "exclude_reasons": {k: int(v) for k, v in dict(self.exclude_reasons).items()},
+            "exclude_reasons": {
+                k: int(v) for k, v in dict(self.exclude_reasons).items()
+            },
             # normalize sets to sorted lists for JSON friendliness
-            "exclude_symbols": {k: sorted(list(v)) for k, v in dict(self.exclude_symbols).items()},
+            "exclude_symbols": {
+                k: sorted(list(v)) for k, v in dict(self.exclude_symbols).items()
+            },
         }
+
+    def add_exclude(self, reason: str, symbol: str | None) -> None:
+        """Record an exclusion reason and optionally the symbol.
+
+        This increments the counter in ``exclude_reasons`` and adds the
+        symbol to ``exclude_symbols`` set for the given reason. Implementation
+        is defensive: any errors in diagnostics updating should not raise.
+        """
+        try:
+            r = str(reason)
+            self.exclude_reasons[r] += 1
+            if symbol:
+                try:
+                    self.exclude_symbols[r].add(str(symbol))
+                except Exception:
+                    # defensive: ignore symbol add errors
+                    pass
+        except Exception:
+            # keep diagnostics best-effort
+            try:
+                self.exclude_reasons["exception"] += 1
+            except Exception:
+                pass
 
 
 def summarize_system1_diagnostics(
@@ -788,8 +815,14 @@ def generate_candidates_system1(
                 for key, value in prev_reasons.items():
                     try:
                         # value は Mapping[Any, Any] 由来のため型が不明だが、
-                        # int() で正規化してから加算する。
-                        diag.exclude_reasons[str(key)] += int(value)
+                        # add_exclude will increment counter; call it value times
+                        cnt = 1
+                        try:
+                            cnt = max(1, int(value))
+                        except Exception:
+                            cnt = 1
+                        for _ in range(cnt):
+                            diag.add_exclude(str(key), None)
                     except Exception:
                         continue
 
@@ -891,10 +924,10 @@ def generate_candidates_system1(
                 # latest index guard (e.g., SPY cache tail issues)
                 try:
                     if getattr(df.index, "size", 0) == 0 or df.index[-1] is None:
-                        diag.exclude_reasons["latest_index_missing"] += 1
+                        diag.add_exclude("latest_index_missing", sym)
                         continue
                 except Exception:
-                    diag.exclude_reasons["latest_index_missing"] += 1
+                    diag.add_exclude("latest_index_missing", sym)
                     continue
                 if target_date is not None:
                     if target_date in df.index:
@@ -905,7 +938,7 @@ def generate_candidates_system1(
                         try:
                             latest_idx_norm = pd.Timestamp(str(latest_idx_raw)).normalize()
                         except Exception:
-                            diag.exclude_reasons["invalid_date"] += 1
+                            diag.add_exclude("invalid_date", sym)
                             continue
 
                         # Fast path: if dates equal, accept immediately
@@ -933,7 +966,7 @@ def generate_candidates_system1(
                     try:
                         date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
                     except Exception:
-                        diag.exclude_reasons["invalid_date"] += 1
+                        diag.add_exclude("invalid_date", sym)
                         continue
                     try:
                         row_obj = df.loc[latest_idx_raw]
@@ -942,7 +975,7 @@ def generate_candidates_system1(
 
                 last_row = _ensure_series(row_obj)
                 if last_row is None or date_val is None:
-                    diag.exclude_reasons["invalid_row"] += 1
+                    diag.add_exclude("invalid_row", sym)
                     continue
 
                 # Staleness guard (calendar-day based): when target_date is defined and
@@ -956,7 +989,7 @@ def generate_candidates_system1(
                     ):
                         delta_days = int((pd.Timestamp(target_date) - pd.Timestamp(date_val)).days)
                         if delta_days > max_lag_days:
-                            diag.exclude_reasons["too_stale"] += 1
+                            diag.add_exclude("too_stale", sym)
                             continue
                 except Exception:
                     # On any failure, do not exclude based on staleness.
@@ -970,9 +1003,9 @@ def generate_candidates_system1(
                     pred_ok, pred_reason = bool(res_pred), None
                 if not pred_ok:
                     if pred_reason:
-                        diag.exclude_reasons[str(pred_reason)] += 1
+                        diag.add_exclude(str(pred_reason), sym)
                     else:
-                        diag.exclude_reasons["predicate_failed"] += 1
+                        diag.add_exclude("predicate_failed", sym)
                     continue
 
                 # Count Phase2 filter pass (Close>=5 & DollarVolume20>=50M)
@@ -989,7 +1022,7 @@ def generate_candidates_system1(
                     if validate_predicates:
                         passed_legacy, flags, legacy_reason = system1_row_passes_setup(last_row, allow_fallback=True)
                         if bool(passed_legacy) != bool(pred_ok):
-                            diag.exclude_reasons["_predicate_mismatch"] += 1
+                            diag.add_exclude("_predicate_mismatch", sym)
                 except Exception:
                     # do not block on diagnostics
                     pass
@@ -1045,7 +1078,7 @@ def generate_candidates_system1(
                 if label_dt is None:
                     # ラベル日付が解決できない場合は除外（診断カウント）
                     try:
-                        diag.exclude_reasons["invalid_date_label"] += 1
+                        diag.add_exclude("invalid_date_label", sym)
                     except Exception:
                         pass
                     continue
@@ -1289,7 +1322,7 @@ def generate_candidates_system1(
                     diag.roc200_positive += 1
                 if not passed:
                     if reason:
-                        diag.exclude_reasons[reason] += 1
+                        diag.add_exclude(reason, symbol)
                     continue
                 diag.final_pass += 1
 
