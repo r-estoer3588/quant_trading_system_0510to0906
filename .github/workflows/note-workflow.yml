@@ -40,6 +40,14 @@ on:
         options:
           - "true"
           - "false"
+      sdk_debug:
+        description: "Agent SDK を使うためのデバッグ実行（CLI の事前確認を行う）"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: read
@@ -66,13 +74,17 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Claude Agent SDK (clean install)
+      - name: Install research dependencies (AI + web + Agent SDK)
         run: |
           npm init -y
-          # Ensure any deprecated package is removed before installing the Agent SDK
-          npm uninstall @anthropic-ai/claude-code || true
-          rm -rf node_modules package-lock.json || true
-          npm i @anthropic-ai/claude-agent-sdk
+          # Install the Agent SDK (for tool usage) plus fallback AI client and HTML parser
+          npm i @anthropic-ai/claude-agent-sdk ai @ai-sdk/anthropic cheerio --no-audit --no-fund
+          # Debug: list installed Anthropic-related packages to verify state
+          npm ls @anthropic-ai/claude-agent-sdk @anthropic-ai/claude-code ai @ai-sdk/anthropic --depth=0 || true
+
+      - name: Verify Agent SDK import (non-fatal)
+        run: |
+          node -e "import('@anthropic-ai/claude-agent-sdk').then(m=>console.log('AGENT_SDK_OK', Object.keys(m))).catch(e=>console.error('AGENT_SDK_IMPORT_FAIL', e && e.message ? e.message : e))" || true
 
       - name: Research with Claude Agent SDK
         run: |
@@ -108,13 +120,31 @@ jobs:
 
             } catch (err) {
               console.error('Could not import @anthropic-ai/claude-agent-sdk:', err && err.message ? err.message : err);
+              // Fallback: use cloud AI client (ai + @ai-sdk/anthropic) as a non-streaming async-generator wrapper
               try {
-                // If deprecated package is present, surface a clear error
-                const old = await import('@anthropic-ai/claude-code');
-                console.error('Detected deprecated @anthropic-ai/claude-code installed. Please uninstall it and use @anthropic-ai/claude-agent-sdk.');
-                throw new Error('@anthropic-ai/claude-code detected (deprecated)');
+                const { generateText } = await import('ai');
+                const { anthropic } = await import('@ai-sdk/anthropic');
+                const modelClient = anthropic('claude-sonnet-4-5-20250929');
+                console.warn('Falling back to ai+anthropic generateText (non-streaming).');
+                return async function* fallbackQuery({ prompt, options = {} }) {
+                  // Flatten prompt if it's an async iterable
+                  let promptStr = '';
+                  if (typeof prompt === 'string') promptStr = prompt;
+                  else if (prompt && typeof prompt[Symbol.asyncIterator] === 'function') {
+                    for await (const p of prompt) {
+                      try {
+                        if (p && p.message && Array.isArray(p.message.content)) {
+                          promptStr += p.message.content.map(c => c.text || '').join('');
+                        } else if (typeof p === 'string') promptStr += p;
+                      } catch {}
+                    }
+                  }
+                  const sysOpt = options && options.systemPrompt ? options.systemPrompt : '';
+                  const { text } = await generateText({ model: modelClient, system: sysOpt, prompt: promptStr, temperature: 0.25, maxTokens: 8000 });
+                  yield { type: 'assistant', message: { content: [{ type: 'text', text }] } };
+                };
               } catch (err2) {
-                // Neither package available
+                console.error('Fallback import failed:', err2 && err2.message ? err2.message : err2);
                 throw err;
               }
             }
@@ -129,8 +159,6 @@ jobs:
                 options: {
                   // Avoid launching the legacy CLI by specifying the model
                   model: 'claude-sonnet-4-5-20250929',
-                  // Do not load any filesystem settings in CI
-                  settingSources: [],
                   systemPrompt: sys,
                   allowedTools: ['WebSearch','WebFetch'],
                   permissionMode: 'acceptEdits',
@@ -288,87 +316,97 @@ jobs:
           npm init -y
           npm i ai @ai-sdk/anthropic
 
-      - name: Restore draft json
-        env:
-          DRAFT_JSON_B64: ${{ needs.write.outputs.draft_json_b64 }}
+      - name: Research (AI + Web fallback)
         run: |
-          mkdir -p .note-artifacts
-          echo "$DRAFT_JSON_B64" | base64 -d > .note-artifacts/draft.json || echo "$DRAFT_JSON_B64" | base64 --decode > .note-artifacts/draft.json
-
-      - name: Fact-check with Tavily
-        run: |
-          cat > factcheck.mjs <<'EOF'
+          cat > research.mjs <<'EOF'
+          import fs from 'fs';
           import { generateText } from 'ai';
           import { anthropic } from '@ai-sdk/anthropic';
-          import fs from 'fs';
-          const draft=JSON.parse(fs.readFileSync('.note-artifacts/draft.json','utf8'));
-          const modelName='claude-sonnet-4-5-20250929';
-          const TAVILY_API_KEY=process.env.TAVILY_API_KEY||'';
-          if(!TAVILY_API_KEY){ console.error('TAVILY_API_KEY is not set'); process.exit(1); }
+          import cheerio from 'cheerio';
+
+          const theme = process.env.THEME || '';
+          const target = process.env.TARGET || '';
+          const today = new Date().toISOString().slice(0,10);
+          const artifactsDir = '.note-artifacts';
+          fs.mkdirSync(artifactsDir, { recursive: true });
+
+          const model = anthropic('claude-sonnet-4-5-20250929');
 
           function extractJsonFlexible(raw){
             const t=(raw||'').trim().replace(/\u200B/g,'');
-            try{ const o=JSON.parse(t); return o; }catch{}
+            try{ return JSON.parse(t); }catch{}
             const fence=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/); if(fence&&fence[1]){ try{ return JSON.parse(fence[1].trim()); }catch{} }
-            let f=t.indexOf('{'), l=t.lastIndexOf('}'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
-            f=t.indexOf('['); l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
+            const f=t.indexOf('['), l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ try{ return JSON.parse(t.slice(f,l+1)); }catch{} }
             return null;
-          }
-          function stripCodeFence(s){
-            const t=String(s||'').trim();
-            const m=t.match(/^```[a-zA-Z0-9_-]*\s*([\s\S]*?)\s*```\s*$/); if(m&&m[1]) return m[1].trim();
-            return t;
           }
 
           async function proposeQueries(body){
-            const sys='あなたは事実検証の専門家です。入力本文から検証が必要な固有名詞・数値・主張を抽出し、Tavily検索用に日本語の検索クエリを最大10件の配列で返してください。出力はJSON配列のみ。';
-            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt: String(body), temperature: 0, maxTokens: 2000 });
+            const sys='あなたは事実検証の専門家です。入力から検証が必要な固有名詞・数値・主張を抽出し、Tavily検索用に日本語の検索クエリを最大10件の配列で返してください。出力はJSON配列のみ。';
+            const prompt = `以下のテキストから検索クエリを生成してください。\n\n${body}`;
+            const { text } = await generateText({ model, system: sys, prompt, temperature: 0 });
             const arr = extractJsonFlexible(text||'');
-            return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [];
+            if (Array.isArray(arr)) return arr.map(String).filter(Boolean).slice(0,10);
+            // Fallback: simple split into keywords
+            return (String(body||'')).split(/\s+/).slice(0,6).map(s=>s).filter(Boolean);
           }
 
-          async function tavilySearch(q){
-            const res = await fetch('https://api.tavily.com/search', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ api_key: TAVILY_API_KEY, query: q, search_depth: 'advanced', max_results: 5, include_answer: true })
-            });
-            if(!res.ok){ return { query:q, results:[], answer:null }; }
-            const json = await res.json().catch(()=>({}));
-            return { query:q, results: Array.isArray(json.results)? json.results: [], answer: json.answer || null };
+          async function duckduckgoSearch(q){
+            try{
+              const res = await fetch(`https://html.duckduckgo.com/html?q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+              const html = await res.text();
+              const $ = cheerio.load(html);
+              const results = [];
+              $('a.result__a').each((i, el) => {
+                if (i>=6) return;
+                let href = $(el).attr('href') || '';
+                const m = href.match(/uddg=([^&]+)/);
+                if (m) href = decodeURIComponent(m[1]);
+                const title = $(el).text().trim();
+                const snippet = $(el).parent().find('.result__snippet').text().trim() || '';
+                results.push({ title, url: href, snippet });
+              });
+              return results;
+            }catch(e){ return []; }
           }
 
-          function formatEvidence(items){
-            const lines = [];
-            for(const it of items){
-              lines.push(`### 検索: ${it.query}`);
-              if(it.answer){ lines.push(`要約: ${it.answer}`); }
-              for(const r of it.results||[]){
-                const t = (r.title||'').toString();
-                const u = (r.url||'').toString();
-                const c = (r.content||'').toString().slice(0,500);
-                lines.push(`- [${t}](${u})\n  ${c}`);
+          async function fetchPageText(url){
+            try{
+              const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } , redirect: 'follow' });
+              if(!res.ok) return '';
+              const html = await res.text();
+              const $ = cheerio.load(html);
+              const text = ($('article').text() || $('main').text() || $('body').text() || '').replace(/\s+/g,' ').trim();
+              return text.slice(0, 4000);
+            }catch(e){ return ''; }
+          }
+
+          (async () => {
+            try{
+              const seed = `テーマ: ${theme}\nターゲット: ${target}`;
+              const queries = await proposeQueries(seed);
+              const evidenceLines = [];
+              for(const q of queries){
+                const results = await duckduckgoSearch(q);
+                evidenceLines.push(`### 検索: ${q}`);
+                for(const r of results){
+                  evidenceLines.push(`- [${r.title}](${r.url})\n  ${r.snippet}`);
+                  const pageText = await fetchPageText(r.url);
+                  if(pageText) evidenceLines.push(`  > 抜粋: ${pageText.slice(0,300)}...`);
+                }
+                evidenceLines.push('');
               }
-              lines.push('');
-            }
-            return lines.join('\n');
-          }
 
-          async function main(){
-            const queries = await proposeQueries(draft.draftBody||'');
-            const results = [];
-            for(const q of queries){ results.push(await tavilySearch(q)); }
-            const evidence = formatEvidence(results);
-            const sys=[
-              'あなたは事実検証の専門家です。以下の原稿（note記事の下書き）に対し、提供されたエビデンス（Tavily検索結果）に基づき、',
-              '誤情報の修正・低信頼出典の置換・信頼できる一次情報の本文内Markdownリンク埋め込みを行って、修正後の本文のみ返してください。',
-              '文体・構成は原稿を尊重し、必要に応じて本文末尾に参考文献セクションを追加してください。',
-            ].join('\n');
-            const prompt = [
-              '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence
-            ].join('\n\n');
-            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt, temperature: 0.3, maxTokens: 30000 });
-            let body = stripCodeFence(text||'');
-            let title = process.env.TITLE || draft.title || '';
+              const evidence = evidenceLines.join('\n');
+              const sys = ['あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。','事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。','各節で出典を本文に埋めること。'].join('\n');
+              const prompt = [`{テーマ}: ${theme}`,`{ペルソナ}: ${target}`,`{収集したエビデンス}:`, evidence, '', 'これらの一次情報に基づき、最終レポート（Markdown）を作成してください。本文中に出典として Markdown リンクを必ず埋め込んでください。十分な分量（目安 2,000語以上）で、章ごとに小見出しを含めてください。'].join('\n\n');
+              const { text } = await generateText({ model, system: sys, prompt, temperature: 0.25, maxTokens: 30000 });
+              fs.writeFileSync(`${artifactsDir}/research.md`, String(text || '').trim());
+              fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify({ queries, evidenceLines }, null, 2));
+              console.log('Research complete. Wrote:', `${artifactsDir}/research.md`);
+            }catch(err){ console.error('Research failed:', err && err.message ? err.message : err); process.exit(1); }
+          })();
+          EOF
+          node research.mjs
             let tags = Array.isArray(draft.tags)? draft.tags: [];
             const obj = extractJsonFlexible(body);
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
@@ -719,3 +757,66 @@ jobs:
         with:
           name: note-screenshot
           path: ${{ steps.publish.outputs.screenshot }}
+
+  agent_sdk_debug:
+    name: Agent SDK preflight & diagnostic (manual)
+    if: ${{ github.event.inputs.sdk_debug == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Show node/npm
+        run: |
+          node -v
+          npm -v
+
+      - name: Install Agent SDK for diagnostics
+        run: |
+          npm init -y
+          npm uninstall @anthropic-ai/claude-code || true
+          npm i @anthropic-ai/claude-agent-sdk --no-audit --no-fund
+          npm ls @anthropic-ai/claude-agent-sdk @anthropic-ai/claude-code --depth=0 || true
+
+      - name: Dump CLI help
+        run: |
+          node node_modules/@anthropic-ai/claude-agent-sdk/cli.js --help > cli-help.txt 2>&1 || true
+          echo '--- END CLI HELP ---'
+          tail -n +1 cli-help.txt || true
+
+      - name: Agent SDK minimal query (diagnostic)
+        run: |
+          cat > agent_check.mjs <<'EOF'
+          import fs from 'fs';
+          try{
+            const { query } = await import('@anthropic-ai/claude-agent-sdk');
+            const prompt = '診断テスト: 簡潔に「動作確認」と返してください。';
+            const msgs = [];
+            for await (const m of query({ prompt, options: { model: 'claude-sonnet-4-5-20250929', systemPrompt: { type: 'preset', preset: 'claude_code' } } })){
+              msgs.push(m);
+            }
+            fs.writeFileSync('agent_check_trace.json', JSON.stringify(msgs, null, 2));
+            console.log('WROTE agent_check_trace.json');
+          }catch(e){
+            console.error('agent_check failed:', e && e.message ? e.message : e);
+            try{ fs.writeFileSync('agent_check_error.txt', String(e && e.stack ? e.stack : e)); }catch{}
+            process.exit(1);
+          }
+          EOF
+          node agent_check.mjs || true
+
+      - name: Upload agent SDK diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-sdk-diagnostics
+          path: |
+            cli-help.txt
+            agent_check_trace.json
+            agent_check_error.txt

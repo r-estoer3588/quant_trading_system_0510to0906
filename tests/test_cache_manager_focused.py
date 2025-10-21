@@ -2,8 +2,8 @@
 Simplified and focused CacheManager tests for maximum coverage boost
 """
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock
 
 import numpy as np
@@ -38,6 +38,8 @@ def simple_settings():
     rolling_config.days = 300
     rolling_config.base_lookback_days = 250
     rolling_config.buffer_days = 50
+    # Enable defensive recompute during read for tests
+    rolling_config.recompute_indicators_on_read = True
 
     cache_config.rolling = rolling_config
     settings.cache = cache_config
@@ -277,6 +279,32 @@ class TestCacheManagerReadWrite:
         # Should handle gracefully
         assert result is None or isinstance(result, pd.DataFrame)
 
+    def test_recompute_on_read_for_missing_indicators(
+        self, simple_settings, sample_ohlcv
+    ):
+        """
+        If a rolling file exists but lacks key indicators, read() should
+        attempt to recompute them and return an enriched DataFrame.
+        """
+        manager = CacheManager(simple_settings)
+
+        # Prepare a rolling CSV missing indicator columns (write date + OHLCV only)
+        df = sample_ohlcv.reset_index()
+        df = df.rename(columns={"index": "date"})
+        csv_path = manager.rolling_dir / "TST.csv"
+        manager.rolling_dir.mkdir(parents=True, exist_ok=True)
+        df.to_csv(csv_path, index=False)
+
+        # Ensure file exists
+        assert csv_path.exists()
+
+        # Read should trigger recompute and return DataFrame with drop3d
+        df_read = manager.read("TST", "rolling")
+        assert df_read is not None and isinstance(df_read, pd.DataFrame)
+        assert "drop3d" in df_read.columns
+        # At least one non-NaN value should exist for drop3d
+        assert df_read["drop3d"].dropna().any()
+
 
 class TestCacheManagerErrorHandling:
     """Test error handling scenarios"""
@@ -327,7 +355,8 @@ class TestCacheManagerBatch:
             for symbol in results:
                 assert symbol in symbols
                 # Each value should be None or DataFrame
-                assert results[symbol] is None or isinstance(results[symbol], pd.DataFrame)
+                val = results[symbol]
+                assert val is None or isinstance(val, pd.DataFrame)
 
 
 # Integration test that covers multiple methods

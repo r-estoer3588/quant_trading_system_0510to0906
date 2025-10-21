@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
+import os
+
 # ruff: noqa: E501
 # flake8: noqa: E501
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
-import os
 from pathlib import Path
 from typing import cast
 
@@ -190,6 +191,47 @@ class CacheManager:
                         logger.debug(f"Generated rolling cache for {ticker}")
                     except Exception as e:
                         logger.warning(f"Failed to save generated rolling for {ticker}: {e}")
+
+                # If rolling exists but lacks essential indicators, optionally
+                # attempt to recompute them on read to self-heal broken caches.
+                try:
+                    recompute_flag = bool(
+                        getattr(self.settings.cache.rolling, "recompute_indicators_on_read", True)
+                    )
+                except Exception:
+                    recompute_flag = True
+
+                if df is not None and recompute_flag:
+                    try:
+                        required_indicators = ["drop3d", "atr_ratio", "dollarvolume20"]
+                        missing = [
+                            c for c in required_indicators if c not in df.columns or df[c].isna().all()
+                        ]
+                        if missing:
+                            logger.info(
+                                f"Rolling cache for {ticker} missing indicators {missing}; attempting recompute"
+                            )
+                            recomputed = self._recompute_indicators(df)
+                            # Validate recompute produced usable values for the required indicators
+                            ok = True
+                            for c in required_indicators:
+                                if c not in recomputed.columns or recomputed[c].dropna().empty:
+                                    ok = False
+                                    break
+                            if ok:
+                                try:
+                                    # Persist recomputed rolling cache and use it for return
+                                    self.write_atomic(recomputed, ticker, "rolling")
+                                    df = recomputed
+                                    logger.info(f"Recomputed and saved rolling cache for {ticker}")
+                                except Exception as e:  # pragma: no cover - best-effort save
+                                    logger.warning(f"Failed to save recomputed rolling for {ticker}: {e}")
+                            else:
+                                logger.warning(
+                                    f"Recompute did not produce required indicators for {ticker}: {missing}"
+                                )
+                    except Exception as e:  # pragma: no cover - defensive
+                        logger.exception(f"Error during recompute indicators for {ticker}: {e}")
 
                 return cast(pd.DataFrame | None, df)
 

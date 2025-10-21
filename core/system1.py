@@ -53,6 +53,8 @@ class System1Diagnostics:
 
     # reason histogram
     exclude_reasons: DefaultDict[str, int] = field(default_factory=lambda: defaultdict(int))
+    # map reason -> set of symbols that were excluded for that reason
+    exclude_symbols: DefaultDict[str, set] = field(default_factory=lambda: defaultdict(set))
 
     def as_dict(self) -> dict[str, Any]:
         # normalize defaultdict to plain dict of ints
@@ -74,6 +76,8 @@ class System1Diagnostics:
             "date_fallback_count": int(self.date_fallback_count),
             "ranking_source": self.ranking_source,
             "exclude_reasons": {k: int(v) for k, v in dict(self.exclude_reasons).items()},
+            # normalize sets to sorted lists for JSON friendliness
+            "exclude_symbols": {k: sorted(list(v)) for k, v in dict(self.exclude_symbols).items()},
         }
 
 
@@ -145,6 +149,23 @@ def summarize_system1_diagnostics(
             summary["exclude_reasons"] = {name: count for name, count in reasons}
 
     return summary
+
+    def add_exclude(self, reason: str, symbol: str | None) -> None:
+        try:
+            r = str(reason)
+            self.exclude_reasons[r] += 1
+            if symbol:
+                try:
+                    self.exclude_symbols[r].add(str(symbol))
+                except Exception:
+                    # defensive: ignore symbol add errors
+                    pass
+        except Exception:
+            # keep diagnostics best-effort
+            try:
+                self.exclude_reasons["exception"] += 1
+            except Exception:
+                pass
 
 
 def _to_float(value: Any) -> float:

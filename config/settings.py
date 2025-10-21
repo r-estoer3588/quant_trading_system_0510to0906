@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
-import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +102,8 @@ class CacheRollingConfig:
     adaptive_report_seconds: int = 10
     # CSV ロケール設定
     csv: CsvConfig = field(default_factory=CsvConfig)
+    # ローリング読み込み時に必須指標が欠けていたら自動再計算する（テスト／運用で無効化可能）
+    recompute_indicators_on_read: bool = False
 
 
 @dataclass(frozen=True)
@@ -409,6 +411,7 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             max_stale_days=stale_days,
             max_symbols=max_symbols_final,
             round_decimals=rolling_round,
+            recompute_indicators_on_read=bool(rolling_cfg.get("recompute_indicators_on_read", True)),
             adaptive_window_count=_coerce_int(rolling_cfg.get("adaptive_window_count", 8), 8),
             adaptive_increase_threshold=float(rolling_cfg.get("adaptive_increase_threshold", 1.02)),
             adaptive_decrease_threshold=float(rolling_cfg.get("adaptive_decrease_threshold", 0.98)),
