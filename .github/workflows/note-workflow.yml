@@ -103,7 +103,7 @@ jobs:
         run: |
           cat > research.mjs <<'EOF'
           import fs from 'fs';
-          import cheerio from 'cheerio';
+          import { load } from 'cheerio';
           import { generateText } from 'ai';
           import { anthropic } from '@ai-sdk/anthropic';
 
@@ -135,7 +135,7 @@ jobs:
             try{
               const res = await fetch(`https://html.duckduckgo.com/html?q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
               const html = await res.text();
-              const $ = cheerio.load(html);
+              const $ = load(html);
               const results = [];
               $('a.result__a').each((i, el) => {
                 if (i>=6) return;
@@ -155,7 +155,7 @@ jobs:
               const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } , redirect: 'follow' });
               if(!res.ok) return '';
               const html = await res.text();
-              const $ = cheerio.load(html);
+              const $ = load(html);
               const text = ($('article').text() || $('main').text() || $('body').text() || '').replace(/\s+/g,' ').trim();
               return text.slice(0, 4000);
             }catch(e){ return ''; }
@@ -328,7 +328,7 @@ jobs:
           import fs from 'fs';
           import { generateText } from 'ai';
           import { anthropic } from '@ai-sdk/anthropic';
-          import cheerio from 'cheerio';
+          import { load } from 'cheerio';
 
           const theme = process.env.THEME || '';
           const target = process.env.TARGET || '';
@@ -360,7 +360,7 @@ jobs:
             try{
               const res = await fetch(`https://html.duckduckgo.com/html?q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
               const html = await res.text();
-              const $ = cheerio.load(html);
+              const $ = load(html);
               const results = [];
               $('a.result__a').each((i, el) => {
                 if (i>=6) return;
@@ -380,7 +380,7 @@ jobs:
               const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } , redirect: 'follow' });
               if(!res.ok) return '';
               const html = await res.text();
-              const $ = cheerio.load(html);
+              const $ = load(html);
               const text = ($('article').text() || $('main').text() || $('body').text() || '').replace(/\s+/g,' ').trim();
               return text.slice(0, 4000);
             }catch(e){ return ''; }

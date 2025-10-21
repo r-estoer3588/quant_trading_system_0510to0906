@@ -20,10 +20,10 @@
   Number of workers to pass to the recompute script. Default: 2
 #>
 param(
-  [switch]$DryRun,
-  [switch]$Execute,
-  [switch]$Backup,
-  [int]$Workers = 2
+    [switch]$DryRun,
+    [switch]$Execute,
+    [switch]$Backup,
+    [int]$Workers = 2
 )
 
 $ErrorActionPreference = 'Stop'

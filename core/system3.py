@@ -526,18 +526,19 @@ def generate_candidates_system3(
                                 diagnostics["mismatch_flag"] = 1
                             if (not final_ok_ex) or pd.isna(drop_val_ex):
                                 try:
-                                    if pred_reason_ex:
-                                        try:
-                                            key_ex = str(pred_reason_ex)
-                                            ex_reasons = diagnostics.get(
-                                                "exclude_reasons",
-                                                {},
-                                            )
-                                            prev_count = ex_reasons.get(key_ex, 0)
-                                            ex_reasons[key_ex] = prev_count + 1
-                                            diagnostics["exclude_reasons"] = ex_reasons
-                                        except Exception:
-                                            pass
+                                        if pred_reason_ex:
+                                            try:
+                                                from common.diagnostics_utils import (
+                                                    record_exclude,
+                                                )
+
+                                                record_exclude(
+                                                    diagnostics,
+                                                    str(pred_reason_ex),
+                                                    sym,
+                                                )
+                                            except Exception:
+                                                pass
                                 except Exception:
                                     pass
                                 continue
@@ -576,13 +577,9 @@ def generate_candidates_system3(
                 if dt is None:
                     # ラベル日が解決できない場合は除外
                     try:
-                        ex_reasons = diagnostics.get(
-                            "exclude_reasons",
-                            {},
-                        )
-                        prev_inv = ex_reasons.get("invalid_date_label", 0)
-                        ex_reasons["invalid_date_label"] = prev_inv + 1
-                        diagnostics["exclude_reasons"] = ex_reasons
+                        from common.diagnostics_utils import record_exclude
+
+                        record_exclude(diagnostics, "invalid_date_label", sym)
                     except Exception:
                         pass
                     continue
@@ -606,10 +603,9 @@ def generate_candidates_system3(
                 if not final_ok:
                     try:
                         if pred_reason:
-                            key = str(pred_reason)
-                            diagnostics["exclude_reasons"][key] = (
-                                diagnostics["exclude_reasons"].get(key, 0) + 1
-                            )
+                            from common.diagnostics_utils import record_exclude
+
+                            record_exclude(diagnostics, str(pred_reason), sym)
                     except Exception:
                         pass
                     continue

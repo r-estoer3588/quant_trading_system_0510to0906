@@ -63,8 +63,8 @@ def post_slack(webhook: str, text: str) -> bool:
         return resp.status_code == 200
     except Exception:
         try:
-            import urllib.request
             import json as _json
+            import urllib.request
 
             data = _json.dumps({'text': text}).encode('utf8')
             req = urllib.request.Request(
