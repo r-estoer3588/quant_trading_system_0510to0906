@@ -6,9 +6,10 @@ dropped (e.g., already_selected).
 
 from __future__ import annotations
 
-from pathlib import Path
-import pandas as pd
 import json
+from pathlib import Path
+
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 REPRO = ROOT / "repro_payloads"

@@ -77,6 +77,7 @@ from common import broker_alpaca as ba
 from common.alpaca_order import submit_orders_df
 from common.cache_manager import CacheManager, load_base_cache
 from common.dataframe_utils import round_dataframe  # noqa: E402
+from common.exit_analysis import analyze_exit_candidates as analyze_exit_candidates_common
 from common.indicator_access import get_indicator, is_true, to_float
 from common.latest_day_validator import (
     get_exclusion_stats,
@@ -92,7 +93,6 @@ from common.stage_metrics import GLOBAL_STAGE_METRICS, StageEvent, StageSnapshot
 from common.structured_logging import MetricsCollector
 from common.symbol_universe import build_symbol_universe_from_settings
 from common.system_diagnostics import get_diagnostics_with_fallback
-from common.exit_analysis import analyze_exit_candidates as analyze_exit_candidates_common
 
 # 抽出: データローダ関数は common.today_data_loader へ分離
 from common.today_data_loader import load_basic_data

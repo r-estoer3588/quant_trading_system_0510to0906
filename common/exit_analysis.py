@@ -7,12 +7,12 @@ import pandas as pd
 
 from common import broker_alpaca as ba
 from common.data_loader import load_price
+from common.exit_planner import decide_exit_schedule
 from common.position_age import (
     fetch_entry_dates_from_alpaca,
     load_entry_dates,
     save_entry_dates,
 )
-from common.exit_planner import decide_exit_schedule
 from common.utils_spy import get_latest_nyse_trading_day
 from core.final_allocation import load_symbol_system_map
 
@@ -24,7 +24,6 @@ from strategies.system4_strategy import System4Strategy
 from strategies.system5_strategy import System5Strategy
 from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
-
 
 STRATEGY_CLASS_MAP: dict[str, Callable[[], Any]] = {
     "system1": System1Strategy,
