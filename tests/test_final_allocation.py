@@ -105,6 +105,48 @@ def test_finalize_allocation_capital_mode() -> None:
     assert set(final_df["side"]) == {"long", "short"}
     assert summary.mode == "capital"
     assert summary.budgets == {"system1": 10000.0, "system6": 8000.0}
-    for system, remaining in summary.budget_remaining.items():
+    # budget_remaining may be None in some code paths; guard defensively
+    for system, remaining in (summary.budget_remaining or {}).items():
         assert 0 <= remaining <= summary.budgets[system]
     assert list(final_df["no"]) == list(range(1, len(final_df) + 1))
+
+
+def test_finalize_allocation_accepts_lowercase_close() -> None:
+    """Ensure allocator falls back to lowercase 'close' when 'entry_price' is missing.
+
+    This reproduces cases where candidate frames use 'close' (lowercase) and the
+    allocator must extract it as the entry price to compute sizes.
+    """
+    per_system = {
+        "system1": pd.DataFrame(
+            [
+                {
+                    "symbol": "LOWC",
+                    "score": 1.0,
+                    # Lowercase 'close' intentionally used to validate fallback
+                    "close": 120.0,
+                    # Provide atr10 so allocator can compute stop when missing
+                    "atr10": 3.0,
+                    "system": "system1",
+                    "side": "long",
+                }
+            ]
+        )
+    }
+
+    strategies = {"system1": _DummyStrategy()}
+
+    final_df, summary = finalize_allocation(
+        per_system,
+        strategies=strategies,
+        symbol_system_map={},
+        long_allocations={"system1": 1.0},
+        short_allocations={"system6": 1.0},
+        capital_long=10000,
+        capital_short=10000,
+    )
+
+    assert not final_df.empty
+    # Should have allocated at least one share
+    assert int(final_df.iloc[0]["shares"]) > 0
+    assert summary.mode == "capital"

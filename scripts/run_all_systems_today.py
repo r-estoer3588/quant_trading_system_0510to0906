@@ -1499,6 +1499,18 @@ def _export_diagnostics_snapshot(
                     )
                 except Exception:
                     extras = {}
+                # If the overall allocation step attached allocator_excludes into
+                # the top-level diagnostics, merge those into diagnostics_extra
+                try:
+                    alloc_ex = safe_diag.get("allocator_excludes") or raw_diag.get(
+                        "allocator_excludes"
+                    )
+                    if alloc_ex:
+                        extras = dict(extras or {})
+                        extras["allocator_excludes"] = alloc_ex
+                except Exception:
+                    # ignore errors while enriching extras
+                    pass
                 systems_payload.append(
                     {
                         "system_id": sys_id,
@@ -1517,8 +1529,30 @@ def _export_diagnostics_snapshot(
             "systems": systems_payload,
         }
 
+        # Normalize snapshot: convert any set to sorted list so JSON is stable
+        def _normalize(obj: object) -> object:
+            # Recursively convert sets to sorted lists, and apply to lists/dicts
+            try:
+                if isinstance(obj, dict):
+                    return {k: _normalize(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_normalize(v) for v in obj]
+                if isinstance(obj, set):
+                    try:
+                        return sorted(list(obj))
+                    except Exception:
+                        return sorted([str(x) for x in obj])
+                return obj
+            except Exception:
+                try:
+                    return str(obj)
+                except Exception:
+                    return obj
+
+        norm_snapshot = _normalize(snapshot)
+
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)
+            json.dump(norm_snapshot, f, indent=2, ensure_ascii=False, default=str)
 
         _log(
             f"🧪 Diagnostics snapshot exported: {out_path.relative_to(base_dir)}",
@@ -5541,6 +5575,20 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             available_slots={},
             final_counts={},
         )
+
+    # Attach allocation-level diagnostics into ctx.system_diagnostics so the
+    # diagnostics snapshot exporter can include allocator_excludes and other
+    # allocation metadata for triage tools.
+    try:
+        alloc_diag = getattr(allocation_summary, "system_diagnostics", None)
+        if alloc_diag:
+            try:
+                ctx.system_diagnostics = getattr(ctx, "system_diagnostics", {}) or {}
+                ctx.system_diagnostics.setdefault("__allocation__", alloc_diag)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # Progress: phase5 complete (emit brief summary)
     try:

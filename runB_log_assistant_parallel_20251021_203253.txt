@@ -1,0 +1,118 @@
+[20:32:55 | 0蛻・0遘綻  繝ｭ繧ｰ菫晏ｭ伜・: C:\Repos\quant_trading_system\logs\today_signals_20251021_2032.log
+[20:32:55 | 0蛻・0遘綻  繝・ヰ繝・げ: compute_today_signals髢句ｧ・
+####################################################################
+#   譛ｬ譌･縺ｮ繧ｷ繧ｰ繝翫Ν 螳溯｡碁幕蟋・(Engine)
+# 竢ｱ・・2025-10-21 20:32:57 | RUN-ID: 3343c098
+####################################################################
+
+ 繧ｨ繝ｳ繝医Μ繝ｼ莠亥ｮ壽律(NYSE): 2025-10-21
+ 繧ｷ繧ｰ繝翫Ν蝓ｺ貅匁律(蜑榊霧讌ｭ譌･): 2025-10-20
+i・・豕ｨ: EODHD縺ｯ蠖捺律邨ょ､縺梧悴蜿肴丐縺ｮ縺溘ａ縲∫峩霑大霧讌ｭ譌･繝吶・繧ｹ縺ｧ險育ｮ励＠縺ｾ縺吶・
+
+[20:32:57 | 0蛻・1遘綻 笞｡ 螟夜ΚAPI蜻ｼ縺ｳ蜃ｺ縺励ｒ繧ｹ繧ｭ繝・・ - 繧ｭ繝｣繝・す繝･縺九ｉ驫俶氛繝ｪ繧ｹ繝医ｒ讒狗ｯ・
+[20:32:57 | 0蛻・1遘綻  繧ｷ繝ｳ繝懊Ν謨ｰ繧貞宛髯・(test-mode=mini=10)
+[20:32:57 | 0蛻・1遘綻  蟇ｾ雎｡繧ｷ繝ｳ繝懊Ν謨ｰ: 11 | 驫俶氛謨ｰ:10
+#  驫俶氛謨ｰ:10
+[20:32:57 | 0蛻・1遘綻  繧ｵ繝ｳ繝励Ν: SPY, A, AA, AACB, AACBR, AACBU, AACG, AACI, AACIU, AAL...
+[20:32:57 | 0蛻・1遘綻 [WARNING] [TST-FRESHNESS] 繝・せ繝医Δ繝ｼ繝・ 蝓ｺ譛ｬ繝・・繧ｿ縺ｮ魄ｮ蠎ｦ險ｱ螳ｹ繧・365 蝟ｶ讌ｭ譌･縺ｸ邱ｩ蜥後＠縺ｾ縺・(rolling cache 讀懆ｨｼ)
+[20:33:42 | 0蛻・6遘綻  繝・・繧ｿ繧ｫ繝舌Ξ繝・ず: rolling蜿門ｾ玲ｸ医∩ 11/11 | missing=0
+[20:33:42 | 0蛻・6遘綻  Phase 0: rolling 繧ｭ繝｣繝・す繝･縺ｮ譛譁ｰ蝟ｶ讌ｭ譌･繝√ぉ繝・け荳ｭ (譛溷ｾ・律: 2025-10-20)...
+[20:33:42 | 0蛻・6遘綻 i・・險ｱ螳ｹ驕・ｻｶ: 驕主悉 2 蝟ｶ讌ｭ譌･縺ｾ縺ｧ繧呈怏蜉ｹ縺ｨ縺ｿ縺ｪ縺励※縺・∪縺・(蝓ｺ貅匁律: 2025-10-20)
+[20:33:42 | 0蛻・6遘綻 笨・Phase 0 螳御ｺ・ 11 驫俶氛縺悟・逅・ｯｾ雎｡(0 驫俶氛繧帝勁螟・
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吩ｺ句燕險育ｮ礼憾豕√ｒ繝√ぉ繝・け荳ｭ...
+[20:33:42 | 0蛻・6遘綻 笨・謖・ｨ吩ｺ句燕險育ｮ励メ繧ｧ繝・け: 蜈ｨ縺ｦ豁｣蟶ｸ
+[20:33:42 | 0蛻・6遘綻  莠句燕繝輔ぅ繝ｫ繧ｿ繝ｼ螳溯｡御ｸｭ (system1縲徭ystem6)...
+[FDBG system1] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system1] total=11 price=9 dv=4 final=4 | price%=81.8 dv%=36.4
+[FDBG system2] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system2] total=11 price=9 dv=4 atr=2 atrMiss=0 atrBelow=2 final=2 | price%=81.8 dv%=36.4 atr%=18.2
+[FDBG system3] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system3] total=11 low=10 avgvol=4 atr=0 atrMiss=0 atrBelow=4 final=0 | low%=90.9 avgvol%=36.4 atr%=0.0
+[FDBG system4] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system4] total=11 dv=4 hv=2 hvMiss=0 hvRange=2 final=2 | dv%=36.4 hv%=18.2
+[FDBG system5] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system5] total=11 avgvol=4 dv=4 atr=2 atrMiss=0 atrBelow=2 final=2 | avgvol%=36.4 dv%=36.4 atr%=18.2
+[FDBG system6] debug-enabled FILTER_DEBUG=1 (init)
+[FDBG system6] total=11 low=9 dv=4 hv=2 hvMiss=0 hvRange=2 final=2 | low%=81.8 dv%=36.4 hv%=18.2
+[20:33:42 | 0蛻・6遘綻  system1蜀・ｨｳ: 蜈・11, 萓｡譬ｼ>=5: 9, DV20>=50M: 4
+[20:33:42 | 0蛻・6遘綻  system2蜀・ｨｳ: 蜈・11, 萓｡譬ｼ>=5: 9, DV20>=25M: 4, ATR豈皮紫>=3%: 2
+[20:33:42 | 0蛻・6遘綻  system3蜀・ｨｳ: 蜈・11, Low>=1: 10, AvgVol50>=1M: 4, ATR_Ratio>=5.0%: 0
+[20:33:42 | 0蛻・6遘綻  system4蜀・ｨｳ: 蜈・11, DV50>=100M: 4, HV50 10縲・0: 2
+[20:33:42 | 0蛻・6遘綻  system5蜀・ｨｳ: 蜈・11, AvgVol50>500k: 4, DV50>2.5M: 4, ATR_Pct>2.5%: 2
+[20:33:42 | 0蛻・6遘綻  system6蜀・ｨｳ: 蜈・11, Low>=5: 9, DV50>10M: 4
+[20:33:42 | 0蛻・6遘綻  system7蜀・ｨｳ: SPY蝗ｺ螳・| SPY蟄伜惠=1
+[20:33:42 | 0蛻・6遘綻  繝輔ぅ繝ｫ繧ｿ繝ｼ邨先棡: system1=4莉ｶ, system2=2莉ｶ, system3=0莉ｶ, system4=2莉ｶ, system5=2莉ｶ, system6=2莉ｶ, system7=1莉ｶ
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system1=4驫俶氛
+[20:33:42 | 0蛻・6遘綻  system1繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=4, SPY>SMA100: 1, SMA25>SMA50: 3
+[DEBUG_S1_COLS] sym=SPY df_cols=['date', 'atr10', 'atr20', 'atr40', 'atr50', 'sma25', 'sma50', 'sma100', 'sma150', 'sma200', 'roc200', 'rsi3', 'rsi4', 'adx7', 'dollarvolume20', 'dollarvolume50', 'avgvolume50', 'atr_ratio', 'atr_pct', 'return_3d', 'return_6d', 'return_pct', 'uptwodays', 'twodayup', 'drop3d', 'hv50', 'min_50', 'max_70', 'Open', 'High', 'Low', 'Close', 'Volume', 'adjclose', 'Date']
+[DEBUG_S1_ONCE] sym=SPY sma25_raw=664.71 sma50_raw=655.35 cols_sample=['date', 'atr10', 'atr20', 'atr40', 'atr50', 'sma25', 'sma50', 'sma100', 'sma150', 'sma200', 'roc200', 'rsi3', 'rsi4', 'adx7', 'dollarvolume20', 'dollarvolume50', 'avgvolume50', 'atr_ratio', 'atr_pct', 'return_3d', 'return_6d', 'return_pct', 'uptwodays', 'twodayup', 'drop3d']
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system2=2驫俶氛
+[20:33:42 | 0蛻・6遘綻  system2繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=2, RSI3>90: 0, TwoDayUp: 0
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system3=0驫俶氛
+[20:33:42 | 0蛻・6遘綻  system3繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=0, Close>SMA150: 0, 3譌･荳玖誠邇・=12.5%: 0
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system4=2驫俶氛
+[20:33:42 | 0蛻・6遘綻  system4繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=2, Close>SMA200: 2
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system5=2驫俶氛
+[20:33:42 | 0蛻・6遘綻  system5繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=2, Close>SMA100+ATR10: 1, ADX7>55: 0, RSI3<50: 0
+[20:33:42 | 0蛻・6遘綻  謖・ｨ吶ョ繝ｼ繧ｿ: system6=2驫俶氛
+[20:33:42 | 0蛻・6遘綻  system6繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=2, return_6d>20%: 0, UpTwoDays: 2
+[20:33:42 | 0蛻・6遘綻  system7繧ｻ繝・ヨ繧｢繝・・蜀・ｨｳ: 繝輔ぅ繝ｫ繧ｿ騾夐℃=1, Low<=min_50: 0
+[20:33:42 | 0蛻・6遘綻  繧ｻ繝・ヨ繧｢繝・・邨先棡: system1=3莉ｶ, system2=0莉ｶ, system3=0莉ｶ, system4=2莉ｶ, system5=0莉ｶ, system6=0莉ｶ, system7=0莉ｶ
+[20:33:42 | 0蛻・6遘綻  蜷・す繧ｹ繝・Β縺ｮ蠖捺律繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:42 | 0蛻・6遘綻 笆ｶ system1 髢句ｧ・
+[20:33:42 | 0蛻・6遘綻 [system1]  system1: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:42 | 0蛻・6遘綻 [system1] DEBUG call generate_candidates latest_only=True
+[20:33:43 | 0蛻・8遘綻 [system1] DEBUG get_today_signals returned 3 rows
+[20:33:43 | 0蛻・8遘綻 [system1] 笨・system1: 3 莉ｶ
+[20:33:43 | 0蛻・8遘綻 笨・system1 螳御ｺ・ 3莉ｶ
+[20:33:43 | 0蛻・8遘綻 笆ｶ system2 髢句ｧ・
+[20:33:43 | 0蛻・8遘綻 [system2]  system2: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:45 | 0蛻・9遘綻 [system2] 笶・system2: 0 莉ｶ
+[20:33:45 | 0蛻・9遘綻 笨・system2 螳御ｺ・ 0莉ｶ
+[20:33:45 | 0蛻・9遘綻 笆ｶ system3 髢句ｧ・
+[20:33:45 | 0蛻・9遘綻 [system3]  system3: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:45 | 0蛻・9遘綻 [system3] 笶・system3: 0 莉ｶ
+[20:33:45 | 0蛻・9遘綻 [system3] 蛟呵｣・莉ｶ險ｺ譁ｭ: top_n=10, reason=no_prepared_data, rows_total=0, rows_for_label_date=0, lagged_rows=0, drop3d_stats=nan_count=0
+[20:33:45 | 0蛻・9遘綻 [system3] thresholds=drop3d:0.125, atr_ratio:0.05; exclude_reasons: none
+[20:33:45 | 0蛻・9遘綻 笨・system3 螳御ｺ・ 0莉ｶ
+[20:33:45 | 0蛻・9遘綻 笆ｶ system4 髢句ｧ・
+[20:33:45 | 0蛻・9遘綻 [system4]  system4: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:47 | 0蛻・1遘綻 [system4] 笨・system4: 2 莉ｶ
+[20:33:47 | 0蛻・1遘綻 笨・system4 螳御ｺ・ 2莉ｶ
+[20:33:47 | 0蛻・1遘綻 笆ｶ system5 髢句ｧ・
+[20:33:47 | 0蛻・1遘綻 [system5]  system5: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:47 | 0蛻・1遘綻 [system5] 笶・system5: 0 莉ｶ
+[20:33:47 | 0蛻・1遘綻 笨・system5 螳御ｺ・ 0莉ｶ
+[20:33:47 | 0蛻・1遘綻 笆ｶ system6 髢句ｧ・
+[20:33:47 | 0蛻・1遘綻 [system6]  system6: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:48 | 0蛻・2遘綻 [system6] 笶・system6: 0 莉ｶ
+[20:33:48 | 0蛻・2遘綻 笨・system6 螳御ｺ・ 0莉ｶ
+[20:33:48 | 0蛻・2遘綻 笆ｶ system7 髢句ｧ・
+[20:33:48 | 0蛻・2遘綻 [system7]  system7: 繧ｷ繧ｰ繝翫Ν謚ｽ蜃ｺ繧帝幕蟋・
+[20:33:50 | 0蛻・4遘綻 [system7] 笶・system7: 0 莉ｶ
+[20:33:50 | 0蛻・4遘綻 笨・system7 螳御ｺ・ 0莉ｶ
+[20:33:50 | 0蛻・4遘綻  譛邨ょ呵｣應ｻｶ謨ｰ: 3
+[20:33:50 | 0蛻・4遘綻 笨・system1: 2 莉ｶ
+[20:33:50 | 0蛻・4遘綻 笨・system4: 1 莉ｶ
+[20:33:50 | 0蛻・4遘綻  Diagnostics snapshot exported: diagnostics_test\diagnostics_snapshot_20251021_203350.json
+[20:33:50 | 0蛻・4遘綻  Discrepancy Triage Results:
+[20:33:50 | 0蛻・4遘綻   === Candidate Discrepancy Triage Summary ===
+[20:33:50 | 0蛻・4遘綻   笨・[system1] Setup 3 == Final 3
+[20:33:50 | 0蛻・4遘綻   笨・[system2] Setup 0 == Final 0
+[20:33:50 | 0蛻・4遘綻   笨・[system3] Setup 0 == Final 0
+[20:33:50 | 0蛻・4遘綻   笨・[system4] Setup 2 == Final 2
+[20:33:50 | 0蛻・4遘綻   笨・[system5] Setup 0 == Final 0
+[20:33:50 | 0蛻・4遘綻   笨・[system6] Setup 0 == Final 0
+[20:33:50 | 0蛻・4遘綻   笨・[system7] Setup 0 == Final 0
+[20:33:50 | 0蛻・4遘綻
+[20:33:50 | 0蛻・4遘綻   Category Summary:
+[20:33:50 | 0蛻・4遘綻     exact_match: 7 system(s)
+[20:33:50 | 0蛻・4遘綻  Discrepancy triage exported: diagnostics_test\discrepancy_triage_20251021_203350.json
+[20:33:51 | 0蛻・5遘綻  菫晏ｭ・ C:\Repos\quant_trading_system\results_csv\run_assistant_parallel_20251021_203253 縺ｫCSV繧呈嶌縺榊・縺励∪縺励◆
+[20:33:51 | 0蛻・5遘綻 笨・CSV菫晏ｭ倡｢ｺ隱・ signals_final_2025-10-21.csv (3陦・
+[20:33:51 | 0蛻・5遘綻 讀懆ｨｼOK: validation_report_2025-10-21.json 縺ｫ隧ｳ邏ｰ繧剃ｿ晏ｭ倥＠縺ｾ縺励◆
+[20:33:51 | 0蛻・5遘綻 笨・繧ｷ繧ｰ繝翫Ν讀懷・蜃ｦ逅・邨ゆｺ・| 譛邨ょ呵｣・3 莉ｶ
+####################################################################
+#   譛ｬ譌･縺ｮ繧ｷ繧ｰ繝翫Ν 螳溯｡檎ｵゆｺ・(Engine)
+# 竢ｱ・・2025-10-21 20:33:51 | RUN-ID: 7828822c
+####################################################################

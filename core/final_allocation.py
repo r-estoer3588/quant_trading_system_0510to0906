@@ -595,6 +595,8 @@ class CapitalAllocationResult:
     budgets: dict[str, float]
     remaining: dict[str, float]
     counts: dict[str, int]
+    # Optional allocator-level exclusion reasons recorded as reason->set(symbols)
+    allocator_excludes: dict[str, set[str]] | None = None
 
 
 def _concat_nonempty(frames: list[pd.DataFrame]) -> pd.DataFrame:
@@ -647,6 +649,9 @@ def _allocate_by_capital(
             budgets[name] = 0.0
     remaining = budgets.copy()
 
+    # Track allocator-level exclusions for diagnostics: reason -> set(symbols)
+    allocator_excludes: dict[str, set[str]] = {}
+
     if debug_mode:
         logger.info(
             "[ALLOC_DEBUG] Starting capital allocation: side=%s, total_budget=$%s",
@@ -693,7 +698,7 @@ def _allocate_by_capital(
             if (not _math.isfinite(risk_pct)) or risk_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        "[ALLOC_DEBUG] %s: risk_pct=%s invalid -> fallback to default 0.020",
+                        "[ALLOC_DEBUG] %s: invalid risk_pct=%s, using 0.02",
                         name,
                         risk_pct,
                     )
@@ -701,7 +706,7 @@ def _allocate_by_capital(
             if (not _math.isfinite(max_pct)) or max_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        "[ALLOC_DEBUG] %s: max_pct=%s invalid -> fallback to default 0.100",
+                        "[ALLOC_DEBUG] %s: invalid max_pct=%s, using 0.10",
                         name,
                         max_pct,
                     )
@@ -833,6 +838,15 @@ def _allocate_by_capital(
                                 name,
                                 sym,
                             )
+                    # record allocator exclusion for already-selected symbols
+                    try:
+                        if sym and sym in chosen_symbols:
+                            tmp_set = allocator_excludes.setdefault(
+                                "already_selected", set()
+                            )
+                            tmp_set.add(sym)
+                    except Exception:
+                        pass
                     continue
 
                 # entry_price/stop_price の取得 - 存在しない場合は Close/ATR から計算
@@ -842,11 +856,16 @@ def _allocate_by_capital(
                 # Fallback: entry_price が存在しない場合は Close を使用
                 if entry is None or entry <= 0:
                     entry = _safe_positive_float(row.get("Close"), allow_zero=False)
+                    source_used = "Close"
+                    if (entry is None or entry <= 0) and "close" in row:
+                        entry = _safe_positive_float(row.get("close"), allow_zero=False)
+                        source_used = "close"
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            "[ALLOC_DEBUG] %s %s: Using Close as entry_price=%s",
+                            "[ALLOC_DEBUG] %s %s: Using %s as entry_price=%s",
                             name,
                             sym,
+                            source_used,
                             entry,
                         )
 
@@ -871,7 +890,7 @@ def _allocate_by_capital(
 
                         if debug_mode and round_num <= 2:
                             logger.debug(
-                                "[ALLOC_DEBUG] %s %s: Calculated stop_price=%s from entry=%s atr=%s",
+                                "[ALLOC_DEBUG] %s %s: calc stop=%s entry=%s atr=%s",
                                 name,
                                 sym,
                                 stop,
@@ -888,6 +907,15 @@ def _allocate_by_capital(
                             entry,
                             stop,
                         )
+                    try:
+                        if sym:
+                            tmp_set = allocator_excludes.setdefault(
+                                "invalid_price",
+                                set(),
+                            )
+                            tmp_set.add(sym)
+                    except Exception:
+                        pass
                     continue
 
                 desired_shares = 0
@@ -940,24 +968,25 @@ def _allocate_by_capital(
                                     else:
                                         shares_by_capital = 0
                                         shares_by_cash = 0
-                                    # Log shares calculation details
+                                    # Log shares calculation details (compact)
                                     try:
                                         logger.info(
-                                            "[ALLOC_DEBUG] %s %s: shares_calc rem=$%s "
-                                            "entry=%s stop=%s "
-                                            "risk_pct=%.4f max_pct=%.4f "
-                                            "rps=%s shr_risk=%s "
-                                            "shr_cap=%s shr_cash=%s desired=%s",
+                                            "[ALLOC_DEBUG] %s %s: shares_calc rem=$%s",
                                             name,
                                             sym,
                                             f"{rem_cap:.0f}",
-                                            e,
-                                            s,
-                                            float(meta.risk_pct),
-                                            float(meta.max_pct),
-                                            (f"{rps:.4f}" if rps else "0"),
+                                        )
+                                        logger.debug(
+                                            "[A] %s %s: risk=%s cap=%s",
+                                            name,
+                                            sym,
                                             shares_by_risk,
                                             shares_by_capital,
+                                        )
+                                        logger.debug(
+                                            "[A] %s %s: cash=%s desired=%s",
+                                            name,
+                                            sym,
                                             shares_by_cash,
                                             desired_shares,
                                         )
@@ -970,11 +999,9 @@ def _allocate_by_capital(
                         else:
                             if debug_mode and round_num <= 2:
                                 logger.debug(
-                                    "[ALLOC_DEBUG] %s %s: Invalid entry/stop entry_price=%s stop_price=%s",
+                                    "[ALLOC_DEBUG] %s %s: Invalid entry/stop",
                                     name,
                                     sym,
-                                    entry_price,
-                                    stop_price,
                                 )
                     except Exception as e:
                         desired_shares = 0
@@ -1001,6 +1028,15 @@ def _allocate_by_capital(
                             sym,
                             desired_shares,
                         )
+                    try:
+                        if sym:
+                            tmp_set = allocator_excludes.setdefault(
+                                "desired_shares_zero",
+                                set(),
+                            )
+                            tmp_set.add(sym)
+                    except Exception:
+                        pass
                     continue
 
                 max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
@@ -1008,26 +1044,34 @@ def _allocate_by_capital(
                 if debug_mode and round_num <= 3:
                     try:
                         logger.info(
-                            "[ALLOC_DEBUG] %s %s: shares_decision desired=%s max_by_cash=%s -> shares=%s",
+                            "[ALLOC_DEBUG] %s %s: shares=%s (desired=%s maxcash=%s)",
                             name,
                             sym,
+                            shares,
                             desired_shares,
                             max_by_cash,
-                            shares,
                         )
                     except Exception:
                         pass
                 if shares <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            "[ALLOC_DEBUG] %s %s: No cash shares=%s (desired=%s, max_cash=%s, remaining=$%s)",
+                            "[ALLOC_DEBUG] %s %s: No cash shares=%s desired=%s rem=$%s",
                             name,
                             sym,
                             shares,
                             desired_shares,
-                            max_by_cash,
                             f"{remaining[name]:.0f}",
                         )
+                    try:
+                        if sym:
+                            tmp_set = allocator_excludes.setdefault(
+                                "no_cash_shares",
+                                set(),
+                            )
+                            tmp_set.add(sym)
+                    except Exception:
+                        pass
                     continue
 
                 position_value = shares * abs(entry)
@@ -1039,6 +1083,15 @@ def _allocate_by_capital(
                             sym,
                             position_value,
                         )
+                    try:
+                        if sym:
+                            tmp_set = allocator_excludes.setdefault(
+                                "position_value_zero",
+                                set(),
+                            )
+                            tmp_set.add(sym)
+                    except Exception:
+                        pass
                     continue
 
                 # 成功 - ポジション追加
@@ -1062,7 +1115,7 @@ def _allocate_by_capital(
 
                 if debug_mode:
                     logger.debug(
-                        "[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s value=$%s remaining=$%s",
+                        "[ALLOC_DEBUG] %s %s: ALLOC shares=%s val=$%s rem=$%s",
                         name,
                         sym,
                         shares,
@@ -1113,6 +1166,7 @@ def _allocate_by_capital(
         budgets=budgets,
         remaining=remaining,
         counts=counts,
+        allocator_excludes=allocator_excludes,
     )
 
 
@@ -1473,6 +1527,20 @@ def finalize_allocation(
                     active_positions=active_positions,
                 )
 
+                # Record allocator-level excludes into diagnostics so that
+                # exported snapshots can attribute dropped symbols to allocator
+                try:
+                    diagnostics.setdefault("allocator_excludes", {})
+                    diagnostics["allocator_excludes"]["long"] = (
+                        long_sized.allocator_excludes or {}
+                    )
+                    diagnostics["allocator_excludes"]["short"] = (
+                        short_sized.allocator_excludes or {}
+                    )
+                except Exception:
+                    # non-fatal for allocation flow
+                    pass
+
                 # 非空のみ連結（FutureWarning 回避のため all-NA は除外）
                 def _is_effectively_empty(_df: pd.DataFrame) -> bool:
                     try:
@@ -1607,6 +1675,18 @@ def finalize_allocation(
                 "remaining": dict(short_result.remaining),
                 "counts": dict(short_result.counts),
             }
+            # Attach allocator-level excludes (reason -> set(symbols)) from
+            # the capital allocation runs so snapshots include allocator reasons.
+            try:
+                diagnostics.setdefault("allocator_excludes", {})
+                diagnostics["allocator_excludes"]["long"] = (
+                    long_result.allocator_excludes or {}
+                )
+                diagnostics["allocator_excludes"]["short"] = (
+                    short_result.allocator_excludes or {}
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 

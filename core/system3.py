@@ -548,6 +548,7 @@ def generate_candidates_system3(
                             except Exception:
                                 entry_dt_ex = None
                             atr_payload_ex = 0 if pd.isna(atr_val_ex) else atr_val_ex
+                            close_val_ex = last_row.get("Close", 0)
                             lagged_rows.append(
                                 {
                                     "symbol": sym,
@@ -555,7 +556,8 @@ def generate_candidates_system3(
                                     "entry_date": entry_dt_ex,
                                     "drop3d": drop_val_ex,
                                     "atr_ratio": atr_payload_ex,
-                                    "close": last_row.get("Close", 0),
+                                    "Close": close_val_ex,
+                                    "close": close_val_ex,
                                 }
                             )
                             continue
@@ -631,6 +633,9 @@ def generate_candidates_system3(
                 except Exception:
                     pass
 
+                # Produce canonical column names for downstream consumers.
+                # Keep backward-compatible lower-case keys as well for tools/tests.
+                close_val = last_row.get("Close", 0)
                 rows.append(
                     {
                         "symbol": sym,
@@ -638,8 +643,10 @@ def generate_candidates_system3(
                         "entry_date": entry_dt,
                         "drop3d": drop_val,
                         "atr_ratio": atr_payload,
-                        "close": last_row.get("Close", 0),
+                        "Close": close_val,
+                        "close": close_val,
                         "atr10": atr10_val,
+                        "ATR10": atr10_val,
                     }
                 )
             except Exception:
@@ -863,17 +870,27 @@ def generate_candidates_system3(
 
         # 診断用: ラベル日・フィルタ後件数・統計
         try:
+            # Record the chosen label date (ISO format) when available.
             if final_label_date is not None:
                 diag_label = pd.Timestamp(str(final_label_date)).isoformat()
                 diagnostics["label_date"] = diag_label
+            else:
+                diagnostics["label_date"] = None
         except Exception:
             diagnostics["label_date"] = None
-            try:
-                diag_counts = diagnostics.get("ranking_input_counts", {})
-                diag_counts["rows_for_label_date"] = int(len(filtered))
-                diagnostics["ranking_input_counts"] = diag_counts
-            except Exception:
-                pass
+
+        # Ensure the diagnostics always contain the number of rows for the
+        # selected label date. Previously this was only set in an error
+        # path which resulted in rows_for_label_date being reported as 0
+        # even when candidates existed for that date.
+        try:
+            diag_counts = diagnostics.get("ranking_input_counts", {})
+            # Keep lines short for linters
+            rows_for_label = int(len(filtered) if filtered is not None else 0)
+            diag_counts["rows_for_label_date"] = rows_for_label
+            diagnostics["ranking_input_counts"] = diag_counts
+        except Exception:
+            pass
 
         # 有効な drop3d 指標の分布を可視化（NaN 含む）
         try:
@@ -1042,18 +1059,22 @@ def generate_candidates_system3(
             sub_sorted = sub.sort_values("drop3d", ascending=False, kind="stable")
             by_date[dt] = []
             for rec in sub_sorted.to_dict("records"):
+                # Normalize record keys: ensure canonical 'Close' and 'atr10'
+                rec_close = rec.get("Close", rec.get("close"))
+                rec_atr10 = rec.get("atr10", rec.get("ATR10", 0))
                 item: dict[str, Any] = {
                     "symbol": rec.get("symbol"),
                     "date": dt,
                     "drop3d": rec.get("drop3d"),
                     "atr_ratio": rec.get("atr_ratio"),
-                    "close": rec.get("close"),
+                    "Close": rec_close,
+                    "close": rec_close,
+                    "atr10": rec_atr10,
+                    "ATR10": rec_atr10,
                 }
                 # keep optional fields if present
                 if "entry_date" in rec:
                     item["entry_date"] = rec.get("entry_date")
-                if "atr10" in rec:
-                    item["atr10"] = rec.get("atr10")
                 by_date[dt].append(item)
 
         if log_callback:
@@ -1113,13 +1134,18 @@ def generate_candidates_system3(
                 except Exception:
                     continue
 
+                close_val = row.get("Close", 0)
+                atr10_val = row.get("atr10", row.get("ATR10", 0))
                 date_candidates.append(
                     {
                         "symbol": symbol,
                         "date": date,
                         "drop3d": drop3d_val,
                         "atr_ratio": row.get("atr_ratio", 0),
-                        "close": row.get("Close", 0),
+                        "Close": close_val,
+                        "close": close_val,
+                        "atr10": atr10_val,
+                        "ATR10": atr10_val,
                     }
                 )
 
