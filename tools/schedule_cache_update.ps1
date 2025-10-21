@@ -23,7 +23,11 @@
 param(
     [string]$Time = "09:00",  # 日本時間 09:00 (米国時間 18:00 ET 頃、データ更新完了後)
     [string]$TaskName = "QuantTradingCacheUpdate",
-    [switch]$Unregister = $false
+    [switch]$Unregister = $false,
+    # If set, the registered task will pass -RunRecomputeOnSuccess to guarded_cache_update.ps1
+    [switch]$EnableRecomputeOnSuccess = $false,
+    # How many workers to pass to the recompute call when enabled
+    [int]$RecomputeWorkers = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +56,7 @@ function Register-CacheUpdateTask {
     Write-Host "タスク名: $Name"
     Write-Host "実行時刻: $ExecutionTime (日本時間)"
     Write-Host "スクリプト: $UpdateScript"
+    if ($EnableRecomputeOnSuccess) { Write-Host "⚙️  成功時 recompute を有効: RunRecomputeOnSuccess (workers=$RecomputeWorkers)" }
     Write-Host ""
     Write-Host "⚠️  重要: EODHD データは米国市場終了後 2-3時間で更新されます"
     Write-Host "    推奨時刻: 09:00 JST (18:00 ET) 以降"
@@ -67,9 +72,13 @@ function Register-CacheUpdateTask {
     }
 
     # タスクアクション（並列実行版）
+    $recomputeArgs = ""
+    if ($EnableRecomputeOnSuccess) { $recomputeArgs = " -RunRecomputeOnSuccess -RecomputeWorkers $RecomputeWorkers" }
+    # Build action arguments without embedded backtick-escaped quotes to avoid parser issues
+    $actionArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $UpdateScript + '" -Parallel -Workers 4' + $recomputeArgs
     $Action = New-ScheduledTaskAction `
         -Execute "powershell.exe" `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$UpdateScript`" -Parallel -Workers 4"
+        -Argument $actionArgs
 
     # トリガー（平日毎日 指定時刻）。さらに 1 時間、15 分間隔で繰り返し
     $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $ExecutionTime
@@ -139,7 +148,7 @@ try {
         Unregister-CacheUpdateTask -Name $TaskName
     }
     else {
-        Register-CacheUpdateTask -Name $TaskName -ExecutionTime $Time
+        Register-CacheUpdateTask -Name $TaskName -ExecutionTime $Time -EnableRecomputeOnSuccess:$EnableRecomputeOnSuccess -RecomputeWorkers $RecomputeWorkers
     }
 
     exit 0

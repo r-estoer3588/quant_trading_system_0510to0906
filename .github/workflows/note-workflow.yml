@@ -48,6 +48,14 @@ on:
         options:
           - "true"
           - "false"
+      enable_agent_tools:
+        description: "Agent SDK のツール機能（WebSearch/WebFetch）を有効化します。CI で不安定な場合は false にしてください。"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: read
@@ -63,6 +71,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       THEME: ${{ github.event.inputs.theme }}
       TARGET: ${{ github.event.inputs.target }}
+      ENABLE_AGENT_TOOLS: "false"
     outputs:
       research_b64: ${{ steps.collect.outputs.research_b64 }}
     steps:
@@ -86,128 +95,96 @@ jobs:
         run: |
           node -e "import('@anthropic-ai/claude-agent-sdk').then(m=>console.log('AGENT_SDK_OK', Object.keys(m))).catch(e=>console.error('AGENT_SDK_IMPORT_FAIL', e && e.message ? e.message : e))" || true
 
-      - name: Create CLI wrapper to filter empty flags
+      - name: Agent tools disabled — skip creating CLI wrapper
         run: |
-          mkdir -p tools
-          cat > tools/claude-cli-wrapper.js <<'JS'
-          #!/usr/bin/env node
-          const cp = require('child_process');
-          const path = require('path');
-          const fs = require('fs');
-          const real = path.resolve(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-          const args = process.argv.slice(2);
-          const filtered = [];
-          for (let i = 0; i < args.length; i++) {
-            if (args[i] === '--setting-sources') {
-              const next = args[i+1];
-              if (!next || String(next).trim() === '') { i++; continue; }
-              filtered.push('--setting-sources', next); i++; continue;
-            }
-            filtered.push(args[i]);
-          }
-          const p = cp.spawn(process.execPath, [real, ...filtered], { stdio: 'inherit' });
-          p.on('exit', code => process.exit(code));
-          JS
-          chmod +x tools/claude-cli-wrapper.js || true
+          echo 'Agent tools are disabled for this run; skipping CLI wrapper creation.'
 
-      - name: Research with Claude Agent SDK
+      - name: "Research (stable: AI + Web fallback)"
         run: |
           cat > research.mjs <<'EOF'
           import fs from 'fs';
-          import path from 'path';
+          import cheerio from 'cheerio';
+          import { generateText } from 'ai';
+          import { anthropic } from '@ai-sdk/anthropic';
+
           const theme = process.env.THEME || '';
           const target = process.env.TARGET || '';
-          const today = new Date().toISOString().slice(0,10);
           const artifactsDir = '.note-artifacts';
           fs.mkdirSync(artifactsDir, { recursive: true });
 
-          const sys = [
-            'あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。',
-            '事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。',
-            '十分な分量（目安: 2,000語以上）。各節で出典を本文に埋めること。',
-            'WebSearch と WebFetch を必ず使用し、一次情報（公的機関・規格・論文・公式）を優先する。',
-          ].join('\n');
+          const model = anthropic('claude-sonnet-4-5-20250929');
 
-          const userPrompt = `以下のテーマとターゲットに対する最終版のリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。不明点がある場合は「前提と仮定」セクションで簡潔に仮定を明記してから続行してください。事実ベースで一次情報を最優先し、本文にMarkdownリンクで出典を埋め込んでください。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
+          function extractJsonFlexible(raw){
+            const t=(raw||'').trim().replace(/\u200B/g,'');
+            try{ return JSON.parse(t); }catch{}
+            const fence=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/); if(fence&&fence[1]){ try{ return JSON.parse(fence[1].trim()); }catch{} }
+            const f=t.indexOf('['), l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ try{ return JSON.parse(t.slice(f,l+1)); }catch{} }
+            return null;
+          }
 
-          async function loadQuery() {
-            try {
-              const mod = await import('@anthropic-ai/claude-agent-sdk');
-              if (mod && typeof mod.query === 'function') {
-                console.log('Loaded @anthropic-ai/claude-agent-sdk');
-                return mod.query;
-              }
-              if (mod && mod.default && typeof mod.default.query === 'function') {
-                console.log('Loaded @anthropic-ai/claude-agent-sdk (default export)');
-                return mod.default.query;
-              }
-              throw new Error('Unexpected module shape for @anthropic-ai/claude-agent-sdk');
+          async function proposeQueries(body){
+            const sys='検索クエリ（日本語）を最大8件のJSON配列で返してください。';
+            const prompt = `以下のテキストから検索クエリを生成してください。\n\n${body}`;
+            const { text } = await generateText({ model, system: sys, prompt, temperature: 0 });
+            const arr = extractJsonFlexible(text||'');
+            if (Array.isArray(arr)) return arr.map(String).filter(Boolean).slice(0,8);
+            return (String(body||'')).split(/\s+/).slice(0,6).map(s=>s).filter(Boolean);
+          }
 
-            } catch (err) {
-              console.error('Could not import @anthropic-ai/claude-agent-sdk:', err && err.message ? err.message : err);
-              // Fallback: use cloud AI client (ai + @ai-sdk/anthropic) as a non-streaming async-generator wrapper
-              try {
-                const { generateText } = await import('ai');
-                const { anthropic } = await import('@ai-sdk/anthropic');
-                const modelClient = anthropic('claude-sonnet-4-5-20250929');
-                console.warn('Falling back to ai+anthropic generateText (non-streaming).');
-                return async function* fallbackQuery({ prompt, options = {} }) {
-                  // Flatten prompt if it's an async iterable
-                  let promptStr = '';
-                  if (typeof prompt === 'string') promptStr = prompt;
-                  else if (prompt && typeof prompt[Symbol.asyncIterator] === 'function') {
-                    for await (const p of prompt) {
-                      try {
-                        if (p && p.message && Array.isArray(p.message.content)) {
-                          promptStr += p.message.content.map(c => c.text || '').join('');
-                        } else if (typeof p === 'string') promptStr += p;
-                      } catch {}
-                    }
-                  }
-                  const sysOpt = options && options.systemPrompt ? options.systemPrompt : '';
-                  const { text } = await generateText({ model: modelClient, system: sysOpt, prompt: promptStr, temperature: 0.25, maxTokens: 8000 });
-                  yield { type: 'assistant', message: { content: [{ type: 'text', text }] } };
-                };
-              } catch (err2) {
-                console.error('Fallback import failed:', err2 && err2.message ? err2.message : err2);
-                throw err;
-              }
-            }
+          async function duckduckgoSearch(q){
+            try{
+              const res = await fetch(`https://html.duckduckgo.com/html?q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+              const html = await res.text();
+              const $ = cheerio.load(html);
+              const results = [];
+              $('a.result__a').each((i, el) => {
+                if (i>=6) return;
+                let href = $(el).attr('href') || '';
+                const m = href.match(/uddg=([^&]+)/);
+                if (m) href = decodeURIComponent(m[1]);
+                const title = $(el).text().trim();
+                const snippet = $(el).parent().find('.result__snippet').text().trim() || '';
+                results.push({ title, url: href, snippet });
+              });
+              return results;
+            }catch(e){ return []; }
+          }
+
+          async function fetchPageText(url){
+            try{
+              const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } , redirect: 'follow' });
+              if(!res.ok) return '';
+              const html = await res.text();
+              const $ = cheerio.load(html);
+              const text = ($('article').text() || $('main').text() || $('body').text() || '').replace(/\s+/g,' ').trim();
+              return text.slice(0, 4000);
+            }catch(e){ return ''; }
           }
 
           (async () => {
-            try {
-              const query = await loadQuery();
-              const messages = [];
-              const wrapper = path.resolve(process.cwd(), 'tools', 'claude-cli-wrapper.js');
-              for await (const msg of query({
-                prompt: userPrompt,
-                options: {
-                  // Avoid launching the legacy CLI by specifying the model
-                  model: 'claude-sonnet-4-5-20250929',
-                  // Use wrapper to avoid passing empty --setting-sources to the CLI
-                  pathToClaudeCodeExecutable: wrapper,
-                  systemPrompt: sys,
-                  allowedTools: ['WebSearch','WebFetch'],
-                  permissionMode: 'acceptEdits',
-                  // Capture SDK stderr to help debug if underlying processes fail
-                  stderr: (line) => console.error('[agent-sdk-stderr]', line),
-                },
-              })) {
-                messages.push(msg);
+            try{
+              const seed = `テーマ: ${theme}\nターゲット: ${target}`;
+              const queries = await proposeQueries(seed);
+              const evidenceLines = [];
+              for(const q of queries){
+                const results = await duckduckgoSearch(q);
+                evidenceLines.push(`### 検索: ${q}`);
+                for(const r of results){
+                  evidenceLines.push(`- [${r.title}](${r.url})\n  ${r.snippet}`);
+                  const pageText = await fetchPageText(r.url);
+                  if(pageText) evidenceLines.push(`  > 抜粋: ${pageText.slice(0,300)}...`);
+                }
+                evidenceLines.push('');
               }
 
-              const assistantTexts = messages.filter(m => m.type === 'assistant').map(m => {
-                const c = m.message?.content; if (Array.isArray(c)) { return c.filter(b => b?.type === 'text').map(b => b.text).join('\n'); } return '';
-              }).filter(Boolean).join('\n\n');
-
-              fs.writeFileSync(`${artifactsDir}/research.md`, assistantTexts || '');
-              try { fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify(messages, null, 2)); } catch (e) { console.warn('trace write failed', e && e.message ? e.message : e); }
+              const evidence = evidenceLines.join('\n');
+              const sys = ['あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。','事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。','各節で出典を本文に埋めること。'].join('\n');
+              const prompt = [`{テーマ}: ${theme}`,`{ペルソナ}: ${target}`,`{収集したエビデンス}:`, evidence, '', 'これらの一次情報に基づき、最終レポート（Markdown）を作成してください。本文中に出典として Markdown リンクを必ず埋め込んでください。十分な分量（目安 2,000語以上）で、章ごとに小見出しを含めてください。'].join('\n\n');
+              const { text } = await generateText({ model, system: sys, prompt, temperature: 0.25, maxTokens: 30000 });
+              fs.writeFileSync(`${artifactsDir}/research.md`, String(text || '').trim());
+              fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify({ queries, evidenceLines }, null, 2));
               console.log('Research complete. Wrote:', `${artifactsDir}/research.md`);
-            } catch (err) {
-              console.error('Research step failed:', err && err.message ? err.message : err);
-              process.exit(1);
-            }
+            }catch(err){ console.error('Research failed:', err && err.message ? err.message : err); process.exit(1); }
           })();
           EOF
           node research.mjs
@@ -227,6 +204,7 @@ jobs:
           path: |
             .note-artifacts/research.md
             .note-artifacts/research_trace.json
+            .note-artifacts/research_error.txt
 
   write:
     name: Write (Claude Sonnet 4.0)
@@ -825,20 +803,23 @@ jobs:
           #!/usr/bin/env node
           const { spawn } = require('child_process');
           const path = require('path');
-          // Filter out empty --setting-sources arguments which cause the CLI to exit.
+          const fs = require('fs');
           const raw = process.argv.slice(2);
           const filtered = [];
           for (let i = 0; i < raw.length; i++) {
             const a = raw[i];
-            if (a === '--setting-sources') {
-              const next = raw[i + 1];
-              if (!next) { i++; continue; }
-            }
-            if (typeof a !== 'undefined') filtered.push(a);
+            const next = raw[i+1];
+            if (a === '--setting-sources' && (!next || String(next).trim() === '')) { i++; continue; }
+            filtered.push(a);
           }
+          try { fs.appendFileSync('claude-cli-wrapper.received_args.txt', JSON.stringify(raw) + '\n'); } catch(e){}
+          try { fs.appendFileSync('claude-cli-wrapper.filtered_args.txt', JSON.stringify(filtered) + '\n'); } catch(e){}
           const real = path.resolve('node_modules/@anthropic-ai/claude-agent-sdk/cli.js');
-          const ps = spawn(process.execPath, [real, ...filtered], { stdio: 'inherit', env: process.env });
-          ps.on('exit', (code) => { process.exit(code); });
+          const out = fs.openSync('claude-cli-wrapper.stdout.txt', 'a');
+          const err = fs.openSync('claude-cli-wrapper.stderr.txt', 'a');
+          const ps = spawn(process.execPath, [real, ...filtered], { stdio: ['ignore', out, err], env: process.env });
+          ps.on('error', e => { try { fs.appendFileSync('claude-cli-wrapper.err', String(e.stack || e) + '\n'); } catch(_){} process.exit(3); });
+          ps.on('exit', (code) => { try { fs.appendFileSync('claude-cli-wrapper.exit', String(code) + '\n'); } catch(_){} process.exit(code); });
           EOF
           chmod +x claude-cli-wrapper.js || true
 
@@ -934,9 +915,16 @@ jobs:
             cli-run-note-nosetting.txt
             cli-run-wrapper-note.txt
             claude-cli-wrapper.js
+            claude-cli-wrapper.stdout.txt
+            claude-cli-wrapper.stderr.txt
+            claude-cli-wrapper.filtered_args.txt
+            claude-cli-wrapper.received_args.txt
             agent_check_cli_stderr.txt
             agent_check_cli_stderr_verbose.txt
             agent_check_trace.json
             agent_check_error.txt
             agent_check_trace_verbose.json
             agent_check_error_verbose.txt
+            agent_query_trace.json
+            agent_query_error.txt
+            agent_query_cli_stderr.txt

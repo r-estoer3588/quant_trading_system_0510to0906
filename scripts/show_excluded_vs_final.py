@@ -64,6 +64,29 @@ def main() -> int:
     # load diagnostics
     diag = load_diagnostics(snapshot_dir)
 
+    # normalize diagnostics mapping:
+    # - older snapshots stored per-system at top-level dict
+    # - newer snapshots use a 'systems' list with entries containing 'system_id'
+    #   and 'diagnostics_extra'
+    # Build a map: sysname -> diagnostics_extra
+    diag_map: dict[str, dict] = {}
+    try:
+        if isinstance(diag, dict) and 'systems' in diag:
+            if isinstance(diag['systems'], list):
+                for s in diag['systems']:
+                    sid = s.get('system_id')
+                    if not sid:
+                        continue
+                    extra = s.get('diagnostics_extra') or s.get('diagnostics') or {}
+                    diag_map[str(sid)] = dict(extra)
+        elif isinstance(diag, dict):
+            # older format: keys are system names
+            for k, v in diag.items():
+                if isinstance(v, dict):
+                    diag_map[str(k)] = dict(v)
+    except Exception:
+        diag_map = {}
+
     # find per-system feathers
     per_system = find_per_system_feathers(results_dir)
 
@@ -112,9 +135,7 @@ def main() -> int:
         kept = sorted(list(syms & final_syms))
         extra = sorted(list(final_syms - syms))
 
-        diag_summary = None
-        if isinstance(diag, dict) and sysname in diag:
-            diag_summary = diag.get(sysname, {})
+        diag_summary = diag_map.get(sysname) if isinstance(diag_map, dict) else None
 
         summary[sysname] = {
             'persisted_count': len(syms),
@@ -143,16 +164,49 @@ def main() -> int:
             )
         if info['diagnostics']:
             try:
-                ex = (
-                    info['diagnostics'].get('exclude_reasons')
-                    if isinstance(info['diagnostics'], dict)
-                    else None
-                )
-                if isinstance(ex, dict):
-                    pairs = [f"{k}={v}" for k, v in ex.items()]
+                # prefer structured exclude_symbols if available (reason -> [symbols])
+                d = info['diagnostics']
+                ex_syms = None
+                if isinstance(d, dict):
+                    ex_syms = (
+                        d.get('exclude_symbols')
+                        or d.get('exclude_reasons_symbols')
+                    )
+                    # fallback to simple counts if no symbol lists present
+                    ex_counts = d.get('exclude_reasons')
+                else:
+                    ex_syms = None
+                    ex_counts = None
+
+                if isinstance(ex_syms, dict) and ex_syms:
+                    print('Diagnostics exclude_symbols:')
+                    for reason, syms in ex_syms.items():
+                        try:
+                            symlist = sorted(map(str, syms))
+                        except Exception:
+                            if isinstance(syms, (list, set)):
+                                symlist = list(syms)
+                            else:
+                                symlist = [str(syms)]
+                        print(f'  - {reason}: ' + ', '.join(symlist))
+                elif isinstance(ex_counts, dict) and ex_counts:
+                    pairs = [f"{k}={v}" for k, v in ex_counts.items()]
                     print('Diagnostics exclude_reasons: ' + ', '.join(pairs))
             except Exception:
                 pass
+
+    # write machine-readable summary to results_csv_test
+    try:
+        out_dir = ROOT / 'results_csv_test'
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')
+        out_path = out_dir / f'excluded_vs_final_{ts}.json'
+        # summary contains only JSON-serializable types (lists/strings)
+        with out_path.open('w', encoding='utf8') as fh:
+            json.dump(summary, fh, ensure_ascii=False, indent=2)
+        print(f"\nWrote machine-readable report: {out_path}")
+    except Exception:
+        pass
 
     # also print systems that had final rows but no persisted file
     final_only_systems = set(final_symbols_by_system.keys()) - set(per_system.keys())

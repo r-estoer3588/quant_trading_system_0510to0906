@@ -10,7 +10,11 @@
 
 param(
     [int]$MaxRetries = 4,
-    [int]$DelayMinutes = 15
+    [int]$DelayMinutes = 15,
+    # Opt-in: when specified the update script will invoke a recompute dry-run after a successful cache update
+    [switch]$RunRecomputeOnSuccess = $false,
+    # Number of workers to pass to the recompute wrapper when RunRecomputeOnSuccess is enabled
+    [int]$RecomputeWorkers = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,6 +49,31 @@ for ($i = 0; $i -le $MaxRetries; $i++) {
         powershell -NoProfile -ExecutionPolicy Bypass -File $UpdateScript -Parallel -Workers 4
         if ($LASTEXITCODE -eq 0) {
             Write-Host "✅ キャッシュ更新 成功"
+
+            if ($RunRecomputeOnSuccess) {
+                try {
+                    $RecomputeWrapper = Join-Path $ProjectRoot "scripts\run_recompute_daily.ps1"
+                    if (-not (Test-Path $RecomputeWrapper)) {
+                        Write-Host "⚠️  Recompute wrapper not found, skipping recompute: $RecomputeWrapper"
+                    }
+                    else {
+                        Write-Host "ℹ️  Running recompute dry-run (invoked by cache update success)..."
+                        # Call the recompute wrapper synchronously so logs are available in the same run
+                        powershell -NoProfile -ExecutionPolicy Bypass -File $RecomputeWrapper -DryRun -Workers $RecomputeWorkers
+                        $rc_recomp = $LASTEXITCODE
+                        if ($rc_recomp -eq 0) {
+                            Write-Host "✅ Recompute dry-run completed successfully (exit code 0)."
+                        }
+                        else {
+                            Write-Host "⚠️  Recompute dry-run exited with code: $rc_recomp"
+                        }
+                    }
+                }
+                catch {
+                    Write-Host "⚠️  Recompute invocation failed: $_"
+                }
+            }
+
             exit 0
         }
         else {
