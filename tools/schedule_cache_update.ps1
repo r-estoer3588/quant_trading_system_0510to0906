@@ -119,93 +119,94 @@ function Register-CacheUpdateTask {
             EnableRecomputeOnSuccess を指定した場合に recompute に渡すワーカー数（デフォルト 2）。
         #>
 
+    param(
+        [string]$Time = "09:00",
+        [string]$TaskName = "QuantTradingCacheUpdate",
+        [switch]$Unregister = $false,
+        [switch]$EnableRecomputeOnSuccess = $false,
+        [int]$RecomputeWorkers = 2
+    )
+
+    $ErrorActionPreference = 'Stop'
+
+    # プロジェクトルートを取得
+    $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
+    $ScriptDir = Split-Path -Parent $ScriptPath
+    $ProjectRoot = Split-Path -Parent $ScriptDir
+
+    function Register-CacheUpdateTask {
         param(
-            [string]$Time = "09:00",
-            [string]$TaskName = "QuantTradingCacheUpdate",
-            [switch]$Unregister = $false,
-            [switch]$EnableRecomputeOnSuccess = $false,
-            [int]$RecomputeWorkers = 2
+            [string]$Name,
+            [string]$ExecutionTime,
+            [switch]$EnableRecomputeOnSuccessLocal,
+            [int]$RecomputeWorkersLocal
         )
 
-        $ErrorActionPreference = 'Stop'
+        $UpdateScript = Join-Path $ProjectRoot 'scripts\guarded_cache_update.ps1'
+        if (-not (Test-Path $UpdateScript)) { throw "実行スクリプトが見つかりません: $UpdateScript" }
 
-        # プロジェクトルートを取得
-        $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
-        $ScriptDir = Split-Path -Parent $ScriptPath
-        $ProjectRoot = Split-Path -Parent $ScriptDir
+        Write-Host '========================================='
+        Write-Host 'キャッシュ更新タスク登録'
+        Write-Host '========================================='
+        Write-Host "タスク名: $Name"
+        Write-Host "実行時刻: $ExecutionTime (日本時間)"
+        Write-Host "スクリプト: $UpdateScript"
+        if ($EnableRecomputeOnSuccessLocal) { Write-Host "⚙ 成功時 recompute を有効: RunRecomputeOnSuccess (workers=$RecomputeWorkersLocal)" }
+        Write-Host ''
+        Write-Host '⚠  重要: EODHD データは米国市場終了後 2-3時間で更新されます'
+        Write-Host '    推奨時刻: 09:00 JST (18:00 ET) 以降'
+        Write-Host '    シグナル生成は 10:00 JST に設定してください'
+        Write-Host ''
 
-        function Register-CacheUpdateTask {
-            param(
-                [string]$Name,
-                [string]$ExecutionTime,
-                [switch]$EnableRecomputeOnSuccessLocal,
-                [int]$RecomputeWorkersLocal
-            )
-
-            $UpdateScript = Join-Path $ProjectRoot 'scripts\guarded_cache_update.ps1'
-            if (-not (Test-Path $UpdateScript)) { throw "実行スクリプトが見つかりません: $UpdateScript" }
-
-            Write-Host '========================================='
-            Write-Host 'キャッシュ更新タスク登録'
-            Write-Host '========================================='
-            Write-Host "タスク名: $Name"
-            Write-Host "実行時刻: $ExecutionTime (日本時間)"
-            Write-Host "スクリプト: $UpdateScript"
-            if ($EnableRecomputeOnSuccessLocal) { Write-Host "⚙ 成功時 recompute を有効: RunRecomputeOnSuccess (workers=$RecomputeWorkersLocal)" }
-            Write-Host ''
-            Write-Host '⚠  重要: EODHD データは米国市場終了後 2-3時間で更新されます'
-            Write-Host '    推奨時刻: 09:00 JST (18:00 ET) 以降'
-            Write-Host '    シグナル生成は 10:00 JST に設定してください'
-            Write-Host ''
-
-            # 既存タスクを削除（あれば）
-            $ExistingTask = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
-            if ($ExistingTask) {
-                Write-Host '既存タスクを削除します...'
-                Unregister-ScheduledTask -TaskName $Name -Confirm:$false
-            }
-
-            # 再構成時に guarded スクリプトへ引数を追加するか決定
-            $recomputeArgs = ''
-            if ($EnableRecomputeOnSuccessLocal) { $recomputeArgs = ' -RunRecomputeOnSuccess -RecomputeWorkers ' + $RecomputeWorkersLocal }
-
-            # アクション引数を安全に構築
-            $actionArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $UpdateScript + '" -Parallel -Workers 4' + $recomputeArgs
-            $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $actionArgs
-
-            # トリガ: 平日毎日 指定時刻（繰り返し: 15分間隔, 継続 1 時間）
-            $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $ExecutionTime
-            $RepetitionInterval = New-TimeSpan -Minutes 15
-            $RepetitionDuration = New-TimeSpan -Hours 1
-            $Trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $ExecutionTime -RepetitionInterval $RepetitionInterval -RepetitionDuration $RepetitionDuration).Repetition
-
-            $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 60)
-
-            Register-ScheduledTask -TaskName $Name -Action $Action -Trigger $Trigger -Settings $Settings -Description 'Quant Trading System のデータキャッシュを自動更新' -User $env:USERNAME -RunLevel Limited
-
-            Write-Host ''
-            Write-Host '✅ タスクを登録しました'
-            Write-Host "手動実行: Start-ScheduledTask -TaskName '$Name'"
-            Write-Host "タスク削除: .\tools\schedule_cache_update.ps1 -Unregister"
-            Write-Host '========================================='
+        # 既存タスクを削除（あれば）
+        $ExistingTask = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+        if ($ExistingTask) {
+            Write-Host '既存タスクを削除します...'
+            Unregister-ScheduledTask -TaskName $Name -Confirm:$false
         }
 
-        function Unregister-CacheUpdateTask { param([string]$Name)
-            Write-Host 'タスクスケジューラ削除'
-            $ExistingTask = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
-            if ($ExistingTask) { Unregister-ScheduledTask -TaskName $Name -Confirm:$false; Write-Host '✅ タスクを削除しました' } else { Write-Host 'ℹ タスクが見つかりません（既に削除済み）' }
-        }
+        # 再構成時に guarded スクリプトへ引数を追加するか決定
+        $recomputeArgs = ''
+        if ($EnableRecomputeOnSuccessLocal) { $recomputeArgs = ' -RunRecomputeOnSuccess -RecomputeWorkers ' + $RecomputeWorkersLocal }
 
-        # メイン処理
-        try {
-            if ($Unregister) { Unregister-CacheUpdateTask -Name $TaskName }
-            else { Register-CacheUpdateTask -Name $TaskName -ExecutionTime $Time -EnableRecomputeOnSuccessLocal:$EnableRecomputeOnSuccess -RecomputeWorkersLocal $RecomputeWorkers }
-            exit 0
-        }
-        catch {
-            Write-Host ''
-            Write-Host 'ERROR occurred:'
-            Write-Host $_.Exception.Message
-            Write-Host ''
-            exit 1
-        }
+        # アクション引数を安全に構築
+        $actionArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $UpdateScript + '" -Parallel -Workers 4' + $recomputeArgs
+        $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $actionArgs
+
+        # トリガ: 平日毎日 指定時刻（繰り返し: 15分間隔, 継続 1 時間）
+        $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $ExecutionTime
+        $RepetitionInterval = New-TimeSpan -Minutes 15
+        $RepetitionDuration = New-TimeSpan -Hours 1
+        $Trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $ExecutionTime -RepetitionInterval $RepetitionInterval -RepetitionDuration $RepetitionDuration).Repetition
+
+        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 60)
+
+        Register-ScheduledTask -TaskName $Name -Action $Action -Trigger $Trigger -Settings $Settings -Description 'Quant Trading System のデータキャッシュを自動更新' -User $env:USERNAME -RunLevel Limited
+
+        Write-Host ''
+        Write-Host '✅ タスクを登録しました'
+        Write-Host "手動実行: Start-ScheduledTask -TaskName '$Name'"
+        Write-Host "タスク削除: .\tools\schedule_cache_update.ps1 -Unregister"
+        Write-Host '========================================='
+    }
+
+    function Unregister-CacheUpdateTask {
+        param([string]$Name)
+        Write-Host 'タスクスケジューラ削除'
+        $ExistingTask = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+        if ($ExistingTask) { Unregister-ScheduledTask -TaskName $Name -Confirm:$false; Write-Host '✅ タスクを削除しました' } else { Write-Host 'ℹ タスクが見つかりません（既に削除済み）' }
+    }
+
+    # メイン処理
+    try {
+        if ($Unregister) { Unregister-CacheUpdateTask -Name $TaskName }
+        else { Register-CacheUpdateTask -Name $TaskName -ExecutionTime $Time -EnableRecomputeOnSuccessLocal:$EnableRecomputeOnSuccess -RecomputeWorkersLocal $RecomputeWorkers }
+        exit 0
+    }
+    catch {
+        Write-Host ''
+        Write-Host 'ERROR occurred:'
+        Write-Host $_.Exception.Message
+        Write-Host ''
+        exit 1
+    }

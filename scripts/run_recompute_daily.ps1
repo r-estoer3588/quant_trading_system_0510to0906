@@ -72,9 +72,34 @@ if ($Backup) { $cmd += '--backup' }
 $cmd += '--output'
 $cmd += $reportPath
 
-Write-Log "Running: $($cmd -join ' ')"
-& $cmd 2>&1 | Tee-Object -FilePath (Join-Path $ProjectRoot "logs\recompute_rolling_${now}.log")
+$logPath = Join-Path $ProjectRoot "logs\recompute_rolling_${now}.log"
+if ($cmd.Count -gt 1) {
+    $exe = $cmd[0]
+    $args = $cmd[1..($cmd.Count - 1)]
+}
+else {
+    $exe = $cmd[0]
+    $args = @()
+}
+Write-Log "Running: $exe $($args -join ' ')"
+& $exe @args 2>&1 | Tee-Object -FilePath $logPath
 $rc = $LASTEXITCODE
 if ($rc -eq 0) { Write-Log ("Recompute finished: report={0}" -f $reportPath) } else { Write-Log ("Recompute finished with code {0}: report={1}" -f $rc, $reportPath) }
+
+# After recompute completes, run a lightweight notifier that will send an alert
+# only when the JSON report contains failures (recompute_failed / errors).
+$NotifyScript = Join-Path $ProjectRoot 'tools\notify_recompute_report.py'
+if (Test-Path $NotifyScript) {
+    try {
+        Write-Log "Invoking notify helper: $NotifyScript"
+        & $py $NotifyScript $reportPath
+        $notify_rc = $LASTEXITCODE
+        if ($notify_rc -eq 0) { Write-Log "Notifier completed (no failures to report)" }
+        else { Write-Log ("Notifier exit code: {0}" -f $notify_rc) }
+    }
+    catch {
+        Write-Log "Notifier invocation failed: $_"
+    }
+}
 
 exit $rc

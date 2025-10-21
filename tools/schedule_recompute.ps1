@@ -19,7 +19,8 @@
 param(
     [string]$Time = '10:30',
     [string]$TaskName = 'QuantTradingRecomputeRolling',
-    [switch]$Unregister
+    [switch]$Unregister,
+    [int]$Workers = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,7 +44,8 @@ if ($ExistingTask) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$RecomputeScript`" -DryRun -Workers 2"
+$actionArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $RecomputeScript + '" -DryRun -Workers ' + $Workers
+$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $actionArgs
 $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $Time
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 

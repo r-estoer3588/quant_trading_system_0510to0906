@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from pathlib import Path as _Path
 from typing import Any
@@ -22,8 +23,8 @@ _ROOT = _Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from common.cache_manager import CacheManager
-from config.settings import get_settings
+from common.cache_manager import CacheManager  # noqa: E402 (sys.path set above)
+from config.settings import get_settings  # noqa: E402 (sys.path manipulation above)
 
 
 def _process_one(
@@ -116,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
         help="If set, persist recomputed rolling files. Default: dry-run (no writes)",
     )
     p.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Optional output path for the JSON report (overrides default path)",
+    )
+    p.add_argument(
         "--backup",
         action="store_true",
         help="When --execute is used, back up existing rolling files before overwrite",
@@ -175,9 +182,15 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as e:
                 results["errors"][sym] = f"exception:{e}"
 
-    out_path = Path("results_csv_test") / "recompute_rolling_bulk_report.json"
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        now_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"recompute_rolling_bulk_report_{now_ts}.json"
+        out_path = Path("results_csv_test") / fname
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(results, ensure_ascii=False, indent=2))
+    payload = json.dumps(results, ensure_ascii=False, indent=2)
+    out_path.write_text(payload, encoding="utf-8")
     print("Wrote:", out_path)
     return 0
 
