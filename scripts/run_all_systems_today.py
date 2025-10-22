@@ -1666,10 +1666,17 @@ def _save_prev_counts(
         data = {"timestamp": datetime.utcnow().isoformat() + "Z", "counts": counts}
         fp = _prev_counts_path(signals_dir)
         try:
+            from common.io_utils import write_json
+
             fp.parent.mkdir(parents=True, exist_ok=True)
+            write_json(fp, data, ensure_ascii=False, indent=2)
         except Exception:
-            pass
-        fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            # fallback to previous behavior if helper import fails
+            try:
+                fp.parent.mkdir(parents=True, exist_ok=True)
+                fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -3093,17 +3100,33 @@ def _save_and_notify_phase(
         # Atomic write: write to temporary file then replace to avoid partial files
         try:
             tmp_all = final_base / f".signals_final_{suffix}.{ctx.run_id}.tmp"
-            out_df.to_csv(tmp_all, index=False)
+            try:
+                from common.io_utils import df_to_csv
+
+                df_to_csv(out_df, tmp_all, index=False)
+            except Exception:
+                out_df.to_csv(tmp_all, index=False)
             try:
                 tmp_all.replace(out_all)
             except Exception:
                 # fallback to os.replace if Path.replace fails on some platforms
                 import os as _os
 
-                _os.replace(str(tmp_all), str(out_all))
+                try:
+                    tmp_all.replace(out_all)
+                except Exception:
+                    _os.replace(str(tmp_all), str(out_all))
         except Exception:
             # Best-effort: fallback to direct write
-            out_df.to_csv(out_all, index=False)
+            try:
+                from common.io_utils import df_to_csv
+
+                df_to_csv(out_df, out_all, index=False)
+            except Exception:
+                try:
+                    out_df.to_csv(out_all, index=False)
+                except Exception:
+                    pass
         for name, df in per_system.items():
             if df is None or getattr(df, "empty", True):
                 continue
@@ -3118,15 +3141,24 @@ def _save_and_notify_phase(
                 out_df_per = round_dataframe(df, round_dec)
             except Exception:
                 out_df_per = df
+            # write per-system CSV atomically
             try:
                 tmp_out = final_base / f".signals_{name}_{suffix}.{ctx.run_id}.tmp"
-                out_df_per.to_csv(tmp_out, index=False)
+                try:
+                    from common.io_utils import df_to_csv
+
+                    df_to_csv(out_df_per, tmp_out, index=False)
+                except Exception:
+                    out_df_per.to_csv(tmp_out, index=False)
                 try:
                     tmp_out.replace(out)
                 except Exception:
                     import os as _os
 
-                    _os.replace(str(tmp_out), str(out))
+                    try:
+                        tmp_out.replace(out)
+                    except Exception:
+                        _os.replace(str(tmp_out), str(out))
             except Exception:
                 try:
                     out_df_per.to_csv(out, index=False)
@@ -3199,7 +3231,7 @@ def _save_and_notify_phase(
                 f"バリデーション出力に失敗: {e}", error_code="VALIDATE-FAIL", ui=False
             )
 
-    _safe_progress_call(progress_callback, 8, 8, "done")
+    _safe_progress_call(progress_callback, 8, 8, "exit")
 
     try:
         cnt = 0 if final_df is None else len(final_df)
@@ -5654,6 +5686,13 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     _stage(key, 100, entry_count=entry_n)
                 except Exception:
                     pass
+        # Drain any queued per-system stage events synchronously so that
+        # final/global progress updates applied afterward are not
+        # overwritten by delayed event-pump processing.
+        try:
+            _drain_stage_event_queue()
+        except Exception:
+            pass
     except Exception:
         pass
 

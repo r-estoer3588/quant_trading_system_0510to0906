@@ -177,22 +177,6 @@ def summarize_system1_diagnostics(
 
     return summary
 
-    def add_exclude(self, reason: str, symbol: str | None) -> None:
-        try:
-            r = str(reason)
-            self.exclude_reasons[r] += 1
-            if symbol:
-                try:
-                    self.exclude_symbols[r].add(str(symbol))
-                except Exception:
-                    # defensive: ignore symbol add errors
-                    pass
-        except Exception:
-            # keep diagnostics best-effort
-            try:
-                self.exclude_reasons["exception"] += 1
-            except Exception:
-                pass
 
 
 def _to_float(value: Any) -> float:

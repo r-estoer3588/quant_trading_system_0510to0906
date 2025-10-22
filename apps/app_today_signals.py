@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone, tzinfo
-
 # ruff: noqa: E402
 # flake8: noqa: E402
 import importlib
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import sys
-from threading import Lock
 import time
-from typing import TYPE_CHECKING, Any, cast
 import uuid
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
+from pathlib import Path
+from threading import Lock
+from typing import TYPE_CHECKING, Any, cast
 
 try:
     from zoneinfo import ZoneInfo
@@ -1515,8 +1514,12 @@ class ProgressUI:
             return "セットアップ"
         if t in {"strategies_done", "trade候補", "トレード候補選定"}:
             return "トレード候補選定"
-        if t in {"finalize", "done", "エントリー"}:
+        # Finalize (allocation -> entry) remains エントリー
+        if t in {"finalize", "エントリー"}:
             return "エントリー"
+        # Exit / completion: show hand-off/close phase (手仕舞い)
+        if t in {"exit", "done", "system_complete"}:
+            return "エグジットフェーズ"
         return "対象読み込み"
 
 
@@ -2041,8 +2044,10 @@ class StageTracker:
         self.refresh_all()
 
     def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
+        any_applied = bool(exit_counts)
         for name, cnt in exit_counts.items():
-            if not cnt:
+            # treat presence of an entry in the dict as an applied update even if cnt == 0
+            if cnt is None:
                 continue
             snapshot: StageSnapshot | None
             try:
@@ -2052,8 +2057,20 @@ class StageTracker:
             if snapshot is not None:
                 self._apply_snapshot(name, snapshot)
             else:
-                self._ensure_counts(name)["exit"] = int(cnt)
+                try:
+                    self._ensure_counts(name)["exit"] = int(cnt)
+                except Exception:
+                    pass
+        # Refresh UI metrics and finally set overall top progress to the
+        # exit/hand-off phase so it isn't overwritten by numeric per-system
+        # stage label updates.
         self.refresh_all()
+        if any_applied:
+            try:
+                if self.progress_ui is not None:
+                    self.progress_ui.update(8, 8, "exit")
+            except Exception:
+                pass
 
     def refresh_all(self) -> None:
         # まずJSONLから最新データを同期

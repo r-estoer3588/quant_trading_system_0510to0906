@@ -121,8 +121,10 @@ def _load_symbol_system_map() -> dict[str, str]:
 
 def _save_symbol_system_map(mapping: dict[str, str]) -> None:
     try:
+        from common.io_utils import write_json
+
         _SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SYMBOL_SYSTEM_MAP_PATH.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+        write_json(_SYMBOL_SYSTEM_MAP_PATH, mapping, ensure_ascii=False, indent=None)
     except Exception:
         pass
 
@@ -264,7 +266,15 @@ def submit_orders_df(
     # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化
     try:
         if "order_id" in out.columns:
-            out["order_id"] = out["order_id"].apply(lambda x: str(x) if x not in (None, "") else "")
+            def _coerce_order_id(val: Any) -> str:
+                if val is None or val == "":
+                    return ""
+                try:
+                    return str(val)
+                except Exception:
+                    return ""
+
+            out["order_id"] = out["order_id"].apply(_coerce_order_id)
     except Exception:
         pass
     # エントリー日記録とシンボル<->システムの更新

@@ -1,0 +1,4560 @@
+{
+  "generated_at": "2025-10-21T13:23:54.756895Z",
+  "repo_root": "C:\\Repos\\quant_trading_system",
+  "files_scanned": 445,
+  "matches_found": 454,
+  "pattern_counts": {
+    ".encode(": 31,
+    "to_csv(": 79,
+    ".to_csv(": 78,
+    "open(..., 'w')": 70,
+    "json.dump(s)": 111,
+    ".to_json(": 3,
+    "Path.write_text": 36,
+    "write_text(": 38,
+    "write_json(": 6,
+    "Path.write_bytes": 2
+  },
+  "matches": [
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 2379,
+      "pattern": ".encode(",
+      "snippet": "safe = line.encode(encoding, errors=\"replace\").decode(",
+      "context": {
+        "prev": "encoding = getattr(sys.stdout, \"encoding\", \"\") or \"utf-8\"",
+        "next": "encoding, errors=\"replace\""
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 2390,
+      "pattern": ".encode(",
+      "snippet": "fallback = line.encode(\"ascii\", errors=\"replace\").decode(",
+      "context": {
+        "prev": "try:",
+        "next": "\"ascii\", errors=\"replace\""
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 2551,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(path, index=False)",
+      "context": {
+        "prev": "out_df = pd.DataFrame(missing_details)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 2551,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(path, index=False)",
+      "context": {
+        "prev": "out_df = pd.DataFrame(missing_details)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3503,
+      "pattern": "open(..., 'w')",
+      "snippet": "with plan_path.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "plan_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "for row in planned_rows:"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3505,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(row, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "for row in planned_rows:",
+        "next": "if show_success:"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3761,
+      "pattern": "to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3761,
+      "pattern": ".to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3761,
+      "pattern": ".encode(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3796,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(fp, index=False)",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.caption(f\"自動保存: {fp}\")"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3796,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(fp, index=False)",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.caption(f\"自動保存: {fp}\")"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3807,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(fp_sys, index=False)",
+      "context": {
+        "prev": "out_df = df",
+        "next": "st.caption(f\"自動保存: {fp_sys}\")"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 3807,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(fp_sys, index=False)",
+      "context": {
+        "prev": "out_df = df",
+        "next": "st.caption(f\"自動保存: {fp_sys}\")"
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 4141,
+      "pattern": "to_csv(",
+      "snippet": "csv_prev = prev_out.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "prev_out = prev_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 4141,
+      "pattern": ".to_csv(",
+      "snippet": "csv_prev = prev_out.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "prev_out = prev_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\app_today_signals.py",
+      "line_no": 4141,
+      "pattern": ".encode(",
+      "snippet": "csv_prev = prev_out.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "prev_out = prev_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 590,
+      "pattern": "open(..., 'w')",
+      "snippet": "with SENT_MARKERS_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(markers, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 591,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(markers, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with SENT_MARKERS_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 613,
+      "pattern": "open(..., 'w')",
+      "snippet": "with SCHEDULE_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(data, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 614,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(data, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with SCHEDULE_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 636,
+      "pattern": "open(..., 'w')",
+      "snippet": "with CONFIG_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(cfg, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 637,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(cfg, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with CONFIG_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 673,
+      "pattern": "open(..., 'w')",
+      "snippet": "with p.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(rows, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 674,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(rows, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with p.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 692,
+      "pattern": "open(..., 'w')",
+      "snippet": "with NOTIFY_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(d, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 693,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(d, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with NOTIFY_PATH.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1857,
+      "pattern": "to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1857,
+      "pattern": ".to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1857,
+      "pattern": ".encode(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1869,
+      "pattern": ".to_json(",
+      "snippet": "json_data = out_df.to_json(orient=\"records\", indent=2)",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1892,
+      "pattern": "json.dump(s)",
+      "snippet": "stats_json = json.dumps(local_stats_data, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "}",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\dashboards\\app_alpaca_dashboard.py",
+      "line_no": 1916,
+      "pattern": "json.dump(s)",
+      "snippet": "all_json = json.dumps(all_data, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "}",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 229,
+      "pattern": "to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_log",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 229,
+      "pattern": ".to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_log",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 229,
+      "pattern": ".encode(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_log",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 281,
+      "pattern": "to_csv(",
+      "snippet": "csv2 = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_low",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 281,
+      "pattern": ".to_csv(",
+      "snippet": "csv2 = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_low",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "apps\\systems\\app_system7.py",
+      "line_no": 281,
+      "pattern": ".encode(",
+      "snippet": "csv2 = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = df_low",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ai_analysis.py",
+      "line_no": 465,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(self.model_save_dir / \"metadata.json\", \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(metadata, f, indent=2)"
+      }
+    },
+    {
+      "file": "common\\ai_analysis.py",
+      "line_no": 466,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(metadata, f, indent=2)",
+      "context": {
+        "prev": "with open(self.model_save_dir / \"metadata.json\", \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\alpaca_order.py",
+      "line_no": 125,
+      "pattern": "json.dump(s)",
+      "snippet": "_SYMBOL_SYSTEM_MAP_PATH.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "_SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\alpaca_order.py",
+      "line_no": 125,
+      "pattern": "Path.write_text",
+      "snippet": "_SYMBOL_SYSTEM_MAP_PATH.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "_SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\alpaca_order.py",
+      "line_no": 125,
+      "pattern": "write_text(",
+      "snippet": "_SYMBOL_SYSTEM_MAP_PATH.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "_SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\broker_alpaca.py",
+      "line_no": 434,
+      "pattern": "json.dump(s)",
+      "snippet": "data=json.dumps(payload) if payload else None,",
+      "context": {
+        "prev": "headers=headers,",
+        "next": "timeout=timeout,"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 141,
+      "pattern": "to_csv(",
+      "snippet": "formatted_df.to_csv(path, index=False, sep=field_sep)",
+      "context": {
+        "prev": "formatted_df[col] = formatted_df[col].astype(str)",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 141,
+      "pattern": ".to_csv(",
+      "snippet": "formatted_df.to_csv(path, index=False, sep=field_sep)",
+      "context": {
+        "prev": "formatted_df[col] = formatted_df[col].astype(str)",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 143,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=False, decimal=decimal_point, sep=field_sep)",
+      "context": {
+        "prev": "else:",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 143,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=False, decimal=decimal_point, sep=field_sep)",
+      "context": {
+        "prev": "else:",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 146,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "# デフォルトCSV書き込み",
+        "next": "except Exception as e:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 146,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "# デフォルトCSV書き込み",
+        "next": "except Exception as e:"
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 150,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "# フォールバック: プレーンCSV書き込み",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\cache_file_io.py",
+      "line_no": 150,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "# フォールバック: プレーンCSV書き込み",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\cache_format.py",
+      "line_no": 243,
+      "pattern": "to_csv(",
+      "snippet": "df_to_write.to_csv(**csv_kwargs)",
+      "context": {
+        "prev": "}",
+        "next": "except Exception as e:"
+      }
+    },
+    {
+      "file": "common\\cache_format.py",
+      "line_no": 243,
+      "pattern": ".to_csv(",
+      "snippet": "df_to_write.to_csv(**csv_kwargs)",
+      "context": {
+        "prev": "}",
+        "next": "except Exception as e:"
+      }
+    },
+    {
+      "file": "common\\cache_format.py",
+      "line_no": 247,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\cache_format.py",
+      "line_no": 247,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\extended_cache_health_checker.py",
+      "line_no": 474,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = pd.json_normalize(all_records)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\extended_cache_health_checker.py",
+      "line_no": 474,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = pd.json_normalize(all_records)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\extended_cache_health_checker.py",
+      "line_no": 478,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(json_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "json_path = output_dir / f\"extended_health_report_{timestamp}.json\"",
+        "next": "json.dump(report, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "common\\extended_cache_health_checker.py",
+      "line_no": 479,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(json_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\holding_tracker.py",
+      "line_no": 113,
+      "pattern": "to_csv(",
+      "snippet": "csv = matrix_to_write.to_csv().encode(\"utf-8\")",
+      "context": {
+        "prev": "matrix_to_write = matrix",
+        "next": "st.download_button(\"保有銘柄の遷移をCSVで保存\", data=csv, file_name=filename, mime=\"text/csv\")"
+      }
+    },
+    {
+      "file": "common\\holding_tracker.py",
+      "line_no": 113,
+      "pattern": ".to_csv(",
+      "snippet": "csv = matrix_to_write.to_csv().encode(\"utf-8\")",
+      "context": {
+        "prev": "matrix_to_write = matrix",
+        "next": "st.download_button(\"保有銘柄の遷移をCSVで保存\", data=csv, file_name=filename, mime=\"text/csv\")"
+      }
+    },
+    {
+      "file": "common\\holding_tracker.py",
+      "line_no": 113,
+      "pattern": ".encode(",
+      "snippet": "csv = matrix_to_write.to_csv().encode(\"utf-8\")",
+      "context": {
+        "prev": "matrix_to_write = matrix",
+        "next": "st.download_button(\"保有銘柄の遷移をCSVで保存\", data=csv, file_name=filename, mime=\"text/csv\")"
+      }
+    },
+    {
+      "file": "common\\indicator_metrics.py",
+      "line_no": 256,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(filepath, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame(data)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\indicator_metrics.py",
+      "line_no": 256,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(filepath, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame(data)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_optimization_benchmark.py",
+      "line_no": 567,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame([result.to_dict() for result in results])",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_optimization_benchmark.py",
+      "line_no": 567,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame([result.to_dict() for result in results])",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_optimization_benchmark.py",
+      "line_no": 573,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(json_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(report, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "common\\io_optimization_benchmark.py",
+      "line_no": 574,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(json_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 36,
+      "pattern": ".encode(",
+      "snippet": "encoded = text.encode(\"utf-8\", errors=\"replace\")",
+      "context": {
+        "prev": "try:",
+        "next": "decoded: str = encoded.decode(\"utf-8\")"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 44,
+      "pattern": "write_text(",
+      "snippet": "def write_text(path: Path, text: Any, encoding: str = \"utf-8\") -> None:",
+      "context": {
+        "prev": "",
+        "next": "\"\"\"Write text to path with UTF-8 sanitization and parent folder creation.\"\"\""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 48,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(s, encoding=encoding)",
+      "context": {
+        "prev": "s = safe_unicode(text)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 48,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(s, encoding=encoding)",
+      "context": {
+        "prev": "s = safe_unicode(text)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 51,
+      "pattern": "write_json(",
+      "snippet": "def write_json(",
+      "context": {
+        "prev": "",
+        "next": "path: Path,"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 68,
+      "pattern": "json.dump(s)",
+      "snippet": "j = json.dumps(obj, ensure_ascii=ensure_ascii, indent=indent, **json_kwargs)",
+      "context": {
+        "prev": "# `default=str` so we don't need to special-case every call site.",
+        "next": "# Ensure UTF-8 validity"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 71,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(j, encoding=encoding)",
+      "context": {
+        "prev": "j = safe_unicode(j)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 71,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(j, encoding=encoding)",
+      "context": {
+        "prev": "j = safe_unicode(j)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 82,
+      "pattern": "Path.write_bytes",
+      "snippet": "path.write_bytes(data)",
+      "context": {
+        "prev": "_ensure_parent(path)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 97,
+      "pattern": "json.dump(s)",
+      "snippet": "This mirrors the common pattern of writing json.dumps(row) + \"\\n\"",
+      "context": {
+        "prev": "",
+        "next": "but centralizes encoding and sanitization."
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 110,
+      "pattern": "json.dump(s)",
+      "snippet": "line = json.dumps(row, **dump_kwargs)",
+      "context": {
+        "prev": "dump_kwargs.update(json_kwargs)",
+        "next": "fh.write(safe_unicode(line) + \"\\n\")"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 123,
+      "pattern": "to_csv(",
+      "snippet": "Useful where code previously called ``df.to_csv(...).encode('utf-8')``.",
+      "context": {
+        "prev": "",
+        "next": "We intentionally perform a best-effort UTF-8 sanitization so callers"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 123,
+      "pattern": ".to_csv(",
+      "snippet": "Useful where code previously called ``df.to_csv(...).encode('utf-8')``.",
+      "context": {
+        "prev": "",
+        "next": "We intentionally perform a best-effort UTF-8 sanitization so callers"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 123,
+      "pattern": ".encode(",
+      "snippet": "Useful where code previously called ``df.to_csv(...).encode('utf-8')``.",
+      "context": {
+        "prev": "",
+        "next": "We intentionally perform a best-effort UTF-8 sanitization so callers"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 129,
+      "pattern": "to_csv(",
+      "snippet": "csv_text: str = df.to_csv(index=index, **kwargs)",
+      "context": {
+        "prev": "# UTF-8-safe before encoding to bytes.",
+        "next": "csv_text = safe_unicode(csv_text)"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 129,
+      "pattern": ".to_csv(",
+      "snippet": "csv_text: str = df.to_csv(index=index, **kwargs)",
+      "context": {
+        "prev": "# UTF-8-safe before encoding to bytes.",
+        "next": "csv_text = safe_unicode(csv_text)"
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 131,
+      "pattern": ".encode(",
+      "snippet": "return csv_text.encode(encoding)",
+      "context": {
+        "prev": "csv_text = safe_unicode(csv_text)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 148,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=index, encoding=encoding, **kwargs)",
+      "context": {
+        "prev": "# pandas will handle encoding; ensure index default is False for our usage",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\io_utils.py",
+      "line_no": 148,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=index, encoding=encoding, **kwargs)",
+      "context": {
+        "prev": "# pandas will handle encoding; ensure index default is False for our usage",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\latest_day_validator.py",
+      "line_no": 321,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(output_path, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame(rows)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\latest_day_validator.py",
+      "line_no": 321,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(output_path, index=False)",
+      "context": {
+        "prev": "df = pd.DataFrame(rows)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\perf_snapshot.py",
+      "line_no": 155,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "payload = self._snapshot_dict()",
+        "next": "json.dump(payload, f, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "common\\perf_snapshot.py",
+      "line_no": 156,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(payload, f, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+        "next": "self.output_path = path"
+      }
+    },
+    {
+      "file": "common\\performance_monitor.py",
+      "line_no": 299,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "report = self.get_report()",
+        "next": "json.dump(report, f, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "common\\performance_monitor.py",
+      "line_no": 300,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\performance_summary.py",
+      "line_no": 196,
+      "pattern": "to_csv(",
+      "snippet": "df_to_write.to_csv(path, index=False)",
+      "context": {
+        "prev": "",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\performance_summary.py",
+      "line_no": 196,
+      "pattern": ".to_csv(",
+      "snippet": "df_to_write.to_csv(path, index=False)",
+      "context": {
+        "prev": "",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\performance_summary.py",
+      "line_no": 198,
+      "pattern": "to_csv(",
+      "snippet": "to_frame(summary).to_csv(path, index=False)",
+      "context": {
+        "prev": "except Exception:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\performance_summary.py",
+      "line_no": 198,
+      "pattern": ".to_csv(",
+      "snippet": "to_frame(summary).to_csv(path, index=False)",
+      "context": {
+        "prev": "except Exception:",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\position_age.py",
+      "line_no": 47,
+      "pattern": "json.dump(s)",
+      "snippet": "path.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\position_age.py",
+      "line_no": 47,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\position_age.py",
+      "line_no": 47,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(json.dumps(mapping, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\progress_events.py",
+      "line_no": 114,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(event_record, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with open(self._log_file, \"a\", encoding=\"utf-8\") as f:",
+        "next": "f.flush()  # リアルタイム表示のため即座にフラッシュ"
+      }
+    },
+    {
+      "file": "common\\progress_events.py",
+      "line_no": 127,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(self._log_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "# ファイルをクリア",
+        "next": "initial_event = {"
+      }
+    },
+    {
+      "file": "common\\progress_events.py",
+      "line_no": 134,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(initial_event, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "}",
+        "next": "f.flush()"
+      }
+    },
+    {
+      "file": "common\\run_lock.py",
+      "line_no": 77,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(self.lock_path / \"owner.txt\", \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "try:",
+        "next": "f.write(str({\"pid\": os.getpid(), \"time\": time.time()}))"
+      }
+    },
+    {
+      "file": "common\\structured_log_ndjson.py",
+      "line_no": 161,
+      "pattern": "json.dump(s)",
+      "snippet": "line = json.dumps(obj, ensure_ascii=False, separators=(\",\", \":\"))",
+      "context": {
+        "prev": "try:",
+        "next": "if self._buffer_lines > 0 or self._buffer_flush_ms > 0:"
+      }
+    },
+    {
+      "file": "common\\structured_logging.py",
+      "line_no": 262,
+      "pattern": "json.dump(s)",
+      "snippet": "return json.dumps(event.to_dict(), ensure_ascii=False, separators=(\",\", \":\"))",
+      "context": {
+        "prev": "",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\structured_logging.py",
+      "line_no": 662,
+      "pattern": "json.dump(s)",
+      "snippet": "self.logger.info(json.dumps(event.to_dict()))",
+      "context": {
+        "prev": "self._metrics[name].append(event)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\structured_logging.py",
+      "line_no": 798,
+      "pattern": "json.dump(s)",
+      "snippet": "self.logger.info(f\"System benchmark: {json.dumps(summary)}\")",
+      "context": {
+        "prev": "",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\symbols_manifest.py",
+      "line_no": 69,
+      "pattern": "json.dump(s)",
+      "snippet": "manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "manifest_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return manifest_path"
+      }
+    },
+    {
+      "file": "common\\symbols_manifest.py",
+      "line_no": 69,
+      "pattern": "Path.write_text",
+      "snippet": "manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "manifest_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return manifest_path"
+      }
+    },
+    {
+      "file": "common\\symbols_manifest.py",
+      "line_no": 69,
+      "pattern": "write_text(",
+      "snippet": "manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "manifest_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return manifest_path"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 69,
+      "pattern": ".encode(",
+      "snippet": "safe = str(message).encode(\"ascii\", errors=\"replace\").decode(\"ascii\")",
+      "context": {
+        "prev": "# 最低限のASCIIにフォールバック",
+        "next": "print(safe, flush=True)"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 251,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(summary_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_df = pd.DataFrame(rows)",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 251,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(summary_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_df = pd.DataFrame(rows)",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 269,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(details_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_df = pd.DataFrame(self.details)",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 269,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(details_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_df = pd.DataFrame(self.details)",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 647,
+      "pattern": "to_csv(",
+      "snippet": "df_excluded.to_csv(fp, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "fp = results_dir / f\"shortability_excluded_{name}.csv\"",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\today_signals.py",
+      "line_no": 647,
+      "pattern": ".to_csv(",
+      "snippet": "df_excluded.to_csv(fp, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "fp = results_dir / f\"shortability_excluded_{name}.csv\"",
+        "next": "if log_callback:"
+      }
+    },
+    {
+      "file": "common\\trade_cache.py",
+      "line_no": 37,
+      "pattern": "json.dump(s)",
+      "snippet": "path.write_text(json.dumps(cache, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\trade_cache.py",
+      "line_no": 37,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(json.dumps(cache, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\trade_cache.py",
+      "line_no": 37,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(json.dumps(cache, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 845,
+      "pattern": "json.dump(s)",
+      "snippet": "jf.write(json.dumps(rec, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with (log_dir / f\"{system_name.lower()}_events.jsonl\").open(\"a\", encoding=\"utf-8\") as jf:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 979,
+      "pattern": "json.dump(s)",
+      "snippet": "jf.write(json.dumps(rec, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with (log_dir / f\"{system_name.lower()}_events.jsonl\").open(\"a\", encoding=\"utf-8\") as jf:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1009,
+      "pattern": "to_csv(",
+      "snippet": "matrix.to_csv(out_path)",
+      "context": {
+        "prev": "out_path = out_dir / f\"holding_status_{system_name}.csv\"",
+        "next": "if get_logger:"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1009,
+      "pattern": ".to_csv(",
+      "snippet": "matrix.to_csv(out_path)",
+      "context": {
+        "prev": "out_path = out_dir / f\"holding_status_{system_name}.csv\"",
+        "next": "if get_logger:"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1302,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(signal_path, index=False)",
+      "context": {
+        "prev": "out_df = signal_counts_df",
+        "next": "st.write(tr(\"シグナルを保存しました: {signal_path}\", signal_path=signal_path))"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1302,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(signal_path, index=False)",
+      "context": {
+        "prev": "out_df = signal_counts_df",
+        "next": "st.write(tr(\"シグナルを保存しました: {signal_path}\", signal_path=signal_path))"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1307,
+      "pattern": "to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} シグナルCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_signals_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1307,
+      "pattern": ".to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} シグナルCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_signals_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1307,
+      "pattern": ".encode(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} シグナルCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_signals_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1341,
+      "pattern": "to_csv(",
+      "snippet": "out_trades.to_csv(trade_path, index=False)",
+      "context": {
+        "prev": "out_trades = trades_df",
+        "next": "st.write(tr(\"トレードを保存しました: {trade_path}\", trade_path=trade_path))"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1341,
+      "pattern": ".to_csv(",
+      "snippet": "out_trades.to_csv(trade_path, index=False)",
+      "context": {
+        "prev": "out_trades = trades_df",
+        "next": "st.write(tr(\"トレードを保存しました: {trade_path}\", trade_path=trade_path))"
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1346,
+      "pattern": "to_csv(",
+      "snippet": "data=out_trades.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} トレードCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_trades_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1346,
+      "pattern": ".to_csv(",
+      "snippet": "data=out_trades.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} トレードCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_trades_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_components.py",
+      "line_no": 1346,
+      "pattern": ".encode(",
+      "snippet": "data=out_trades.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=f\"{system_name} トレードCSVをダウンロード\",",
+        "next": "file_name=f\"{system_name}_trades_{today_str}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 265,
+      "pattern": "Path.write_text",
+      "snippet": "_plan.write_text(",
+      "context": {
+        "prev": "try:",
+        "next": "\"\\n\".join(_json.dumps(x, ensure_ascii=False) for x in new_plans) + (\"\\n\" if new_plans else \"\"),"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 265,
+      "pattern": "write_text(",
+      "snippet": "_plan.write_text(",
+      "context": {
+        "prev": "try:",
+        "next": "\"\\n\".join(_json.dumps(x, ensure_ascii=False) for x in new_plans) + (\"\\n\" if new_plans else \"\"),"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 733,
+      "pattern": "to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download integrated trades CSV\"),",
+        "next": "file_name=f\"integrated_trades_{_ts_i}_{int(capital_i)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 733,
+      "pattern": ".to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download integrated trades CSV\"),",
+        "next": "file_name=f\"integrated_trades_{_ts_i}_{int(capital_i)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 733,
+      "pattern": ".encode(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download integrated trades CSV\"),",
+        "next": "file_name=f\"integrated_trades_{_ts_i}_{int(capital_i)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 985,
+      "pattern": "to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 985,
+      "pattern": ".to_csv(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 985,
+      "pattern": ".encode(",
+      "snippet": "csv = out_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "out_df = final_df",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 994,
+      "pattern": "to_csv(",
+      "snippet": "csv = final_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 994,
+      "pattern": ".to_csv(",
+      "snippet": "csv = final_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 994,
+      "pattern": ".encode(",
+      "snippet": "csv = final_df.to_csv(index=False).encode(\"utf-8\")",
+      "context": {
+        "prev": "try:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1067,
+      "pattern": ".encode(",
+      "snippet": "log_csv = \"\\n\".join(logs).encode(\"utf-8\")",
+      "context": {
+        "prev": "if logs:",
+        "next": "st.download_button("
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1125,
+      "pattern": "to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1125,
+      "pattern": ".to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1125,
+      "pattern": ".encode(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1134,
+      "pattern": "to_csv(",
+      "snippet": "data=saved_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1134,
+      "pattern": ".to_csv(",
+      "snippet": "data=saved_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1134,
+      "pattern": ".encode(",
+      "snippet": "data=saved_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download saved batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1155,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "out_df = saved_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1155,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "out_df = saved_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1158,
+      "pattern": "to_csv(",
+      "snippet": "saved_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1158,
+      "pattern": ".to_csv(",
+      "snippet": "saved_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1174,
+      "pattern": "to_csv(",
+      "snippet": "out_sum.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "out_sum = sum_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1174,
+      "pattern": ".to_csv(",
+      "snippet": "out_sum.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "out_sum = sum_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1177,
+      "pattern": "to_csv(",
+      "snippet": "sum_df.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1177,
+      "pattern": ".to_csv(",
+      "snippet": "sum_df.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1327,
+      "pattern": "to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1327,
+      "pattern": ".to_csv(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1327,
+      "pattern": ".encode(",
+      "snippet": "data=out_df.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1336,
+      "pattern": "to_csv(",
+      "snippet": "data=all_df2.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1336,
+      "pattern": ".to_csv(",
+      "snippet": "data=all_df2.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1336,
+      "pattern": ".encode(",
+      "snippet": "data=all_df2.to_csv(index=False).encode(\"utf-8\"),",
+      "context": {
+        "prev": "label=tr(\"download batch trades CSV\"),",
+        "next": "file_name=f\"batch_trades_{_ts2}_{int(capital)}.csv\","
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1357,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "out_df = all_df2",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1357,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "out_df = all_df2",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1360,
+      "pattern": "to_csv(",
+      "snippet": "all_df2.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1360,
+      "pattern": ".to_csv(",
+      "snippet": "all_df2.to_csv(trades_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1375,
+      "pattern": "to_csv(",
+      "snippet": "out_sum.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "out_sum = sum_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1375,
+      "pattern": ".to_csv(",
+      "snippet": "out_sum.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "out_sum = sum_df",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1378,
+      "pattern": "to_csv(",
+      "snippet": "sum_df.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\ui_tabs.py",
+      "line_no": 1378,
+      "pattern": ".to_csv(",
+      "snippet": "sum_df.to_csv(sum_path, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\universe.py",
+      "line_no": 67,
+      "pattern": "Path.write_text",
+      "snippet": "p.write_text(\"\\n\".join(symbols), encoding=\"utf-8\")",
+      "context": {
+        "prev": "p.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return str(p)"
+      }
+    },
+    {
+      "file": "common\\universe.py",
+      "line_no": 67,
+      "pattern": "write_text(",
+      "snippet": "p.write_text(\"\\n\".join(symbols), encoding=\"utf-8\")",
+      "context": {
+        "prev": "p.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return str(p)"
+      }
+    },
+    {
+      "file": "common\\universe.py",
+      "line_no": 140,
+      "pattern": "Path.write_text",
+      "snippet": "out_path.write_text(\"\\n\".join(out_syms), encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return str(out_path)"
+      }
+    },
+    {
+      "file": "common\\universe.py",
+      "line_no": 140,
+      "pattern": "write_text(",
+      "snippet": "out_path.write_text(\"\\n\".join(out_syms), encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "return str(out_path)"
+      }
+    },
+    {
+      "file": "common\\utils_spy.py",
+      "line_no": 519,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(path, index=False)",
+      "context": {
+        "prev": "out_df = df_to_save",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\utils_spy.py",
+      "line_no": 519,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(path, index=False)",
+      "context": {
+        "prev": "out_df = df_to_save",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "common\\utils_spy.py",
+      "line_no": 534,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(path, index_label=\"Date\")",
+      "context": {
+        "prev": "out_df = df_to_save",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "common\\utils_spy.py",
+      "line_no": 534,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(path, index_label=\"Date\")",
+      "context": {
+        "prev": "out_df = df_to_save",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "schedulers\\next_day_exits.py",
+      "line_no": 50,
+      "pattern": "open(..., 'w')",
+      "snippet": "with PLAN_PATH.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "for rec in plans:"
+      }
+    },
+    {
+      "file": "schedulers\\next_day_exits.py",
+      "line_no": 52,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(rec, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "for rec in plans:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\_tmp_run_date_dist.py",
+      "line_no": 41,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(outdir / \"top500_missing.csv\", index=False)",
+      "context": {
+        "prev": "pass",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\_tmp_run_date_dist.py",
+      "line_no": 41,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(outdir / \"top500_missing.csv\", index=False)",
+      "context": {
+        "prev": "pass",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\_tmp_run_date_dist.py",
+      "line_no": 43,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(outdir / \"distro_top_dates.txt\", \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "if \"Date\" in df.columns:"
+      }
+    },
+    {
+      "file": "scripts\\analyze_missing_rolling.py",
+      "line_no": 130,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "f.write(\"\\n\".join(str(x) for x in lines))"
+      }
+    },
+    {
+      "file": "scripts\\bench_pipeline_today.py",
+      "line_no": 80,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dumps(self.cache_stats, ensure_ascii=False),",
+      "context": {
+        "prev": "self.candidates_count,",
+        "next": "json.dumps(self.system_breakdown, ensure_ascii=False),"
+      }
+    },
+    {
+      "file": "scripts\\bench_pipeline_today.py",
+      "line_no": 81,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dumps(self.system_breakdown, ensure_ascii=False),",
+      "context": {
+        "prev": "json.dumps(self.cache_stats, ensure_ascii=False),",
+        "next": "f\"{self.memory_peak_mb:.1f}\" if self.memory_peak_mb else \"\","
+      }
+    },
+    {
+      "file": "scripts\\bench_pipeline_today.py",
+      "line_no": 465,
+      "pattern": "open(..., 'w')",
+      "snippet": "with json_path.open(\"w\", encoding=\"utf-8\") as jf:",
+      "context": {
+        "prev": "result_dict = asdict(result)",
+        "next": "json.dump(result_dict, jf, ensure_ascii=False, indent=2, default=str)"
+      }
+    },
+    {
+      "file": "scripts\\bench_pipeline_today.py",
+      "line_no": 466,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(result_dict, jf, ensure_ascii=False, indent=2, default=str)",
+      "context": {
+        "prev": "with json_path.open(\"w\", encoding=\"utf-8\") as jf:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\bench_pipeline_today.py",
+      "line_no": 469,
+      "pattern": "open(..., 'w')",
+      "snippet": "with csv_path.open(\"w\", newline=\"\", encoding=\"utf-8\") as cf:",
+      "context": {
+        "prev": "# CSV出力（サマリー）",
+        "next": "writer = csv.writer(cf)"
+      }
+    },
+    {
+      "file": "scripts\\bench_system6.py",
+      "line_no": 244,
+      "pattern": "open(..., 'w')",
+      "snippet": "with csv_path.open(\"w\", newline=\"\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "writer = csv.writer(f)"
+      }
+    },
+    {
+      "file": "scripts\\bench_system6.py",
+      "line_no": 260,
+      "pattern": "open(..., 'w')",
+      "snippet": "with json_path.open(\"w\", encoding=\"utf-8\") as jf:",
+      "context": {
+        "prev": "}",
+        "next": "json.dump(meta, jf, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "scripts\\bench_system6.py",
+      "line_no": 261,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(meta, jf, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with json_path.open(\"w\", encoding=\"utf-8\") as jf:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\build_rolling_with_indicators.py",
+      "line_no": 363,
+      "pattern": "to_csv(",
+      "snippet": "df_to_write.to_csv(csv_tmp, index=True, float_format=\"%.6f\")",
+      "context": {
+        "prev": "# Use standard pandas CSV writing with explicit format settings",
+        "next": "shutil.move(csv_tmp, csv_path)"
+      }
+    },
+    {
+      "file": "scripts\\build_rolling_with_indicators.py",
+      "line_no": 363,
+      "pattern": ".to_csv(",
+      "snippet": "df_to_write.to_csv(csv_tmp, index=True, float_format=\"%.6f\")",
+      "context": {
+        "prev": "# Use standard pandas CSV writing with explicit format settings",
+        "next": "shutil.move(csv_tmp, csv_path)"
+      }
+    },
+    {
+      "file": "scripts\\build_rolling_with_indicators.py",
+      "line_no": 699,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(progress_path, \"w\", encoding=\"utf-8\") as pf:",
+      "context": {
+        "prev": "try:",
+        "next": "json.dump(prog, pf, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "scripts\\build_rolling_with_indicators.py",
+      "line_no": 700,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(prog, pf, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(progress_path, \"w\", encoding=\"utf-8\") as pf:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\cache_daily_data.py",
+      "line_no": 367,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(FAILED_LIST_PATH, \"w\", newline=\"\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "try:",
+        "next": "writer = csv.writer(f)"
+      }
+    },
+    {
+      "file": "scripts\\cache_daily_data.py",
+      "line_no": 414,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(FAILED_LIST_PATH, \"w\", newline=\"\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "rows.sort(key=lambda r: r[0])",
+        "next": "writer = csv.writer(f)"
+      }
+    },
+    {
+      "file": "scripts\\cache_daily_data.py",
+      "line_no": 717,
+      "pattern": "to_csv(",
+      "snippet": "df_reset.to_csv(job.filepath, index=False)",
+      "context": {
+        "prev": "df_reset = round_dataframe(df_reset, CACHE_ROUND_DECIMALS)",
+        "next": "except Exception as exc:  # pragma: no cover - logging only"
+      }
+    },
+    {
+      "file": "scripts\\cache_daily_data.py",
+      "line_no": 717,
+      "pattern": ".to_csv(",
+      "snippet": "df_reset.to_csv(job.filepath, index=False)",
+      "context": {
+        "prev": "df_reset = round_dataframe(df_reset, CACHE_ROUND_DECIMALS)",
+        "next": "except Exception as exc:  # pragma: no cover - logging only"
+      }
+    },
+    {
+      "file": "scripts\\diag_check_rolling_latest_day.py",
+      "line_no": 124,
+      "pattern": "to_csv(",
+      "snippet": "pd.DataFrame(rows).sort_values([\"diff_days\", \"symbol\"]).to_csv(out_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_path = out_dir / f\"rolling_latest_day_check_{expected.strftime('%Y%m%d')}.csv\"",
+        "next": "print(\"------------------------------------------------------------\")"
+      }
+    },
+    {
+      "file": "scripts\\diag_check_rolling_latest_day.py",
+      "line_no": 124,
+      "pattern": ".to_csv(",
+      "snippet": "pd.DataFrame(rows).sort_values([\"diff_days\", \"symbol\"]).to_csv(out_path, index=False, encoding=\"utf-8\")",
+      "context": {
+        "prev": "out_path = out_dir / f\"rolling_latest_day_check_{expected.strftime('%Y%m%d')}.csv\"",
+        "next": "print(\"------------------------------------------------------------\")"
+      }
+    },
+    {
+      "file": "scripts\\diag_classify_rolling_latest_reasons.py",
+      "line_no": 178,
+      "pattern": "to_csv(",
+      "snippet": "pd.DataFrame(out_rows).sort_values([\"reason\", \"diff_days\", \"symbol\"]).to_csv(",
+      "context": {
+        "prev": "out_path = out_dir / (f\"rolling_latest_day_classified_{expected.strftime('%Y%m%d')}.csv\")",
+        "next": "out_path, index=False, encoding=\"utf-8\""
+      }
+    },
+    {
+      "file": "scripts\\diag_classify_rolling_latest_reasons.py",
+      "line_no": 178,
+      "pattern": ".to_csv(",
+      "snippet": "pd.DataFrame(out_rows).sort_values([\"reason\", \"diff_days\", \"symbol\"]).to_csv(",
+      "context": {
+        "prev": "out_path = out_dir / (f\"rolling_latest_day_classified_{expected.strftime('%Y%m%d')}.csv\")",
+        "next": "out_path, index=False, encoding=\"utf-8\""
+      }
+    },
+    {
+      "file": "scripts\\inspect_per_system.py",
+      "line_no": 22,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(out, ensure_ascii=False, indent=2))",
+      "context": {
+        "prev": "",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\inspect_per_system_run.py",
+      "line_no": 31,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(out, ensure_ascii=False, indent=2))",
+      "context": {
+        "prev": "",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\investigate_entry_issue.py",
+      "line_no": 331,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_path = results_dir / f\"investigation_entry_issue_{timestamp}.json\"",
+        "next": "json.dump(investigation_results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "scripts\\investigate_entry_issue.py",
+      "line_no": 332,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(investigation_results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\market_holiday_check.py",
+      "line_no": 43,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(payload, ensure_ascii=False))",
+      "context": {
+        "prev": "payload = {\"date\": _today_str(), \"is_trading_day\": is_trading_day, \"reason\": reason}",
+        "next": "return 0 if is_trading_day else 2"
+      }
+    },
+    {
+      "file": "scripts\\notify_excluded_vs_final.py",
+      "line_no": 53,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(out_path, index=False, encoding='utf-8')",
+      "context": {
+        "prev": "out_path = outdir / f'excluded_vs_final_summary_{ts}.csv'",
+        "next": "return out_path"
+      }
+    },
+    {
+      "file": "scripts\\notify_excluded_vs_final.py",
+      "line_no": 53,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(out_path, index=False, encoding='utf-8')",
+      "context": {
+        "prev": "out_path = outdir / f'excluded_vs_final_summary_{ts}.csv'",
+        "next": "return out_path"
+      }
+    },
+    {
+      "file": "scripts\\notify_excluded_vs_final.py",
+      "line_no": 69,
+      "pattern": ".encode(",
+      "snippet": "data = _json.dumps({'text': text}).encode('utf8')",
+      "context": {
+        "prev": "",
+        "next": "req = urllib.request.Request("
+      }
+    },
+    {
+      "file": "scripts\\recompute_rolling_bulk.py",
+      "line_no": 192,
+      "pattern": "json.dump(s)",
+      "snippet": "payload = json.dumps(results, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "out_path.write_text(payload, encoding=\"utf-8\")"
+      }
+    },
+    {
+      "file": "scripts\\recompute_rolling_bulk.py",
+      "line_no": 193,
+      "pattern": "Path.write_text",
+      "snippet": "out_path.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(results, ensure_ascii=False, indent=2)",
+        "next": "print(\"Wrote:\", out_path)"
+      }
+    },
+    {
+      "file": "scripts\\recompute_rolling_bulk.py",
+      "line_no": 193,
+      "pattern": "write_text(",
+      "snippet": "out_path.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(results, ensure_ascii=False, indent=2)",
+        "next": "print(\"Wrote:\", out_path)"
+      }
+    },
+    {
+      "file": "scripts\\replay_allocation_from_feather.py",
+      "line_no": 73,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(summary_dict, indent=2, default=str, ensure_ascii=False))",
+      "context": {
+        "prev": "summary_dict = to_allocation_summary_dict(summary)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\reset_paper_account.py",
+      "line_no": 58,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(result, ensure_ascii=False, indent=2, default=str))",
+      "context": {
+        "prev": "",
+        "next": "if not result.get(\"ok\"):"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 88,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp, index=False)",
+      "context": {
+        "prev": "else:",
+        "next": "tmp.replace(path)"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 88,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp, index=False)",
+      "context": {
+        "prev": "else:",
+        "next": "tmp.replace(path)"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 163,
+      "pattern": "to_csv(",
+      "snippet": "s = df2.to_csv(index=False)",
+      "context": {
+        "prev": "# 簡易見積: CSV に変換したときのバイト長を使う",
+        "next": "new_size = len(s.encode(\"utf-8\"))"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 163,
+      "pattern": ".to_csv(",
+      "snippet": "s = df2.to_csv(index=False)",
+      "context": {
+        "prev": "# 簡易見積: CSV に変換したときのバイト長を使う",
+        "next": "new_size = len(s.encode(\"utf-8\"))"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 164,
+      "pattern": ".encode(",
+      "snippet": "new_size = len(s.encode(\"utf-8\"))",
+      "context": {
+        "prev": "s = df2.to_csv(index=False)",
+        "next": "print(f\"{p.name}: {orig_size} -> approx {new_size} bytes\")"
+      }
+    },
+    {
+      "file": "scripts\\round_cache.py",
+      "line_no": 185,
+      "pattern": "Path.write_bytes",
+      "snippet": "bak.write_bytes(p.read_bytes())",
+      "context": {
+        "prev": "bak = p.with_suffix(p.suffix + \".bak\")",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 161,
+      "pattern": ".encode(",
+      "snippet": "return str(text).encode(enc, errors=\"ignore\").decode(enc, errors=\"ignore\")",
+      "context": {
+        "prev": "enc = getattr(sys.stdout, \"encoding\", \"utf-8\") or \"utf-8\"",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 278,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(self.get_report(), f, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 279,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(self.get_report(), f, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with path.open(\"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1182,
+      "pattern": ".encode(",
+      "snippet": "safe = out.encode(encoding, errors=\"replace\").decode(",
+      "context": {
+        "prev": "encoding = getattr(sys.stdout, \"encoding\", \"\") or \"utf-8\"",
+        "next": "encoding, errors=\"replace\""
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1188,
+      "pattern": ".encode(",
+      "snippet": "safe = out.encode(\"ascii\", errors=\"replace\").decode(",
+      "context": {
+        "prev": "try:",
+        "next": "\"ascii\", errors=\"replace\""
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1520,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1521,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)",
+      "context": {
+        "prev": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1585,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(export_payload, f, indent=2, ensure_ascii=False, default=str)"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1586,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(export_payload, f, indent=2, ensure_ascii=False, default=str)",
+      "context": {
+        "prev": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1672,
+      "pattern": "json.dump(s)",
+      "snippet": "fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1672,
+      "pattern": "Path.write_text",
+      "snippet": "fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 1672,
+      "pattern": "write_text(",
+      "snippet": "fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3096,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(tmp_all, index=False)",
+      "context": {
+        "prev": "tmp_all = final_base / f\".signals_final_{suffix}.{ctx.run_id}.tmp\"",
+        "next": "try:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3096,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(tmp_all, index=False)",
+      "context": {
+        "prev": "tmp_all = final_base / f\".signals_final_{suffix}.{ctx.run_id}.tmp\"",
+        "next": "try:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3106,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(out_all, index=False)",
+      "context": {
+        "prev": "# Best-effort: fallback to direct write",
+        "next": "for name, df in per_system.items():"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3106,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(out_all, index=False)",
+      "context": {
+        "prev": "# Best-effort: fallback to direct write",
+        "next": "for name, df in per_system.items():"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3123,
+      "pattern": "to_csv(",
+      "snippet": "out_df_per.to_csv(tmp_out, index=False)",
+      "context": {
+        "prev": "tmp_out = final_base / f\".signals_{name}_{suffix}.{ctx.run_id}.tmp\"",
+        "next": "try:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3123,
+      "pattern": ".to_csv(",
+      "snippet": "out_df_per.to_csv(tmp_out, index=False)",
+      "context": {
+        "prev": "tmp_out = final_base / f\".signals_{name}_{suffix}.{ctx.run_id}.tmp\"",
+        "next": "try:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3132,
+      "pattern": "to_csv(",
+      "snippet": "out_df_per.to_csv(out, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3132,
+      "pattern": ".to_csv(",
+      "snippet": "out_df_per.to_csv(out, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3171,
+      "pattern": "open(..., 'w')",
+      "snippet": "with tmp_file.open(\"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "tmp_file = out_dir / f\".validation_report_{suffix}.{ctx.run_id}.tmp\"",
+        "next": "json.dump(report, f, ensure_ascii=False, indent=2, default=str)"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3172,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, ensure_ascii=False, indent=2, default=str)",
+      "context": {
+        "prev": "with tmp_file.open(\"w\", encoding=\"utf-8\") as f:",
+        "next": "try:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 3184,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, ensure_ascii=False, indent=2, default=str)",
+      "context": {
+        "prev": ") as f:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 5500,
+      "pattern": "to_csv(",
+      "snippet": "df.reset_index(drop=False).to_csv(csv_fp, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 5500,
+      "pattern": ".to_csv(",
+      "snippet": "df.reset_index(drop=False).to_csv(csv_fp, index=False)",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 5502,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(csv_fp, index=False)",
+      "context": {
+        "prev": "except Exception:",
+        "next": "_log(f\"[ALLOC_DEBUG] Saved per-system candidates to CSV fallback {csv_fp}\")"
+      }
+    },
+    {
+      "file": "scripts\\run_all_systems_today.py",
+      "line_no": 5502,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(csv_fp, index=False)",
+      "context": {
+        "prev": "except Exception:",
+        "next": "_log(f\"[ALLOC_DEBUG] Saved per-system candidates to CSV fallback {csv_fp}\")"
+      }
+    },
+    {
+      "file": "scripts\\run_auto_rule.py",
+      "line_no": 52,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf8\") as fh:",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(d, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "scripts\\run_auto_rule.py",
+      "line_no": 53,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(d, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with path.open(\"w\", encoding=\"utf8\") as fh:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "scripts\\scheduled_daily_update.py",
+      "line_no": 285,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(stats_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(existing_stats, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "scripts\\scheduled_daily_update.py",
+      "line_no": 286,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(existing_stats, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(stats_file, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\show_excluded_vs_final.py",
+      "line_no": 205,
+      "pattern": "open(..., 'w')",
+      "snippet": "with out_path.open('w', encoding='utf8') as fh:",
+      "context": {
+        "prev": "# summary contains only JSON-serializable types (lists/strings)",
+        "next": "json.dump(summary, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "scripts\\show_excluded_vs_final.py",
+      "line_no": 206,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(summary, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with out_path.open('w', encoding='utf8') as fh:",
+        "next": "print(f\"\\nWrote machine-readable report: {out_path}\")"
+      }
+    },
+    {
+      "file": "scripts\\tickers_loader.py",
+      "line_no": 133,
+      "pattern": "to_csv(",
+      "snippet": "out_df.to_csv(out, index=False)",
+      "context": {
+        "prev": "out_df = df",
+        "next": ""
+      }
+    },
+    {
+      "file": "scripts\\tickers_loader.py",
+      "line_no": 133,
+      "pattern": ".to_csv(",
+      "snippet": "out_df.to_csv(out, index=False)",
+      "context": {
+        "prev": "out_df = df",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_health.py",
+      "line_no": 98,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(meta_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "meta_content = {\"anchor_rows_at_prune\": 150}",
+        "next": "json.dump(meta_content, f)"
+      }
+    },
+    {
+      "file": "tests\\test_cache_health.py",
+      "line_no": 99,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(meta_content, f)",
+      "context": {
+        "prev": "with open(meta_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 201,
+      "pattern": "json.dump(s)",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 201,
+      "pattern": "Path.write_text",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 201,
+      "pattern": "write_text(",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 222,
+      "pattern": "json.dump(s)",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 222,
+      "pattern": "Path.write_text",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_comprehensive.py",
+      "line_no": 222,
+      "pattern": "write_text(",
+      "snippet": "cm.rolling_meta_path.write_text(json.dumps(meta_data), encoding=\"utf-8\")",
+      "context": {
+        "prev": "meta_data = {\"anchor_rows_at_prune\": 0}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 178,
+      "pattern": "Path.write_text",
+      "snippet": "corrupted_csv.write_text(\"date,open\\n2024-01-01,invalid_number\\n\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "corrupted_csv.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 178,
+      "pattern": "write_text(",
+      "snippet": "corrupted_csv.write_text(\"date,open\\n2024-01-01,invalid_number\\n\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "corrupted_csv.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 196,
+      "pattern": "Path.write_text",
+      "snippet": "csv_path.write_text(\"date,open,close\\ninvalid_date,abc,def\\n\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "csv_path = tmp_path / \"ERROR_TEST.csv\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 196,
+      "pattern": "write_text(",
+      "snippet": "csv_path.write_text(\"date,open,close\\ninvalid_date,abc,def\\n\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "csv_path = tmp_path / \"ERROR_TEST.csv\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 216,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = _create_sample_df(3)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 216,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "df = _create_sample_df(3)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 251,
+      "pattern": "Path.write_text",
+      "snippet": "cm.rolling_meta_path.write_text(\"{invalid json content\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "cm.rolling_meta_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_error_handling.py",
+      "line_no": 251,
+      "pattern": "write_text(",
+      "snippet": "cm.rolling_meta_path.write_text(\"{invalid json content\", encoding=\"utf-8\")",
+      "context": {
+        "prev": "cm.rolling_meta_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_final.py",
+      "line_no": 54,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(meta_path, \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(meta_content, f)"
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_final.py",
+      "line_no": 55,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(meta_content, f)",
+      "context": {
+        "prev": "with open(meta_path, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_final.py",
+      "line_no": 85,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(meta_path, \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "f.write(\"invalid json content\")"
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_focused.py",
+      "line_no": 296,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "manager.rolling_dir.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_focused.py",
+      "line_no": 296,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(csv_path, index=False)",
+      "context": {
+        "prev": "manager.rolling_dir.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 44,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": "out = cm.read(\"AAA\", \"full\")"
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 44,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": "out = cm.read(\"AAA\", \"full\")"
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 106,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 106,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 129,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"BBB.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 129,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"BBB.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 158,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"NEWLY_LISTED.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_manager_read.py",
+      "line_no": 158,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"NEWLY_LISTED.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_cache_recent.py",
+      "line_no": 42,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(filepath, index=False)",
+      "context": {
+        "prev": "filepath = output_dir / f\"{symbol}.csv\"",
+        "next": "base_path = base_dir / f\"{symbol}.csv\""
+      }
+    },
+    {
+      "file": "tests\\test_cache_recent.py",
+      "line_no": 42,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(filepath, index=False)",
+      "context": {
+        "prev": "filepath = output_dir / f\"{symbol}.csv\"",
+        "next": "base_path = base_dir / f\"{symbol}.csv\""
+      }
+    },
+    {
+      "file": "tests\\test_config_settings.py",
+      "line_no": 163,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(config_file, \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(config_data, f)"
+      }
+    },
+    {
+      "file": "tests\\test_config_settings.py",
+      "line_no": 164,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(config_data, f)",
+      "context": {
+        "prev": "with open(config_file, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_config_settings.py",
+      "line_no": 183,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(config_file, \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "f.write(\"invalid json content\")"
+      }
+    },
+    {
+      "file": "tests\\test_data_loader.py",
+      "line_no": 24,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": "df.to_csv(tmp_path / \"BBB.csv\", index=False)"
+      }
+    },
+    {
+      "file": "tests\\test_data_loader.py",
+      "line_no": 24,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+      "context": {
+        "prev": ")",
+        "next": "df.to_csv(tmp_path / \"BBB.csv\", index=False)"
+      }
+    },
+    {
+      "file": "tests\\test_data_loader.py",
+      "line_no": 25,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"BBB.csv\", index=False)",
+      "context": {
+        "prev": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_data_loader.py",
+      "line_no": 25,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(tmp_path / \"BBB.csv\", index=False)",
+      "context": {
+        "prev": "df.to_csv(tmp_path / \"AAA.csv\", index=False)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 120,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(test_file, \"w\") as f:",
+      "context": {
+        "prev": "test_file = self.temp_dir / \"test_map.json\"",
+        "next": "json.dump(test_map, f)"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 121,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(test_map, f)",
+      "context": {
+        "prev": "with open(test_file, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 140,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(invalid_file, \"w\") as f:",
+      "context": {
+        "prev": "invalid_file = self.temp_dir / \"invalid.json\"",
+        "next": "f.write(\"invalid json content\")"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 281,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(test_file, \"w\") as f:",
+      "context": {
+        "prev": "test_file = self.temp_dir / \"test_map.json\"",
+        "next": "json.dump(test_map, f)"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 282,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(test_map, f)",
+      "context": {
+        "prev": "with open(test_file, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 301,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(invalid_file, \"w\") as f:",
+      "context": {
+        "prev": "invalid_file = self.temp_dir / \"invalid.json\"",
+        "next": "f.write(\"invalid json content\")"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 320,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(test_file, \"w\") as f:",
+      "context": {
+        "prev": "test_file = self.temp_dir / \"normalize_test.json\"",
+        "next": "json.dump(test_map, f)"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_comprehensive.py",
+      "line_no": 321,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(test_map, f)",
+      "context": {
+        "prev": "with open(test_file, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 259,
+      "pattern": "json.dump(s)",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"system1\", \"GOOGL\": \"system2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 259,
+      "pattern": "Path.write_text",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"system1\", \"GOOGL\": \"system2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 259,
+      "pattern": "write_text(",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"system1\", \"GOOGL\": \"system2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 274,
+      "pattern": "Path.write_text",
+      "snippet": "test_file.write_text(\"invalid json content\")",
+      "context": {
+        "prev": "test_file = tmp_path / \"invalid.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 274,
+      "pattern": "write_text(",
+      "snippet": "test_file.write_text(\"invalid json content\")",
+      "context": {
+        "prev": "test_file = tmp_path / \"invalid.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 282,
+      "pattern": "Path.write_text",
+      "snippet": "test_file.write_text('[\"not\", \"a\", \"dict\"]')",
+      "context": {
+        "prev": "test_file = tmp_path / \"non_dict.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 282,
+      "pattern": "write_text(",
+      "snippet": "test_file.write_text('[\"not\", \"a\", \"dict\"]')",
+      "context": {
+        "prev": "test_file = tmp_path / \"non_dict.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 291,
+      "pattern": "json.dump(s)",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"SYSTEM1\", \"googl\": \"System2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 291,
+      "pattern": "Path.write_text",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"SYSTEM1\", \"googl\": \"System2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_enhanced.py",
+      "line_no": 291,
+      "pattern": "write_text(",
+      "snippet": "test_file.write_text(json.dumps(test_data))",
+      "context": {
+        "prev": "test_data = {\"AAPL\": \"SYSTEM1\", \"googl\": \"System2\"}",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_simplified.py",
+      "line_no": 118,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(test_file, \"w\") as f:",
+      "context": {
+        "prev": "test_file = self.temp_dir / \"test_map.json\"",
+        "next": "json.dump(test_map, f)"
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_simplified.py",
+      "line_no": 119,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(test_map, f)",
+      "context": {
+        "prev": "with open(test_file, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_final_allocation_simplified.py",
+      "line_no": 137,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(invalid_file, \"w\") as f:",
+      "context": {
+        "prev": "invalid_file = self.temp_dir / \"invalid.json\"",
+        "next": "f.write(\"invalid json content\")"
+      }
+    },
+    {
+      "file": "tests\\test_indicators_precompute.py",
+      "line_no": 271,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(corrupted_path, \"w\") as f:",
+      "context": {
+        "prev": "corrupted_path = self.cache_dir / \"CORRUPTED.feather\"",
+        "next": "f.write(\"this is not a valid feather file\")"
+      }
+    },
+    {
+      "file": "tests\\test_load_base_cache_prefer_flag.py",
+      "line_no": 26,
+      "pattern": "to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_load_base_cache_prefer_flag.py",
+      "line_no": 26,
+      "pattern": ".to_csv(",
+      "snippet": "df.to_csv(path, index=False)",
+      "context": {
+        "prev": "path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tests\\test_remaining_modules_simple.py",
+      "line_no": 174,
+      "pattern": "json.dump(s)",
+      "snippet": "json_str = json.dumps(data)",
+      "context": {
+        "prev": "data = {\"test\": \"value\", \"number\": 42}",
+        "next": "parsed = json.loads(json_str)"
+      }
+    },
+    {
+      "file": "tests\\test_run_lock.py",
+      "line_no": 55,
+      "pattern": "Path.write_text",
+      "snippet": "lock_path.joinpath(\"owner.txt\").write_text(\"stale\")",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "tests\\test_run_lock.py",
+      "line_no": 55,
+      "pattern": "write_text(",
+      "snippet": "lock_path.joinpath(\"owner.txt\").write_text(\"stale\")",
+      "context": {
+        "prev": "try:",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "tests\\test_scheduler_modules_simple.py",
+      "line_no": 154,
+      "pattern": "json.dump(s)",
+      "snippet": "json_str = json.dumps(test_data)",
+      "context": {
+        "prev": "test_data = {\"test\": \"value\", \"number\": 42}",
+        "next": "parsed_data = json.loads(json_str)"
+      }
+    },
+    {
+      "file": "tests\\test_settings_focused.py",
+      "line_no": 190,
+      "pattern": "json.dump(s)",
+      "snippet": "with patch(\"builtins.open\", mock_open(read_data=json.dumps(json_content))):",
+      "context": {
+        "prev": "",
+        "next": "with patch(\"os.path.exists\", return_value=True):"
+      }
+    },
+    {
+      "file": "tests\\test_settings_focused.py",
+      "line_no": 317,
+      "pattern": "json.dump(s)",
+      "snippet": "with patch(\"builtins.open\", mock_open(read_data=json.dumps(partial_config))):",
+      "context": {
+        "prev": "",
+        "next": "with patch(\"os.path.exists\", return_value=True):"
+      }
+    },
+    {
+      "file": "tests\\test_settings_focused.py",
+      "line_no": 401,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(config_path, \"w\") as f:",
+      "context": {
+        "prev": "# Write actual config file",
+        "next": "json.dump(config_data, f)"
+      }
+    },
+    {
+      "file": "tests\\test_settings_focused.py",
+      "line_no": 402,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(config_data, f)",
+      "context": {
+        "prev": "with open(config_path, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\analyze_repro_payload.py",
+      "line_no": 317,
+      "pattern": "write_json(",
+      "snippet": "write_json(summary_json, summary_out, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "}",
+        "next": "print(f\"Wrote summary JSON: {summary_json}\")"
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots.py",
+      "line_no": 65,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_path = Path(\"screenshots/progress_tracking/analysis_results.json\")",
+        "next": "json.dump(results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots.py",
+      "line_no": 66,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots.py",
+      "line_no": 69,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(results, indent=2, ensure_ascii=False))",
+      "context": {
+        "prev": "print(f\"\\n📊 解析結果: {output_path}\")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots_auto.py",
+      "line_no": 180,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_path = Path(\"screenshots/progress_tracking/analysis_auto.json\")",
+        "next": "json.dump(results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots_auto.py",
+      "line_no": 181,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots_simple.py",
+      "line_no": 123,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\analyze_screenshots_simple.py",
+      "line_no": 124,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\analyze_ui_screenshots.py",
+      "line_no": 221,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_file.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\analyze_ui_screenshots.py",
+      "line_no": 222,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\auto_benchmark.py",
+      "line_no": 174,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(record, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with open(BENCHMARK_HISTORY, \"a\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\auto_snapshot.py",
+      "line_no": 87,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(snapshot_path / \"metadata.json\", \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(metadata, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\auto_snapshot.py",
+      "line_no": 88,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(metadata, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(snapshot_path / \"metadata.json\", \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\benchmark\\benchmark_scripts.py",
+      "line_no": 148,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_file = ROOT_DIR / \"benchmark_results.json\"",
+        "next": "json.dump("
+      }
+    },
+    {
+      "file": "tools\\benchmark\\benchmark_scripts.py",
+      "line_no": 149,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(",
+      "context": {
+        "prev": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+        "next": "{\"timestamp\": time.time(), \"results\": results},"
+      }
+    },
+    {
+      "file": "tools\\build_metrics_report.py",
+      "line_no": 109,
+      "pattern": "to_csv(",
+      "snippet": "out_write.to_csv(out_fp, index=False)",
+      "context": {
+        "prev": "out_write = out_df",
+        "next": "logging.info(\"metrics report saved: %s\", out_fp)"
+      }
+    },
+    {
+      "file": "tools\\build_metrics_report.py",
+      "line_no": 109,
+      "pattern": ".to_csv(",
+      "snippet": "out_write.to_csv(out_fp, index=False)",
+      "context": {
+        "prev": "out_write = out_df",
+        "next": "logging.info(\"metrics report saved: %s\", out_fp)"
+      }
+    },
+    {
+      "file": "tools\\collect_warnings.py",
+      "line_no": 64,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(payload, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with out_path.open(\"a\", encoding=\"utf-8\") as f:",
+        "next": "print(f\"[collect_warnings] Appended summary: total={total} categories={len(counts)} -> {out_path}\")"
+      }
+    },
+    {
+      "file": "tools\\compare_diagnostics_snapshots.py",
+      "line_no": 153,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(args.output, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "args.output.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(diff_result, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\compare_diagnostics_snapshots.py",
+      "line_no": 154,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(diff_result, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(args.output, \"w\", encoding=\"utf-8\") as f:",
+        "next": "logger.info(\"Diff result saved to %s\", args.output)"
+      }
+    },
+    {
+      "file": "tools\\compare_snapshots.py",
+      "line_no": 121,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(report_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "report_path = args.current / \"diff_report.json\"",
+        "next": "json.dump(results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\compare_snapshots.py",
+      "line_no": 122,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(report_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\debug\\fix_uuid_json.py",
+      "line_no": 21,
+      "pattern": "json.dump(s)",
+      "snippet": "return json.dumps(make_json_serializable(obj), **kwargs)",
+      "context": {
+        "prev": "\"\"\"Serialize obj to JSON, converting UUID keys and values to strings.\"\"\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\debug_allocation.py",
+      "line_no": 492,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(report_path, \"w\") as f:",
+      "context": {
+        "prev": "",
+        "next": "json.dump(report, f, indent=2)"
+      }
+    },
+    {
+      "file": "tools\\debug_allocation.py",
+      "line_no": 493,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, indent=2)",
+      "context": {
+        "prev": "with open(report_path, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\debug_finalize_allocation.py",
+      "line_no": 67,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(summary.system_diagnostics, indent=2, ensure_ascii=False))",
+      "context": {
+        "prev": "print(\"system_diagnostics:\")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\debug_system3_all.py",
+      "line_no": 322,
+      "pattern": "open(..., 'w')",
+      "snippet": "with out_p.open(\"w\", encoding=\"utf-8\", newline=\"\") as fh:",
+      "context": {
+        "prev": "try:",
+        "next": "writer = csv.DictWriter(fh, fieldnames=fieldnames)"
+      }
+    },
+    {
+      "file": "tools\\debug_system3_all.py",
+      "line_no": 353,
+      "pattern": "open(..., 'w')",
+      "snippet": "with summary_p.open(\"w\", encoding=\"utf-8\") as fh:",
+      "context": {
+        "prev": "summary_p = out_p.with_suffix(\".summary.json\")",
+        "next": "json.dump(summary, fh, ensure_ascii=False, indent=2)"
+      }
+    },
+    {
+      "file": "tools\\debug_system3_all.py",
+      "line_no": 354,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(summary, fh, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "with summary_p.open(\"w\", encoding=\"utf-8\") as fh:",
+        "next": "print(f\"Wrote summary JSON: {summary_p}\")"
+      }
+    },
+    {
+      "file": "tools\\detect_visual_diff.py",
+      "line_no": 223,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_file.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(report, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\detect_visual_diff.py",
+      "line_no": 224,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\export_diagnostics_snapshot.py",
+      "line_no": 82,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "# JSON 保存",
+        "next": "json.dump(snapshot, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\export_diagnostics_snapshot.py",
+      "line_no": 83,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(snapshot, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\export_run_repro.py",
+      "line_no": 120,
+      "pattern": "to_csv(",
+      "snippet": "head_csv.write_text(df.head(5).to_csv(index=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "head_csv = outdir / f\"per_system_{name}.head.csv\"",
+        "next": "meta_entry = {"
+      }
+    },
+    {
+      "file": "tools\\export_run_repro.py",
+      "line_no": 120,
+      "pattern": ".to_csv(",
+      "snippet": "head_csv.write_text(df.head(5).to_csv(index=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "head_csv = outdir / f\"per_system_{name}.head.csv\"",
+        "next": "meta_entry = {"
+      }
+    },
+    {
+      "file": "tools\\export_run_repro.py",
+      "line_no": 120,
+      "pattern": "Path.write_text",
+      "snippet": "head_csv.write_text(df.head(5).to_csv(index=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "head_csv = outdir / f\"per_system_{name}.head.csv\"",
+        "next": "meta_entry = {"
+      }
+    },
+    {
+      "file": "tools\\export_run_repro.py",
+      "line_no": 120,
+      "pattern": "write_text(",
+      "snippet": "head_csv.write_text(df.head(5).to_csv(index=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "head_csv = outdir / f\"per_system_{name}.head.csv\"",
+        "next": "meta_entry = {"
+      }
+    },
+    {
+      "file": "tools\\export_run_repro.py",
+      "line_no": 180,
+      "pattern": "write_json(",
+      "snippet": "write_json(meta_path, meta, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "meta_path = outdir / \"meta.json\"",
+        "next": "print(f\"Wrote metadata: {meta_path}\")"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 25,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(map_path, \"w\") as f:",
+      "context": {
+        "prev": "map_path.parent.mkdir(exist_ok=True)",
+        "next": "json.dump(default_map, f, indent=2)"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 26,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(default_map, f, indent=2)",
+      "context": {
+        "prev": "with open(map_path, \"w\") as f:",
+        "next": "print(\"✅ 空のデフォルトマップを作成しました\")"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 72,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(backup_path, \"w\") as f:",
+      "context": {
+        "prev": "backup_path = map_path.with_suffix(\".json.backup\")",
+        "next": "json.dump(symbol_map, f, indent=2)"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 73,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(symbol_map, f, indent=2)",
+      "context": {
+        "prev": "with open(backup_path, \"w\") as f:",
+        "next": "print(f\"📄 バックアップ作成: {backup_path}\")"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 77,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(map_path, \"w\") as f:",
+      "context": {
+        "prev": "# 新しいマップを保存",
+        "next": "json.dump(new_map, f, indent=2)"
+      }
+    },
+    {
+      "file": "tools\\fix_symbol_system_map.py",
+      "line_no": 78,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(new_map, f, indent=2)",
+      "context": {
+        "prev": "with open(map_path, \"w\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\generate_api_docs.py",
+      "line_no": 116,
+      "pattern": "Path.write_text",
+      "snippet": "output_path.write_text(markdown, encoding=\"utf-8\")",
+      "context": {
+        "prev": "output_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\generate_api_docs.py",
+      "line_no": 116,
+      "pattern": "write_text(",
+      "snippet": "output_path.write_text(markdown, encoding=\"utf-8\")",
+      "context": {
+        "prev": "output_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\generate_article_eyecatch.py",
+      "line_no": 663,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(out_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "try:",
+        "next": "for line in prompts:"
+      }
+    },
+    {
+      "file": "tools\\generate_coverage_report.py",
+      "line_no": 119,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(summary_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "",
+        "next": "f.write(\"# Coverage Report Summary\\n\\n\")"
+      }
+    },
+    {
+      "file": "tools\\generate_nano_banana_prompts.py",
+      "line_no": 106,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(out_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "try:",
+        "next": "for line in prompts:"
+      }
+    },
+    {
+      "file": "tools\\generate_system_specs.py",
+      "line_no": 135,
+      "pattern": "Path.write_text",
+      "snippet": "output_path.write_text(markdown, encoding=\"utf-8\")",
+      "context": {
+        "prev": "output_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\generate_system_specs.py",
+      "line_no": 135,
+      "pattern": "write_text(",
+      "snippet": "output_path.write_text(markdown, encoding=\"utf-8\")",
+      "context": {
+        "prev": "output_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 5,
+      "pattern": "json.dump(s)",
+      "snippet": "(`to_csv`, `json.dump(s)`, `write_text`, `.encode(...)` etc.) and emits a",
+      "context": {
+        "prev": "Scans Python source files for common write/serialization call patterns",
+        "next": "JSON report that lists file, line number and a short code snippet. The"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 5,
+      "pattern": ".encode(",
+      "snippet": "(`to_csv`, `json.dump(s)`, `write_text`, `.encode(...)` etc.) and emits a",
+      "context": {
+        "prev": "Scans Python source files for common write/serialization call patterns",
+        "next": "JSON report that lists file, line number and a short code snippet. The"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 41,
+      "pattern": "to_csv(",
+      "snippet": "(r\"\\bto_csv\\s*\\(\", \"to_csv(\"),",
+      "context": {
+        "prev": "PATTERNS: list[tuple[str, str]] = [",
+        "next": "(r\"\\.to_csv\\s*\\(\", \".to_csv(\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 42,
+      "pattern": "to_csv(",
+      "snippet": "(r\"\\.to_csv\\s*\\(\", \".to_csv(\"),",
+      "context": {
+        "prev": "(r\"\\bto_csv\\s*\\(\", \"to_csv(\"),",
+        "next": "(r\"\\bjson\\.dump[s]?\\s*\\(\", \"json.dump(s)\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 42,
+      "pattern": ".to_csv(",
+      "snippet": "(r\"\\.to_csv\\s*\\(\", \".to_csv(\"),",
+      "context": {
+        "prev": "(r\"\\bto_csv\\s*\\(\", \"to_csv(\"),",
+        "next": "(r\"\\bjson\\.dump[s]?\\s*\\(\", \"json.dump(s)\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 43,
+      "pattern": "json.dump(s)",
+      "snippet": "(r\"\\bjson\\.dump[s]?\\s*\\(\", \"json.dump(s)\"),",
+      "context": {
+        "prev": "(r\"\\.to_csv\\s*\\(\", \".to_csv(\"),",
+        "next": "(r\"\\.write_text\\s*\\(\", \"Path.write_text\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 46,
+      "pattern": ".to_json(",
+      "snippet": "(r\"\\.to_json\\s*\\(\", \".to_json(\"),",
+      "context": {
+        "prev": "(r\"\\.write_bytes\\s*\\(\", \"Path.write_bytes\"),",
+        "next": "(r\"\\.encode\\s*\\(\", \".encode(\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 47,
+      "pattern": ".encode(",
+      "snippet": "(r\"\\.encode\\s*\\(\", \".encode(\"),",
+      "context": {
+        "prev": "(r\"\\.to_json\\s*\\(\", \".to_json(\"),",
+        "next": "(r\"open\\([^)]*[\\'\\\"]w[\\'\\\"][^)]*\\)\", \"open(..., 'w')\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 48,
+      "pattern": "open(..., 'w')",
+      "snippet": "(r\"open\\([^)]*[\\'\\\"]w[\\'\\\"][^)]*\\)\", \"open(..., 'w')\"),",
+      "context": {
+        "prev": "(r\"\\.encode\\s*\\(\", \".encode(\"),",
+        "next": "(r\"write_json\\s*\\(\", \"write_json(\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 49,
+      "pattern": "write_json(",
+      "snippet": "(r\"write_json\\s*\\(\", \"write_json(\"),",
+      "context": {
+        "prev": "(r\"open\\([^)]*[\\'\\\"]w[\\'\\\"][^)]*\\)\", \"open(..., 'w')\"),",
+        "next": "(r\"write_text\\s*\\(\", \"write_text(\"),"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 50,
+      "pattern": "write_text(",
+      "snippet": "(r\"write_text\\s*\\(\", \"write_text(\"),",
+      "context": {
+        "prev": "(r\"write_json\\s*\\(\", \"write_json(\"),",
+        "next": "]"
+      }
+    },
+    {
+      "file": "tools\\generate_write_inventory.py",
+      "line_no": 112,
+      "pattern": "write_json(",
+      "snippet": "write_json(OUT_PATH, out, ensure_ascii=False, indent=2, default=str)",
+      "context": {
+        "prev": "",
+        "next": "print(f\"Wrote inventory to: {OUT_PATH} ({out['matches_found']} matches)\")"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 99,
+      "pattern": "Path.write_text",
+      "snippet": "backup.write_text(text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.rename(backup)",
+        "next": "# restore original name for writing new content"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 99,
+      "pattern": "write_text(",
+      "snippet": "backup.write_text(text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "path.rename(backup)",
+        "next": "# restore original name for writing new content"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 101,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(new_text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "# restore original name for writing new content",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 101,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(new_text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "# restore original name for writing new content",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 104,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(new_text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "# overwrite original safely",
+        "next": "# ensure import"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 104,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(new_text, encoding=\"utf-8\")",
+      "context": {
+        "prev": "# overwrite original safely",
+        "next": "# ensure import"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 108,
+      "pattern": "Path.write_text",
+      "snippet": "path.write_text(\"\".join(lines), encoding=\"utf-8\")",
+      "context": {
+        "prev": "lines = ensure_import(lines)",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "tools\\i18n_apply_patch.py",
+      "line_no": 108,
+      "pattern": "write_text(",
+      "snippet": "path.write_text(\"\".join(lines), encoding=\"utf-8\")",
+      "context": {
+        "prev": "lines = ensure_import(lines)",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "tools\\imgdiff.py",
+      "line_no": 218,
+      "pattern": "Path.write_text",
+      "snippet": "report_path.write_text(html, encoding=\"utf-8\")",
+      "context": {
+        "prev": "\"\"\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\imgdiff.py",
+      "line_no": 218,
+      "pattern": "write_text(",
+      "snippet": "report_path.write_text(html, encoding=\"utf-8\")",
+      "context": {
+        "prev": "\"\"\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\local_quality_check.py",
+      "line_no": 228,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps({\"error\": \"No target paths found\"}), file=sys.stderr)",
+      "context": {
+        "prev": "if not paths:",
+        "next": "return 1"
+      }
+    },
+    {
+      "file": "tools\\local_quality_check.py",
+      "line_no": 238,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(payload, indent=2, ensure_ascii=False))",
+      "context": {
+        "prev": "if args.pretty:",
+        "next": "else:"
+      }
+    },
+    {
+      "file": "tools\\local_quality_check.py",
+      "line_no": 240,
+      "pattern": "json.dump(s)",
+      "snippet": "print(json.dumps(payload, ensure_ascii=False))",
+      "context": {
+        "prev": "else:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\operations.py",
+      "line_no": 398,
+      "pattern": ".to_json(",
+      "snippet": "preview_json = merged_df.head(3).to_json(orient=\"records\")",
+      "context": {
+        "prev": "if isinstance(merged_df, pd.DataFrame) and not merged_df.empty:",
+        "next": "log_messages.append(f\"merged candidates preview: {preview_json}\")"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\operations.py",
+      "line_no": 462,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf-8\") as fh:",
+      "context": {
+        "prev": "if content is not None and mode == \"overwrite\":",
+        "next": "fh.write(content)"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\operations.py",
+      "line_no": 470,
+      "pattern": "open(..., 'w')",
+      "snippet": "with path.open(\"w\", encoding=\"utf-8\") as fh:",
+      "context": {
+        "prev": "merged = _deep_merge(dict(existing), updates)",
+        "next": "yaml.safe_dump(merged, fh, allow_unicode=True, sort_keys=False)"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\operations.py",
+      "line_no": 653,
+      "pattern": ".encode(",
+      "snippet": "\"bytes_written\": len(content.encode(\"utf-8\")),",
+      "context": {
+        "prev": "\"path\": str(target.relative_to(REPO_ROOT)),",
+        "next": "\"mode\": mode,"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 389,
+      "pattern": "json.dump(s)",
+      "snippet": "text = json.dumps(result, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": ")",
+        "next": "return (_text(text), result)"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 423,
+      "pattern": "json.dump(s)",
+      "snippet": "return (_text(json.dumps(data, ensure_ascii=False, indent=2)), data)",
+      "context": {
+        "prev": "data = await _run_sync(ops.read_config_yaml, arguments[\"filename\"])",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 433,
+      "pattern": "json.dump(s)",
+      "snippet": "return (_text(json.dumps(data, ensure_ascii=False, indent=2)), data)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 457,
+      "pattern": "json.dump(s)",
+      "snippet": "text = json.dumps(matches, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": ")",
+        "next": "return (_text(text), {\"matches\": matches})"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 462,
+      "pattern": "json.dump(s)",
+      "snippet": "return (_text(json.dumps(result, ensure_ascii=False, indent=2)), result)",
+      "context": {
+        "prev": "result = await _run_sync(ops.find_symbol_references, arguments[\"symbol\"])",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 480,
+      "pattern": "json.dump(s)",
+      "snippet": "text_payload = json.dumps(result, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "result = await _run_sync(ops.analyze_imports, arguments[\"path\"])",
+        "next": "return (_text(text_payload), {\"imports\": result})"
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 508,
+      "pattern": "json.dump(s)",
+      "snippet": "return (_text(json.dumps(result, ensure_ascii=False, indent=2)), result)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\mcp_server\\server.py",
+      "line_no": 516,
+      "pattern": "json.dump(s)",
+      "snippet": "return (_text(json.dumps(result, ensure_ascii=False, indent=2)), result)",
+      "context": {
+        "prev": ")",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 72,
+      "pattern": "json.dump(s)",
+      "snippet": "payload = json.dumps(state, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "STATE_PATH.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "STATE_PATH.write_text(payload, encoding=\"utf-8\")"
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 73,
+      "pattern": "Path.write_text",
+      "snippet": "STATE_PATH.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(state, ensure_ascii=False, indent=2)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 73,
+      "pattern": "write_text(",
+      "snippet": "STATE_PATH.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(state, ensure_ascii=False, indent=2)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 167,
+      "pattern": "json.dump(s)",
+      "snippet": "payload = json.dumps(check_summary, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "out_path = MONITOR_DIR / f\"recompute_monitor_check_{now_ts}.json\"",
+        "next": "out_path.write_text(payload, encoding=\"utf-8\")"
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 168,
+      "pattern": "Path.write_text",
+      "snippet": "out_path.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(check_summary, ensure_ascii=False, indent=2)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 168,
+      "pattern": "write_text(",
+      "snippet": "out_path.write_text(payload, encoding=\"utf-8\")",
+      "context": {
+        "prev": "payload = json.dumps(check_summary, ensure_ascii=False, indent=2)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 245,
+      "pattern": "json.dump(s)",
+      "snippet": "s = json.dumps(summary, ensure_ascii=False)",
+      "context": {
+        "prev": "summary = do_check(state)",
+        "next": "LOG.info(\"check summary: %s\", s)"
+      }
+    },
+    {
+      "file": "tools\\monitor_recompute_reports.py",
+      "line_no": 252,
+      "pattern": "json.dump(s)",
+      "snippet": "s2 = json.dumps(summary, ensure_ascii=False)",
+      "context": {
+        "prev": "summary = do_check(state)",
+        "next": "LOG.info(\"initial baseline created: %s\", s2)"
+      }
+    },
+    {
+      "file": "tools\\mypy_error_snapshot.py",
+      "line_no": 89,
+      "pattern": "json.dump(s)",
+      "snippet": "f.write(json.dumps(payload, ensure_ascii=False) + \"\\n\")",
+      "context": {
+        "prev": "with out_path.open(\"a\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\rebuild_rolling_for_symbols.py",
+      "line_no": 123,
+      "pattern": "json.dump(s)",
+      "snippet": "out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "tools\\rebuild_rolling_for_symbols.py",
+      "line_no": 123,
+      "pattern": "Path.write_text",
+      "snippet": "out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "tools\\rebuild_rolling_for_symbols.py",
+      "line_no": 123,
+      "pattern": "write_text(",
+      "snippet": "out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))",
+      "context": {
+        "prev": "out_path.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "except Exception:"
+      }
+    },
+    {
+      "file": "tools\\run_complete_ui_analysis.py",
+      "line_no": 216,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_file.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "f.write(\"\\n\".join(report_lines))"
+      }
+    },
+    {
+      "file": "tools\\snapshot.py",
+      "line_no": 71,
+      "pattern": "json.dump(s)",
+      "snippet": "(base / \"manifest.json\").write_text(json.dumps(manifest, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\snapshot.py",
+      "line_no": 71,
+      "pattern": "Path.write_text",
+      "snippet": "(base / \"manifest.json\").write_text(json.dumps(manifest, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\snapshot.py",
+      "line_no": 71,
+      "pattern": "write_text(",
+      "snippet": "(base / \"manifest.json\").write_text(json.dumps(manifest, indent=2), encoding=\"utf-8\")",
+      "context": {
+        "prev": "pass",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 142,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_path = Path(\"screenshots/progress_tracking/sync_analysis.json\")",
+        "next": "json.dump(sync_results, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 143,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(sync_results, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_path, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 452,
+      "pattern": "json.dump(s)",
+      "snippet": "tri_path.write_text(json.dumps(tri_report, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "tri_path = md_path.parent / \"tri_sync_report.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 452,
+      "pattern": "Path.write_text",
+      "snippet": "tri_path.write_text(json.dumps(tri_report, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "tri_path = md_path.parent / \"tri_sync_report.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 452,
+      "pattern": "write_text(",
+      "snippet": "tri_path.write_text(json.dumps(tri_report, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "tri_path = md_path.parent / \"tri_sync_report.json\"",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 482,
+      "pattern": "Path.write_text",
+      "snippet": "md_path.write_text(\"\".join(lines), encoding=\"utf-8\")",
+      "context": {
+        "prev": "",
+        "next": "print(f\"📝 Markdownレポート: {md_path}\")"
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 482,
+      "pattern": "write_text(",
+      "snippet": "md_path.write_text(\"\".join(lines), encoding=\"utf-8\")",
+      "context": {
+        "prev": "",
+        "next": "print(f\"📝 Markdownレポート: {md_path}\")"
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 501,
+      "pattern": "json.dump(s)",
+      "snippet": "summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "summary_path = md_path.parent / \"sync_summary.json\"",
+        "next": "print(f\"🧾 サマリーJSON: {summary_path}\")"
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 501,
+      "pattern": "Path.write_text",
+      "snippet": "summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "summary_path = md_path.parent / \"sync_summary.json\"",
+        "next": "print(f\"🧾 サマリーJSON: {summary_path}\")"
+      }
+    },
+    {
+      "file": "tools\\sync_analysis.py",
+      "line_no": 501,
+      "pattern": "write_text(",
+      "snippet": "summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding=\"utf-8\")",
+      "context": {
+        "prev": "summary_path = md_path.parent / \"sync_summary.json\"",
+        "next": "print(f\"🧾 サマリーJSON: {summary_path}\")"
+      }
+    },
+    {
+      "file": "tools\\test_trade_management.py",
+      "line_no": 485,
+      "pattern": "to_csv(",
+      "snippet": "allocation_df.to_csv(output_file, index=False)",
+      "context": {
+        "prev": "os.makedirs(\"results_csv_test\", exist_ok=True)",
+        "next": "print(f\"\\n📁 Results saved to: {output_file}\")"
+      }
+    },
+    {
+      "file": "tools\\test_trade_management.py",
+      "line_no": 485,
+      "pattern": ".to_csv(",
+      "snippet": "allocation_df.to_csv(output_file, index=False)",
+      "context": {
+        "prev": "os.makedirs(\"results_csv_test\", exist_ok=True)",
+        "next": "print(f\"\\n📁 Results saved to: {output_file}\")"
+      }
+    },
+    {
+      "file": "tools\\trace_unknown_candidates.py",
+      "line_no": 140,
+      "pattern": ".encode(",
+      "snippet": "return text.encode(\"utf-8\", errors=\"replace\").decode(\"utf-8\")",
+      "context": {
+        "prev": "# Encode/decode with 'replace' to guarantee UTF-8 validity",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\trace_unknown_candidates.py",
+      "line_no": 249,
+      "pattern": "write_json(",
+      "snippet": "write_json(out_json, results, ensure_ascii=False, indent=2)",
+      "context": {
+        "prev": "df_to_csv(out_df, out_csv, index=False)",
+        "next": ""
+      }
+    },
+    {
+      "file": "tools\\verify_ui_jsonl_sync.py",
+      "line_no": 281,
+      "pattern": "open(..., 'w')",
+      "snippet": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+      "context": {
+        "prev": "output_file.parent.mkdir(parents=True, exist_ok=True)",
+        "next": "json.dump(report, f, indent=2, ensure_ascii=False)"
+      }
+    },
+    {
+      "file": "tools\\verify_ui_jsonl_sync.py",
+      "line_no": 282,
+      "pattern": "json.dump(s)",
+      "snippet": "json.dump(report, f, indent=2, ensure_ascii=False)",
+      "context": {
+        "prev": "with open(output_file, \"w\", encoding=\"utf-8\") as f:",
+        "next": ""
+      }
+    }
+  ]
+}
