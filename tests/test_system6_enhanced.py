@@ -121,7 +121,9 @@ class TestSystem6MainFunctions:
             ),
         }
 
-        candidates, merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=10, latest_only=False)
+        candidates, merged_df = generate_candidates_system6(
+            prepared_dict=prepared_dict, top_n=10, latest_only=False
+        )
 
         assert isinstance(candidates, dict)
         assert merged_df is None or isinstance(merged_df, pd.DataFrame)
@@ -142,7 +144,9 @@ class TestSystem6MainFunctions:
             ),
         }
 
-        candidates, merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=10, latest_only=True)
+        candidates, merged_df = generate_candidates_system6(
+            prepared_dict=prepared_dict, top_n=10, latest_only=True
+        )
 
         assert isinstance(candidates, dict)
         # With latest_only, should only check last row
@@ -183,7 +187,9 @@ class TestSystem6MainFunctions:
 
         assert isinstance(candidates, dict)
         assert len(candidates) == 0
-        assert merged_df is None or (isinstance(merged_df, pd.DataFrame) and merged_df.empty)
+        assert merged_df is None or (
+            isinstance(merged_df, pd.DataFrame) and merged_df.empty
+        )
 
     def test_generate_candidates_system6_ranking_order(self):
         """Test that candidates are ranked by return_6d descending"""
@@ -212,7 +218,9 @@ class TestSystem6MainFunctions:
             ),
         }
 
-        candidates, _merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=1, latest_only=True)
+        candidates, _merged_df = generate_candidates_system6(
+            prepared_dict=prepared_dict, top_n=1, latest_only=True
+        )
 
         # MSFT should rank higher due to higher return_6d
         if candidates:
@@ -237,7 +245,9 @@ class TestSystem6MainFunctions:
 
         # Should handle gracefully without crashing
         try:
-            candidates, _merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=10)
+            candidates, _merged_df = generate_candidates_system6(
+                prepared_dict=prepared_dict, top_n=10
+            )
             # Either returns empty or handles missing columns
             assert isinstance(candidates, dict)
         except KeyError:
@@ -327,7 +337,9 @@ class TestSystem6EdgeCases:
             ),
         }
 
-        candidates, merged_df = generate_candidates_system6(prepared_dict=prepared_dict, top_n=10)
+        candidates, merged_df = generate_candidates_system6(
+            prepared_dict=prepared_dict, top_n=10
+        )
 
         assert isinstance(candidates, dict)
         # Should return empty candidates or handle gracefully
@@ -369,7 +381,9 @@ class TestSystem6LatestOnlyMode:
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        result, _ = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True, latest_mode_date=target_date)
+        result, _ = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True, latest_mode_date=target_date
+        )
 
         # 指定日のデータのみ抽出される（setup条件を満たす場合）
         assert isinstance(result, dict)
@@ -402,7 +416,9 @@ class TestSystem6LatestOnlyMode:
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        result, _ = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True, latest_mode_date=missing_date)
+        result, _ = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True, latest_mode_date=missing_date
+        )
 
         # 対象日のデータがないためスキップ
         assert len(result) == 0
@@ -431,7 +447,9 @@ class TestSystem6LatestOnlyMode:
         symbols_dict = {"TEST": mock_df}
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        result, _ = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True)
+        result, _ = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True
+        )
 
         # 条件を満たさないためスキップ（結果は0件）
         assert len(result) == 0
@@ -492,7 +510,9 @@ class TestSystem6RankingAndFiltering:
 
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        gen_result = generate_candidates_system6(prepared_dict, top_n=3, latest_only=True, include_diagnostics=True)
+        gen_result = generate_candidates_system6(
+            prepared_dict, top_n=3, latest_only=True, include_diagnostics=True
+        )
         # 戻り値は2個または3個（diagnostics付き）
         if len(gen_result) == 3:
             result, df, _ = gen_result
@@ -595,7 +615,9 @@ class TestSystem6RankingAndFiltering:
 
         prepared_dict = prepare_data_vectorized_system6(symbols_dict)
 
-        gen_result = generate_candidates_system6(prepared_dict, top_n=5, latest_only=True)
+        gen_result = generate_candidates_system6(
+            prepared_dict, top_n=5, latest_only=True
+        )
         result, df = gen_result[:2] if len(gen_result) == 3 else gen_result
 
         # 最頻日（dates1）が選択されることを確認
@@ -1206,7 +1228,9 @@ class TestSystem6HelperFunctions:
         from core.system6 import get_total_days_system6
 
         dates1 = pd.date_range("2023-01-01", periods=5, freq="D")
-        dates2 = pd.date_range("2023-01-03", periods=5, freq="D")  # 1/3から開始（2日重複）
+        dates2 = pd.date_range(
+            "2023-01-03", periods=5, freq="D"
+        )  # 1/3から開始（2日重複）
 
         data_dict = {
             "SYM1": pd.DataFrame(
@@ -1295,7 +1319,9 @@ class TestSystem6ErrorHandling:
         }
 
         # Should handle max() on empty dict gracefully
-        result, _, diagnostics = generate_candidates_system6(data, top_n=5, latest_only=True, include_diagnostics=True)
+        result, _, diagnostics = generate_candidates_system6(
+            data, top_n=5, latest_only=True, include_diagnostics=True
+        )
 
         assert isinstance(result, dict)
         assert "ranked_top_n_count" in diagnostics
@@ -1403,7 +1429,9 @@ class TestSystem6MetricsRecording:
             # Verify metrics were recorded with 0 values
             metric_names = [m["name"] for m in metrics_captured]
             assert "system6_total_candidates" in metric_names
-            total_candidates = next(m for m in metrics_captured if m["name"] == "system6_total_candidates")
+            total_candidates = next(
+                m for m in metrics_captured if m["name"] == "system6_total_candidates"
+            )
             assert total_candidates["value"] == 0
 
         finally:
@@ -1434,7 +1462,9 @@ class TestSystem6LoggingCallbacks:
             )
         }
 
-        _ = generate_candidates_system6(data, top_n=5, latest_only=True, log_callback=mock_log_callback)
+        _ = generate_candidates_system6(
+            data, top_n=5, latest_only=True, log_callback=mock_log_callback
+        )
 
         # Check if any logging activity occurred
         assert isinstance(logs_captured, list)
@@ -1467,10 +1497,14 @@ class TestSystem6LoggingCallbacks:
             )
         }
 
-        _ = generate_candidates_system6(data, top_n=5, latest_only=True, log_callback=mock_log_callback)
+        _ = generate_candidates_system6(
+            data, top_n=5, latest_only=True, log_callback=mock_log_callback
+        )
 
         # Check if completion message was logged
-        completion_logs = [log for log in logs_captured if "完了" in log or "候補生成" in log]
+        completion_logs = [
+            log for log in logs_captured if "完了" in log or "候補生成" in log
+        ]
         # Should have completion message
         assert len(completion_logs) > 0
 
@@ -1503,4 +1537,6 @@ class TestSystem6LoggingCallbacks:
 
         # Should raise RuntimeError from failing callback
         with pytest.raises(RuntimeError, match="Intentional log callback failure"):
-            generate_candidates_system6(data, top_n=5, latest_only=True, log_callback=failing_log_callback)
+            generate_candidates_system6(
+                data, top_n=5, latest_only=True, log_callback=failing_log_callback
+            )

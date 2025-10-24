@@ -54,7 +54,9 @@ async def _try_click_run_button(page: Page) -> bool:
         lambda: page.get_by_text(RUN_BUTTON_TEXT),
         # CSS + テキストフィルタ
         lambda: page.locator("button").filter(has_text=re.compile(RUN_BUTTON_TEXT)),
-        lambda: page.locator("div.stButton button").filter(has_text=re.compile(RUN_BUTTON_TEXT)),
+        lambda: page.locator("div.stButton button").filter(
+            has_text=re.compile(RUN_BUTTON_TEXT)
+        ),
     ]
 
     # スクロールしながら最大 N 回探索
@@ -62,7 +64,9 @@ async def _try_click_run_button(page: Page) -> bool:
     for step in range(max_scroll_steps):
         if step > 0:
             # 下方向にスクロール
-            await page.evaluate("window.scrollBy(0, Math.floor(window.innerHeight * 0.9));")
+            await page.evaluate(
+                "window.scrollBy(0, Math.floor(window.innerHeight * 0.9));"
+            )
             await asyncio.sleep(0.5)
 
         for make_locator in selectors:
@@ -205,7 +209,9 @@ async def capture_screenshots() -> None:
                 "--enable-features=WebContentsForceDark",
                 "--blink-settings=forceDarkModeEnabled=true",
             ]
-        browser = await p.chromium.launch(headless=headless, slow_mo=args.slowmo, args=launch_args)
+        browser = await p.chromium.launch(
+            headless=headless, slow_mo=args.slowmo, args=launch_args
+        )
         logger.info(
             "🌐 Chromiumブラウザ起動完了 (%s) slowMo=%sms, color-scheme=%s",
             "headed" if not headless else "headless",
@@ -265,7 +271,9 @@ async def capture_screenshots() -> None:
 
         # スクリーンショット撮影ループ
         screenshot_count = 0
-        logger.info(f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）")
+        logger.info(
+            f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）"
+        )
 
         try:
             while screenshot_count < MAX_SCREENSHOTS:
@@ -283,12 +291,16 @@ async def capture_screenshots() -> None:
                 try:
                     # 0) JSONL: pipeline_complete（全体完了）
                     if _jsonl_has_pipeline_complete():
-                        logger.info("✅ JSONLでpipeline_completeを検出 - 追い撮りして終了")
+                        logger.info(
+                            "✅ JSONLでpipeline_completeを検出 - 追い撮りして終了"
+                        )
                         for i in range(5):
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
 
@@ -299,7 +311,9 @@ async def capture_screenshots() -> None:
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
 
@@ -310,7 +324,9 @@ async def capture_screenshots() -> None:
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
                 except Exception:

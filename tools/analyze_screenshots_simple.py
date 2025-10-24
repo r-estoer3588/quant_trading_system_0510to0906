@@ -132,7 +132,9 @@ def main():
     progress_values = [r["progress_percent"] for r in valid_results]
 
     if progress_values:
-        print(f"   進捗バー範囲: {min(progress_values):.1f}% - {max(progress_values):.1f}%")
+        print(
+            f"   進捗バー範囲: {min(progress_values):.1f}% - {max(progress_values):.1f}%"
+        )
         print(f"   平均進捗: {sum(progress_values) / len(progress_values):.1f}%")
 
         # タイムスタンプ範囲

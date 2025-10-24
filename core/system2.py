@@ -36,7 +36,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             return symbol, None
 
         # Check for required indicators
-        missing_indicators = [col for col in SYSTEM2_REQUIRED_INDICATORS if col not in df.columns]
+        missing_indicators = [
+            col for col in SYSTEM2_REQUIRED_INDICATORS if col not in df.columns
+        ]
         if missing_indicators:
             return symbol, None
 
@@ -44,7 +46,11 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         x = df.copy()
 
         # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>0.03
-        x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+        x["filter"] = (
+            (x["Close"] >= 5.0)
+            & (x["dollarvolume20"] > 25_000_000)
+            & (x["atr_ratio"] > 0.03)
+        )
 
         # Setup: Filter + RSI3>90 + twodayup
         x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
@@ -101,7 +107,11 @@ def prepare_data_vectorized_system2(
                     x = df.copy()
 
                     # Filter: Close>=5, DollarVolume20>25M, ATR_Ratio>0.03
-                    x["filter"] = (x["Close"] >= 5.0) & (x["dollarvolume20"] > 25_000_000) & (x["atr_ratio"] > 0.03)
+                    x["filter"] = (
+                        (x["Close"] >= 5.0)
+                        & (x["dollarvolume20"] > 25_000_000)
+                        & (x["atr_ratio"] > 0.03)
+                    )
 
                     # Setup: Filter + RSI3>90 + twodayup
                     x["setup"] = x["filter"] & (x["rsi3"] > 90) & x["twodayup"]
@@ -109,7 +119,9 @@ def prepare_data_vectorized_system2(
                     prepared_dict[symbol] = x
 
                 if log_callback:
-                    log_callback(f"System2: Fast-path processed {len(prepared_dict)} symbols")
+                    log_callback(
+                        f"System2: Fast-path processed {len(prepared_dict)} symbols"
+                    )
 
                 return prepared_dict
 
@@ -119,7 +131,9 @@ def prepare_data_vectorized_system2(
         except Exception:
             # Fall back to normal processing for other errors
             if log_callback:
-                log_callback("System2: Fast-path failed, falling back to normal processing")
+                log_callback(
+                    "System2: Fast-path failed, falling back to normal processing"
+                )
 
     # Normal processing path: batch processing from symbol list
     if symbols:
@@ -132,7 +146,9 @@ def prepare_data_vectorized_system2(
         return {}
 
     if log_callback:
-        log_callback(f"System2: Starting normal processing for {len(target_symbols)} symbols")
+        log_callback(
+            f"System2: Starting normal processing for {len(target_symbols)} symbols"
+        )
 
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
@@ -271,7 +287,9 @@ def generate_candidates_system2(
                 df_all = df_all[df_all["date"] == mode_date]
             except Exception:
                 pass
-            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(top_n)
+            df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(
+                top_n
+            )
             diagnostics["ranked_top_n_count"] = len(df_all)
             diagnostics["ranking_source"] = "latest_only"
             # 候補0件なら代表サンプルを1-2件だけDEBUGログ出力
@@ -287,14 +305,21 @@ def generate_candidates_system2(
                             s_dt = pd.to_datetime(str(s_df.index[-1])).normalize()
                             s_setup = bool(s_last.get("setup", False))
                             s_adx = s_last.get("adx7", float("nan"))
-                            samples.append((f"{s_sym}: date={s_dt.date()} setup={s_setup} adx7={float(s_adx):.4f}"))
+                            samples.append(
+                                (
+                                    f"{s_sym}: date={s_dt.date()} setup={s_setup} adx7={float(s_adx):.4f}"
+                                )
+                            )
                             taken += 1
                             if taken >= 2:
                                 break
                         except Exception:
                             continue
                     if samples:
-                        log_callback("System2: DEBUG latest_only 0 candidates. " + " | ".join(samples))
+                        log_callback(
+                            "System2: DEBUG latest_only 0 candidates. "
+                            + " | ".join(samples)
+                        )
                 except Exception:
                     pass
             # Orchestrator expects: {date: {symbol: {field: value}}}
@@ -307,12 +332,22 @@ def generate_candidates_system2(
                     sym = rec.get("symbol")
                     if not sym:
                         continue
-                    payload: dict[str, Any] = {str(k): v for k, v in rec.items() if k not in ("symbol", "date")}
+                    payload: dict[str, Any] = {
+                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
+                    }
                     symbol_map[str(sym)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
-                log_callback((f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"))
-            return (by_date, df_all.copy(), diagnostics) if include_diagnostics else (by_date, df_all.copy())
+                log_callback(
+                    (
+                        f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                    )
+                )
+            return (
+                (by_date, df_all.copy(), diagnostics)
+                if include_diagnostics
+                else (by_date, df_all.copy())
+            )
         except Exception as e:
             if log_callback:
                 log_callback(f"System2: fast-path failed -> fallback ({e})")
@@ -395,10 +430,14 @@ def generate_candidates_system2(
     if all_candidates:
         candidates_df = pd.DataFrame(all_candidates)
         candidates_df["date"] = pd.to_datetime(candidates_df["date"])
-        candidates_df = candidates_df.sort_values(["date", "adx7"], ascending=[True, False])
+        candidates_df = candidates_df.sort_values(
+            ["date", "adx7"], ascending=[True, False]
+        )
         last_date = max(candidates_by_date.keys()) if candidates_by_date else None
         if last_date is not None:
-            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_date, []))
+            diagnostics["ranked_top_n_count"] = len(
+                candidates_by_date.get(last_date, [])
+            )
         diagnostics["ranking_source"] = "full_scan"
     else:
         candidates_df = None
@@ -406,7 +445,11 @@ def generate_candidates_system2(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback((f"System2: Generated {total_candidates} candidates across {unique_dates} dates"))
+        log_callback(
+            (
+                f"System2: Generated {total_candidates} candidates across {unique_dates} dates"
+            )
+        )
 
     # Normalize to {date: {symbol: payload}}
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
@@ -419,7 +462,11 @@ def generate_candidates_system2(
             payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
             out_symbol_map[sym_any] = payload
         normalized[dt] = out_symbol_map
-    return (normalized, candidates_df, diagnostics) if include_diagnostics else (normalized, candidates_df)
+    return (
+        (normalized, candidates_df, diagnostics)
+        if include_diagnostics
+        else (normalized, candidates_df)
+    )
 
 
 def get_total_days_system2(data_dict: dict[str, pd.DataFrame]) -> int:

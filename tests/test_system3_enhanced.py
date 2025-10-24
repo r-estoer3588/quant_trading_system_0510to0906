@@ -55,7 +55,9 @@ class TestSystem3MainFunctions:
             mock_check.return_value = (raw_data, [])
             mock_batch.return_value = (raw_data, [])
 
-            result = prepare_data_vectorized_system3(raw_data_dict=raw_data, symbols=["AAPL"], reuse_indicators=True)
+            result = prepare_data_vectorized_system3(
+                raw_data_dict=raw_data, symbols=["AAPL"], reuse_indicators=True
+            )
 
         assert len(result) == 1
         assert "AAPL" in result
@@ -68,7 +70,9 @@ class TestSystem3MainFunctions:
             mock_df = pd.DataFrame({"Close": [100], "filter": [True], "setup": [False]})
             mock_batch.return_value = ({"AAPL": mock_df}, [])
 
-            result = prepare_data_vectorized_system3(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
+            result = prepare_data_vectorized_system3(
+                raw_data_dict=None, symbols=symbols, reuse_indicators=False
+            )
 
         assert "AAPL" in result
         mock_batch.assert_called_once()
@@ -88,7 +92,9 @@ class TestSystem3MainFunctions:
 
         prepared_dict = {"AAPL": mock_df, "TSLA": mock_df.copy()}
 
-        candidates_by_date, candidates_df = generate_candidates_system3(prepared_dict, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system3(
+            prepared_dict, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
 

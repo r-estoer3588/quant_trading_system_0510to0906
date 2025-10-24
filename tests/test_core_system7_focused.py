@@ -30,7 +30,9 @@ class TestSystem7Constants:
         raw_data_no_spy = {"AAPL": pd.DataFrame({"Close": [100, 101]})}
 
         # System7 should return empty dict if no SPY data
-        result = prepare_data_vectorized_system7(raw_data_no_spy, reuse_indicators=False)
+        result = prepare_data_vectorized_system7(
+            raw_data_no_spy, reuse_indicators=False
+        )
         assert result == {}
 
     def test_system7_atr50_requirement(self):
@@ -110,7 +112,9 @@ class TestSystem7DataPreparation:
         min_50 = df_temp["Low"].rolling(window=win_50, min_periods=1).min()
         max_70 = df_temp["High"].rolling(window=win_70, min_periods=1).max()
 
-        volumes = [50000000 + np.random.randint(-5000000, 5000000) for _ in range(periods)]
+        volumes = [
+            50000000 + np.random.randint(-5000000, 5000000) for _ in range(periods)
+        ]
 
         return pd.DataFrame(
             {
@@ -137,7 +141,9 @@ class TestSystem7DataPreparation:
         def capture_skip(msg):
             skip_messages.append(msg)
 
-        result = prepare_data_vectorized_system7(raw_data, reuse_indicators=False, skip_callback=capture_skip)
+        result = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False, skip_callback=capture_skip
+        )
 
         # Debug: print skip messages if result is empty
         if not result or "SPY" not in result:
@@ -159,7 +165,9 @@ class TestSystem7DataPreparation:
 
     @patch("os.path.exists")
     @patch("pandas.read_feather")
-    def test_prepare_data_vectorized_system7_with_cache(self, mock_read_feather, mock_exists):
+    def test_prepare_data_vectorized_system7_with_cache(
+        self, mock_read_feather, mock_exists
+    ):
         """Test data preparation with caching."""
         spy_data = self.create_valid_spy_data(periods=350)  # Enough for caching
         raw_data = {"SPY": spy_data}
@@ -215,7 +223,9 @@ class TestSystem7CandidateGeneration:
                 "ATR50": [p * 0.02 for p in prices],
                 "atr50": [p * 0.02 for p in prices],
                 "min_50": min_50_values,
-                "setup": [1 if i % 10 == 5 else 0 for i in range(100)],  # Setup signals every 10 days
+                "setup": [
+                    1 if i % 10 == 5 else 0 for i in range(100)
+                ],  # Setup signals every 10 days
             },
             index=dates,
         )
@@ -253,7 +263,9 @@ class TestSystem7CandidateGeneration:
         prepared_data = self.create_prepared_spy_data()
         progress_mock = Mock()
 
-        result_tuple = generate_candidates_system7(prepared_data, top_n=5, log_callback=progress_mock)
+        result_tuple = generate_candidates_system7(
+            prepared_data, top_n=5, log_callback=progress_mock
+        )
         candidates_dict = result_tuple[0]
         _ = result_tuple[1]  # candidates_df not checked
 
@@ -317,7 +329,9 @@ class TestSystem7Integration:
         raw_data = self.create_integration_spy_data()
 
         # Step 1: Prepare data
-        prepared_data = prepare_data_vectorized_system7(raw_data, reuse_indicators=False)
+        prepared_data = prepare_data_vectorized_system7(
+            raw_data, reuse_indicators=False
+        )
         assert isinstance(prepared_data, dict)
         assert "SPY" in prepared_data
 
@@ -364,7 +378,9 @@ class TestSystem7Integration:
         }
 
         # System7 should only process SPY
-        result = prepare_data_vectorized_system7(multi_symbol_data, reuse_indicators=False)
+        result = prepare_data_vectorized_system7(
+            multi_symbol_data, reuse_indicators=False
+        )
 
         # Should contain SPY (if processing succeeds) and definitely not QQQ
         if result:  # If not empty

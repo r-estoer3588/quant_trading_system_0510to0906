@@ -10,7 +10,9 @@ def main():
     p.add_argument("--min-price", type=float, default=5.0)
     p.add_argument("--min-dollar-vol", type=float, default=25_000_000.0)
     p.add_argument("--limit", type=int, default=2000)
-    p.add_argument("--out", type=str, default=None, help="出力パス（既定: data/universe_auto.txt）")
+    p.add_argument(
+        "--out", type=str, default=None, help="出力パス（既定: data/universe_auto.txt）"
+    )
     args = p.parse_args()
 
     syms = build_universe_from_cache(

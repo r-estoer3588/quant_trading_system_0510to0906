@@ -118,7 +118,9 @@ def main(symbols: Iterable[str], limit: int | None = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", nargs="*", default=["SPY"], help="優先的に確認するシンボルリスト")
+    parser.add_argument(
+        "--symbols", nargs="*", default=["SPY"], help="優先的に確認するシンボルリスト"
+    )
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args()
     main(args.symbols, args.limit)

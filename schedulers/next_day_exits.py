@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from common import broker_alpaca as ba
+from common.io_utils import write_json_lines
 from common.notifier import Notifier
 
 """
@@ -47,9 +48,8 @@ def _load_plans() -> list[dict[str, Any]]:
 
 def _save_plans(plans: list[dict[str, Any]]) -> None:
     PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with PLAN_PATH.open("w", encoding="utf-8") as f:
-        for rec in plans:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    # centralize NDJSON writes to ensure UTF-8 sanitization
+    write_json_lines(PLAN_PATH, plans, ensure_ascii=False, indent=None, append=False)
 
 
 def _is_market_open_window(now: pd.Timestamp) -> bool:

@@ -8,7 +8,10 @@ from uuid import UUID
 def make_json_serializable(obj: Any) -> Any:
     """Recursively convert UUID keys and values to strings for JSON serialization."""
     if isinstance(obj, dict):
-        return {(str(k) if isinstance(k, UUID) else k): make_json_serializable(v) for k, v in obj.items()}
+        return {
+            (str(k) if isinstance(k, UUID) else k): make_json_serializable(v)
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
         return [make_json_serializable(item) for item in obj]
     if isinstance(obj, UUID):

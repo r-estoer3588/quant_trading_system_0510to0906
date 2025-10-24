@@ -65,11 +65,15 @@ class RealTimeDashboard:
             self._render_alerts_section(dashboard_data["alerts"])
 
         # システムメトリクスグラフ
-        self._render_system_metrics_charts(dashboard_data["system_metrics"], time_window)
+        self._render_system_metrics_charts(
+            dashboard_data["system_metrics"], time_window
+        )
 
         # システム別パフォーマンス
         if dashboard_data["system_performance"]:
-            self._render_system_performance_charts(dashboard_data["system_performance"], time_window)
+            self._render_system_performance_charts(
+                dashboard_data["system_performance"], time_window
+            )
 
         # 進捗情報
         self._render_progress_section()
@@ -143,10 +147,16 @@ class RealTimeDashboard:
         if alerts_data["recent"]:
             st.write("**最近のアラート:**")
             for alert in alerts_data["recent"]:
-                icon = "🔴" if alert["severity"] == "critical" else "🟡" if alert["severity"] == "warning" else "🔵"
+                icon = (
+                    "🔴"
+                    if alert["severity"] == "critical"
+                    else "🟡" if alert["severity"] == "warning" else "🔵"
+                )
                 st.write(f"{icon} {alert['message']}")
 
-    def _render_system_metrics_charts(self, metrics_data: Dict[str, List], time_window: int) -> None:
+    def _render_system_metrics_charts(
+        self, metrics_data: Dict[str, List], time_window: int
+    ) -> None:
         """システムメトリクスグラフを表示。"""
 
         st.subheader("📈 システムリソース推移")
@@ -171,7 +181,8 @@ class RealTimeDashboard:
         # CPU使用率
         if metrics_data["cpu"]:
             timestamps = [
-                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) for item in metrics_data["cpu"]
+                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                for item in metrics_data["cpu"]
             ]
             cpu_values = [item["value"] for item in metrics_data["cpu"]]
 
@@ -190,7 +201,8 @@ class RealTimeDashboard:
         # メモリ使用率
         if metrics_data["memory"]:
             timestamps = [
-                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) for item in metrics_data["memory"]
+                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                for item in metrics_data["memory"]
             ]
             memory_values = [item["value"] for item in metrics_data["memory"]]
 
@@ -209,7 +221,8 @@ class RealTimeDashboard:
         # スループット
         if metrics_data["throughput"]:
             timestamps = [
-                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) for item in metrics_data["throughput"]
+                datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                for item in metrics_data["throughput"]
             ]
             throughput_values = [item["value"] for item in metrics_data["throughput"]]
 
@@ -227,7 +240,9 @@ class RealTimeDashboard:
 
         # リソース使用率比較（CPU vs Memory）
         if metrics_data["cpu"] and metrics_data["memory"]:
-            cpu_values = [item["value"] for item in metrics_data["cpu"][-50:]]  # 最新50ポイント
+            cpu_values = [
+                item["value"] for item in metrics_data["cpu"][-50:]
+            ]  # 最新50ポイント
             memory_values = [item["value"] for item in metrics_data["memory"][-50:]]
 
             fig.add_trace(
@@ -260,7 +275,9 @@ class RealTimeDashboard:
 
         st.plotly_chart(fig, width="stretch")
 
-    def _render_system_performance_charts(self, system_data: Dict[str, Dict], time_window: int) -> None:
+    def _render_system_performance_charts(
+        self, system_data: Dict[str, Dict], time_window: int
+    ) -> None:
         """システム別パフォーマンスチャートを表示。"""
 
         st.subheader("⚡ システム別パフォーマンス")
@@ -284,7 +301,8 @@ class RealTimeDashboard:
                 duration_data = system_data[system_name]["duration"]
                 if duration_data:
                     timestamps = [
-                        datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) for item in duration_data
+                        datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                        for item in duration_data
                     ]
                     durations = [item["value"] for item in duration_data]
 
@@ -314,7 +332,8 @@ class RealTimeDashboard:
                 throughput_data = system_data[system_name]["throughput"]
                 if throughput_data:
                     timestamps = [
-                        datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) for item in throughput_data
+                        datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                        for item in throughput_data
                     ]
                     throughputs = [item["value"] for item in throughput_data]
 
@@ -358,7 +377,9 @@ class RealTimeDashboard:
                 st.progress(progress_value)
 
                 # 詳細情報
-                details = f"進捗: {progress['processed_items']}/{progress['total_items']} "
+                details = (
+                    f"進捗: {progress['processed_items']}/{progress['total_items']} "
+                )
                 details += f"({progress['progress_percentage']:.1f}%) "
                 details += f"処理速度: {progress['current_rate']:.2f} items/sec"
 
@@ -412,7 +433,9 @@ class RealTimeDashboard:
         with col1:
             # フェーズ別時間割合（円グラフ）
             phase_names = [phase["name"] for phase in bottleneck_data["phases"]]
-            time_percentages = [phase["time_percentage"] for phase in bottleneck_data["phases"]]
+            time_percentages = [
+                phase["time_percentage"] for phase in bottleneck_data["phases"]
+            ]
 
             fig_pie = px.pie(
                 values=time_percentages,
@@ -424,7 +447,9 @@ class RealTimeDashboard:
 
         with col2:
             # フェーズ別平均実行時間（棒グラフ）
-            avg_durations = [phase["avg_duration"] for phase in bottleneck_data["phases"]]
+            avg_durations = [
+                phase["avg_duration"] for phase in bottleneck_data["phases"]
+            ]
 
             fig_bar = px.bar(
                 x=phase_names,
@@ -434,7 +459,10 @@ class RealTimeDashboard:
             )
 
             # ボトルネックのフェーズをハイライト
-            colors = ["red" if phase["is_bottleneck"] else "blue" for phase in bottleneck_data["phases"]]
+            colors = [
+                "red" if phase["is_bottleneck"] else "blue"
+                for phase in bottleneck_data["phases"]
+            ]
             fig_bar.update_traces(marker_color=colors)
 
             st.plotly_chart(fig_bar, width="stretch")

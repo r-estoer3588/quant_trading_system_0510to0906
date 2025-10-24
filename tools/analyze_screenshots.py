@@ -32,7 +32,9 @@ def analyze_screenshot(image_path: Path) -> dict:
         result = {
             "file": image_path.name,
             "image_size": f"{width}x{height}",
-            "timestamp": image_path.stem.split("_")[1] + "_" + image_path.stem.split("_")[2],
+            "timestamp": image_path.stem.split("_")[1]
+            + "_"
+            + image_path.stem.split("_")[2],
         }
 
         # ここでは画像を開いて基本情報のみ返す

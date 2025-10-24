@@ -8,14 +8,14 @@ returned diagnostics to a JSON file for inspection.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.system3 import prepare_data_vectorized_system3, generate_candidates_system3
+from core.system3 import generate_candidates_system3, prepare_data_vectorized_system3
 
 
 def _parse_setlike(s):

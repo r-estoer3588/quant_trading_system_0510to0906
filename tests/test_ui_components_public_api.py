@@ -171,7 +171,11 @@ class TestSignalTradeSummary:
     @patch("streamlit.dataframe")
     def test_show_signal_trade_summary_basic(self, mock_dataframe):
         """Test show_signal_trade_summary with basic input."""
-        signal_data = {"AAPL": pd.DataFrame({"Date": pd.date_range("2023-01-01", periods=10), "Close": [150.0] * 10})}
+        signal_data = {
+            "AAPL": pd.DataFrame(
+                {"Date": pd.date_range("2023-01-01", periods=10), "Close": [150.0] * 10}
+            )
+        }
 
         results_df = pd.DataFrame(
             {
@@ -196,7 +200,9 @@ class TestLoggingFunctions:
     def setup_method(self):
         set_test_determinism()
 
-    @pytest.mark.skip(reason="save_signal_and_trade_logs uses st.download_button which requires Streamlit context")
+    @pytest.mark.skip(
+        reason="save_signal_and_trade_logs uses st.download_button which requires Streamlit context"
+    )
     @patch("os.makedirs")
     @patch("pandas.DataFrame.to_csv")
     def test_save_signal_and_trade_logs_basic(self, mock_to_csv, mock_makedirs):
@@ -213,7 +219,9 @@ class TestLoggingFunctions:
         )
 
         # Should not raise exceptions
-        ui_components.save_signal_and_trade_logs(signal_df, results_df, "TestSystem", 10000.0)
+        ui_components.save_signal_and_trade_logs(
+            signal_df, results_df, "TestSystem", 10000.0
+        )
 
         # Verify CSV save was attempted
         assert mock_to_csv.called

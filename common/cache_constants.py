@@ -53,9 +53,13 @@ class CacheConstants:
         }
     )
 
-    VOLUME_COLUMNS: ClassVar[frozenset[str]] = frozenset({"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"})
+    VOLUME_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"volume", "dollarvolume20", "dollarvolume50", "avgvolume50"}
+    )
 
-    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset({"rsi3", "rsi4", "rsi14", "adx7"})
+    OSCILLATOR_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"rsi3", "rsi4", "rsi14", "adx7"}
+    )
 
     PERCENTAGE_COLUMNS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -70,9 +74,13 @@ class CacheConstants:
     )
 
     # 必須OHLCV列
-    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset({"open", "high", "low", "close"})
+    REQUIRED_OHLC_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"open", "high", "low", "close"}
+    )
 
-    REQUIRED_OHLCV_COLUMNS: ClassVar[frozenset[str]] = frozenset({"open", "high", "low", "close", "volume"})
+    REQUIRED_OHLCV_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {"open", "high", "low", "close", "volume"}
+    )
 
     # 指標計算用の期間設定
     SMA_PERIODS: ClassVar[tuple[int, ...]] = (25, 50, 100, 150, 200)

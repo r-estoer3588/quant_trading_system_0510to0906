@@ -18,6 +18,7 @@ Behavior:
     * Writes a monitoring check record under results_csv_test/monitoring/ for
         auditing.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -69,8 +70,13 @@ def load_state() -> dict[str, Any]:
 
 def save_state(state: dict[str, Any]) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(state, ensure_ascii=False, indent=2)
-    STATE_PATH.write_text(payload, encoding="utf-8")
+    try:
+        from common.io_utils import write_json
+
+        write_json(STATE_PATH, state, ensure_ascii=False, indent=2)
+    except Exception:
+        payload = json.dumps(state, ensure_ascii=False, indent=2)
+        STATE_PATH.write_text(payload, encoding="utf-8")
 
 
 def find_reports() -> list[Path]:
@@ -164,8 +170,13 @@ def do_check(state: dict[str, Any]) -> dict[str, Any]:
     # write a monitoring record for auditing
     now_ts = datetime.now(tz=_JST).strftime("%Y%m%d_%H%M%S")
     out_path = MONITOR_DIR / f"recompute_monitor_check_{now_ts}.json"
-    payload = json.dumps(check_summary, ensure_ascii=False, indent=2)
-    out_path.write_text(payload, encoding="utf-8")
+    try:
+        from common.io_utils import write_json
+
+        write_json(out_path, check_summary, ensure_ascii=False, indent=2)
+    except Exception:
+        payload = json.dumps(check_summary, ensure_ascii=False, indent=2)
+        out_path.write_text(payload, encoding="utf-8")
 
     # persist updated seen list
     state["seen_files"] = sorted(list(seen))
@@ -200,9 +211,7 @@ def stop_monitor() -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description=(
-            "Monitor recompute rolling reports for a short observation period"
-        )
+        description=("Monitor recompute rolling reports for a short observation period")
     )
     p.add_argument(
         "--start",

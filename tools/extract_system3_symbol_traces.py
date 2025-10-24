@@ -14,12 +14,12 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import sys
 from pathlib import Path
+from pathlib import Path as _Path
 from typing import Any
 
 import pandas as pd
-import sys
-from pathlib import Path as _Path
 
 # ensure repo root is on sys.path
 ROOT = _Path(__file__).resolve().parents[1]

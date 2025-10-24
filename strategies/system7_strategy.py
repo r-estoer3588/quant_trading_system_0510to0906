@@ -180,9 +180,15 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         risk_pct = float(self.config.get("risk_pct", 0.02))
         max_pct = float(self.config.get("max_pct", 0.20))
         if "single_mode" in self.config:
-            single_mode = bool(self.config.get("single_mode", False)) if not single_mode else single_mode
+            single_mode = (
+                bool(self.config.get("single_mode", False))
+                if not single_mode
+                else single_mode
+            )
 
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
 
         for i, (entry_date, candidates) in enumerate(
             sorted(candidates_by_date.items()),
@@ -226,7 +232,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     continue
 
                 risk_per_trade = risk_pct * capital_current
-                max_position_value = capital_current if single_mode else capital_current * max_pct
+                max_position_value = (
+                    capital_current if single_mode else capital_current * max_pct
+                )
 
                 shares_by_risk = risk_per_trade / (stop_price - entry_price)
                 shares_by_cap = max_position_value // entry_price
@@ -249,7 +257,11 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
                     exit_date = df.index[-1]
                     exit_price = float(df.iloc[-1]["Close"])
 
-                exit_price_safe = float(exit_price) if exit_price is not None else float(df.iloc[-1]["Close"])
+                exit_price_safe = (
+                    float(exit_price)
+                    if exit_price is not None
+                    else float(df.iloc[-1]["Close"])
+                )
                 pnl = (entry_price - exit_price_safe) * shares
                 return_pct = pnl / capital_current * 100 if capital_current else 0.0
 
@@ -324,7 +336,11 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
 
     @staticmethod
     def _detect_atr_columns(df: pd.DataFrame) -> list[str]:
-        return [col for col in getattr(df, "columns", []) if isinstance(col, str) and col.upper().startswith("ATR")]
+        return [
+            col
+            for col in getattr(df, "columns", [])
+            if isinstance(col, str) and col.upper().startswith("ATR")
+        ]
 
     @staticmethod
     def _fallback_atr(df: pd.DataFrame, window: int) -> float | None:
@@ -352,7 +368,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
         atr_series = tr.rolling(window, min_periods=min_periods).mean()
         return System7Strategy._latest_positive(atr_series)
 
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float) -> tuple[float, float] | None:
+    def compute_entry(
+        self, df: pd.DataFrame, candidate: dict, _current_capital: float
+    ) -> tuple[float, float] | None:
         key = candidate.get("entry_date")
         if key is None:
             return None
@@ -441,7 +459,9 @@ class System7Strategy(AlpacaOrderMixin, StrategyBase):
             return None
 
         atr = float(atr_val)
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         if stop_price - entry_price <= 0:
             return None

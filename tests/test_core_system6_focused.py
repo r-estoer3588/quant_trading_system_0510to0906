@@ -97,7 +97,9 @@ class TestSystem6IndicatorComputation:
             {
                 "Open": [p * 0.995 for p in prices],
                 "High": [p * 1.02 for p in prices],
-                "Low": [max(5.1, p * 0.98) for p in prices],  # Ensure Low >= 5 for filter tests
+                "Low": [
+                    max(5.1, p * 0.98) for p in prices
+                ],  # Ensure Low >= 5 for filter tests
                 "Close": prices,
                 "Volume": [1000000 + i * 10000 for i in range(periods)],
             },
@@ -168,7 +170,9 @@ class TestSystem6DataPreparation:
         raw_data = self.create_minimal_test_data()
 
         # Note: prepare_data_vectorized_system6 may return empty dict due to data compatibility issues
-        result = prepare_data_vectorized_system6(raw_data, reuse_indicators=True, symbols=None)
+        result = prepare_data_vectorized_system6(
+            raw_data, reuse_indicators=True, symbols=None
+        )
 
         assert isinstance(result, dict)
         # Note: May be empty due to data processing issues
@@ -222,7 +226,9 @@ class TestSystem6CandidateGeneration:
         prepared_data = self.create_prepared_data()
         progress_mock = Mock()
 
-        result_dict, result_df = generate_candidates_system6(prepared_data, top_n=5, progress_callback=progress_mock)
+        result_dict, result_df = generate_candidates_system6(
+            prepared_data, top_n=5, progress_callback=progress_mock
+        )
 
         assert isinstance(result_dict, dict)
 
@@ -271,7 +277,9 @@ class TestSystem6Integration:
         assert isinstance(prepared_data, dict)
 
         # Step 2: Generate candidates
-        candidates_dict, candidates_df = generate_candidates_system6(prepared_data, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system6(
+            prepared_data, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         # Step 3: Check total days (may be 0 due to data compatibility issues)
@@ -286,7 +294,9 @@ class TestSystem6Integration:
         prepared_empty = prepare_data_vectorized_system6(empty_data)
         assert isinstance(prepared_empty, dict)
 
-        candidates_dict, candidates_df = generate_candidates_system6(prepared_empty, top_n=5)
+        candidates_dict, candidates_df = generate_candidates_system6(
+            prepared_empty, top_n=5
+        )
         assert isinstance(candidates_dict, dict)
 
         total_days_empty = get_total_days_system6(prepared_empty)

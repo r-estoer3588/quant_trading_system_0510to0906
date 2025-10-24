@@ -8,6 +8,7 @@ notifier machinery.
 Usage:
   python tools/notify_recompute_report.py path/to/report.json
 """
+
 from __future__ import annotations
 
 import json

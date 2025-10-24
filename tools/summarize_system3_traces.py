@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
-import sys
 
 
 def parse_trace_file(p: Path) -> Dict[str, Optional[str]]:

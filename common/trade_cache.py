@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from common.io_utils import write_json
+
 # File used to persist trade entry information
 TRADE_CACHE_PATH = Path("data/trade_cache.json")
 
@@ -34,7 +36,8 @@ def _save_cache(
 ) -> None:
     """Persist ``cache`` to ``path`` as UTF-8 encoded JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    # use centralized helper to ensure UTF-8 sanitization
+    write_json(path, cache, ensure_ascii=False, indent=2)
 
 
 def store_entry(

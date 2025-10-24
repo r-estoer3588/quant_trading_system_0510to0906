@@ -5,7 +5,9 @@ import pandas as pd
 from core.system6 import generate_candidates_system6
 
 
-def _make_prepared(symbol: str, dates: pd.DatetimeIndex, ret_vals: list[float]) -> pd.DataFrame:
+def _make_prepared(
+    symbol: str, dates: pd.DatetimeIndex, ret_vals: list[float]
+) -> pd.DataFrame:
     """Construct a minimal 'prepared' DataFrame satisfying System6 full-path requirements.
 
     All symbols share identical non-ranking feature values except for return_6d.
@@ -42,13 +44,17 @@ def test_system6_latest_only_parity_latest_day():
     }
 
     top_n = 3
-    fast_by_date, fast_df = generate_candidates_system6(prepared, top_n=top_n, latest_only=True)
+    fast_by_date, fast_df = generate_candidates_system6(
+        prepared, top_n=top_n, latest_only=True
+    )
     assert fast_df is not None
     # fast_path の最新日を抽出
     fast_latest = max(fast_by_date.keys())
 
     # full path では全期間 setup=True なので複数日が生成され得る。最新日の集合を比較。
-    full_by_date, full_df = generate_candidates_system6(prepared, top_n=top_n, latest_only=False)
+    full_by_date, full_df = generate_candidates_system6(
+        prepared, top_n=top_n, latest_only=False
+    )
     assert full_df is None  # full path は None 仕様
     assert fast_latest in full_by_date
 

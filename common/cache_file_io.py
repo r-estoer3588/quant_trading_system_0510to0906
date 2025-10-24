@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import ClassVar
 
 import pandas as pd
 
+from common.io_utils import df_to_csv
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,9 @@ class CacheFileIO:
             elif path.suffix == ".csv":
                 return self._read_csv_with_fallback(path)
             else:
-                raise CacheFileIOError(f"サポートされていないファイル形式: {path.suffix}")
+                raise CacheFileIOError(
+                    f"サポートされていないファイル形式: {path.suffix}"
+                )
         except Exception as e:
             logger.error(f"ファイル読み込み失敗: {path.name} ({e})")
             # CSVフォールバック
@@ -86,6 +89,48 @@ class CacheFileIO:
         if df is None or df.empty:
             logger.warning(f"空のDataFrameの書き込みをスキップ: {path.name}")
             return
+
+        # --- 永続化用: DataFrame.attrs に格納されたデバッグ理由を列へ移す ---
+        try:
+            if hasattr(df, "attrs") and isinstance(df.attrs, dict):
+                for key, val in list(df.attrs.items()):
+                    try:
+                        if not isinstance(key, str):
+                            continue
+                        if key.startswith("_fdbg_reasons"):
+                            col_name = key.replace("_fdbg_reasons", "_dbg_reasons")
+                        else:
+                            continue
+
+                        if col_name in df.columns:
+                            continue
+
+                        v = val
+                        ser = None
+                        if isinstance(v, list):
+                            if len(v) == 0:
+                                ser = pd.Series([""] * len(df), index=df.index)
+                            elif len(v) == len(df):
+                                ser = pd.Series(v, index=df.index)
+                            elif len(v) == 1:
+                                ser = pd.Series([v[0]] * len(df), index=df.index)
+                            else:
+                                ser = pd.Series([v[-1]] * len(df), index=df.index)
+                        elif isinstance(v, str):
+                            ser = pd.Series([v] * len(df), index=df.index)
+                        else:
+                            try:
+                                ser = pd.Series([str(v)] * len(df), index=df.index)
+                            except Exception:
+                                ser = pd.Series([""] * len(df), index=df.index)
+
+                        if ser is not None:
+                            df[col_name] = ser
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        # --- end attrs -> column persistence ---
 
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
@@ -138,16 +183,23 @@ class CacheFileIO:
                                 formatted_df[col] = formatted_df[col].apply(formatter)
                             except Exception:
                                 formatted_df[col] = formatted_df[col].astype(str)
-                    formatted_df.to_csv(path, index=False, sep=field_sep)
+                    # Use df_to_csv helper to ensure UTF-8-safe write
+                    df_to_csv(formatted_df, path, index=False, sep=field_sep)
                 else:
-                    df.to_csv(path, index=False, decimal=decimal_point, sep=field_sep)
+                    df_to_csv(
+                        df,
+                        path,
+                        index=False,
+                        decimal=decimal_point,
+                        sep=field_sep,
+                    )
             else:
                 # デフォルトCSV書き込み
                 df.to_csv(path, index=False)
         except Exception as e:
             logger.error(f"CSVフォーマット書き込み失敗: {path.name} ({e})")
-            # フォールバック: プレーンCSV書き込み
-            df.to_csv(path, index=False)
+            # フォールバック: プレーンCSV書き込み (UTF-8-safe helper)
+            df_to_csv(df, path, index=False)
 
     def _make_csv_formatters(
         self,
@@ -182,9 +234,19 @@ class CacheFileIO:
                     formatted = f"{float(x):.{decimal_places}f}"
                     if thousands_sep:
                         integer_part, _, fractional_part = formatted.partition(".")
-                        integer_part = _add_thousands_separator(integer_part, thousands_sep)
-                        formatted = f"{integer_part}.{fractional_part}" if fractional_part else integer_part
-                    return formatted.replace(".", decimal_point) if decimal_point != "." else formatted
+                        integer_part = _add_thousands_separator(
+                            integer_part, thousands_sep
+                        )
+                        formatted = (
+                            f"{integer_part}.{fractional_part}"
+                            if fractional_part
+                            else integer_part
+                        )
+                    return (
+                        formatted.replace(".", decimal_point)
+                        if decimal_point != "."
+                        else formatted
+                    )
                 except (ValueError, TypeError):
                     return str(x)
 
@@ -196,7 +258,11 @@ class CacheFileIO:
                     return ""
                 try:
                     int_str = f"{int(round(float(x))):d}"
-                    return _add_thousands_separator(int_str, thousands_sep) if thousands_sep else int_str
+                    return (
+                        _add_thousands_separator(int_str, thousands_sep)
+                        if thousands_sep
+                        else int_str
+                    )
                 except (ValueError, TypeError):
                     return str(x)
 

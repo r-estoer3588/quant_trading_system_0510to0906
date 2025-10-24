@@ -19,12 +19,14 @@ days have passed since the entry date.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from common.io_utils import write_json
 
 # File used to persist symbol -> entry_date mappings
 ENTRY_DATE_PATH = Path("data/position_entry_dates.json")
@@ -44,7 +46,7 @@ def load_entry_dates(path: Path = ENTRY_DATE_PATH) -> dict[str, str]:
 def save_entry_dates(mapping: dict[str, str], path: Path = ENTRY_DATE_PATH) -> None:
     """Persist ``mapping`` to ``path`` in UTF-8 encoded JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+    write_json(path, mapping, ensure_ascii=False, indent=2)
 
 
 def days_held(entry_date: str | None) -> int | None:
@@ -63,7 +65,9 @@ def days_held(entry_date: str | None) -> int | None:
         return None
 
 
-def fetch_entry_dates_from_alpaca(client: Any, symbols: Iterable[str]) -> dict[str, pd.Timestamp]:
+def fetch_entry_dates_from_alpaca(
+    client: Any, symbols: Iterable[str]
+) -> dict[str, pd.Timestamp]:
     """Fetch entry dates for ``symbols`` from Alpaca fill activities.
 
     Parameters
@@ -104,7 +108,9 @@ def fetch_entry_dates_from_alpaca(client: Any, symbols: Iterable[str]) -> dict[s
 
         # Alpaca returns most recent first; normalize to oldest fill.
         try:
-            sorted_acts = sorted(activities, key=lambda a: getattr(a, "transaction_time", ""))
+            sorted_acts = sorted(
+                activities, key=lambda a: getattr(a, "transaction_time", "")
+            )
         except Exception:
             sorted_acts = list(activities)
 

@@ -7,6 +7,7 @@ per-read repairs which can slow down normal runtime behavior.
 Usage:
   python scripts/recompute_rolling_bulk.py --workers 4 --symbols-file mylist.txt
 """
+
 from __future__ import annotations
 
 import argparse

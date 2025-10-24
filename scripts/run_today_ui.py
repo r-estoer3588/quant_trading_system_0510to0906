@@ -39,7 +39,9 @@ import sys
 
 
 def parse_args() -> tuple[argparse.Namespace, list[str]]:
-    parser = argparse.ArgumentParser(description="Run Streamlit UI with compact log flags")
+    parser = argparse.ArgumentParser(
+        description="Run Streamlit UI with compact log flags"
+    )
     parser.add_argument(
         "--compact",
         action="store_true",

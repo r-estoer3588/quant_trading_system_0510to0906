@@ -10,11 +10,11 @@ manual migration to `common.io_utils` helpers.
 from __future__ import annotations
 
 import re
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-import sys
 
 # Ensure repository root is on sys.path so `from common.io_utils` works when
 # running this script directly.

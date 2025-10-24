@@ -47,7 +47,10 @@ def compare_snapshots(baseline_path: Path, current_path: Path) -> dict[str, Any]
             "setup_predicate_count": {
                 "baseline": b_diag.get("setup_predicate_count", -1),
                 "current": c_diag.get("setup_predicate_count", -1),
-                "diff": (c_diag.get("setup_predicate_count", -1) - b_diag.get("setup_predicate_count", -1)),
+                "diff": (
+                    c_diag.get("setup_predicate_count", -1)
+                    - b_diag.get("setup_predicate_count", -1)
+                ),
             },
             "ranked_top_n_count": {
                 "baseline": b_final,
@@ -99,7 +102,9 @@ def _pick_latest_two(dir_path: Path) -> tuple[Path, Path]:
         reverse=True,
     )
     if len(files) < 2:
-        raise FileNotFoundError("スナップショット JSON が2件以上必要です（--dir には最新2件を想定）")
+        raise FileNotFoundError(
+            "スナップショット JSON が2件以上必要です（--dir には最新2件を想定）"
+        )
     return files[1], files[0]  # baseline, current
 
 
@@ -141,7 +146,9 @@ def main():
         base_path, curr_path = _pick_latest_two(args.dir)
     else:
         if not args.baseline or not args.current:
-            raise SystemExit("--baseline と --current を指定するか、--dir を使用してください")
+            raise SystemExit(
+                "--baseline と --current を指定するか、--dir を使用してください"
+            )
         base_path, curr_path = args.baseline, args.current
 
     # スナップショット比較

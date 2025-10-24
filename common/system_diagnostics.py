@@ -161,7 +161,9 @@ class SystemDiagnosticSpec:
     mode: str = "latest"
 
 
-def _evaluate(row: pd.Series, *, key: str | None, predicate: RowPredicate | None) -> bool:
+def _evaluate(
+    row: pd.Series, *, key: str | None, predicate: RowPredicate | None
+) -> bool:
     if predicate is not None:
         try:
             return bool(predicate(row))
@@ -290,7 +292,9 @@ def get_diagnostics_with_fallback(diag: dict | None, system_id: str) -> dict:
     if diag is None or not isinstance(diag, dict):
         # Use lazy formatting to avoid building strings when the level is disabled
         try:
-            logger.warning("%s: diagnostics is None or invalid, using fallback", system_id)
+            logger.warning(
+                "%s: diagnostics is None or invalid, using fallback", system_id
+            )
         except Exception:
             pass
         diag = {}

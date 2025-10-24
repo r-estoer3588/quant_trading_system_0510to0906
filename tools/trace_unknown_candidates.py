@@ -19,10 +19,11 @@ import re
 import sys
 from io import StringIO
 from pathlib import Path
-from common.io_utils import safe_unicode, write_json, df_to_csv
 from typing import Dict, List
 
 import pandas as pd
+
+from common.io_utils import df_to_csv, safe_unicode, write_json
 
 # Ensure repo root is importable for 'core' and 'strategies' packages
 repo_root = Path(__file__).resolve().parents[1]
@@ -35,7 +36,7 @@ PAYLOAD_DIR = Path(__file__).resolve().parents[1] / "repro_payloads"
 
 
 def capture_allocation_logs(
-    per_system_map: Dict[str, pd.DataFrame]
+    per_system_map: Dict[str, pd.DataFrame],
 ) -> tuple[pd.DataFrame, object, str]:
     """Run finalize_allocation with ALLOCATION_DEBUG=1 and capture logs."""
     # Ensure debug env
@@ -229,10 +230,7 @@ def main() -> int:
                 "persisted_index": persisted_idx,
                 "in_final_anywhere": bool(
                     (final_sig is not None)
-                    and (
-                        symbol
-                        in final_sig["symbol"].astype(str).str.upper().tolist()
-                    )
+                    and (symbol in final_sig["symbol"].astype(str).str.upper().tolist())
                 ),
                 "present_elsewhere_system": present_system or "",
                 "inferred_reason": inferred,

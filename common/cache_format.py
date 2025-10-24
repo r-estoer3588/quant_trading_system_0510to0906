@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from common.io_utils import df_to_csv
+
 # Windows 予約語（ファイル名用）
 RESERVED_WORDS = {
     "CON",
@@ -128,7 +130,9 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     return out
 
 
-def make_csv_formatters(frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None) -> dict:
+def make_csv_formatters(
+    frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None
+) -> dict:
     """CSV 出力用のフォーマッター辞書を作成。
 
     Returns: 列名 -> callable の辞書
@@ -229,21 +233,21 @@ def write_dataframe_to_csv(df: pd.DataFrame, path: Path, settings: Any) -> None:
         # フォーマッター作成
         formatters = make_csv_formatters(df_to_write, dec_point, thous_sep)
 
-        # CSV 書き込み
+        # CSV 書き込み (UTF-8-safe helper)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 型の問題を回避するため、引数を明示的にキャスト
-        csv_kwargs = {
-            "path_or_buf": str(path),
-            "index": False,
-            "sep": str(field_sep),
-            "decimal": str(dec_point),
-            "formatters": formatters,
-        }
-        df_to_write.to_csv(**csv_kwargs)
+        # pandas.to_csv へ渡す引数を明示して df_to_csv を利用
+        df_to_csv(
+            df_to_write,
+            path,
+            index=False,
+            sep=str(field_sep),
+            decimal=str(dec_point),
+            formatters=formatters,
+        )
     except Exception as e:
         # フォールバック：基本的な書き込み
         try:
-            df.to_csv(path, index=False)
+            df_to_csv(df, path, index=False)
         except Exception:
             raise RuntimeError(f"CSV 書き込みに失敗しました: {path}") from e

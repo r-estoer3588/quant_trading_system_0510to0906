@@ -20,6 +20,7 @@ Notes:
   - This can take minutes for a large cache. Use --max-symbols to limit.
   - Default worker parallelism is 8; set --workers 1 for sequential execution.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -237,11 +238,7 @@ def main() -> None:
 
     # Collect unique symbol stems (prefer feather when present)
     stems = sorted(
-        {
-            p.stem
-            for p in rc_dir.iterdir()
-            if p.suffix.lower() in (".feather", ".csv")
-        }
+        {p.stem for p in rc_dir.iterdir() if p.suffix.lower() in (".feather", ".csv")}
     )
     total = len(stems)
     if args.max_symbols and int(args.max_symbols) > 0:

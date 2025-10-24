@@ -133,7 +133,9 @@ def prepare_data_vectorized_system7(
 
     if log_callback:
         try:
-            log_callback("SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)")
+            log_callback(
+                "SPY インジケーター計算完了(ATR50, min_50, max_70, setup: Low<=min_50)"
+            )
         except Exception:
             pass
     if progress_callback:
@@ -237,12 +239,16 @@ def generate_candidates_system7(
                     df_fast.loc[:, "rank"] = 1
                     df_fast.loc[:, "rank_total"] = 1
                     normalized: dict[pd.Timestamp, dict[str, dict[str, object]]] = {}
-                    symbol_payload = {k: v for k, v in rows[0].items() if k not in ("symbol", "date")}
+                    symbol_payload = {
+                        k: v for k, v in rows[0].items() if k not in ("symbol", "date")
+                    }
                     symbol_payload["entry_date"] = entry_date
                     normalized[pd.Timestamp(entry_date)] = {"SPY": symbol_payload}
                     if log_callback:
                         try:
-                            log_callback("System7: latest_only fast-path -> 1 candidate")
+                            log_callback(
+                                "System7: latest_only fast-path -> 1 candidate"
+                            )
                         except Exception:
                             pass
                     diagnostics["ranked_top_n_count"] = 1
@@ -252,7 +258,11 @@ def generate_candidates_system7(
                             progress_callback(1, 1)
                         except Exception:
                             pass
-                    return (normalized, df_fast, diagnostics) if include_diagnostics else (normalized, df_fast)
+                    return (
+                        (normalized, df_fast, diagnostics)
+                        if include_diagnostics
+                        else (normalized, df_fast)
+                    )
             # no setup today
             if log_callback:
                 try:
@@ -331,14 +341,18 @@ def generate_candidates_system7(
 
     if log_callback:
         try:
-            all_dates = pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            all_dates = (
+                pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
+            )
             window_size = int(min(50, len(all_dates)) or 50)
             if window_size > 0:
                 recent_set = set(all_dates[-window_size:])
             else:
                 recent_set = set()
             count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
-            log_callback(f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)")
+            log_callback(
+                f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
+            )
         except Exception:
             pass
     if progress_callback:

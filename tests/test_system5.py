@@ -93,12 +93,16 @@ def test_core_indicators_computation():
     # ADX7の範囲チェック（NaN値を除外）
     adx_values = result["ADX7"].dropna()
     if len(adx_values) > 0:
-        assert (adx_values >= 0).all() and (adx_values <= 100).all(), "ADX should be in [0,100]"
+        assert (adx_values >= 0).all() and (
+            adx_values <= 100
+        ).all(), "ADX should be in [0,100]"
 
     # RSI3の範囲チェック（NaN値を除外）
     rsi_values = result["RSI3"].dropna()
     if len(rsi_values) > 0:
-        assert (rsi_values >= 0).all() and (rsi_values <= 100).all(), "RSI should be in [0,100]"
+        assert (rsi_values >= 0).all() and (
+            rsi_values <= 100
+        ).all(), "RSI should be in [0,100]"
 
     assert result["ATR_Pct"].min() >= 0, "ATR_Pct should be positive"
 
@@ -125,7 +129,9 @@ def test_filter_conditions():
     valid_rows = result.iloc[100:]
 
     # 出来高条件
-    assert (valid_rows["AvgVolume50"] > 500_000).all(), "Volume filter should be satisfied"
+    assert (
+        valid_rows["AvgVolume50"] > 500_000
+    ).all(), "Volume filter should be satisfied"
 
     # ドルボリューム条件
     dollar_vol_msg = "Dollar volume filter should be satisfied"
@@ -157,5 +163,7 @@ def test_placeholder_run(dummy_data):
 
     # prepare_minimal_for_testが動作することを確認
     processed = strategy.prepare_minimal_for_test(dummy_data)
-    assert isinstance(processed, dict), "prepare_minimal_for_test should return a dictionary"
+    assert isinstance(
+        processed, dict
+    ), "prepare_minimal_for_test should return a dictionary"
     assert len(processed) > 0, "Processed data should not be empty"

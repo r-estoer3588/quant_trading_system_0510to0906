@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Small helper to extract examples from the System3 FILTER_DEBUG CSV where pre-filters passed
-but the 3-day drop (drop3d) is below the System3 setup threshold (default 0.125) or missing.
-Prints overall counts and up to N representative example rows.
+Small helper to extract examples from the System3 FILTER_DEBUG CSV where
+pre-filters passed but the 3-day drop (drop3d) is below the System3 setup
+threshold (default 0.125) or missing. Prints overall counts and up to N
+representative example rows.
 """
 import argparse
 import csv
@@ -46,7 +47,8 @@ def main():
 
     with path.open("r", encoding="utf-8", errors="replace") as fh:
         reader = csv.reader(fh)
-        header = next(reader, None)
+        # skip header row
+        next(reader)
         for row in reader:
             total_rows += 1
             if len(row) < 10:
@@ -105,12 +107,18 @@ def main():
             pass_below, key=lambda r: (r["dollarvol20"] or 0.0), reverse=True
         )
         print(
-            f"Top {args.n} examples where prefilters passed but drop3d < {args.threshold} (sorted by 20-day $ volume):"
+            (
+                f"Top {args.n} examples where prefilters passed but drop3d < "
+                f"{args.threshold} (sorted by 20-day $ volume):"
+            )
         )
         print("symbol, atr_ratio, drop3d, dollarvol20, sma150, close")
         for e in pass_below_sorted[: args.n]:
             print(
-                f"{e['symbol']}, {e['atr_ratio']}, {e['drop3d']}, {e['dollarvol20']}, {e['sma150']}, {e['close']}"
+                (
+                    f"{e['symbol']}, {e['atr_ratio']}, {e['drop3d']}, "
+                    f"{e['dollarvol20']}, {e['sma150']}, {e['close']}"
+                )
             )
         print()
     else:
@@ -118,7 +126,8 @@ def main():
         print()
 
     if pass_missing:
-        # show examples with missing drop3d (sorted by atr_ratio ascending to show low atr)
+        # show examples with missing drop3d (sorted by atr_ratio ascending to
+        # show low atr)
         pass_missing_sorted = sorted(
             pass_missing, key=lambda r: (r["atr_ratio"] is None, r["atr_ratio"] or 0.0)
         )
@@ -126,7 +135,10 @@ def main():
         print("symbol, atr_ratio, drop3d, dollarvol20, sma150, close")
         for e in pass_missing_sorted[: args.n]:
             print(
-                f"{e['symbol']}, {e['atr_ratio']}, {e['drop3d']}, {e['dollarvol20']}, {e['sma150']}, {e['close']}"
+                (
+                    f"{e['symbol']}, {e['atr_ratio']}, {e['drop3d']}, "
+                    f"{e['dollarvol20']}, {e['sma150']}, {e['close']}"
+                )
             )
         print()
 

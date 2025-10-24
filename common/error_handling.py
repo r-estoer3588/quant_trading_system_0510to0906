@@ -198,7 +198,9 @@ class SystemErrorHandler:
         """CRITICALレベルのログ出力"""
         self._log(logging.CRITICAL, message, **context)
 
-    def exception(self, message: str, exc_info: Exception | None = None, **context: Any) -> None:
+    def exception(
+        self, message: str, exc_info: Exception | None = None, **context: Any
+    ) -> None:
         """例外情報付きのERRORレベルログ出力
 
         Args:
@@ -330,7 +332,9 @@ def log_error_safe(
         **context: コンテキスト情報
     """
     if logger:
-        context_str = f" ({', '.join(f'{k}={v}' for k, v in context.items())})" if context else ""
+        context_str = (
+            f" ({', '.join(f'{k}={v}' for k, v in context.items())})" if context else ""
+        )
         logger.error(f"{message}{context_str}")
 
     if log_callback:

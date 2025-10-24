@@ -1,28 +1,24 @@
 """
 スクショ解析結果とJSONL進捗ログの同期検証ツール
 
-スクショから抽出したUI表示値と、JSONLに記録された実際のイベントを照合し、
-UI同期問題（進捗後退、メトリクス不一致、表示ズレ）を検出する。
-
-Usage:
+Usage example:
     python tools/verify_ui_jsonl_sync.py \
         --screenshots screenshots/progress_tracking/analysis_results.json \
         --jsonl logs/progress_today.jsonl \
-        --output sync_verification_report.json
+        --output screenshots/progress_tracking/sync_verification.json
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 def parse_jsonl_timestamp(ts_str: str) -> datetime:
-    """JSONLタイムスタンプをパース: '2025/10/13 6:52:07' -> datetime"""
-    # 月日時分のゼロパディングなしに対応
+    """Parse JSONL timestamp like '2025/10/13 6:52:07'."""
     parts = ts_str.split()
     date_parts = parts[0].split("/")
     time_parts = parts[1].split(":")
@@ -38,13 +34,12 @@ def parse_jsonl_timestamp(ts_str: str) -> datetime:
 
 
 def parse_screenshot_timestamp(ts_str: str) -> datetime:
-    """スクショタイムスタンプをパース: '2025-10-13 06:52:09.856'"""
+    """Parse screenshot timestamp like '2025-10-13 06:52:09.856'."""
     return datetime.strptime(ts_str[:19], "%Y-%m-%d %H:%M:%S")
 
 
 def load_jsonl_events(jsonl_path: Path) -> list[dict[str, Any]]:
-    """JSONL進捗ログを読み込み"""
-    events = []
+    events: list[dict[str, Any]] = []
     with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             event = json.loads(line.strip())
@@ -55,12 +50,6 @@ def load_jsonl_events(jsonl_path: Path) -> list[dict[str, Any]]:
 def calculate_expected_progress(
     system_name: str, total_systems: int = 7
 ) -> tuple[float, float]:
-    """
-    システム名から期待される進捗バー範囲を計算
-
-    Returns:
-        (start_percentage, end_percentage)
-    """
     system_order = {
         "system1": 0,
         "system2": 1,
@@ -70,67 +59,50 @@ def calculate_expected_progress(
         "system6": 5,
         "system7": 6,
     }
-
     order = system_order.get(system_name.lower(), 0)
     start = (order / total_systems) * 100
     end = ((order + 1) / total_systems) * 100
-
     return round(start, 1), round(end, 1)
 
 
 def find_nearest_jsonl_event(
     screenshot_ts: datetime, events: list[dict[str, Any]], time_window: int = 10
 ) -> dict[str, Any] | None:
-    """
-    スクショのタイムスタンプに最も近いJSONLイベントを検索
-
-    Args:
-        screenshot_ts: スクショのタイムスタンプ
-        events: JSONLイベントリスト
-        time_window: 検索範囲（秒）
-    """
     closest_event = None
     min_diff = float("inf")
-
     for event in events:
         try:
             event_ts = parse_jsonl_timestamp(event["timestamp"])
             diff = abs((event_ts - screenshot_ts).total_seconds())
-
             if diff <= time_window and diff < min_diff:
                 min_diff = diff
                 closest_event = event
         except Exception:
             continue
-
     return closest_event
 
 
 def verify_single_screenshot(
-    screenshot_data: dict[str, Any],
-    jsonl_events: list[dict[str, Any]],
+    screenshot_data: dict[str, Any], jsonl_events: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """スクショ1枚とJSONLの同期を検証"""
-    result = {
+    issues: list[str] = []
+    result: dict[str, Any] = {
         "file": screenshot_data.get("file"),
         "timestamp": screenshot_data.get("timestamp"),
-        "issues": [],
+        "issues": issues,
         "status": "ok",
     }
 
-    # タイムスタンプパース
     try:
         screenshot_ts = parse_screenshot_timestamp(screenshot_data["timestamp"])
     except Exception:
-        result["issues"].append("タイムスタンプパース失敗")
+        issues.append("タイムスタンプパース失敗")
         result["status"] = "error"
         return result
 
-    # 最も近いJSONLイベントを検索
     nearest_event = find_nearest_jsonl_event(screenshot_ts, jsonl_events)
-
     if not nearest_event:
-        result["issues"].append("対応するJSONLイベントが見つかりません")
+        issues.append("対応するJSONLイベントが見つかりません")
         result["status"] = "warning"
         return result
 
@@ -140,37 +112,44 @@ def verify_single_screenshot(
         "system": nearest_event.get("data", {}).get("system"),
     }
 
-    # 進捗バー検証
     ui_progress = screenshot_data.get("progress_percentage")
     jsonl_system = nearest_event.get("data", {}).get("system")
-
     if ui_progress is not None and jsonl_system:
         expected_start, expected_end = calculate_expected_progress(jsonl_system)
-
-        # 進捗範囲チェック
         if ui_progress < expected_start - 5 or ui_progress > expected_end + 5:
-            result["issues"].append(
-                f"進捗バー不一致: UI={ui_progress}%, 期待範囲={expected_start}-{expected_end}% (for {jsonl_system})"
+            issues.append(
+                "進捗バー不一致: UI="
+                + str(ui_progress)
+                + "%, 期待範囲="
+                + str(expected_start)
+                + "-"
+                + str(expected_end)
+                + "% (for "
+                + str(jsonl_system)
+                + ")"
             )
             result["status"] = "issue"
 
-    # システム名検証
     ui_system = screenshot_data.get("system_name")
     if ui_system and jsonl_system:
         if ui_system.lower() != jsonl_system.lower():
-            result["issues"].append(
-                f"システム名不一致: UI={ui_system}, JSONL={jsonl_system}"
+            issues.append(
+                "システム名不一致: UI="
+                + str(ui_system)
+                + ", JSONL="
+                + str(jsonl_system)
             )
             result["status"] = "issue"
 
-    # 候補数検証
     ui_candidates = screenshot_data.get("candidates")
     jsonl_candidates = nearest_event.get("data", {}).get("candidates")
-
     if ui_candidates and jsonl_candidates is not None:
         if int(ui_candidates) != int(jsonl_candidates):
-            result["issues"].append(
-                f"候補数不一致: UI={ui_candidates}, JSONL={jsonl_candidates}"
+            issues.append(
+                "候補数不一致: UI="
+                + str(ui_candidates)
+                + ", JSONL="
+                + str(jsonl_candidates)
             )
             result["status"] = "issue"
 
@@ -180,18 +159,14 @@ def verify_single_screenshot(
 def detect_progress_regression(
     screenshot_results: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """連続スクショ間の進捗後退を検出"""
-    regressions = []
-
+    regressions: list[dict[str, Any]] = []
     for i in range(1, len(screenshot_results)):
         prev = screenshot_results[i - 1]
         curr = screenshot_results[i]
-
         prev_progress = prev.get("progress_percentage")
         curr_progress = curr.get("progress_percentage")
-
         if prev_progress is not None and curr_progress is not None:
-            if curr_progress < prev_progress - 2:  # 2%以上の後退を検出
+            if curr_progress < prev_progress - 2:
                 regressions.append(
                     {
                         "prev_file": prev.get("file"),
@@ -203,11 +178,10 @@ def detect_progress_regression(
                         "regression_amount": round(prev_progress - curr_progress, 1),
                     }
                 )
-
     return regressions
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="UI/JSONL同期検証")
     parser.add_argument(
         "--screenshots",
@@ -227,75 +201,75 @@ def main():
         default="screenshots/progress_tracking/sync_verification.json",
         help="検証結果出力先",
     )
-
     args = parser.parse_args()
 
     screenshots_file = Path(args.screenshots)
     jsonl_file = Path(args.jsonl)
     output_file = Path(args.output)
 
-    # データ読み込み
-    print(f"📂 スクショ解析結果: {screenshots_file}")
-    print(f"📂 JSONL進捗ログ: {jsonl_file}")
+    print("📂 スクショ解析結果: " + str(screenshots_file))
+    print("📂 JSONL進捗ログ: " + str(jsonl_file))
 
     with open(screenshots_file, encoding="utf-8") as f:
         screenshot_results = json.load(f)
 
     jsonl_events = load_jsonl_events(jsonl_file)
 
-    print(f"🔍 スクショ: {len(screenshot_results)} 枚")
-    print(f"🔍 JSONLイベント: {len(jsonl_events)} 件")
-    print("")
+    print("🔍 スクショ: " + str(len(screenshot_results)) + " 枚")
+    print("🔍 JSONLイベント: " + str(len(jsonl_events)) + " 件")
 
-    # 同期検証
-    verification_results = []
+    verification_results: list[dict[str, Any]] = []
     for screenshot_data in screenshot_results:
         if "error" in screenshot_data:
             continue
-
         result = verify_single_screenshot(screenshot_data, jsonl_events)
         verification_results.append(result)
-
         if result["status"] == "issue":
-            print(f"⚠️  {result['file']}: {', '.join(result['issues'])}")
+            file_str = str(result.get("file"))
+            issues_joined = ", ".join(result.get("issues", []))
+            msg = "⚠️  " + file_str + ": " + issues_joined
+            print(msg)
 
-    # 進捗後退検出
     regressions = detect_progress_regression(screenshot_results)
 
-    # レポート生成
-    report = {
+    issues_found_val = sum(1 for r in verification_results if r["status"] == "issue")
+    progress_regressions_val = len(regressions)
+
+    final_report = {
         "summary": {
             "total_screenshots": len(screenshot_results),
             "verified_screenshots": len(verification_results),
-            "issues_found": sum(
-                1 for r in verification_results if r["status"] == "issue"
-            ),
-            "progress_regressions": len(regressions),
+            "issues_found": issues_found_val,
+            "progress_regressions": progress_regressions_val,
         },
         "verification_results": verification_results,
         "progress_regressions": regressions,
     }
 
-    # JSON出力
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+    try:
+        from common.io_utils import write_json
 
-    print("")
-    print("✅ 検証完了")
-    print(f"📊 結果: {output_file}")
-    print(f"🔴 問題検出: {report['summary']['issues_found']} 件")
-    print(f"⚠️  進捗後退: {report['summary']['progress_regressions']} 件")
+        write_json(output_file, final_report, ensure_ascii=False, indent=2)
+    except Exception:
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(final_report, f, indent=2, ensure_ascii=False)
 
-    # 進捗後退の詳細表示
+    print("\n✅ 検証完了")
+    print("📊 結果: " + str(output_file))
+    print("🔴 問題検出: " + str(issues_found_val) + " 件")
+    print("⚠️  進捗後退: " + str(progress_regressions_val) + " 件")
+
     if regressions:
-        print("")
-        print("🔴 進捗後退の詳細:")
+        print("\n🔴 進捗後退の詳細:")
         for reg in regressions:
-            print(
-                f"  {reg['prev_progress']}% → {reg['curr_progress']}% (後退: {reg['regression_amount']}%)"
-            )
-            print(f"    {reg['prev_file']} → {reg['curr_file']}")
+            left = "  " + str(reg.get("prev_progress")) + "% → "
+            right = str(reg.get("curr_progress")) + "% (後退: "
+            mid = str(reg.get("regression_amount")) + "% )"
+            print(left + right + mid)
+            left_file = "    " + str(reg.get("prev_file"))
+            right_file = " → " + str(reg.get("curr_file"))
+            print(left_file + right_file)
 
 
 if __name__ == "__main__":

@@ -89,7 +89,9 @@ def generate_simple_test_signals(
     for system_name, strategy in strategies.items():
         if test_mode == "mini":
             # ミニモードでは少数のシンボルのみ
-            test_symbols = symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
+            test_symbols = (
+                symbol_universe[:5] if len(symbol_universe) >= 5 else symbol_universe
+            )
         else:
             test_symbols = symbol_universe
 
@@ -146,7 +148,9 @@ def analyze_candidates(per_system: Dict[str, pd.DataFrame]) -> None:
             continue
 
         # side列の値を確認
-        side_values_list: List[Any] = list(df["side"].unique()) if "side" in df.columns else []
+        side_values_list: List[Any] = (
+            list(df["side"].unique()) if "side" in df.columns else []
+        )
         logger.debug("   📊 side値: %s", side_values_list)
 
         # score列の統計
@@ -429,12 +433,18 @@ def validate_data_consistency() -> None:
                 if "date" in df.columns:
                     df["date"] = pd.to_datetime(df["date"], errors="coerce")
                     if df["date"].notna().any():
-                        latest_date_str = pd.to_datetime(df["date"].max()).strftime("%Y-%m-%d")
+                        latest_date_str = pd.to_datetime(df["date"].max()).strftime(
+                            "%Y-%m-%d"
+                        )
                 elif isinstance(df.index, pd.DatetimeIndex):
-                    latest_date_str = pd.to_datetime(df.index.max()).strftime("%Y-%m-%d")
+                    latest_date_str = pd.to_datetime(df.index.max()).strftime(
+                        "%Y-%m-%d"
+                    )
 
                 row_count = len(df)
-                logger.debug("✅ %s: 最新=%s, 行数=%d", symbol, latest_date_str, row_count)
+                logger.debug(
+                    "✅ %s: 最新=%s, 行数=%d", symbol, latest_date_str, row_count
+                )
                 valid_count += 1
             else:
                 logger.warning("❌ %s: rolling データが空", symbol)
@@ -457,10 +467,16 @@ def generate_debug_report(
         "timestamp": pd.Timestamp.now().isoformat(),
         "summary": {
             "total_systems": len(per_system),
-            "systems_with_candidates": len([df for df in per_system.values() if df is not None and not df.empty]),
-            "total_candidates": sum(len(df) for df in per_system.values() if df is not None and not df.empty),
+            "systems_with_candidates": len(
+                [df for df in per_system.values() if df is not None and not df.empty]
+            ),
+            "total_candidates": sum(
+                len(df) for df in per_system.values() if df is not None and not df.empty
+            ),
             "final_allocations": (
-                0 if final_result is None else len(final_result[0]) if hasattr(final_result[0], "__len__") else 0
+                0
+                if final_result is None
+                else len(final_result[0]) if hasattr(final_result[0], "__len__") else 0
             ),
         },
         "per_system": {},
@@ -471,9 +487,15 @@ def generate_debug_report(
         if df is not None and not df.empty:
             sys_details[system_name] = {
                 "candidate_count": len(df),
-                "has_required_columns": all(col in df.columns for col in ["symbol", "side", "score"]),
-                "unique_symbols": (df["symbol"].nunique() if "symbol" in df.columns else 0),
-                "side_distribution": (df["side"].value_counts().to_dict() if "side" in df.columns else {}),
+                "has_required_columns": all(
+                    col in df.columns for col in ["symbol", "side", "score"]
+                ),
+                "unique_symbols": (
+                    df["symbol"].nunique() if "symbol" in df.columns else 0
+                ),
+                "side_distribution": (
+                    df["side"].value_counts().to_dict() if "side" in df.columns else {}
+                ),
             }
         else:
             sys_details[system_name] = {
@@ -486,7 +508,11 @@ def generate_debug_report(
 
     # レポートをファイルに保存
     settings = get_settings()
-    report_path = Path(settings.PROJECT_ROOT) / "results_csv_test" / "debug_allocation_report.json"
+    report_path = (
+        Path(settings.PROJECT_ROOT)
+        / "results_csv_test"
+        / "debug_allocation_report.json"
+    )
     report_path.parent.mkdir(exist_ok=True)
 
     with open(report_path, "w") as f:
@@ -548,7 +574,9 @@ def main():
             capital_short=100000.0,  # $100k
         )
 
-        entry_count = len(final_df) if final_df is not None and not final_df.empty else 0
+        entry_count = (
+            len(final_df) if final_df is not None and not final_df.empty else 0
+        )
         logger.info(f"🎯 Entry最終件数: {entry_count}件")
 
         if entry_count > 0:

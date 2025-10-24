@@ -35,7 +35,9 @@ class TestCacheManagerCriticalMethods:
         self.mock_settings.cache.rolling.buffer_days = 50
         self.mock_settings.cache.file_format = "csv"
 
-        with patch("common.cache_manager.get_settings", return_value=self.mock_settings):
+        with patch(
+            "common.cache_manager.get_settings", return_value=self.mock_settings
+        ):
             self.manager = CacheManager(self.mock_settings)
 
     def teardown_method(self):
@@ -97,7 +99,9 @@ class TestRollingIssueAggregatorCompact:
 
     def test_compact_mode_with_environment_vars(self):
         """Test compact mode initialization with environment variables"""
-        with patch.dict(os.environ, {"COMPACT_TODAY_LOGS": "1", "ROLLING_ISSUES_VERBOSE_HEAD": "5"}):
+        with patch.dict(
+            os.environ, {"COMPACT_TODAY_LOGS": "1", "ROLLING_ISSUES_VERBOSE_HEAD": "5"}
+        ):
             # Reset singleton to force re-initialization
             _RollingIssueAggregator._instance = None
 

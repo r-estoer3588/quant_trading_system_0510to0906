@@ -41,7 +41,9 @@ def export_diagnostics_snapshot(
         # 辞書の場合
         systems_data = allocation_summary
     else:
-        logger.warning(f"Unexpected allocation_summary type: {type(allocation_summary)}")
+        logger.warning(
+            f"Unexpected allocation_summary type: {type(allocation_summary)}"
+        )
         systems_data = {}
 
     # 各システムの diagnostics を収集
@@ -54,7 +56,9 @@ def export_diagnostics_snapshot(
             diag = getattr(system_info, "diagnostics", {})
             candidates = getattr(system_info, "candidates", [])
         else:
-            logger.warning(f"Unexpected system_info type for {system_id}: {type(system_info)}")
+            logger.warning(
+                f"Unexpected system_info type for {system_id}: {type(system_info)}"
+            )
             diag = {}
             candidates = []
 
@@ -62,7 +66,11 @@ def export_diagnostics_snapshot(
         diag_safe = get_diagnostics_with_fallback(diag, system_id)
         # 追加の生診断（標準化されない任意フィールド）
         try:
-            extras = {k: v for k, v in (diag or {}).items() if k not in diag_safe} if isinstance(diag, dict) else {}
+            extras = (
+                {k: v for k, v in (diag or {}).items() if k not in diag_safe}
+                if isinstance(diag, dict)
+                else {}
+            )
         except Exception:
             extras = {}
 
@@ -71,7 +79,9 @@ def export_diagnostics_snapshot(
                 "system_id": system_id,
                 "diagnostics": diag_safe,
                 **({"diagnostics_extra": extras} if extras else {}),
-                "candidate_count": (len(candidates) if isinstance(candidates, (list, tuple)) else 0),
+                "candidate_count": (
+                    len(candidates) if isinstance(candidates, (list, tuple)) else 0
+                ),
             }
         )
 

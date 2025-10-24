@@ -56,8 +56,14 @@ class TestSystem1HelperFunctions:
         # Create data with lowercase columns
         test_data = sample_stock_data.copy()
         test_data.columns = [
-            col.lower() for col in test_data.columns if col in ["Open", "High", "Low", "Close", "Volume"]
-        ] + [col for col in test_data.columns if col not in ["Open", "High", "Low", "Close", "Volume"]]
+            col.lower()
+            for col in test_data.columns
+            if col in ["Open", "High", "Low", "Close", "Volume"]
+        ] + [
+            col
+            for col in test_data.columns
+            if col not in ["Open", "High", "Low", "Close", "Volume"]
+        ]
 
         result = _rename_ohlcv(test_data)
 

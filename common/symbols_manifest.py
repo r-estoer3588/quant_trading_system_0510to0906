@@ -8,9 +8,9 @@ relying on directory scans that may include stale files.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 MANIFEST_FILENAME = "_symbols.json"
@@ -66,7 +66,14 @@ def save_symbol_manifest(
 
     manifest_path = _manifest_path(base_dir)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from common.io_utils import write_json
+
+        write_json(manifest_path, payload, ensure_ascii=False, indent=2)
+    except Exception:
+        manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     return manifest_path
 
 

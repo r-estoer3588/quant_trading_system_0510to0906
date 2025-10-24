@@ -51,7 +51,9 @@ class TestCommonUtilitiesExecution:
 
             # モジュールの基本機能確認
             validator_classes = [
-                attr for attr in dir(cache_validation) if attr.startswith("Cache") and not attr.startswith("_")
+                attr
+                for attr in dir(cache_validation)
+                if attr.startswith("Cache") and not attr.startswith("_")
             ]
             assert len(validator_classes) >= 0  # 存在確認のみ
         except (ImportError, Exception):
@@ -82,7 +84,11 @@ class TestCoreSystemsLightExecution:
             from core import system1
 
             # クラスの存在確認のみ（インスタンス化は避ける）
-            system_classes = [attr for attr in dir(system1) if not attr.startswith("_") and attr.startswith("System")]
+            system_classes = [
+                attr
+                for attr in dir(system1)
+                if not attr.startswith("_") and attr.startswith("System")
+            ]
             assert len(system_classes) >= 0
         except (ImportError, Exception):
             pytest.skip("System1 light execution not available")
@@ -92,7 +98,11 @@ class TestCoreSystemsLightExecution:
         try:
             from core import system2
 
-            system_classes = [attr for attr in dir(system2) if not attr.startswith("_") and attr.startswith("System")]
+            system_classes = [
+                attr
+                for attr in dir(system2)
+                if not attr.startswith("_") and attr.startswith("System")
+            ]
             assert len(system_classes) >= 0
         except (ImportError, Exception):
             pytest.skip("System2 light execution not available")
@@ -103,7 +113,9 @@ class TestCoreSystemsLightExecution:
             from core import final_allocation
 
             allocation_classes = [
-                attr for attr in dir(final_allocation) if not attr.startswith("_") and "Allocation" in attr
+                attr
+                for attr in dir(final_allocation)
+                if not attr.startswith("_") and "Allocation" in attr
             ]
             assert len(allocation_classes) >= 0
         except (ImportError, Exception):
@@ -118,7 +130,11 @@ class TestStrategiesExecution:
         try:
             from strategies import base_strategy
 
-            strategy_classes = [attr for attr in dir(base_strategy) if not attr.startswith("_") and "Strategy" in attr]
+            strategy_classes = [
+                attr
+                for attr in dir(base_strategy)
+                if not attr.startswith("_") and "Strategy" in attr
+            ]
             assert len(strategy_classes) >= 0
         except (ImportError, Exception):
             pytest.skip("Base strategy inspection not available")
@@ -128,7 +144,9 @@ class TestStrategiesExecution:
         try:
             from strategies import constants
 
-            constants_attrs = [attr for attr in dir(constants) if not attr.startswith("_")]
+            constants_attrs = [
+                attr for attr in dir(constants) if not attr.startswith("_")
+            ]
             assert len(constants_attrs) >= 0
         except (ImportError, Exception):
             pytest.skip("Strategy constants access not available")
@@ -154,7 +172,9 @@ class TestUtilsAndToolsExecution:
             from common import utils
 
             util_functions = [
-                attr for attr in dir(utils) if callable(getattr(utils, attr)) and not attr.startswith("_")
+                attr
+                for attr in dir(utils)
+                if callable(getattr(utils, attr)) and not attr.startswith("_")
             ]
             assert len(util_functions) >= 0
         except (ImportError, Exception):
@@ -166,7 +186,11 @@ class TestUtilsAndToolsExecution:
             from common import progress_events
 
             # イベント関連のクラス/関数存在確認
-            event_items = [attr for attr in dir(progress_events) if "Event" in attr and not attr.startswith("_")]
+            event_items = [
+                attr
+                for attr in dir(progress_events)
+                if "Event" in attr and not attr.startswith("_")
+            ]
             assert len(event_items) >= 0
         except (ImportError, Exception):
             pytest.skip("Progress events light usage not available")

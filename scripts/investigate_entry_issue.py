@@ -101,7 +101,9 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
                     if skip_counts:
                         system_info["skip_reasons"] = skip_counts
                         print("  - スキップ理由:")
-                        for reason, count in sorted(skip_counts.items(), key=lambda x: x[1], reverse=True):
+                        for reason, count in sorted(
+                            skip_counts.items(), key=lambda x: x[1], reverse=True
+                        ):
                             print(f"    * {reason}: {count}")
 
                     # スキップ詳細のサンプル
@@ -115,7 +117,9 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
                 system_findings[system_name] = system_info
 
             except Exception as e:
-                sys_logger.error(f"per_system_{system_name}.feather読込エラー", error=str(e))
+                sys_logger.error(
+                    f"per_system_{system_name}.feather読込エラー", error=str(e)
+                )
                 print(f"  - エラー: {e}")
         else:
             print(f"\n{system_name}: ファイルが存在しません")
@@ -142,7 +146,9 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
                     print("  （空のデータフレーム）")
 
             except Exception as e:
-                sys_logger.error(f"skip_summary_{system_name}.csv読込エラー", error=str(e))
+                sys_logger.error(
+                    f"skip_summary_{system_name}.csv読込エラー", error=str(e)
+                )
                 print(f"  - エラー: {e}")
 
     investigation_results["findings"]["skip_summaries"] = skip_summaries
@@ -172,7 +178,11 @@ def investigate_entry_issue(run_id: Optional[str] = None) -> Dict[str, Any]:
             print("\n固定銘柄と候補の重複確認:")
             for system_name, df in per_system_data.items():
                 if system_name in system_counts:
-                    fixed_symbols = [sym for sym, sys_val in symbol_map.items() if str(sys_val).lower() == system_name]
+                    fixed_symbols = [
+                        sym
+                        for sym, sys_val in symbol_map.items()
+                        if str(sys_val).lower() == system_name
+                    ]
                     if "symbol" in df.columns:
                         candidate_symbols = set(df["symbol"])
                     else:

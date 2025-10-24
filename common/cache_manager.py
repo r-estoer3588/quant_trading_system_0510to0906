@@ -72,7 +72,9 @@ class CacheManager:
         # 入出力管理
         self.file_manager = CacheFileManager(settings)
 
-    def _read_base_and_tail(self, ticker: str, tail_rows: int = 330) -> pd.DataFrame | None:
+    def _read_base_and_tail(
+        self, ticker: str, tail_rows: int = 330
+    ) -> pd.DataFrame | None:
         """baseキャッシュを読み込み、rolling相当の行数でtail処理を行う。
         baseが見つからない場合はfull_backupからフォールバック。"""
         try:
@@ -120,11 +122,15 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
-        base_renamed = base.rename(columns={k: v for k, v in CASE_MAP.items() if k in base.columns})
+        base_renamed = base.rename(
+            columns={k: v for k, v in CASE_MAP.items() if k in base.columns}
+        )
         base_renamed["Date"] = base_renamed["date"]
 
         # 既存の指標列を削除して強制的に再計算を実行
-        indicator_cols = [col for col in base_renamed.columns if col not in BASIC_COLS_WITH_CASE]
+        indicator_cols = [
+            col for col in base_renamed.columns if col not in BASIC_COLS_WITH_CASE
+        ]
         if indicator_cols:
             base_renamed = base_renamed.drop(columns=indicator_cols)
 
@@ -134,8 +140,13 @@ class CacheManager:
             # 指標列の標準化は行わない（小文字を維持）
             # enriched = standardize_indicator_columns(enriched)
             # 基本列（date, open, high等）のみ小文字に変換
-            enriched.columns = [c.lower() if c.lower() in BASIC_OHLCV_COLS else c for c in enriched.columns]
-            enriched["date"] = pd.to_datetime(enriched.get("date", base["date"]), errors="coerce")
+            enriched.columns = [
+                c.lower() if c.lower() in BASIC_OHLCV_COLS else c
+                for c in enriched.columns
+            ]
+            enriched["date"] = pd.to_datetime(
+                enriched.get("date", base["date"]), errors="coerce"
+            )
 
             # Overwrite indicator columns with freshly computed values while
             # preserving original OHLCV and date columns. This ensures appended
@@ -171,9 +182,13 @@ class CacheManager:
             # サニタイズ無効化モード時 / あるいは以前のファイル命名互換用に元名探索フォールバック
             if (df is None or df.empty) and ticker != original_ticker:
                 try:
-                    legacy_path = self.file_manager.detect_path(self.rolling_dir, original_ticker)
+                    legacy_path = self.file_manager.detect_path(
+                        self.rolling_dir, original_ticker
+                    )
                     if legacy_path.exists():
-                        alt = self.file_manager.read_with_fallback(legacy_path, original_ticker, profile)
+                        alt = self.file_manager.read_with_fallback(
+                            legacy_path, original_ticker, profile
+                        )
                         if alt is not None and not alt.empty:
                             df = alt
                 except Exception:
@@ -190,13 +205,19 @@ class CacheManager:
                         self.file_manager.write_atomic(df, path, ticker, profile)
                         logger.debug(f"Generated rolling cache for {ticker}")
                     except Exception as e:
-                        logger.warning(f"Failed to save generated rolling for {ticker}: {e}")
+                        logger.warning(
+                            f"Failed to save generated rolling for {ticker}: {e}"
+                        )
 
                 # If rolling exists but lacks essential indicators, optionally
                 # attempt to recompute them on read to self-heal broken caches.
                 try:
                     recompute_flag = bool(
-                        getattr(self.settings.cache.rolling, "recompute_indicators_on_read", True)
+                        getattr(
+                            self.settings.cache.rolling,
+                            "recompute_indicators_on_read",
+                            True,
+                        )
                     )
                 except Exception:
                     recompute_flag = True
@@ -205,7 +226,9 @@ class CacheManager:
                     try:
                         required_indicators = ["drop3d", "atr_ratio", "dollarvolume20"]
                         missing = [
-                            c for c in required_indicators if c not in df.columns or df[c].isna().all()
+                            c
+                            for c in required_indicators
+                            if c not in df.columns or df[c].isna().all()
                         ]
                         if missing:
                             logger.info(
@@ -215,7 +238,10 @@ class CacheManager:
                             # Validate recompute produced usable values for the required indicators
                             ok = True
                             for c in required_indicators:
-                                if c not in recomputed.columns or recomputed[c].dropna().empty:
+                                if (
+                                    c not in recomputed.columns
+                                    or recomputed[c].dropna().empty
+                                ):
                                     ok = False
                                     break
                             if ok:
@@ -223,15 +249,23 @@ class CacheManager:
                                     # Persist recomputed rolling cache and use it for return
                                     self.write_atomic(recomputed, ticker, "rolling")
                                     df = recomputed
-                                    logger.info(f"Recomputed and saved rolling cache for {ticker}")
-                                except Exception as e:  # pragma: no cover - best-effort save
-                                    logger.warning(f"Failed to save recomputed rolling for {ticker}: {e}")
+                                    logger.info(
+                                        f"Recomputed and saved rolling cache for {ticker}"
+                                    )
+                                except (
+                                    Exception
+                                ) as e:  # pragma: no cover - best-effort save
+                                    logger.warning(
+                                        f"Failed to save recomputed rolling for {ticker}: {e}"
+                                    )
                             else:
                                 logger.warning(
                                     f"Recompute did not produce required indicators for {ticker}: {missing}"
                                 )
                     except Exception as e:  # pragma: no cover - defensive
-                        logger.exception(f"Error during recompute indicators for {ticker}: {e}")
+                        logger.exception(
+                            f"Error during recompute indicators for {ticker}: {e}"
+                        )
 
                 return cast(pd.DataFrame | None, df)
 
@@ -310,11 +344,15 @@ class CacheManager:
         else:
             # 既存データの列重複チェックとクリーンアップ
             if existing.columns.duplicated().any():
-                print(f"[WARNING] Existing data has duplicate columns for {ticker}. Cleaning up...")
+                print(
+                    f"[WARNING] Existing data has duplicate columns for {ticker}. Cleaning up..."
+                )
                 existing = existing.loc[:, ~existing.columns.duplicated()]
 
             # new_rows からも指標列を削除して OHLCV データのみを保持
-            new_rows_clean = new_rows[[col for col in BASIC_OHLCV_COLS if col in new_rows.columns]].copy()
+            new_rows_clean = new_rows[
+                [col for col in BASIC_OHLCV_COLS if col in new_rows.columns]
+            ].copy()
 
             # マージ処理 (基本データのみ)
             combined = pd.concat([existing, new_rows_clean], ignore_index=True)
@@ -381,7 +419,11 @@ class CacheManager:
     def _get_reference_date(self, anchor_ticker: str = "SPY") -> pd.Timestamp:
         """基準日付を取得する（SPYの最新日付またはNow）"""
         anchor_df = self.read(anchor_ticker, "rolling")
-        if anchor_df is not None and not anchor_df.empty and "date" in anchor_df.columns:
+        if (
+            anchor_df is not None
+            and not anchor_df.empty
+            and "date" in anchor_df.columns
+        ):
             anchor_df["date"] = pd.to_datetime(anchor_df["date"], errors="coerce")
             reference_date = anchor_df["date"].max()
             if pd.notna(reference_date):
@@ -395,7 +437,9 @@ class CacheManager:
             anchor_latest = self._get_reference_date(anchor_ticker)
 
             # Rolling ディレクトリのファイル一覧
-            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(self.rolling_dir.glob("*.feather"))
+            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
+                self.rolling_dir.glob("*.feather")
+            )
             if not rolling_files:
                 return {
                     "status": "success",
@@ -409,7 +453,9 @@ class CacheManager:
             for file_path in rolling_files:
                 ticker_name = file_path.stem
                 try:
-                    df = self.file_manager.read_with_fallback(file_path, ticker_name, "rolling")
+                    df = self.file_manager.read_with_fallback(
+                        file_path, ticker_name, "rolling"
+                    )
                     if df is None or df.empty or "date" not in df.columns:
                         continue
 
@@ -423,7 +469,9 @@ class CacheManager:
                     if days_stale > staleness_threshold:
                         file_path.unlink()
                         pruned_count += 1
-                        logger.info(f"Pruned stale rolling cache: {ticker_name} ({days_stale} days stale)")
+                        logger.info(
+                            f"Pruned stale rolling cache: {ticker_name} ({days_stale} days stale)"
+                        )
 
                 except Exception as e:
                     logger.warning(f"プルーニング処理中エラー {ticker_name}: {e}")
@@ -507,7 +555,11 @@ class CacheManager:
                 "missing_list": missing_files[:10],  # 最初の10件のみ
                 "insufficient_list": insufficient_data[:10],
                 "stale_list": stale_data[:10],
-                "reference_date": (reference_date.strftime("%Y-%m-%d") if pd.notna(reference_date) else "N/A"),
+                "reference_date": (
+                    reference_date.strftime("%Y-%m-%d")
+                    if pd.notna(reference_date)
+                    else "N/A"
+                ),
             }
 
         except Exception as e:
@@ -519,7 +571,9 @@ class CacheManager:
             logger.info("Rolling health summary: start")
 
             # ローリングファイル一覧
-            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(self.rolling_dir.glob("*.feather"))
+            rolling_files = list(self.rolling_dir.glob("*.csv")) + list(
+                self.rolling_dir.glob("*.feather")
+            )
             total_files = len(rolling_files)
 
             # 既存の集計（後方互換用）
@@ -529,7 +583,9 @@ class CacheManager:
             for file_path in rolling_files[:20]:  # サンプリング
                 try:
                     ticker = file_path.stem
-                    df = self.file_manager.read_with_fallback(file_path, ticker, "rolling")
+                    df = self.file_manager.read_with_fallback(
+                        file_path, ticker, "rolling"
+                    )
                     if df is not None and not df.empty:
                         readable_files += 1
                         total_rows += len(df)
@@ -575,8 +631,13 @@ class CacheManager:
                 anchor_df = self.read("SPY", "rolling")
             except Exception:
                 anchor_df = None
-            anchor_exists = bool(isinstance(anchor_df, pd.DataFrame) and not getattr(anchor_df, "empty", True))
-            anchor_rows = int(len(anchor_df)) if isinstance(anchor_df, pd.DataFrame) else 0
+            anchor_exists = bool(
+                isinstance(anchor_df, pd.DataFrame)
+                and not getattr(anchor_df, "empty", True)
+            )
+            anchor_rows = (
+                int(len(anchor_df)) if isinstance(anchor_df, pd.DataFrame) else 0
+            )
             latest_date_str = None
             if isinstance(anchor_df, pd.DataFrame) and "date" in anchor_df.columns:
                 try:
@@ -606,7 +667,9 @@ class CacheManager:
                 "total_files": total_files,
                 "readable_files": readable_files,
                 "sample_total_rows": total_rows,
-                "avg_rows_per_file": (total_rows / readable_files if readable_files > 0 else 0),
+                "avg_rows_per_file": (
+                    total_rows / readable_files if readable_files > 0 else 0
+                ),
                 "sample_date_ranges": date_range_info,
                 # UI 期待キー
                 "meta_exists": meta_exists,
@@ -619,7 +682,9 @@ class CacheManager:
             if total_files == 0:
                 result["message"] = "Rolling cache ファイルが存在しません"
 
-            logger.info("Rolling health summary: done", extra={"total_files": total_files})
+            logger.info(
+                "Rolling health summary: done", extra={"total_files": total_files}
+            )
             return result
 
         except Exception as e:
@@ -650,7 +715,9 @@ class CacheManager:
             return symbol, df
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_symbol = {executor.submit(read_single, sym): sym for sym in symbols}
+            future_to_symbol = {
+                executor.submit(read_single, sym): sym for sym in symbols
+            }
 
             for future in as_completed(future_to_symbol):
                 symbol, df = future.result()
@@ -667,9 +734,13 @@ class CacheManager:
         """DataFrameのメモリ使用量を最適化する（委譲）。"""
         return cast(pd.DataFrame, self.file_manager.optimize_dataframe_memory(df))
 
-    def remove_unnecessary_columns(self, df: pd.DataFrame, keep_columns: list[str] | None = None) -> pd.DataFrame:
+    def remove_unnecessary_columns(
+        self, df: pd.DataFrame, keep_columns: list[str] | None = None
+    ) -> pd.DataFrame:
         """不要な列を除去する（委譲）。"""
-        return cast(pd.DataFrame, self.file_manager.remove_unnecessary_columns(df, keep_columns))
+        return cast(
+            pd.DataFrame, self.file_manager.remove_unnecessary_columns(df, keep_columns)
+        )
 
 
 def _base_dir() -> Path:
@@ -738,7 +809,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):
         missing_cols = required - set(x.columns)
-        logger.warning(f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}")
+        logger.warning(
+            f"{__name__}: 必須列欠落のためインジ計算をスキップ: missing={missing_cols}"
+        )
         return x.reset_index()
 
     close = pd.to_numeric(x["Close"], errors="coerce")
@@ -755,7 +828,9 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
         x[f"EMA{n}"] = close.ewm(span=n, adjust=False).mean()
 
     # ATR - 大文字統一
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    tr = pd.concat(
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+    ).max(axis=1)
     for n in [10, 14, 20, 40, 50]:
         x[f"ATR{n}"] = tr.rolling(n).mean()
 
@@ -866,7 +941,11 @@ def save_base_cache(
     tmp_path = path.with_suffix(path.suffix + ".tmp")
 
     # データ前処理
-    df_reset = df.reset_index() if hasattr(df, "index") and getattr(df.index, "name", None) is not None else df
+    df_reset = (
+        df.reset_index()
+        if hasattr(df, "index") and getattr(df.index, "name", None) is not None
+        else df
+    )
     # 列名を小文字化し、重複列を排除（Featherは重複列名を許容しない）
     df_reset = df_reset.rename(columns={c: str(c).lower() for c in df_reset.columns})
     try:
@@ -887,8 +966,10 @@ def save_base_cache(
 
     try:
         # feather形式でアトミック書き込み
-        df_reset.to_feather(tmp_path)
-        tmp_path.replace(path)
+        # Delegate atomic write to CacheFileManager to centralize IO behavior
+        file_mgr = CacheFileManager(settings)
+        # write_atomic expects (df, path, ticker, profile)
+        file_mgr.write_atomic(df_reset, path, symbol, "full")
     except Exception as e:
         # 一時ファイル削除
         if tmp_path.exists():

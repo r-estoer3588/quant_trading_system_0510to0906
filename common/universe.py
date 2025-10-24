@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.io_utils import write_text
 from config.settings import get_settings
 
 
@@ -64,7 +65,7 @@ def save_universe_file(symbols: list[str], path: str | None = None) -> str:
         path = str(Path(settings.PROJECT_ROOT) / "data" / "universe_auto.txt")
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(symbols), encoding="utf-8")
+    write_text(p, "\n".join(symbols))
     return str(p)
 
 
@@ -119,7 +120,9 @@ def get_all_symbols_from_cache(cache_dir: str | Path | None = None) -> list[str]
     return out
 
 
-def save_universe_from_cache(cache_dir: str | Path | None = None, out_path: str | Path | None = None) -> str:
+def save_universe_from_cache(
+    cache_dir: str | Path | None = None, out_path: str | Path | None = None
+) -> str:
     """
     data_cache フォルダ内の全CSVファイル名（拡張子除く）を universe_auto.txt に保存する。
     """
@@ -137,7 +140,7 @@ def save_universe_from_cache(cache_dir: str | Path | None = None, out_path: str 
     else:
         out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(out_syms), encoding="utf-8")
+    write_text(out_path, "\n".join(out_syms))
     return str(out_path)
 
 

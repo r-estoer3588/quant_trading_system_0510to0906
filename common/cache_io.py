@@ -47,7 +47,9 @@ class CacheFileManager:
             else:
                 return csv_path
 
-    def read_with_fallback(self, path: Path, ticker: str, profile: str) -> pd.DataFrame | None:
+    def read_with_fallback(
+        self, path: Path, ticker: str, profile: str
+    ) -> pd.DataFrame | None:
         """指定パスからデータを読み込み、失敗時はフォールバック。"""
         if not path.exists():
             return None
@@ -71,14 +73,19 @@ class CacheFileManager:
                 if pd.api.types.is_object_dtype(s):
                     try:
                         sample = s.dropna().head(5).tolist()
-                        needs_flatten = any(hasattr(v, "ndim") and getattr(v, "ndim", 0) > 0 for v in sample)
+                        needs_flatten = any(
+                            hasattr(v, "ndim") and getattr(v, "ndim", 0) > 0
+                            for v in sample
+                        )
                         if needs_flatten:
 
                             def _flatten(v):
                                 try:
                                     if hasattr(v, "ndim") and getattr(v, "ndim", 0) > 1:
                                         return v[..., -1]
-                                    if hasattr(v, "__len__") and not isinstance(v, (str, bytes)):
+                                    if hasattr(v, "__len__") and not isinstance(
+                                        v, (str, bytes)
+                                    ):
                                         try:
                                             return list(v)[-1]
                                         except Exception:
@@ -142,11 +149,66 @@ class CacheFileManager:
 
             return None
 
-    def write_atomic(self, df: pd.DataFrame, path: Path, ticker: str, profile: str) -> None:
+    def write_atomic(
+        self, df: pd.DataFrame, path: Path, ticker: str, profile: str
+    ) -> None:
         """データフレームをアトミック書き込みで保存する。"""
         if df is None or df.empty:
             logger.warning(f"[{profile}] {ticker}: 空のDataFrameをスキップ")
             return
+
+        # --- 永続化用: DataFrame.attrs に格納されたデバッグ理由を列へ移す ---
+        try:
+            if hasattr(df, "attrs") and isinstance(df.attrs, dict):
+                # 検索する attr キーのプレフィックス
+                for key, val in list(df.attrs.items()):
+                    try:
+                        if not isinstance(key, str):
+                            continue
+                        # 既存の永続列命名規則: attrs '_fdbg_reasons3' -> column '_dbg_reasons3'
+                        if key.startswith("_fdbg_reasons"):
+                            col_name = key.replace("_fdbg_reasons", "_dbg_reasons")
+                        else:
+                            # other debug attrs (eg. _fdbg_reasons2) already handled,
+                            # skip non-debug attrs
+                            continue
+
+                        # 既に列が存在する場合は上書きしない
+                        if col_name in df.columns:
+                            continue
+
+                        v = val
+                        # 値をシリーズに変換するルール
+                        ser = None
+                        if isinstance(v, list):
+                            if len(v) == 0:
+                                ser = pd.Series([""] * len(df), index=df.index)
+                            elif len(v) == len(df):
+                                ser = pd.Series(v, index=df.index)
+                            elif len(v) == 1:
+                                ser = pd.Series([v[0]] * len(df), index=df.index)
+                            else:
+                                # 多要素だが行数と一致しない場合は末尾要素を全行に適用
+                                ser = pd.Series([v[-1]] * len(df), index=df.index)
+                        elif isinstance(v, str):
+                            ser = pd.Series([v] * len(df), index=df.index)
+                        else:
+                            # その他は文字列化して全行に適用
+                            try:
+                                ser = pd.Series([str(v)] * len(df), index=df.index)
+                            except Exception:
+                                ser = pd.Series([""] * len(df), index=df.index)
+
+                        if ser is not None:
+                            # 挿入は末尾列として行う（既存列を壊さない）
+                            df[col_name] = ser
+                    except Exception:
+                        # best-effort: 失敗しても書き込み処理自体は続行
+                        continue
+        except Exception:
+            # defensive: do not fail write because of debug persistence
+            pass
+        # --- end attrs -> column persistence ---
 
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = path.with_suffix(f"{path.suffix}.tmp")
@@ -190,12 +252,17 @@ class CacheFileManager:
                             max_val = optimized[col].max()
 
                             # float32で表現可能な範囲内ならダウンキャスト
-                            if -3.4e38 <= min_val <= 3.4e38 and -3.4e38 <= max_val <= 3.4e38:
+                            if (
+                                -3.4e38 <= min_val <= 3.4e38
+                                and -3.4e38 <= max_val <= 3.4e38
+                            ):
                                 optimized[col] = optimized[col].astype("float32")
 
                     # 整数の最適化
                     elif pd.api.types.is_integer_dtype(optimized[col]):
-                        optimized[col] = pd.to_numeric(optimized[col], downcast="integer")
+                        optimized[col] = pd.to_numeric(
+                            optimized[col], downcast="integer"
+                        )
 
                 except Exception:
                     # 最適化に失敗しても元のデータを保持
@@ -203,7 +270,9 @@ class CacheFileManager:
 
         return optimized
 
-    def remove_unnecessary_columns(self, df: pd.DataFrame, keep_columns: list[str] | None = None) -> pd.DataFrame:
+    def remove_unnecessary_columns(
+        self, df: pd.DataFrame, keep_columns: list[str] | None = None
+    ) -> pd.DataFrame:
         """不要な列を除去する。"""
         if df is None or df.empty:
             return df
@@ -213,7 +282,9 @@ class CacheFileManager:
 
         # keep_columns に含まれる列のみ保持
         keep_columns_lower = [col.lower() for col in keep_columns]
-        available_cols = [col for col in df.columns if col.lower() in keep_columns_lower]
+        available_cols = [
+            col for col in df.columns if col.lower() in keep_columns_lower
+        ]
 
         if not available_cols:
             return df

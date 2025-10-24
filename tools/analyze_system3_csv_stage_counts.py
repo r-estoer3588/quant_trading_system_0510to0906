@@ -1,6 +1,7 @@
 # c:\Repos\quant_trading_system\tools\analyze_system3_csv_stage_counts.py
 # Quick helper to load the CSV produced by debug_system3_all and simulate the pipeline filters
 import argparse
+
 import pandas as pd
 
 p = argparse.ArgumentParser()
@@ -19,9 +20,7 @@ df = pd.read_csv(csv)
 print("Total rows:", len(df))
 
 # prefilters: low_ok & avgvol_ok & atr_ok from CSV
-prefilter = df[
-    (df["low_ok"] == True) & (df["avgvol_ok"] == True) & (df["atr_ok"] == True)
-]
+prefilter = df[(df["low_ok"]) & (df["avgvol_ok"]) & (df["atr_ok"])]
 print("Prefilter pass (all three true):", len(prefilter))
 
 # setup conditions: close > sma150 (if sma150 present)
@@ -50,7 +49,8 @@ print("Combined (prefilter & close>sma150 & drop3d>=threshold):", len(combined))
 
 # show few examples
 print(
-    "\nExamples (top 20 by dollarvolume20) where prefilter passed but drop3d < threshold:"
+    "\nExamples (top 20 by dollarvolume20) where prefilter passed "
+    "but drop3d < threshold:"
 )
 low_drop = prefilter_numeric_drop3d[
     pd.to_numeric(prefilter_numeric_drop3d["drop3d"]) < args.drop3d_threshold

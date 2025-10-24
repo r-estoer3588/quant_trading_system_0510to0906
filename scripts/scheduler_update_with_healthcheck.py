@@ -112,7 +112,9 @@ if __name__ == "__main__":
             log_base = getattr(settings, "LOG_DIR", None)
             log_dir = Path(log_base) if log_base else (ROOT / "logs")
             log_dir.mkdir(parents=True, exist_ok=True)
-            out = log_dir / (f"scheduler_update_health_{datetime.now().strftime('%Y%m%d')}.log")
+            out = log_dir / (
+                f"scheduler_update_health_{datetime.now().strftime('%Y%m%d')}.log"
+            )
             with out.open("a", encoding="utf-8") as f:
                 f.write("[EXCEPTION]\n")
                 f.write(traceback.format_exc())

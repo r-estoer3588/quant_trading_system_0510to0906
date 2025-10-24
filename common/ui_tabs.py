@@ -55,19 +55,29 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
             try:
                 client = _ba.get_client(paper=paper)
                 acct = client.get_account()
-                st.session_state["pos_tab_acct_type"] = getattr(acct, "account_type", None)
-                st.session_state["pos_tab_multiplier"] = getattr(acct, "multiplier", None)
-                st.session_state["pos_tab_shorting_enabled"] = getattr(acct, "shorting_enabled", None)
+                st.session_state["pos_tab_acct_type"] = getattr(
+                    acct, "account_type", None
+                )
+                st.session_state["pos_tab_multiplier"] = getattr(
+                    acct, "multiplier", None
+                )
+                st.session_state["pos_tab_shorting_enabled"] = getattr(
+                    acct, "shorting_enabled", None
+                )
                 st.session_state["pos_tab_status"] = getattr(acct, "status", None)
                 bp_raw = getattr(acct, "buying_power", None)
                 if bp_raw is None:
                     bp_raw = getattr(acct, "cash", None)
                 try:
-                    st.session_state["pos_tab_buying_power"] = float(bp_raw) if bp_raw is not None else None
+                    st.session_state["pos_tab_buying_power"] = (
+                        float(bp_raw) if bp_raw is not None else None
+                    )
                 except Exception:
                     st.session_state["pos_tab_buying_power"] = None
                 try:
-                    st.session_state["pos_tab_cash"] = float(getattr(acct, "cash", None) or 0.0)
+                    st.session_state["pos_tab_cash"] = float(
+                        getattr(acct, "cash", None) or 0.0
+                    )
                 except Exception:
                     st.session_state["pos_tab_cash"] = None
                 st.success("口座情報を更新しました")
@@ -80,12 +90,20 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
             mult_f = float(mult) if mult is not None else None
         except Exception:
             mult_f = None
-        derived_type = "Margin" if (mult_f is not None and mult_f > 1.0) else ("Cash" if mult_f is not None else "不明")
+        derived_type = (
+            "Margin"
+            if (mult_f is not None and mult_f > 1.0)
+            else ("Cash" if mult_f is not None else "不明")
+        )
         acct_type = st.session_state.get("pos_tab_acct_type")
         status = st.session_state.get("pos_tab_status")
-        st.caption(f"種別(推定): {derived_type} / status: {status if status is not None else '-'}")
+        st.caption(
+            f"種別(推定): {derived_type} / status: {status if status is not None else '-'}"
+        )
         if acct_type is not None or mult_f is not None:
-            st.caption(f"詳細: account_type={acct_type}, multiplier={mult_f if mult_f is not None else '-'}")
+            st.caption(
+                f"詳細: account_type={acct_type}, multiplier={mult_f if mult_f is not None else '-'}"
+            )
     with colC:
         bp = st.session_state.get("pos_tab_buying_power")
         cash = st.session_state.get("pos_tab_cash")
@@ -134,7 +152,9 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                     for s in sel
                     if int(qty_map.get(s, 0)) > 0
                 ]
-                res = _submit_exits(_pd.DataFrame(rows), paper=paper, tif="CLS", notify=True)
+                res = _submit_exits(
+                    _pd.DataFrame(rows), paper=paper, tif="CLS", notify=True
+                )
                 if res is not None and not res.empty:
                     st.dataframe(res, width="stretch")
             # Plan tomorrow open/close
@@ -142,50 +162,49 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
             with col_o:
                 if st.button("明日寄り（OPG）で手仕舞いを予約"):
                     _plan = _Path("data/planned_exits.jsonl")
-                    _plan.parent.mkdir(parents=True, exist_ok=True)
-                    import json as _json
+                    # Use centralized JSON lines writer to ensure UTF-8 safety
+                    from common.io_utils import write_json_lines
 
-                    with _plan.open("a", encoding="utf-8") as f:
-                        for s in sel:
-                            if int(qty_map.get(s, 0)) <= 0:
-                                continue
-                            f.write(
-                                _json.dumps(
-                                    {
-                                        "symbol": s,
-                                        "qty": int(qty_map.get(s, 0)),
-                                        "position_side": side_map.get(s, "long"),
-                                        "system": "",
-                                        "when": "tomorrow_open",
-                                    },
-                                    ensure_ascii=False,
-                                )
-                                + "\n"
-                            )
+                    rows = []
+                    for s in sel:
+                        if int(qty_map.get(s, 0)) <= 0:
+                            continue
+                        rows.append(
+                            {
+                                "symbol": s,
+                                "qty": int(qty_map.get(s, 0)),
+                                "position_side": side_map.get(s, "long"),
+                                "system": "",
+                                "when": "tomorrow_open",
+                            }
+                        )
+                    if rows:
+                        write_json_lines(
+                            _plan, rows, ensure_ascii=False, indent=None, append=True
+                        )
                     st.success("予約を書き込みました（tomorrow_open）")
             with col_c:
                 if st.button("明日引け（CLS）で手仕舞いを予約"):
                     _plan = _Path("data/planned_exits.jsonl")
-                    _plan.parent.mkdir(parents=True, exist_ok=True)
-                    import json as _json
+                    from common.io_utils import write_json_lines
 
-                    with _plan.open("a", encoding="utf-8") as f:
-                        for s in sel:
-                            if int(qty_map.get(s, 0)) <= 0:
-                                continue
-                            f.write(
-                                _json.dumps(
-                                    {
-                                        "symbol": s,
-                                        "qty": int(qty_map.get(s, 0)),
-                                        "position_side": side_map.get(s, "long"),
-                                        "system": "",
-                                        "when": "tomorrow_close",
-                                    },
-                                    ensure_ascii=False,
-                                )
-                                + "\n"
-                            )
+                    rows = []
+                    for s in sel:
+                        if int(qty_map.get(s, 0)) <= 0:
+                            continue
+                        rows.append(
+                            {
+                                "symbol": s,
+                                "qty": int(qty_map.get(s, 0)),
+                                "position_side": side_map.get(s, "long"),
+                                "system": "",
+                                "when": "tomorrow_close",
+                            }
+                        )
+                    if rows:
+                        write_json_lines(
+                            _plan, rows, ensure_ascii=False, indent=None, append=True
+                        )
                     st.success("予約を書き込みました（tomorrow_close）")
 
     st.markdown("---")
@@ -263,7 +282,8 @@ def render_positions_tab(settings, notifier: Notifier | None = None) -> None:
                     new_plans.append(r)
                 try:
                     _plan.write_text(
-                        "\n".join(_json.dumps(x, ensure_ascii=False) for x in new_plans) + ("\n" if new_plans else ""),
+                        "\n".join(_json.dumps(x, ensure_ascii=False) for x in new_plans)
+                        + ("\n" if new_plans else ""),
                         encoding="utf-8",
                     )
                     st.success("削除しました")
@@ -359,7 +379,9 @@ def render_metrics_tab(settings) -> None:
         chart_type = st.selectbox("chart", ["line", "bar"], index=0)
 
     work = df[df["system"].isin(sel_systems)].copy()
-    pivot = work.pivot_table(index="date", columns="system", values=sel_metric, aggfunc="sum").fillna(0)
+    pivot = work.pivot_table(
+        index="date", columns="system", values=sel_metric, aggfunc="sum"
+    ).fillna(0)
     st.caption(tr("daily {m} by system").format(m=sel_metric))
     try:
         if chart_type == "line":
@@ -435,7 +457,9 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     st.rerun()
 
             except ImportError:
-                progress_container.warning("Progress monitoring not available (app_integrated not found)")
+                progress_container.warning(
+                    "Progress monitoring not available (app_integrated not found)"
+                )
             except Exception as e:
                 progress_container.error(f"Progress monitoring error: {e}")
         else:
@@ -482,20 +506,28 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
             key="integrated_gross",
         )
     with colB:
-        st.caption(tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%"))
+        st.caption(
+            tr("allocation is fixed: long 1/3/4/5: each 25%, short 2:40%,6:40%,7:20%")
+        )
         try:
             # 表示用に現在の設定配分も添える
             def _norm_map(d: dict[str, float], default_map: dict[str, float]):
                 try:
                     f = {k: float(v) for k, v in (d or {}).items() if float(v) > 0}
                     s = sum(f.values())
-                    return {k: v / s for k, v in (f or default_map).items()} if s > 0 else default_map
+                    return (
+                        {k: v / s for k, v in (f or default_map).items()}
+                        if s > 0
+                        else default_map
+                    )
                 except Exception:
                     return default_map
 
             la = getattr(settings.ui, "long_allocations", {}) or {}
             sa = getattr(settings.ui, "short_allocations", {}) or {}
-            la_n = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
+            la_n = _norm_map(
+                la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+            )
             sa_n = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
 
             def _fmt(d: dict[str, float]):
@@ -564,7 +596,10 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
 
         import pandas as _pd
 
-        sig_counts = {s.name: int(sum(len(v) for v in s.candidates_by_date.values())) for s in states}
+        sig_counts = {
+            s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
+            for s in states
+        }
         st.write(tr("signals per system:"))
         st.dataframe(_pd.DataFrame([sig_counts]))
         try:
@@ -623,8 +658,12 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
 
         la = getattr(settings.ui, "long_allocations", {}) or {}
         sa = getattr(settings.ui, "short_allocations", {}) or {}
-        alloc_map_long = _norm_map(la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25})
-        alloc_map_short = _norm_map(sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20})
+        alloc_map_long = _norm_map(
+            la, {"system1": 0.25, "system3": 0.25, "system4": 0.25, "system5": 0.25}
+        )
+        alloc_map_short = _norm_map(
+            sa, {"system2": 0.40, "system6": 0.40, "system7": 0.20}
+        )
         alloc_map = {**alloc_map_long, **alloc_map_short}
 
         trades_df, _sig = run_integrated_backtest(
@@ -682,7 +721,8 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 import numpy as np
 
                 equity = _pd.Series(
-                    np.array(df2["cumulative_pnl"].values, dtype=float) + float(capital_i),
+                    np.array(df2["cumulative_pnl"].values, dtype=float)
+                    + float(capital_i),
                     index=_pd.to_datetime(df2["exit_date"]),
                 )
                 daily_eq = equity.resample("D").last().ffill()
@@ -697,7 +737,9 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                 )
                 st.subheader(tr("yearly summary"))
                 # 百分率として1桁で表示（例: 468.9% / -63.6%）、pnlは小数第2位
-                st.dataframe(yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
+                st.dataframe(
+                    yearly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"})
+                )
                 # 月次サマリー
                 month_start = daily_eq.resample("ME").first()
                 month_end = daily_eq.resample("ME").last()
@@ -709,7 +751,11 @@ def render_integrated_tab(settings, notifier: Notifier) -> None:
                     }
                 )
                 st.subheader(tr("monthly summary"))
-                st.dataframe(monthly_df.style.format({"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}))
+                st.dataframe(
+                    monthly_df.style.format(
+                        {"損益": "{:.2f}", "リターン(%)": "{:.1f}%"}
+                    )
+                )
             except Exception:
                 pass
 
@@ -827,7 +873,11 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 acct = client.get_account()
                 bp = None
                 try:
-                    bp = float(getattr(acct, "buying_power", None) or getattr(acct, "cash", None) or 0.0)
+                    bp = float(
+                        getattr(acct, "buying_power", None)
+                        or getattr(acct, "cash", None)
+                        or 0.0
+                    )
                 except Exception:
                     bp = None
                 if bp:
@@ -882,8 +932,14 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 close = last.get("Close", 0)
                 sma100 = last.get("SMA100", 0)
                 gate_ok = close > sma100
-                status = "✅ OPEN (SPY > SMA100)" if gate_ok else "❌ CLOSED (SPY <= SMA100) - System1/4_TRDlist is 0"
-                st.metric("SPY Gate", status, f"Close: {close:.2f}, SMA100: {sma100:.2f}")
+                status = (
+                    "✅ OPEN (SPY > SMA100)"
+                    if gate_ok
+                    else "❌ CLOSED (SPY <= SMA100) - System1/4_TRDlist is 0"
+                )
+                st.metric(
+                    "SPY Gate", status, f"Close: {close:.2f}, SMA100: {sma100:.2f}"
+                )
             else:
                 st.warning("SPY data not available")
         except Exception as e:
@@ -1024,9 +1080,13 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 cap_long = st.session_state.get("batch_cap_long", 2000)
                 cap_short = st.session_state.get("batch_cap_short", 2000)
                 total_capital = float(cap_long) + float(cap_short)
-                cap_df = final_df.sort_values("entry_date")[["entry_date", "symbol", "position_value"]].copy()
+                cap_df = final_df.sort_values("entry_date")[
+                    ["entry_date", "symbol", "position_value"]
+                ].copy()
                 cap_df["entry_date"] = pd.to_datetime(cap_df["entry_date"])
-                cap_df["capital_after"] = total_capital - cap_df["position_value"].cumsum()
+                cap_df["capital_after"] = (
+                    total_capital - cap_df["position_value"].cumsum()
+                )
                 st.markdown(tr("Capital progression"))
                 st.dataframe(cap_df, width="stretch")
 
@@ -1042,9 +1102,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             st.write("(empty)")
                         else:
                             _tmp = df.copy()
-                            _tmp["setup"] = (~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)).map(
-                                lambda x: "⭐" if x else ""
-                            )
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
                             st.dataframe(_tmp, width="stretch")
 
                 with st.expander(tr("Short system candidates"), expanded=False):
@@ -1056,9 +1116,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             st.write("(empty)")
                         else:
                             _tmp = df.copy()
-                            _tmp["setup"] = (~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)).map(
-                                lambda x: "⭐" if x else ""
-                            )
+                            _tmp["setup"] = (
+                                ~_tmp[["entry_price", "stop_price"]].isna().any(axis=1)
+                            ).map(lambda x: "⭐" if x else "")
                             st.dataframe(_tmp, width="stretch")
 
                 # ログのCSV保存ボタン
@@ -1093,12 +1153,18 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             # 可能なら保存DFからピーク比のDD%を再計算
             try:
                 _cap = float(saved_capital or 0)
-                dd_pct_saved = (saved_df["drawdown"] / (_cap + saved_df["cum_max"])).min() * 100
+                dd_pct_saved = (
+                    saved_df["drawdown"] / (_cap + saved_df["cum_max"])
+                ).min() * 100
             except Exception:
                 dd_pct_saved = 0.0
             cols[0].metric(tr("trades"), saved_summary.get("trades"))
-            cols[1].metric(tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}")
-            cols[2].metric(tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}")
+            cols[1].metric(
+                tr("total pnl"), f"{saved_summary.get('total_return', 0):.2f}"
+            )
+            cols[2].metric(
+                tr("win rate (%)"), f"{saved_summary.get('win_rate', 0):.2f}"
+            )
             cols[3].metric("PF", f"{saved_summary.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{saved_summary.get('sharpe', 0):.2f}")
             cols[5].metric(
@@ -1138,10 +1204,14 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 )
             except Exception:
                 pass
-        if st.button(tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"):
+        if st.button(
+            tr("save saved batch CSV to disk"), key="save_saved_batch_to_disk"
+        ):
             out_dir = os.path.join("results_csv", "batch")
             os.makedirs(out_dir, exist_ok=True)
-            trades_path = os.path.join(out_dir, f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv")
+            trades_path = os.path.join(
+                out_dir, f"batch_trades_saved_{_ts}_{int(saved_capital or 0)}.csv"
+            )
             try:
                 try:
                     settings2 = get_settings(create_dirs=True)
@@ -1160,7 +1230,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     pass
             if isinstance(saved_summary, dict):
                 sum_df = _pd.DataFrame([saved_summary])
-                sum_path = os.path.join(out_dir, f"batch_summary_saved_{_ts}_{int(saved_capital or 0)}.csv")
+                sum_path = os.path.join(
+                    out_dir, f"batch_summary_saved_{_ts}_{int(saved_capital or 0)}.csv"
+                )
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1213,7 +1285,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
         capital = locals().get("capital", None)
         if capital is None:
             # If not defined, try to get from session_state (for Today mode)
-            capital = st.session_state.get("batch_cap_long", 0) + st.session_state.get("batch_cap_short", 0)
+            capital = st.session_state.get("batch_cap_long", 0) + st.session_state.get(
+                "batch_cap_short", 0
+            )
 
         for i in range(1, 8):
             sys_name = f"System{i}"
@@ -1257,7 +1331,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                             st.success(f"{sys_name}: 完了（取引 {len(res)} 件）")
                     except Exception:
                         pass
-                    with sys_ui.container.expander(f"{sys_name} result", expanded=False):
+                    with sys_ui.container.expander(
+                        f"{sys_name} result", expanded=False
+                    ):
                         _show_sys_result(res, capital)  # noqa: F821
                 else:
                     with sys_ui.container:
@@ -1301,7 +1377,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
             cols[3].metric("PF", f"{d.get('profit_factor', 0):.2f}")
             cols[4].metric("Sharpe", f"{d.get('sharpe', 0):.2f}")
             try:
-                dd_pct_overall = (all_df2["drawdown"] / (capital + all_df2["cum_max"])).min() * 100
+                dd_pct_overall = (
+                    all_df2["drawdown"] / (capital + all_df2["cum_max"])
+                ).min() * 100
             except Exception:
                 dd_pct_overall = 0.0
             cols[5].metric(
@@ -1340,10 +1418,14 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     )
                 except Exception:
                     pass
-            if st.button(tr("save batch CSV to disk"), key="save_batch_to_disk_current"):
+            if st.button(
+                tr("save batch CSV to disk"), key="save_batch_to_disk_current"
+            ):
                 out_dir = os.path.join("results_csv", "batch")
                 os.makedirs(out_dir, exist_ok=True)
-                trades_path = os.path.join(out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv")
+                trades_path = os.path.join(
+                    out_dir, f"batch_trades_{_ts2}_{int(capital)}.csv"
+                )
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1361,7 +1443,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                     except Exception:
                         pass
                 sum_df = pd.DataFrame([d])
-                sum_path = os.path.join(out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv")
+                sum_path = os.path.join(
+                    out_dir, f"batch_summary_{_ts2}_{int(capital)}.csv"
+                )
                 try:
                     try:
                         settings2 = get_settings(create_dirs=True)
@@ -1391,7 +1475,9 @@ def render_batch_tab(settings, logger, notifier: Notifier | None = None) -> None
                 _mention = "channel" if os.getenv("SLACK_BOT_TOKEN") else None
                 try:
                     if hasattr(notifier, "send_with_mention"):
-                        notifier.send_with_mention(_title, "", fields=d, image_url=_img_url, mention=_mention)
+                        notifier.send_with_mention(
+                            _title, "", fields=d, image_url=_img_url, mention=_mention
+                        )
                     else:
                         notifier.send(_title, "", fields=d, image_url=_img_url)
                 except Exception:
@@ -1455,7 +1541,9 @@ def render_cache_health_tab(settings) -> None:
     st.write("rolling cacheの健全性と整備状況を監視・分析します。")
 
     # タブ内でサブタブを作成
-    subtab1, subtab2, subtab3 = st.tabs(["🔍 基本ヘルスチェック", "🎯 システム別カバレッジ", "💡 推奨アクション"])
+    subtab1, subtab2, subtab3 = st.tabs(
+        ["🔍 基本ヘルスチェック", "🎯 システム別カバレッジ", "💡 推奨アクション"]
+    )
 
     with subtab1:
         st.write("### Cache基本状況")

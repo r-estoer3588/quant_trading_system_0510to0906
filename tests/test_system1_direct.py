@@ -100,7 +100,9 @@ class TestSystem1DirectFunctions:
 
     def test_normalize_index_lowercase_date(self):
         """_normalize_index の小文字 date カラム処理"""
-        df = pd.DataFrame({"date": pd.to_datetime(["2023-01-01", "2023-01-02"]), "Close": [100, 101]})
+        df = pd.DataFrame(
+            {"date": pd.to_datetime(["2023-01-01", "2023-01-02"]), "Close": [100, 101]}
+        )
 
         result = _normalize_index(df)
 
@@ -110,7 +112,9 @@ class TestSystem1DirectFunctions:
 
     def test_normalize_index_invalid_dates(self):
         """_normalize_index の無効日付処理"""
-        df = pd.DataFrame({"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]})
+        df = pd.DataFrame(
+            {"Date": [None, "invalid", "2023-01-01"], "Close": [100, 101, 102]}
+        )
 
         # 無効日付はNaTとなり、dropnaで除去される
         result = _normalize_index(df)
@@ -251,7 +255,9 @@ class TestSystem1DirectFunctions:
                         # 簡易ROCスコア計算
                         close_prices = df["Close"]
                         if len(close_prices) >= 2:
-                            roc_score = (close_prices.iloc[-1] / close_prices.iloc[0] - 1) * 100
+                            roc_score = (
+                                close_prices.iloc[-1] / close_prices.iloc[0] - 1
+                            ) * 100
                             candidates.append(
                                 {
                                     "symbol": symbol,
@@ -282,11 +288,15 @@ class TestSystem1DirectFunctions:
         data_dict = {
             "AAPL": pd.DataFrame({"Close": [150, 151, 152, 153, 154, 155]}),
             "MSFT": pd.DataFrame({"Close": [300, 302, 304, 306, 308, 310]}),
-            "GOOGL": pd.DataFrame({"Close": [2000, 1990, 1980, 1970, 1960, 1950]}),  # 下降トレンド
+            "GOOGL": pd.DataFrame(
+                {"Close": [2000, 1990, 1980, 1970, 1960, 1950]}
+            ),  # 下降トレンド
         }
 
         # mock実装でテスト
-        candidates_by_date, merged_df = mock_generate_roc200_ranking_system1(data_dict, spy_df, top_n=2)
+        candidates_by_date, merged_df = mock_generate_roc200_ranking_system1(
+            data_dict, spy_df, top_n=2
+        )
 
         # 戻り値構造検証
         assert isinstance(candidates_by_date, dict)
@@ -344,7 +354,9 @@ class TestSystem1DirectFunctions:
 
         # 外部I/O依存関数をmock
         with patch("core.system1.resolve_batch_size", return_value=100):
-            result = prepare_data_vectorized_system1(raw_data_dict, use_process_pool=False, progress_callback=None)
+            result = prepare_data_vectorized_system1(
+                raw_data_dict, use_process_pool=False, progress_callback=None
+            )
 
         # 戻り値検証
         assert isinstance(result, dict)

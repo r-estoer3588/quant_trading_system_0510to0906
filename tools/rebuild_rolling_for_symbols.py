@@ -9,6 +9,7 @@ calls). It re-creates rolling files using the existing extractor and then
 checks whether indicators such as ``drop3d`` and ``atr_ratio`` were written.
 Results are saved as JSON in ``results_csv_test/rebuild_rolling_report_<ts>.json``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -83,9 +84,9 @@ def inspect_rolling_for_symbols(
                 entry["file_used"] = chosen.name
                 entry["exists"] = True
                 try:
-                    entry["file_mtime"] = (
-                        datetime.fromtimestamp(chosen.stat().st_mtime).isoformat()
-                    )
+                    entry["file_mtime"] = datetime.fromtimestamp(
+                        chosen.stat().st_mtime
+                    ).isoformat()
                 except Exception:
                     entry["file_mtime"] = None
 
@@ -137,8 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         default=DEFAULT_SYMBOLS,
         help=(
-            "Symbols to rebuild (space separated). "
-            "Default: the 7 inspected symbols"
+            "Symbols to rebuild (space separated). " "Default: the 7 inspected symbols"
         ),
     )
     p.add_argument(

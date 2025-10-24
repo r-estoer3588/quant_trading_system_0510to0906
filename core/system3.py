@@ -123,7 +123,6 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
             _atr_ratio = pd.Series(0.0, index=x.index)
 
         x["filter"] = (_close >= 5.0) & (_dvol > 25_000_000) & (_atr_ratio >= _atr_thr)
-
         try:
             _val_drop = x.get("drop3d")
             if _val_drop is None:
@@ -133,6 +132,34 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         except Exception:
             _drop3d = pd.Series(dtype=float, index=x.index)
         x["setup"] = x["filter"] & (~_drop3d.isna()) & (_drop3d >= 0.125)
+
+        # Add a persistent per-row debug reasons column so IO that strips
+        # DataFrame.attrs still preserves per-row diagnostic info.
+        try:
+
+            def _row_reason(r):
+                parts = []
+                try:
+                    if not (float(r.get("Close", 0)) >= 5.0):
+                        parts.append("close_lt_5")
+                except Exception:
+                    parts.append("close_lt_5")
+                try:
+                    if not (float(r.get("dollarvolume20", 0)) > 25_000_000):
+                        parts.append("dvol_le_25m")
+                except Exception:
+                    parts.append("dvol_le_25m")
+                try:
+                    if not (float(r.get("atr_ratio", 0)) >= _atr_thr):
+                        parts.append("atr_ratio_lt_thr")
+                except Exception:
+                    parts.append("atr_ratio_lt_thr")
+                return ",".join(parts) if parts else "pass"
+
+            x["_dbg_reasons3"] = x.apply(_row_reason, axis=1)
+        except Exception:
+            # best-effort only
+            pass
 
         return symbol, x
     except Exception:
@@ -202,6 +229,32 @@ def prepare_data_vectorized_system3(
 
                     # Setup: Filter + drop3d>=0.125 (12.5% 3-day drop)
                     x["setup"] = x["filter"] & (x["drop3d"] >= 0.125)
+
+                    # persistent debug reasons column
+                    try:
+
+                        def _row_reason_local(r):
+                            parts = []
+                            try:
+                                if not (float(r.get("Close", 0)) >= 5.0):
+                                    parts.append("close_lt_5")
+                            except Exception:
+                                parts.append("close_lt_5")
+                            try:
+                                if not (float(r.get("dollarvolume20", 0)) > 25_000_000):
+                                    parts.append("dvol_le_25m")
+                            except Exception:
+                                parts.append("dvol_le_25m")
+                            try:
+                                if not (float(r.get("atr_ratio", 0)) >= _atr_thr):
+                                    parts.append("atr_ratio_lt_thr")
+                            except Exception:
+                                parts.append("atr_ratio_lt_thr")
+                            return ",".join(parts) if parts else "pass"
+
+                        x["_dbg_reasons3"] = x.apply(_row_reason_local, axis=1)
+                    except Exception:
+                        pass
 
                     prepared_dict[symbol] = x
 

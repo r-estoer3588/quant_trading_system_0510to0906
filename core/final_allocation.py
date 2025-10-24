@@ -595,6 +595,10 @@ class CapitalAllocationResult:
     budgets: dict[str, float]
     remaining: dict[str, float]
     counts: dict[str, int]
+    # map reason -> set of symbols excluded at allocation time
+    allocator_excludes: dict[str, set] | None = None
+    # map symbol -> system that first selected it (for already-selected diagnostics)
+    already_selected_map: dict[str, str] | None = None
 
 
 def _concat_nonempty(frames: list[pd.DataFrame]) -> pd.DataFrame:
@@ -758,7 +762,14 @@ def _allocate_by_capital(
         logger.info(f"[ALLOC_DEBUG] Max positions available: {dict(max_pos_map)}")
 
     chosen: list[dict[str, Any]] = []
-    chosen_symbols: set[str] = set()
+    # map symbol -> system that selected it first
+    chosen_symbols_map: dict[str, str] = {}
+    # collect allocator-level excludes: reason -> set(symbols)
+    from collections import defaultdict
+
+    allocator_excludes: dict[str, set] = defaultdict(set)
+    # record mapping symbol -> first selecting system for already_selected reason
+    already_selected_map: dict[str, str] = {}
 
     def _normalize_shares(value: Any) -> int:
         try:
@@ -820,19 +831,29 @@ def _allocate_by_capital(
                 index_map[name] = idx
 
                 sym = str(row.get("symbol", "")).upper()
-                if not sym or sym in chosen_symbols:
+                if not sym:
                     if debug_mode and round_num <= 2:
-                        if not sym:
-                            logger.debug(
-                                "[ALLOC_DEBUG] %s: Skipping row with missing symbol",
-                                name,
-                            )
-                        else:
-                            logger.debug(
-                                "[ALLOC_DEBUG] %s %s: Already selected",
-                                name,
-                                sym,
-                            )
+                        logger.debug(
+                            "[ALLOC_DEBUG] %s: Skipping row with missing symbol",
+                            name,
+                        )
+                    allocator_excludes["missing_symbol"].add(str(sym))
+                    continue
+                if sym in chosen_symbols_map:
+                    prev = chosen_symbols_map.get(sym)
+                    if debug_mode:
+                        logger.info(
+                            "[ALLOC] %s %s: already selected by %s",
+                            name,
+                            sym,
+                            prev,
+                        )
+                    allocator_excludes["already_selected"].add(sym)
+                    try:
+                        if prev:
+                            already_selected_map[str(sym)] = str(prev)
+                    except Exception:
+                        pass
                     continue
 
                 # entry_price/stop_price の取得 - 存在しない場合は Close/ATR から計算
@@ -888,6 +909,7 @@ def _allocate_by_capital(
                             entry,
                             stop,
                         )
+                    allocator_excludes["invalid_price"].add(sym)
                     continue
 
                 desired_shares = 0
@@ -1001,6 +1023,7 @@ def _allocate_by_capital(
                             sym,
                             desired_shares,
                         )
+                    allocator_excludes["desired_shares_zero"].add(sym)
                     continue
 
                 max_by_cash = int(remaining[name] // abs(entry)) if entry else 0
@@ -1028,6 +1051,7 @@ def _allocate_by_capital(
                             max_by_cash,
                             f"{remaining[name]:.0f}",
                         )
+                    allocator_excludes["no_cash_shares"].add(sym)
                     continue
 
                 position_value = shares * abs(entry)
@@ -1039,6 +1063,7 @@ def _allocate_by_capital(
                             sym,
                             position_value,
                         )
+                    allocator_excludes["position_value_zero"].add(sym)
                     continue
 
                 # 成功 - ポジション追加
@@ -1055,7 +1080,7 @@ def _allocate_by_capital(
                 remaining_after = remaining[name] - position_value
                 record["remaining_after"] = float(round(remaining_after, 2))
                 chosen.append(record)
-                chosen_symbols.add(sym)
+                chosen_symbols_map[sym] = name
                 remaining[name] -= position_value
                 counts[name] = counts.get(name, 0) + 1
                 still = True
@@ -1070,6 +1095,14 @@ def _allocate_by_capital(
                         f"{remaining_after:.0f}",
                     )
                 break
+
+    # convert allocator_excludes defaultdict to normal dict for return
+    try:
+        alloc_excl_out = {k: set(v) for k, v in allocator_excludes.items()}
+    except Exception:
+        alloc_excl_out = {
+            k: set(v) for k, v in getattr(allocator_excludes, "items", lambda: {})()
+        }
 
     if chosen:
         frame = pd.DataFrame(chosen)
@@ -1113,6 +1146,8 @@ def _allocate_by_capital(
         budgets=budgets,
         remaining=remaining,
         counts=counts,
+        allocator_excludes=alloc_excl_out,
+        already_selected_map=(already_selected_map if already_selected_map else None),
     )
 
 
@@ -1473,6 +1508,50 @@ def finalize_allocation(
                     active_positions=active_positions,
                 )
 
+                # Merge allocator excludes from sizing results into diagnostics
+                try:
+                    alloc_excl_slot: dict[str, Any] = {}
+                    try:
+                        if getattr(long_sized, "allocator_excludes", None):
+                            alloc_excl_slot["long"] = {
+                                k: sorted(list(v))
+                                for k, v in (
+                                    long_sized.allocator_excludes or {}
+                                ).items()
+                            }
+                            if getattr(long_sized, "already_selected_map", None):
+                                try:
+                                    alloc_excl_slot["long"]["already_selected_map"] = (
+                                        dict(long_sized.already_selected_map or {})
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    try:
+                        if getattr(short_sized, "allocator_excludes", None):
+                            alloc_excl_slot["short"] = {
+                                k: sorted(list(v))
+                                for k, v in (
+                                    short_sized.allocator_excludes or {}
+                                ).items()
+                            }
+                            if getattr(short_sized, "already_selected_map", None):
+                                try:
+                                    alloc_excl_slot["short"]["already_selected_map"] = (
+                                        dict(short_sized.already_selected_map or {})
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                    if alloc_excl_slot:
+                        diagnostics.setdefault("allocator_excludes", {})
+                        diagnostics["allocator_excludes"].update(alloc_excl_slot)
+                except Exception:
+                    pass
+
                 # 非空のみ連結（FutureWarning 回避のため all-NA は除外）
                 def _is_effectively_empty(_df: pd.DataFrame) -> bool:
                     try:
@@ -1607,6 +1686,49 @@ def finalize_allocation(
                 "remaining": dict(short_result.remaining),
                 "counts": dict(short_result.counts),
             }
+            # Merge allocator_excludes for diagnostics visibility
+            try:
+                alloc_excl: dict[str, Any] = {}
+                # long side
+                try:
+                    if getattr(long_result, "allocator_excludes", None):
+                        alloc_excl["long"] = {
+                            k: sorted(list(v))
+                            for k, v in (long_result.allocator_excludes or {}).items()
+                        }
+                        if getattr(long_result, "already_selected_map", None):
+                            try:
+                                alloc_excl["long"]["already_selected_map"] = dict(
+                                    long_result.already_selected_map or {}
+                                )
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                # short side
+                try:
+                    if getattr(short_result, "allocator_excludes", None):
+                        alloc_excl["short"] = {
+                            k: sorted(list(v))
+                            for k, v in (short_result.allocator_excludes or {}).items()
+                        }
+                        if getattr(short_result, "already_selected_map", None):
+                            try:
+                                alloc_excl["short"]["already_selected_map"] = dict(
+                                    short_result.already_selected_map or {}
+                                )
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                if alloc_excl:
+                    diagnostics.setdefault("allocator_excludes", {})
+                    diagnostics["allocator_excludes"].update(alloc_excl)
+            except Exception:
+                # non-fatal: diagnostics best-effort
+                pass
         except Exception:
             pass
 
@@ -1680,7 +1802,11 @@ def finalize_allocation(
         )
 
     # Final summary diagnostics
-    if system_diagnostics:
+    # If the caller provided system_diagnostics we attempted to merge them
+    # earlier. Do not unconditionally overwrite the collected diagnostics
+    # here; only use the caller's raw diagnostics as a fallback when no
+    # diagnostics have been attached.
+    if system_diagnostics and not summary.system_diagnostics:
         summary.system_diagnostics = {str(k): v for k, v in system_diagnostics.items()}
 
     # final_count

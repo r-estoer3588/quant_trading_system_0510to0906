@@ -114,7 +114,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
                 try:
                     from common.candidates_schema import normalize_candidates_to_list
 
-                    candidates_by_date = normalize_candidates_to_list(candidates_by_date or {})
+                    candidates_by_date = normalize_candidates_to_list(
+                        candidates_by_date or {}
+                    )
                 except Exception:
                     pass
             result = (candidates_by_date, merged_df)
@@ -175,7 +177,9 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
         if entry_idx <= 0 or entry_idx >= len(df):
             return None
         prev_close = float(df.iloc[entry_idx - 1]["Close"])
-        ratio = float(getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97))
+        ratio = float(
+            getattr(self, "config", {}).get("entry_price_ratio_vs_prev_close", 0.97)
+        )
         entry_price = round(prev_close * ratio, 2)
         atr = None
         for col in ("atr10", "ATR10"):

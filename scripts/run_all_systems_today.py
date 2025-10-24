@@ -274,9 +274,9 @@ class LightweightBenchmark:
         if not self.enabled:
             return
         path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(self.get_report(), f, ensure_ascii=False, indent=2)
+        from common.io_utils import write_json
+
+        write_json(path, self.get_report(), ensure_ascii=False, indent=2)
 
     # 追加: 任意セクションの付加
     def add_extra_section(self, name: str, payload: Any) -> None:
@@ -1339,7 +1339,9 @@ def _log_zero_candidate_diagnostics(
         if not summary:
             return
         top_n = summary.get("top_n")
-        prefix = f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        prefix = (
+            f"抽出上限 {top_n} 件, " if isinstance(top_n, int) and top_n > 0 else ""
+        )
         message_parts = [
             f"フィルター通過 {summary.get('filter_pass', 0)} 件",
             f"セットアップ成立 {summary.get('setup_flag_true', 0)} 件",
@@ -1395,7 +1397,12 @@ def _log_zero_candidate_diagnostics(
             dnan = stats.get("drop3d_nan_count")
             drop_stats_str = "n/a"
             try:
-                if dmin is not None and dmax is not None and dmean is not None and dmedian is not None:
+                if (
+                    dmin is not None
+                    and dmax is not None
+                    and dmean is not None
+                    and dmedian is not None
+                ):
                     drop_stats_str = (
                         f"min={float(dmin):.4f}, max={float(dmax):.4f}, "
                         f"mean={float(dmean):.4f}, median={float(dmedian):.4f}, "
@@ -1408,8 +1415,17 @@ def _log_zero_candidate_diagnostics(
             parts.append("drop3d_stats=" + drop_stats_str)
             thr_drop = thresholds.get("drop3d")
             thr_atr = thresholds.get("atr_ratio")
-            thr_str = f"thresholds=drop3d:{thr_drop or 0.125}, atr_ratio:{thr_atr or 0.05}"
-            excl_str = ", ".join(f"{k}:{v}" for k, v in (exclude_reasons.items() if isinstance(exclude_reasons, Mapping) else []))
+            thr_str = (
+                f"thresholds=drop3d:{thr_drop or 0.125}, atr_ratio:{thr_atr or 0.05}"
+            )
+            excl_str = ", ".join(
+                f"{k}:{v}"
+                for k, v in (
+                    exclude_reasons.items()
+                    if isinstance(exclude_reasons, Mapping)
+                    else []
+                )
+            )
 
             header = f"[system3] 候補0件診断: {('top_n=' + str(top_n) + ', ') if isinstance(top_n, int) else ''}"
             _log(header + ", ".join(parts))
@@ -1419,11 +1435,17 @@ def _log_zero_candidate_diagnostics(
             try:
                 if reason == "all_below_drop3d_threshold":
                     if dmax is not None:
-                        _log(f"[system3] 最大drop3d={dmax:.4f} は閾値 {float(thr_drop or 0.125):.4f} 未満です。閾値緩和やFULL_SCAN_TODAYで確認してください。")
+                        _log(
+                            f"[system3] 最大drop3d={dmax:.4f} は閾値 {float(thr_drop or 0.125):.4f} 未満です。閾値緩和やFULL_SCAN_TODAYで確認してください。"
+                        )
                 elif reason == "all_drop3d_nan":
-                    _log("[system3] 全候補で drop3d が NaN のためランキング不能です。指標計算パイプラインを確認してください。")
+                    _log(
+                        "[system3] 全候補で drop3d が NaN のためランキング不能です。指標計算パイプラインを確認してください。"
+                    )
                 elif reason == "no_rows_for_label_date":
-                    _log("[system3] ラベル日に該当する行がありません。データ鮮度や label_date の解決を確認してください。FULL_SCAN_TODAY を試すと過去日で候補が存在するか確認できます。")
+                    _log(
+                        "[system3] ラベル日に該当する行がありません。データ鮮度や label_date の解決を確認してください。FULL_SCAN_TODAY を試すと過去日で候補が存在するか確認できます。"
+                    )
             except Exception:
                 pass
         except Exception:
@@ -1517,8 +1539,9 @@ def _export_diagnostics_snapshot(
             "systems": systems_payload,
         }
 
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False, default=str)
+        from common.io_utils import write_json
+
+        write_json(out_path, snapshot, ensure_ascii=False, indent=2)
 
         _log(
             f"🧪 Diagnostics snapshot exported: {out_path.relative_to(base_dir)}",
@@ -1582,8 +1605,9 @@ def _export_discrepancy_triage(ctx: TodayRunContext) -> None:
             "summary": summary_text,
         }
 
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(export_payload, f, indent=2, ensure_ascii=False, default=str)
+        from common.io_utils import write_json
+
+        write_json(out_path, export_payload, ensure_ascii=False, indent=2)
 
         _log(
             f"🧪 Discrepancy triage exported: {out_path.relative_to(base_dir)}", ui=True
@@ -1674,7 +1698,9 @@ def _save_prev_counts(
             # fallback to previous behavior if helper import fails
             try:
                 fp.parent.mkdir(parents=True, exist_ok=True)
-                fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                from common.io_utils import write_text
+
+                write_text(fp, json.dumps(data, ensure_ascii=False, indent=2))
             except Exception:
                 pass
     except Exception:
@@ -2928,7 +2954,11 @@ def _save_and_notify_phase(
     today = ctx.today or get_latest_nyse_trading_day().normalize()
     run_id = ctx.run_id
     # Final destination root (override when provided explicitly)
-    final_base: Path = Path(output_root_for_final) if output_root_for_final is not None else signals_dir
+    final_base: Path = (
+        Path(output_root_for_final)
+        if output_root_for_final is not None
+        else signals_dir
+    )
 
     try:
         final_counts: dict[str, int] = {}
@@ -3200,18 +3230,36 @@ def _save_and_notify_phase(
             try:
                 out_file = out_dir / f"validation_report_{suffix}.json"
                 tmp_file = out_dir / f".validation_report_{suffix}.{ctx.run_id}.tmp"
-                with tmp_file.open("w", encoding="utf-8") as f:
-                    json.dump(report, f, ensure_ascii=False, indent=2, default=str)
                 try:
-                    tmp_file.replace(out_file)
-                except Exception:
-                    import os as _os
+                    from common.io_utils import write_json
 
-                    _os.replace(str(tmp_file), str(out_file))
+                    write_json(tmp_file, report, ensure_ascii=False, indent=2)
+                    try:
+                        tmp_file.replace(out_file)
+                    except Exception:
+                        import os as _os
+
+                        _os.replace(str(tmp_file), str(out_file))
+                except Exception:
+                    try:
+                        with tmp_file.open("w", encoding="utf-8") as f:
+                            json.dump(
+                                report, f, ensure_ascii=False, indent=2, default=str
+                            )
+                        try:
+                            tmp_file.replace(out_file)
+                        except Exception:
+                            import os as _os
+
+                            _os.replace(str(tmp_file), str(out_file))
+                    except Exception:
+                        _log("⚠️ validation report 保存に失敗しました", ui=False)
             except Exception:
                 try:
                     with open(
-                        out_dir / f"validation_report_{suffix}.json", "w", encoding="utf-8"
+                        out_dir / f"validation_report_{suffix}.json",
+                        "w",
+                        encoding="utf-8",
                     ) as f:
                         json.dump(report, f, ensure_ascii=False, indent=2, default=str)
                 except Exception:
@@ -3231,6 +3279,115 @@ def _save_and_notify_phase(
                 f"バリデーション出力に失敗: {e}", error_code="VALIDATE-FAIL", ui=False
             )
 
+    # Deliver exit counts to UI if a bulk callback is registered. Fallback to
+    # per-system exit callback or metrics_summary_context map if not.
+    try:
+        bulk_cb = globals().get("_PER_SYSTEM_EXIT_BULK")
+        per_cb = globals().get("_PER_SYSTEM_EXIT")
+        # Prefer metrics_summary_context exit_counts_map when present
+        exit_map_ctx = (
+            (metrics_summary_context or {}).get("exit_counts_map")
+            if metrics_summary_context
+            else None
+        )
+        exit_map = (
+            {k: int(v) for k, v in exit_map_ctx.items()}
+            if isinstance(exit_map_ctx, dict)
+            else None
+        )
+        # If we don't have a precomputed map, attempt to build from final_df/per_system
+        if exit_map is None:
+            exit_map = {f"system{i}": 0 for i in range(1, 8)}
+            try:
+                # Prefer final_counts (entry reductions) as heuristic for exits
+                if (
+                    final_df is not None
+                    and not getattr(final_df, "empty", True)
+                    and "system" in final_df.columns
+                ):
+                    # If final_df exists, assume exits = entries by system
+                    fc = final_df.groupby("system").size().to_dict()
+                    for k, v in fc.items():
+                        try:
+                            key = str(k).strip().lower()
+                            exit_map[key] = int(v)
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        # Persist exit_map to disk so external UI/processes can poll it.
+        try:
+            # Prefer results dir from ctx.signals_dir; fallback to logs
+            out_dir = None
+            try:
+                out_dir = Path(signals_dir) if signals_dir is not None else None
+            except Exception:
+                out_dir = None
+            if out_dir is None:
+                try:
+                    out_dir = Path(get_settings().outputs.results_csv_dir)
+                except Exception:
+                    out_dir = Path("results_csv")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            exit_json = out_dir / f"exit_counts_{run_id}.json"
+            try:
+                from common.io_utils import write_json
+
+                write_json(
+                    exit_json,
+                    {k: int(v) for k, v in exit_map.items()},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                try:
+                    _log(f"📘 exit_counts persisted: {exit_json}")
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    _log("⚠️ exit_counts の永続化に失敗しました")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # If bulk callback exists, call it once with the map
+        if callable(bulk_cb):
+            try:
+                _log(f"🧩 Dispatching bulk exit_counts to UI: {dict(exit_map)}")
+            except Exception:
+                pass
+            try:
+                bulk_cb(dict(exit_map))
+            except Exception:
+                try:
+                    _log("⚠️ bulk exit callback raised an exception")
+                except Exception:
+                    pass
+                pass
+        else:
+            # Otherwise call per-system callback for each system
+            if callable(per_cb):
+                try:
+                    _log(f"🧩 Dispatching per-system exit_counts to UI: {exit_map}")
+                    for sys_name, cnt in exit_map.items():
+                        try:
+                            per_cb(sys_name, int(cnt or 0))
+                        except Exception:
+                            try:
+                                _log(
+                                    f"⚠️ per-system exit callback failed for {sys_name}"
+                                )
+                            except Exception:
+                                pass
+                            pass
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Finalize overall progress as exit phase (this ensures top progress shows 100% and label)
     _safe_progress_call(progress_callback, 8, 8, "exit")
 
     try:
@@ -5356,11 +5513,19 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                         )
                     # If the strategy attached entry-skip diagnostics to DataFrame.attrs, log them
                     try:
-                        for akey in ("entry_skip_counts", "entry_skip_details", "entry_skip_samples"):
+                        for akey in (
+                            "entry_skip_counts",
+                            "entry_skip_details",
+                            "entry_skip_samples",
+                        ):
                             if akey in getattr(df, "attrs", {}):
-                                _log(f"[ALLOC_DEBUG] {system_name} attrs[{akey}]: {df.attrs.get(akey)!r}")
+                                _log(
+                                    f"[ALLOC_DEBUG] {system_name} attrs[{akey}]: {df.attrs.get(akey)!r}"
+                                )
                     except Exception:
-                        _log(f"[ALLOC_DEBUG] {system_name} attrs debug failed: {sys.exc_info()[0]}")
+                        _log(
+                            f"[ALLOC_DEBUG] {system_name} attrs debug failed: {sys.exc_info()[0]}"
+                        )
 
             per_system[system_name] = df
             count = len(df) if not df.empty else 0
@@ -5528,11 +5693,31 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                             # If feather writing failed (pyarrow etc), fallback to CSV
                             try:
                                 csv_fp = out_dir / f"per_system_{sys_name}.csv"
+                                # Try helper write on reset-indexed frame first
                                 try:
-                                    df.reset_index(drop=False).to_csv(csv_fp, index=False)
+                                    from common.io_utils import df_to_csv
+
+                                    df_to_csv(
+                                        df.reset_index(drop=False), csv_fp, index=False
+                                    )
                                 except Exception:
-                                    df.to_csv(csv_fp, index=False)
-                                _log(f"[ALLOC_DEBUG] Saved per-system candidates to CSV fallback {csv_fp}")
+                                    # Fallback: try pandas native write after reset_index
+                                    try:
+                                        df.reset_index(drop=False).to_csv(
+                                            csv_fp, index=False
+                                        )
+                                    except Exception:
+                                        # Next fallback: try helper on original df
+                                        try:
+                                            from common.io_utils import df_to_csv
+
+                                            df_to_csv(df, csv_fp, index=False)
+                                        except Exception:
+                                            # Last resort: pandas native write
+                                            df.to_csv(csv_fp, index=False)
+                                _log(
+                                    f"[ALLOC_DEBUG] Saved per-system candidates to CSV fallback {csv_fp}"
+                                )
                             except Exception as _e2:
                                 # Log both exceptions for easier triage
                                 _log(
@@ -5558,6 +5743,91 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             signal_date=ctx.today,
             include_trade_management=True,
         )
+        # Emit user-friendly allocator diagnostics to CLI when available.
+        try:
+            # allocation_summary may be dataclass or dict-like
+            alloc_diag = None
+            try:
+                alloc_diag = getattr(allocation_summary, "system_diagnostics", None)
+            except Exception:
+                alloc_diag = (
+                    allocation_summary if isinstance(allocation_summary, dict) else None
+                )
+
+            if isinstance(alloc_diag, dict):
+                alloc_ex = alloc_diag.get("allocator_excludes") or {}
+                if alloc_ex:
+                    _log("🔎 Allocation-level excludes summary:")
+                    # alloc_ex typically has keys 'long'/'short' with reason->list mapping
+                    try:
+                        for side in ("long", "short"):
+                            side_map = alloc_ex.get(side)
+                            if not side_map:
+                                continue
+                            _log(f"  {side.upper()} side:")
+                            for reason, syms in side_map.items():
+                                try:
+                                    syms_list = (
+                                        list(syms)
+                                        if isinstance(syms, (list, tuple, set))
+                                        else [syms]
+                                    )
+                                    if not syms_list:
+                                        continue
+                                    _log(
+                                        f"    {reason}: {', '.join(sorted(map(str, syms_list))) }"
+                                    )
+                                except Exception:
+                                    _log(f"    {reason}: <unreadable list>")
+                    except Exception:
+                        _log("  <failed to pretty-print allocator excludes>")
+
+                # already_selected_map may be present under allocator_excludes or at top level
+                already_map = {}
+                try:
+                    # check common locations
+                    if isinstance(alloc_ex, dict) and alloc_ex:
+                        # if present in alloc_ex.long/short as mapping under key 'already_selected_map'
+                        for side in ("long", "short"):
+                            side_map = alloc_ex.get(side) or {}
+                            if (
+                                isinstance(side_map, dict)
+                                and "already_selected_map" in side_map
+                            ):
+                                try:
+                                    already_map.update(
+                                        side_map.get("already_selected_map") or {}
+                                    )
+                                except Exception:
+                                    pass
+                    # fallback: system_diagnostics top-level allocator mapping
+                    top_alloc = alloc_diag.get("allocator_excludes") or {}
+                    if isinstance(top_alloc, dict):
+                        # flatten long/short reasons for already_selected details
+                        for side in ("long", "short"):
+                            sub = top_alloc.get(side) or {}
+                            if isinstance(sub, dict) and "already_selected_map" in sub:
+                                try:
+                                    already_map.update(
+                                        sub.get("already_selected_map") or {}
+                                    )
+                                except Exception:
+                                    pass
+                except Exception:
+                    already_map = {}
+
+                if already_map:
+                    _log(
+                        "🔁 Allocator already-selected map (symbol -> first selecting system):"
+                    )
+                    try:
+                        for sym, sysn in sorted(already_map.items()):
+                            _log(f"  {sym} -> {sysn}")
+                    except Exception:
+                        _log("  <failed to print already-selected map>")
+        except Exception:
+            # Diagnostics printing must not break the pipeline
+            pass
     except Exception as e:
         _log(f"❌ finalize_allocation 失敗: {e}")
         final_df = pd.DataFrame()
@@ -5716,6 +5986,35 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
 
     # Phase2: Export diagnostics snapshot in test modes
     try:
+        # Ensure allocation-level diagnostics (added to allocation_summary)
+        # are available to the snapshot exporter which reads ctx.system_diagnostics.
+        try:
+            alloc_diag = None
+            try:
+                alloc_diag = getattr(allocation_summary, "system_diagnostics", None)
+            except Exception:
+                try:
+                    alloc_diag = (
+                        allocation_summary.get("system_diagnostics")
+                        if isinstance(allocation_summary, dict)
+                        else None
+                    )
+                except Exception:
+                    alloc_diag = None
+
+            if alloc_diag:
+                try:
+                    existing = getattr(ctx, "system_diagnostics", None) or {}
+                    # store under a reserved key so per-system snapshot logic can include it
+                    existing = dict(existing)
+                    existing["_allocation_summary"] = alloc_diag
+                    ctx.system_diagnostics = existing
+                except Exception:
+                    # non-fatal - proceed to export even if merge fails
+                    pass
+        except Exception:
+            pass
+
         _export_diagnostics_snapshot(ctx, final_df)
     except Exception:
         pass
@@ -6633,7 +6932,9 @@ def main() -> int:
     try:
         if getattr(args, "force_per_system_save", False):
             os.environ.setdefault("ALLOCATION_DEBUG", "1")
-            _log("[DEBUG] --force-per-system-save enabled: ALLOCATION_DEBUG=1 set in process")
+            _log(
+                "[DEBUG] --force-per-system-save enabled: ALLOCATION_DEBUG=1 set in process"
+            )
     except Exception:
         pass
 
@@ -6644,16 +6945,16 @@ def main() -> int:
 
     # Persist CLI args for internal helpers
     try:
-        globals()['_CLI_ARGS'] = args
+        globals()["_CLI_ARGS"] = args
     except Exception:
         pass
 
     # CLI provided namespace has highest precedence for this process
     try:
-        if getattr(args, 'run_namespace', None):
+        if getattr(args, "run_namespace", None):
             cli_ns = str(args.run_namespace)
-            os.environ['RUN_NAMESPACE'] = cli_ns
-            globals()['_CLI_RUN_NAMESPACE'] = cli_ns
+            os.environ["RUN_NAMESPACE"] = cli_ns
+            globals()["_CLI_RUN_NAMESPACE"] = cli_ns
     except Exception:
         pass
 
@@ -6665,24 +6966,28 @@ def main() -> int:
         return 2
 
     # If user requested CSV saving, perform atomic save/notify with optional RunLock
-    if getattr(args, 'save_csv', False) and final_df is not None and not getattr(final_df, 'empty', True):
+    if (
+        getattr(args, "save_csv", False)
+        and final_df is not None
+        and not getattr(final_df, "empty", True)
+    ):
         # Build a context for saving (notify suppressed for CLI save)
         try:
             ctx = _initialize_run_context(
-                slots_long=getattr(args, 'slots_long', None),
-                slots_short=getattr(args, 'slots_short', None),
-                capital_long=getattr(args, 'capital_long', None),
-                capital_short=getattr(args, 'capital_short', None),
+                slots_long=getattr(args, "slots_long", None),
+                slots_short=getattr(args, "slots_short", None),
+                capital_long=getattr(args, "capital_long", None),
+                capital_short=getattr(args, "capital_short", None),
                 save_csv=True,
-                csv_name_mode=getattr(args, 'csv_name_mode', None),
+                csv_name_mode=getattr(args, "csv_name_mode", None),
                 notify=False,
                 log_callback=None,
                 progress_callback=None,
                 per_system_progress=None,
                 symbol_data=None,
-                parallel=getattr(args, 'parallel', False),
-                test_mode=getattr(args, 'test_mode', None),
-                skip_external=getattr(args, 'skip_external', False),
+                parallel=getattr(args, "parallel", False),
+                test_mode=getattr(args, "test_mode", None),
+                skip_external=getattr(args, "skip_external", False),
             )
         except Exception:
             ctx = _initialize_run_context(save_csv=True)
@@ -6690,31 +6995,35 @@ def main() -> int:
         # Determine env-controlled behavior
         try:
             env_cfg = get_env_config()
-            use_lock = bool(getattr(env_cfg, 'use_run_lock', False))
-            use_subdir = bool(getattr(env_cfg, 'use_run_subdir', False))
+            use_lock = bool(getattr(env_cfg, "use_run_lock", False))
+            use_subdir = bool(getattr(env_cfg, "use_run_subdir", False))
         except Exception:
             use_lock = False
             use_subdir = False
 
         # If CLI provided a run_namespace, prefer it
-        ns_val: str | None = getattr(args, 'run_namespace', None)
+        ns_val: str | None = getattr(args, "run_namespace", None)
         ns: str | None = None
         if ns_val is not None and str(ns_val).strip() != "":
             ns = str(ns_val).strip()
         else:
-            ns_env = os.environ.get('RUN_NAMESPACE')
+            ns_env = os.environ.get("RUN_NAMESPACE")
             if ns_env:
                 ns = str(ns_env)
             else:
                 try:
-                    cfg_ns = getattr(get_env_config(), 'run_namespace', None)
-                    ns = str(cfg_ns) if (cfg_ns is not None and str(cfg_ns).strip() != "") else None
+                    cfg_ns = getattr(get_env_config(), "run_namespace", None)
+                    ns = (
+                        str(cfg_ns)
+                        if (cfg_ns is not None and str(cfg_ns).strip() != "")
+                        else None
+                    )
                 except Exception:
-                    ns = getattr(ctx, 'run_namespace', None)
+                    ns = getattr(ctx, "run_namespace", None)
         out_root: Path | None = None
         if use_subdir and ns:
             try:
-                base = Path(getattr(ctx.settings, 'RESULTS_DIR', 'results_csv'))
+                base = Path(getattr(ctx.settings, "RESULTS_DIR", "results_csv"))
                 out_root = base / f"run_{ns}"
             except Exception:
                 out_root = None
@@ -6722,7 +7031,7 @@ def main() -> int:
         rl = None
         try:
             if use_lock:
-                rl = RunLock('today_signals')
+                rl = RunLock("today_signals")
                 rl.acquire()
         except Exception:
             rl = None
@@ -6752,5 +7061,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

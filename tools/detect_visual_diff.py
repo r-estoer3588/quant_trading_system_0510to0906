@@ -66,7 +66,9 @@ def calculate_image_diff(img1: Image.Image, img2: Image.Image) -> dict[str, Any]
     }
 
 
-def detect_progress_bar_region_change(img1: Image.Image, img2: Image.Image) -> dict[str, Any]:
+def detect_progress_bar_region_change(
+    img1: Image.Image, img2: Image.Image
+) -> dict[str, Any]:
     """
     進捗バー領域の変化を検出（色ヒストグラム比較）
 
@@ -144,7 +146,9 @@ def analyze_screenshot_pair(prev_path: Path, curr_path: Path) -> dict[str, Any]:
         # 大きな変化検出
         elif overall_diff["diff_percentage"] > 10:
             result["status"] = "major_change"
-            print(f"⚠️  大きな変化: {prev_path.name} → {curr_path.name} ({overall_diff['diff_percentage']}%)")
+            print(
+                f"⚠️  大きな変化: {prev_path.name} → {curr_path.name} ({overall_diff['diff_percentage']}%)"
+            )
 
         return result
 
@@ -205,7 +209,9 @@ def main():
         diff_results.append(result)
 
     # サマリー
-    progress_regressions = [r for r in diff_results if r.get("status") == "progress_regression"]
+    progress_regressions = [
+        r for r in diff_results if r.get("status") == "progress_regression"
+    ]
     major_changes = [r for r in diff_results if r.get("status") == "major_change"]
 
     report = {

@@ -10,11 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import sys
 
 # ensure repo root is on sys.path so `import common` works when running from tools/
 ROOT = Path(__file__).resolve().parents[1]

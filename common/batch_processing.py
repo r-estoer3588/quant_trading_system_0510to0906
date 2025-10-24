@@ -91,7 +91,9 @@ def process_symbols_batch(
 
     # 最終レポート
     if log_callback:
-        log_callback(f"{system_name}: Completed {len(results)} symbols, errors: {len(error_symbols)}")
+        log_callback(
+            f"{system_name}: Completed {len(results)} symbols, errors: {len(error_symbols)}"
+        )
         if error_symbols and len(error_symbols) <= 10:
             log_callback(f"{system_name}: Error symbols: {error_symbols}")
 
@@ -117,7 +119,9 @@ def _process_with_pool(
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         # 全タスクを投入
-        future_to_symbol = {executor.submit(process_func, symbol): symbol for symbol in symbols}
+        future_to_symbol = {
+            executor.submit(process_func, symbol): symbol for symbol in symbols
+        }
 
         # 完了順に結果を収集
         for future in as_completed(future_to_symbol):
@@ -137,7 +141,9 @@ def _process_with_pool(
             except Exception as e:
                 error_symbols.append(symbol)
                 if skip_callback:
-                    skip_callback(symbol, f"{system_name}_exception_{type(e).__name__}: {e}")
+                    skip_callback(
+                        symbol, f"{system_name}_exception_{type(e).__name__}: {e}"
+                    )
 
             # バッチサイズ監視更新
             monitor.update()
@@ -168,7 +174,9 @@ def _process_sequential(
             if result is not None:
                 results[returned_symbol] = result
                 # 進捗報告を間引く（100件ごと、または最後）
-                if progress_callback and (processed_count % 100 == 0 or processed_count == total):
+                if progress_callback and (
+                    processed_count % 100 == 0 or processed_count == total
+                ):
                     progress_callback((processed_count, total))
             else:
                 error_symbols.append(returned_symbol)
@@ -179,7 +187,9 @@ def _process_sequential(
             error_symbols.append(symbol)
             processed_count += 1
             if skip_callback:
-                skip_callback(symbol, f"{system_name}_exception_{type(e).__name__}: {e}")
+                skip_callback(
+                    symbol, f"{system_name}_exception_{type(e).__name__}: {e}"
+                )
 
         # バッチサイズ監視更新
         monitor.update()
@@ -210,7 +220,9 @@ def create_progress_reporter(
 
         if log_callback and processed_count % max(1, total_count // 10) == 0:
             progress_pct = (processed_count / total_count) * 100
-            log_callback(f"{system_name}: Progress {processed_count}/{total_count} ({progress_pct:.1f}%) - {message}")
+            log_callback(
+                f"{system_name}: Progress {processed_count}/{total_count} ({progress_pct:.1f}%) - {message}"
+            )
 
     return report_progress
 

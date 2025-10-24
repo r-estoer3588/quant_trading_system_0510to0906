@@ -5,6 +5,7 @@ Run from repository root:
 
 Prints strategy output count, collected log messages, and last_diagnostics.
 """
+
 from __future__ import annotations
 
 import os
@@ -95,8 +96,8 @@ def main() -> None:
             latest_mode_date=today,
         )
 
-    # Report prepared-data diagnostics so we can inspect precomputed
-    # indicator column names and last-row values for a sample symbol.
+        # Report prepared-data diagnostics so we can inspect precomputed
+        # indicator column names and last-row values for a sample symbol.
         if prepared:
             try:
                 sample_sym = next(iter(prepared.keys()))
@@ -152,9 +153,8 @@ def main() -> None:
                         ):
                             val = None
                             try:
-                                if (
-                                    df_sym is not None
-                                    and not getattr(df_sym, "empty", True)
+                                if df_sym is not None and not getattr(
+                                    df_sym, "empty", True
                                 ):
                                     # Use get to avoid KeyError
                                     row = df_sym.iloc[-1]
@@ -216,5 +216,5 @@ def main() -> None:
     print("done")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -58,6 +58,7 @@ from common.cache_format import round_dataframe  # noqa: E402
 from common.cache_manager import CacheManager  # noqa: E402
 from common.data_loader import load_price  # noqa: E402
 from common.exit_planner import decide_exit_schedule  # noqa: E402
+from common.io_utils import df_to_bytes, df_to_csv  # noqa: E402
 from common.notifier import create_notifier  # noqa: E402
 from common.position_age import (  # noqa: E402
     fetch_entry_dates_from_alpaca,
@@ -1440,6 +1441,9 @@ class ProgressUI:
         self.progress_bar = st.progress(0) if self.show_overall else None
         # progress_textは削除（タイトルで表示するため）
         self.phase_state: dict[str, Any] = {"percent": 0, "label": "対象読み込み"}
+        # When True, overall progress label is locked to Exit phase and
+        # subsequent non-exit updates should be ignored to avoid overwrites.
+        self._exit_locked = False
         self._render_title()
 
     def set_label(self, label: str) -> None:
@@ -1454,10 +1458,33 @@ class ProgressUI:
         total = max(1, int(total))
         ratio = min(max(int(done), 0), total) / total
         percent = int(ratio * 100)
-        self.phase_state["percent"] = percent
+        # If exit is locked, ignore non-exit updates to avoid overwriting
+        # the exit label set by a bulk notification.
         mapped = self._map_phase(tag)
+        if self._exit_locked:
+            # Only allow exit-tag to update while locked
+            if (mapped or "").lower() != "エグジットフェーズ" and tag.lower() != "exit":
+                try:
+                    # Still update percent but keep label locked
+                    self.phase_state["percent"] = percent
+                    try:
+                        self.progress_bar.progress(percent)
+                    except Exception:
+                        pass
+                    return
+                except Exception:
+                    return
+        # Normal update path
+        self.phase_state["percent"] = percent
         if mapped:
             self.phase_state["label"] = mapped
+            # Lock when we enter exit phase so subsequent numeric stage updates
+            # won't overwrite the exit label.
+            try:
+                if mapped == "エグジットフェーズ":
+                    self._exit_locked = True
+            except Exception:
+                pass
         try:
             self.progress_bar.progress(percent)
         except Exception:
@@ -1467,6 +1494,9 @@ class ProgressUI:
 
     def update_label_for_stage(self, stage_value: int) -> None:
         if not self.show_overall:
+            return
+        # When exit is locked, do not change the label from the exit phase.
+        if getattr(self, "_exit_locked", False):
             return
         if stage_value <= 0:
             label = "対象準備"
@@ -2349,7 +2379,10 @@ class UILogger:
                             "utf-8",
                             "utf8",
                         ):
-                            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
+                            try:
+                                getattr(sys.stdout, "reconfigure")(encoding="utf-8")
+                            except Exception:
+                                pass
                 except Exception:
                     pass
             # 初回ヒント表示（化けを検知できそうなら）
@@ -2438,6 +2471,11 @@ class RunCallbacks:
             mod = _run_today_mod
             setattr(mod, "_PER_SYSTEM_STAGE", self.per_system_stage)
             setattr(mod, "_PER_SYSTEM_EXIT", self.per_system_exit)
+            # Register bulk exit callback so runner can atomically deliver all exit counts
+            try:
+                setattr(mod, "_PER_SYSTEM_EXIT_BULK", self.tracker.apply_exit_counts)
+            except Exception:
+                pass
             setattr(mod, "_SET_STAGE_UNIVERSE_TARGET", self.tracker.set_universe_target)
         except Exception:
             pass
@@ -2548,7 +2586,11 @@ def _save_missing_report(missing_details: list[dict[str, Any]]) -> Path | None:
             out_df = round_dataframe(pd.DataFrame(missing_details), round_dec)
         except Exception:
             out_df = pd.DataFrame(missing_details)
-        out_df.to_csv(path, index=False)
+        try:
+            df_to_csv(out_df, path, index=False)
+        except Exception:
+            # Fallback to pandas native write if our helper fails for some reason
+            out_df.to_csv(path, index=False)
     except Exception:
         return None
     return path
@@ -3499,10 +3541,12 @@ def _auto_save_planned_exits(
 ) -> None:  # noqa: E501
     plan_path = Path("data/planned_exits.jsonl")
     try:
-        plan_path.parent.mkdir(parents=True, exist_ok=True)
-        with plan_path.open("w", encoding="utf-8") as f:
-            for row in planned_rows:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # Use centralized IO helper for UTF-8-safe NDJSON writing
+        from common.io_utils import write_json_lines
+
+        write_json_lines(
+            plan_path, planned_rows, ensure_ascii=False, indent=None, append=False
+        )
         if show_success:
             st.success(f"保存しました: {plan_path}")
         else:
@@ -3549,6 +3593,329 @@ def render_today_signals_results(
         artifacts.final_df, artifacts.per_system
     )  # noqa: E501
     artifacts.stage_tracker.finalize_counts(final_df, per_system)
+    # If runner persisted exit_counts to disk (separate process runs), try to load
+    # the latest exit_counts_<runid>.json from results dir and apply them so UI
+    # shows exit-phase counts even when runner ran in another process.
+    try:
+
+        def _load_latest_persisted_exit_counts() -> dict[str, int] | None:
+            try:
+                from pathlib import Path
+
+                # Prefer data_cache/signals then results_csv then logs
+                candidates = [
+                    Path("data_cache/signals"),
+                    Path("results_csv"),
+                    Path("logs"),
+                ]
+                files: list[Path] = []
+                for d in candidates:
+                    try:
+                        if d.exists() and d.is_dir():
+                            files.extend(list(d.glob("exit_counts_*.json")))
+                    except Exception:
+                        continue
+                if not files:
+                    return None
+                files_sorted = sorted(
+                    files, key=lambda p: p.stat().st_mtime, reverse=True
+                )
+                latest = files_sorted[0]
+                try:
+                    import json
+
+                    data = json.loads(latest.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return {str(k): int(v) for k, v in data.items()}
+                except Exception:
+                    return None
+            except Exception:
+                return None
+            return None
+
+            persisted = _load_latest_persisted_exit_counts()
+            if isinstance(persisted, dict) and persisted:
+                try:
+                    # Apply persisted exit counts and record mtime so we don't
+                    # re-apply the same file repeatedly.
+                    artifacts.stage_tracker.apply_exit_counts(persisted)
+                    try:
+                        latest_path = None
+                        from pathlib import Path
+
+                        candidates = [
+                            Path("data_cache/signals"),
+                            Path("results_csv"),
+                            Path("logs"),
+                        ]
+                        file_list: list[Path] = []
+                        for d in candidates:
+                            try:
+                                if d.exists() and d.is_dir():
+                                    file_list.extend(list(d.glob("exit_counts_*.json")))
+                            except Exception:
+                                continue
+                        if file_list:
+                            files_sorted = sorted(
+                                file_list, key=lambda p: p.stat().st_mtime, reverse=True
+                            )
+                            latest_path = files_sorted[0]
+                        if latest_path is not None:
+                            st.session_state["exit_last_mtime"] = float(
+                                latest_path.stat().st_mtime
+                            )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            # Provide a user-controlled watcher: pick a duration and Start/Stop
+            # so Streamlit UI isn't blocked by a long polling loop. The watcher
+            # stores its state in session_state and polls in short bursts.
+            try:
+                st.caption(
+                    "外部プロセスのランナーが生成する exit_counts を監視して自動適用します。"
+                )
+                col1, col2, col3 = st.columns([2, 2, 3])
+                with col1:
+                    # Show friendly labels: 30秒, 2分, 5分, ...
+                    durations = [30, 120, 300, 600, 1800]
+
+                    def _fmt_dur(v: int) -> str:
+                        if v < 60:
+                            return f"{v}秒"
+                        if v % 60 == 0:
+                            return f"{v//60}分"
+                        return f"{v}秒"
+
+                    watch_dur = st.selectbox(
+                        "監視時間",
+                        options=durations,
+                        format_func=_fmt_dur,
+                        key="exit_watch_duration",
+                    )
+                with col2:
+                    if "exit_watcher_running" not in st.session_state:
+                        st.session_state["exit_watcher_running"] = False
+                    if st.session_state["exit_watcher_running"]:
+                        if st.button("停止", key="exit_watch_stop"):
+                            st.session_state["exit_watcher_running"] = False
+                    else:
+                        if st.button("開始", key="exit_watch_start"):
+                            st.session_state["exit_watcher_running"] = True
+                            # initialize last seen mtime if not set
+                            if "exit_last_mtime" not in st.session_state:
+                                st.session_state["exit_last_mtime"] = 0.0
+                            # record start time and remaining checks
+                            st.session_state["exit_watch_started_at"] = time.time()
+                with col3:
+                    # Manual reload button: immediately attempt one read/apply without starting watcher
+                    if st.button("再読み込み", key="exit_watch_reload"):
+                        # perform a one-shot immediate check
+                        try:
+                            import json
+                            from pathlib import Path
+
+                            candidates = [
+                                Path("data_cache/signals"),
+                                Path("results_csv"),
+                                Path("logs"),
+                            ]
+                            files_acc: list[Path] = []
+                            for d in candidates:
+                                try:
+                                    if d.exists() and d.is_dir():
+                                        files_acc.extend(
+                                            list(d.glob("exit_counts_*.json"))
+                                        )
+                                except Exception:
+                                    continue
+                            if files_acc:
+                                latest = max(files_acc, key=lambda p: p.stat().st_mtime)
+                                mtime = float(latest.stat().st_mtime)
+                                last_seen = float(
+                                    st.session_state.get("exit_last_mtime", 0.0)
+                                )
+                                if mtime > last_seen:
+                                    data = json.loads(
+                                        latest.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(data, dict):
+                                        # compute diff against current tracker counts (if available)
+                                        try:
+                                            before = (
+                                                getattr(
+                                                    artifacts.stage_tracker,
+                                                    "exit_counts",
+                                                    {},
+                                                )
+                                                or {}
+                                            )
+                                            before = {
+                                                str(k): int(v)
+                                                for k, v in before.items()
+                                            }
+                                        except Exception:
+                                            before = {}
+                                        incoming = {
+                                            str(k): int(v) for k, v in data.items()
+                                        }
+                                        # build diff lines
+                                        diffs = []
+                                        keys = sorted(
+                                            set(before.keys()) | set(incoming.keys())
+                                        )
+                                        for key in keys:
+                                            b = before.get(key, 0)
+                                            a = incoming.get(key, 0)
+                                            if a != b:
+                                                sign = a - b
+                                                diffs.append(
+                                                    f"{key}: {b} → {a} ({'+' if sign>0 else ''}{sign})"
+                                                )
+                                        artifacts.stage_tracker.apply_exit_counts(
+                                            incoming
+                                        )
+                                        st.session_state["exit_last_mtime"] = float(
+                                            mtime
+                                        )
+                                        if diffs:
+                                            st.success(
+                                                f"最新のエグジット情報を適用しました: {latest.name}"
+                                            )
+                                            for line in diffs:
+                                                st.write(line)
+                                        else:
+                                            st.info(
+                                                "exit_counts を適用しましたが変化はありませんでした。"
+                                            )
+                                        try:
+                                            st.experimental_rerun()
+                                        except Exception:
+                                            pass
+                                else:
+                                    st.info(
+                                        "新しい exit_counts が見つかりませんでした。"
+                                    )
+                            else:
+                                st.info("exit_counts ファイルが見つかりませんでした。")
+                        except Exception:
+                            st.error(
+                                "再読み込み中にエラーが発生しました。ログを確認してください。"
+                            )
+
+                # If watcher flagged as running, do a short non-blocking poll step
+                if st.session_state.get("exit_watcher_running"):
+                    try:
+                        started = float(
+                            st.session_state.get("exit_watch_started_at", 0.0)
+                        )
+                        duration = int(
+                            st.session_state.get("exit_watch_duration", watch_dur)
+                        )
+                        elapsed = time.time() - started if started > 0 else 0.0
+                        # perform one polling pass (search latest file) each rerun
+                        from pathlib import Path
+
+                        candidates = [
+                            Path("data_cache/signals"),
+                            Path("results_csv"),
+                            Path("logs"),
+                        ]
+                        files_acc: list[Path] = []
+                        for d in candidates:
+                            try:
+                                if d.exists() and d.is_dir():
+                                    files_acc.extend(list(d.glob("exit_counts_*.json")))
+                            except Exception:
+                                continue
+
+                        if files_acc:
+                            latest = max(files_acc, key=lambda p: p.stat().st_mtime)
+                            try:
+                                mtime = float(latest.stat().st_mtime)
+                            except Exception:
+                                mtime = 0.0
+                            last_seen = float(
+                                st.session_state.get("exit_last_mtime", 0.0)
+                            )
+                            if mtime > last_seen:
+                                try:
+                                    import json
+
+                                    data = json.loads(
+                                        latest.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(data, dict):
+                                        try:
+                                            before = (
+                                                getattr(
+                                                    artifacts.stage_tracker,
+                                                    "exit_counts",
+                                                    {},
+                                                )
+                                                or {}
+                                            )
+                                            before = {
+                                                str(k): int(v)
+                                                for k, v in before.items()
+                                            }
+                                        except Exception:
+                                            before = {}
+                                        incoming = {
+                                            str(k): int(v) for k, v in data.items()
+                                        }
+                                        diffs = []
+                                        keys = sorted(
+                                            set(before.keys()) | set(incoming.keys())
+                                        )
+                                        for key in keys:
+                                            b = before.get(key, 0)
+                                            a = incoming.get(key, 0)
+                                            if a != b:
+                                                sign = a - b
+                                                diffs.append(
+                                                    f"{key}: {b} → {a} ({'+' if sign>0 else ''}{sign})"
+                                                )
+                                        artifacts.stage_tracker.apply_exit_counts(
+                                            incoming
+                                        )
+                                        st.session_state["exit_last_mtime"] = float(
+                                            mtime
+                                        )
+                                        if diffs:
+                                            st.success(
+                                                f"最新のエグジット情報を適用しました: {latest.name}"
+                                            )
+                                            for line in diffs:
+                                                st.write(line)
+                                        else:
+                                            st.info(
+                                                "exit_counts を適用しましたが変化はありませんでした。"
+                                            )
+                                        # keep watcher off after success
+                                        st.session_state["exit_watcher_running"] = False
+                                        try:
+                                            st.experimental_rerun()
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    # swallow per-file parsing errors and continue
+                                    pass
+
+                        # If duration exceeded, stop watcher
+                        if elapsed >= float(duration):
+                            st.session_state["exit_watcher_running"] = False
+                            st.info("監視を終了しました（指定時間経過）")
+                    except Exception:
+                        # On any error, stop watcher to avoid noisy repeated failures
+                        st.session_state["exit_watcher_running"] = False
+                        pass
+            except Exception:
+                pass
+
+    except Exception:
+        pass
     _show_total_elapsed(artifacts.total_elapsed)
     _log_run_completion(final_df, per_system, artifacts.total_elapsed)
     per_system_logs = _build_per_system_logs(artifacts.logger.log_lines)
@@ -3758,7 +4125,10 @@ def _download_final_csv(final_df: pd.DataFrame) -> None:
         out_df = round_dataframe(final_df, round_dec)
     except Exception:
         out_df = final_df
-    csv = out_df.to_csv(index=False).encode("utf-8")
+    try:
+        csv = df_to_bytes(out_df, index=False)
+    except Exception:
+        csv = out_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "最終CSVをダウンロード",
         data=csv,
@@ -3793,7 +4163,14 @@ def _auto_save_final_results(
             out_df = round_dataframe(final_df, round_dec)
         except Exception:
             out_df = final_df
-        out_df.to_csv(fp, index=False)
+        try:
+            try:
+                df_to_csv(out_df, fp, index=False)
+            except Exception:
+                out_df.to_csv(fp, index=False)
+        except Exception:
+            # If writing fails, fall through to showing a message but continue
+            pass
         st.caption(f"自動保存: {fp}")
         for name, df in per_system.items():
             try:
@@ -3804,7 +4181,10 @@ def _auto_save_final_results(
                     out_df = round_dataframe(df, round_dec)
                 except Exception:
                     out_df = df
-                out_df.to_csv(fp_sys, index=False)
+                try:
+                    df_to_csv(out_df, fp_sys, index=False)
+                except Exception:
+                    out_df.to_csv(fp_sys, index=False)
                 st.caption(f"自動保存: {fp_sys}")
             except Exception as exc:
                 st.warning(f"{name} の自動保存に失敗: {exc}")
@@ -4138,7 +4518,10 @@ def _render_previous_results_section() -> None:
                     prev_out = round_dataframe(prev_df, round_dec)
                 except Exception:
                     prev_out = prev_df
-                csv_prev = prev_out.to_csv(index=False).encode("utf-8")
+                try:
+                    csv_prev = df_to_bytes(prev_out, index=False)
+                except Exception:
+                    csv_prev = prev_out.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "最終CSVをダウンロード（前回）",
                     data=csv_prev,

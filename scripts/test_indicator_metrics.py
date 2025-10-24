@@ -96,9 +96,15 @@ def get_sample_symbols(cache_mgr: CacheManager, n: int = 20) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(description="指標スキップメトリクス テスト")
-    parser.add_argument("--symbols", type=str, help="テスト対象銘柄 (カンマ区切り、例: AAPL,MSFT,GOOGL)")
-    parser.add_argument("--samples", type=int, default=10, help="処理サンプル数 (デフォルト: 10)")
-    parser.add_argument("--auto", action="store_true", help="自動で利用可能銘柄からサンプル選択")
+    parser.add_argument(
+        "--symbols", type=str, help="テスト対象銘柄 (カンマ区切り、例: AAPL,MSFT,GOOGL)"
+    )
+    parser.add_argument(
+        "--samples", type=int, default=10, help="処理サンプル数 (デフォルト: 10)"
+    )
+    parser.add_argument(
+        "--auto", action="store_true", help="自動で利用可能銘柄からサンプル選択"
+    )
 
     args = parser.parse_args()
 

@@ -99,7 +99,9 @@ class RateLimitedLogger:
             self._last_logged.clear()
 
 
-def create_rate_limited_logger(logger_name: str, default_interval: float = 5.0) -> RateLimitedLogger:
+def create_rate_limited_logger(
+    logger_name: str, default_interval: float = 5.0
+) -> RateLimitedLogger:
     """
     レート制限付きロガーを作成する便利関数。
 

@@ -36,7 +36,9 @@ class TestSystem5DirectFunctions:
                     "ADX14": [28, 30],
                 }
             ),
-            "TSLA": pd.DataFrame({"Date": ["2023-01-01"], "Close": [200.0], "RSI14": [35], "ADX14": [25]}),
+            "TSLA": pd.DataFrame(
+                {"Date": ["2023-01-01"], "Close": [200.0], "RSI14": [35], "ADX14": [25]}
+            ),
         }
 
         result = mock_get_total_days_system5(data_dict)
@@ -78,9 +80,13 @@ class TestSystem5DirectFunctions:
                     # 絶対値降順でソート（大幅下落優先）
                     combined["abs_deviation"] = combined["price_deviation"].abs()
                     combined = combined.sort_values("abs_deviation", ascending=False)
-                    return {"signals": combined.head(top_n).to_dict("records")}, combined.head(top_n)
+                    return {
+                        "signals": combined.head(top_n).to_dict("records")
+                    }, combined.head(top_n)
                 else:
-                    return {"signals": combined.head(top_n).to_dict("records")}, combined.head(top_n)
+                    return {
+                        "signals": combined.head(top_n).to_dict("records")
+                    }, combined.head(top_n)
             else:
                 return {}, None
 
@@ -108,7 +114,9 @@ class TestSystem5DirectFunctions:
             ),
         }
 
-        result_signals, result_df = mock_generate_candidates_system5(prepared_dict, top_n=5)
+        result_signals, result_df = mock_generate_candidates_system5(
+            prepared_dict, top_n=5
+        )
 
         # mean-reversionシグナルが検出されることを確認
         assert isinstance(result_signals, dict)
@@ -253,7 +261,9 @@ class TestSystem5DirectFunctions:
 
         # 条件成立確認（RSI oversold + 高ADX + 価格下落）
         expected_entries = (
-            (test_df["RSI14"] < 30) & (test_df["ADX14"] > 25) & (test_df["Close"] < test_df["SMA20"] * 0.95)
+            (test_df["RSI14"] < 30)
+            & (test_df["ADX14"] > 25)
+            & (test_df["Close"] < test_df["SMA20"] * 0.95)
         )
 
         pd.testing.assert_series_equal(entry_signals, expected_entries)
@@ -313,7 +323,9 @@ class TestSystem5DirectFunctions:
                 # mean-reversionスコア計算
                 rsi_score = (30 - df["RSI14"]).clip(0, 30) / 30  # RSI oversold度
                 adx_score = (df["ADX14"] - 25).clip(0, 25) / 25  # ADX強度
-                deviation_score = (-df["price_deviation"]).clip(0, 20) / 20  # 価格下落度
+                deviation_score = (-df["price_deviation"]).clip(
+                    0, 20
+                ) / 20  # 価格下落度
 
                 # 総合mean-reversionスコア
                 scores = rsi_score * 0.4 + adx_score * 0.3 + deviation_score * 0.3

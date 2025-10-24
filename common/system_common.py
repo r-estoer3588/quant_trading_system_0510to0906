@@ -272,6 +272,7 @@ def check_precomputed_indicators(
 
                 def _norm(col: str) -> str:
                     return col.lower().replace("_", "").replace(" ", "")
+
                 found2 = next((c for c in cols if _norm(str(c)) == norm_key), None)
                 if found2 and found2 != canonical:
                     rename_map[found2] = canonical

@@ -67,7 +67,11 @@ def generate_markdown_report(
         f"- 総スクショ数: {len(analysis_data)} 枚",
         (
             "- 進捗バー抽出成功: "
-            + str(sum(1 for r in analysis_data if r.get("progress_percentage") is not None))
+            + str(
+                sum(
+                    1 for r in analysis_data if r.get("progress_percentage") is not None
+                )
+            )
             + " 枚"
         ),
         "",

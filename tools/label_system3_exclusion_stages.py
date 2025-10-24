@@ -9,19 +9,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import sys
 
 # ensure repo root is on sys.path so imports work when running from tools/
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common.utils import get_cached_data
 from common.system_setup_predicates import system3_setup_predicate
+from common.utils import get_cached_data
 
 
 def _parse_setlike(s: Any) -> list[str]:

@@ -46,7 +46,9 @@ def _classify_stale_reason(
                 break
         if date_col:
             try:
-                full_dates = pd.to_datetime(full_df[date_col], errors="coerce").dt.normalize()
+                full_dates = pd.to_datetime(
+                    full_df[date_col], errors="coerce"
+                ).dt.normalize()
                 full_date_parseable = full_dates.notna().any()
                 full_has_expected = expected_date in full_dates.values
             except Exception:
@@ -61,7 +63,9 @@ def _classify_stale_reason(
                 break
         if date_col:
             try:
-                rolling_dates = pd.to_datetime(rolling_df[date_col], errors="coerce").dt.normalize()
+                rolling_dates = pd.to_datetime(
+                    rolling_df[date_col], errors="coerce"
+                ).dt.normalize()
                 rolling_date_parseable = rolling_dates.notna().any()
                 rolling_has_expected = expected_date in rolling_dates.values
             except Exception:
@@ -90,7 +94,12 @@ def _classify_stale_reason(
                 return "latest_row_all_nan"
 
     # full cache が rolling より新しい日付を持っているか確認
-    if full_df is not None and not full_df.empty and rolling_df is not None and not rolling_df.empty:
+    if (
+        full_df is not None
+        and not full_df.empty
+        and rolling_df is not None
+        and not rolling_df.empty
+    ):
         date_col_full = None
         date_col_rolling = None
         for c in ["date", "Date", "DATE"]:
@@ -100,9 +109,17 @@ def _classify_stale_reason(
                 date_col_rolling = c
         if date_col_full and date_col_rolling:
             try:
-                full_last = pd.to_datetime(full_df[date_col_full], errors="coerce").max()
-                rolling_last = pd.to_datetime(rolling_df[date_col_rolling], errors="coerce").max()
-                if pd.notna(full_last) and pd.notna(rolling_last) and full_last > rolling_last:
+                full_last = pd.to_datetime(
+                    full_df[date_col_full], errors="coerce"
+                ).max()
+                rolling_last = pd.to_datetime(
+                    rolling_df[date_col_rolling], errors="coerce"
+                ).max()
+                if (
+                    pd.notna(full_last)
+                    and pd.notna(rolling_last)
+                    and full_last > rolling_last
+                ):
                     return "full_newer_than_rolling"
             except Exception:
                 pass
@@ -218,7 +235,9 @@ def validate_latest_trading_day(
                 rolling_last = rolling_df.index.max()
             else:
                 try:
-                    rolling_last = pd.to_datetime(rolling_df.index, errors="coerce").max()
+                    rolling_last = pd.to_datetime(
+                        rolling_df.index, errors="coerce"
+                    ).max()
                 except Exception:
                     rolling_last = pd.Timestamp("NaT")
         else:
@@ -259,11 +278,17 @@ def validate_latest_trading_day(
                         full_date_col = c
                         break
                 if full_date_col:
-                    full_last = pd.to_datetime(full_df[full_date_col], errors="coerce").max()
+                    full_last = pd.to_datetime(
+                        full_df[full_date_col], errors="coerce"
+                    ).max()
 
             stale_details[symbol] = {
                 "reason": reason,
-                "rolling_last": (rolling_last_normalized.date() if pd.notna(rolling_last_normalized) else None),
+                "rolling_last": (
+                    rolling_last_normalized.date()
+                    if pd.notna(rolling_last_normalized)
+                    else None
+                ),
                 "full_last": full_last.date() if pd.notna(full_last) else None,
             }
 

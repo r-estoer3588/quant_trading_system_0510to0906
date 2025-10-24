@@ -26,12 +26,16 @@ def test_load_base_cache_prefers_precomputed(tmp_path, monkeypatch):
     df.to_csv(path, index=False)
 
     # load with prefer_precomputed_indicators=True should return the CSV content
-    out = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True)
+    out = load_base_cache(
+        symbol, rebuild_if_missing=True, prefer_precomputed_indicators=True
+    )
     assert out is not None
     assert "atr10" in out.columns
 
     # load with prefer_precomputed_indicators=False should compute indicators (still returns frame)
-    out2 = load_base_cache(symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False)
+    out2 = load_base_cache(
+        symbol, rebuild_if_missing=True, prefer_precomputed_indicators=False
+    )
     assert out2 is not None
     assert "atr10" in out2.columns
 

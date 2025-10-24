@@ -15,7 +15,9 @@ CRITICAL_PATHS = [
 
 def _staged_files() -> set[Path]:
     try:
-        out = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
+        out = subprocess.check_output(
+            ["git", "diff", "--cached", "--name-only"], text=True
+        )
     except Exception:
         return set()
     return {Path(p.strip()) for p in out.splitlines() if p.strip()}

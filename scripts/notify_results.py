@@ -66,7 +66,9 @@ def send_email_notification(signal_count: int, log_file: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="シグナル生成結果の通知")
-    parser.add_argument("--signals", type=int, required=True, help="生成されたシグナル数")
+    parser.add_argument(
+        "--signals", type=int, required=True, help="生成されたシグナル数"
+    )
     parser.add_argument("--log", type=Path, required=True, help="ログファイルのパス")
     parser.add_argument("--email", action="store_true", help="メール通知も送信")
     args = parser.parse_args()
