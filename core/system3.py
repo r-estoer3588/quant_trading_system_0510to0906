@@ -353,6 +353,12 @@ def generate_candidates_system3(
                     target_date = pd.Timestamp(td).normalize()
         except Exception:
             target_date = None
+        # Diagnostic: log resolved target_date
+        try:
+            if log_callback:
+                log_callback(f"[DEBUG_S3] resolved target_date={target_date}")
+        except Exception:
+            pass
 
         def _to_series(obj: Any) -> pd.Series | None:
             try:
@@ -644,6 +650,23 @@ def generate_candidates_system3(
                 )
             except Exception:
                 continue
+
+        # Diagnostic: summary of date_counter and a tiny preview of rows
+        try:
+            if log_callback:
+                try:
+                    dc_preview = dict(list(date_counter.items())[:5])
+                    log_callback(f"[DEBUG_S3] date_counter_sample={dc_preview}")
+                except Exception:
+                    pass
+                try:
+                    if rows:
+                        sample_rows = rows[:5]
+                        log_callback(f"[DEBUG_S3] rows_sample={sample_rows}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         if not rows:
             # Populate diagnostic counts for zero-row fast-path so callers can

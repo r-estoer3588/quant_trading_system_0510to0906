@@ -2042,6 +2042,13 @@ class StageTracker:
             except Exception:
                 pass
         self.refresh_all()
+        # Export a snapshot of the display metrics to results_csv for Playwright
+        # or other automated diffing tools. This is intentionally best-effort
+        # and must not raise on failure.
+        try:
+            self._export_metrics_snapshot()
+        except Exception:
+            pass
 
     def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
         any_applied = bool(exit_counts)
@@ -2131,18 +2138,18 @@ class StageTracker:
             if self.universe_target is not None
             else display.get("target")
         )
-        text = "  ".join(
-            [
+        # Make each metric appear on its own line. This improves readability
+        # and makes Playwright snapshotting/diffing straightforward.
+        try:
+            lines = [
                 f"Tgt {self._format_value(target_value)}",
-                f"FILpass {self._format_value(display.get('filter'))}",
-                f"STUpass {self._format_value(display.get('setup'))}",
-                f"TRDlist {self._format_trdlist(display.get('cand'))}",
-                f"Entry {self._format_value(display.get('entry'))}",
+                f"FILpass (最新) {self._format_value(display.get('filter'))}",
+                f"STUpass (最新) {self._format_value(display.get('setup'))}",
+                f"TRDlist (候補) {self._format_trdlist(display.get('cand'))}",
+                f"Entry (配分後) {self._format_value(display.get('entry'))}",
                 f"Exit {self._format_value(display.get('exit'))}",
             ]
-        )
-        try:
-            placeholder.text(text)
+            placeholder.text("\n".join(lines))
         except Exception:
             pass
 
@@ -2176,6 +2183,36 @@ class StageTracker:
             return str(clamped_val) if clamped_val is not None else "-"
         except Exception:
             return "-"
+
+    def _export_metrics_snapshot(self) -> None:
+        """Export current display metrics to a JSON file for Playwright diffing.
+
+        Writes `results_csv/ui_metrics_YYYYMMDD_HHMMSS.json` containing the
+        StageTracker display metrics for all systems. Quietly ignores errors.
+        """
+        try:
+            settings2 = get_settings(create_dirs=True)
+            results_dir = Path(getattr(settings2.outputs, "results_csv_dir", "results_csv"))
+        except Exception:
+            results_dir = Path("results_csv")
+        try:
+            results_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fp = results_dir / f"ui_metrics_{ts}.json"
+            payload: dict[str, Any] = {}
+            for name in self.metrics_store.systems():
+                try:
+                    payload[name] = self.get_display_metrics(name)
+                except Exception:
+                    payload[name] = None
+            # ensure JSON serializable (convert numpy types if any)
+            try:
+                with fp.open("w", encoding="utf-8") as fh:
+                    json.dump(payload, fh, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 class UILogger:
@@ -4034,12 +4071,17 @@ def _render_system_details(
             st.markdown(f"#### {name}")
             display_metrics = stage_tracker.get_display_metrics(name)
             # Line length fix - split formatted string
+            # Make displayed labels explicit to avoid confusion between
+            # prepare-layer (latest-row) metrics and generated/allocation metrics.
+            # - FILpass/STUpass: computed from latest-row prepare results (prefilter/setup)
+            # - TRDlist: number of generated candidates (strategy.generate_candidates output)
+            # - Entry: final allocated entries after allocation/finalization
             metrics_parts = [
                 f"Tgt {StageTracker._format_value(display_metrics.get('target'))}",
-                f"FILpass {StageTracker._format_value(display_metrics.get('filter'))}",
-                f"STUpass {StageTracker._format_value(display_metrics.get('setup'))}",
-                f"TRDlist {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
-                f"Entry {StageTracker._format_value(display_metrics.get('entry'))}",
+                f"FILpass (最新) {StageTracker._format_value(display_metrics.get('filter'))}",
+                f"STUpass (最新) {StageTracker._format_value(display_metrics.get('setup'))}",
+                f"TRDlist (候補) {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
+                f"Entry (配分後) {StageTracker._format_value(display_metrics.get('entry'))}",
                 f"Exit {StageTracker._format_value(display_metrics.get('exit'))}",
             ]
             metrics_line = "  ".join(metrics_parts)

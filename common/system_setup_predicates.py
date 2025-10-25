@@ -159,8 +159,10 @@ def system3_setup_predicate(row: pd.Series, *, return_reason: bool = False) -> b
 
         row_map: _Mapping[str, Any] = _cast(_Mapping[str, Any], row)
         # Phase 2 filter (safety check)
-        low: float = indicator_to_float(get_indicator(row_map, "Low"))
-        avgvol50: float = indicator_to_float(get_indicator(row_map, "AvgVolume50"))
+        # NOTE: keep this logic consistent with core/system3.prepare_data_vectorized_system3
+        # which uses Close >= 5 and dollarvolume20 > 25_000_000 as the Phase2 filter.
+        close_v: float = indicator_to_float(get_indicator(row_map, "Close"))
+        dv20_v: float = indicator_to_float(get_indicator(row_map, "dollarvolume20"))
         atr_ratio: float = indicator_to_float(get_indicator(row_map, "atr_ratio"))
 
         # ATR 閾値（テスト時は環境変数による上書きを許可）
@@ -175,10 +177,10 @@ def system3_setup_predicate(row: pd.Series, *, return_reason: bool = False) -> b
             # 環境の取得に失敗しても既定値で継続
             atr_thr = 0.05
 
-        if math.isnan(low) or math.isnan(avgvol50) or math.isnan(atr_ratio):
+        if math.isnan(close_v) or math.isnan(dv20_v) or math.isnan(atr_ratio):
             result = (False, "missing_filter_fields")
             return result if return_reason else result[0]
-        if not (low >= 1.0 and avgvol50 >= 1_000_000 and atr_ratio >= atr_thr):
+        if not (close_v >= 5.0 and dv20_v > 25_000_000 and atr_ratio >= atr_thr):
             result = (False, "filter_phase2")
             return result if return_reason else result[0]
 
