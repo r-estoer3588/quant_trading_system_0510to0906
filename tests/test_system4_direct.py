@@ -36,7 +36,9 @@ class TestSystem4DirectFunctions:
                     "Close": [100, 105, 102],
                 }
             ),
-            "GOOGL": pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}),
+            "GOOGL": pd.DataFrame(
+                {"Date": ["2023-01-01", "2023-01-02"], "Close": [200, 205]}
+            ),
         }
         assert mock_get_total_days_system4(data_dict) == 3
 
@@ -45,12 +47,18 @@ class TestSystem4DirectFunctions:
         assert mock_get_total_days_system4(None) == 0
 
         # テストケース3: 小文字date列の処理
-        data_dict_lowercase = {"MSFT": pd.DataFrame({"date": ["2023-01-01", "2023-01-02"], "Close": [250, 255]})}
+        data_dict_lowercase = {
+            "MSFT": pd.DataFrame(
+                {"date": ["2023-01-01", "2023-01-02"], "Close": [250, 255]}
+            )
+        }
         assert mock_get_total_days_system4(data_dict_lowercase) == 2
 
         # テストケース4: インデックスベースの日付処理
         dates_index = pd.to_datetime(["2023-01-01", "2023-01-02"])
-        data_dict_index = {"TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)}
+        data_dict_index = {
+            "TSLA": pd.DataFrame({"Close": [300, 305]}, index=dates_index)
+        }
         assert mock_get_total_days_system4(data_dict_index) == 2
 
     def test_system4_generate_candidates_basic_structure_direct(self):
@@ -149,7 +157,9 @@ class TestSystem4DirectFunctions:
                 processed_df = df.copy()
                 if "Close" in processed_df.columns:
                     # SMA20を計算
-                    processed_df["SMA20"] = processed_df["Close"].rolling(window=20).mean()
+                    processed_df["SMA20"] = (
+                        processed_df["Close"].rolling(window=20).mean()
+                    )
                     # RSI14を模擬計算
                     processed_df["RSI14"] = 50.0  # 簡略化
                     # setup シグナルを模擬生成 (ロング戦略: 押し目買い)
@@ -317,7 +327,11 @@ class TestSystem4DirectFunctions:
                         if df["Volume"].iloc[i] > avg_vol * 1.1:  # 出来高増加
                             entries.append(
                                 {
-                                    "date": (df.index[i] if hasattr(df.index[i], "strftime") else f"day_{i}"),
+                                    "date": (
+                                        df.index[i]
+                                        if hasattr(df.index[i], "strftime")
+                                        else f"day_{i}"
+                                    ),
                                     "price": df["Close"].iloc[i],
                                     "volume": df["Volume"].iloc[i],
                                 }

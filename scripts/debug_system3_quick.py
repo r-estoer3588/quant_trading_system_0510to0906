@@ -4,6 +4,7 @@ Reads cached rolling data via CacheManager, prepares System3 inputs,
 logs per-symbol indicator stats and filter pass rates, and runs the
 candidate generator with diagnostics enabled.
 """
+
 from __future__ import annotations
 
 import sys
@@ -93,9 +94,7 @@ def log_prepared_summary(prepared: dict[str, pd.DataFrame], sample_n: int = 5) -
                 "Symbol=%s Shape=%s Columns=%s", sym, df.shape, list(df.columns)
             )
             if "drop3d" in df.columns:
-                logger.info(
-                    "%s drop3d stats:\n%s", sym, df["drop3d"].describe()
-                )
+                logger.info("%s drop3d stats:\n%s", sym, df["drop3d"].describe())
             else:
                 logger.info("%s drop3d: MISSING", sym)
             if "atr_ratio" in df.columns:

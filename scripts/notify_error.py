@@ -35,7 +35,8 @@ def send_error_notification(error_message: str, log_file: Path) -> bool:
         f"Error: {error_message}\n"
         f"Status: ❌ Failed\n\n"
         f"Log File: {log_file.name}\n\n"
-        "Error Log:\n" + ("```\n" + log_tail + "\n```\n" if log_tail else "(no recent log lines)\n")
+        "Error Log:\n"
+        + ("```\n" + log_tail + "\n```\n" if log_tail else "(no recent log lines)\n")
     )
 
     try:

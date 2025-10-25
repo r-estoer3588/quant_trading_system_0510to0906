@@ -123,13 +123,17 @@ class TestIndicatorsPrecomputePart1:
     @patch("builtins.open", new_callable=Mock)
     @patch("pathlib.Path.exists")
     @patch("pathlib.Path.mkdir")
-    def test_precompute_shared_indicators_empty_input(self, mock_mkdir, mock_exists, mock_open_file):
+    def test_precompute_shared_indicators_empty_input(
+        self, mock_mkdir, mock_exists, mock_open_file
+    ):
         """Test precompute_shared_indicators with empty input"""
         # Mock the module to bypass NotImplementedError
         mock_module = MagicMock()
 
         # Define the actual function logic
-        def mock_precompute_shared_indicators(basic_data, *, log=None, parallel=False, max_workers=None):
+        def mock_precompute_shared_indicators(
+            basic_data, *, log=None, parallel=False, max_workers=None
+        ):
             if not basic_data:
                 return basic_data
             return {}
@@ -241,7 +245,9 @@ class TestIndicatorsPrecomputePart1:
     @patch("pandas.DataFrame.to_feather")
     @patch("pandas.DataFrame.to_parquet")
     @patch("pathlib.Path.mkdir")
-    def test_basic_functionality_with_mock_add_indicators(self, mock_mkdir, mock_to_parquet, mock_to_feather):
+    def test_basic_functionality_with_mock_add_indicators(
+        self, mock_mkdir, mock_to_parquet, mock_to_feather
+    ):
         """Test basic functionality of precompute_shared_indicators with mocked dependencies"""
 
         # Mock add_indicators function
@@ -256,7 +262,9 @@ class TestIndicatorsPrecomputePart1:
             return df.copy()
 
         # Mock precompute_shared_indicators function
-        def mock_precompute_shared_indicators(basic_data, *, log=None, parallel=False, max_workers=None):
+        def mock_precompute_shared_indicators(
+            basic_data, *, log=None, parallel=False, max_workers=None
+        ):
             if not basic_data:
                 return basic_data
 
@@ -349,7 +357,9 @@ class TestIndicatorsPrecomputePart1:
     def test_empty_dataframe_handling(self):
         """Test handling of empty DataFrames"""
 
-        def mock_precompute_shared_indicators(basic_data, *, log=None, parallel=False, max_workers=None):
+        def mock_precompute_shared_indicators(
+            basic_data, *, log=None, parallel=False, max_workers=None
+        ):
             if not basic_data:
                 return basic_data
 

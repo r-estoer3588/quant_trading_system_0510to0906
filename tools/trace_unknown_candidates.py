@@ -229,10 +229,7 @@ def main() -> int:
                 "persisted_index": persisted_idx,
                 "in_final_anywhere": bool(
                     (final_sig is not None)
-                    and (
-                        symbol
-                        in final_sig["symbol"].astype(str).str.upper().tolist()
-                    )
+                    and (symbol in final_sig["symbol"].astype(str).str.upper().tolist())
                 ),
                 "present_elsewhere_system": present_system or "",
                 "inferred_reason": inferred,

@@ -215,7 +215,13 @@ def test_trade_management_integration():
         print("\n=== Test Summary ===")
         if found_columns:
             print("✅ Trade management IS integrated!")
-            print("   Found " + str(len(found_columns)) + "/" + str(len(trade_mgmt_columns)) + " expected columns")
+            print(
+                "   Found "
+                + str(len(found_columns))
+                + "/"
+                + str(len(trade_mgmt_columns))
+                + " expected columns"
+            )
             if missing_columns:
                 print(f"   Missing: {missing_columns}")
             return True

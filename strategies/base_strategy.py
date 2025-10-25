@@ -41,7 +41,11 @@ class StrategyBase(ABC):
         if not sys_name:
             parts = module.split(".")
             cand = next(
-                (p for p in parts if p.startswith("system") and any(ch.isdigit() for ch in p)),
+                (
+                    p
+                    for p in parts
+                    if p.startswith("system") and any(ch.isdigit() for ch in p)
+                ),
                 None,
             )
             sys_name = cand or ""
@@ -106,7 +110,9 @@ class StrategyBase(ABC):
         """戦略の取引方向を返す（サブクラスでオーバーライド）"""
         return "long"  # デフォルトはロング
 
-    def run_backtest(self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs) -> pd.DataFrame:
+    def run_backtest(
+        self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
+    ) -> pd.DataFrame:
         """
         仕掛け候補に基づくバックテストを実施（共通実装）。
 
@@ -144,14 +150,20 @@ class StrategyBase(ABC):
     # ----------------------------
     # 共通ユーティリティ: 資金管理 & ポジションサイズ計算
     # ----------------------------
-    def update_capital_with_exits(self, capital: float, active_positions: list, current_date):
+    def update_capital_with_exits(
+        self, capital: float, active_positions: list, current_date
+    ):
         """
         exit_date == current_date のポジションを決済して損益を反映。
         戻り値: (更新後capital, 未決済active_positions)
         """
-        realized_pnl = sum(p["pnl"] for p in active_positions if p["exit_date"] == current_date)
+        realized_pnl = sum(
+            p["pnl"] for p in active_positions if p["exit_date"] == current_date
+        )
         capital += realized_pnl
-        active_positions = [p for p in active_positions if p["exit_date"] > current_date]
+        active_positions = [
+            p for p in active_positions if p["exit_date"] > current_date
+        ]
         return capital, active_positions
 
     def calculate_position_size(
@@ -533,15 +545,24 @@ class StrategyBase(ABC):
         """
         prepare_data の共通テンプレートメソッド
         """
-        symbols, raw_dict = self._resolve_data_params(raw_data_or_symbols, kwargs.get("use_process_pool", False))
+        symbols, raw_dict = self._resolve_data_params(
+            raw_data_or_symbols, kwargs.get("use_process_pool", False)
+        )
 
         # batch_size の設定（use_process_pool=Falseの時のみ）
         use_process_pool = kwargs.get("use_process_pool", False)
-        if not use_process_pool and raw_dict is not None and kwargs.get("batch_size") is None:
+        if (
+            not use_process_pool
+            and raw_dict is not None
+            and kwargs.get("batch_size") is None
+        ):
             kwargs["batch_size"] = self._get_batch_size_setting(len(raw_dict))
 
         # System1のフォールバック処理
-        if hasattr(self, "SYSTEM_NAME") and getattr(self, "SYSTEM_NAME", None) == "system1":
+        if (
+            hasattr(self, "SYSTEM_NAME")
+            and getattr(self, "SYSTEM_NAME", None) == "system1"
+        ):
             return self._prepare_data_with_fallback(
                 core_prepare_func,
                 raw_dict,

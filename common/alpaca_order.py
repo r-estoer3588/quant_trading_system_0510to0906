@@ -266,6 +266,7 @@ def submit_orders_df(
     # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化
     try:
         if "order_id" in out.columns:
+
             def _coerce_order_id(val: Any) -> str:
                 if val is None or val == "":
                     return ""
@@ -410,7 +411,9 @@ def submit_exit_orders_df(
     # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化
     try:
         if "order_id" in out.columns:
-            out["order_id"] = out["order_id"].apply(lambda x: str(x) if x not in (None, "") else "")
+            out["order_id"] = out["order_id"].apply(
+                lambda x: str(x) if x not in (None, "") else ""
+            )
     except Exception:
         pass
     if notify and not out.empty:

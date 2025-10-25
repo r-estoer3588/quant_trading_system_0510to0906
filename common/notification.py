@@ -71,6 +71,8 @@ def notify_zero_trd_all_systems(
                 except Exception as e:
                     logger.error(f"Failed to send zero TRD notification: {e}")
             else:
-                logger.debug("Notifier not available or does not support send_message, skipping notification")
+                logger.debug(
+                    "Notifier not available or does not support send_message, skipping notification"
+                )
         else:
             logger.debug("Notifications disabled, skipping zero TRD alert")

@@ -85,6 +85,6 @@ def test_system3_controlled_top10_latest_only():
 
     # Ensure all returned symbols belong to the B group
     returned_syms = {x["symbol"] for x in vals}
-    assert returned_syms.issubset(set(symbols_B)), (
-        f"Returned symbols contain non-B symbols: {returned_syms - set(symbols_B)}"
-    )
+    assert returned_syms.issubset(
+        set(symbols_B)
+    ), f"Returned symbols contain non-B symbols: {returned_syms - set(symbols_B)}"

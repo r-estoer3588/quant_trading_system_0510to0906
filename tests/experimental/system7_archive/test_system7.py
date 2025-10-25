@@ -104,7 +104,9 @@ def test_min_50_rolling_calculation():
     dates = pd.date_range("2024-01-01", periods=80, freq="B")
 
     # 明確な最低価格パターンを作成
-    prices = [100] * 20 + [95] * 10 + [90] * 10 + [110] * 20 + [85] * 20  # 最後に新しい最低価格
+    prices = (
+        [100] * 20 + [95] * 10 + [90] * 10 + [110] * 20 + [85] * 20
+    )  # 最後に新しい最低価格
 
     df = pd.DataFrame(
         {
@@ -125,11 +127,15 @@ def test_min_50_rolling_calculation():
 
     # 最初の段階では99 (Low値の最低)が最低価格のはず
     early_min = min_50_values.iloc[10]
-    assert early_min <= 89, f"Early min_50 should capture the low values, got {early_min}"
+    assert (
+        early_min <= 89
+    ), f"Early min_50 should capture the low values, got {early_min}"
 
     # 最後の段階では84 (最後の部分の最低)が反映されるはず
     final_min = min_50_values.iloc[-1]
-    assert final_min <= 84, f"Final min_50 should capture the latest low, got {final_min}"
+    assert (
+        final_min <= 84
+    ), f"Final min_50 should capture the latest low, got {final_min}"
 
 
 def test_setup_condition_detection():
@@ -171,7 +177,9 @@ def test_setup_condition_detection():
 
     # 後半でセットアップシグナルが発生しているはず
     late_setups = setup_signals.iloc[60:].sum()
-    assert late_setups > 0, f"Should have setup signals in the declining period, got {late_setups}"
+    assert (
+        late_setups > 0
+    ), f"Should have setup signals in the declining period, got {late_setups}"
 
 
 def test_max_70_preservation():
@@ -196,7 +204,9 @@ def test_max_70_preservation():
     original_max_70 = result1["max_70"].copy()
 
     # キャッシュを使用して再計算（use_cache=Trueのシミュレーション）
-    result2_data = prepare_data_vectorized_system7({"SPY": df}, use_cache=True, cached_data={"SPY": result1})
+    result2_data = prepare_data_vectorized_system7(
+        {"SPY": df}, use_cache=True, cached_data={"SPY": result1}
+    )
     result2 = result2_data["SPY"]
 
     # max_70が保持されているかチェック
@@ -232,7 +242,9 @@ def test_spy_only_constraint():
     result = prepare_data_vectorized_system7(non_spy_data)
 
     # SPY以外のデータは処理されないはず
-    assert len(result) == 0 or "AAPL" not in result, "System7 should only process SPY data"
+    assert (
+        len(result) == 0 or "AAPL" not in result
+    ), "System7 should only process SPY data"
 
     # SPYデータでテスト
     spy_data = {"SPY": df}
@@ -250,7 +262,9 @@ def test_placeholder_run(dummy_data):
 
     # prepare_minimal_for_testが動作することを確認
     processed = strategy.prepare_minimal_for_test(dummy_data)
-    assert isinstance(processed, dict), "prepare_minimal_for_test should return a dictionary"
+    assert isinstance(
+        processed, dict
+    ), "prepare_minimal_for_test should return a dictionary"
     assert len(processed) > 0, "Processed data should not be empty"
     assert "SPY" in processed, "Should process SPY data"
     dates = pd.date_range("2024-01-01", periods=4, freq="D")

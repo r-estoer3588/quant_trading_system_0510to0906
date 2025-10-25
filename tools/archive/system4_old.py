@@ -141,7 +141,9 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
 
     # Early exit: check required precomputed indicators exist
     required_indicators = ["sma200", "atr40", "rsi4"]
-    missing_indicators = [col for col in required_indicators if col not in prepared.columns]
+    missing_indicators = [
+        col for col in required_indicators if col not in prepared.columns
+    ]
     if missing_indicators:
         raise RuntimeError(
             f"IMMEDIATE_STOP: System4 missing precomputed indicators {missing_indicators} for {symbol}. Daily signal execution must be stopped."
@@ -199,7 +201,9 @@ def prepare_data_vectorized_system4(
         skipped_pool = 0
         start_time = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_compute_indicators, sym): sym for sym in symbols}
+            futures = {
+                executor.submit(_compute_indicators, sym): sym for sym in symbols
+            }
             for i, fut in enumerate(as_completed(futures), 1):
                 sym = futures[fut]
                 sym_res, df = fut.result()
@@ -248,7 +252,9 @@ def prepare_data_vectorized_system4(
                                     sample = f"{sample}, ...(+{more} more)"
                                 msg += "\n" + tr("symbols: {names}", names=sample)
                             else:
-                                msg += "\n" + tr("symbols: {names}", names=", ".join(buffer))
+                                msg += "\n" + tr(
+                                    "symbols: {names}", names=", ".join(buffer)
+                                )
                     try:
                         log_callback(msg)
                     except Exception:
@@ -279,7 +285,9 @@ def prepare_data_vectorized_system4(
     processed, skipped = 0, 0
     buffer: list[str] = []
 
-    def _on_symbol_done(symbol: str | None = None, *, include_in_buffer: bool = False) -> None:
+    def _on_symbol_done(
+        symbol: str | None = None, *, include_in_buffer: bool = False
+    ) -> None:
         nonlocal processed, batch_size, batch_start
         if include_in_buffer and symbol:
             buffer.append(symbol)
@@ -329,7 +337,9 @@ def prepare_data_vectorized_system4(
 
         # --- 健全性チェック: NaN・型不一致・異常値 ---
         try:
-            base_cols = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            base_cols = [
+                c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns
+            ]
             if base_cols:
                 base_nan_rate = df[base_cols].isnull().mean().mean()
             else:
@@ -356,7 +366,9 @@ def prepare_data_vectorized_system4(
             if indicator_cols:
                 indicator_nan_rate = df[indicator_cols].isnull().mean().mean()
                 if indicator_nan_rate > 0.60 and log_callback:
-                    log_callback(f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})")
+                    log_callback(
+                        f"⚠️ {sym} cache: 指標NaN率高 ({indicator_nan_rate:.2%})"
+                    )
 
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
@@ -424,7 +436,9 @@ def prepare_data_vectorized_system4(
 
             # Check required precomputed indicators - early exit
             required_indicators = ["sma200", "atr40", "rsi4"]
-            missing_indicators = [col for col in required_indicators if col not in x.columns]
+            missing_indicators = [
+                col for col in required_indicators if col not in x.columns
+            ]
             if missing_indicators:
                 raise RuntimeError(
                     f"IMMEDIATE_STOP: System4 missing precomputed indicators {missing_indicators} for {sym}. Daily signal execution must be stopped."
@@ -444,7 +458,11 @@ def prepare_data_vectorized_system4(
                 x["DollarVolume50"] = x["dollarvolume50"]
             elif "DollarVolume50" not in x.columns:
                 try:
-                    vol = x["Volume"] if "Volume" in x.columns else pd.Series(0, index=x.index)
+                    vol = (
+                        x["Volume"]
+                        if "Volume" in x.columns
+                        else pd.Series(0, index=x.index)
+                    )
                     x["DollarVolume50"] = (x["Close"] * vol).rolling(50).mean()
                 except Exception:
                     pass
@@ -469,7 +487,9 @@ def prepare_data_vectorized_system4(
             if skip_callback:
                 try:
                     msg = str(e).lower()
-                    reason = "insufficient_rows" if "insufficient" in msg else "calc_error"
+                    reason = (
+                        "insufficient_rows" if "insufficient" in msg else "calc_error"
+                    )
                     skip_callback(sym, reason)
                 except Exception:
                     try:

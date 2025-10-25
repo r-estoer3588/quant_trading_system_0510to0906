@@ -51,7 +51,9 @@ class TestSystem7LatestOnlyBranches:
         spy_data = self.create_spy_with_atr_variations("ATR50")
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, latest_only=True, include_diagnostics=True
+        )
         candidates = result_tuple[0]
 
         # Should successfully use ATR50
@@ -68,7 +70,9 @@ class TestSystem7LatestOnlyBranches:
         spy_data = self.create_spy_with_atr_variations("atr50_only")
         data_dict = {"SPY": spy_data}
 
-        _ = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
+        _ = generate_candidates_system7(
+            data_dict, latest_only=True, include_diagnostics=True
+        )
 
         # Should successfully use atr50 as fallback without crashing
         assert True  # If we get here, the fallback worked
@@ -117,7 +121,9 @@ class TestSystem7LatestOnlyBranches:
         spy_data = self.create_spy_with_atr_variations("ATR50")
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, latest_only=True, include_diagnostics=True
+        )
         diagnostics = result_tuple[2] if len(result_tuple) > 2 else {}
 
         # Check expected diagnostics keys
@@ -132,7 +138,9 @@ class TestSystem7LatestOnlyBranches:
         spy_data = self.create_spy_with_atr_variations("ATR50")
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, latest_only=True, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, latest_only=True, include_diagnostics=True
+        )
         normalized = result_tuple[0]
 
         # Check structure: {date: {"SPY": {...}}}
@@ -188,7 +196,9 @@ class TestSystem7DateGroupingBranches:
         spy_data = self.create_spy_with_multiple_setups(setup_count=10)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=3, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=3, include_diagnostics=True
+        )
         candidates = result_tuple[0]
 
         # Each date bucket has at most 1 SPY (SPY-only system)
@@ -203,7 +213,9 @@ class TestSystem7DateGroupingBranches:
         spy_data = self.create_spy_with_multiple_setups(setup_count=5)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=0, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=0, include_diagnostics=True
+        )
         candidates = result_tuple[0]
 
         # With limit_n=0, should have no candidates
@@ -214,7 +226,9 @@ class TestSystem7DateGroupingBranches:
         spy_data = self.create_spy_with_multiple_setups(setup_count=15)
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=5, include_diagnostics=True
+        )
         candidates = result_tuple[0]
 
         # Each date bucket should have at most 1 SPY (single symbol system)
@@ -250,7 +264,9 @@ class TestSystem7DateGroupingBranches:
             raise RuntimeError("Log failed")
 
         # Should not crash despite log callback failure
-        _ = generate_candidates_system7(data_dict, top_n=5, log_callback=failing_log, include_diagnostics=True)
+        _ = generate_candidates_system7(
+            data_dict, top_n=5, log_callback=failing_log, include_diagnostics=True
+        )
 
         # If we get here, exception was handled gracefully
         assert True
@@ -303,7 +319,9 @@ class TestSystem7NormalizationBranches:
         highs = [p * 1.005 for p in prices]
 
         # Calculate rolling indicators
-        df_temp = pd.DataFrame({"Close": prices, "Low": lows, "High": highs}, index=dates)
+        df_temp = pd.DataFrame(
+            {"Close": prices, "Low": lows, "High": highs}, index=dates
+        )
         min_50 = df_temp["Low"].rolling(window=50, min_periods=1).min()
         max_70 = df_temp["High"].rolling(window=70, min_periods=1).max()
 
@@ -332,7 +350,9 @@ class TestSystem7NormalizationBranches:
         # Prepare data first
         data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=5, include_diagnostics=True
+        )
         normalized = result_tuple[0]
 
         # Check payload excludes 'symbol' and 'date'
@@ -353,7 +373,9 @@ class TestSystem7NormalizationBranches:
         # Prepare data first
         data_dict = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False)
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=5, include_diagnostics=True
+        )
         df_result = result_tuple[1]
 
         # Should have rank columns
@@ -373,7 +395,9 @@ class TestSystem7NormalizationBranches:
         spy_prepared = data_dict.get("SPY")
         assert spy_prepared is not None, f"SPY missing. Keys: {list(data_dict.keys())}"
         setup_rows = spy_prepared[spy_prepared["setup"]]
-        assert len(setup_rows) > 0, f"No setup rows after prepare (count={len(setup_rows)})"
+        assert (
+            len(setup_rows) > 0
+        ), f"No setup rows after prepare (count={len(setup_rows)})"
 
         # Explicitly use full_scan mode (latest_only=False)
         result_tuple = generate_candidates_system7(
@@ -413,7 +437,9 @@ class TestSystem7NormalizationBranches:
 
         data_dict = {"SPY": spy_data}
 
-        result_tuple = generate_candidates_system7(data_dict, top_n=5, include_diagnostics=True)
+        result_tuple = generate_candidates_system7(
+            data_dict, top_n=5, include_diagnostics=True
+        )
         normalized = result_tuple[0]
         df_result = result_tuple[1]
 

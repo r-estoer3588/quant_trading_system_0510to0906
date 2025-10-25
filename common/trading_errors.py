@@ -94,7 +94,9 @@ class TradingError(Exception):
         super().__init__(message)
         self.message = message
         self.error_code = error_code
-        self.context = context or ErrorContext(timestamp=datetime.now().isoformat(), phase="unknown")
+        self.context = context or ErrorContext(
+            timestamp=datetime.now().isoformat(), phase="unknown"
+        )
         self.cause = cause
         self.retryable = retryable
 
@@ -221,7 +223,9 @@ def retry_with_backoff(
 
 
 # Error classification helpers
-def classify_exception(e: Exception, context: Optional[ErrorContext] = None) -> TradingError:
+def classify_exception(
+    e: Exception, context: Optional[ErrorContext] = None
+) -> TradingError:
     """Classify and wrap exceptions as TradingError."""
     if isinstance(e, TradingError):
         return e
@@ -237,7 +241,9 @@ def classify_exception(e: Exception, context: Optional[ErrorContext] = None) -> 
             cause=e,
         )
 
-    if "KeyError" in str(type(e)) and any(col in error_msg for col in ["column", "key"]):
+    if "KeyError" in str(type(e)) and any(
+        col in error_msg for col in ["column", "key"]
+    ):
         return DataError(
             f"Missing required data column: {error_msg}",
             ErrorCode.DAT003E,
@@ -254,7 +260,9 @@ def classify_exception(e: Exception, context: Optional[ErrorContext] = None) -> 
         )
 
     # Default: system error
-    return SystemError(f"Unexpected error: {error_msg}", ErrorCode.SYS002E, context=context, cause=e)
+    return SystemError(
+        f"Unexpected error: {error_msg}", ErrorCode.SYS002E, context=context, cause=e
+    )
 
 
 # UI integration helpers

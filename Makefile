@@ -31,7 +31,7 @@ run-and-snapshot:
 	$(PYTHON) tools/capture_ui_screenshot.py \
 		--url http://localhost:8501 \
 		--output results_images/today_signals_complete.png \
-		--click-button "▶ 本日のシグナル実行" \
+		--click-button "Generate Signals" \
 		--wait-after-click 30
 	@echo "Creating snapshot..."
 	$(PYTHON) tools/snapshot.py --source results_csv --source logs --source results_images

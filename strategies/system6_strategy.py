@@ -47,7 +47,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
             # フォールバック（互換性維持）
             import os  # noqa: WPS433
 
-            use_process_pool = os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+            use_process_pool = (
+                os.environ.get("SYSTEM6_USE_PROCESS_POOL", "false").lower() == "true"
+            )
 
         # System6専用のパフォーマンス設定
         kwargs.setdefault("use_process_pool", use_process_pool)
@@ -165,7 +167,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         return result
 
     # シミュレーター用フック（System6: Short）
-    def compute_entry(self, df: pd.DataFrame, candidate: dict, _current_capital: float) -> tuple[float, float] | None:
+    def compute_entry(
+        self, df: pd.DataFrame, candidate: dict, _current_capital: float
+    ) -> tuple[float, float] | None:
         try:
             entry_loc = df.index.get_loc(candidate["entry_date"])
         except Exception:
@@ -189,7 +193,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
                 continue
         if atr is None:
             return None
-        stop_mult = float(self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT))
+        stop_mult = float(
+            self.config.get("stop_atr_multiple", STOP_ATR_MULTIPLE_DEFAULT)
+        )
         stop_price = entry_price + stop_mult * atr
         # ショート戦略: ストップロスはエントリー価格より上に設定される
         if stop_price <= entry_price:
@@ -205,7 +211,9 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
     ) -> tuple[float, pd.Timestamp]:
         """System6 の利確・損切り・時間退出ルールを実装。"""
 
-        profit_take_pct = float(self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5))
+        profit_take_pct = float(
+            self.config.get("profit_take_pct", PROFIT_TAKE_PCT_DEFAULT_5)
+        )
         max_days = int(self.config.get("profit_take_max_days", MAX_HOLD_DAYS_DEFAULT))
         last_idx = len(df) - 1
 

@@ -18,6 +18,7 @@ Behavior:
     * Writes a monitoring check record under results_csv_test/monitoring/ for
         auditing.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -200,9 +201,7 @@ def stop_monitor() -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description=(
-            "Monitor recompute rolling reports for a short observation period"
-        )
+        description=("Monitor recompute rolling reports for a short observation period")
     )
     p.add_argument(
         "--start",

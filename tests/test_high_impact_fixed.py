@@ -317,7 +317,9 @@ class TestFinalAllocationHelpers:
     def test_candidate_count_edge_cases(self):
         """Test _candidate_count edge cases"""
         # DataFrame with NaN values
-        df_with_nan = pd.DataFrame({"Symbol": ["AAPL", None, "GOOGL"], "Price": [100, float("nan"), 200]})
+        df_with_nan = pd.DataFrame(
+            {"Symbol": ["AAPL", None, "GOOGL"], "Price": [100, float("nan"), 200]}
+        )
 
         result = _candidate_count(df_with_nan)
         assert isinstance(result, int)

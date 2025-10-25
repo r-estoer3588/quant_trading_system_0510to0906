@@ -78,7 +78,9 @@ class AIPerformanceAnalyzer:
                 timestamp = datetime.now()
 
                 # 特徴量の構築
-                features = self._extract_features(phase_data, system_metrics, execution_context)
+                features = self._extract_features(
+                    phase_data, system_metrics, execution_context
+                )
 
                 # データ保存
                 performance_record = {
@@ -120,7 +122,9 @@ class AIPerformanceAnalyzer:
             [
                 sum(phase_times),  # 総実行時間
                 max(phase_times) if phase_times else 0,  # 最長フェーズ時間
-                (np.std(phase_times) if len(phase_times) > 1 else 0),  # フェーズ時間のばらつき
+                (
+                    np.std(phase_times) if len(phase_times) > 1 else 0
+                ),  # フェーズ時間のばらつき
                 len([t for t in phase_times if t > 5.0]),  # 5秒超過フェーズ数
             ]
         )
@@ -181,7 +185,9 @@ class AIPerformanceAnalyzer:
 
                 # データ準備
                 X = np.array(list(self.feature_history))
-                y_times = np.array([record["total_time"] for record in self.performance_history])
+                y_times = np.array(
+                    [record["total_time"] for record in self.performance_history]
+                )
 
                 # データの正規化
                 X_scaled = self.scaler.fit_transform(X)
@@ -200,7 +206,9 @@ class AIPerformanceAnalyzer:
                         X_scaled, y_times, test_size=0.2, random_state=42
                     )
 
-                    self.performance_predictor = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10)
+                    self.performance_predictor = RandomForestRegressor(
+                        n_estimators=100, random_state=42, max_depth=10
+                    )
                     self.performance_predictor.fit(X_train, y_train)
 
                     # モデル性能評価
@@ -241,11 +249,15 @@ class AIPerformanceAnalyzer:
         try:
             with self.lock:
                 # 特徴量抽出
-                features = self._extract_features(phase_data, system_metrics, execution_context)
+                features = self._extract_features(
+                    phase_data, system_metrics, execution_context
+                )
                 features_scaled = self.scaler.transform([features])
 
                 # 異常検知
-                anomaly_score = self.anomaly_detector.decision_function(features_scaled)[0]
+                anomaly_score = self.anomaly_detector.decision_function(
+                    features_scaled
+                )[0]
                 is_anomaly = self.anomaly_detector.predict(features_scaled)[0] == -1
 
                 # パフォーマンス予測
@@ -253,22 +265,31 @@ class AIPerformanceAnalyzer:
                 confidence = 0.0
 
                 if self.performance_predictor:
-                    predicted_time = self.performance_predictor.predict(features_scaled)[0]
+                    predicted_time = self.performance_predictor.predict(
+                        features_scaled
+                    )[0]
 
                     # 信頼度計算（過去の予測精度に基づく）
                     if len(self.performance_history) > 10:
-                        recent_actuals = [r["total_time"] for r in list(self.performance_history)[-10:]]
+                        recent_actuals = [
+                            r["total_time"]
+                            for r in list(self.performance_history)[-10:]
+                        ]
                         recent_features = list(self.feature_history)[-10:]
                         if recent_features:
                             recent_scaled = self.scaler.transform(recent_features)
-                            recent_preds = self.performance_predictor.predict(recent_scaled)
+                            recent_preds = self.performance_predictor.predict(
+                                recent_scaled
+                            )
                             mse = mean_squared_error(recent_actuals, recent_preds)
                             confidence = max(0, 1 - (mse / np.mean(recent_actuals)))
 
                 analysis_result = {
                     "anomaly_score": float(anomaly_score),
                     "is_anomaly": bool(is_anomaly),
-                    "predicted_performance": (float(predicted_time) if predicted_time else None),
+                    "predicted_performance": (
+                        float(predicted_time) if predicted_time else None
+                    ),
                     "confidence": float(confidence),
                     "analysis_status": "OK",
                     "feature_count": len(features),
@@ -280,9 +301,14 @@ class AIPerformanceAnalyzer:
                 # 最適化提案の生成
                 if is_anomaly or (
                     predicted_time
-                    and predicted_time > np.mean([r["total_time"] for r in list(self.performance_history)[-20:]])
+                    and predicted_time
+                    > np.mean(
+                        [r["total_time"] for r in list(self.performance_history)[-20:]]
+                    )
                 ):
-                    self._generate_optimization_suggestions(phase_data, system_metrics, features)
+                    self._generate_optimization_suggestions(
+                        phase_data, system_metrics, features
+                    )
 
                 return analysis_result
 
@@ -401,15 +427,23 @@ class AIPerformanceAnalyzer:
                 "model_status": {
                     "is_trained": self.is_trained,
                     "training_data_count": self.training_data_count,
-                    "last_training": (self.last_training_time.isoformat() if self.last_training_time else None),
+                    "last_training": (
+                        self.last_training_time.isoformat()
+                        if self.last_training_time
+                        else None
+                    ),
                     "has_sklearn": HAS_SKLEARN,
                 },
                 "data_collection": {
                     "total_records": len(self.performance_history),
-                    "feature_count": (len(self.feature_history[0]) if self.feature_history else 0),
+                    "feature_count": (
+                        len(self.feature_history[0]) if self.feature_history else 0
+                    ),
                     "collection_rate": f"{len(self.performance_history)}/1000",
                 },
-                "current_analysis": (self.current_analysis.copy() if self.current_analysis else {}),
+                "current_analysis": (
+                    self.current_analysis.copy() if self.current_analysis else {}
+                ),
                 "optimization_suggestions": self.get_optimization_suggestions(),
                 "analysis_capabilities": {
                     "anomaly_detection": HAS_SKLEARN and self.is_trained,
@@ -457,7 +491,11 @@ class AIPerformanceAnalyzer:
 
             # メタデータ
             metadata = {
-                "last_training": (self.last_training_time.isoformat() if self.last_training_time else None),
+                "last_training": (
+                    self.last_training_time.isoformat()
+                    if self.last_training_time
+                    else None
+                ),
                 "training_data_count": self.training_data_count,
                 "is_trained": self.is_trained,
             }
@@ -507,9 +545,13 @@ class AIPerformanceAnalyzer:
             self.is_trained = metadata.get("is_trained", False)
             self.training_data_count = metadata.get("training_data_count", 0)
             if metadata.get("last_training"):
-                self.last_training_time = datetime.fromisoformat(metadata["last_training"])
+                self.last_training_time = datetime.fromisoformat(
+                    metadata["last_training"]
+                )
 
-            logger.info(f"保存されたAI分析モデルを読み込みました (訓練データ: {self.training_data_count}件)")
+            logger.info(
+                f"保存されたAI分析モデルを読み込みました (訓練データ: {self.training_data_count}件)"
+            )
 
         except Exception as e:
             logger.error(f"モデル読み込みエラー: {e}")

@@ -62,7 +62,9 @@ class TestSystem1MainFunctions:
         with patch("core.system1.check_precomputed_indicators") as mock_check:
             mock_check.return_value = (mock_data, [])
 
-            result = prepare_data_vectorized_system1(raw_data_dict=mock_data, reuse_indicators=True)
+            result = prepare_data_vectorized_system1(
+                raw_data_dict=mock_data, reuse_indicators=True
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -97,7 +99,9 @@ class TestSystem1MainFunctions:
         with patch("core.system1.process_symbols_batch") as mock_batch:
             mock_batch.return_value = ({"AAPL": mock_compute_indicators("AAPL")[1]}, [])
 
-            result = prepare_data_vectorized_system1(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
+            result = prepare_data_vectorized_system1(
+                raw_data_dict=None, symbols=symbols, reuse_indicators=False
+            )
 
         assert isinstance(result, dict)
         assert "AAPL" in result
@@ -129,7 +133,9 @@ class TestSystem1MainFunctions:
             ),
         }
 
-        candidates_by_date, candidates_df, diagnostics = generate_candidates_system1(prepared_data, top_n=10)
+        candidates_by_date, candidates_df, diagnostics = generate_candidates_system1(
+            prepared_data, top_n=10
+        )
 
         assert isinstance(candidates_by_date, dict)
         assert len(candidates_by_date) > 0
@@ -161,7 +167,9 @@ class TestSystem1MainFunctions:
             )
         }
 
-        candidates_by_date, candidates_df, _ = generate_candidates_system1(prepared_data, top_n=10)
+        candidates_by_date, candidates_df, _ = generate_candidates_system1(
+            prepared_data, top_n=10
+        )
 
         assert isinstance(candidates_by_date, dict)
         # Should still return dict structure even if no candidates
@@ -174,7 +182,9 @@ class TestSystem1MainFunctions:
                 {"Close": [100, 110, 120, 130, 140]},
                 index=pd.date_range("2023-01-01", periods=5),
             ),
-            "MSFT": pd.DataFrame({"Close": [200, 210, 220]}, index=pd.date_range("2023-01-01", periods=3)),
+            "MSFT": pd.DataFrame(
+                {"Close": [200, 210, 220]}, index=pd.date_range("2023-01-01", periods=3)
+            ),
         }
 
         total_days = get_total_days_system1(data_dict)

@@ -95,7 +95,9 @@ class TestSystem6DiagnosticsMinimal:
 
     def test_diagnostics_empty_data(self):
         """Verify diagnostics are returned even with empty data"""
-        _candidates, _df, diagnostics = generate_candidates_system6({}, top_n=5, include_diagnostics=True)
+        _candidates, _df, diagnostics = generate_candidates_system6(
+            {}, top_n=5, include_diagnostics=True
+        )
 
         # Diagnostics should still be a dict
         assert isinstance(diagnostics, dict)
@@ -124,7 +126,9 @@ class TestSystem6DiagnosticsMinimal:
             )
         }
 
-        _candidates, _df, diagnostics = generate_candidates_system6(prepared_dict, top_n=5, include_diagnostics=True)
+        _candidates, _df, diagnostics = generate_candidates_system6(
+            prepared_dict, top_n=5, include_diagnostics=True
+        )
 
         # Diagnostics should still be present
         assert "ranking_source" in diagnostics

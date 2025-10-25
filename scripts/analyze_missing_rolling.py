@@ -118,7 +118,9 @@ def analyze(path: Path, top_n: int = 20, out_dir: Path | None = None):
         lines.append("")
         sample_syms = top_symbols[symbol_col].head(10).tolist()
         sample_df = df[df[symbol_col].isin(sample_syms)].copy()
-        cols = [symbol_col] + [c for c in ["Date", "StartDate", "EndDate", "Reason"] if c in df.columns]
+        cols = [symbol_col] + [
+            c for c in ["Date", "StartDate", "EndDate", "Reason"] if c in df.columns
+        ]
         if not cols:
             cols = df.columns.tolist()[:10]
         lines.append(fmt_md_table(sample_df, cols=cols, limit=200))

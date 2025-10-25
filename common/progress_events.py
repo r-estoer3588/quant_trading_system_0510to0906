@@ -89,7 +89,9 @@ class ProgressEventEmitter:
             self.logger.error(f"Failed to setup progress event log file: {e}")
             self.enabled = False
 
-    def emit(self, event_type: str, data: dict[str, Any] | None = None, level: str = "info") -> None:
+    def emit(
+        self, event_type: str, data: dict[str, Any] | None = None, level: str = "info"
+    ) -> None:
         """
         進捗イベントをJSONLファイルに出力する。
 
@@ -196,7 +198,9 @@ class ProgressEventEmitter:
 _progress_emitter = ProgressEventEmitter()
 
 
-def emit_progress(event_type: str, data: dict[str, Any] | None = None, level: str = "info") -> None:
+def emit_progress(
+    event_type: str, data: dict[str, Any] | None = None, level: str = "info"
+) -> None:
     """
     グローバル進捗エミッターに進捗イベントを送信する。
 
@@ -218,7 +222,9 @@ def emit_system_start(system_name: str, symbol_count: int = 0, **kwargs: Any) ->
     _progress_emitter.emit_system_start(system_name, symbol_count, kwargs)
 
 
-def emit_system_progress(system_name: str, processed: int, total: int, **kwargs: Any) -> None:
+def emit_system_progress(
+    system_name: str, processed: int, total: int, **kwargs: Any
+) -> None:
     """システム進捗イベントのショートカット。"""
     _progress_emitter.emit_system_progress(system_name, processed, total, kwargs)
 

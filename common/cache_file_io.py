@@ -57,7 +57,9 @@ class CacheFileIO:
             elif path.suffix == ".csv":
                 return self._read_csv_with_fallback(path)
             else:
-                raise CacheFileIOError(f"サポートされていないファイル形式: {path.suffix}")
+                raise CacheFileIOError(
+                    f"サポートされていないファイル形式: {path.suffix}"
+                )
         except Exception as e:
             logger.error(f"ファイル読み込み失敗: {path.name} ({e})")
             # CSVフォールバック
@@ -182,9 +184,19 @@ class CacheFileIO:
                     formatted = f"{float(x):.{decimal_places}f}"
                     if thousands_sep:
                         integer_part, _, fractional_part = formatted.partition(".")
-                        integer_part = _add_thousands_separator(integer_part, thousands_sep)
-                        formatted = f"{integer_part}.{fractional_part}" if fractional_part else integer_part
-                    return formatted.replace(".", decimal_point) if decimal_point != "." else formatted
+                        integer_part = _add_thousands_separator(
+                            integer_part, thousands_sep
+                        )
+                        formatted = (
+                            f"{integer_part}.{fractional_part}"
+                            if fractional_part
+                            else integer_part
+                        )
+                    return (
+                        formatted.replace(".", decimal_point)
+                        if decimal_point != "."
+                        else formatted
+                    )
                 except (ValueError, TypeError):
                     return str(x)
 
@@ -196,7 +208,11 @@ class CacheFileIO:
                     return ""
                 try:
                     int_str = f"{int(round(float(x))):d}"
-                    return _add_thousands_separator(int_str, thousands_sep) if thousands_sep else int_str
+                    return (
+                        _add_thousands_separator(int_str, thousands_sep)
+                        if thousands_sep
+                        else int_str
+                    )
                 except (ValueError, TypeError):
                     return str(x)
 

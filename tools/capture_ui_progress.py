@@ -82,10 +82,14 @@ def capture_screenshots(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Streamlit UI進捗スクリーンショット監視")
+    parser = argparse.ArgumentParser(
+        description="Streamlit UI進捗スクリーンショット監視"
+    )
     parser.add_argument("--url", default="http://localhost:8501", help="Streamlit URL")
     parser.add_argument("--interval", type=int, default=2, help="撮影間隔(秒)")
-    parser.add_argument("--output", default="screenshots/progress_tracking", help="保存先ディレクトリ")
+    parser.add_argument(
+        "--output", default="screenshots/progress_tracking", help="保存先ディレクトリ"
+    )
     parser.add_argument("--max", type=int, default=100, help="最大撮影枚数")
     parser.add_argument(
         "--wait-timeout",

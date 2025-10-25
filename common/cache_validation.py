@@ -120,7 +120,8 @@ class CacheValidator:
         self._aggregate_to_file = bool(compact or to_file)
         try:
             self._silent_cli = self._aggregate_to_file or (
-                (os.getenv("CACHE_VALIDATION_SILENT_CLI") or "").strip().lower() in {"1", "true", "yes", "on"}
+                (os.getenv("CACHE_VALIDATION_SILENT_CLI") or "").strip().lower()
+                in {"1", "true", "yes", "on"}
             )
         except Exception:
             self._silent_cli = self._aggregate_to_file
@@ -188,7 +189,9 @@ class CacheValidator:
         if df is None or df.empty:
             return
 
-        present_indicators = [col for col in MAIN_INDICATOR_COLUMNS if col in df.columns]
+        present_indicators = [
+            col for col in MAIN_INDICATOR_COLUMNS if col in df.columns
+        ]
         if not present_indicators:
             return
 

@@ -8,7 +8,9 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 # ログ設定
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # 設定
@@ -43,7 +45,9 @@ async def capture_screenshots():
         # スクリーンショット撮影ループ
         screenshot_count = 0
         start_time = asyncio.get_event_loop().time()
-        logger.info(f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_DURATION}秒）")
+        logger.info(
+            f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_DURATION}秒）"
+        )
         logger.info("👉 ブラウザで手動で「実行」ボタンをクリックしてください")
 
         try:
@@ -62,7 +66,9 @@ async def capture_screenshots():
                 screenshot_count += 1
 
                 if screenshot_count % 30 == 0:
-                    logger.info(f"📸 撮影中: {screenshot_count}枚 （経過時間: {int(elapsed)}秒）")
+                    logger.info(
+                        f"📸 撮影中: {screenshot_count}枚 （経過時間: {int(elapsed)}秒）"
+                    )
 
                 # 完了メッセージを検出したら終了
                 try:
@@ -80,10 +86,14 @@ async def capture_screenshots():
                             # 最後に5枚追加撮影
                             for i in range(5):
                                 await asyncio.sleep(1.0)
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
+                                    :-3
+                                ]
                                 filename = f"progress_{timestamp}_final{i + 1}.png"
                                 filepath = SCREENSHOT_DIR / filename
-                                await page.screenshot(path=str(filepath), full_page=False)
+                                await page.screenshot(
+                                    path=str(filepath), full_page=False
+                                )
                                 screenshot_count += 1
                             raise StopIteration()
                 except StopIteration:
@@ -99,7 +109,9 @@ async def capture_screenshots():
             logger.error(f"❌ 撮影エラー: {e}")
         finally:
             elapsed = asyncio.get_event_loop().time() - start_time
-            logger.info(f"📸 撮影終了: 合計{screenshot_count}枚 （撮影時間: {int(elapsed)}秒）")
+            logger.info(
+                f"📸 撮影終了: 合計{screenshot_count}枚 （撮影時間: {int(elapsed)}秒）"
+            )
             await browser.close()
             logger.info("🌐 ブラウザ終了")
 

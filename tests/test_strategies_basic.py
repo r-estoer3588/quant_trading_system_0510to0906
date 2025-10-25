@@ -43,7 +43,9 @@ class MockStrategy(StrategyBase):
         """Mock generate_candidates implementation"""
         return data_dict, market_df
 
-    def run_backtest(self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs) -> pd.DataFrame:
+    def run_backtest(
+        self, data_dict: dict, candidates_by_date: dict, capital: float, **kwargs
+    ) -> pd.DataFrame:
         """Mock run_backtest implementation"""
         return pd.DataFrame(
             {
@@ -197,7 +199,11 @@ class TestSystem3Strategy:
         strategy = System3Strategy()
 
         # Mock minimal data structure
-        mock_data = {"TEST": pd.DataFrame({"Close": [100.0], "Date": pd.date_range("2023-01-01", periods=1)})}
+        mock_data = {
+            "TEST": pd.DataFrame(
+                {"Close": [100.0], "Date": pd.date_range("2023-01-01", periods=1)}
+            )
+        }
 
         try:
             result = strategy.prepare_data(mock_data)

@@ -9,6 +9,15 @@
 - [セットアップ](../README.md#セットアップ) - 初回環境構築
 - [基本実行](../README.md#実行例) - UI 起動と基本操作
 - [テスト実行](./testing.md) - システム動作確認
+  - 統合制御テスト（systems 1-6）: `tests/test_systems_controlled_all.py` を実行する短い検証。開発中や変更適用後に素早くランク付けと最終エントリ数の整合を確認するために使います。
+    - 実行コマンド（ワンラン）:
+      ```powershell
+      python scripts/run_controlled_tests.py
+      ```
+    - 直接 pytest を使う場合:
+      ```powershell
+      python -m pytest -q tests/test_systems_controlled_all.py
+      ```
 
 ### 📊 [システム概要](#trading-systems)
 
@@ -145,7 +154,7 @@ playwright install chromium  # 約300MB
 **内部動作**:
 
 1. Playwright が Streamlit アプリ (`http://localhost:8501`) を開く
-2. 「▶ 本日のシグナル実行」ボタンを自動クリック
+2. 「Generate Signals」ボタンを自動クリック
 3. 実行完了を待機（デフォルト 30 秒、進行状況バーの消失を検出）
 4. フルページスクリーンショットを `results_images/today_signals_complete.png` に保存
 5. `results_csv`, `logs`, `results_images` をスナップショット
@@ -158,7 +167,7 @@ playwright install chromium  # 約300MB
 python tools/capture_ui_screenshot.py `
     --url http://localhost:8501 `
     --output results_images/today_signals_complete.png `
-    --click-button "▶ 本日のシグナル実行" `
+  --click-button "Generate Signals" `
     --wait-after-click 30
 ```
 
@@ -172,7 +181,7 @@ python tools/capture_ui_screenshot.py --url http://localhost:8501 --output scree
 
 - `--url`: Streamlit アプリの URL（デフォルト: `http://localhost:8501`）
 - `--output`: 保存先パス（プロジェクトルートからの相対パス）
-- `--click-button`: クリックするボタンのテキスト（例: `"▶ 本日のシグナル実行"`）
+  -- `--click-button`: クリックするボタンのテキスト（例: `"Generate Signals"`）
 - `--wait-after-click`: ボタンクリック後の待機時間（秒）（デフォルト: 15）
 - `--no-scroll`: 最下部へのスクロールを無効化（デフォルトは有効）
 - `--wait`: ページ読み込み後の待機時間（秒）（デフォルト: 3）
@@ -196,7 +205,7 @@ python tools/capture_ui_screenshot.py --url http://localhost:8501 --output scree
 - **事前条件**: Streamlit アプリが `http://localhost:8501` で起動していること
 - **フルページ**: デフォルトで最下部までスクロール後、全体を撮影
 - **待機時間**: 処理が重い場合は `--wait-after-click` を延長（例: 60 秒）
-- **ボタン名**: UI が日本語の場合、絵文字も含めて正確に指定（例: `"▶ 本日のシグナル実行"`）
+  -- **ボタン名**: デフォルトは英語表記 `"Generate Signals"`。日本語 UI を使う場合は絵文字を含めた日本語表記（例: `"▶ 本日のシグナル実行"`）を指定してください。
 - **環境依存**: フォント・レンダリングの微差が発生する可能性あり（決定性は `common/testing.py::set_test_determinism()` で対応）
 - **Git 管理**: `snapshots/`, `results_images/`, `screenshots/` は `.gitignore` で除外されています（テスト用一時ファイルのため）
 

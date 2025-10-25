@@ -58,7 +58,9 @@ def run_tab(
     spy_df: pd.DataFrame | None = None,
     ui_manager: object | None = None,
 ) -> None:
-    st.header(tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング"))
+    st.header(
+        tr(f"{DISPLAY_NAME} — ロング・トレンド＋ハイ・モメンタム 候補銘柄ランキング")
+    )
 
     spy_df = spy_df if spy_df is not None else get_spy_with_indicators()
     if spy_df is None or getattr(spy_df, "empty", True):
@@ -91,18 +93,30 @@ def run_tab(
 
     if results_df is not None and merged_df is not None:
         daily_df = clean_date_column(merged_df, col_name="Date")
-        display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング")
+        display_roc200_ranking(
+            daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング"
+        )
 
-        signal_summary_df = show_signal_trade_summary(merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME)
+        signal_summary_df = show_signal_trade_summary(
+            merged_df, results_df, SYSTEM_NAME, display_name=DISPLAY_NAME
+        )
         with st.expander(tr("取引ログ・保存ファイル"), expanded=False):
-            save_signal_and_trade_logs(signal_summary_df, results_df, SYSTEM_NAME, capital)
+            save_signal_and_trade_logs(
+                signal_summary_df, results_df, SYSTEM_NAME, capital
+            )
         # Prepared data cache save removed (deprecated feature)
 
         summary, df2 = summarize_perf(results_df, capital)
         # 統合タブと同じ算出（ピーク資産比の%）で表示
-        max_dd = float(df2["drawdown"].min()) if "drawdown" in df2.columns else float(summary.max_drawdown)
+        max_dd = (
+            float(df2["drawdown"].min())
+            if "drawdown" in df2.columns
+            else float(summary.max_drawdown)
+        )
         try:
-            max_dd_pct = float((df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100)
+            max_dd_pct = float(
+                (df2["drawdown"] / (float(capital) + df2["cum_max"])).min() * 100
+            )
         except Exception:
             max_dd_pct = (max_dd / capital * 100) if capital else 0.0
         stats: dict[str, Any] = {
@@ -182,7 +196,9 @@ def run_tab(
         chart_url = None
         if not results_df.empty and "symbol" in results_df.columns:
             try:
-                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[0]
+                top_sym = results_df.sort_values("pnl", ascending=False)["symbol"].iloc[
+                    0
+                ]
                 _, chart_url = save_price_chart(str(top_sym), trades=results_df)
             except Exception:
                 chart_url = None
@@ -192,7 +208,9 @@ def run_tab(
             sent = False
             for n in notifiers:
                 try:
-                    mention: str | None = "channel" if getattr(n, "platform", None) == "slack" else None
+                    mention: str | None = (
+                        "channel" if getattr(n, "platform", None) == "slack" else None
+                    )
                     if hasattr(n, "send_backtest_ex"):
                         n.send_backtest_ex(
                             "system1",
@@ -204,7 +222,11 @@ def run_tab(
                         )
                     else:
                         ranking_list_str = [
-                            (x if isinstance(x, str) else str(getattr(x, "get", lambda *_: "?")("symbol")))
+                            (
+                                x
+                                if isinstance(x, str)
+                                else str(getattr(x, "get", lambda *_: "?")("symbol"))
+                            )
                             for x in ranking
                         ]
                         n.send_backtest("system1", period, stats, ranking_list_str)
@@ -222,8 +244,12 @@ def run_tab(
         prev_cap = st.session_state.get(f"{SYSTEM_NAME}_capital_saved")
         if prev_res is not None and prev_merged is not None:
             daily_df = clean_date_column(prev_merged, col_name="Date")
-            display_roc200_ranking(daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング（保存済み）")
-            _ = show_signal_trade_summary(prev_merged, prev_res, SYSTEM_NAME, display_name=DISPLAY_NAME)
+            display_roc200_ranking(
+                daily_df, title=f"📊 {DISPLAY_NAME} 日別ROC200ランキング（保存済み）"
+            )
+            _ = show_signal_trade_summary(
+                prev_merged, prev_res, SYSTEM_NAME, display_name=DISPLAY_NAME
+            )
             try:
                 from common.ui_components import show_results
 

@@ -163,7 +163,9 @@ def create_server() -> Server:
             ),
             types.Tool(
                 name="run_backtest",
-                description=("指定システムで simulate_trades_with_risk を用いた バックテストを実行します。"),
+                description=(
+                    "指定システムで simulate_trades_with_risk を用いた バックテストを実行します。"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {

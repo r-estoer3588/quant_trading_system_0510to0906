@@ -32,7 +32,9 @@ def test_integration():
 
     print("1. レート制限ログのテスト")
     for i in range(5):
-        rate_logger.info_rate_limited(f"進捗メッセージ {i + 1}/5", message_key="progress_test", interval=0.5)
+        rate_logger.info_rate_limited(
+            f"進捗メッセージ {i + 1}/5", message_key="progress_test", interval=0.5
+        )
         time.sleep(0.2)  # 短い間隔で連続実行
 
     print("\n2. 進捗イベント出力のテスト")
@@ -71,7 +73,9 @@ def test_integration():
 
     # 同じメッセージキーで連続実行
     for _ in range(10):
-        rate_logger.debug_rate_limited("同じメッセージのテスト", message_key="same_message", interval=1.0)
+        rate_logger.debug_rate_limited(
+            "同じメッセージのテスト", message_key="same_message", interval=1.0
+        )
         message_count += 1
 
     elapsed_time = time.time() - start_time

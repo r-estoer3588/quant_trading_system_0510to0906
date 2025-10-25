@@ -25,7 +25,9 @@ def test_trade_logs_are_in_expander_in_common_ui_components():
     assert path.exists(), "common/ui_components.py が見つかりません"
     func_src = _get_function_source_text(path, "run_backtest_with_logging")
     # UI 契約: 取引ログはエクスパンダー内で表示されること
-    assert func_src and "expander(" in func_src, "取引ログの表示が expander で包まれていません"
+    assert (
+        func_src and "expander(" in func_src
+    ), "取引ログの表示が expander で包まれていません"
     # なるべく見やすい text_area を使っていること（任意だが回 regress 用）
     assert "text_area(" in func_src, "取引ログの表示に text_area が使われていません"
 
@@ -35,4 +37,6 @@ def test_trade_logs_are_in_expander_in_common_ui_bridge():
     path = Path("common/ui_bridge.py")
     assert path.exists(), "common/ui_bridge.py が見つかりません"
     src = path.read_text(encoding="utf-8", errors="ignore")
-    assert "st.expander(" in src or ".expander(" in src, "ui_bridge のログ表示が expander で包まれていません"
+    assert (
+        "st.expander(" in src or ".expander(" in src
+    ), "ui_bridge のログ表示が expander で包まれていません"

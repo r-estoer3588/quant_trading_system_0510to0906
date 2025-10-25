@@ -128,7 +128,9 @@ def round_dataframe(df: pd.DataFrame, decimals: int | None) -> pd.DataFrame:
     return out
 
 
-def make_csv_formatters(frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None) -> dict:
+def make_csv_formatters(
+    frame: pd.DataFrame, dec_point: str = ".", thous_sep: str | None = None
+) -> dict:
     """CSV 出力用のフォーマッター辞書を作成。
 
     Returns: 列名 -> callable の辞書

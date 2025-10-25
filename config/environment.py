@@ -107,80 +107,119 @@ class EnvironmentConfig:
     """
 
     # ===== 1. ログ制御 =====
-    compact_logs: bool = field(default_factory=lambda: _get_bool_env("COMPACT_TODAY_LOGS", False))
+    compact_logs: bool = field(
+        default_factory=lambda: _get_bool_env("COMPACT_TODAY_LOGS", False)
+    )
     """DEBUGログを抑制し、簡潔なログ出力。本番推奨。"""
 
-    enable_progress_events: bool = field(default_factory=lambda: _get_bool_env("ENABLE_PROGRESS_EVENTS", False))
+    enable_progress_events: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_PROGRESS_EVENTS", False)
+    )
     """進捗イベントをlogs/progress_today.jsonlに出力。"""
 
-    today_signals_log_mode: str = field(default_factory=lambda: _get_str_env("TODAY_SIGNALS_LOG_MODE", ""))
+    today_signals_log_mode: str = field(
+        default_factory=lambda: _get_str_env("TODAY_SIGNALS_LOG_MODE", "")
+    )
     """シグナルログモード: 'compact' / 'verbose' / 'single' / 'dated'"""
 
-    structured_ui_logs: bool = field(default_factory=lambda: _get_bool_env("STRUCTURED_UI_LOGS", False))
+    structured_ui_logs: bool = field(
+        default_factory=lambda: _get_bool_env("STRUCTURED_UI_LOGS", False)
+    )
     """UI向け構造化ログ（JSON）を出力。"""
 
-    structured_log_ndjson: bool = field(default_factory=lambda: _get_bool_env("STRUCTURED_LOG_NDJSON", False))
+    structured_log_ndjson: bool = field(
+        default_factory=lambda: _get_bool_env("STRUCTURED_LOG_NDJSON", False)
+    )
     """NDJSON形式の構造化ログ出力。"""
 
-    show_indicator_logs: bool = field(default_factory=lambda: _get_bool_env("SHOW_INDICATOR_LOGS", False))
+    show_indicator_logs: bool = field(
+        default_factory=lambda: _get_bool_env("SHOW_INDICATOR_LOGS", False)
+    )
     """指標計算進捗ログを表示。"""
 
-    enable_step_timings: bool = field(default_factory=lambda: _get_bool_env("ENABLE_STEP_TIMINGS", False))
+    enable_step_timings: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_STEP_TIMINGS", False)
+    )
     """各処理ステップの実行時間を測定・出力。"""
 
-    enable_substep_logs: bool = field(default_factory=lambda: _get_bool_env("ENABLE_SUBSTEP_LOGS", False))
+    enable_substep_logs: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_SUBSTEP_LOGS", False)
+    )
     """サブステップの詳細ログを有効化。"""
 
     trd_log_ok: bool = field(default_factory=lambda: _get_bool_env("TRD_LOG_OK", False))
     """TRDlist生成成功時のログを表示。"""
 
-    rolling_issues_verbose_head: int = field(default_factory=lambda: _get_int_env("ROLLING_ISSUES_VERBOSE_HEAD", 5))
+    rolling_issues_verbose_head: int = field(
+        default_factory=lambda: _get_int_env("ROLLING_ISSUES_VERBOSE_HEAD", 5)
+    )
     """rollingキャッシュ問題の詳細表示行数。"""
 
     # 進捗表示（UI/CLI 共通）
-    today_progress_chunk: int = field(default_factory=lambda: _get_int_env("TODAY_PROGRESS_CHUNK", 500))
+    today_progress_chunk: int = field(
+        default_factory=lambda: _get_int_env("TODAY_PROGRESS_CHUNK", 500)
+    )
     """進捗ログを出す件数間隔（既定: 500）。"""
 
-    today_progress_thousands: bool = field(default_factory=lambda: _get_bool_env("TODAY_PROGRESS_THOUSANDS", False))
+    today_progress_thousands: bool = field(
+        default_factory=lambda: _get_bool_env("TODAY_PROGRESS_THOUSANDS", False)
+    )
     """進捗件数表示を3桁区切りにする。"""
 
-    today_progress_style: str = field(default_factory=lambda: _get_str_env("TODAY_PROGRESS_STYLE", "both"))
+    today_progress_style: str = field(
+        default_factory=lambda: _get_str_env("TODAY_PROGRESS_STYLE", "both")
+    )
     """進捗表示スタイル: 'elapsed' | 'eta' | 'both'（既定）。"""
 
     no_emoji: bool = field(
-        default_factory=lambda: _get_bool_env("NO_EMOJI", False) or _get_bool_env("DISABLE_EMOJI", False)
+        default_factory=lambda: _get_bool_env("NO_EMOJI", False)
+        or _get_bool_env("DISABLE_EMOJI", False)
     )
     """ログからEmoji（絵文字）を削除。CI/CD用。"""
 
-    rolling_missing_verbose: bool = field(default_factory=lambda: _get_bool_env("ROLLING_MISSING_VERBOSE", False))
+    rolling_missing_verbose: bool = field(
+        default_factory=lambda: _get_bool_env("ROLLING_MISSING_VERBOSE", False)
+    )
     """個別銘柄ごとの rolling 未整備ログを詳細表示（既定は抑制）。"""
 
     # ===== 2. System3固有（テスト用閾値） =====
     min_drop3d_for_test: float | None = field(
         default_factory=lambda: (
-            _get_float_env("MIN_DROP3D_FOR_TEST", float("nan")) if "MIN_DROP3D_FOR_TEST" in os.environ else None
+            _get_float_env("MIN_DROP3D_FOR_TEST", float("nan"))
+            if "MIN_DROP3D_FOR_TEST" in os.environ
+            else None
         )
     )
     """⚠️テスト専用。System3の3日間下落率閾値を上書き。本番環境では絶対に設定しないこと。"""
 
     min_atr_ratio_for_test: float | None = field(
         default_factory=lambda: (
-            _get_float_env("MIN_ATR_RATIO_FOR_TEST", float("nan")) if "MIN_ATR_RATIO_FOR_TEST" in os.environ else None
+            _get_float_env("MIN_ATR_RATIO_FOR_TEST", float("nan"))
+            if "MIN_ATR_RATIO_FOR_TEST" in os.environ
+            else None
         )
     )
     """⚠️テスト専用。System3のATR比率閾値を上書き。本番環境では絶対に設定しないこと。"""
 
     # ===== 3. パフォーマンス・並列処理 =====
-    use_process_pool: bool = field(default_factory=lambda: _get_bool_env("USE_PROCESS_POOL", False))
+    use_process_pool: bool = field(
+        default_factory=lambda: _get_bool_env("USE_PROCESS_POOL", False)
+    )
     """プロセスプールでの並列処理を有効化。"""
 
-    process_pool_workers: int | None = field(default_factory=lambda: _get_int_env("PROCESS_POOL_WORKERS", 0) or None)
+    process_pool_workers: int | None = field(
+        default_factory=lambda: _get_int_env("PROCESS_POOL_WORKERS", 0) or None
+    )
     """プロセスプールのワーカー数。Noneで自動決定。"""
 
-    system6_use_process_pool: bool = field(default_factory=lambda: _get_bool_env("SYSTEM6_USE_PROCESS_POOL", False))
+    system6_use_process_pool: bool = field(
+        default_factory=lambda: _get_bool_env("SYSTEM6_USE_PROCESS_POOL", False)
+    )
     """System6専用のプロセスプール使用フラグ。"""
 
-    system6_force_latest_only: bool = field(default_factory=lambda: _get_bool_env("SYSTEM6_FORCE_LATEST_ONLY", True))
+    system6_force_latest_only: bool = field(
+        default_factory=lambda: _get_bool_env("SYSTEM6_FORCE_LATEST_ONLY", True)
+    )
     """System6 を当日シグナル実行（バックテスト以外）で latest_only 強制する。
 
     目的:
@@ -194,7 +233,9 @@ class EnvironmentConfig:
         - バックテストや履歴検証では full_scan_today / 明示 latest_only=False を優先。
         - 将来 System6 の過去日ランキング分析をする際はこのフラグを False に設定。"""
 
-    basic_data_parallel: bool | None = field(default_factory=lambda: _basic_data_parallel_default())
+    basic_data_parallel: bool | None = field(
+        default_factory=lambda: _basic_data_parallel_default()
+    )
     """基本データ読み込みの並列処理。True=強制並列、False=強制直列、None=自動。"""
 
     basic_data_parallel_threshold: int = field(
@@ -207,23 +248,35 @@ class EnvironmentConfig:
     )
     """基本データ読み込みの最大ワーカー数。Noneで自動決定。"""
 
-    lookback_margin: float = field(default_factory=lambda: _get_float_env("LOOKBACK_MARGIN", 0.15))
+    lookback_margin: float = field(
+        default_factory=lambda: _get_float_env("LOOKBACK_MARGIN", 0.15)
+    )
     """ルックバック期間のマージン（既定15%）。"""
 
-    lookback_min_days: int = field(default_factory=lambda: _get_int_env("LOOKBACK_MIN_DAYS", 80))
+    lookback_min_days: int = field(
+        default_factory=lambda: _get_int_env("LOOKBACK_MIN_DAYS", 80)
+    )
     """ルックバック期間の最小日数。"""
 
     # ===== 4. テスト・デバッグ =====
-    test_mode: str | None = field(default_factory=lambda: _get_str_env("TEST_MODE", "") or None)
+    test_mode: str | None = field(
+        default_factory=lambda: _get_str_env("TEST_MODE", "") or None
+    )
     """テストモード: 'mini' (10銘柄) | 'quick' (50銘柄) | 'sample' (100銘柄) | None。"""
 
-    validate_setup_predicate: bool = field(default_factory=lambda: _get_bool_env("VALIDATE_SETUP_PREDICATE", False))
+    validate_setup_predicate: bool = field(
+        default_factory=lambda: _get_bool_env("VALIDATE_SETUP_PREDICATE", False)
+    )
     """setup列とpredicate関数の一致検証を有効化。開発・デバッグ用。"""
 
-    streamlit_server_enabled: bool = field(default_factory=lambda: _get_bool_env("STREAMLIT_SERVER_ENABLED", False))
+    streamlit_server_enabled: bool = field(
+        default_factory=lambda: _get_bool_env("STREAMLIT_SERVER_ENABLED", False)
+    )
     """Streamlitサーバーモード実行中かどうか。"""
 
-    today_symbol_limit: int | None = field(default_factory=lambda: _get_int_env("TODAY_SYMBOL_LIMIT", 0) or None)
+    today_symbol_limit: int | None = field(
+        default_factory=lambda: _get_int_env("TODAY_SYMBOL_LIMIT", 0) or None
+    )
     """当日シグナルスキャンの対象銘柄数を制限。テスト・デバッグ用。"""
 
     basic_data_test_freshness_tolerance: int = field(
@@ -231,7 +284,9 @@ class EnvironmentConfig:
     )
     """テストモード時のデータ鮮度許容日数。"""
 
-    full_scan_today: bool = field(default_factory=lambda: _get_bool_env("FULL_SCAN_TODAY", False))
+    full_scan_today: bool = field(
+        default_factory=lambda: _get_bool_env("FULL_SCAN_TODAY", False)
+    )
     """全履歴をスキャン（latest_only=False）。デバッグ用。"""
 
     # ===== 3.5. 並列競合制御（テスト/CI向け） =====
@@ -270,23 +325,35 @@ class EnvironmentConfig:
         - 既に list[dict] の場合は変更なし（無害変換）。
     """
 
-    allow_critical_changes: bool = field(default_factory=lambda: _get_bool_env("ALLOW_CRITICAL_CHANGES", False))
+    allow_critical_changes: bool = field(
+        default_factory=lambda: _get_bool_env("ALLOW_CRITICAL_CHANGES", False)
+    )
     """重要ファイルの変更を許可。通常は設定しない。"""
 
-    run_planned_exits: bool = field(default_factory=lambda: _get_bool_env("RUN_PLANNED_EXITS", False))
+    run_planned_exits: bool = field(
+        default_factory=lambda: _get_bool_env("RUN_PLANNED_EXITS", False)
+    )
     """計画的エグジット処理を実行。"""
 
-    max_verbose_lines: int | None = field(default_factory=lambda: _get_int_env("MAX_VERBOSE_LINES", 0) or None)
+    max_verbose_lines: int | None = field(
+        default_factory=lambda: _get_int_env("MAX_VERBOSE_LINES", 0) or None
+    )
     """ログ圧縮検証時の最大行数（verbose）。"""
 
-    max_compact_lines: int | None = field(default_factory=lambda: _get_int_env("MAX_COMPACT_LINES", 0) or None)
+    max_compact_lines: int | None = field(
+        default_factory=lambda: _get_int_env("MAX_COMPACT_LINES", 0) or None
+    )
     """ログ圧縮検証時の最大行数（compact）。"""
 
-    allocation_debug: bool = field(default_factory=lambda: _get_bool_env("ALLOCATION_DEBUG", False))
+    allocation_debug: bool = field(
+        default_factory=lambda: _get_bool_env("ALLOCATION_DEBUG", False)
+    )
     """配分処理の詳細デバッグログを有効化。開発・デバッグ用。"""
 
     export_diagnostics_snapshot_always: bool = field(
-        default_factory=lambda: _get_bool_env("EXPORT_DIAGNOSTICS_SNAPSHOT_ALWAYS", False)
+        default_factory=lambda: _get_bool_env(
+            "EXPORT_DIAGNOSTICS_SNAPSHOT_ALWAYS", False
+        )
     )
     """本番実行（test_mode なし）でも diagnostics スナップショットを出力する。
 
@@ -305,64 +372,102 @@ class EnvironmentConfig:
     """
 
     # ===== 5. API認証（機密情報） =====
-    apca_api_key_id: str = field(default_factory=lambda: _get_str_env("APCA_API_KEY_ID", ""))
+    apca_api_key_id: str = field(
+        default_factory=lambda: _get_str_env("APCA_API_KEY_ID", "")
+    )
     """⚠️機密情報。Alpaca APIキーID。.envで管理。"""
 
-    apca_api_secret_key: str = field(default_factory=lambda: _get_str_env("APCA_API_SECRET_KEY", ""))
+    apca_api_secret_key: str = field(
+        default_factory=lambda: _get_str_env("APCA_API_SECRET_KEY", "")
+    )
     """⚠️機密情報。Alpaca APIシークレットキー。.envで管理。"""
 
-    alpaca_api_base_url: str = field(default_factory=lambda: _get_str_env("ALPACA_API_BASE_URL", ""))
+    alpaca_api_base_url: str = field(
+        default_factory=lambda: _get_str_env("ALPACA_API_BASE_URL", "")
+    )
     """Alpaca APIのベースURL。"""
 
-    alpaca_paper: bool = field(default_factory=lambda: _get_bool_env("ALPACA_PAPER", True))
+    alpaca_paper: bool = field(
+        default_factory=lambda: _get_bool_env("ALPACA_PAPER", True)
+    )
     """ペーパートレーディングモード。本番ではfalse。"""
 
-    slack_bot_token: str = field(default_factory=lambda: _get_str_env("SLACK_BOT_TOKEN", ""))
+    slack_bot_token: str = field(
+        default_factory=lambda: _get_str_env("SLACK_BOT_TOKEN", "")
+    )
     """⚠️機密情報。Slack Bot Token。.envで管理。"""
 
-    slack_channel_logs: str = field(default_factory=lambda: _get_str_env("SLACK_CHANNEL_LOGS", ""))
+    slack_channel_logs: str = field(
+        default_factory=lambda: _get_str_env("SLACK_CHANNEL_LOGS", "")
+    )
     """Slack通知先チャンネル（ログ）。"""
 
-    slack_channel_equity: str = field(default_factory=lambda: _get_str_env("SLACK_CHANNEL_EQUITY", ""))
+    slack_channel_equity: str = field(
+        default_factory=lambda: _get_str_env("SLACK_CHANNEL_EQUITY", "")
+    )
     """Slack通知先チャンネル（エクイティ）。"""
 
-    slack_channel_signals: str = field(default_factory=lambda: _get_str_env("SLACK_CHANNEL_SIGNALS", ""))
+    slack_channel_signals: str = field(
+        default_factory=lambda: _get_str_env("SLACK_CHANNEL_SIGNALS", "")
+    )
     """Slack通知先チャンネル（シグナル）。"""
 
-    discord_webhook_url: str = field(default_factory=lambda: _get_str_env("DISCORD_WEBHOOK_URL", ""))
+    discord_webhook_url: str = field(
+        default_factory=lambda: _get_str_env("DISCORD_WEBHOOK_URL", "")
+    )
     """⚠️機密情報。Discord Webhook URL。.envで管理。"""
 
-    eodhd_api_key: str = field(default_factory=lambda: _get_str_env("EODHD_API_KEY", ""))
+    eodhd_api_key: str = field(
+        default_factory=lambda: _get_str_env("EODHD_API_KEY", "")
+    )
     """⚠️機密情報。EODHD APIキー。.envで管理。"""
 
     # ===== 6. 通知・ダッシュボード =====
-    notify_use_rich: bool = field(default_factory=lambda: _get_bool_env("NOTIFY_USE_RICH", False))
+    notify_use_rich: bool = field(
+        default_factory=lambda: _get_bool_env("NOTIFY_USE_RICH", False)
+    )
     """通知をリッチカード形式で送信。"""
 
-    cache_health_silent: bool = field(default_factory=lambda: _get_bool_env("CACHE_HEALTH_SILENT", False))
+    cache_health_silent: bool = field(
+        default_factory=lambda: _get_bool_env("CACHE_HEALTH_SILENT", False)
+    )
     """キャッシュ健康診断のCLI通知を抑制。"""
 
     # ===== 7. Bulk APIデータ品質検証 =====
-    bulk_api_volume_tolerance: float = field(default_factory=lambda: _get_float_env("BULK_API_VOLUME_TOLERANCE", 5.0))
+    bulk_api_volume_tolerance: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_VOLUME_TOLERANCE", 5.0)
+    )
     """Bulk API Volume差異の許容範囲（パーセント）。デフォルト: 5.0%"""
 
-    bulk_api_price_tolerance: float = field(default_factory=lambda: _get_float_env("BULK_API_PRICE_TOLERANCE", 0.5))
+    bulk_api_price_tolerance: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_PRICE_TOLERANCE", 0.5)
+    )
     """Bulk API価格差異の許容範囲（パーセント）。デフォルト: 0.5%"""
 
-    bulk_api_min_reliability: float = field(default_factory=lambda: _get_float_env("BULK_API_MIN_RELIABILITY", 70.0))
+    bulk_api_min_reliability: float = field(
+        default_factory=lambda: _get_float_env("BULK_API_MIN_RELIABILITY", 70.0)
+    )
     """Bulk API使用の最低信頼性スコア（パーセント）。デフォルト: 70.0%"""
 
     # ===== 8. その他 =====
-    scheduler_workers: int = field(default_factory=lambda: _get_int_env("SCHEDULER_WORKERS", 4))
+    scheduler_workers: int = field(
+        default_factory=lambda: _get_int_env("SCHEDULER_WORKERS", 4)
+    )
     """スケジューラーのワーカー数。"""
 
-    bulk_update_workers: int = field(default_factory=lambda: _get_int_env("BULK_UPDATE_WORKERS", 4))
+    bulk_update_workers: int = field(
+        default_factory=lambda: _get_int_env("BULK_UPDATE_WORKERS", 4)
+    )
     """バルク更新のワーカー数。"""
 
-    data_cache_dir: str = field(default_factory=lambda: _get_str_env("DATA_CACHE_DIR", "data_cache"))
+    data_cache_dir: str = field(
+        default_factory=lambda: _get_str_env("DATA_CACHE_DIR", "data_cache")
+    )
     """データキャッシュディレクトリ。"""
 
-    results_dir: str = field(default_factory=lambda: _get_str_env("RESULTS_DIR", "results_csv"))
+    results_dir: str = field(
+        default_factory=lambda: _get_str_env("RESULTS_DIR", "results_csv")
+    )
     """結果CSV出力先ディレクトリ。"""
 
     logs_dir: str = field(default_factory=lambda: _get_str_env("LOGS_DIR", "logs"))
@@ -379,9 +484,13 @@ class EnvironmentConfig:
         # テスト用閾値が本番環境で設定されていないかチェック
         if not self.compact_logs:  # 本番環境の可能性
             if self.min_drop3d_for_test is not None:
-                errors.append("⚠️ MIN_DROP3D_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。")
+                errors.append(
+                    "⚠️ MIN_DROP3D_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。"
+                )
             if self.min_atr_ratio_for_test is not None:
-                errors.append("⚠️ MIN_ATR_RATIO_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。")
+                errors.append(
+                    "⚠️ MIN_ATR_RATIO_FOR_TEST が設定されています。本番環境では絶対に使用しないでください。"
+                )
 
         # Alpacaペーパートレード警告
         if not self.alpaca_paper and self.apca_api_key_id:
@@ -455,7 +564,9 @@ def print_env_summary() -> None:
     print("=" * 60)
     print("環境変数設定サマリー")
     print("=" * 60)
-    mode = "本番" if env.is_production() else ("テスト" if env.is_test_mode() else "開発")
+    mode = (
+        "本番" if env.is_production() else ("テスト" if env.is_test_mode() else "開発")
+    )
     print(f"モード: {mode}")
     print(f"Compact Logs: {env.compact_logs}")
     print(f"Alpaca Paper Trading: {env.alpaca_paper}")

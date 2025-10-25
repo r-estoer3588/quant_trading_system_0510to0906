@@ -3,6 +3,7 @@
 Writes CSV to results_csv/historical_vs_latest_setup_{date}.csv and
 prints the head (first 50 rows) to stdout in CSV form for easy copy/paste.
 """
+
 from __future__ import annotations
 
 import sys

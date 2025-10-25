@@ -106,7 +106,9 @@ def _get_memory_mb() -> float:
         return 0.0
 
 
-def _time_phase(phase_name: str, phase_func, *args, **kwargs) -> tuple[Any, PhaseResult]:
+def _time_phase(
+    phase_name: str, phase_func, *args, **kwargs
+) -> tuple[Any, PhaseResult]:
     """フェーズ実行時間を計測し PhaseResult を返す"""
     start_mem = _get_memory_mb()
     start_time = time.perf_counter()
@@ -135,7 +137,9 @@ def _time_phase(phase_name: str, phase_func, *args, **kwargs) -> tuple[Any, Phas
                     for sys_name, sys_data in per_system.items():
                         if isinstance(sys_data, dict) and "candidates" in sys_data:
                             cand_count = (
-                                len(sys_data["candidates"]) if hasattr(sys_data["candidates"], "__len__") else 0
+                                len(sys_data["candidates"])
+                                if hasattr(sys_data["candidates"], "__len__")
+                                else 0
                             )
                             candidates_count += cand_count
                             system_breakdown[sys_name] = {
@@ -148,7 +152,11 @@ def _time_phase(phase_name: str, phase_func, *args, **kwargs) -> tuple[Any, Phas
             if "per_system" in result:
                 for sys_name, sys_data in result["per_system"].items():
                     if isinstance(sys_data, dict) and "candidates" in sys_data:
-                        cand_count = len(sys_data["candidates"]) if hasattr(sys_data["candidates"], "__len__") else 0
+                        cand_count = (
+                            len(sys_data["candidates"])
+                            if hasattr(sys_data["candidates"], "__len__")
+                            else 0
+                        )
                         candidates_count += cand_count
                         system_breakdown[sys_name] = {
                             "candidates": cand_count,
@@ -196,7 +204,9 @@ def run_pipeline_benchmark(
 ) -> PipelineBenchResult:
     """今日シグナル全体パイプラインのベンチマークを実行"""
 
-    print(f"[bench] パイプラインベンチマーク開始: symbols_limit={symbols_limit}, dry_run={dry_run}")
+    print(
+        f"[bench] パイプラインベンチマーク開始: symbols_limit={symbols_limit}, dry_run={dry_run}"
+    )
 
     benchmark_start = time.perf_counter()
     phases: list[PhaseResult] = []
@@ -225,7 +235,9 @@ def run_pipeline_benchmark(
 
         return {"symbols": symbols, "count": len(symbols)}
 
-    universe_result, phase1_result = _time_phase("Phase1_Universe", phase1_prepare_universe)
+    universe_result, phase1_result = _time_phase(
+        "Phase1_Universe", phase1_prepare_universe
+    )
     phases.append(phase1_result)
 
     if not universe_result or not universe_result.get("symbols"):
@@ -297,10 +309,16 @@ def run_pipeline_benchmark(
             "data": data,
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
-            "hit_ratio": (cache_hits / (cache_hits + cache_misses) if (cache_hits + cache_misses) > 0 else 0.0),
+            "hit_ratio": (
+                cache_hits / (cache_hits + cache_misses)
+                if (cache_hits + cache_misses) > 0
+                else 0.0
+            ),
         }
 
-    basic_data_result, phase2_result = _time_phase("Phase2_BasicData", phase2_load_basic_data)
+    basic_data_result, phase2_result = _time_phase(
+        "Phase2_BasicData", phase2_load_basic_data
+    )
     phases.append(phase2_result)
 
     if not basic_data_result or not basic_data_result.get("data"):
@@ -327,7 +345,9 @@ def run_pipeline_benchmark(
                 processed_data[symbol] = df  # 実際は指標計算済みデータ
         return {"data": processed_data, "indicators_computed": len(processed_data)}
 
-    indicators_result, phase3_result = _time_phase("Phase3_SharedIndicators", phase3_shared_indicators)
+    indicators_result, phase3_result = _time_phase(
+        "Phase3_SharedIndicators", phase3_shared_indicators
+    )
     phases.append(phase3_result)
 
     # Phase4-6: システム別処理をまとめて実行
@@ -370,13 +390,19 @@ def run_pipeline_benchmark(
             system_results[sys_name] = {
                 "candidates": candidates,
                 "duration_sec": sys_duration,
-                "type": ("long" if sys_name in ["System1", "System3", "System4", "System5"] else "short"),
+                "type": (
+                    "long"
+                    if sys_name in ["System1", "System3", "System4", "System5"]
+                    else "short"
+                ),
             }
             total_candidates += len(candidates)
 
         return {"per_system": system_results, "total_candidates": total_candidates}
 
-    system_result, phase4_6_result = _time_phase("Phase4-6_SystemProcessing", phase4_6_system_processing)
+    system_result, phase4_6_result = _time_phase(
+        "Phase4-6_SystemProcessing", phase4_6_system_processing
+    )
     phases.append(phase4_6_result)
 
     # Phase7: 配分計算
@@ -400,7 +426,9 @@ def run_pipeline_benchmark(
 
         return {"long_final": final_long, "short_final": final_short}
 
-    allocation_result, phase7_result = _time_phase("Phase7_Allocation", phase7_allocation)
+    allocation_result, phase7_result = _time_phase(
+        "Phase7_Allocation", phase7_allocation
+    )
     phases.append(phase7_result)
 
     # Phase8: 保存・通知（dry_run では skip）
@@ -435,9 +463,15 @@ def run_pipeline_benchmark(
 
 def main():
     parser = argparse.ArgumentParser(description="Today signals pipeline benchmark")
-    parser.add_argument("--symbols-limit", type=int, default=50, help="Maximum symbols to process")
-    parser.add_argument("--no-notifications", action="store_true", help="Skip notification phase")
-    parser.add_argument("--dry-run", action="store_true", help="Skip file writing operations")
+    parser.add_argument(
+        "--symbols-limit", type=int, default=50, help="Maximum symbols to process"
+    )
+    parser.add_argument(
+        "--no-notifications", action="store_true", help="Skip notification phase"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Skip file writing operations"
+    )
     parser.add_argument("--timeout", type=float, help="Overall timeout in seconds")
 
     args = parser.parse_args()
@@ -488,7 +522,9 @@ def main():
     print(f"Total duration: {result.total_duration_sec:.2f}s")
     print(f"Symbols processed: {result.symbols_processed}")
     print(f"Cache hit ratio: {result.cache_hit_ratio:.1%}")
-    print(f"Final candidates: Long={result.final_long_candidates}, Short={result.final_short_candidates}")
+    print(
+        f"Final candidates: Long={result.final_long_candidates}, Short={result.final_short_candidates}"
+    )
     print("\nPhase breakdown:")
     for phase in result.phases:
         print(

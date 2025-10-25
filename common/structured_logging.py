@@ -140,7 +140,9 @@ class ErrorCodes:
                             "SYS001E": "システム実行エラー",
                             "NET001E": "ネットワークタイムアウト",
                         }
-                        return error_descriptions.get(mapped_code, f"エラー: {mapped_code}")
+                        return error_descriptions.get(
+                            mapped_code, f"エラー: {mapped_code}"
+                        )
             except Exception:
                 pass
 
@@ -228,7 +230,10 @@ class StructuredFormatter(logging.Formatter):
         caller_frame = None
 
         for frame in reversed(frame_info):
-            if "logging" not in frame.filename and "structured_logging" not in frame.filename:
+            if (
+                "logging" not in frame.filename
+                and "structured_logging" not in frame.filename
+            ):
                 caller_frame = frame
                 break
 
@@ -307,7 +312,9 @@ class SystemAnomalyDetector:
         # Setup shared logger to avoid file handle leaks
         with SystemAnomalyDetector._logger_lock:
             if SystemAnomalyDetector._shared_logger is None:
-                SystemAnomalyDetector._shared_logger = logging.getLogger("anomaly_detector")
+                SystemAnomalyDetector._shared_logger = logging.getLogger(
+                    "anomaly_detector"
+                )
                 if not SystemAnomalyDetector._shared_logger.handlers:
                     handler = logging.FileHandler(self.log_dir / "anomalies.jsonl")
                     handler.setFormatter(StructuredFormatter())
@@ -341,7 +348,9 @@ class SystemAnomalyDetector:
                 alerts.append(cpu_alert)
 
             # メモリ異常検知
-            memory_alert = self._check_memory_anomaly(memory_percent, current_time, system_name)
+            memory_alert = self._check_memory_anomaly(
+                memory_percent, current_time, system_name
+            )
             if memory_alert:
                 alerts.append(memory_alert)
 
@@ -354,7 +363,9 @@ class SystemAnomalyDetector:
 
         return alerts
 
-    def _check_cpu_anomaly(self, current_cpu: float, timestamp: str, system_name: str) -> Optional[AnomalyAlert]:
+    def _check_cpu_anomaly(
+        self, current_cpu: float, timestamp: str, system_name: str
+    ) -> Optional[AnomalyAlert]:
         """CPU異常をチェック。"""
 
         # しきい値チェック
@@ -389,7 +400,9 @@ class SystemAnomalyDetector:
 
         return None
 
-    def _check_memory_anomaly(self, current_memory: float, timestamp: str, system_name: str) -> Optional[AnomalyAlert]:
+    def _check_memory_anomaly(
+        self, current_memory: float, timestamp: str, system_name: str
+    ) -> Optional[AnomalyAlert]:
         """メモリ異常をチェック。"""
 
         # しきい値チェック
@@ -446,7 +459,9 @@ class SystemAnomalyDetector:
                 "system_context": alert.system_context,
             }
 
-            self.logger.log(log_level, f"ANOMALY_DETECTED: {alert.message}", extra=log_data)
+            self.logger.log(
+                log_level, f"ANOMALY_DETECTED: {alert.message}", extra=log_data
+            )
 
     def get_recent_alerts(self, hours: int = 1) -> List[AnomalyAlert]:
         """最近のアラートを取得。"""
@@ -455,7 +470,8 @@ class SystemAnomalyDetector:
         return [
             alert
             for alert in self.alerts
-            if datetime.fromisoformat(alert.timestamp.replace("Z", "+00:00")) > cutoff_time
+            if datetime.fromisoformat(alert.timestamp.replace("Z", "+00:00"))
+            > cutoff_time
         ]
 
 
@@ -479,7 +495,9 @@ class PerformanceDegradationDetector:
         self.min_samples = 5  # 最低5回の実行データが必要
 
         # 実行履歴（操作別）
-        self.execution_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.baseline_window))
+        self.execution_history: Dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=self.baseline_window)
+        )
 
         # アラート記録
         self.degradation_alerts: List[AnomalyAlert] = []
@@ -488,16 +506,22 @@ class PerformanceDegradationDetector:
         # Setup shared logger to avoid file handle leaks
         with PerformanceDegradationDetector._logger_lock:
             if PerformanceDegradationDetector._shared_logger is None:
-                PerformanceDegradationDetector._shared_logger = logging.getLogger("performance_detector")
+                PerformanceDegradationDetector._shared_logger = logging.getLogger(
+                    "performance_detector"
+                )
                 if not PerformanceDegradationDetector._shared_logger.handlers:
-                    handler = logging.FileHandler(self.log_dir / "performance_degradation.jsonl")
+                    handler = logging.FileHandler(
+                        self.log_dir / "performance_degradation.jsonl"
+                    )
                     handler.setFormatter(StructuredFormatter())
                     PerformanceDegradationDetector._shared_logger.addHandler(handler)
                     PerformanceDegradationDetector._shared_logger.setLevel(logging.INFO)
 
             self.logger = PerformanceDegradationDetector._shared_logger
 
-    def record_execution(self, operation: str, duration: float, system_name: str = "unknown") -> Optional[AnomalyAlert]:
+    def record_execution(
+        self, operation: str, duration: float, system_name: str = "unknown"
+    ) -> Optional[AnomalyAlert]:
         """実行時間を記録し、劣化があれば検知。"""
 
         # 履歴に追加
@@ -533,7 +557,9 @@ class PerformanceDegradationDetector:
 
         # 劣化判定
         if current_duration > baseline_avg * self.degradation_threshold:
-            severity = "critical" if current_duration > baseline_avg * 3.0 else "warning"
+            severity = (
+                "critical" if current_duration > baseline_avg * 3.0 else "warning"
+            )
 
             alert = AnomalyAlert(
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -571,7 +597,9 @@ class PerformanceDegradationDetector:
             self.degradation_alerts.append(alert)
 
             # ログレベル決定
-            log_level = logging.ERROR if alert.severity == "critical" else logging.WARNING
+            log_level = (
+                logging.ERROR if alert.severity == "critical" else logging.WARNING
+            )
 
             # 構造化ログ出力
             log_data = {
@@ -586,7 +614,9 @@ class PerformanceDegradationDetector:
                 "sample_count": alert.system_context.get("sample_count"),
             }
 
-            self.logger.log(log_level, f"PERFORMANCE_DEGRADATION: {alert.message}", extra=log_data)
+            self.logger.log(
+                log_level, f"PERFORMANCE_DEGRADATION: {alert.message}", extra=log_data
+            )
 
     def get_operation_baseline(self, operation: str) -> Optional[Dict[str, float]]:
         """操作のベースライン統計を取得。"""
@@ -615,7 +645,8 @@ class PerformanceDegradationDetector:
         return [
             alert
             for alert in self.degradation_alerts
-            if datetime.fromisoformat(alert.timestamp.replace("Z", "+00:00")) > cutoff_time
+            if datetime.fromisoformat(alert.timestamp.replace("Z", "+00:00"))
+            > cutoff_time
         ]
 
 
@@ -647,7 +678,9 @@ class MetricsCollector:
 
             self.logger = MetricsCollector._shared_logger
 
-    def record_metric(self, name: str, value: float, unit: str = "count", **tags) -> None:
+    def record_metric(
+        self, name: str, value: float, unit: str = "count", **tags
+    ) -> None:
         """Record a metric value."""
         with self._lock:
             event = MetricEvent(
@@ -757,7 +790,9 @@ class MetricsCollector:
             # システム別のパフォーマンス指標を記録
             metrics_tags = {"system": system_name, "operation": operation, **tags}
 
-            self.record_metric(f"system_{system_name}_duration", elapsed, "seconds", **metrics_tags)
+            self.record_metric(
+                f"system_{system_name}_duration", elapsed, "seconds", **metrics_tags
+            )
 
             if memory_delta is not None:
                 self.record_metric(
@@ -792,7 +827,9 @@ class MetricsCollector:
                 "duration_sec": round(elapsed, 3),
                 "memory_delta_mb": round(memory_delta, 2) if memory_delta else None,
                 "symbols_processed": symbol_count,
-                "throughput_symbols_per_sec": (round(symbols_per_second, 2) if symbol_count > 0 else None),
+                "throughput_symbols_per_sec": (
+                    round(symbols_per_second, 2) if symbol_count > 0 else None
+                ),
             }
 
             self.logger.info(f"System benchmark: {json.dumps(summary)}")
@@ -919,7 +956,9 @@ class TradingSystemLogger:
             ring_handler = RingBufferHandler(self)
             self.app_logger.addHandler(ring_handler)
 
-    def _get_trace_id(self, trace_context: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def _get_trace_id(
+        self, trace_context: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
         """Get current trace ID from context or trace system."""
         if trace_context and "trace_id" in trace_context:
             return trace_context["trace_id"]
@@ -932,7 +971,9 @@ class TradingSystemLogger:
                 return None
         return None
 
-    def log_with_error_code(self, level: str, message: str, error_code: str, **extra) -> None:
+    def log_with_error_code(
+        self, level: str, message: str, error_code: str, **extra
+    ) -> None:
         """Log message with standardized error code and Japanese description."""
         # Map legacy error codes to new system if available
         if TRADING_ERRORS_AVAILABLE:
@@ -965,7 +1006,9 @@ class TradingSystemLogger:
             "formatted_error": formatted_error,
             **extra,
         }
-        self.app_logger.log(logger_level, f"{formatted_error} {message}", extra=extra_data)
+        self.app_logger.log(
+            logger_level, f"{formatted_error} {message}", extra=extra_data
+        )
 
         # Track error statistics
         if level.upper() == "ERROR":
@@ -976,41 +1019,53 @@ class TradingSystemLogger:
         """Log SPY-related error with standardized code and Japanese description."""
         self.log_with_error_code("ERROR", message, ErrorCodes.SPY001E, **extra)
 
-    def log_system_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_system_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log system execution error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
         self.log_with_error_code("ERROR", message, ErrorCodes.SYS001E, **extra)
 
-    def log_filter_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_filter_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log filter phase error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
         extra["phase"] = "filter"
         self.log_with_error_code("ERROR", message, ErrorCodes.FIL001E, **extra)
 
-    def log_setup_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_setup_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log setup phase error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
         extra["phase"] = "setup"
         self.log_with_error_code("ERROR", message, ErrorCodes.STU001E, **extra)
 
-    def log_trade_candidate_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_trade_candidate_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log trade candidate phase error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
         extra["phase"] = "trade_candidate"
         self.log_with_error_code("ERROR", message, ErrorCodes.TRD001E, **extra)
 
-    def log_entry_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_entry_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log entry phase error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
         extra["phase"] = "entry"
         self.log_with_error_code("ERROR", message, ErrorCodes.ENTRY001E, **extra)
 
-    def log_exit_error(self, message: str, system: Optional[str] = None, **extra) -> None:
+    def log_exit_error(
+        self, message: str, system: Optional[str] = None, **extra
+    ) -> None:
         """Log exit phase error with standardized code and Japanese description."""
         if system:
             extra["trading_system"] = system
@@ -1021,7 +1076,9 @@ class TradingSystemLogger:
         """Setup additional loggers for console, performance, and errors."""
         # Console handler for development
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        console_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
         self.app_logger.addHandler(console_handler)
 
         # Performance logger
@@ -1054,7 +1111,9 @@ class TradingSystemLogger:
 
         return logger
 
-    def log_allocation_event(self, event_type: str, system: str, details: Dict[str, Any]) -> None:
+    def log_allocation_event(
+        self, event_type: str, system: str, details: Dict[str, Any]
+    ) -> None:
         """Log allocation-related events."""
         logger = self.get_logger("allocation")
         logger.info(
@@ -1066,7 +1125,9 @@ class TradingSystemLogger:
         self.metrics.increment_counter(f"allocation_events_{event_type}")
         self.metrics.increment_counter(f"allocation_events_{system}")
 
-    def log_performance_event(self, operation: str, duration: float, details: Optional[Dict[str, Any]] = None) -> None:
+    def log_performance_event(
+        self, operation: str, duration: float, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Log performance events with degradation detection."""
 
         # 基本ログ記録
@@ -1079,11 +1140,15 @@ class TradingSystemLogger:
             },
         )
 
-        self.metrics.record_metric(f"operation_{operation}_duration", duration, "seconds")
+        self.metrics.record_metric(
+            f"operation_{operation}_duration", duration, "seconds"
+        )
 
         # パフォーマンス劣化検知
         system_name = details.get("system", "unknown") if details else "unknown"
-        degradation_alert = self.performance_detector.record_execution(operation, duration, system_name)
+        degradation_alert = self.performance_detector.record_execution(
+            operation, duration, system_name
+        )
 
         # 劣化検知時の追加ログ
         if degradation_alert:
@@ -1093,7 +1158,9 @@ class TradingSystemLogger:
                     "alert_type": degradation_alert.alert_type,
                     "severity": degradation_alert.severity,
                     "operation": operation,
-                    "slowdown_factor": degradation_alert.system_context.get("slowdown_factor"),
+                    "slowdown_factor": degradation_alert.system_context.get(
+                        "slowdown_factor"
+                    ),
                 },
             )
 
@@ -1117,7 +1184,8 @@ class TradingSystemLogger:
             "performance_alerts": len(performance_alerts),
             "bottlenecks": len(bottleneck_analysis["bottlenecks"]),
             "total_errors": self.error_count,
-            "error_rate": self.error_count / max(1, self.metrics.get_summary().get("total_events", 1)),
+            "error_rate": self.error_count
+            / max(1, self.metrics.get_summary().get("total_events", 1)),
             "alerts": {
                 "resource": [
                     {
@@ -1145,7 +1213,9 @@ class TradingSystemLogger:
 
         # 健康状態に問題がある場合はログ記録
         if resource_alerts or performance_alerts or bottleneck_analysis["bottlenecks"]:
-            self.app_logger.warning(f"System health issues detected for {system_name}", extra=health_summary)
+            self.app_logger.warning(
+                f"System health issues detected for {system_name}", extra=health_summary
+            )
 
         # リアルタイムメトリクスにアラート状態を更新
         all_alerts = []
@@ -1198,16 +1268,22 @@ class BottleneckAnalyzer:
         # Setup shared logger to avoid file handle leaks
         with BottleneckAnalyzer._logger_lock:
             if BottleneckAnalyzer._shared_logger is None:
-                BottleneckAnalyzer._shared_logger = logging.getLogger("bottleneck_analyzer")
+                BottleneckAnalyzer._shared_logger = logging.getLogger(
+                    "bottleneck_analyzer"
+                )
                 if not BottleneckAnalyzer._shared_logger.handlers:
-                    handler = logging.FileHandler(self.log_dir / "bottleneck_analysis.jsonl")
+                    handler = logging.FileHandler(
+                        self.log_dir / "bottleneck_analysis.jsonl"
+                    )
                     handler.setFormatter(StructuredFormatter())
                     BottleneckAnalyzer._shared_logger.addHandler(handler)
                     BottleneckAnalyzer._shared_logger.setLevel(logging.INFO)
 
             self.logger = BottleneckAnalyzer._shared_logger
 
-    def record_phase_timing(self, phase: str, duration: float, system_name: str = "unknown", **metadata) -> None:
+    def record_phase_timing(
+        self, phase: str, duration: float, system_name: str = "unknown", **metadata
+    ) -> None:
         """フェーズ実行時間を記録。"""
 
         timing_record = {
@@ -1223,7 +1299,9 @@ class BottleneckAnalyzer:
 
             # 履歴サイズ制限
             if len(self.phase_timings[phase]) > self.max_history:
-                self.phase_timings[phase] = self.phase_timings[phase][-self.max_history :]
+                self.phase_timings[phase] = self.phase_timings[phase][
+                    -self.max_history :
+                ]
 
     def analyze_bottlenecks(self, system_name: str = "all") -> Dict[str, Any]:
         """ボトルネック分析を実行。"""
@@ -1254,8 +1332,12 @@ class BottleneckAnalyzer:
                     "min_duration": min(durations),
                     "max_duration": max(durations),
                     "total_time": sum(durations),
-                    "std_dev": self._calculate_std(durations, sum(durations) / len(durations)),
-                    "recent_trend": self._calculate_trend(durations[-10:] if len(durations) >= 10 else durations),
+                    "std_dev": self._calculate_std(
+                        durations, sum(durations) / len(durations)
+                    ),
+                    "recent_trend": self._calculate_trend(
+                        durations[-10:] if len(durations) >= 10 else durations
+                    ),
                 }
 
                 analysis["phase_analysis"][phase] = phase_stats
@@ -1264,7 +1346,9 @@ class BottleneckAnalyzer:
             if analysis["phase_analysis"]:
                 bottlenecks = self._identify_bottlenecks(analysis["phase_analysis"])
                 analysis["bottlenecks"] = bottlenecks
-                analysis["recommendations"] = self._generate_recommendations(bottlenecks)
+                analysis["recommendations"] = self._generate_recommendations(
+                    bottlenecks
+                )
 
             # 分析結果をログに記録
             self._log_analysis(analysis)
@@ -1309,7 +1393,9 @@ class BottleneckAnalyzer:
         else:
             return "stable"
 
-    def _identify_bottlenecks(self, phase_analysis: Dict[str, Dict[str, float]]) -> List[Dict[str, Any]]:
+    def _identify_bottlenecks(
+        self, phase_analysis: Dict[str, Dict[str, float]]
+    ) -> List[Dict[str, Any]]:
         """ボトルネックを特定。"""
 
         # 総実行時間を計算
@@ -1328,7 +1414,11 @@ class BottleneckAnalyzer:
             )
 
             if is_bottleneck:
-                severity = "high" if time_percentage > 50 else "medium" if time_percentage > 30 else "low"
+                severity = (
+                    "high"
+                    if time_percentage > 50
+                    else "medium" if time_percentage > 30 else "low"
+                )
 
                 bottleneck = {
                     "phase": phase,
@@ -1338,7 +1428,11 @@ class BottleneckAnalyzer:
                     "total_time": stats["total_time"],
                     "trend": stats["recent_trend"],
                     "std_dev": stats["std_dev"],
-                    "variability": ("high" if stats["std_dev"] > stats["avg_duration"] * 0.5 else "normal"),
+                    "variability": (
+                        "high"
+                        if stats["std_dev"] > stats["avg_duration"] * 0.5
+                        else "normal"
+                    ),
                 }
 
                 bottlenecks.append(bottleneck)
@@ -1365,18 +1459,28 @@ class BottleneckAnalyzer:
                 )
 
             if trend == "increasing":
-                recommendations.append(f"📈 '{phase}'フェーズの実行時間が増加傾向です - 原因調査が必要")
+                recommendations.append(
+                    f"📈 '{phase}'フェーズの実行時間が増加傾向です - 原因調査が必要"
+                )
 
             if variability == "high":
-                recommendations.append(f"📊 '{phase}'フェーズの実行時間のばらつきが大きいです - 処理安定化を検討")
+                recommendations.append(
+                    f"📊 '{phase}'フェーズの実行時間のばらつきが大きいです - 処理安定化を検討"
+                )
 
             # フェーズ特有の推奨事項
             if "filter" in phase.lower():
-                recommendations.append(f"🔍 '{phase}': フィルター条件の最適化やインデックス追加を検討")
+                recommendations.append(
+                    f"🔍 '{phase}': フィルター条件の最適化やインデックス追加を検討"
+                )
             elif "signal" in phase.lower():
-                recommendations.append(f"📊 '{phase}': シグナル計算のキャッシュ化や並列処理を検討")
+                recommendations.append(
+                    f"📊 '{phase}': シグナル計算のキャッシュ化や並列処理を検討"
+                )
             elif "allocation" in phase.lower():
-                recommendations.append(f"💰 '{phase}': 配分計算の最適化や事前計算を検討")
+                recommendations.append(
+                    f"💰 '{phase}': 配分計算の最適化や事前計算を検討"
+                )
 
         if not recommendations:
             recommendations.append("✅ 現在、明確なボトルネックは検出されていません")
@@ -1391,8 +1495,12 @@ class BottleneckAnalyzer:
         summary = {
             "phase_count": len(analysis["phase_analysis"]),
             "bottleneck_count": len(analysis["bottlenecks"]),
-            "high_severity_count": sum(1 for b in analysis["bottlenecks"] if b["severity"] == "high"),
-            "top_bottleneck": (analysis["bottlenecks"][0]["phase"] if analysis["bottlenecks"] else None),
+            "high_severity_count": sum(
+                1 for b in analysis["bottlenecks"] if b["severity"] == "high"
+            ),
+            "top_bottleneck": (
+                analysis["bottlenecks"][0]["phase"] if analysis["bottlenecks"] else None
+            ),
         }
 
         self.logger.log(
@@ -1415,11 +1523,16 @@ class BottleneckAnalyzer:
                     "name": phase,
                     "avg_duration": stats["avg_duration"],
                     "time_percentage": (
-                        stats["total_time"] / sum(s["total_time"] for s in analysis["phase_analysis"].values())
+                        stats["total_time"]
+                        / sum(
+                            s["total_time"] for s in analysis["phase_analysis"].values()
+                        )
                     )
                     * 100,
                     "trend": stats["recent_trend"],
-                    "is_bottleneck": any(b["phase"] == phase for b in analysis["bottlenecks"]),
+                    "is_bottleneck": any(
+                        b["phase"] == phase for b in analysis["bottlenecks"]
+                    ),
                 }
                 for phase, stats in analysis["phase_analysis"].items()
             ],
@@ -1458,16 +1571,22 @@ class PredictiveProgressTracker:
         # Setup shared logger to avoid file handle leaks
         with PredictiveProgressTracker._logger_lock:
             if PredictiveProgressTracker._shared_logger is None:
-                PredictiveProgressTracker._shared_logger = logging.getLogger("progress_tracker")
+                PredictiveProgressTracker._shared_logger = logging.getLogger(
+                    "progress_tracker"
+                )
                 if not PredictiveProgressTracker._shared_logger.handlers:
-                    handler = logging.FileHandler(self.log_dir / "progress_predictions.jsonl")
+                    handler = logging.FileHandler(
+                        self.log_dir / "progress_predictions.jsonl"
+                    )
                     handler.setFormatter(StructuredFormatter())
                     PredictiveProgressTracker._shared_logger.addHandler(handler)
                     PredictiveProgressTracker._shared_logger.setLevel(logging.INFO)
 
             self.logger = PredictiveProgressTracker._shared_logger
 
-    def start_tracking(self, operation: str, total_items: int, system_name: str = "unknown") -> str:
+    def start_tracking(
+        self, operation: str, total_items: int, system_name: str = "unknown"
+    ) -> str:
         """進捗追跡を開始。"""
 
         tracking_id = f"{operation}_{system_name}_{int(time.time())}"
@@ -1487,7 +1606,9 @@ class PredictiveProgressTracker:
 
         return tracking_id
 
-    def update_progress(self, tracking_id: str, processed_items: int, phase: str = None) -> Dict[str, Any]:
+    def update_progress(
+        self, tracking_id: str, processed_items: int, phase: str = None
+    ) -> Dict[str, Any]:
         """進捗を更新し、予測情報を返す。"""
 
         with self._progress_lock:
@@ -1536,7 +1657,8 @@ class PredictiveProgressTracker:
                 "phase_times": execution["phase_times"],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "items_per_second": (
-                    execution["total_items"] / (completion_time - execution["start_time"])
+                    execution["total_items"]
+                    / (completion_time - execution["start_time"])
                     if completion_time > execution["start_time"]
                     else 0
                 ),
@@ -1547,7 +1669,9 @@ class PredictiveProgressTracker:
 
             # 履歴サイズ制限
             if len(self.execution_history[operation_key]) > self.max_history:
-                self.execution_history[operation_key] = self.execution_history[operation_key][-self.max_history :]
+                self.execution_history[operation_key] = self.execution_history[
+                    operation_key
+                ][-self.max_history :]
 
             # ログ記録
             self.logger.info(
@@ -1579,11 +1703,15 @@ class PredictiveProgressTracker:
 
         # 履歴ベースの予測
         operation_key = f"{execution['operation']}_{execution['system']}"
-        historical_prediction = self._get_historical_prediction(operation_key, total, processed, elapsed)
+        historical_prediction = self._get_historical_prediction(
+            operation_key, total, processed, elapsed
+        )
 
         # 現在速度ベースの予測
         remaining_items = total - processed
-        simple_remaining_seconds = remaining_items / current_rate if current_rate > 0 else None
+        simple_remaining_seconds = (
+            remaining_items / current_rate if current_rate > 0 else None
+        )
 
         # 予測の統合
         if historical_prediction and simple_remaining_seconds:
@@ -1631,7 +1759,8 @@ class PredictiveProgressTracker:
         similar_tasks = [
             h
             for h in history
-            if abs(h["total_items"] - total_items) / max(total_items, 1) <= 0.3  # 30%以内の差
+            if abs(h["total_items"] - total_items) / max(total_items, 1)
+            <= 0.3  # 30%以内の差
         ]
 
         if not similar_tasks:
@@ -1692,7 +1821,9 @@ class PredictiveProgressTracker:
         """UI表示用の進捗情報をフォーマット。"""
 
         progress_percentage = (
-            (execution["processed_items"] / execution["total_items"]) * 100 if execution["total_items"] > 0 else 0
+            (execution["processed_items"] / execution["total_items"]) * 100
+            if execution["total_items"] > 0
+            else 0
         )
 
         # 残り時間の人間向け表示
@@ -1714,7 +1845,9 @@ class PredictiveProgressTracker:
             completion_time_display = completion_dt.strftime("%H:%M:%S")
 
         return {
-            "tracking_id": next(k for k, v in self.current_executions.items() if v == execution),
+            "tracking_id": next(
+                k for k, v in self.current_executions.items() if v == execution
+            ),
             "operation": execution["operation"],
             "system": execution["system"],
             "progress_percentage": round(progress_percentage, 1),
@@ -1726,14 +1859,18 @@ class PredictiveProgressTracker:
             "completion_time_display": completion_time_display,
             "confidence_level": round(execution.get("confidence_level", 0) * 100, 1),
             "phase_count": len(execution.get("phase_times", [])),
-            "is_prediction_available": execution.get("estimated_remaining_seconds") is not None,
+            "is_prediction_available": execution.get("estimated_remaining_seconds")
+            is not None,
         }
 
     def get_all_active_progress(self) -> List[Dict[str, Any]]:
         """すべてのアクティブな進捗情報を取得。"""
 
         with self._progress_lock:
-            return [self._format_progress_info(execution) for execution in self.current_executions.values()]
+            return [
+                self._format_progress_info(execution)
+                for execution in self.current_executions.values()
+            ]
 
 
 class RealTimeMetricsCollector:
@@ -1791,9 +1928,13 @@ class RealTimeMetricsCollector:
         # Setup shared logger to avoid file handle leaks
         with RealTimeMetricsCollector._logger_lock:
             if RealTimeMetricsCollector._shared_logger is None:
-                RealTimeMetricsCollector._shared_logger = logging.getLogger("realtime_metrics")
+                RealTimeMetricsCollector._shared_logger = logging.getLogger(
+                    "realtime_metrics"
+                )
                 if not RealTimeMetricsCollector._shared_logger.handlers:
-                    handler = logging.FileHandler(self.log_dir / "realtime_metrics.jsonl")
+                    handler = logging.FileHandler(
+                        self.log_dir / "realtime_metrics.jsonl"
+                    )
                     handler.setFormatter(StructuredFormatter())
                     RealTimeMetricsCollector._shared_logger.addHandler(handler)
                     RealTimeMetricsCollector._shared_logger.setLevel(logging.INFO)
@@ -1807,7 +1948,9 @@ class RealTimeMetricsCollector:
             return
 
         self.collection_active = True
-        self.collection_thread = threading.Thread(target=self._collection_loop, daemon=True)
+        self.collection_thread = threading.Thread(
+            target=self._collection_loop, daemon=True
+        )
         self.collection_thread.start()
 
         self.logger.info("Real-time metrics collection started")
@@ -1848,9 +1991,13 @@ class RealTimeMetricsCollector:
 
             with self._metrics_lock:
                 # リアルタイムデータに追加
-                self.cpu_history.append({"timestamp": current_time, "value": cpu_percent})
+                self.cpu_history.append(
+                    {"timestamp": current_time, "value": cpu_percent}
+                )
 
-                self.memory_history.append({"timestamp": current_time, "value": memory_percent})
+                self.memory_history.append(
+                    {"timestamp": current_time, "value": memory_percent}
+                )
 
                 # ディスクI/O情報（可能な場合）
                 try:
@@ -1861,13 +2008,23 @@ class RealTimeMetricsCollector:
                     extended_metrics = {
                         "cpu_percent": cpu_percent,
                         "memory_percent": memory_percent,
-                        "disk_read_mb": (disk_io.read_bytes / 1024 / 1024 if disk_io else 0),
-                        "disk_write_mb": (disk_io.write_bytes / 1024 / 1024 if disk_io else 0),
-                        "network_sent_mb": (network_io.bytes_sent / 1024 / 1024 if network_io else 0),
-                        "network_recv_mb": (network_io.bytes_recv / 1024 / 1024 if network_io else 0),
+                        "disk_read_mb": (
+                            disk_io.read_bytes / 1024 / 1024 if disk_io else 0
+                        ),
+                        "disk_write_mb": (
+                            disk_io.write_bytes / 1024 / 1024 if disk_io else 0
+                        ),
+                        "network_sent_mb": (
+                            network_io.bytes_sent / 1024 / 1024 if network_io else 0
+                        ),
+                        "network_recv_mb": (
+                            network_io.bytes_recv / 1024 / 1024 if network_io else 0
+                        ),
                     }
 
-                    self.logger.debug("System metrics collected", extra=extended_metrics)
+                    self.logger.debug(
+                        "System metrics collected", extra=extended_metrics
+                    )
 
                 except Exception:
                     pass  # ディスク/ネットワークI/O取得に失敗しても継続
@@ -1890,7 +2047,9 @@ class RealTimeMetricsCollector:
         with self._metrics_lock:
             system_data = self.system_performance[system_name]
 
-            system_data["duration"].append({"timestamp": current_time, "value": duration, "operation": operation})
+            system_data["duration"].append(
+                {"timestamp": current_time, "value": duration, "operation": operation}
+            )
 
             system_data["timestamps"].append(current_time)
 
@@ -1940,7 +2099,9 @@ class RealTimeMetricsCollector:
                 "system_metrics": {
                     "cpu": self._filter_by_time(self.cpu_history, time_cutoff),
                     "memory": self._filter_by_time(self.memory_history, time_cutoff),
-                    "throughput": self._filter_by_time(self.throughput_history, time_cutoff),
+                    "throughput": self._filter_by_time(
+                        self.throughput_history, time_cutoff
+                    ),
                 },
                 "system_performance": {},
                 "alerts": {
@@ -1957,17 +2118,23 @@ class RealTimeMetricsCollector:
                 for metric_name, metric_data in system_data.items():
                     if metric_name == "timestamps":
                         continue
-                    filtered_data[metric_name] = self._filter_by_time(metric_data, time_cutoff)
+                    filtered_data[metric_name] = self._filter_by_time(
+                        metric_data, time_cutoff
+                    )
 
                 if any(filtered_data.values()):  # データがある場合のみ含める
                     dashboard_data["system_performance"][system_name] = filtered_data
 
             return dashboard_data
 
-    def _filter_by_time(self, data_history: deque, time_cutoff: float) -> List[Dict[str, Any]]:
+    def _filter_by_time(
+        self, data_history: deque, time_cutoff: float
+    ) -> List[Dict[str, Any]]:
         """時間範囲でデータをフィルタリング。"""
 
-        return [item for item in data_history if item.get("timestamp", 0) >= time_cutoff]
+        return [
+            item for item in data_history if item.get("timestamp", 0) >= time_cutoff
+        ]
 
     def _group_alerts_by_severity(self) -> Dict[str, int]:
         """アラートを重要度別にグループ化。"""
@@ -2028,11 +2195,15 @@ class RealTimeMetricsCollector:
             ]
         )
 
-        summary["data_points"] = len(recent_cpu) + len(recent_memory) + len(recent_throughput)
+        summary["data_points"] = (
+            len(recent_cpu) + len(recent_memory) + len(recent_throughput)
+        )
 
         return summary
 
-    def get_chart_data(self, metric_type: str = "cpu", time_window_minutes: int = 10) -> Dict[str, Any]:
+    def get_chart_data(
+        self, metric_type: str = "cpu", time_window_minutes: int = 10
+    ) -> Dict[str, Any]:
         """グラフ表示用の特定メトリクスデータを取得。"""
 
         current_time = time.time()
@@ -2060,12 +2231,18 @@ class RealTimeMetricsCollector:
                 "unit": unit,
                 "data_points": len(data),
                 "time_range": {
-                    "start": (datetime.fromtimestamp(time_cutoff).isoformat() if data else None),
+                    "start": (
+                        datetime.fromtimestamp(time_cutoff).isoformat()
+                        if data
+                        else None
+                    ),
                     "end": datetime.fromtimestamp(current_time).isoformat(),
                 },
                 "series": [
                     {
-                        "timestamp": datetime.fromtimestamp(item["timestamp"]).isoformat(),
+                        "timestamp": datetime.fromtimestamp(
+                            item["timestamp"]
+                        ).isoformat(),
                         "value": item["value"],
                         "system": item.get("system"),  # スループットの場合のみ
                     }
@@ -2073,7 +2250,9 @@ class RealTimeMetricsCollector:
                 ],
                 "stats": {
                     "current": data[-1]["value"] if data else 0,
-                    "average": (sum(item["value"] for item in data) / len(data) if data else 0),
+                    "average": (
+                        sum(item["value"] for item in data) / len(data) if data else 0
+                    ),
                     "min": min(item["value"] for item in data) if data else 0,
                     "max": max(item["value"] for item in data) if data else 0,
                 },
@@ -2089,7 +2268,9 @@ class RealTimeMetricsCollector:
         """最新のエラーデータを取得"""
         return list(self.error_ring_buffer)[-last_n:]
 
-    def log_error(self, error: Exception, context: Optional[Dict[str, Any]] = None) -> None:
+    def log_error(
+        self, error: Exception, context: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Log errors with context and error code classification."""
         error_context = context or {}
 
@@ -2147,7 +2328,9 @@ class RealTimeMetricsCollector:
         self.metrics.increment_counter(f"errors_{error.__class__.__name__}")
         self.metrics.increment_counter(f"error_codes_{error_code}")
 
-    def log_trading_error(self, trading_error, context: Optional[Dict[str, Any]] = None) -> None:
+    def log_trading_error(
+        self, trading_error, context: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Log TradingError with full context."""
         self.log_error(trading_error, context)
 
@@ -2185,7 +2368,9 @@ def log_allocation_event(event_type: str, system: str, details: Dict[str, Any]) 
     get_trading_logger().log_allocation_event(event_type, system, details)
 
 
-def log_performance_event(operation: str, duration: float, details: Optional[Dict[str, Any]] = None) -> None:
+def log_performance_event(
+    operation: str, duration: float, details: Optional[Dict[str, Any]] = None
+) -> None:
     """Log performance event using global logger."""
     get_trading_logger().log_performance_event(operation, duration, details)
 
@@ -2217,7 +2402,9 @@ def enhanced_finalize_allocation(*args, **kwargs):
     """Wrapper for finalize_allocation with logging."""
     from core.final_allocation import finalize_allocation
 
-    with monitor_performance("finalize_allocation", system_count=len(kwargs.get("per_system", {}))):
+    with monitor_performance(
+        "finalize_allocation", system_count=len(kwargs.get("per_system", {}))
+    ):
         try:
             result_df, summary = finalize_allocation(*args, **kwargs)
 

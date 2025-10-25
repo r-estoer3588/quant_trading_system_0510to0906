@@ -7,11 +7,11 @@ with ALLOCATION_DEBUG output enabled.
 Run:
     $env:ALLOCATION_DEBUG='1'; python tools/repro_allocation_from_logs.py
 """
+
 from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime
 
 import pandas as pd
 
@@ -20,7 +20,17 @@ if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
 
 
-def make_row(symbol, system, entry_price, stop_price, score_key, score, atr20=None, atr10=None, atr40=None):
+def make_row(
+    symbol,
+    system,
+    entry_price,
+    stop_price,
+    score_key,
+    score,
+    atr20=None,
+    atr10=None,
+    atr40=None,
+):
     return {
         "symbol": symbol,
         "system": system,
@@ -53,7 +63,9 @@ def main():
 
     system4_rows = [
         make_row("A", "system4", 143.0, 138.155, "rsi4", 80.42, atr20=3.23, atr40=3.31),
-        make_row("SPY", "system4", 671.3, 659.075, "rsi4", 68.31, atr20=6.96, atr40=6.58),
+        make_row(
+            "SPY", "system4", 671.3, 659.075, "rsi4", 68.31, atr20=6.96, atr40=6.58
+        ),
     ]
 
     per_system = {

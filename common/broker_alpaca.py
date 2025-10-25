@@ -48,7 +48,9 @@ except Exception:  # pragma: no cover
 
 def _require_sdk() -> None:
     if TradingClient is None:
-        raise RuntimeError("alpaca-py がインストールされていません。requirements に追加/インストールしてください。")
+        raise RuntimeError(
+            "alpaca-py がインストールされていません。requirements に追加/インストールしてください。"
+        )
 
 
 def _load_env_once() -> None:
@@ -119,7 +121,9 @@ def submit_order(
     if TimeInForce is None:
         raise RuntimeError("Alpaca SDK is not installed or TimeInForce is unavailable.")
     tif = (
-        getattr(TimeInForce, time_in_force.upper()) if hasattr(TimeInForce, time_in_force.upper()) else TimeInForce.GTC
+        getattr(TimeInForce, time_in_force.upper())
+        if hasattr(TimeInForce, time_in_force.upper())
+        else TimeInForce.GTC
     )
 
     if order_type == "market":
@@ -265,7 +269,9 @@ def log_orders_positions(client) -> tuple[Any, Any]:
 
     # 並列取得で待ち時間を短縮
     with ThreadPoolExecutor(max_workers=2) as executor:
-        orders_future = executor.submit(client.get_orders, GetOrdersRequest(status=QueryOrderStatus.ALL))
+        orders_future = executor.submit(
+            client.get_orders, GetOrdersRequest(status=QueryOrderStatus.ALL)
+        )
         positions_future = executor.submit(client.get_all_positions)
         orders = orders_future.result()
         positions = positions_future.result()
@@ -435,7 +441,9 @@ def reset_paper_account(
             timeout=timeout,
         )
     except Exception as e:  # pragma: no cover - ネットワーク例外
-        return PaperResetResult(ok=False, status_code=0, error=f"network_error:{e}", equity=None, raw=None)
+        return PaperResetResult(
+            ok=False, status_code=0, error=f"network_error:{e}", equity=None, raw=None
+        )
 
     raw_text: str | None = None
     try:
@@ -462,7 +470,9 @@ def reset_paper_account(
             # 404 の場合: 仕様変更 / エンドポイント無効化 / 誤 URL / リージョン差異
             hint = "endpoint still enabled? correct paper key?"
             if resp.status_code == 404:
-                hint += " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
+                hint += (
+                    " (Possibly removed by Alpaca; check latest docs or dashboard UI)"
+                )
             error_msg = f"reset failed status={resp.status_code} ({hint})"
         elif resp.status_code == 422:
             error_msg = "invalid equity value format"

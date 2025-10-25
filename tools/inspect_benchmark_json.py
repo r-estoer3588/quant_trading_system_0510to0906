@@ -64,7 +64,12 @@ def summarize(data: dict[str, Any]) -> str:
         for name, info in phases_obj.items():
             if not isinstance(info, dict):
                 continue
-            sec = info.get("duration_sec") or info.get("seconds") or info.get("duration") or info.get("duration_secs")
+            sec = (
+                info.get("duration_sec")
+                or info.get("seconds")
+                or info.get("duration")
+                or info.get("duration_secs")
+            )
             if isinstance(sec, (int, float)):
                 phases.append((str(name), float(sec)))
     else:

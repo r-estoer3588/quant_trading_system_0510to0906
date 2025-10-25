@@ -85,7 +85,9 @@ class TestGetTotalDaysSystem2:
     def test_empty_dataframes_handling(self):
         """空DataFrame の処理"""
         df_empty = pd.DataFrame()
-        df_normal = pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]})
+        df_normal = pd.DataFrame(
+            {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}
+        )
         data_dict = {"EMPTY": df_empty, "NORMAL": df_normal}
 
         result = get_total_days_system2(data_dict)
@@ -101,8 +103,12 @@ class TestGetTotalDaysSystem2:
 
     def test_mixed_date_column_types(self):
         """混在する日付列タイプの処理"""
-        df1 = pd.DataFrame({"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]})  # Date列
-        df2 = pd.DataFrame({"date": ["2023-01-03", "2023-01-04"], "Close": [200, 201]})  # date列
+        df1 = pd.DataFrame(
+            {"Date": ["2023-01-01", "2023-01-02"], "Close": [100, 101]}
+        )  # Date列
+        df2 = pd.DataFrame(
+            {"date": ["2023-01-03", "2023-01-04"], "Close": [200, 201]}
+        )  # date列
         dates = pd.to_datetime(["2023-01-05"])
         df3 = pd.DataFrame({"Close": [300]}, index=dates)  # インデックス
 
@@ -493,7 +499,9 @@ class TestPrepareDataVectorizedSystem2:
         raw_data = {"AAPL": df, "TSLA": df}
 
         # AAPLのみを指定
-        result = prepare_data_vectorized_system2(raw_data, symbols=["AAPL"], reuse_indicators=True)
+        result = prepare_data_vectorized_system2(
+            raw_data, symbols=["AAPL"], reuse_indicators=True
+        )
 
         # AAPLのみが処理される
         assert "AAPL" in result

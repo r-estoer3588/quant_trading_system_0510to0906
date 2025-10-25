@@ -76,7 +76,9 @@ class TestSystem7ErrorHandling:
             skip_messages.append(msg)
 
         # Should call skip_callback with error about missing atr50
-        result = prepare_data_vectorized_system7(raw_dict, reuse_indicators=False, skip_callback=capture_skip)
+        result = prepare_data_vectorized_system7(
+            raw_dict, reuse_indicators=False, skip_callback=capture_skip
+        )
 
         # Should return empty dict (SPY skipped)
         assert result == {} or "SPY" not in result

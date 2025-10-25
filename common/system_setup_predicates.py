@@ -68,7 +68,9 @@ def _all_not_nan(values: list[float]) -> bool:
 # This predicate combines both for complete evaluation
 
 
-def system1_setup_predicate(row: pd.Series, *, return_reason: bool = False) -> bool | tuple[bool, str | None]:
+def system1_setup_predicate(
+    row: pd.Series, *, return_reason: bool = False
+) -> bool | tuple[bool, str | None]:
     """System1 setup predicate with optional reason.
 
     Conditions (Two-Phase safety included):
@@ -141,7 +143,9 @@ def system1_setup_predicate_bool(row: pd.Series) -> bool:
 # This predicate combines both for complete evaluation
 
 
-def system3_setup_predicate(row: pd.Series, *, return_reason: bool = False) -> bool | tuple[bool, str | None]:
+def system3_setup_predicate(
+    row: pd.Series, *, return_reason: bool = False
+) -> bool | tuple[bool, str | None]:
     """System3 setup predicate with optional reason.
 
     Conditions (Two-Phase safety included):
@@ -229,7 +233,13 @@ def system2_setup_predicate(row: pd.Series) -> bool:
         two_up = bool(row.get("twodayup"))
         if not _all_not_nan([close, dv20, atr_ratio, rsi3]):
             return False
-        return (close >= 5.0) and (dv20 > 25_000_000) and (atr_ratio > 0.03) and (rsi3 > 90.0) and two_up
+        return (
+            (close >= 5.0)
+            and (dv20 > 25_000_000)
+            and (atr_ratio > 0.03)
+            and (rsi3 > 90.0)
+            and two_up
+        )
     except Exception:
         return False
 
@@ -255,12 +265,18 @@ def system4_setup_predicate(row: pd.Series) -> bool:
 # 条件 (filter == setup): Close>=5, adx7>35, atr_pct>DEFAULT_ATR_PCT_THRESHOLD
 
 
-def system5_setup_predicate(row: pd.Series, *, atr_pct_threshold: float | None = None) -> bool:
+def system5_setup_predicate(
+    row: pd.Series, *, atr_pct_threshold: float | None = None
+) -> bool:
     try:
         close = _to_float(row.get("Close"))
         adx7 = _to_float(row.get("adx7"))
         atr_pct = _to_float(row.get("atr_pct"))
-        threshold = atr_pct_threshold if atr_pct_threshold is not None else DEFAULT_ATR_PCT_THRESHOLD
+        threshold = (
+            atr_pct_threshold
+            if atr_pct_threshold is not None
+            else DEFAULT_ATR_PCT_THRESHOLD
+        )
         if not _all_not_nan([close, adx7, atr_pct]):
             return False
         return (close >= 5.0) and (adx7 > 35.0) and (atr_pct > threshold)
@@ -415,7 +431,9 @@ def validate_predicate_equivalence(
 
     if mismatches and log_fn:
         try:
-            log_fn(f"[{system_id}] setup predicate mismatch: mismatches={len(mismatches)} sample={mismatches}")
+            log_fn(
+                f"[{system_id}] setup predicate mismatch: mismatches={len(mismatches)} sample={mismatches}"
+            )
         except Exception:
             pass
 

@@ -84,7 +84,9 @@ class TestSystem7CacheIncremental:
 
         # 増分更新実行 (dict形式で渡す)
         data_dict = {"SPY": full_df}
-        result_dict = prepare_data_vectorized_system7(data_dict, use_cache=True, cache_path=str(cache_path))
+        result_dict = prepare_data_vectorized_system7(
+            data_dict, use_cache=True, cache_path=str(cache_path)
+        )
 
         # 検証
         assert result_dict is not None, "Result should not be None"
@@ -113,7 +115,9 @@ class TestSystem7CacheIncremental:
         cached_df.reset_index().to_feather(cache_path)
 
         # 同じデータで呼び出し (new_rows.empty == True)
-        result_df = prepare_data_vectorized_system7(cached_df, use_cache=True, cache_path=str(cache_path))
+        result_df = prepare_data_vectorized_system7(
+            cached_df, use_cache=True, cache_path=str(cache_path)
+        )
 
         # キャッシュそのまま返却 (Line 102)
         assert result_df is not None
@@ -138,10 +142,14 @@ class TestSystem7CacheIncremental:
         cached_df.reset_index().to_feather(cache_path)
 
         # 新規データ追加
-        full_df = pd.concat([cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)])
+        full_df = pd.concat(
+            [cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)]
+        )
 
         # 増分更新実行
-        result_df = prepare_data_vectorized_system7(full_df, use_cache=True, cache_path=str(cache_path))
+        result_df = prepare_data_vectorized_system7(
+            full_df, use_cache=True, cache_path=str(cache_path)
+        )
 
         # cached 部分の max_70 が保持されている (Line 111)
         cached_indices = cached_df.index
@@ -149,7 +157,9 @@ class TestSystem7CacheIncremental:
             if idx in result_df.index:
                 expected_val = original_max70.loc[idx]
                 actual_val = result_df.loc[idx, "max_70"]
-                assert abs(expected_val - actual_val) < 0.01, f"max_70 at {idx} should be preserved"
+                assert (
+                    abs(expected_val - actual_val) < 0.01
+                ), f"max_70 at {idx} should be preserved"
 
     def test_cache_incremental_feather_save(self, tmp_path):
         """増分更新後のFeather保存 (Lines 112-114)"""
@@ -162,10 +172,14 @@ class TestSystem7CacheIncremental:
         cached_df.reset_index().to_feather(cache_path)
 
         # 新規データ追加
-        full_df = pd.concat([cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)])
+        full_df = pd.concat(
+            [cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)]
+        )
 
         # 増分更新実行
-        _ = prepare_data_vectorized_system7(full_df, use_cache=True, cache_path=str(cache_path))
+        _ = prepare_data_vectorized_system7(
+            full_df, use_cache=True, cache_path=str(cache_path)
+        )
 
         # Featherファイルが更新されている (Line 113)
         assert cache_path.exists(), "Cache file should exist"
@@ -190,14 +204,18 @@ class TestSystem7CacheIncremental:
             [
                 cached_df,
                 self.create_new_spy_data(
-                    start_date=(last_cached_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                    start_date=(last_cached_date + pd.Timedelta(days=1)).strftime(
+                        "%Y-%m-%d"
+                    ),
                     days=10,
                 ),
             ]
         )
 
         # 増分更新実行
-        result_df = prepare_data_vectorized_system7(full_df, use_cache=True, cache_path=str(cache_path))
+        result_df = prepare_data_vectorized_system7(
+            full_df, use_cache=True, cache_path=str(cache_path)
+        )
 
         # 70日コンテキストで再計算されている (Lines 105-107)
         # context_start = last_date - 70日
@@ -220,10 +238,14 @@ class TestSystem7CacheIncremental:
         cached_df.reset_index().to_feather(cache_path)
 
         # 新規データ追加
-        full_df = pd.concat([cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)])
+        full_df = pd.concat(
+            [cached_df, self.create_new_spy_data(start_date="2024-04-11", days=10)]
+        )
 
         # use_cache=False で呼び出し
-        result_df = prepare_data_vectorized_system7(full_df, use_cache=False, cache_path=str(cache_path))
+        result_df = prepare_data_vectorized_system7(
+            full_df, use_cache=False, cache_path=str(cache_path)
+        )
 
         # 全データが再計算される (Lines 99-116をスキップ)
         assert result_df is not None
@@ -241,7 +263,9 @@ class TestSystem7CacheIncremental:
         df = self.create_cached_spy_data(days=100)
 
         # キャッシュなしで呼び出し
-        result_df = prepare_data_vectorized_system7(df, use_cache=True, cache_path=str(cache_path))
+        result_df = prepare_data_vectorized_system7(
+            df, use_cache=True, cache_path=str(cache_path)
+        )
 
         # 全データが新規計算される (増分更新パスはスキップ)
         assert result_df is not None

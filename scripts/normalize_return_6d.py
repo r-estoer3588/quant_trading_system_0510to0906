@@ -136,7 +136,9 @@ def main() -> None:
         print(f"[{profile}] target tickers: {len(tickers)}")
 
         with cf.ThreadPoolExecutor(max_workers=max(1, int(args.workers))) as ex:
-            futures = [ex.submit(_process_one, cm, t, profile, args.dry_run) for t in tickers]
+            futures = [
+                ex.submit(_process_one, cm, t, profile, args.dry_run) for t in tickers
+            ]
             for fut in cf.as_completed(futures):
                 res = fut.result()
                 total_examined += 1

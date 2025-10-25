@@ -92,7 +92,9 @@ class TestSystem7DirectFunctions:
             patch("pandas.read_parquet", side_effect=FileNotFoundError),
             patch("pandas.DataFrame.to_parquet"),
         ):
-            result = prepare_data_vectorized_system7(raw_data_dict, progress_callback=mock_progress)
+            result = prepare_data_vectorized_system7(
+                raw_data_dict, progress_callback=mock_progress
+            )
 
         # プログレスコールバックが呼び出された
         assert len(progress_calls) > 0
@@ -106,11 +108,15 @@ class TestSystem7DirectFunctions:
             {
                 "Open": [400] * 60,
                 "High": [450] * 60,
-                "Low": np.concatenate([np.full(55, 380), [350, 340, 330, 320, 310]]),  # 最後で最低値
+                "Low": np.concatenate(
+                    [np.full(55, 380), [350, 340, 330, 320, 310]]
+                ),  # 最後で最低値
                 "Close": [420] * 60,
                 "ATR50": [10.0] * 60,
                 "min_50": np.concatenate([np.full(55, 350), [340, 330, 320, 310, 300]]),
-                "setup": np.concatenate([np.zeros(55), [1, 1, 1, 1, 1]]),  # 最後の5日でsetup
+                "setup": np.concatenate(
+                    [np.zeros(55), [1, 1, 1, 1, 1]]
+                ),  # 最後の5日でsetup
                 "max_70": [500] * 60,
             },
             index=dates,
@@ -162,7 +168,9 @@ class TestSystem7DirectFunctions:
         with patch("common.utils_spy.resolve_signal_entry_date") as mock_resolve:
             mock_resolve.side_effect = lambda x: x + pd.Timedelta(days=1)
 
-            candidates_by_date, merged_df = generate_candidates_system7(prepared_dict, top_n=5)
+            candidates_by_date, merged_df = generate_candidates_system7(
+                prepared_dict, top_n=5
+            )
 
         assert isinstance(candidates_by_date, dict)
 
@@ -185,7 +193,9 @@ class TestSystem7DirectFunctions:
 
         prepared_dict = {"SPY": test_data}
 
-        candidates_by_date, merged_df = generate_candidates_system7(prepared_dict, top_n=0)
+        candidates_by_date, merged_df = generate_candidates_system7(
+            prepared_dict, top_n=0
+        )
 
         # top_n=0の場合は候補なし
         assert candidates_by_date == {}
@@ -215,7 +225,9 @@ class TestSystem7DirectFunctions:
         def mock_progress(done, total):
             progress_calls.append((done, total))
 
-        candidates_by_date, merged_df = generate_candidates_system7(prepared_dict, progress_callback=mock_progress)
+        candidates_by_date, merged_df = generate_candidates_system7(
+            prepared_dict, progress_callback=mock_progress
+        )
 
         # プログレスコールバックが呼び出される
         assert len(progress_calls) > 0
@@ -294,7 +306,9 @@ class TestSystem7DirectFunctions:
             patch("pandas.read_parquet", side_effect=FileNotFoundError),
             patch("pandas.DataFrame.to_parquet"),
         ):
-            result = prepare_data_vectorized_system7(raw_data_dict, reuse_indicators=False)
+            result = prepare_data_vectorized_system7(
+                raw_data_dict, reuse_indicators=False
+            )
 
         assert isinstance(result, dict)
         assert "SPY" in result

@@ -88,7 +88,7 @@ test.describe("当日シグナル表示", () => {
       // Wait for either the localized success message or the data frame/table
       await Promise.race([
         page
-          .waitForSelector("text=本日のシグナル実行完了", { timeout: 120000 })
+          .waitForSelector("text=Signals generation complete", { timeout: 120000 })
           .catch(() => null),
         page
           .waitForSelector('[data-testid="stDataFrame"]', { timeout: 120000 })

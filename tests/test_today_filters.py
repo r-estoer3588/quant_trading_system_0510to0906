@@ -269,4 +269,6 @@ class TestTodayFilters:
                 result = filter_func(symbols, data)
                 assert isinstance(result, list)
             except Exception as e:
-                pytest.fail(f"Filter {filter_func.__name__} failed with minimal data: {e}")
+                pytest.fail(
+                    f"Filter {filter_func.__name__} failed with minimal data: {e}"
+                )

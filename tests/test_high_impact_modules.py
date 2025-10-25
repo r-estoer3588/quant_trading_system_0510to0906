@@ -56,7 +56,9 @@ class TestSystemCommonWorking:
                     "Volume": [1000000, 1100000, 1200000],
                 }
             ),
-            "GOOGL": pd.DataFrame({"Close": [2000.12, 2010.34], "Volume": [500000, 550000]}),
+            "GOOGL": pd.DataFrame(
+                {"Close": [2000.12, 2010.34], "Volume": [500000, 550000]}
+            ),
         }
 
         try:
@@ -118,7 +120,9 @@ class TestFinalAllocationWorking:
         system_allocations = {"System1_Long": 0.5, "System2_Short": 0.3}
 
         try:
-            result = calculate_position_sizes_fixed_fractional(allocations, prices, total_capital, system_allocations)
+            result = calculate_position_sizes_fixed_fractional(
+                allocations, prices, total_capital, system_allocations
+            )
 
             # Should return dictionary with position sizes
             assert isinstance(result, dict)
@@ -249,7 +253,9 @@ class TestFinalAllocationUtilities:
         try:
             from core.final_allocation import enforce_max_positions
 
-            allocations = {"System1_Long": ["A", "B", "C", "D", "E", "F", "G", "H"]}  # Too many
+            allocations = {
+                "System1_Long": ["A", "B", "C", "D", "E", "F", "G", "H"]
+            }  # Too many
 
             result = enforce_max_positions(allocations, max_positions=5)
             assert isinstance(result, dict)

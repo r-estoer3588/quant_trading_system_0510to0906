@@ -47,7 +47,9 @@ def _create_sample_df(size: int = 10) -> pd.DataFrame:
     )
 
 
-def _create_mock_strategy(has_compute_entry: bool = True, has_compute_exit: bool = True):
+def _create_mock_strategy(
+    has_compute_entry: bool = True, has_compute_exit: bool = True
+):
     """Create a mock strategy for testing"""
     strategy = MagicMock()
 
@@ -68,7 +70,11 @@ def _create_system_state() -> SystemState:
     """Create a basic SystemState for testing"""
     mock_strategy = _create_mock_strategy()
     prepared_data = {"TEST": _create_sample_df(10)}
-    candidates = {pd.Timestamp("2023-01-05"): [{"entry_date": pd.Timestamp("2023-01-05"), "symbol": "TEST"}]}
+    candidates = {
+        pd.Timestamp("2023-01-05"): [
+            {"entry_date": pd.Timestamp("2023-01-05"), "symbol": "TEST"}
+        ]
+    }
 
     return SystemState(
         name="Test System",

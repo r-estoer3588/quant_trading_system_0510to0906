@@ -1,0 +1,30 @@
+name: Controlled Systems Tests
+
+on:
+    push:
+        branches: [main, branch0906]
+    pull_request:
+        branches: [main, branch0906]
+
+jobs:
+    controlled-tests:
+        name: Run controlled systems test (systems 1-6)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.11"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+                  if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
+
+            - name: Run controlled tests
+              run: |
+                  python scripts/run_controlled_tests.py

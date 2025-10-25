@@ -80,7 +80,9 @@ def task_notify_signals():
     try:
         from tools.notify_signals import notify_signals
     except Exception:
-        logging.warning("notify_signals タスクが未実装です。tools/notify_signals.py を用意してください。")
+        logging.warning(
+            "notify_signals タスクが未実装です。tools/notify_signals.py を用意してください。"
+        )
         return
     notify_signals()
 
@@ -89,7 +91,9 @@ def task_notify_metrics():
     try:
         from tools.notify_metrics import notify_metrics
     except Exception:
-        logging.warning("notify_metrics タスクが未実装です。tools/notify_metrics.py を用意してください。")
+        logging.warning(
+            "notify_metrics タスクが未実装です。tools/notify_metrics.py を用意してください。"
+        )
         return
     notify_metrics()
 
@@ -185,7 +189,9 @@ def main():
         tz = None
     jobs = settings.scheduler.jobs
     if not jobs:
-        logging.warning("scheduler.jobs が空です。config/config.yaml を確認してください。")
+        logging.warning(
+            "scheduler.jobs が空です。config/config.yaml を確認してください。"
+        )
         return 0
 
     compiled = []

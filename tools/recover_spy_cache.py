@@ -36,8 +36,12 @@ def fetch_and_cache_spy_from_eodhd(folder=None, group=None):
     """EODHD API から SPY データを取得し CacheManager で保存する（エラー解析強化版）。"""
     symbol = "SPY"
 
-    with trace_context(phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol) as ctx:
-        logger.get_logger("spy_recovery").info(f"Starting SPY cache recovery with trace_id: {ctx.trace_id}")
+    with trace_context(
+        phase=ProcessingPhase.LOAD, system="spy_recovery", symbol=symbol
+    ) as ctx:
+        logger.get_logger("spy_recovery").info(
+            f"Starting SPY cache recovery with trace_id: {ctx.trace_id}"
+        )
 
         try:
             # Phase 1: Configuration and initialization
@@ -99,7 +103,9 @@ def _initialize_components():
             raise DataError(
                 "EODHD_API_KEY が設定されていません",
                 ErrorCode.NET004E,
-                context=ErrorContext(timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="initialization"),
+                context=ErrorContext(
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="initialization"
+                ),
             )
 
         return settings, cache_manager, api_key
@@ -110,7 +116,9 @@ def _initialize_components():
         raise SystemError(
             f"設定またはCacheManager初期化に失敗: {e}",
             ErrorCode.SYS001E,
-            context=ErrorContext(timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="initialization"),
+            context=ErrorContext(
+                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), phase="initialization"
+            ),
             cause=e,
         )
 
@@ -177,7 +185,9 @@ def _fetch_spy_data_with_retry(api_key: str, symbol: str) -> pd.DataFrame:
                 )
 
     # Retry policy for network operations
-    retry_policy = RetryPolicy(max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0)
+    retry_policy = RetryPolicy(
+        max_attempts=3, base_delay=2.0, max_delay=30.0, backoff_factor=2.0
+    )
 
     return retry_with_backoff(
         _fetch_data,
@@ -302,7 +312,9 @@ def _store_to_cache(cache_manager: CacheManager, symbol: str, df: pd.DataFrame):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SPY の日足を取得し CacheManager でキャッシュへ保存")
+    parser = argparse.ArgumentParser(
+        description="SPY の日足を取得し CacheManager でキャッシュへ保存"
+    )
     parser.add_argument(
         "--out",
         dest="out",
@@ -318,6 +330,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.out or args.group:
-        print("⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます")
+        print(
+            "⚠️  --out と --group オプションは CacheManager により自動処理されるため無視されます"
+        )
 
     fetch_and_cache_spy_from_eodhd()

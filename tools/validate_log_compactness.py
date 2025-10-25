@@ -158,7 +158,11 @@ def compare_compact_logs(
     compact_result = validate_compact_log(compact_path, "compact_on", max_compact)
 
     reduction = verbose_result["actual_lines"] - compact_result["actual_lines"]
-    reduction_pct = (reduction / verbose_result["actual_lines"] * 100) if verbose_result["actual_lines"] > 0 else 0.0
+    reduction_pct = (
+        (reduction / verbose_result["actual_lines"] * 100)
+        if verbose_result["actual_lines"] > 0
+        else 0.0
+    )
 
     all_valid = verbose_result["valid"] and compact_result["valid"]
 
@@ -191,9 +195,15 @@ def compare_compact_logs(
 
 def main() -> None:
     """CLI エントリーポイント。"""
-    parser = argparse.ArgumentParser(description="Validate log compactness between COMPACT_TODAY_LOGS=0 and =1")
-    parser.add_argument("--verbose", type=Path, required=True, help="Path to verbose log file")
-    parser.add_argument("--compact", type=Path, required=True, help="Path to compact log file")
+    parser = argparse.ArgumentParser(
+        description="Validate log compactness between COMPACT_TODAY_LOGS=0 and =1"
+    )
+    parser.add_argument(
+        "--verbose", type=Path, required=True, help="Path to verbose log file"
+    )
+    parser.add_argument(
+        "--compact", type=Path, required=True, help="Path to compact log file"
+    )
     parser.add_argument(
         "--max-verbose",
         type=int,

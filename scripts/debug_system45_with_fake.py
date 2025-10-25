@@ -105,7 +105,11 @@ def main():
             atr_series = enriched[sym]["ATR_Pct"]
         elif "ATR_Ratio" in enriched[sym].columns:
             atr_series = enriched[sym]["ATR_Ratio"]
-        atr_last = float(atr_series.iloc[-1]) if atr_series is not None and len(atr_series) else float("nan")
+        atr_last = (
+            float(atr_series.iloc[-1])
+            if atr_series is not None and len(atr_series)
+            else float("nan")
+        )
         print(
             f"[S5 cond] {sym}: av_ok={av_ok} dv_ok={dv_ok} atr_ok={atr_ok} (AvgVolume50={enriched[sym]['AvgVolume50'].iloc[-1]:.0f} DV50={enriched[sym]['DollarVolume50'].iloc[-1]:.2f} ATR_Pct={atr_last:.3f})"
         )

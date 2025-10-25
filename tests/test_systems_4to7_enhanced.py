@@ -77,7 +77,9 @@ class TestSystem4MainFunctions:
             mock_df = pd.DataFrame({"Close": [100], "filter": [True], "setup": [False]})
             mock_batch.return_value = ({"AAPL": mock_df}, [])
 
-            result = prepare_data_vectorized_system4(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
+            result = prepare_data_vectorized_system4(
+                raw_data_dict=None, symbols=symbols, reuse_indicators=False
+            )
 
         assert "AAPL" in result
         mock_batch.assert_called_once()
@@ -99,7 +101,9 @@ class TestSystem4MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system4(prepared_dict, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system4(
+            prepared_dict, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
 
@@ -128,7 +132,9 @@ class TestSystem5MainFunctions:
             mock_df = pd.DataFrame({"Close": [100], "filter": [True], "setup": [False]})
             mock_batch.return_value = ({"AAPL": mock_df}, [])
 
-            result = prepare_data_vectorized_system5(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
+            result = prepare_data_vectorized_system5(
+                raw_data_dict=None, symbols=symbols, reuse_indicators=False
+            )
 
         assert "AAPL" in result
 
@@ -146,7 +152,9 @@ class TestSystem5MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system5(prepared_dict, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system5(
+            prepared_dict, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
 
@@ -175,7 +183,9 @@ class TestSystem6MainFunctions:
             mock_df = pd.DataFrame({"Close": [100], "filter": [True], "setup": [False]})
             mock_cache.return_value = mock_df
 
-            result = prepare_data_vectorized_system6(raw_data_dict=None, symbols=symbols, reuse_indicators=False)
+            result = prepare_data_vectorized_system6(
+                raw_data_dict=None, symbols=symbols, reuse_indicators=False
+            )
 
         assert len(result) >= 0  # May be empty if no valid symbols
 
@@ -193,7 +203,9 @@ class TestSystem6MainFunctions:
 
         prepared_dict = {"AAPL": mock_df}
 
-        candidates_by_date, candidates_df = generate_candidates_system6(prepared_dict, top_n=5)
+        candidates_by_date, candidates_df = generate_candidates_system6(
+            prepared_dict, top_n=5
+        )
 
         assert isinstance(candidates_by_date, dict)
 

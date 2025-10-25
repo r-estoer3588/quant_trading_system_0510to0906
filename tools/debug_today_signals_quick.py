@@ -11,6 +11,7 @@ This script calls each strategy's get_today_signals and prints
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import traceback
@@ -24,7 +25,9 @@ def run_one(StrategyCls, name: str) -> None:
     print(f"--- RUN {name} ---")
     stg = StrategyCls()
     try:
-        df = stg.get_today_signals({}, market_df=None, today=pd.Timestamp("2025-10-20"), log_callback=print)
+        df = stg.get_today_signals(
+            {}, market_df=None, today=pd.Timestamp("2025-10-20"), log_callback=print
+        )
     except Exception as e:
         print(f"{name} get_today_signals raised: {e}")
         traceback.print_exc()
@@ -45,7 +48,7 @@ def run_one(StrategyCls, name: str) -> None:
         pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_one(System1Strategy, "system1")
     run_one(System4Strategy, "system4")
     print("done")

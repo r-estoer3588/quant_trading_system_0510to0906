@@ -96,7 +96,9 @@ class TestSystem2DirectFunctions:
     @patch("core.system2.get_cached_data")
     def test_compute_indicators_minimal_data(self, mock_cached):
         """_compute_indicators の最小データでの処理（20日未満はNoneを返す）"""
-        minimal_data = pd.DataFrame({"Close": [100.0, 101.0]}, index=pd.date_range("2023-01-01", periods=2))
+        minimal_data = pd.DataFrame(
+            {"Close": [100.0, 101.0]}, index=pd.date_range("2023-01-01", periods=2)
+        )
 
         mock_cached.return_value = minimal_data
 
@@ -117,7 +119,9 @@ class TestSystem2DirectFunctions:
                 {"Close": [200, 201]},
                 index=pd.date_range("2023-01-02", "2023-01-03", freq="D"),
             ),
-            "GOOGL": pd.DataFrame({"Close": [1000]}, index=pd.date_range("2023-01-01", periods=1)),
+            "GOOGL": pd.DataFrame(
+                {"Close": [1000]}, index=pd.date_range("2023-01-01", periods=1)
+            ),
         }
 
         result = get_total_days_system2(data_dict)
@@ -156,7 +160,9 @@ class TestSystem2DirectFunctions:
                         close_prices = df["Close"]
                         if len(close_prices) >= 2:
                             # RSIが高い（売られ過ぎでないが上昇し過ぎた）状況を模擬
-                            short_score = close_prices.iloc[-1] / close_prices.iloc[0] * 100
+                            short_score = (
+                                close_prices.iloc[-1] / close_prices.iloc[0] * 100
+                            )
                             if short_score > 105:  # 上昇しすぎたものをショート候補に
                                 candidates.append(
                                     {
@@ -185,11 +191,15 @@ class TestSystem2DirectFunctions:
             "MSFT": pd.DataFrame(
                 {"Close": [300, 290, 280, 270, 260]}  # 下降トレンド（ショート対象外）
             ),
-            "GOOGL": pd.DataFrame({"Close": [2000, 2050, 2100, 2150, 2200]}),  # 上昇トレンド
+            "GOOGL": pd.DataFrame(
+                {"Close": [2000, 2050, 2100, 2150, 2200]}
+            ),  # 上昇トレンド
         }
 
         # mock実装でテスト
-        candidates_by_date, merged_df = mock_generate_candidates_system2(prepared_dict, top_n=2)
+        candidates_by_date, merged_df = mock_generate_candidates_system2(
+            prepared_dict, top_n=2
+        )
 
         # 戻り値構造検証
         assert isinstance(candidates_by_date, dict)
@@ -271,7 +281,9 @@ class TestSystem2DirectFunctions:
         def mock_progress(done, total):
             progress_calls.append((done, total))
 
-        result = prepare_data_vectorized_system2(raw_data_dict, use_process_pool=False, progress_callback=mock_progress)
+        result = prepare_data_vectorized_system2(
+            raw_data_dict, use_process_pool=False, progress_callback=mock_progress
+        )
 
         # 戻り値検証
         assert isinstance(result, dict)

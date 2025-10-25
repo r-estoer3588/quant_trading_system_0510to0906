@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 from typing import Literal
 
 try:
@@ -345,6 +345,7 @@ def capture_streamlit_screenshot(
                 if not waited and wait_results:
                     print("Waiting for results screen markers...")
                     candidates_text = [
+                        "Signals generation complete",
                         "本日のシグナル実行完了",
                         "最終選定銘柄",
                         "本日のシグナルはありません",

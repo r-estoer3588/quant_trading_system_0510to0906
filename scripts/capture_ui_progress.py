@@ -12,15 +12,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime
 import logging
 import os
-from pathlib import Path
 import re
+from datetime import datetime
+from pathlib import Path
 
-from playwright.async_api import Page
+from playwright.async_api import Page, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
 
 # ログ設定
 logging.basicConfig(
@@ -35,7 +34,15 @@ DEFAULT_STREAMLIT_URL = "http://localhost:8501"
 SCREENSHOT_DIR = Path("screenshots/progress_tracking")
 SCREENSHOT_INTERVAL = 2.0  # 秒
 MAX_SCREENSHOTS = 500
-RUN_BUTTON_TEXT = "本日のシグナル実行"  # 実ボタンラベルは "▶ 本日のシグナル実行"
+# Candidate labels the run button may use (keeps backward compatibility).
+# Prefer English 'Generate Signals' but also try common Japanese variants.
+BUTTON_CANDIDATES = [
+    "Generate Signals",
+    "本日のシグナル実行",
+    "▶ 本日のシグナル実行",
+    "シグナル生成",
+    "シグナル生成を開始",
+]
 
 
 async def _try_click_run_button(page: Page) -> bool:
@@ -45,26 +52,40 @@ async def _try_click_run_button(page: Page) -> bool:
     見つからなければ False。
     """
 
-    selectors = [
-        # ARIA ロール（堅牢）
-        lambda: page.get_by_role("button", name=re.compile(RUN_BUTTON_TEXT)),
-        lambda: page.get_by_role("button", name=re.compile(f"▶\\s*{RUN_BUTTON_TEXT}")),
-        # 直接テキスト（完全一致 or 含む）
-        lambda: page.get_by_text(f"▶ {RUN_BUTTON_TEXT}", exact=True),
-        lambda: page.get_by_text(RUN_BUTTON_TEXT),
-        # CSS + テキストフィルタ
-        lambda: page.locator("button").filter(has_text=re.compile(RUN_BUTTON_TEXT)),
-        lambda: page.locator("div.stButton button").filter(has_text=re.compile(RUN_BUTTON_TEXT)),
-    ]
+    # Build selectors for each candidate label to improve robustness across
+    # different language / icon variants.
+    selectors = []
+    for candidate in BUTTON_CANDIDATES:
+        try:
+            selectors.append(
+                lambda c=candidate: page.get_by_role("button", name=re.compile(c))
+            )
+            selectors.append(lambda c=candidate: page.get_by_text(f"▶ {c}", exact=True))
+            selectors.append(lambda c=candidate: page.get_by_text(c))
+            selectors.append(
+                lambda c=candidate: page.locator("button").filter(
+                    has_text=re.compile(c)
+                )
+            )
+            selectors.append(
+                lambda c=candidate: page.locator("div.stButton button").filter(
+                    has_text=re.compile(c)
+                )
+            )
+        except Exception:
+            continue
 
     # スクロールしながら最大 N 回探索
     max_scroll_steps = 8
     for step in range(max_scroll_steps):
         if step > 0:
             # 下方向にスクロール
-            await page.evaluate("window.scrollBy(0, Math.floor(window.innerHeight * 0.9));")
+            await page.evaluate(
+                "window.scrollBy(0, Math.floor(window.innerHeight * 0.9));"
+            )
             await asyncio.sleep(0.5)
 
+        # 各スクロール位置で全セレクタを試す
         for make_locator in selectors:
             try:
                 loc = make_locator()
@@ -75,9 +96,10 @@ async def _try_click_run_button(page: Page) -> bool:
                 logger.info("✅ 『▶ 本日のシグナル実行』ボタンクリック成功")
                 return True
             except PlaywrightTimeoutError:
+                # 見つからなかった場合は次のセレクタで試す
                 continue
             except Exception:
-                # 別のセレクタで再試行
+                # その他の例外は握りつぶして別セレクタで再試行
                 continue
 
     # 先頭に戻って再試行
@@ -205,7 +227,9 @@ async def capture_screenshots() -> None:
                 "--enable-features=WebContentsForceDark",
                 "--blink-settings=forceDarkModeEnabled=true",
             ]
-        browser = await p.chromium.launch(headless=headless, slow_mo=args.slowmo, args=launch_args)
+        browser = await p.chromium.launch(
+            headless=headless, slow_mo=args.slowmo, args=launch_args
+        )
         logger.info(
             "🌐 Chromiumブラウザ起動完了 (%s) slowMo=%sms, color-scheme=%s",
             "headed" if not headless else "headless",
@@ -253,7 +277,9 @@ async def capture_screenshots() -> None:
 
         # 実行ボタンをクリック（スクロール探索込み）
         try:
-            logger.info("🔍 『▶ 本日のシグナル実行』ボタンを探しています...")
+            logger.info(
+                "🔍 Looking for run button: 'Generate Signals' / '本日のシグナル実行' ..."
+            )
             clicked = await _try_click_run_button(page)
             if not clicked:
                 logger.warning("⚠️ 実行ボタンが見つかりません - 手動で実行してください")
@@ -265,7 +291,9 @@ async def capture_screenshots() -> None:
 
         # スクリーンショット撮影ループ
         screenshot_count = 0
-        logger.info(f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）")
+        logger.info(
+            f"📸 スクリーンショット撮影開始（{SCREENSHOT_INTERVAL}秒間隔、最大{MAX_SCREENSHOTS}枚）"
+        )
 
         try:
             while screenshot_count < MAX_SCREENSHOTS:
@@ -283,12 +311,16 @@ async def capture_screenshots() -> None:
                 try:
                     # 0) JSONL: pipeline_complete（全体完了）
                     if _jsonl_has_pipeline_complete():
-                        logger.info("✅ JSONLでpipeline_completeを検出 - 追い撮りして終了")
+                        logger.info(
+                            "✅ JSONLでpipeline_completeを検出 - 追い撮りして終了"
+                        )
                         for i in range(5):
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
 
@@ -299,7 +331,9 @@ async def capture_screenshots() -> None:
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
 
@@ -310,7 +344,9 @@ async def capture_screenshots() -> None:
                             await asyncio.sleep(0.8)
                             ts2 = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                             fn2 = f"progress_{ts2}_final{i + 1}.png"
-                            await page.screenshot(path=str(SCREENSHOT_DIR / fn2), full_page=False)
+                            await page.screenshot(
+                                path=str(SCREENSHOT_DIR / fn2), full_page=False
+                            )
                             screenshot_count += 1
                         return
                 except Exception:

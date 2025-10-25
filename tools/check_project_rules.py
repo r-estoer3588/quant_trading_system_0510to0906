@@ -130,7 +130,9 @@ def main(file_paths: List[str]) -> int:
 
         # 重要度別にソート
         severity_order = {"error": 0, "warning": 1, "info": 2}
-        all_violations.sort(key=lambda v: (severity_order[v["severity"]], v["file"], v["line"]))
+        all_violations.sort(
+            key=lambda v: (severity_order[v["severity"]], v["file"], v["line"])
+        )
 
         for v in all_violations:
             icon = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}[v["severity"]]

@@ -91,6 +91,7 @@ test.describe("配分結果表示", () => {
         const fallbackTexts = [
           "統合実行",
           "run integrated",
+          "Generate Signals",
           "本日のシグナル実行",
           "▶ 本日のシグナル実行",
           "run today signals",

@@ -119,7 +119,9 @@ class TestSystem2ComputeIndicators:
         assert result is None
 
     @patch("core.system2.get_cached_data")
-    def test_compute_indicators_filter_conditions(self, mock_get_data, sample_system2_data):
+    def test_compute_indicators_filter_conditions(
+        self, mock_get_data, sample_system2_data
+    ):
         """Test System2 filter conditions."""
         # Modify data to test filter conditions
         test_data = sample_system2_data.copy()
@@ -140,7 +142,9 @@ class TestSystem2ComputeIndicators:
         assert not result.loc[2, "filter"]  # ATR_Ratio < 0.03
 
     @patch("core.system2.get_cached_data")
-    def test_compute_indicators_setup_conditions(self, mock_get_data, sample_system2_data):
+    def test_compute_indicators_setup_conditions(
+        self, mock_get_data, sample_system2_data
+    ):
         """Test System2 setup conditions."""
         # Modify data to test setup conditions
         test_data = sample_system2_data.copy()
@@ -204,7 +208,9 @@ class TestSystem2GenerateCandidates:
         data_dict = {"TEST_SYMBOL": sample_system2_data_with_setup}
         top_n = 5
 
-        candidates_dict, candidates_df = generate_candidates_system2(data_dict, top_n=top_n)
+        candidates_dict, candidates_df = generate_candidates_system2(
+            data_dict, top_n=top_n
+        )
 
         assert isinstance(candidates_dict, dict)
         assert isinstance(candidates_df, pd.DataFrame | type(None))
@@ -223,7 +229,9 @@ class TestSystem2GenerateCandidates:
         }
         top_n = 5
 
-        candidates_dict, candidates_df = generate_candidates_system2(data_dict, top_n=top_n)
+        candidates_dict, candidates_df = generate_candidates_system2(
+            data_dict, top_n=top_n
+        )
 
         assert isinstance(candidates_dict, dict)
         assert isinstance(candidates_df, pd.DataFrame | type(None))
@@ -236,7 +244,9 @@ class TestSystem2GenerateCandidates:
         assert len(candidates_dict) == 0
         assert candidates_df is None
 
-    def test_generate_candidates_with_default_top_n(self, sample_system2_data_with_setup):
+    def test_generate_candidates_with_default_top_n(
+        self, sample_system2_data_with_setup
+    ):
         """Test generate_candidates with default top_n value."""
         data_dict = {"RANK_TEST": sample_system2_data_with_setup}
 
@@ -245,7 +255,9 @@ class TestSystem2GenerateCandidates:
         assert isinstance(candidates_dict, dict)
         assert isinstance(candidates_df, pd.DataFrame | type(None))
 
-    def test_generate_candidates_with_progress_callback(self, sample_system2_data_with_setup):
+    def test_generate_candidates_with_progress_callback(
+        self, sample_system2_data_with_setup
+    ):
         """Test generate_candidates with progress callback."""
         data_dict = {"DATE_TEST": sample_system2_data_with_setup}
 

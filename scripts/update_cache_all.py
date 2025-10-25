@@ -55,13 +55,17 @@ def run_subprocess(cmd: list[str], description: str) -> float:
         return duration
     except subprocess.CalledProcessError as e:
         duration = time.time() - start_time
-        print(f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {format_duration(duration)})")
+        print(
+            f"❌ {description} 失敗 (Exit Code: {e.returncode}, 所要時間: {format_duration(duration)})"
+        )
         raise
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description=("Daily cache update pipeline - cache_daily_data.py + build_rolling_with_indicators.py")
+        description=(
+            "Daily cache update pipeline - cache_daily_data.py + build_rolling_with_indicators.py"
+        )
     )
     parser.add_argument(
         "--parallel",
@@ -127,10 +131,14 @@ def main():
         end_dt = datetime.fromtimestamp(pipeline_end).strftime("%Y-%m-%d %H:%M:%S")
         # total_duration は個別ステップ合計、実測の壁時計時間との差分はオーバーヘッド
         wall_elapsed = pipeline_end - pipeline_start
-        print(f"\n🎉 Daily Cache Update Pipeline 完了! (総所要時間: {format_duration(total_duration)})")
+        print(
+            f"\n🎉 Daily Cache Update Pipeline 完了! (総所要時間: {format_duration(total_duration)})"
+        )
         print(f"   🕐 開始日時: {start_dt}")
         print(f"   🕐 終了日時: {end_dt}")
-        print(f"   ⏱️ 経過(壁時計): {format_duration(wall_elapsed)}  / ステップ合計: {format_duration(total_duration)}")
+        print(
+            f"   ⏱️ 経過(壁時計): {format_duration(wall_elapsed)}  / ステップ合計: {format_duration(total_duration)}"
+        )
         if not args.skip_cache_daily:
             print(f"   📋 cache_daily_data: {format_duration(duration1)}")
         print(f"   📋 build_rolling: {format_duration(duration2)}")

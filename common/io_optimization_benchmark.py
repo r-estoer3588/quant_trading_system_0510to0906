@@ -74,7 +74,9 @@ class IOBenchmarkResult:
 class IOOptimizationBenchmark:
     """I/O最適化ベンチマーク"""
 
-    def __init__(self, max_workers: int = 4, chunk_size: int = 50, memory_monitoring: bool = True):
+    def __init__(
+        self, max_workers: int = 4, chunk_size: int = 50, memory_monitoring: bool = True
+    ):
         """
         Args:
             max_workers: ThreadPool最大ワーカー数
@@ -105,7 +107,9 @@ class IOOptimizationBenchmark:
             return self.process.memory_info().rss / (1024 * 1024)
         return 0.0
 
-    def _get_file_sample(self, cache_dir: Path, sample_size: int | None = None) -> list[tuple[Path, float]]:
+    def _get_file_sample(
+        self, cache_dir: Path, sample_size: int | None = None
+    ) -> list[tuple[Path, float]]:
         """ファイルサンプル取得（パス, サイズMB）"""
         if not cache_dir.exists():
             return []
@@ -139,7 +143,9 @@ class IOOptimizationBenchmark:
         logger.info(f"Selected {len(file_info)} files from {cache_dir}")
         return file_info
 
-    def _method_sequential_pandas(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_sequential_pandas(
+        self, files: list[tuple[Path, float]]
+    ) -> IOBenchmarkResult:
         """1. シーケンシャル pandas.read_csv"""
         method_name = "Sequential_pandas"
         start_time = time.time()
@@ -202,7 +208,9 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def _method_threaded_pandas(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_threaded_pandas(
+        self, files: list[tuple[Path, float]]
+    ) -> IOBenchmarkResult:
         """2. ThreadPool並列 pandas.read_csv"""
         method_name = f"Threaded_pandas_{self.max_workers}workers"
         start_time = time.time()
@@ -226,7 +234,9 @@ class IOOptimizationBenchmark:
 
         try:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = [executor.submit(load_single_file, file_info) for file_info in files]
+                futures = [
+                    executor.submit(load_single_file, file_info) for file_info in files
+                ]
 
                 for future in as_completed(futures):
                     df = future.result()
@@ -372,7 +382,9 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def _method_batched_concat(self, files: list[tuple[Path, float]]) -> IOBenchmarkResult:
+    def _method_batched_concat(
+        self, files: list[tuple[Path, float]]
+    ) -> IOBenchmarkResult:
         """4. バッチread→concat最適化"""
         method_name = f"Batched_concat_{self.chunk_size}batch"
         start_time = time.time()
@@ -446,9 +458,13 @@ class IOOptimizationBenchmark:
             average_columns_per_file=avg_columns,
         )
 
-    def run_comprehensive_benchmark(self, profile: str = "rolling", sample_size: int = 20) -> list[IOBenchmarkResult]:
+    def run_comprehensive_benchmark(
+        self, profile: str = "rolling", sample_size: int = 20
+    ) -> list[IOBenchmarkResult]:
         """包括的I/Oベンチマーク実行"""
-        logger.info(f"Starting I/O benchmark - profile: {profile}, sample: {sample_size}")
+        logger.info(
+            f"Starting I/O benchmark - profile: {profile}, sample: {sample_size}"
+        )
 
         # ファイルサンプル準備
         cache_dir = self.settings.DATA_CACHE_DIR / profile
@@ -533,9 +549,13 @@ class IOOptimizationBenchmark:
         if baseline_throughput > 0:
             for result in results:
                 if result.method_name != "Sequential_pandas":
-                    improvement = (result.throughput_mb_per_sec / baseline_throughput - 1) * 100
+                    improvement = (
+                        result.throughput_mb_per_sec / baseline_throughput - 1
+                    ) * 100
                     if improvement > 10:
-                        recommendations.append(f"{result.method_name}: {improvement:.1f}%性能向上 - 採用推奨")
+                        recommendations.append(
+                            f"{result.method_name}: {improvement:.1f}%性能向上 - 採用推奨"
+                        )
 
         # メモリ効率性
         if lowest_memory.memory_peak_mb < best_throughput.memory_peak_mb * 0.8:
@@ -594,7 +614,9 @@ def main():
     args = parser.parse_args()
 
     # ロギング設定
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
 
     print("I/O最適化ベンチマーク開始")
     print(f"プロファイル: {args.profile}")
@@ -603,9 +625,13 @@ def main():
     print(f"バッチサイズ: {args.chunk_size}")
 
     # ベンチマーク実行
-    benchmark = IOOptimizationBenchmark(max_workers=args.workers, chunk_size=args.chunk_size, memory_monitoring=True)
+    benchmark = IOOptimizationBenchmark(
+        max_workers=args.workers, chunk_size=args.chunk_size, memory_monitoring=True
+    )
 
-    results = benchmark.run_comprehensive_benchmark(profile=args.profile, sample_size=args.sample)
+    results = benchmark.run_comprehensive_benchmark(
+        profile=args.profile, sample_size=args.sample
+    )
 
     if not results:
         print("❌ ベンチマーク実行失敗")
@@ -618,9 +644,15 @@ def main():
     # 結果表示
     print("\n=== I/O性能ベンチマーク結果 ===")
     perf = report["performance_summary"]
-    print(f"最高スループット: {perf['best_throughput']['method']} ({perf['best_throughput']['value']:.2f} MB/s)")
-    print(f"最速実行時間: {perf['fastest_wall_time']['method']} ({perf['fastest_wall_time']['value']:.3f}秒)")
-    print(f"最小メモリ: {perf['lowest_memory']['method']} ({perf['lowest_memory']['value']:.1f}MB)")
+    print(
+        f"最高スループット: {perf['best_throughput']['method']} ({perf['best_throughput']['value']:.2f} MB/s)"
+    )
+    print(
+        f"最速実行時間: {perf['fastest_wall_time']['method']} ({perf['fastest_wall_time']['value']:.3f}秒)"
+    )
+    print(
+        f"最小メモリ: {perf['lowest_memory']['method']} ({perf['lowest_memory']['value']:.1f}MB)"
+    )
 
     print("\n=== 各手法詳細 ===")
     for result in results:

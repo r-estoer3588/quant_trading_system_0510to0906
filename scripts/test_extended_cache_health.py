@@ -78,10 +78,14 @@ def test_extended_health_check():
             print(f"\n{profile.upper()}:")
             print(f"  ファイル数: {summary['total_files']}")
             print(f"  平均NaN率: {summary['average_nan_rate'] * 100:.2f}%")
-            print(f"  高NaN率ファイル: {summary['files_with_high_nan']} ({summary['high_nan_percentage']:.1f}%)")
+            print(
+                f"  高NaN率ファイル: {summary['files_with_high_nan']} ({summary['high_nan_percentage']:.1f}%)"
+            )
             print(f"  平均ファイルサイズ: {summary['average_file_size_mb']:.3f}MB")
             print(f"  欠損カラム: {summary['total_missing_columns']}")
-            print(f"  日付問題ファイル: {summary['files_with_date_issues']} ({summary['date_issues_percentage']:.1f}%)")
+            print(
+                f"  日付問題ファイル: {summary['files_with_date_issues']} ({summary['date_issues_percentage']:.1f}%)"
+            )
 
         # 推奨事項
         recommendations = report.get("recommendations", [])
@@ -98,7 +102,9 @@ def test_extended_health_check():
             print("\n=== 全体統計 ===")
             print(f"総銘柄数: {overall.get('total_symbols_analyzed', 'N/A')}")
             print(f"平均行数/ファイル: {overall.get('average_rows_per_file', 'N/A')}")
-            print(f"平均カラム数/ファイル: {overall.get('average_columns_per_file', 'N/A')}")
+            print(
+                f"平均カラム数/ファイル: {overall.get('average_columns_per_file', 'N/A')}"
+            )
             print(f"全体健全性率: {overall.get('overall_health_rate', 'N/A')}%")
 
         print("\n=== 出力ファイル ===")
@@ -115,7 +121,9 @@ def test_extended_health_check():
                 if sample_count >= 2:
                     break
                 print(f"\n銘柄: {metrics.symbol} ({profile})")
-                print(f"  行数: {metrics.total_rows}, カラム数: {metrics.total_columns}")
+                print(
+                    f"  行数: {metrics.total_rows}, カラム数: {metrics.total_columns}"
+                )
                 print(f"  NaN率: {metrics.nan_rate_overall * 100:.2f}%")
                 print(f"  高NaNカラム: {len(metrics.columns_with_high_nan)}")
                 print(f"  欠損カラム: {len(metrics.missing_columns)}")
@@ -123,7 +131,9 @@ def test_extended_health_check():
                     f"  時系列問題: 日付欠損={metrics.date_gaps}, 重複={metrics.duplicate_dates}, 順序OK={metrics.chronological_order}"
                 )
                 print(f"  価格異常: {sum(metrics.price_anomalies.values())}")
-                print(f"  既存ヘルスチェック: {metrics.basic_health_results.get('overall_health', 'N/A')}")
+                print(
+                    f"  既存ヘルスチェック: {metrics.basic_health_results.get('overall_health', 'N/A')}"
+                )
                 sample_count += 1
 
         print("\n✅ 拡張キャッシュヘルスチェックテスト完了")
@@ -137,7 +147,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Extended Cache Health Test")
-    parser.add_argument("--sample", type=int, default=5, help="サンプリングサイズ（デフォルト: 5）")
+    parser.add_argument(
+        "--sample", type=int, default=5, help="サンプリングサイズ（デフォルト: 5）"
+    )
     parser.add_argument(
         "--profiles",
         nargs="*",
@@ -155,7 +167,9 @@ if __name__ == "__main__":
 
         checker = ExtendedCacheHealthChecker(sample_size=args.sample)
 
-        print(f"拡張ヘルスチェック開始 - サンプル: {args.sample}, プロファイル: {args.profiles}")
+        print(
+            f"拡張ヘルスチェック開始 - サンプル: {args.sample}, プロファイル: {args.profiles}"
+        )
 
         all_results = {}
         for profile in args.profiles:

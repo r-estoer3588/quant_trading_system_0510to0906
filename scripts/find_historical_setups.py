@@ -2,9 +2,11 @@
 
 Usage: python scripts/find_historical_setups.py --date YYYY-MM-DD --sample 99999
 """
+
 from __future__ import annotations
 import sys
 from pathlib import Path
+
 if str(Path(__file__).resolve().parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -30,9 +32,13 @@ def _setup_logging():
     logger.setLevel(logging.INFO)
 
 
-def read_raw_cache(cm: CacheManager, symbols: list[str], max_workers: int | None = None) -> Dict[str, pd.DataFrame]:
+def read_raw_cache(
+    cm: CacheManager, symbols: list[str], max_workers: int | None = None
+) -> Dict[str, pd.DataFrame]:
     try:
-        return cm.read_batch_parallel(symbols, profile="rolling", max_workers=max_workers or 8)
+        return cm.read_batch_parallel(
+            symbols, profile="rolling", max_workers=max_workers or 8
+        )
     except Exception:
         out = {}
         for s in symbols:
@@ -80,7 +86,14 @@ def main():
                 out = []
                 for idx, r in rows.tail(5).iterrows():
                     d = idx if hasattr(idx, "strftime") else r.get("Date")
-                    out.append({"date": str(d), "drop3d": float(r.get("drop3d", float("nan"))), "atr_ratio": float(r.get("atr_ratio", float("nan"))), "close": float(r.get("Close", float("nan")))})
+                    out.append(
+                        {
+                            "date": str(d),
+                            "drop3d": float(r.get("drop3d", float("nan"))),
+                            "atr_ratio": float(r.get("atr_ratio", float("nan"))),
+                            "close": float(r.get("Close", float("nan"))),
+                        }
+                    )
                 logger.info("%s: matches=%d sample_tail=%s", s, int(mask.sum()), out)
         except Exception as e:
             logger.exception("failed for %s: %s", s, e)

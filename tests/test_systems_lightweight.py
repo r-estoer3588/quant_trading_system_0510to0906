@@ -65,7 +65,9 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            _, result_df, _ = generate_candidates_system1(data_dict, target_date="2024-01-10", top_n=5)
+            _, result_df, _ = generate_candidates_system1(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
             assert isinstance(result_df, (pd.DataFrame, type(None)))
         except Exception:
             # Expected for insufficient data
@@ -76,7 +78,9 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            result = generate_candidates_system2(data_dict, target_date="2024-01-10", top_n=5)
+            result = generate_candidates_system2(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
             assert isinstance(result, pd.DataFrame)
         except Exception:
             assert True
@@ -86,7 +90,9 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            result = generate_candidates_system3(data_dict, target_date="2024-01-10", top_n=5)
+            result = generate_candidates_system3(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
             assert isinstance(result, pd.DataFrame)
         except Exception:
             assert True
@@ -96,7 +102,9 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            result = generate_candidates_system4(data_dict, target_date="2024-01-10", top_n=5)
+            result = generate_candidates_system4(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
             assert isinstance(result, pd.DataFrame)
         except Exception:
             assert True
@@ -106,7 +114,9 @@ class TestSystemBasics:
         data_dict = {"TEST": mock_stock_data}
 
         try:
-            result = generate_candidates_system5(data_dict, target_date="2024-01-10", top_n=5)
+            result = generate_candidates_system5(
+                data_dict, target_date="2024-01-10", top_n=5
+            )
             assert isinstance(result, pd.DataFrame)
         except Exception:
             assert True
@@ -128,7 +138,9 @@ class TestSystemEdgeCases:
         ]:
             try:
                 if func is generate_candidates_system1:
-                    _, result_df, _ = func(empty_dict, target_date="2024-01-10", top_n=5)
+                    _, result_df, _ = func(
+                        empty_dict, target_date="2024-01-10", top_n=5
+                    )
                 else:
                     result_df = func(empty_dict, target_date="2024-01-10", top_n=5)
                 assert isinstance(result_df, pd.DataFrame)

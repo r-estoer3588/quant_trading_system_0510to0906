@@ -30,7 +30,9 @@ def main():
         progress_callback=lambda a, b, c: None,
     )
     print("FINAL:", final.shape, list(final.columns)[:10])
-    summary = {k: (v.shape if hasattr(v, "shape") else None) for k, v in per_sys.items()}
+    summary = {
+        k: (v.shape if hasattr(v, "shape") else None) for k, v in per_sys.items()
+    }
     print("PER_SYSTEM:", summary)
 
 

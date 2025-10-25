@@ -1967,18 +1967,18 @@ class StageTracker:
                 except Exception:
                     pass
 
-            # diagnostics から ranked_top_n_count（真の候補数）を優先的に適用
-            # 既存 cand が None または 0 の場合は上書きして TRDlist を正す
+            # diagnostics から ranked_top_n_count（ランキング段階で選ばれた top-N 件）を
+            # 優先的に TRDlist 表示へ反映する。以前は既存の cand が None/0 の場合のみ
+            # 上書きしていたが、表示要件に合わせて diagnostics が提供する値があれば
+            # 常に TRDlist として表示する（entry は引き続き最終残存件数を使う）。
             if system_diagnostics_map:
                 try:
                     diag = system_diagnostics_map.get(name)
                     if isinstance(diag, dict):
                         r_topn = diag.get("ranked_top_n_count")
                         if isinstance(r_topn, (int, float)) and int(r_topn) > 0:
-                            cur_cand = counts.get("cand")
-                            cur_val = int(cur_cand) if cur_cand is not None else None
-                            if cur_val is None or cur_val <= 0:
-                                counts["cand"] = self._clamp_trdlist(int(r_topn))
+                            # 常に ranked_top_n_count を TRDlist に反映
+                            counts["cand"] = self._clamp_trdlist(int(r_topn))
                 except Exception:
                     pass
 
@@ -2143,10 +2143,10 @@ class StageTracker:
         try:
             lines = [
                 f"Tgt {self._format_value(target_value)}",
-                f"FILpass (最新) {self._format_value(display.get('filter'))}",
-                f"STUpass (最新) {self._format_value(display.get('setup'))}",
-                f"TRDlist (候補) {self._format_trdlist(display.get('cand'))}",
-                f"Entry (配分後) {self._format_value(display.get('entry'))}",
+                f"FILpass {self._format_value(display.get('filter'))}",
+                f"STUpass {self._format_value(display.get('setup'))}",
+                f"TRDlist {self._format_trdlist(display.get('cand'))}",
+                f"Entry {self._format_value(display.get('entry'))}",
                 f"Exit {self._format_value(display.get('exit'))}",
             ]
             placeholder.text("\n".join(lines))
@@ -2192,7 +2192,9 @@ class StageTracker:
         """
         try:
             settings2 = get_settings(create_dirs=True)
-            results_dir = Path(getattr(settings2.outputs, "results_csv_dir", "results_csv"))
+            results_dir = Path(
+                getattr(settings2.outputs, "results_csv_dir", "results_csv")
+            )
         except Exception:
             results_dir = Path("results_csv")
         try:
@@ -3147,6 +3149,26 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
 
     # AllocationSummary を抽出して stage_tracker に渡す（不要な変数削除）
     stage_tracker.finalize_counts(final_df, per_system)
+    # テスト用: E2E/Playwright が UI 上でスナップショットを確実に取得できるよう、
+    # 簡易なエクスポートボタンを用意しておく。実行環境では環境変数
+    # TEST_EXPORT_UI_METRICS=1 を設定してこのコントロールを有効化してください。
+    try:
+        if os.environ.get("TEST_EXPORT_UI_METRICS", "") == "1":
+            try:
+                with st.expander("Diagnostics (for e2e)", expanded=True):
+                    if st.button(
+                        "Export UI metrics (for e2e)", key="export_ui_metrics_button"
+                    ):
+                        try:
+                            stage_tracker._export_metrics_snapshot()
+                            st.success("ui_metrics snapshot exported")
+                        except Exception:
+                            st.error("export failed")
+            except Exception:
+                # UI 補助なので失敗しても続行
+                pass
+    except Exception:
+        pass
     _store_run_results(final_df, per_system)
     return RunArtifacts(
         final_df=final_df,
@@ -3606,9 +3628,79 @@ def render_today_signals_results(
     _render_system_details(per_system, artifacts.stage_tracker, per_system_logs)
     _render_previous_results_section()
     _render_previous_run_logs(artifacts.log_lines)
-    # 処理完了の明確な合図（自動キャプチャの待機マーカーにも使用）
+    # 処理完了の明確な合図（自動キャプチャ/CIの待機マーカーにも使用）
     try:
-        st.success("本日のシグナル実行完了")
+        # Emit an English completion marker to the UI/logger/stdout so
+        # external test runners (Playwright/CI) can detect completion.
+        try:
+            if artifacts and getattr(artifacts, "logger", None) is not None:
+                try:
+                    artifacts.logger.log("Signals generation complete", no_timestamp=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            print("Signals generation complete")
+        except Exception:
+            pass
+
+        st.success("Signals generation complete")
+
+        # Best-effort: write both a simple marker file under the repository
+        # results_csv directory (using project_root) and append a JSONL event
+        # to the logs directory so the capture helper can reliably detect
+        # completion independent of working directory or stdout capture.
+        try:
+            # Safe resolution of project root and logs dir
+            try:
+                repo_root = Path(__file__).resolve().parents[1]
+            except Exception:
+                repo_root = Path(".")
+
+            # results marker (overwrites previous marker)
+            try:
+                marker_dir = repo_root / "results_csv"
+                marker_dir.mkdir(parents=True, exist_ok=True)
+                marker_file = marker_dir / "last_run_complete.txt"
+            except Exception:
+                marker_file = Path("results_csv") / "last_run_complete.txt"
+
+            try:
+                rows = len(final_df) if "final_df" in locals() and final_df is not None else "NA"
+            except Exception:
+                rows = "NA"
+
+            try:
+                with marker_file.open("w", encoding="utf-8") as mf:
+                    mf.write("Signals generation complete\n")
+                    mf.write(f"timestamp_utc: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+                    mf.write(f"final_rows: {rows}\n")
+            except Exception:
+                # ignore write failures
+                pass
+
+            # Append pipeline_complete event to progress_today.jsonl so
+            # external pollers checking logs can detect completion.
+            try:
+                logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                jsonl_path = logs_dir / "progress_today.jsonl"
+                event = {
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "event_type": "pipeline_complete",
+                    "data": {"final_rows": rows},
+                }
+                try:
+                    with jsonl_path.open("a", encoding="utf-8") as jf:
+                        jf.write(json.dumps(event, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -4078,10 +4170,10 @@ def _render_system_details(
             # - Entry: final allocated entries after allocation/finalization
             metrics_parts = [
                 f"Tgt {StageTracker._format_value(display_metrics.get('target'))}",
-                f"FILpass (最新) {StageTracker._format_value(display_metrics.get('filter'))}",
-                f"STUpass (最新) {StageTracker._format_value(display_metrics.get('setup'))}",
-                f"TRDlist (候補) {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
-                f"Entry (配分後) {StageTracker._format_value(display_metrics.get('entry'))}",
+                f"FILpass {StageTracker._format_value(display_metrics.get('filter'))}",
+                f"STUpass {StageTracker._format_value(display_metrics.get('setup'))}",
+                f"TRDlist {stage_tracker._format_trdlist(display_metrics.get('cand'))}",
+                f"Entry {StageTracker._format_value(display_metrics.get('entry'))}",
                 f"Exit {StageTracker._format_value(display_metrics.get('exit'))}",
             ]
             metrics_line = "  ".join(metrics_parts)
@@ -4709,7 +4801,7 @@ if "positions_df" in st.session_state:
                                 width="stretch",
                             )
 
-if st.button("▶ 本日のシグナル実行", type="primary"):
+if st.button("Generate Signals", type="primary"):
     artifacts = execute_today_signals(run_config)
     render_today_signals_results(artifacts, run_config, trade_options)
 else:
