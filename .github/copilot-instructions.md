@@ -1,68 +1,59 @@
-# Copilot Instructions (Condensed)
+# Copilot instructions — quick reference (repository-specific)
 
-目的: このリポジトリで AI エージェントが安全かつ即戦力で編集・追加を行うための最小必須知識。過度な抽象説明より「何を / どこで / どう守るか」。
+目的: AI エージェントがこのリポジトリで安全かつ即戦力に編集・提案できるための最小ルール集。
 
-## 0. 必須参照ドキュメント (Always Reference)
+必ず最初に読む: `docs/README.md`（設計・運用・コマンドの統合ハブ）。編集前はここで仕様・データフローと注意点を確認すること。
 
-**最重要**: 質問・回答・編集前に必ず `docs/README.md` を参照すること。プロジェクト全体の構造・システム仕様・技術詳細・運用ガイドが統合された包括的なナビゲーションハブ。相互参照リンクで関連文書への効率的アクセスが可能。
+主要ポイント（要約）
 
-- **統合目次**: [docs/README.md](docs/README.md) - 4 分野（クイックスタート・システム概要・技術文書・運用ガイド）
-- **システム仕様**: [docs/systems/](docs/systems/) - System1-7 詳細仕様
-- **技術詳細**: [docs/technical/](docs/technical/) - アーキテクチャ・指標・MCP 統合
-- **処理フロー**: [docs/today_signal_scan/](docs/today_signal_scan/) - 8 フェーズ詳細
-- **運用手順**: [docs/operations/](docs/operations/) - 自動実行・通知・監視
-
-## 1. コア構造 / Entry Points
-
-```markdown
-# Copilot instructions — repository quick reference
-
-目的: AI エージェントがこのリポジトリで速やかに安全に編集できるよう、"必ず守ること" と "すぐ役立つ局所ルール" を短くまとめる。
-
-## 必読（最初に開く）
-
-- `docs/README.md` — システム設計・運用・コマンドの統合ハブ。編集前は必ず参照。
-
-## 主要エントリとデータフロー（一目で）
-
-- UI: `apps/app_integrated.py` / `apps/app_today_signals.py` (Streamlit)
+- エントリ: `apps/app_integrated.py`, `apps/app_today_signals.py`（Streamlit UI）
 - 日次パイプライン: `scripts/run_all_systems_today.py`（symbols → load → indicators → filters → setup → signals → allocation → save/notify）
-- 戦略分離: 低レベルロジックは `core/systemX.py`、Strategy は `strategies/systemX_strategy.py` に置く。
+- 戦略分離: 低レベルロジックは `core/systemX.py`、戦略は `strategies/systemX_strategy.py`
 
-## 絶対守るルール（短い）
+必須ルール（破らないでください）
 
-- キャッシュ I/O は常に `common/cache_manager.py::CacheManager` 経由。直接 `pd.read_csv(data_cache/...)` 禁止。
-- System7 は SPY 固定。`core/system7.py` を改変しない。
-- 設定は `config/settings.py::get_settings()` 経由で作成・参照。環境変数は `config/environment.py::get_env_config()` を使う（直接 `os.environ.get()` 禁止）。
+- キャッシュ I/O は常に `common/cache_manager.py::CacheManager` を経由する（直接 `data_cache/` を参照・書き換えない）。
+- `core/system7.py`（SPY 固定）を改変しない。System7 はヘッジ専用で特別扱いです。
+- 設定は必ず `config/settings.py::get_settings()` 経由、環境変数は `config/environment.py::get_env_config()` を通す（直接 `os.environ.get()` 禁止）。
 
-## デバッグ & 診断（すぐ使える）
+重要ファイル（参照例）
 
-- 診断スナップショット: `results_csv_test/diagnostics_test/diagnostics_snapshot_*.json` を参照。
-- デバッグツール: `tools/debug_finalize_allocation.py`（finalize の再現）、`scripts/investigate_entry_issue.py`（調査自動化）。
-- UI キャプチャ: `tools/capture_ui_screenshot.py` / `tools/run_and_snapshot.ps1` と Playwright の `e2e/` テストを参照。
+- 処理フロー: `scripts/run_all_systems_today.py`
+- 最終配分: `core/final_allocation.py` (`finalize_allocation(...)` の呼び出し規約を尊重)
+- キャッシュ: `common/cache_manager.py`, `common/cache_io.py`
+- UI テスト/スクリーンショット: `tools/capture_ui_screenshot.py`, `tools/run_and_snapshot.ps1`, Playwright 設定 `playwright.config.ts`
 
-## 開発コマンド（頻出）
+よく使うコマンド（PowerShell 例）
 
-- 初回依存: `pip install -r requirements.txt`
-- UI: `streamlit run apps/app_integrated.py`
-- 当日一式実行（本番と同様）: `python scripts/run_all_systems_today.py --parallel --save-csv`
+- 依存インストール: `pip install -r requirements.txt`
+- UI 起動: `& .\venv\Scripts\python.exe -m streamlit run apps/app_integrated.py`
+- 当日一式（本番相当）: `python scripts/run_all_systems_today.py --parallel --save-csv`
 - 速い検証: `python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark`
-- テスト: `pytest -q`（`--maxfail=1` などを併用可）
+- テスト: `python -m pytest -q`（個別: `pytest tests/test_system3.py::test_entry_rules`）
 
-## パターンと注意点（具体例）
+デバッグ・検証ループ（推奨ワークフロー）
 
-- Two‑Phase パターン: `common/today_filters.py` → `common/system_setup_predicates.py` → `core/systemX.py` → `strategies/*`。
-- Allocation contract: `core/final_allocation.py::finalize_allocation(per_system, strategies=None, symbol_system_map=None)`。
-  - 期待: callers は可能な限り `strategies` と `symbol_system_map` を渡す。未指定時はファイルからフォールバックするが、CI では `ALLOCATION_REQUIRE_STRATEGIES=1` を推奨。
-- キャッシュインデックス: Feather の DatetimeIndex 必須（`docs/technical/cache_index_requirements.md`）。
+- 変更後は `--test-mode mini` で素早く動作確認。UI 変更は Playwright ベースの `tools/run_and_snapshot.ps1` でスクリーンショットを取り、`snapshots/` と `imgdiff_report.html` を確認する。
+- 再現性問題が疑われる場合、`common/testing.py::set_test_determinism()` を呼んで安定化を試みる。
 
-## PR 前チェック（必須）
+開発スタイルと CI 前提
 
-- キャッシュ経由か、System7/SPY を壊していないか、`get_settings()` を経由した出力先かを確認。
-- `--test-mode mini` で短時間で動作確認 → `pytest -q` を通す。
-- 新規環境変数追加は `config/environment.py` と `docs/technical/environment_variables.md` に追記。
+- Lint/format: `ruff`/`black`/`isort` を `pre-commit` で回す。CI は `ruff/black/mypy/pytest` を実行します。
+- 外部 API 呼び出しはテストで禁止。キャッシュ済みデータ（`data_cache/`）を使うか、モック/フィクスチャを使うこと。
 
----
+実装時の小さな契約（短く）
 
-質問や曖昧な要件があれば、どのファイルに対する変更かと候補となるコマンド（例: `python scripts/run_all_systems_today.py --test-mode mini`）を教えてください。簡潔に追加修正します。
+- 入出力: 公開関数に型ヒントをつける。戻り値はドキュメント化する。
+- エラー: 入力データ不備は早期に ValueError を投げる。外部 I/O の失敗は例外をラップして上位に伝える。
+
+変更を提案したら必ず添える情報（PR 必須項目）
+
+1. どの入力ファイル / キャッシュに影響するか（例: `data_cache/rolling/system3.feather`）
+2. 期待されるテストコマンド（`--test-mode mini` の例）
+3. UI 変更があればスクリーンショット（`results_images/`）
+
+その他: 不明点があれば、編集対象ファイルと実行したいコマンドを教えてください。こちらで patch を作り、`--test-mode mini` で確認して差分を示します。
+
+```
+
 ```
