@@ -198,8 +198,13 @@ def normalize_symbol_system_map(
     return normalized
 
 
-def load_symbol_system_map(path: Path | str | None = None) -> SymbolSystemMap:
-    """Load a symbol-to-system map from *path* (defaults to project location)."""
+def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
+    """Load a legacy-compatible symbol->system mapping.
+
+    Returns mapping with lowercase symbol keys and lowercase primary system
+    values (single string per symbol), to preserve historical expectations
+    in allocation tests and scripts.
+    """
 
     target = Path(path) if path else DEFAULT_SYMBOL_SYSTEM_MAP_PATH
     if not target.exists():
@@ -208,7 +213,29 @@ def load_symbol_system_map(path: Path | str | None = None) -> SymbolSystemMap:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return normalize_symbol_system_map(raw)
+
+    if not isinstance(raw, dict):
+        return {}
+
+    result: dict[str, str] = {}
+    for k, v in raw.items():
+        try:
+            sym = str(k).strip().lower()
+        except Exception:
+            continue
+        if not sym:
+            continue
+        systems = coerce_system_list(v, ensure_all=False)
+        primary = systems[0] if systems else None
+        if not primary:
+            try:
+                primary = str(v).strip()
+            except Exception:
+                primary = ""
+        primary_lc = str(primary).strip().lower()
+        if primary_lc:
+            result[sym] = primary_lc
+    return result
 
 
 def dump_symbol_system_map(

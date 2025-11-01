@@ -12,19 +12,24 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
-import json
 import logging
+import math
 import os
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, TypeAlias, TypedDict
+from typing import Any, TypeAlias, TypedDict, cast
 
 import pandas as pd
 
+from common.symbol_map import (
+    SymbolSystemMap,
+    coerce_system_list,
+    load_symbol_system_map,
+    resolve_primary_system,
+)
 from common.trade_management import TradeManager
-from config.environment import get_env_config
+from config.environment import EnvironmentConfig, get_env_config
 
 # Type aliases for better readability
 PositionDict: TypeAlias = dict[str, Any]
@@ -213,59 +218,6 @@ class AllocationSummary:
             logger.warning("Capital mode summary missing budgets data")
 
 
-def load_symbol_system_map(path: Path | str | None = None) -> dict[str, str]:
-    """Load symbol-to-system mapping from JSON file.
-
-    The helper normalises keys/values to lower case so that lookups become
-    case-insensitive.
-
-    Args:
-        path: Path to the JSON file. Defaults to 'data/symbol_system_map.json'
-
-    Returns:
-        Dictionary mapping symbols to system names. Empty dict if file
-        cannot be loaded or parsed.
-
-    Raises:
-        Never raises - returns empty dict on all errors
-    """
-    if path is None:
-        path = Path("data/symbol_system_map.json")
-
-    path = Path(path)
-    if not path.exists():
-        logger.debug("Symbol system map file not found: %s", path)
-        return {}
-
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError as e:
-        logger.warning("Failed to read symbol system map: %s", e)
-        return {}
-
-    try:
-        raw = json.loads(content)
-    except json.JSONDecodeError as e:
-        logger.error("Invalid JSON in symbol system map: %s", e)
-        return {}
-
-    if not isinstance(raw, dict):
-        logger.error("Symbol system map must be a dictionary, got %s", type(raw))
-        return {}
-
-    result: dict[str, str] = {}
-    for key, value in raw.items():
-        key_str = str(key).strip()
-        val_str = str(value).strip()
-        if not key_str or not val_str:
-            logger.debug("Skipping empty key/value pair: %r -> %r", key, value)
-            continue
-        result[key_str.lower()] = val_str.lower()
-
-    logger.debug("Loaded %d symbol-system mappings", len(result))
-    return result
-
-
 def _get_position_attr(obj: object, name: str) -> Any:
     """Get attribute from position object safely.
 
@@ -288,56 +240,35 @@ def _get_position_attr(obj: object, name: str) -> Any:
 
 def count_active_positions_by_system(
     positions: Sequence[object] | None,
-    symbol_system_map: Mapping[str, str] | None,
+    symbol_system_map: Mapping[str, Any] | None,
 ) -> dict[str, int]:
     """Return a mapping of system names to active position counts.
 
-    Args:
-        positions: Iterable of Alpaca position objects (or dictionaries).
-                  Only entries with a positive qty are counted.
-        symbol_system_map: Mapping of symbol to system name.
-                          Keys are compared case-insensitively.
-
-    Returns:
-        Dictionary mapping system names to position counts
-
-    Notes:
-        - SPY short positions are automatically assigned to system7
-        - Invalid or zero quantity positions are ignored
-        - Position objects can be either objects with attributes or dictionaries
+    The helper tolerates legacy ``symbol -> system`` strings as well as the new
+    ``symbol -> list[str]`` format produced by :mod:`common.symbol_map`.
+    Only the primary system (list先頭) is counted to preserve existing
+    allocation semantics.
     """
+
     if positions is None:
         positions = []
-    if symbol_system_map is None:
-        symbol_system_map = {}
 
-    # Normalize the symbol system map for case-insensitive lookups
-    norm_map: dict[str, str] = {}
-    for key, value in symbol_system_map.items():
-        try:
-            key_str = str(key).strip()
-            val_str = str(value).strip()
-            if not key_str or not val_str:
-                logger.debug(
-                    "Skipping empty key/value in symbol_system_map: %r -> %r",
-                    key,
-                    value,
-                )
+    normalized: SymbolSystemMap = {}
+    if symbol_system_map:
+        for key, value in symbol_system_map.items():
+            try:
+                symbol = str(key).strip().upper()
+            except Exception:
                 continue
-            norm_map[key_str.upper()] = val_str.lower()
-        except Exception as e:
-            logger.warning(
-                "Error processing symbol_system_map entry %r -> %r: %s",
-                key,
-                value,
-                e,
-            )
-            continue
+            if not symbol:
+                continue
+            systems = coerce_system_list(value, ensure_all=False)
+            if systems:
+                normalized[symbol] = systems
 
     counts: dict[str, int] = {}
     for i, pos in enumerate(positions):
         try:
-            # Extract symbol
             symbol_raw = _get_position_attr(pos, "symbol")
             if symbol_raw is None:
                 logger.debug("Position %d missing symbol", i)
@@ -348,36 +279,42 @@ def count_active_positions_by_system(
                 logger.debug("Position %d has empty symbol", i)
                 continue
 
-            # Extract and validate quantity
             qty_raw = _get_position_attr(pos, "qty")
             try:
                 qty_val = abs(float(qty_raw)) if qty_raw is not None else 0.0
-            except (TypeError, ValueError) as e:
-                logger.debug("Position %d invalid quantity %r: %s", i, qty_raw, e)
+            except (TypeError, ValueError) as exc:
+                logger.debug("Position %d invalid quantity %r: %s", i, qty_raw, exc)
                 qty_val = 0.0
 
             if qty_val <= 0:
                 logger.debug("Position %d has zero/negative quantity: %s", i, qty_val)
                 continue
 
-            # Extract side for special SPY handling
             side_raw = _get_position_attr(pos, "side")
             side = str(side_raw).strip().lower() if side_raw is not None else ""
 
-            # Determine system
-            system = norm_map.get(sym) or norm_map.get(sym.lower())
-            if not system:
-                # Special case: SPY short positions go to system7
+            primary_system = resolve_primary_system(normalized.get(sym))
+            if not primary_system:
                 if sym == "SPY" and side == "short":
-                    system = "system7"
+                    primary_system = "system7"
                 else:
                     logger.debug("No system mapping found for symbol: %s", sym)
                     continue
 
-            counts[system] = counts.get(system, 0) + 1
+            if logger.isEnabledFor(logging.DEBUG):
+                systems_for_symbol = normalized.get(sym)
+                if systems_for_symbol and len(systems_for_symbol) > 1:
+                    logger.debug(
+                        "Multiple systems mapped to %s -> %s (primary=%s)",
+                        sym,
+                        systems_for_symbol,
+                        primary_system,
+                    )
 
-        except Exception as e:
-            logger.warning("Error processing position %d: %s", i, e)
+            counts[primary_system] = counts.get(primary_system, 0) + 1
+
+        except Exception as exc:  # noqa: BLE001 - defensive logging
+            logger.warning("Error processing position %d: %s", i, exc)
             continue
 
     logger.debug("Counted active positions: %s", dict(counts))
@@ -448,6 +385,93 @@ def _candidate_count(df: pd.DataFrame | None) -> int:
     return int(len(df))
 
 
+def _normalize_symbol_key(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    return text.upper()
+
+
+def _extract_symbol(row: Any) -> str | None:
+    if row is None:
+        return None
+    keys = ("symbol", "Symbol", "ticker", "Ticker")
+    for key in keys:
+        try:
+            if isinstance(row, Mapping):
+                value = row.get(key)
+            else:
+                value = getattr(row, key, None)
+        except Exception:
+            continue
+        sym = _normalize_symbol_key(value)
+        if sym:
+            return sym
+    return None
+
+
+def _safe_int_value(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int,)):
+        return int(value)
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        try:
+            text = str(value).strip()
+        except Exception:
+            return None
+        if not text:
+            return None
+        try:
+            numeric = float(text)
+        except (TypeError, ValueError):
+            return None
+    if not math.isfinite(numeric):
+        return None
+    try:
+        return int(numeric)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stable_system_order(
+    names: Sequence[str], per_system: Mapping[str, pd.DataFrame | None]
+) -> list[str]:
+    order: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        key = str(name).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if key not in per_system:
+            continue
+        order.append(key)
+    return order
+
+
+def _standardize_system_key_map(weights: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in weights.items():
+        try:
+            name = str(key).strip().lower()
+        except Exception:
+            continue
+        if not name:
+            continue
+        result[name] = value
+    return result
+
+
 def _ensure_system_columns(df: pd.DataFrame, system: str, side: str) -> pd.DataFrame:
     out = df.copy()
     if "system" not in out.columns:
@@ -503,6 +527,279 @@ class SlotAllocationResult:
     frame: pd.DataFrame
     distribution: dict[str, int]
     candidate_counts: dict[str, int]
+    dedup_stats: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class SlotDedupResult:
+    frames: dict[str, pd.DataFrame]
+    consensus_groups: dict[str, list[dict[str, Any]]]
+    stats: dict[str, Any]
+    applied: bool
+    side: str
+    max_depth: int | None
+
+
+def _collect_consensus_groups(
+    data_map: Mapping[str, pd.DataFrame], *, max_depth: int | None
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for system, df in data_map.items():
+        if df is None or getattr(df, "empty", True):
+            continue
+        try:
+            limit = len(df)
+        except Exception:
+            continue
+        if max_depth is not None and max_depth > 0:
+            limit = min(limit, max_depth)
+        if limit <= 0:
+            continue
+        subset = df.head(limit)
+        for pos, row in subset.iterrows():
+            symbol = _extract_symbol(row)
+            if not symbol:
+                continue
+            key = symbol.upper()
+            entry: dict[str, Any] = {
+                "system": system,
+            }
+            position_val = _safe_int_value(pos)
+            if position_val is not None:
+                entry["position"] = position_val + 1
+            try:
+                rank_val = row.get("rank") if isinstance(row, Mapping) else None
+            except Exception:
+                rank_val = None
+            rank_int = _safe_int_value(rank_val)
+            if rank_int is not None:
+                entry["rank"] = rank_int
+            try:
+                score_val = row.get("score") if isinstance(row, Mapping) else None
+            except Exception:
+                score_val = None
+            if score_val is not None:
+                try:
+                    score_num = float(score_val)
+                except (TypeError, ValueError):
+                    score_num = None
+                if score_num is not None and math.isfinite(score_num):
+                    entry["score"] = score_num
+            try:
+                side_val = row.get("side") if isinstance(row, Mapping) else None
+            except Exception:
+                side_val = None
+            if side_val:
+                entry["side"] = str(side_val)
+            groups.setdefault(key, []).append(entry)
+    return {symbol: members for symbol, members in groups.items() if len(members) >= 2}
+
+
+def _apply_slot_round_robin_dedup(
+    per_system: Mapping[str, pd.DataFrame | None],
+    system_names: Sequence[str],
+    *,
+    max_depth: int | None,
+    side: str,
+) -> SlotDedupResult:
+    system_order = _stable_system_order(system_names, per_system)
+    before_counts: dict[str, int] = {}
+    data_map: dict[str, pd.DataFrame] = {}
+    for name in system_order:
+        df = per_system.get(name)
+        before_counts[name] = _candidate_count(df)
+        if df is None or getattr(df, "empty", True):
+            continue
+        try:
+            data_map[name] = df.reset_index(drop=True).copy()
+        except Exception:
+            data_map[name] = df.copy()
+
+    depth_limit: int | None
+    if max_depth is None:
+        depth_limit = None
+    else:
+        try:
+            depth_value = int(max_depth)
+        except (TypeError, ValueError):
+            depth_limit = None
+        else:
+            depth_limit = None if depth_value <= 0 else depth_value
+
+    consensus = _collect_consensus_groups(data_map, max_depth=depth_limit)
+
+    if not data_map:
+        stats_payload = cast(
+            dict[str, Any],
+            {
+                "per_system": {
+                    name: {
+                        "before": before_counts.get(name, 0),
+                        "after": before_counts.get(name, 0),
+                        "removed": 0,
+                    }
+                    for name in system_order
+                },
+                "owners": {},
+                "requested_depth": max_depth,
+                "effective_depth": depth_limit,
+            },
+        )
+        return SlotDedupResult(
+            frames={},
+            consensus_groups=consensus,
+            stats=stats_payload,
+            applied=False,
+            side=side,
+            max_depth=depth_limit,
+        )
+
+    pointers: dict[str, int] = {name: 0 for name in data_map}
+    accepted_indices: dict[str, list[int]] = {name: [] for name in data_map}
+    owner_map: dict[str, str] = {}
+    seen_symbols: set[str] = set()
+
+    def _run_round(limit_map: Mapping[str, int]) -> bool:
+        progress = False
+        for name in system_order:
+            df = data_map.get(name)
+            if df is None or getattr(df, "empty", True):
+                continue
+            limit = int(limit_map.get(name, 0))
+            pointer = pointers.get(name, 0)
+            while pointer < limit:
+                try:
+                    row = df.iloc[pointer]
+                except Exception:
+                    pointer += 1
+                    pointers[name] = pointer
+                    continue
+                pointer += 1
+                pointers[name] = pointer
+                symbol = _extract_symbol(row)
+                if not symbol:
+                    continue
+                key = symbol.upper()
+                if key in seen_symbols:
+                    continue
+                accepted_indices[name].append(pointer - 1)
+                seen_symbols.add(key)
+                owner_map[key] = name
+                progress = True
+                break
+        return progress
+
+    initial_limits: dict[str, int] = {}
+    for name, df in data_map.items():
+        try:
+            length = len(df)
+        except Exception:
+            length = 0
+        if depth_limit is None:
+            initial_limits[name] = length
+        else:
+            initial_limits[name] = min(length, depth_limit)
+
+    while _run_round(initial_limits):
+        continue
+
+    if depth_limit is not None:
+        tail_limits: dict[str, int] = {}
+        for name, df in data_map.items():
+            try:
+                tail_limits[name] = len(df)
+            except Exception:
+                tail_limits[name] = initial_limits.get(name, 0)
+        while _run_round(tail_limits):
+            continue
+
+    frames: dict[str, pd.DataFrame] = {}
+    per_system_stats: dict[str, dict[str, int]] = {}
+    for name in system_order:
+        before = before_counts.get(name, 0)
+        df_original = data_map.get(name)
+        if df_original is None:
+            frames[name] = pd.DataFrame()
+            per_system_stats[name] = {
+                "before": before,
+                "after": before,
+                "removed": 0,
+            }
+            continue
+        indices = accepted_indices.get(name, [])
+        if indices:
+            trimmed = df_original.iloc[indices].copy().reset_index(drop=True)
+        else:
+            trimmed = df_original.iloc[0:0].copy().reset_index(drop=True)
+        frames[name] = trimmed
+        after = _candidate_count(trimmed)
+        per_system_stats[name] = {
+            "before": before,
+            "after": after,
+            "removed": max(0, before - after),
+        }
+
+    stats_payload = cast(
+        dict[str, Any],
+        {
+            "per_system": per_system_stats,
+            "owners": owner_map.copy(),
+            "requested_depth": max_depth,
+            "effective_depth": depth_limit,
+        },
+    )
+
+    return SlotDedupResult(
+        frames=frames,
+        consensus_groups=consensus,
+        stats=stats_payload,
+        applied=True,
+        side=side,
+        max_depth=depth_limit,
+    )
+
+
+def _emit_slot_consensus_logs(
+    results: Sequence[SlotDedupResult], env: "EnvironmentConfig"
+) -> None:
+    if not results:
+        return
+    for result in results:
+        if not result.applied or not result.consensus_groups:
+            continue
+        emoji = "" if env.no_emoji else "🤝 "
+        side_label = result.side.upper()
+        depth_hint = (
+            ""
+            if result.max_depth is None
+            else f" depth≤{result.max_depth}"
+        )
+        for symbol, entries in sorted(result.consensus_groups.items()):
+            parts: list[str] = []
+            best_rank: int | None = None
+            for entry in entries:
+                system = entry.get("system", "?")
+                position = entry.get("position")
+                rank_val = entry.get("rank")
+                if rank_val is not None:
+                    best_rank = (
+                        rank_val if best_rank is None else min(best_rank, rank_val)
+                    )
+                label = f"{system}"
+                if position is not None:
+                    label += f"#{position}"
+                if rank_val is not None and rank_val != position:
+                    label += f"(r{rank_val})"
+                parts.append(label)
+            rank_hint = ""
+            if best_rank is not None:
+                rank_hint = f" best_rank={best_rank}"
+            systems_str = ", ".join(parts)
+            message = (
+                f"{emoji}consensus {side_label} {symbol}: "
+                f"{len(entries)} systems align ({systems_str}).{rank_hint}{depth_hint}"
+            )
+            logger.info(message)
 
 
 def _allocate_by_slots(
@@ -514,56 +811,124 @@ def _allocate_by_slots(
     slots_long: int,
     slots_short: int,
 ) -> SlotAllocationResult:
-    candidate_counts: dict[str, int] = {}
+    env = get_env_config()
+    long_weights = _standardize_system_key_map(long_alloc)
+    short_weights = _standardize_system_key_map(short_alloc)
+
+    per_system_local: dict[str, pd.DataFrame | None] = {}
+    for key, df in per_system.items():
+        try:
+            name = str(key).strip().lower()
+        except Exception:
+            continue
+        per_system_local[name] = df
+
+    all_names = set(per_system_local.keys()) | set(long_weights.keys()) | set(
+        short_weights.keys()
+    )
+    raw_counts: dict[str, int] = {
+        name: _candidate_count(per_system_local.get(name)) for name in all_names
+    }
+
+    dedup_enabled = bool(getattr(env, "slot_dedup_enabled", False))
+    depth_setting = getattr(env, "slot_max_rank_depth", None)
+
+    dedup_results: list[SlotDedupResult] = []
+    consensus_results: list[SlotDedupResult] = []
+
+    if dedup_enabled:
+        if long_weights:
+            dedup_results.append(
+                _apply_slot_round_robin_dedup(
+                    per_system_local,
+                    tuple(long_weights.keys()),
+                    max_depth=depth_setting,
+                    side="long",
+                )
+            )
+        if short_weights:
+            dedup_results.append(
+                _apply_slot_round_robin_dedup(
+                    per_system_local,
+                    tuple(short_weights.keys()),
+                    max_depth=depth_setting,
+                    side="short",
+                )
+            )
+        for result in dedup_results:
+            if not result.applied:
+                continue
+            for system_name, frame in result.frames.items():
+                per_system_local[system_name] = frame
+        consensus_results = [res for res in dedup_results if res.consensus_groups]
+    else:
+        temp_results: list[SlotDedupResult] = []
+        if long_weights:
+            temp_results.append(
+                _apply_slot_round_robin_dedup(
+                    per_system_local,
+                    tuple(long_weights.keys()),
+                    max_depth=depth_setting,
+                    side="long",
+                )
+            )
+        if short_weights:
+            temp_results.append(
+                _apply_slot_round_robin_dedup(
+                    per_system_local,
+                    tuple(short_weights.keys()),
+                    max_depth=depth_setting,
+                    side="short",
+                )
+            )
+        consensus_results = [res for res in temp_results if res.consensus_groups]
+
+    if consensus_results:
+        _emit_slot_consensus_logs(consensus_results, env)
+
+    all_names = set(per_system_local.keys()) | set(long_weights.keys()) | set(
+        short_weights.keys()
+    )
+    candidate_counts: dict[str, int] = {
+        name: _candidate_count(per_system_local.get(name)) for name in all_names
+    }
 
     long_available: dict[str, int] = {}
-    long_raw: dict[str, int] = {}
-    for name in long_alloc:
-        df = per_system.get(name)
-        cand_cnt = _candidate_count(df)
-        long_raw[name] = cand_cnt
-        candidate_counts[name] = cand_cnt
+    for name in long_weights:
+        cand_cnt = candidate_counts.get(name, 0)
         long_available[name] = min(cand_cnt, int(available_slots.get(name, 0)))
 
     short_available: dict[str, int] = {}
-    short_raw: dict[str, int] = {}
-    for name in short_alloc:
-        df = per_system.get(name)
-        cand_cnt = _candidate_count(df)
-        short_raw[name] = cand_cnt
-        candidate_counts[name] = cand_cnt
+    for name in short_weights:
+        cand_cnt = candidate_counts.get(name, 0)
         short_available[name] = min(cand_cnt, int(available_slots.get(name, 0)))
 
-    long_slots = _distribute_slots(long_alloc, slots_long, long_available)
-    short_slots = _distribute_slots(short_alloc, slots_short, short_available)
+    long_slots = _distribute_slots(long_weights, slots_long, long_available)
+    short_slots = _distribute_slots(short_weights, slots_short, short_available)
 
     frames: list[pd.DataFrame] = []
     distribution: dict[str, int] = {}
     for name, slot in {**long_slots, **short_slots}.items():
         if slot <= 0:
             continue
-        df = per_system.get(name)
+        df = per_system_local.get(name)
         if df is None or getattr(df, "empty", True):
             continue
         free_slots = int(available_slots.get(name, 0))
         take = min(int(slot), free_slots)
         if take <= 0:
             continue
-        side = "long" if name in long_alloc else "short"
-        subset = _ensure_system_columns(df.head(take), name, side)
-        subset = subset.copy()
-        # 重要: 元データにside列が存在しても、配分バケット（long/short）に合わせて明示的に上書きする
-        # これにより、system4等のロング専用システムが誤ってショート側へ流れるのを防ぐ
+        side = "long" if name in long_weights else "short"
+        subset = _ensure_system_columns(df.head(take), name, side).copy()
         try:
             subset["side"] = side
         except Exception:
-            # 失敗時も最低限の列は確保されているので継続
             pass
         try:
-            if name in long_alloc:
-                subset["alloc_weight"] = long_alloc.get(name)
+            if name in long_weights:
+                subset["alloc_weight"] = long_weights.get(name)
             else:
-                subset["alloc_weight"] = short_alloc.get(name, 0.0)
+                subset["alloc_weight"] = short_weights.get(name, 0.0)
         except Exception:
             subset["alloc_weight"] = 0.0
         frames.append(subset)
@@ -574,10 +939,26 @@ def _allocate_by_slots(
     else:
         frame = pd.DataFrame()
 
+    dedup_stats: dict[str, Any] | None = None
+    if dedup_enabled:
+        dedup_stats = {
+            "enabled": True,
+            "counts_before": dict(raw_counts),
+            "counts_after": dict(candidate_counts),
+            "sides": {},
+        }
+        for result in dedup_results:
+            side_key = result.side
+            dedup_stats["sides"][side_key] = {
+                "stats": result.stats,
+                "consensus": result.consensus_groups,
+            }
+
     return SlotAllocationResult(
         frame=frame,
         distribution=distribution,
         candidate_counts=candidate_counts,
+        dedup_stats=dedup_stats,
     )
 
 
@@ -648,14 +1029,14 @@ def _allocate_by_capital(
     remaining = budgets.copy()
 
     if debug_mode:
-        logger.info(
+        logger.debug(
             "[ALLOC_DEBUG] Starting capital allocation: side=%s, total_budget=$%s",
             side,
             f"{total_budget:,.0f}",
         )
-        logger.info("[ALLOC_DEBUG] System weights: %s", dict(weights))
-        logger.info("[ALLOC_DEBUG] System budgets: %s", dict(budgets))
-        logger.info("[ALLOC_DEBUG] Active positions: %s", dict(active_positions))
+        logger.debug("[ALLOC_DEBUG] System weights: %s", dict(weights))
+        logger.debug("[ALLOC_DEBUG] System budgets: %s", dict(budgets))
+        logger.debug("[ALLOC_DEBUG] Active positions: %s", dict(active_positions))
 
     # stable ordering
     order = [f"system{i}" for i in range(1, 8)]
@@ -693,7 +1074,10 @@ def _allocate_by_capital(
             if (not _math.isfinite(risk_pct)) or risk_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        "[ALLOC_DEBUG] %s: risk_pct=%s invalid -> fallback to default 0.020",
+                        (
+                            "[ALLOC_DEBUG] %s: risk_pct=%s invalid -> "
+                            "fallback to default 0.020"
+                        ),
                         name,
                         risk_pct,
                     )
@@ -701,7 +1085,10 @@ def _allocate_by_capital(
             if (not _math.isfinite(max_pct)) or max_pct <= 0:
                 if debug_mode:
                     logger.info(
-                        "[ALLOC_DEBUG] %s: max_pct=%s invalid -> fallback to default 0.100",
+                        (
+                            "[ALLOC_DEBUG] %s: max_pct=%s invalid -> "
+                            "fallback to default 0.100"
+                        ),
                         name,
                         max_pct,
                     )
@@ -725,7 +1112,7 @@ def _allocate_by_capital(
         if df is None or getattr(df, "empty", True):
             candidates[name] = []
             if debug_mode:
-                logger.info(f"[ALLOC_DEBUG] {name}: No candidates")
+                logger.debug(f"[ALLOC_DEBUG] {name}: No candidates")
         else:
             records = df.to_dict("records")
             # 正規化: dict[Hashable, Any] -> dict[str, Any]
@@ -737,7 +1124,7 @@ def _allocate_by_capital(
                     norm_records.append({str(k): rec.get(k) for k in rec})
             candidates[name] = norm_records
             if debug_mode:
-                logger.info(
+                logger.debug(
                     "[ALLOC_DEBUG] %s: %s candidates loaded",
                     name,
                     len(norm_records),
@@ -755,7 +1142,7 @@ def _allocate_by_capital(
             max_pos_map[name] = 0
 
     if debug_mode:
-        logger.info(f"[ALLOC_DEBUG] Max positions available: {dict(max_pos_map)}")
+        logger.debug(f"[ALLOC_DEBUG] Max positions available: {dict(max_pos_map)}")
 
     chosen: list[dict[str, Any]] = []
     chosen_symbols: set[str] = set()
@@ -871,7 +1258,10 @@ def _allocate_by_capital(
 
                         if debug_mode and round_num <= 2:
                             logger.debug(
-                                "[ALLOC_DEBUG] %s %s: Calculated stop_price=%s from entry=%s atr=%s",
+                                (
+                                    "[ALLOC_DEBUG] %s %s: Calculated stop_price=%s "
+                                    "from entry=%s atr=%s"
+                                ),
                                 name,
                                 sym,
                                 stop,
@@ -942,7 +1332,7 @@ def _allocate_by_capital(
                                         shares_by_cash = 0
                                     # Log shares calculation details
                                     try:
-                                        logger.info(
+                                        logger.debug(
                                             "[ALLOC_DEBUG] %s %s: shares_calc rem=$%s "
                                             "entry=%s stop=%s "
                                             "risk_pct=%.4f max_pct=%.4f "
@@ -970,7 +1360,10 @@ def _allocate_by_capital(
                         else:
                             if debug_mode and round_num <= 2:
                                 logger.debug(
-                                    "[ALLOC_DEBUG] %s %s: Invalid entry/stop entry_price=%s stop_price=%s",
+                                    (
+                                        "[ALLOC_DEBUG] %s %s: Invalid entry/stop "
+                                        "entry_price=%s stop_price=%s"
+                                    ),
                                     name,
                                     sym,
                                     entry_price,
@@ -1007,8 +1400,11 @@ def _allocate_by_capital(
                 shares = min(desired_shares, max_by_cash)
                 if debug_mode and round_num <= 3:
                     try:
-                        logger.info(
-                            "[ALLOC_DEBUG] %s %s: shares_decision desired=%s max_by_cash=%s -> shares=%s",
+                        logger.debug(
+                            (
+                                "[ALLOC_DEBUG] %s %s: shares_decision desired=%s "
+                                "max_by_cash=%s -> shares=%s"
+                            ),
                             name,
                             sym,
                             desired_shares,
@@ -1020,7 +1416,10 @@ def _allocate_by_capital(
                 if shares <= 0:
                     if debug_mode and round_num <= 2:
                         logger.debug(
-                            "[ALLOC_DEBUG] %s %s: No cash shares=%s (desired=%s, max_cash=%s, remaining=$%s)",
+                            (
+                                "[ALLOC_DEBUG] %s %s: No cash shares=%s "
+                                "(desired=%s, max_cash=%s, remaining=$%s)"
+                            ),
                             name,
                             sym,
                             shares,
@@ -1062,7 +1461,10 @@ def _allocate_by_capital(
 
                 if debug_mode:
                     logger.debug(
-                        "[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s value=$%s remaining=$%s",
+                        (
+                            "[ALLOC_DEBUG] %s %s: ALLOCATED shares=%s "
+                            "value=$%s remaining=$%s"
+                        ),
                         name,
                         sym,
                         shares,
@@ -1196,7 +1598,7 @@ def finalize_allocation(
     *,
     strategies: Mapping[str, object] | None = None,
     positions: Sequence[object] | None = None,
-    symbol_system_map: Mapping[str, str] | None = None,
+    symbol_system_map: Mapping[str, Any] | None = None,
     long_allocations: Mapping[str, float] | None = None,
     short_allocations: Mapping[str, float] | None = None,
     slots_long: int | None = None,
@@ -1360,10 +1762,11 @@ def finalize_allocation(
     except Exception:
         require_strat = False
 
-    if require_strat and not original_strategies_provided:
-        # In strict mode, raise to make omission explicit. We check the
-        # original flag so that internal fallback construction does not
-        # bypass the safety guard.
+    if require_strat and not strategies:
+        # In strict mode, require that strategies are available (either
+        # explicitly provided by the caller or constructed via fallback).
+        # This avoids surprising test failures when callers omit the arg
+        # but fallback succeeded.
         raise RuntimeError("finalize_allocation: strategies required")
 
     # Determine allocation mode.
@@ -1401,6 +1804,8 @@ def finalize_allocation(
             diagnostics.setdefault("slot", {})
             diagnostics["slot"]["distribution"] = dict(slot_result.distribution)
             diagnostics["slot"]["candidate_counts"] = dict(slot_result.candidate_counts)
+            if slot_result.dedup_stats:
+                diagnostics["slot"]["dedup"] = slot_result.dedup_stats
         except Exception:
             pass
 

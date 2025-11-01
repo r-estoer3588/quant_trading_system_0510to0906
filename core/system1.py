@@ -1400,28 +1400,64 @@ def generate_candidates_system1(
 
             if date == diag_target_date:
                 diag.total_symbols += 1
-                passed, flags, reason = system1_row_passes_setup(
-                    row, allow_fallback=False
-                )
-                pred_val = system1_setup_predicate(row)
+
+                pred_res = system1_setup_predicate(row, return_reason=True)
+                if isinstance(pred_res, tuple):
+                    pred_val, pred_reason = pred_res
+                else:
+                    pred_val, pred_reason = bool(pred_res), None
+
+                try:
+                    res_legacy = system1_row_passes_setup(
+                        row, allow_fallback=False
+                    )
+                    _passed_legacy, flags, _legacy_reason = res_legacy
+                except Exception:
+                    flags = {
+                        "filter_ok": False,
+                        "setup_flag": False,
+                        "fallback_ok": False,
+                        "roc200_positive": False,
+                    }
+
                 if pred_val:
                     diag.setup_predicate_count += 1
+
                 setup_flag = bool(row.get("setup", False))
                 if pred_val and not setup_flag:
                     diag.predicate_only_pass_count += 1
                     diag.mismatch_flag = 1
-                if flags["filter_ok"]:
-                    diag.filter_pass += 1
-                if flags["setup_flag"]:
-                    diag.setup_flag_true += 1
-                if flags["fallback_ok"]:
-                    diag.fallback_pass += 1
-                if flags["roc200_positive"]:
-                    diag.roc200_positive += 1
-                if not passed:
-                    if reason:
-                        diag.add_exclude(reason, symbol)
+
+                try:
+                    if flags.get("filter_ok"):
+                        diag.filter_pass += 1
+                except Exception:
+                    pass
+                try:
+                    if flags.get("setup_flag"):
+                        diag.setup_flag_true += 1
+                except Exception:
+                    pass
+                try:
+                    if flags.get("fallback_ok"):
+                        diag.fallback_pass += 1
+                except Exception:
+                    pass
+                try:
+                    if flags.get("roc200_positive"):
+                        diag.roc200_positive += 1
+                except Exception:
+                    pass
+
+                if not pred_val:
+                    reason_key = (
+                        str(pred_reason)
+                        if pred_reason is not None
+                        else "predicate_failed"
+                    )
+                    diag.add_exclude(reason_key, symbol)
                     continue
+
                 diag.final_pass += 1
 
             setup_flag = bool(row.get("setup", False))
@@ -1481,9 +1517,8 @@ def generate_candidates_system1(
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            (
-                f"System1: Generated {total_candidates} candidates across {unique_dates} dates"
-            )
+            "System1: Generated "
+            f"{total_candidates} candidates across {unique_dates} dates"
         )
 
     return finalize(candidates_by_date, candidates_df)
