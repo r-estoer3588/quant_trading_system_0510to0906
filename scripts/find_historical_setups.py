@@ -4,6 +4,7 @@ Usage: python scripts/find_historical_setups.py --date YYYY-MM-DD --sample 99999
 """
 
 from __future__ import annotations
+
 import sys
 from pathlib import Path
 
