@@ -76,9 +76,19 @@ def main():
         # Find rows where setup is true (preferred), otherwise where drop3d>=threshold and filter True
         try:
             if "setup" in df.columns:
-                mask = df["setup"] == True
+                mask = df["setup"]
             else:
-                mask = (df.get("drop3d") >= drop_thr) & (df.get("filter") == True)
+                drop = df.get("drop3d")
+                filt = df.get("filter")
+                if drop is not None:
+                    left = drop >= drop_thr
+                else:
+                    left = pd.Series(False, index=df.index)
+                if filt is not None:
+                    right = filt
+                else:
+                    right = pd.Series(False, index=df.index)
+                mask = left & right
             if mask.any():
                 any_found += 1
                 rows = df.loc[mask]

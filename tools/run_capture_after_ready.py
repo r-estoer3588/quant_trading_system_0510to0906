@@ -16,7 +16,7 @@ def wait_for_url(url: str, timeout: int) -> bool:
     deadline = time.time() + float(timeout)
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as r:
+            with urllib.request.urlopen(url, timeout=2) as _:
                 return True
         except Exception:
             time.sleep(1)
