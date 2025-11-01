@@ -253,6 +253,7 @@ def generate_candidates_system5(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
+            setup_pass_count = 0  # 👈 setup 通過数を明示的にカウント
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
@@ -272,6 +273,9 @@ def generate_candidates_system5(
                         setup_ok = bool(_s5_pred(last_row))
                     except Exception:
                         setup_ok = False
+
+                if setup_ok:
+                    setup_pass_count += 1  # 👈 setup 通過をカウント
 
                 if not setup_ok:
                     continue
@@ -305,8 +309,8 @@ def generate_candidates_system5(
                     }
                 )
 
-            # ✅ setup通過件数 = rows の長さから直接計算（重複排除前）
-            diagnostics["setup_predicate_count"] = len(rows)
+            # ✅ setup通過件数 = setup_pass_count（rows の長さではない）
+            diagnostics["setup_predicate_count"] = setup_pass_count
             diagnostics["setup_unique_symbols"] = len(
                 set(row["symbol"] for row in rows)
             )
@@ -328,9 +332,8 @@ def generate_candidates_system5(
                                 except Exception:
                                     s_adx_f = float("nan")
                                 samples.append(
-                                    (
-                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} adx7={s_adx_f:.4f}"
-                                    )
+                                    f"{s_sym}: date={s_dt.date()} "
+                                    f"setup={s_setup} adx7={s_adx_f:.4f}"
                                 )
                                 taken += 1
                                 if taken >= 2:

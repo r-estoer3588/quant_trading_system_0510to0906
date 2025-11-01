@@ -4854,62 +4854,18 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     _log("🧮 指標計算用データロード中 (system3)…")
     raw_data_system3 = _subset_data(basic_data, system3_syms)
     _log(f"🧮 指標データ: system3={len(raw_data_system3)}銘柄")
-    # System3 セットアップ内訳: フィルタ通過, Close>SMA150, 3日下落率>=12.5%
+    # System3 セットアップ内訳は core/system3.py の diagnostics から取得するため、
+    # ここでは事前集計せず、フィルタ通過数のみ報告
     s3_setup = None
     try:
         s3_filter = int(len(system3_syms))
-        s3_close = 0
-        s3_combo = 0
-        # drop3d 閾値は本番固定 0.125。テストモード時のみ override を反映（表示目的含む）
-        try:
-            from config.environment import get_env_config as _get_env
-
-            _env3 = _get_env()
-            _drop_thr = 0.125
-            if (
-                hasattr(_env3, "is_test_mode")
-                and bool(_env3.is_test_mode())
-                and getattr(_env3, "min_drop3d_for_test", None) is not None
-            ):
-                _drop_thr = float(_env3.min_drop3d_for_test)
-        except Exception:
-            _drop_thr = 0.125
-        for _sym in system3_syms or []:
-            _df = raw_data_system3.get(_sym)
-            if _df is None or getattr(_df, "empty", True):
-                continue
-            try:
-                last = _df.iloc[-1]
-            except Exception:
-                continue
-            try:
-                cval = to_float(last.get("Close"))
-                sval = to_float(get_indicator(last, "sma150"))
-                close_pass = (not pd.isna(cval)) and (not pd.isna(sval)) and cval > sval
-            except Exception:
-                close_pass = False
-            if not close_pass:
-                continue
-            s3_close += 1
-            try:
-                dv = to_float(get_indicator(last, "drop3d"))
-                drop_pass = (not pd.isna(dv)) and dv >= _drop_thr
-            except Exception:
-                drop_pass = False
-            if drop_pass:
-                s3_combo += 1
-        s3_setup = int(s3_combo)
-        _log(
-            "🧩 system3セットアップ内訳: "
-            + f"フィルタ通過={s3_filter}, Close>SMA150: {s3_close}, "
-            + f"3日下落率>={_drop_thr * 100:.1f}%: {s3_setup}"
-        )
+        _log(f"🧩 system3セットアップ内訳: フィルタ通過={s3_filter} (詳細は候補生成後)")
         try:
             _stage(
                 "system3",
                 50,
                 filter_count=int(s3_filter),
-                setup_count=int(s3_setup),
+                setup_count=None,  # 👈 core の diagnostics から取得するため None
                 candidate_count=None,
                 entry_count=None,
             )
@@ -4958,63 +4914,18 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
     _log("🧮 指標計算用データロード中 (system5)…")
     raw_data_system5 = _subset_data(basic_data, system5_syms)
     _log(f"🧮 指標データ: system5={len(raw_data_system5)}銘柄")
-    # System5 セットアップ内訳: フィルタ通過, Close>SMA100+ATR10, ADX7>55, RSI3<50
+    # System5 セットアップ内訳は core/system5.py の diagnostics から取得するため、
+    # ここでは事前集計せず、フィルタ通過数のみ報告
     s5_setup = None
     try:
         s5_filter = int(len(system5_syms))
-        s5_close = 0
-        s5_adx = 0
-        s5_combo = 0
-        for _sym in system5_syms or []:
-            _df = raw_data_system5.get(_sym)
-            if _df is None or getattr(_df, "empty", True):
-                continue
-            try:
-                last = _df.iloc[-1]
-            except Exception:
-                continue
-            try:
-                cval = to_float(last.get("Close"))
-                sval = to_float(get_indicator(last, "sma100"))
-                aval = to_float(get_indicator(last, "atr10"))
-                price_pass = (
-                    (not pd.isna(cval))
-                    and (not pd.isna(sval))
-                    and (not pd.isna(aval))
-                    and (cval > sval + aval)
-                )
-            except Exception:
-                price_pass = False
-            if not price_pass:
-                continue
-            s5_close += 1
-            try:
-                adx_val = to_float(get_indicator(last, "adx7"))
-                adx_pass = (not pd.isna(adx_val)) and adx_val > 55
-            except Exception:
-                adx_pass = False
-            if not adx_pass:
-                continue
-            s5_adx += 1
-            try:
-                rsi_val = to_float(get_indicator(last, "rsi3"))
-                rsi_pass = (not pd.isna(rsi_val)) and rsi_val < 50
-            except Exception:
-                rsi_pass = False
-            if rsi_pass:
-                s5_combo += 1
-        s5_setup = int(s5_combo)
-        _log(
-            "🧩 system5セットアップ内訳: "
-            + f"フィルタ通過={s5_filter}, Close>SMA100+ATR10: {s5_close}, "
-            + f"ADX7>55: {s5_adx}, RSI3<50: {s5_setup}"
-        )
+        _log(f"🧩 system5セットアップ内訳: フィルタ通過={s5_filter} (詳細は候補生成後)")
         try:
             _stage(
                 "system5",
                 50,
                 filter_count=int(s5_filter),
-                setup_count=int(s5_setup),
+                setup_count=None,  # 👈 core の diagnostics から取得するため None
                 candidate_count=None,
                 entry_count=None,
             )
@@ -5432,8 +5343,19 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                 _log(f"[{system_name}] ❌ {system_name}: {count} 件 🚫")
 
             # UI 進捗: 候補抽出件数を 75% ステージとして通知（早期に TRDlist を可視化）
+            # System3/System5 は diagnostics から setup_predicate_count を取得して STUpass に反映
             try:
-                _stage(system_name, 75, candidate_count=int(count))
+                setup_count = None
+                if system_name in ("system3", "system5"):
+                    diag_payload = getattr(strategy, "last_diagnostics", None)
+                    if isinstance(diag_payload, dict):
+                        setup_count = diag_payload.get("setup_predicate_count")
+                        if setup_count is not None:
+                            try:
+                                setup_count = int(setup_count)
+                            except Exception:
+                                setup_count = None
+                _stage(system_name, 75, candidate_count=int(count), setup_count=setup_count)
             except Exception:
                 pass
 

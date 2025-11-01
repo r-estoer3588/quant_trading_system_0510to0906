@@ -543,6 +543,7 @@ def generate_candidates_system3(
                                 _filter_ex,
                                 pred_reason_ex,
                             ) = _evaluate_row(last_row)
+                            # ラグ超過でも setup 通過ならカウント
                             if setup_col_ex:
                                 diagnostics["setup_predicate_count"] += 1
                             if final_ok_ex and not setup_col_ex:
