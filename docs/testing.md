@@ -34,111 +34,93 @@ pytest tests/test_core_system6_focused.py::TestSystem6IndicatorComputation::test
 
 ## パイプライン高速テスト
 
+`run_all_systems_today.py` には複数のテストモードが用意されており、開発フェーズや CI/CD の用途に応じて実行コストを調整できます。
+
 ### テスト高速化オプション
 
-`run_all_systems_today.py` スクリプトに以下のオプションを追加して、テスト実行を大幅に高速化できます。
+| オプション                 | 説明                                    | 効果                             |
+| -------------------------- | --------------------------------------- | -------------------------------- |
+| `--test-mode mini`         | 銘柄数を 10 件に制限                    | 実行時間はおおむね 2 秒          |
+| `--test-mode quick`        | 銘柄数を 50 件に制限                    | 実行時間はおおむね 10 秒         |
+| `--test-mode sample`       | 銘柄数を 100 件に制限                   | 実行時間はおおむね 30 秒         |
+| `--test-mode test_symbols` | 架空データ 113 件を使用 (詳細は後述)    | 実行時間は 1 分前後で再現性 100% |
+| `--skip-external`          | 外部 API を呼び出さずキャッシュのみ利用 | ネットワーク待ちを排除           |
+| `--benchmark`              | パフォーマンス情報を JSON へ出力        | 実行時間の変化を定量確認         |
 
-| オプション           | 説明                        | 効果                   |
-| -------------------- | --------------------------- | ---------------------- |
-| `--test-mode mini`   | 10 銘柄に制限               | 2 秒で完了             |
-| `--test-mode quick`  | 50 銘柄に制限               | 約 10 秒で完了         |
-| `--test-mode sample` | 100 銘柄に制限              | 約 30 秒で完了         |
-| `--skip-external`    | 外部 API 呼び出しをスキップ | ネットワーク依存を排除 |
-| `--benchmark`        | パフォーマンス計測          | 実行時間レポート生成   |
+### 5 つのテストシナリオ
 
-### 4 つのテストシナリオ
+#### 1. 制御されたテスト環境 (推奨)
 
-#### 1. 基本パイプラインテスト
+```bash
+# テスト銘柄生成 (初回のみ)
+python tools/generate_test_symbols.py
+
+# パイプライン実行
+python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external --benchmark
+
+# まとめて実行する場合
+python run_controlled_tests.py
+```
+
+**検証内容**
+
+- フィルター、セットアップ、エントリーの全段階を通過する銘柄が揃う
+- TRDlist と Entry の双方で 10 銘柄を必ず生成
+- 診断 JSON、ベンチマーク JSON、TRDlist CSV を自動検証
+- 外部 API を一切利用せず再現性が完全に担保される
+
+#### 2. 基本パイプラインテスト
 
 ```bash
 python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
 ```
 
-**実行内容:**
+フェーズ 1 から 8 までの動作を最小コストで確認します。
 
-- 8 フェーズパイプライン処理
-- System1-7 のシグナル抽出
-- 配分・最終リスト生成
-- 実行時間: **約 2 秒**
-
-**検証項目:**
-
-- ✅ 銘柄ユニバース構築
-- ✅ データ読み込み（rolling キャッシュ）
-- ✅ 指標事前計算
-- ✅ フィルター実行（二段階処理）
-- ✅ セットアップ評価
-- ✅ シグナル抽出
-- ✅ 配分・最終リスト生成
-- ✅ 保存・通知フェーズ
-
-#### 2. 並列処理テスト
+#### 3. 並列処理テスト
 
 ```bash
 python scripts/run_all_systems_today.py --test-mode mini --skip-external --parallel --benchmark
 ```
 
-**実行内容:**
+ThreadPoolExecutor を使った並列実行の安定性を確認します。
 
-- システム別並列実行
-- ThreadPoolExecutor による処理最適化
-- 実行時間: **約 2 秒**
-
-**検証項目:**
-
-- ✅ 並列実行制御
-- ✅ スレッド安全性
-- ✅ パフォーマンス向上確認
-
-#### 3. CSV 保存機能テスト
+#### 4. CSV 保存機能テスト
 
 ```bash
 python scripts/run_all_systems_today.py --test-mode mini --skip-external --save-csv --benchmark
 ```
 
-**実行内容:**
+シグナル CSV の命名規則、出力先、内容を検証します。
 
-- CSV ファイル生成機能
-- `data_cache/signals/` への出力
-- 実行時間: **約 2 秒**
-
-**検証項目:**
-
-- ✅ CSV 出力機能
-- ✅ ファイル命名規則
-- ✅ データ形式の正確性
-
-#### 4. 全機能統合テスト
+#### 5. 全機能統合テスト
 
 ```bash
 python scripts/run_all_systems_today.py --test-mode quick --skip-external --parallel --save-csv --benchmark
 ```
 
-**実行内容:**
-
-- 50 銘柄での統合テスト
-- 並列処理 + CSV 保存
-- 実行時間: **約 10 秒**
-
-**検証項目:**
-
-- ✅ 全機能統合動作
-- ✅ スケーラビリティ確認
-- ✅ 出力品質検証
+50 銘柄規模で並列処理と CSV 保存を組み合わせ、本番運用に近い負荷を掛けます。
 
 ### 実行時間比較
 
-| モード | 銘柄数 | 通常実行 | 高速テスト | 短縮率 |
-| ------ | ------ | -------- | ---------- | ------ |
-| mini   | 10     | 数分     | **2 秒**   | 99%↓   |
-| quick  | 50     | 10 分+   | **10 秒**  | 95%↓   |
-| sample | 100    | 30 分+   | **30 秒**  | 98%↓   |
+| モード       | 銘柄数 | 実行時間 | 再現性 | 主な用途                     |
+| ------------ | ------ | -------- | ------ | ---------------------------- |
+| test_symbols | 113    | 約 1 分  | 100%   | 開発、PR、CI/CD の基準テスト |
+| mini         | 10     | 約 2 秒  | 中     | 最小限の動作確認             |
+| quick        | 50     | 約 10 秒 | 中     | 中規模の統合検証             |
+| sample       | 100    | 約 30 秒 | 中     | データ量を増やした検証       |
 
-### CI/CD での使用
+### CI/CD 例
 
 ```yaml
-# GitHub Actions 例
-- name: 高速パイプラインテスト
+# GitHub Actions サンプル
+- name: Generate controlled test symbols
+  run: python tools/generate_test_symbols.py
+
+- name: Run controlled pipeline test
+  run: python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external --benchmark
+
+- name: Run smoke pipeline tests
   run: |
     python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
     python scripts/run_all_systems_today.py --test-mode mini --skip-external --parallel --benchmark
@@ -174,21 +156,33 @@ ls logs/perf/
 
 ## テストデータ管理
 
-### 最小構成
+### 制御されたテスト銘柄
 
-高速テストは以下の最小データで動作します：
+`python tools/generate_test_symbols.py` を実行すると、以下のテストデータが生成されます。
 
-- SPY: 1 銘柄（System7 アンカー用）
-- rolling キャッシュ: 直近 300 営業日分
-- 外部 API: 完全スキップ可能
+- 出力先: `data_cache/test_symbols/`, `data_cache/rolling/`
+- 銘柄構成:
+  - `FAIL_ALL_00`〜`04`: 全システムでフィルターを通過しない 5 件
+  - `FILTER_ONLY_S{1..6}_00`〜`02`: フィルターのみ通過する 18 件
+  - `SETUP_PASS_S{1..6}_00`〜`14`: セットアップを通過しランキング対象になる 90 件
+  - `SPY`: ヘッジシステム用のアンカー銘柄 (rolling のみ)
+- すべて日次インジケーター付きで保存され、Rolling キャッシュも同時生成
 
-### データ更新
+このセットを利用すると、TRDlist と Entry がそれぞれ 10 件に確定し、診断 JSON で各システムの件数が容易に検証できます。
+
+### 実データ運用時の最小構成
+
+- SPY など最低限の銘柄を `data_cache/rolling/` に揃える
+- 直近 300 営業日分の Rolling キャッシュ
+- `--skip-external` オプションで外部 API を抑制
+
+### キャッシュ更新コマンド
 
 ```bash
-# Rolling キャッシュ更新
+# Rolling キャッシュをまとめて再構築
 python scripts/build_rolling_with_indicators.py --workers 4
 
-# 特定銘柄のみ
+# 個別銘柄のみ更新
 python scripts/cache_daily_data.py --symbols SPY AAPL MSFT
 ```
 
@@ -213,9 +207,10 @@ pytest --looponfail
 
 ## まとめ
 
-- **単体テスト**: `pytest -q` で基本検証
-- **統合テスト**: `--test-mode mini --skip-external` で高速検証
-- **本格テスト**: データ完備後の `--parallel --save-csv` で本番同等検証
-- **CI/CD**: 高速オプションで短時間での品質保証
+- 単体テストは `pytest -q`
+- 制御された統合テストは `--test-mode test_symbols`
+- 超高速スモークは `--test-mode mini`
+- 本番同等テストは `--test-mode quick` に `--parallel --save-csv`
+- CI/CD では制御データ生成と mini モードの組み合わせが推奨
 
-テスト実行時間の大幅短縮により、開発効率と品質保証の両立が可能になりました。
+テストモードを切り替えるだけで、再現性と実行時間のバランスを柔軟に調整できます。

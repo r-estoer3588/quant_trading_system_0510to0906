@@ -304,52 +304,35 @@ pytest tests/test_*system7*.py --cov=core.system7 --cov-report=term-missing
 
 ### パイプライン高速テスト
 
-当日シグナル パイプライン (`run_all_systems_today.py`) の高速テスト用オプションが利用可能です。
+当日シグナル パイプライン (`scripts/run_all_systems_today.py`) には複数のテストモードがあります。最新の制御テスト環境は `docs/testing.md` に詳細をまとめています。
 
-#### テスト高速化オプション
+#### テストモード早見表
 
-- `--test-mode {mini|quick|sample}`: 銘柄数制限
-  - `mini`: 10 銘柄（超高速、2 秒で完了）
-  - `quick`: 50 銘柄
-  - `sample`: 100 銘柄
-- `--skip-external`: 外部 API 呼び出しをスキップ（NASDAQ Trader、pandas_market_calendars 等）
-- `--benchmark`: パフォーマンス計測とレポート生成
+| モード         | 銘柄数 | 実行時間 | 再現性 | 主な用途                  |
+| -------------- | ------ | -------- | ------ | ------------------------- |
+| `test_symbols` | 113    | 約 1 分  | 100%   | 再現性重視の統合テスト    |
+| `mini`         | 10     | 約 2 秒  | 中     | 超高速スモーク            |
+| `quick`        | 50     | 約 10 秒 | 中     | 並列処理や CSV 保存の検証 |
+| `sample`       | 100    | 約 30 秒 | 中     | 中規模データでの統合検証  |
 
-#### 4 つのテストシナリオ
+共通オプションとして `--skip-external` (外部 API 省略) と `--benchmark` (実行時間記録) を組み合わせると、CI/CD でも安定した計測が可能です。
 
-```bash
-# 1. 基本パイプラインテスト（超高速：2秒）
-python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
-
-# 2. 並列処理テスト
-python scripts/run_all_systems_today.py --test-mode mini --skip-external --parallel --benchmark
-
-# 3. CSV保存機能テスト
-python scripts/run_all_systems_today.py --test-mode mini --skip-external --save-csv --benchmark
-
-# 4. 全機能統合テスト
-python scripts/run_all_systems_today.py --test-mode quick --skip-external --parallel --save-csv --benchmark
-```
-
-#### テスト効果
-
-- **実行時間**: 分単位 → **2 秒** (mini モード)
-- **外部依存**: API 待機時間を完全排除
-- **カバレッジ**: 8 フェーズ処理、並列実行、CSV 出力を網羅
-- **データ要件**: 最小限（SPY 1 銘柄でも動作）
-
-#### 実行例
+#### 制御テスト環境の使い方
 
 ```bash
-# 最速テスト（開発・CI用）
-python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark
+# テスト銘柄生成 (初回のみ)
+python tools/generate_test_symbols.py
 
-# 中規模テスト（統合検証用）
-python scripts/run_all_systems_today.py --test-mode sample --benchmark
+# 制御データでパイプライン実行
+python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external --benchmark
 
-# 本番同等テスト（データ完備時）
-python scripts/run_all_systems_today.py --parallel --save-csv --benchmark
+# 生成、パイプライン、検証を一括で実行
+python run_controlled_tests.py
 ```
+
+制御テストではフィルター、セットアップ、ランキングの各分岐を網羅する 113 銘柄が自動生成され、TRDlist と Entry が必ず 10 銘柄ずつ出力されます。結果として得られる診断 JSON、ベンチマーク JSON、TRDlist CSV を `run_controlled_tests.py` が検証し、差異があれば終了コードを 1 にします。
+
+その他のモードは、開発中のスモーク (`mini`)、並列処理や CSV 保存機能の検証 (`quick`)、より本番に近い負荷試験 (`sample`) に活用できます。
 
 ## 設定
 
