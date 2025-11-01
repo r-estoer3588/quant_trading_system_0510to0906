@@ -6,9 +6,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -16,11 +15,18 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.notifier import Notifier
 from common.position_age import load_entry_dates, save_entry_dates
+from common.symbol_map import (
+    dump_symbol_system_map,
+    load_symbol_system_map,
+    update_primary_system,
+)
 
 if False:  # typing guard
     pass
 
 logger = logging.getLogger(__name__)
+
+LogCallback = Callable[[str], None]
 
 
 class AlpacaOrderMixin:
@@ -48,8 +54,8 @@ class AlpacaOrderMixin:
         take_profit: float | None = None,
         stop_loss: float | None = None,
         trail_percent: float | None = None,
-        log_callback=None,
-    ):
+        log_callback: LogCallback | None = None,
+    ) -> Any:
         # TimeInForce は Manager と同様に GTC をデフォルト使用
         return ba.submit_order(
             client,
@@ -66,7 +72,11 @@ class AlpacaOrderMixin:
             log_callback=log_callback,
         )
 
-    def log_orders_positions(self, client: Any, log_callback=None):
+    def log_orders_positions(
+        self,
+        client: Any,
+        log_callback: LogCallback | None = None,
+    ) -> tuple[list[Any], list[Any]]:
         orders, positions = ba.log_orders_positions(client)
         if log_callback:
             try:
@@ -84,6 +94,7 @@ class AlpacaOrderMixin:
                     log_callback(f"Position {psym} qty={pqty} avg_entry={avg}")
             except Exception:
                 pass
+        return orders, positions
 
     def subscribe_order_updates(self, log_callback=None):
         """
@@ -106,27 +117,6 @@ __all__ = [
     "submit_orders_df",
     "submit_exit_orders_df",
 ]
-
-
-# --- lightweight symbol<->system mapping persistence ---
-_SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
-
-
-def _load_symbol_system_map() -> dict[str, str]:
-    try:
-        return json.loads(_SYMBOL_SYSTEM_MAP_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _save_symbol_system_map(mapping: dict[str, str]) -> None:
-    try:
-        from common.io_utils import write_json
-
-        _SYMBOL_SYSTEM_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
-        write_json(_SYMBOL_SYSTEM_MAP_PATH, mapping, ensure_ascii=False, indent=None)
-    except Exception:
-        pass
 
 
 def submit_orders_df(
@@ -187,7 +177,7 @@ def submit_orders_df(
         unique[key] = r
 
     # load existing symbol->system mapping (for positions dashboard / exit mapping)
-    sys_map_store = _load_symbol_system_map()
+    sys_map_store = load_symbol_system_map()
 
     results: list[dict[str, Any]] = []
     for (_sym, _sys, _dt), r in unique.items():
@@ -289,10 +279,14 @@ def submit_orders_df(
                 entry_map[sym] = str(row.get("entry_date"))
             # シンボル→システムも記録（ダッシュボード/exit 判定で使用）
             sys_val = str(row.get("system") or "").lower()
-            if sym and sys_val:
-                sys_map_store[sym] = sys_val
+            sym_key = sym.upper()
+            if sym_key and sys_val:
+                sys_map_store[sym_key] = update_primary_system(
+                    sys_map_store.get(sym_key),
+                    sys_val,
+                )
         save_entry_dates(entry_map)
-        _save_symbol_system_map(sys_map_store)
+        dump_symbol_system_map(sys_map_store)
     except Exception:
         pass
 
@@ -337,7 +331,7 @@ def submit_exit_orders_df(
 
     # Persisted mappings for cleanup after successful exits
     entry_map = load_entry_dates()
-    sys_map_store = _load_symbol_system_map()
+    sys_map_store = load_symbol_system_map()
 
     results: list[dict[str, Any]] = []
     for _, r in exit_df.iterrows():
@@ -387,7 +381,7 @@ def submit_exit_orders_df(
             )
             # cleanup local tracking for the symbol upon exit
             entry_map.pop(sym, None)
-            sys_map_store.pop(sym, None)
+            sys_map_store.pop(sym.upper(), None)
         except Exception as e:  # noqa: BLE001
             results.append(
                 {
@@ -403,7 +397,7 @@ def submit_exit_orders_df(
     # persist updated mappings
     try:
         save_entry_dates(entry_map)
-        _save_symbol_system_map(sys_map_store)
+        dump_symbol_system_map(sys_map_store)
     except Exception:
         pass
 

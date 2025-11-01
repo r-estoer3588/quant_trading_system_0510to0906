@@ -9,44 +9,14 @@ Systems2, 3, 5, and 6.
 from __future__ import annotations
 
 from collections.abc import Iterable
-import json
-from pathlib import Path
-from typing import Any
+from typing import Any, SupportsFloat, cast
 
 import numpy as np
 import pandas as pd
 
 from common.data_loader import load_price
+from common.symbol_map import load_symbol_system_map, resolve_primary_system
 from common.utils_spy import get_latest_nyse_trading_day
-
-_SYMBOL_SYSTEM_MAP_PATH = Path("data/symbol_system_map.json")
-
-
-def _load_symbol_system_map() -> dict[str, str]:
-    """Load persisted symbol→system mapping.
-
-    Returns an empty dictionary when the mapping file is missing or invalid.
-    """
-
-    try:
-        data = json.loads(_SYMBOL_SYSTEM_MAP_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-    if not isinstance(data, dict):
-        return {}
-
-    mapping: dict[str, str] = {}
-    for key, value in data.items():
-        try:
-            symbol = str(key).upper()
-            system = str(value).strip()
-        except Exception:
-            continue
-        if not symbol:
-            continue
-        mapping[symbol] = system.lower()
-    return mapping
 
 
 def is_new_70day_high(symbol: str = "SPY") -> bool | None:
@@ -145,7 +115,8 @@ def _format_entry_date(entry_date: Any) -> str:
         return ""
     try:
         dt = pd.to_datetime(entry_date)
-        return dt.strftime("%Y-%m-%d")
+        formatted: str = dt.strftime("%Y-%m-%d")
+        return formatted
     except Exception:
         return str(entry_date)
 
@@ -203,13 +174,13 @@ def _position_close_price(position: Any) -> float | str:
         if candidate in (None, ""):
             continue
         try:
-            return float(candidate)
+            return float(cast(SupportsFloat | str, candidate))
         except (TypeError, ValueError):
             continue
     fallback = getattr(position, "current_price", None)
     if fallback in (None, ""):
         return ""
-    return fallback
+    return str(fallback)
 
 
 def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
@@ -227,18 +198,21 @@ def evaluate_positions(positions: Iterable[Any]) -> pd.DataFrame:
         text.
     """
 
-    raw_map = _load_symbol_system_map()
+    raw_map = load_symbol_system_map()
     symbol_system_map: dict[str, str] = {}
     for key, value in raw_map.items():
         try:
             sym_key = str(key).upper()
-            sys_val = str(value).strip().lower()
         except Exception:
             continue
         if not sym_key:
             continue
-        symbol_system_map[sym_key] = sys_val
-    records: list[dict[str, str]] = []
+        system_primary = resolve_primary_system(value)
+        if not system_primary:
+            continue
+        symbol_system_map[sym_key] = system_primary.lower()
+
+    records: list[dict[str, Any]] = []
     for pos in positions:
         symbol_raw = getattr(pos, "symbol", "")
         symbol = "" if symbol_raw in (None, "") else str(symbol_raw)
