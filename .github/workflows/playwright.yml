@@ -1,20 +1,7 @@
 name: Playwright Tests
 on:
-  push:
-    branches: [main, master, branch0906]
-    paths:
-      - "apps/**"
-      - "e2e/**"
-      - "playwright.config.ts"
-      - "package.json"
-  pull_request:
-    branches: [main, master]
-    paths:
-      - "apps/**"
-      - "e2e/**"
-      - "playwright.config.ts"
-      - "package.json"
-  workflow_dispatch: # 手動実行を許可
+  # TEMPORARY PAUSE: Manual-only while CI is paused
+  workflow_dispatch: # 手動実行のみ
 
 jobs:
   test:

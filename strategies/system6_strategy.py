@@ -1,3 +1,25 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは core/system6.py（ショート ミーン・リバージョン 高シックスデイサージ）を UI 用に適応させるラッパー層
+#
+# 前提条件：
+#   - ロジック本体は core/system6.py。このファイルは orchestration のみ
+#   - 6 日連続上昇サージを検出して空売りシグナル生成
+#   - 高変動性環境で機能（HV 上昇確認）
+#   - 最終配分は finalize_allocation() で一元化
+#   - candidates 数がゼロになることは正常（サージ条件が厳しい）
+#
+# ロジック単位：
+#   generate_signals()    → prepare_data + generate_candidates を順序実行
+#   apply_allocation()    → 当日配分情報をまとめて渡す
+#   _build_diagnostics()  → setup count など診断情報構築
+#
+# Copilot へ：
+#   → core のロジック変更は core/system6.py で実施
+#   → candidates が 0 でもエラーではない。正常な現象
+#   → 6 日サージ検出ロジックは絶対変更禁止（他システムとの差別化要素）
+# ============================================================================
+
 from __future__ import annotations
 
 import numpy as np

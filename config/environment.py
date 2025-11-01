@@ -127,6 +127,11 @@ class EnvironmentConfig:
     )
     """UI向け構造化ログ（JSON）を出力。"""
 
+    debug_mode: bool = field(
+        default_factory=lambda: _get_bool_env("DEBUG_MODE", False)
+    )
+    """開発・デバッグ用の詳細UI出力を有効化。DEBUG_MODE=1 でオン。"""
+
     structured_log_ndjson: bool = field(
         default_factory=lambda: _get_bool_env("STRUCTURED_LOG_NDJSON", False)
     )

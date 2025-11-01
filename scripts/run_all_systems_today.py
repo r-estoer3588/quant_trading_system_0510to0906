@@ -1,3 +1,26 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは当日シグナル生成全体フロー（symbols → indicators → signals → allocation）の主導者
+#
+# 前提条件：
+#   - フロー: symbol list 読込 → キャッシュロード → 指標計算 → 各システム実行 → ランキング → 最終配分
+#   - 並列実行は --parallel フラグで可能（workers 数は環境設定）
+#   - テストモード --test-mode mini で 5 銘柄相当の検証（外部 API 無し）
+#   - 外部 API 呼び出しは --skip-external で無効化可能（テスト用）
+#   - 進捗通知は ENABLE_PROGRESS_EVENTS=1 で有効化（UI 連携）
+#
+# ロジック単位：
+#   load_symbols()      → シンボル一覧ロード
+#   run_systems()       → 各システム並列実行
+#   finalize()          → 最終配分＆シグナル CSV 出力
+#   notify()            → 進捗通知
+#
+# Copilot へ：
+#   → テストモードで reproducible であることを最優先（乱数シード固定）
+#   → 並列実行の同期タイミングは必ず verify してから提案
+#   → --benchmark フラグは診断用。本番コマンドに含めるな
+# ============================================================================
+
 """Daily multi-system signal pipeline (repaired minimal bootstrap section).
 
 NOTE: This file experienced prior encoding corruption. Incremental repairs are

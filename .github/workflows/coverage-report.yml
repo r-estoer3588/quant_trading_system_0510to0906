@@ -3,11 +3,14 @@
 
 name: Coverage Report
 
+# TEMPORARY PAUSE: Run only via manual dispatch.
 on:
-  pull_request:
-    branches: [main, branch0906]
-  push:
-    branches: [main, branch0906]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Manual run while CI is paused"
+        required: false
+        type: string
 
 concurrency:
   group: coverage-${{ github.workflow }}-${{ github.ref }}

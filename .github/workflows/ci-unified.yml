@@ -2,18 +2,36 @@ name: CI Unified
 
 on:
   push:
-    branches: ["main", "branch0906"]
+    branches: [main, develop, branch0906]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
   pull_request:
-    branches: ["main", "branch0906"]
+    branches: [main, develop, branch0906]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Manual run while CI is paused"
+        required: false
+        type: string
 
 concurrency:
   group: ci-unified-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-format:
     name: Lint & Format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +40,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -40,6 +62,7 @@ jobs:
   test-and-coverage:
     name: Test & Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: [lint-and-format]
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: 1
@@ -55,6 +78,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -84,17 +111,43 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
       - name: Check System7 threshold (warn-only)
         run: |
-          SYSTEM7=$(coverage report | grep "core/system7.py" | awk '{print $4}' | sed 's/%//') || true
-          echo "System7 coverage: ${SYSTEM7}%"
-          if [ -n "$SYSTEM7" ]; then
-            if (( $(echo "$SYSTEM7 < 66" | bc -l) )); then
-              echo "::warning::System7 coverage ($SYSTEM7%) is below 66%"
-            else
-              echo "System7 coverage OK ($SYSTEM7%)"
-            fi
-          else
-            echo "::notice::core/system7.py not found in coverage report"
-          fi
+          python - <<'PY'
+          import json
+          import sys
+          import pathlib
+
+          p = pathlib.Path("coverage.json")
+          if not p.exists():
+              print("::notice::coverage.json not found")
+              sys.exit(0)
+
+          data = json.loads(p.read_text())
+          files = data.get("files", {})
+
+          # Find core/system7.py in the coverage json
+          key = None
+          for k in files.keys():
+              if k.endswith("core/system7.py"):
+                  key = k
+                  break
+
+          if not key:
+              print("::notice::core/system7.py not found in coverage json")
+              sys.exit(0)
+
+          summary = files[key].get("summary", {})
+          percent = summary.get("percent_covered")
+
+          if percent is None:
+              print("::notice::percent_covered not found")
+              sys.exit(0)
+
+          print(f"System7 coverage: {percent:.2f}%")
+          if percent < 66.0:
+              print(f"::warning::System7 coverage ({percent:.2f}%) is below 66%")
+          else:
+              print(f"System7 coverage OK ({percent:.2f}%)")
+          PY
       - name: Upload coverage HTML
         uses: actions/upload-artifact@v4
         with:

@@ -1,3 +1,24 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは当日シグナル表示用 Streamlit UI。scripts/run_all_systems_today.py の結果を可視化
+#
+# 前提条件：
+#   - 当日シグナル生成は run_all_systems_today.py で事前実行（別ターミナルで開始）
+#   - UI は CSV 読み込みで結果を表示（リアルタイム結果 ← API 呼び出しなし）
+#   - Playwright 自動撮影対応。ボタンクリック待機＆完了検出は自動
+#   - セッション状態管理で表示状態保持
+#
+# ロジック単位：
+#   render_signals_by_system()   → システム別シグナル表示
+#   render_summary_metrics()     → 集計情報（候補数・配分等）
+#   handle_button_click()        → 進捗更新＆UI リフレッシュ
+#
+# Copilot へ：
+#   → UI の体感スピード重視。CSV ロード後は最小限の処理で表示
+#   → ボタン待機検出の信頼性を最優先（Playwright の自動タイムアウト設定）
+#   → session_state の詳細ログ出力は必須（デバッグ用）
+# ============================================================================
+
 from __future__ import annotations
 
 # ruff: noqa: E402
@@ -52,6 +73,11 @@ try:
 except Exception:
     pass
 
+from apps.progress_components import (  # noqa: E402
+    ProgressUI,
+    StageTracker,
+    read_progress_events,
+)
 from common import broker_alpaca as ba  # noqa: E402
 from common.alpaca_order import submit_orders_df  # noqa: E402
 from common.cache_format import round_dataframe  # noqa: E402
@@ -65,12 +91,6 @@ from common.position_age import (  # noqa: E402
     save_entry_dates,
 )
 from common.profit_protection import evaluate_positions  # noqa: E402
-from common.stage_metrics import (  # noqa: E402
-    DEFAULT_SYSTEM_ORDER,
-    GLOBAL_STAGE_METRICS,
-    StageMetricsStore,
-    StageSnapshot,
-)
 from common.system_groups import (  # noqa: E402
     format_group_counts,
     format_group_counts_and_values,
@@ -213,20 +233,7 @@ st.session_state.setdefault("today_shown_this_run", False)
 def _read_progress_events_safe(limit: int = 50) -> list[dict[str, Any]]:
     """logs/progress_today.jsonl から直近イベントを読み取る（失敗は黙って空）"""
     try:
-        logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
-        path = logs_dir / "progress_today.jsonl"
-        if not path.exists():
-            return []
-        lines = path.read_text(encoding="utf-8").splitlines()
-        out: list[dict[str, Any]] = []
-        for line in lines[-max(1, int(limit)) :]:
-            try:
-                obj = json.loads(line)
-                if isinstance(obj, dict):
-                    out.append(obj)
-            except Exception:
-                continue
-        return out
+        return read_progress_events(limit=limit)
     except Exception:
         return []
 
@@ -1429,794 +1436,6 @@ class TradeOptions:
     update_bp_after: bool
 
 
-class ProgressUI:
-    """全体進捗とログ表示を管理するヘルパー。"""
-
-    def __init__(self, ui_vis: dict[str, Any]):
-        self.show_overall = bool(ui_vis.get("overall_progress", True))
-        self.show_data_load = bool(ui_vis.get("data_load_progress_lines", True))
-        self.phase_title_area = st.empty()
-        self.progress_area = st.empty()
-        self.progress_bar = st.progress(0) if self.show_overall else None
-        # progress_textは削除（タイトルで表示するため）
-        self.phase_state: dict[str, Any] = {"percent": 0, "label": "対象読み込み"}
-        self._render_title()
-
-    def set_label(self, label: str) -> None:
-        if not self.show_overall:
-            return
-        self.phase_state["label"] = label
-        self._render_title()
-
-    def update(self, done: int, total: int, tag: str) -> None:
-        if not self.show_overall or self.progress_bar is None:
-            return
-        total = max(1, int(total))
-        ratio = min(max(int(done), 0), total) / total
-        percent = int(ratio * 100)
-        self.phase_state["percent"] = percent
-        mapped = self._map_phase(tag)
-        if mapped:
-            self.phase_state["label"] = mapped
-        try:
-            self.progress_bar.progress(percent)
-        except Exception:
-            pass
-        # プログレスバー下のテキストは削除（タイトルで表示するため）
-        self._render_title()
-
-    def update_label_for_stage(self, stage_value: int) -> None:
-        if not self.show_overall:
-            return
-        if stage_value <= 0:
-            label = "対象準備"
-        elif stage_value < 10:
-            label = "対象読み込み"
-        elif stage_value < 30:
-            label = "フィルター"
-        elif stage_value < 60:
-            label = "セットアップ"
-        elif stage_value < 90:
-            label = "トレード候補選定"
-        else:
-            label = "エントリー"
-        self.set_label(label)
-
-    def _render_title(self) -> None:
-        if not self.show_overall:
-            return
-        try:
-            percent = int(self.phase_state.get("percent", 0))
-            label = str(self.phase_state.get("label", "対象読み込み"))
-            self.phase_title_area.markdown(f"## 進捗 {percent}%: {label}フェーズ")
-        except Exception:
-            pass
-
-    @staticmethod
-    def _map_phase(tag: str) -> str:
-        try:
-            t = (tag or "").lower()
-        except Exception:
-            t = ""
-        if t in {
-            "init",
-            "対象読み込み:start",
-            "load_basic:start",
-            "load_basic",
-            "load_indicators",
-            "spx",
-            "spy",
-        }:
-            return "対象読み込み"
-        if t in {"filter", "フィルター"}:
-            return "フィルター"
-        if t in {"run_strategies", "setup"} or t.startswith("system"):
-            return "セットアップ"
-        if t in {"strategies_done", "trade候補", "トレード候補選定"}:
-            return "トレード候補選定"
-        # Finalize (allocation -> entry) remains エントリー
-        if t in {"finalize", "エントリー"}:
-            return "エントリー"
-        # Exit / completion: show hand-off/close phase (手仕舞い)
-        if t in {"exit", "done", "system_complete"}:
-            return "エグジットフェーズ"
-        return "対象読み込み"
-
-
-class StageTracker:
-    """システム別の進捗と件数メトリクスを管理する。"""
-
-    def __init__(self, ui_vis: dict[str, Any], progress_ui: ProgressUI):
-        self.progress_ui = progress_ui
-        self.show_ui = bool(ui_vis.get("per_system_progress", True)) and _has_st_ctx()
-        self.bars: dict[str, Any] = {}
-        self.stage_txt: dict[str, Any] = {}
-        self.metrics_txt: dict[str, Any] = {}
-        self.states: dict[str, int] = {}
-        self.metrics_store = StageMetricsStore(DEFAULT_SYSTEM_ORDER)
-        self.stage_counts = self.metrics_store.stage_counts
-        # 最後に受け取ったステージ情報のデデュープ用タイムスタンプ
-        self._last_event: dict[str, tuple[int, int, int, int, int, float]] = {}
-        self.universe_total: int | None = None
-        self.universe_target: int | None = None
-        # JSONL進捗イベント同期用: 最後に読み込んだ候補数
-        self._jsonl_candidates: dict[str, int] = {}
-        if self.show_ui:
-            sys_cols = st.columns(7)
-            sys_labels = [f"System{i}" for i in range(1, 8)]
-            for i, col in enumerate(sys_cols, start=1):
-                key = f"system{i}"
-                try:
-                    col.caption(sys_labels[i - 1])
-                    self.bars[key] = col.progress(0)
-                    self.stage_txt[key] = col.empty()
-                    self.metrics_txt[key] = col.empty()
-                    self._render_metrics(key)
-                except Exception:
-                    self.show_ui = False
-                    break
-        self._initialize_from_store()
-
-    def update_progress(self, name: str, phase: str) -> None:
-        if not self.show_ui:
-            return
-        key = str(name).lower()
-        progress_bar = self.bars.get(key)
-        if progress_bar is None:
-            return
-
-        # フェーズに応じた適切な値を設定
-        if phase == "start":
-            # 開始時は強制的に0にリセット
-            value = 0
-            self.states[key] = 0
-        elif phase == "done":
-            # 完了時は強制的に100に設定
-            value = 100
-            self.states[key] = 100
-        else:
-            # その他のフェーズでは実際の進捗値を取得
-            try:
-                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(key)
-                if snapshot is not None:
-                    value = snapshot.progress
-                else:
-                    value = self.states.get(key, 0)
-            except Exception:
-                value = self.states.get(key, 0)
-
-            # 値を0-100に制限
-            value = max(0, min(100, int(value)))
-
-            # 進捗後退を防ぐ: 前回値より大きい場合のみ更新
-            prev = int(self.states.get(key, 0))
-            if value > prev:
-                self.states[key] = value
-            else:
-                # 後退する場合は前回値を維持
-                value = prev
-
-        try:
-            progress_bar.progress(value)
-            self.stage_txt[key].text(f"run {value}%" if value < 100 else "done 100%")
-        except Exception:
-            pass
-
-        # JSONL進捗イベントと同期: 候補数を更新
-        self._sync_from_jsonl_if_needed()
-
-    def _sync_from_jsonl_if_needed(self) -> None:
-        """JSONL進捗イベントから最新の候補数を取得してメトリクスを更新する"""
-        try:
-            settings = get_settings(create_dirs=False)
-            logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
-            jsonl_path = logs_dir / "progress_today.jsonl"
-            if not jsonl_path.exists():
-                return
-
-            # system_complete イベントから候補数を抽出
-            events = _read_progress_events_safe(limit=100)  # 最新100件をチェック
-            for event in reversed(events):  # 新しい順に処理
-                if event.get("event_type") != "system_complete":
-                    continue
-                data = event.get("data", {})
-                sys_name = data.get("system", "").lower()
-                candidates = data.get("candidates")
-                if sys_name and candidates is not None:
-                    # 候補数が変化していたら更新
-                    prev = self._jsonl_candidates.get(sys_name)
-                    if prev != candidates:
-                        self._jsonl_candidates[sys_name] = candidates
-                        counts = self._ensure_counts(sys_name)
-                        counts["cand"] = int(candidates)
-                        counts["entry"] = int(candidates)  # Entry も同じ値で更新
-                        self._render_metrics(sys_name)
-        except Exception:
-            pass  # エラーは無視（UI更新の補助機能なので）
-
-    def _sync_final_counts_from_jsonl(self) -> None:
-        """JSONL進捗イベントから最終候補数(pipeline_complete)を取得してメトリクスを更新する"""
-        try:
-            settings = get_settings(create_dirs=False)
-            logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
-            jsonl_path = logs_dir / "progress_today.jsonl"
-            if not jsonl_path.exists():
-                return
-
-            events = _read_progress_events_safe(limit=50)
-            # system_complete イベントから各システムの候補数を取得
-            system_candidates: dict[str, int] = {}
-            for event in events:
-                if event.get("event_type") == "system_complete":
-                    data = event.get("data", {})
-                    sys_name = data.get("system", "").lower()
-                    candidates = data.get("candidates")
-                    if sys_name and candidates is not None:
-                        system_candidates[sys_name] = int(candidates)
-
-            # 各システムのメトリクスを更新
-            for sys_name, cand_count in system_candidates.items():
-                counts = self._ensure_counts(sys_name)
-                counts["cand"] = cand_count
-                # Entry も候補数と同じに設定（配分前）
-                if counts.get("entry") is None or counts["entry"] == 0:
-                    counts["entry"] = cand_count
-                self._render_metrics(sys_name)
-        except Exception:
-            pass  # エラーは無視
-
-    def _initialize_from_store(self) -> None:
-        try:
-            stored_target = GLOBAL_STAGE_METRICS.get_universe_target()
-            if stored_target is not None:
-                self.universe_target = int(stored_target)
-        except Exception:
-            pass
-        try:
-            snapshots = GLOBAL_STAGE_METRICS.all_snapshots()
-        except Exception:
-            snapshots = {}
-        for sys_name, snapshot in snapshots.items():
-            try:
-                self._apply_snapshot(sys_name, snapshot)
-            except Exception:
-                continue
-
-    def _apply_snapshot(self, name: str, snapshot: StageSnapshot) -> None:
-        key = str(name).lower()
-        counts = self._ensure_counts(key)
-
-        # ターゲット数の設定（優先度順で設定）
-        if snapshot.target is not None:
-            try:
-                target_val = int(snapshot.target)
-                counts["target"] = target_val
-                self.universe_total = target_val
-            except Exception:
-                pass
-        elif snapshot.filter_pass is not None and counts.get("target") is None:
-            try:
-                fallback_target = int(snapshot.filter_pass)
-                counts["target"] = fallback_target
-                if self.universe_total is None:
-                    self.universe_total = fallback_target
-            except Exception:
-                pass
-
-        # 進捗データの設定
-        if snapshot.filter_pass is not None:
-            try:
-                counts["filter"] = int(snapshot.filter_pass)
-                # フィルター通過数が設定されている場合、ターゲットがなければフィルター数をターゲットとして使用
-                if counts.get("target") is None:
-                    counts["target"] = int(snapshot.filter_pass)
-                    if self.universe_total is None:
-                        self.universe_total = int(snapshot.filter_pass)
-            except Exception:
-                pass
-        if snapshot.setup_pass is not None:
-            try:
-                counts["setup"] = int(snapshot.setup_pass)
-            except Exception:
-                pass
-        if snapshot.candidate_count is not None:
-            try:
-                counts["cand"] = self._clamp_trdlist(snapshot.candidate_count)
-            except Exception:
-                pass
-        if snapshot.entry_count is not None:
-            try:
-                counts["entry"] = int(snapshot.entry_count)
-            except Exception:
-                pass
-        if snapshot.exit_count is not None:
-            try:
-                counts["exit"] = int(snapshot.exit_count)
-            except Exception:
-                pass
-        self._update_bar(key, snapshot.progress)
-        self.progress_ui.update_label_for_stage(snapshot.progress)
-        self._render_metrics(key)
-
-    def update_stage(
-        self,
-        name: str,
-        value: int,
-        filter_cnt: int | None = None,
-        setup_cnt: int | None = None,
-        cand_cnt: int | None = None,
-        final_cnt: int | None = None,
-    ) -> None:
-        key = str(name).lower()
-        # 短時間内に同一内容の更新が来ると UI がフラッタリングするため、
-        # 同一システム・同一値・同一カウントの更新は 0.5 秒以内は無視する。
-        try:
-            last = self._last_event.get(key)
-            cur_sig = (
-                value,
-                int(filter_cnt) if filter_cnt is not None else -1,
-                int(setup_cnt) if setup_cnt is not None else -1,
-                int(cand_cnt) if cand_cnt is not None else -1,
-                int(final_cnt) if final_cnt is not None else -1,
-                time.time(),
-            )
-            if last is not None:
-                same = last[0:5] == cur_sig[0:5]
-                recent = (cur_sig[5] - last[5]) < 0.5
-                if same and recent:
-                    return
-            self._last_event[key] = cur_sig
-        except Exception:
-            pass
-        snapshot: StageSnapshot | None
-        try:
-            snapshot = GLOBAL_STAGE_METRICS.record_stage(
-                key,
-                value,
-                filter_cnt,
-                setup_cnt,
-                cand_cnt,
-                final_cnt,
-                emit_event=False,
-            )
-        except Exception:
-            snapshot = None
-        if snapshot is not None:
-            self._apply_snapshot(key, snapshot)
-            return
-        counts = self._ensure_counts(key)
-        if filter_cnt is not None:
-            try:
-                filter_val = int(filter_cnt)
-            except Exception:
-                filter_val = None
-            if filter_val is not None:
-                if value == 0:
-                    counts["target"] = filter_val
-                    self.universe_total = filter_val
-                else:
-                    counts["filter"] = filter_val
-                    if counts.get("target") is None:
-                        counts["target"] = (
-                            self.universe_total
-                            if self.universe_total is not None
-                            else filter_val
-                        )
-                        if self.universe_total is None:
-                            self.universe_total = filter_val
-        if setup_cnt is not None:
-            counts["setup"] = int(setup_cnt)
-        if cand_cnt is not None:
-            counts["cand"] = self._clamp_trdlist(cand_cnt)
-        if final_cnt is not None:
-            counts["entry"] = int(final_cnt)
-        self._update_bar(key, value)
-        self.progress_ui.update_label_for_stage(value)
-        self._render_metrics(key)
-
-    def set_universe_target(self, tgt: int | None) -> None:
-        """全体ユニバース（Tgt）を設定。UI に即時反映する。
-
-        - 引数が None の場合は既定動作（各 system の target/filter を表示）に戻る。
-        - 整数が与えられた場合、各 system の表示上の `Tgt` はこの値を表示する。
-        """
-        try:
-            if tgt is None:
-                self.universe_target = None
-                self.universe_total = None
-            else:
-                self.universe_target = int(tgt)
-                self.universe_total = int(tgt)
-            GLOBAL_STAGE_METRICS.set_universe_target(self.universe_target)
-        except Exception:
-            self.universe_target = None
-            self.universe_total = None
-            try:
-                GLOBAL_STAGE_METRICS.set_universe_target(None)
-            except Exception:
-                pass
-        # 全 system の表示を更新
-        self.refresh_all()
-
-    def update_exit(self, name: str, count: int) -> None:
-        key = str(name).lower()
-        snapshot: StageSnapshot | None
-        try:
-            snapshot = GLOBAL_STAGE_METRICS.record_exit(key, count, emit_event=False)
-        except Exception:
-            snapshot = None
-        if snapshot is not None:
-            self._apply_snapshot(key, snapshot)
-            return
-        counts = self._ensure_counts(key)
-        counts["exit"] = int(count)
-        self._render_metrics(key)
-
-    def finalize_counts(
-        self, final_df: pd.DataFrame, per_system: dict[str, pd.DataFrame]
-    ) -> None:  # noqa: E501
-        """最終化：残った候補/エントリー数を補完し、全バーを100%にする。"""
-        # まずJSONL進捗イベントから最終候補数を同期
-        self._sync_final_counts_from_jsonl()
-
-        # AllocationSummary が dict で同梱されている場合、slot_candidates を候補数のフォールバックに使用する
-        alloc_slot_candidates: dict[str, int] | None = None
-        alloc_final_counts: dict[str, int] | None = None
-        system_diagnostics_map: dict[str, dict] | None = None
-
-        try:
-            if isinstance(per_system, dict):
-                alloc_dict = per_system.get("__allocation_summary__")
-            else:
-                alloc_dict = None
-            if isinstance(alloc_dict, dict):
-                # slot_candidates 取得
-                cand_map = alloc_dict.get("slot_candidates")
-                if isinstance(cand_map, dict):
-                    # 正規化: keyは小文字system名に統一し、値はint化
-                    alloc_slot_candidates = {}
-                    for k, v in cand_map.items():
-                        try:
-                            key = str(k).strip().lower()
-                            val = int(v) if v is not None else 0
-                            alloc_slot_candidates[key] = max(0, val)
-                        except Exception:
-                            continue
-                # final_counts 取得（エントリー数の最終確定値）
-                final_map = alloc_dict.get("final_counts")
-                if isinstance(final_map, dict):
-                    alloc_final_counts = {}
-                    for k, v in final_map.items():
-                        try:
-                            key = str(k).strip().lower()
-                            val = int(v) if v is not None else 0
-                            alloc_final_counts[key] = max(0, val)
-                        except Exception:
-                            continue
-                # system_diagnostics 取得（setup_predicate_count用）
-                diag_map = alloc_dict.get("system_diagnostics")
-                if isinstance(diag_map, dict):
-                    system_diagnostics_map = {}
-                    for k, v in diag_map.items():
-                        try:
-                            key = str(k).strip().lower()
-                            if isinstance(v, dict):
-                                system_diagnostics_map[key] = v
-                        except Exception:
-                            continue
-        except Exception:
-            alloc_slot_candidates = None
-            alloc_final_counts = None
-            system_diagnostics_map = None
-        for name, counts in self.stage_counts.items():
-            snapshot: StageSnapshot | None
-            try:
-                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(name)
-            except Exception:
-                snapshot = None
-            if snapshot is not None:
-                if counts.get("target") is None and snapshot.target is not None:
-                    try:
-                        counts["target"] = int(snapshot.target)
-                        if self.universe_total is None:
-                            self.universe_total = int(snapshot.target)
-                    except Exception:
-                        pass
-                if counts.get("filter") is None and snapshot.filter_pass is not None:
-                    try:
-                        counts["filter"] = int(snapshot.filter_pass)
-                    except Exception:
-                        pass
-                if counts.get("setup") is None and snapshot.setup_pass is not None:
-                    try:
-                        counts["setup"] = int(snapshot.setup_pass)
-                    except Exception:
-                        pass
-                if counts.get("cand") is None and snapshot.candidate_count is not None:
-                    try:
-                        counts["cand"] = self._clamp_trdlist(snapshot.candidate_count)
-                    except Exception:
-                        pass
-                if counts.get("entry") is None and snapshot.entry_count is not None:
-                    try:
-                        counts["entry"] = int(snapshot.entry_count)
-                    except Exception:
-                        pass
-                if counts.get("exit") is None and snapshot.exit_count is not None:
-                    try:
-                        counts["exit"] = int(snapshot.exit_count)
-                    except Exception:
-                        pass
-        try:
-            system_series = (
-                final_df["system"].astype(str).str.strip().str.lower()
-                if "system" in final_df.columns
-                else pd.Series(dtype=str)
-            )
-        except Exception:
-            system_series = pd.Series(dtype=str)
-        for name, counts in self.stage_counts.items():
-            # diagnosticsからsetup_predicate_countを取得して設定
-            if counts.get("setup") is None and system_diagnostics_map:
-                try:
-                    diag = system_diagnostics_map.get(name)
-                    if isinstance(diag, dict):
-                        setup_count = diag.get("setup_predicate_count")
-                        if isinstance(setup_count, (int, float)) and setup_count >= 0:
-                            counts["setup"] = int(setup_count)
-                except Exception:
-                    pass
-
-            # diagnostics から ranked_top_n_count（ランキング段階で選ばれた top-N 件）を
-            # 優先的に TRDlist 表示へ反映する。以前は既存の cand が None/0 の場合のみ
-            # 上書きしていたが、表示要件に合わせて diagnostics が提供する値があれば
-            # 常に TRDlist として表示する（entry は引き続き最終残存件数を使う）。
-            if system_diagnostics_map:
-                try:
-                    diag = system_diagnostics_map.get(name)
-                    if isinstance(diag, dict):
-                        r_topn = diag.get("ranked_top_n_count")
-                        if isinstance(r_topn, (int, float)) and int(r_topn) > 0:
-                            # 常に ranked_top_n_count を TRDlist に反映
-                            counts["cand"] = self._clamp_trdlist(int(r_topn))
-                except Exception:
-                    pass
-
-            # cand が未設定 もしくは 0 の場合は AllocationSummary / per_system でフォールバック
-            cand_val = counts.get("cand")
-            if cand_val is None or int(cand_val or 0) <= 0:
-                # 1) AllocationSummary の slot_candidates からフォールバック
-                used = False
-                try:
-                    if (
-                        alloc_slot_candidates is not None
-                        and name in alloc_slot_candidates
-                    ):
-                        counts["cand"] = self._clamp_trdlist(
-                            alloc_slot_candidates.get(name)
-                        )
-                        used = True
-                except Exception:
-                    used = False
-                # 2) per_system の DataFrame 件数にフォールバック
-                if not used:
-                    df_sys = per_system.get(name)
-                    if (
-                        df_sys is None
-                        or not isinstance(df_sys, pd.DataFrame)
-                        or df_sys.empty
-                    ):
-                        counts["cand"] = 0
-                    else:
-                        counts["cand"] = self._clamp_trdlist(len(df_sys))
-            if counts.get("entry") is None and not system_series.empty:
-                try:
-                    counts["entry"] = int((system_series == name).sum())
-                except Exception:
-                    counts["entry"] = 0
-            # AllocationSummary.final_counts からの上書き（優先）
-            if alloc_final_counts and name in alloc_final_counts:
-                try:
-                    counts["entry"] = int(alloc_final_counts[name])
-                except Exception:
-                    pass
-            if counts.get("target") is None:
-                if self.universe_total is not None:
-                    counts["target"] = self.universe_total
-                elif counts.get("filter") is not None and counts.get("setup") is None:
-                    counts["target"] = counts.get("filter")
-            try:
-                GLOBAL_STAGE_METRICS.record_stage(
-                    name,
-                    int(
-                        self.states.get(
-                            name, 100 if counts.get("entry") is not None else 0
-                        )
-                    ),
-                    counts.get("filter"),
-                    counts.get("setup"),
-                    counts.get("cand"),
-                    counts.get("entry"),
-                    emit_event=False,
-                )
-            except Exception:
-                pass
-        self.refresh_all()
-        # Export a snapshot of the display metrics to results_csv for Playwright
-        # or other automated diffing tools. This is intentionally best-effort
-        # and must not raise on failure.
-        try:
-            self._export_metrics_snapshot()
-        except Exception:
-            pass
-
-    def apply_exit_counts(self, exit_counts: dict[str, int]) -> None:
-        any_applied = bool(exit_counts)
-        for name, cnt in exit_counts.items():
-            # treat presence of an entry in the dict as an applied update even if cnt == 0
-            if cnt is None:
-                continue
-            snapshot: StageSnapshot | None
-            try:
-                snapshot = GLOBAL_STAGE_METRICS.record_exit(name, cnt, emit_event=False)
-            except Exception:
-                snapshot = None
-            if snapshot is not None:
-                self._apply_snapshot(name, snapshot)
-            else:
-                try:
-                    self._ensure_counts(name)["exit"] = int(cnt)
-                except Exception:
-                    pass
-        # Refresh UI metrics and finally set overall top progress to the
-        # exit/hand-off phase so it isn't overwritten by numeric per-system
-        # stage label updates.
-        self.refresh_all()
-        if any_applied:
-            try:
-                if self.progress_ui is not None:
-                    self.progress_ui.update(8, 8, "exit")
-            except Exception:
-                pass
-
-    def refresh_all(self) -> None:
-        # まずJSONLから最新データを同期
-        try:
-            self._sync_final_counts_from_jsonl()
-        except Exception:
-            pass
-        # 全システムのメトリクスを再描画
-        for name in self.metrics_store.systems():
-            self._render_metrics(name)
-
-    def _update_bar(self, key: str, value: int) -> None:
-        if not self.show_ui:
-            return
-        progress_bar = self.bars.get(key)
-        if progress_bar is None:
-            return
-        vv = max(0, min(100, int(value)))
-        prev = int(self.states.get(key, 0))
-        # 進捗が 0/25/50/75 のままでも、下流ステージのカウントが埋まっている場合は補完
-        if vv < 100:
-            try:
-                snap = GLOBAL_STAGE_METRICS.get_snapshot(key)
-            except Exception:
-                snap = None
-            if snap is not None:
-                # entry_count が存在 → 75% 以上完了とみなし 100 に丸め
-                if snap.entry_count is not None:
-                    vv = 100
-                # candidate_count のみ → 75%
-                elif snap.candidate_count is not None and vv < 75:
-                    vv = 75
-                # setup_pass があり filter_pass も → 50%
-                elif (
-                    snap.setup_pass is not None
-                    and snap.filter_pass is not None
-                    and vv < 50
-                ):
-                    vv = 50
-                # filter_pass のみ存在 → 25%
-                elif snap.filter_pass is not None and vv < 25:
-                    vv = 25
-        vv = max(prev, vv)
-        self.states[key] = vv
-        try:
-            progress_bar.progress(vv)
-            self.stage_txt[key].text(f"run {vv}%" if vv < 100 else "done 100%")
-        except Exception:
-            pass
-
-    def _render_metrics(self, key: str) -> None:
-        placeholder = self.metrics_txt.get(key)
-        if placeholder is None:
-            return
-        display = self.metrics_store.get_display_metrics(key)
-        target_value = (
-            self.universe_target
-            if self.universe_target is not None
-            else display.get("target")
-        )
-        # Make each metric appear on its own line. This improves readability
-        # and makes Playwright snapshotting/diffing straightforward.
-        try:
-            lines = [
-                f"Tgt {self._format_value(target_value)}",
-                f"FILpass {self._format_value(display.get('filter'))}",
-                f"STUpass {self._format_value(display.get('setup'))}",
-                f"TRDlist {self._format_trdlist(display.get('cand'))}",
-                f"Entry {self._format_value(display.get('entry'))}",
-                f"Exit {self._format_value(display.get('exit'))}",
-            ]
-            placeholder.text("\n".join(lines))
-        except Exception:
-            pass
-
-    def get_display_metrics(self, name: str) -> dict[str, int | None]:
-        key = str(name).lower()
-        result = self.metrics_store.get_display_metrics(key)
-        return cast(dict[str, int | None], result)
-
-    def _ensure_counts(self, name: str) -> dict[str, int | None]:
-        result = self.metrics_store.ensure_display_metrics(name)
-        return cast(dict[str, int | None], result)
-
-    @staticmethod
-    def _format_value(value: Any) -> str:
-        """Format value as string, returning '-' for None."""
-        result: str = "-" if value is None else str(value)
-        return result
-
-    @staticmethod
-    def _clamp_trdlist(value: Any) -> int | None:
-        result = StageMetricsStore.clamp_trdlist(value)
-        return cast(int | None, result)
-
-    def _format_trdlist(self, value: Any) -> str:
-        """Format trdlist value with clamping, returning '-' for None."""
-        if value is None:
-            clamped_str: str = "-"
-            return clamped_str
-        try:
-            clamped_val = self._clamp_trdlist(value)
-            return str(clamped_val) if clamped_val is not None else "-"
-        except Exception:
-            return "-"
-
-    def _export_metrics_snapshot(self) -> None:
-        """Export current display metrics to a JSON file for Playwright diffing.
-
-        Writes `results_csv/ui_metrics_YYYYMMDD_HHMMSS.json` containing the
-        StageTracker display metrics for all systems. Quietly ignores errors.
-        """
-        try:
-            settings2 = get_settings(create_dirs=True)
-            results_dir = Path(
-                getattr(settings2.outputs, "results_csv_dir", "results_csv")
-            )
-        except Exception:
-            results_dir = Path("results_csv")
-        try:
-            results_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fp = results_dir / f"ui_metrics_{ts}.json"
-            payload: dict[str, Any] = {}
-            for name in self.metrics_store.systems():
-                try:
-                    payload[name] = self.get_display_metrics(name)
-                except Exception:
-                    payload[name] = None
-            # ensure JSON serializable (convert numpy types if any)
-            try:
-                with fp.open("w", encoding="utf-8") as fh:
-                    json.dump(payload, fh, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-
 class UILogger:
     """UIとファイル出力の両方へログを書き出す。"""
 
@@ -3040,7 +2259,12 @@ def execute_today_signals(run_config: RunConfig) -> RunArtifacts:
     ui_vis_raw = st.session_state.get("ui_vis", {})
     ui_vis = ui_vis_raw if isinstance(ui_vis_raw, dict) else {}
     progress_ui = ProgressUI(ui_vis)
-    stage_tracker = StageTracker(ui_vis, progress_ui)
+    stage_tracker = StageTracker(
+        ui_vis,
+        progress_ui,
+        progress_event_reader=read_progress_events,
+        has_streamlit_ctx=_has_st_ctx,
+    )
     logger = UILogger(start_time, progress_ui)
     callbacks = RunCallbacks(logger, progress_ui, stage_tracker)
     callbacks.register_with_module()
@@ -3596,6 +2820,93 @@ def _run_planned_exit_scheduler(kind: str, dry_run: bool) -> None:
         st.error(f"{label}予約の実行に失敗: {exc}")
 
 
+def _render_run_completion_summary(
+    final_df: pd.DataFrame,
+    stage_tracker: StageTracker,
+    total_elapsed: float,
+    log_lines: list[str],
+) -> None:
+    st.subheader("完了サマリ")
+    final_rows = int(len(final_df)) if isinstance(final_df, pd.DataFrame) else 0
+    cand_total = _sum_stage_metric(stage_tracker, "cand")
+    entry_total = _sum_stage_metric(stage_tracker, "entry")
+    exit_total = _sum_stage_metric(stage_tracker, "exit")
+    warning_total = _count_warning_logs(log_lines)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("最終シグナル数", str(final_rows))
+    with col2:
+        st.metric("TRDlist合計", str(cand_total))
+    with col3:
+        st.metric("Entry合計", str(entry_total))
+    with col4:
+        st.metric("Exit合計", str(exit_total))
+    st.caption(f"経過時間: {_format_elapsed_text(total_elapsed)}")
+    if warning_total > 0:
+        st.warning(f"警告ログを {warning_total} 件記録しました。", icon="⚠️")
+    else:
+        st.caption("警告ログは記録されませんでした。")
+    rows: list[dict[str, Any]] = []
+    try:
+        systems = stage_tracker.metrics_store.systems()
+    except Exception:
+        systems = []
+    for name in systems:
+        metrics = stage_tracker.get_display_metrics(name)
+        rows.append(
+            {
+                "System": str(name).title(),
+                "Tgt": metrics.get("target"),
+                "FILpass": metrics.get("filter"),
+                "STUpass": metrics.get("setup"),
+                "TRDlist": metrics.get("cand"),
+                "Entry": metrics.get("entry"),
+                "Exit": metrics.get("exit"),
+            }
+        )
+    if rows:
+        try:
+            df_summary = pd.DataFrame(rows)
+        except Exception:
+            df_summary = pd.DataFrame()
+        if not df_summary.empty:
+            st.dataframe(df_summary, width="stretch", hide_index=True)
+    _show_total_elapsed(total_elapsed)
+
+
+def _sum_stage_metric(stage_tracker: StageTracker, key: str) -> int:
+    total = 0
+    try:
+        systems = stage_tracker.metrics_store.systems()
+    except Exception:
+        systems = []
+    for name in systems:
+        metrics = stage_tracker.get_display_metrics(name)
+        value = metrics.get(key)
+        if isinstance(value, (int, float)):
+            total += int(value)
+    return total
+
+
+def _count_warning_logs(log_lines: list[str]) -> int:
+    if not log_lines:
+        return 0
+    count = 0
+    for line in log_lines:
+        if not isinstance(line, str):
+            continue
+        lowered = line.lower()
+        if "warning" in lowered or "⚠" in line or "警告" in lowered:
+            count += 1
+    return count
+
+
+def _format_elapsed_text(total_elapsed: float) -> str:
+    total_elapsed = max(0.0, float(total_elapsed))
+    minutes, seconds = divmod(int(total_elapsed), 60)
+    return f"{minutes}分{seconds}秒"
+
+
 def render_today_signals_results(
     artifacts: RunArtifacts,
     run_config: RunConfig,
@@ -3608,7 +2919,12 @@ def render_today_signals_results(
         artifacts.final_df, artifacts.per_system
     )  # noqa: E501
     artifacts.stage_tracker.finalize_counts(final_df, per_system)
-    _show_total_elapsed(artifacts.total_elapsed)
+    _render_run_completion_summary(
+        final_df,
+        artifacts.stage_tracker,
+        artifacts.total_elapsed,
+        artifacts.logger.log_lines if artifacts.logger is not None else [],
+    )
     _log_run_completion(final_df, per_system, artifacts.total_elapsed)
     per_system_logs = _build_per_system_logs(artifacts.logger.log_lines)
     _display_per_system_logs(per_system_logs)
@@ -4338,6 +3654,10 @@ def _log_and_notify(
 # =============================================================================
 
 with st.sidebar:
+    # 環境設定（デバッグ表示の制御など）
+    from config.environment import get_env_config
+
+    env = get_env_config()
     st.header("ユニバース")
 
     # キャッシュベースの銘柄ユニバース構築（run_all_systems_today.pyと同じロジック）
@@ -4374,30 +3694,32 @@ with st.sidebar:
     # Alpaca未約定注文表示
     st.header("Alpaca注文状況")
 
-    # デバッグ情報の表示
-    with st.expander("🔧 デバッグ情報"):
-        st.write("broker_alpaca モジュール属性:")
-        ba_attrs = [attr for attr in dir(ba) if not attr.startswith("_")]
-        for attr in sorted(ba_attrs):
-            if attr == "get_open_orders":
-                st.write(f"✅ {attr}: {type(getattr(ba, attr))}")
-            elif callable(getattr(ba, attr)):
-                st.write(f"📝 {attr}: {type(getattr(ba, attr))}")
-            else:
-                st.write(f"📦 {attr}: {type(getattr(ba, attr))}")
+    # デバッグ情報の表示（DEBUG_MODE=1 のときのみ）
+    if env.debug_mode:
+        with st.expander("🔧 デバッグ情報"):
+            st.write("broker_alpaca モジュール属性:")
+            ba_attrs = [attr for attr in dir(ba) if not attr.startswith("_")]
+            for attr in sorted(ba_attrs):
+                if attr == "get_open_orders":
+                    st.write(f"✅ {attr}: {type(getattr(ba, attr))}")
+                elif callable(getattr(ba, attr)):
+                    st.write(f"📝 {attr}: {type(getattr(ba, attr))}")
+                else:
+                    st.write(f"📦 {attr}: {type(getattr(ba, attr))}")
 
-        st.write(f"get_open_orders 存在確認: {hasattr(ba, 'get_open_orders')}")
-        if hasattr(ba, "get_open_orders"):
-            st.write(f"get_open_orders 型: {type(ba.get_open_orders)}")
-            st.write(f"get_open_orders docstring: {ba.get_open_orders.__doc__}")
+            st.write(f"get_open_orders 存在確認: {hasattr(ba, 'get_open_orders')}")
+            if hasattr(ba, "get_open_orders"):
+                st.write(f"get_open_orders 型: {type(ba.get_open_orders)}")
+                st.write(f"get_open_orders docstring: {ba.get_open_orders.__doc__}")
 
     if st.button("📋 未約定注文を表示"):
         try:
             paper_mode = st.session_state.get("paper_mode", True)
 
-            # デバッグ: モジュール状態の確認
-            st.info(f"broker_alpaca モジュール: {ba}")
-            st.info(f"get_open_orders 存在: {hasattr(ba, 'get_open_orders')}")
+            # デバッグ: モジュール状態の確認（DEBUG_MODE=1 のときだけ表示）
+            if env.debug_mode:
+                st.info(f"broker_alpaca モジュール: {ba}")
+                st.info(f"get_open_orders 存在: {hasattr(ba, 'get_open_orders')}")
 
             if not hasattr(ba, "get_open_orders"):
                 st.error("get_open_orders 関数が見つかりません")
@@ -4720,70 +4042,156 @@ if "positions_df" in st.session_state:
                     ["MOC (大引け)", "OPG (寄り付き)", "Market (成行)"],
                     key="exit_type",
                 )
+                dry_run_manual_exit = st.checkbox(
+                    "ドライラン（注文送信せずに確認のみ）",
+                    key="manual_exit_dry_run",
+                    value=st.session_state.get("manual_exit_dry_run", False),
+                    help="チェックすると注文は送信せず、ログと確認表示のみ行います。",
+                )
+
+                selected_positions = positions_df[
+                    positions_df["symbol"].isin(selected_symbols)
+                ].copy()
+
+                when_val: str | None
+                tif_val: str | None
+                if "MOC" in exit_type:
+                    when_val = "today_close"
+                    tif_val = "CLS"
+                    timing_label = "大引け（MOC）で即時送信"
+                elif "OPG" in exit_type:
+                    when_val = "tomorrow_open"
+                    tif_val = "OPG"
+                    timing_label = "翌寄り（OPG）で計画送信"
+                else:
+                    when_val = None
+                    tif_val = None
+                    timing_label = "成行は現在 UI から送信不可"
+
+                exit_orders: list[dict[str, Any]] = []
+                if when_val is not None:
+                    for _, row in selected_positions.iterrows():
+                        try:
+                            exit_orders.append(
+                                {
+                                    "symbol": str(row["symbol"]),
+                                    "qty": int(abs(float(row["qty"]))),
+                                    "position_side": str(row["side"]).lower(),
+                                    "system": str(row.get("system", "")),
+                                    "when": when_val,
+                                }
+                            )
+                        except Exception:
+                            continue
+
+                preview_df: pd.DataFrame | None = None
+                if exit_orders:
+                    preview_df = pd.DataFrame(exit_orders)
+                    preview_df = preview_df.assign(
+                        time_in_force=tif_val,
+                        dry_run="Yes" if dry_run_manual_exit else "No",
+                    )
+                    st.markdown("**送信前プレビュー**")
+                    st.dataframe(
+                        preview_df.rename(
+                            columns={
+                                "symbol": "銘柄",
+                                "qty": "数量",
+                                "position_side": "ポジション",
+                                "system": "システム",
+                                "when": "送信タイミング",
+                                "time_in_force": "TIF",
+                                "dry_run": "ドライラン",
+                            }
+                        ),
+                        width="stretch",
+                    )
+                    st.info(
+                        f"手仕舞い件数: {len(preview_df)} 件 / 送信モード: {timing_label}"
+                    )
+                else:
+                    st.warning(
+                        "成行（Market）は現在、手動手仕舞いからの即時送信に対応していません。\n"
+                        "MOC（大引け）または OPG（寄り付き）を選択してください。"
+                    )
+
+                confirm_key = "manual_exit_confirm"
+                confirm_checked = st.checkbox(
+                    "送信内容を確認しました",
+                    key=confirm_key,
+                    value=st.session_state.get(confirm_key, False),
+                    disabled=preview_df is None,
+                )
+
+                st.session_state.setdefault("manual_exit_sending", False)
+                send_disabled = (
+                    preview_df is None
+                    or not confirm_checked
+                    or st.session_state.get("manual_exit_sending", False)
+                )
 
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("🚀 選択銘柄の手仕舞い注文を送信", type="primary"):
+                    if st.button(
+                        "🚀 選択銘柄の手仕舞い注文を送信",
+                        type="primary",
+                        disabled=send_disabled,
+                        key="manual_exit_submit_button",
+                    ):
                         try:
-                            # 選択された銘柄のポジション情報を取得
-                            selected_positions = positions_df[
-                                positions_df["symbol"].isin(selected_symbols)
-                            ].copy()
-
-                            # 手仕舞い注文の実行
-                            exit_orders = []
-                            for _, row in selected_positions.iterrows():
-                                exit_orders.append(
-                                    {
-                                        "symbol": row["symbol"],
-                                        "side": (
-                                            "sell"
-                                            if str(row["side"]).lower() == "long"
-                                            else "buy"
-                                        ),
-                                        "qty": abs(float(row["qty"])),
-                                        "order_type": (
-                                            "market"
-                                            if "Market" in exit_type
-                                            else "limit"
-                                        ),
-                                        "time_in_force": (
-                                            "cls"
-                                            if "MOC" in exit_type
-                                            else (
-                                                "opg" if "OPG" in exit_type else "day"
-                                            )
-                                        ),
-                                    }
+                            st.session_state["manual_exit_sending"] = True
+                            if preview_df is None:
+                                st.error("送信対象が選択されていません")
+                            elif dry_run_manual_exit:
+                                st.success("ドライランのため注文送信をスキップしました。")
+                                st.dataframe(
+                                    preview_df,
+                                    width="stretch",
+                                )
+                            else:
+                                from common.alpaca_order import (
+                                    submit_exit_orders_df as _submit_exit_orders_df,
                                 )
 
-                            if exit_orders:
-                                exit_df = pd.DataFrame(exit_orders)
-                                results = submit_orders_df(
-                                    exit_df,
+                                results = _submit_exit_orders_df(
+                                    preview_df[
+                                        ["symbol", "qty", "position_side", "system", "when"]
+                                    ],
                                     paper=paper_mode,
-                                    tif="DAY",
+                                    tif=(tif_val or "CLS"),
                                     retries=int(retries),
                                     delay=float(delay),
                                 )
 
                                 if results is not None and not results.empty:
                                     st.success(
-                                        f"{len(selected_symbols)}銘柄の手仕舞い注文を送信しました"
+                                        f"{len(results)}件の手仕舞い処理を実行しました"
                                     )
                                     st.dataframe(results, width="stretch")
                                 else:
-                                    st.warning("注文送信結果が取得できませんでした")
+                                    st.info("該当する予約または実行対象がありませんでした")
 
-                        except Exception as e:
-                            st.error(f"手仕舞い注文エラー: {e}")
+                        except Exception as e:  # noqa: BLE001
+                            if (
+                                isinstance(e, RuntimeError)
+                                and "unsupported_manual_market_exit" in str(e)
+                            ):
+                                st.warning(
+                                    "成行（Market）は現在、手動手仕舞いからの即時送信に対応していません。"
+                                )
+                            else:
+                                st.error(f"手仕舞い注文エラー: {e}")
+                        finally:
+                            st.session_state["manual_exit_sending"] = False
+                            st.session_state[confirm_key] = False
 
                 with col2:
-                    if st.button("📊 手仕舞い影響を事前確認"):
-                        if selected_symbols:
-                            selected_positions = positions_df[
-                                positions_df["symbol"].isin(selected_symbols)
-                            ].copy()
+                    if st.button(
+                        "📊 手仕舞い影響を事前確認",
+                        disabled=selected_positions.empty,
+                        key="manual_exit_preview_button",
+                    ):
+                        if not selected_positions.empty:
                             total_pl = (
                                 selected_positions["unrealized_pl"].astype(float).sum()
                             )

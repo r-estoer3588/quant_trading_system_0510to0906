@@ -1,3 +1,24 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは core/system3.py（ロング ミーン・リバージョン）を UI 用に適応させるラッパー層
+#
+# 前提条件：
+#   - ロジック本体は core/system3.py。このファイルは orchestration のみ
+#   - 3 日連続下落（drop3d）を売却シグナル検出
+#   - ロング戦略（売却後の回復狙い）
+#   - 最終配分は finalize_allocation() で一元化
+#
+# ロジック単位：
+#   generate_signals()    → prepare_data + generate_candidates を順序実行
+#   apply_allocation()    → 当日配分情報をまとめて渡す
+#   _build_diagnostics()  → setup count など診断情報構築
+#
+# Copilot へ：
+#   → core のロジック変更は core/system3.py で実施
+#   → candidates が 0 の場合は正常。エラーと混同するな
+#   → drop3d 判定の敏感性は慎重に調整してから提案
+# ============================================================================
+
 # strategies/system3_strategy.py
 from __future__ import annotations
 

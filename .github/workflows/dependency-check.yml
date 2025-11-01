@@ -1,61 +1,53 @@
 name: Dependency Security Check
 
+# TEMPORARY PAUSE: Manual-only to avoid auto runs.
 on:
-    schedule:
-        # 毎週月曜日 09:00 JST (00:00 UTC)
-        - cron: "0 0 * * 1"
-
-    pull_request:
-        paths:
-            - "requirements.txt"
-            - "requirements-dev.txt"
-
-    workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-    security-scan:
-        runs-on: ubuntu-latest
+  security-scan:
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Setup Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.11"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-            - name: Install pip-audit
-              run: |
-                  pip install pip-audit
+      - name: Install pip-audit
+        run: |
+          pip install pip-audit
 
-            - name: Audit dependencies
-              run: |
-                  pip-audit -r requirements.txt -r requirements-dev.txt --format json --output audit-report.json
-              continue-on-error: true
+      - name: Audit dependencies
+        run: |
+          pip-audit -r requirements.txt -r requirements-dev.txt --format json --output audit-report.json
+        continue-on-error: true
 
-            - name: Upload audit report
-              uses: actions/upload-artifact@v4
-              with:
-                  name: security-audit-${{ github.run_number }}
-                  path: audit-report.json
-                  retention-days: 30
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-${{ github.run_number }}
+          path: audit-report.json
+          retention-days: 30
 
-            - name: Check for vulnerabilities
-              run: |
-                  pip-audit -r requirements.txt -r requirements-dev.txt --format markdown > audit-summary.md
-                  cat audit-summary.md
+      - name: Check for vulnerabilities
+        run: |
+          pip-audit -r requirements.txt -r requirements-dev.txt --format markdown > audit-summary.md
+          cat audit-summary.md
 
-            - name: Comment on PR
-              if: github.event_name == 'pull_request'
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const fs = require('fs');
-                      const report = fs.readFileSync('audit-summary.md', 'utf8');
-                      github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: `## 🔒 Dependency Security Audit\n\n${report}`
-                      });
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('audit-summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🔒 Dependency Security Audit\n\n${report}`
+            });

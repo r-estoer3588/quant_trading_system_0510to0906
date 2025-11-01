@@ -1,3 +1,25 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは当日配分の最終段階。各システムの候補を統合し、slot/capital モードで割当を計算
+#
+# 前提条件：
+#   - API 契約: finalize_allocation(per_system, strategies=?, positions=?, ...) は絶対変更禁止
+#   - per_system: {"system1": df1, ...} 形式（必須）
+#   - strategies パラメータなしは capital 配分が機能しない場合がある
+#   - slot/capital モード共存。ユースケースに応じて選択
+#   - スロット重複緩和: slot_dedup_enabled と slot_max_rank_depth で制御
+#
+# ロジック単位：
+#   finalize_allocation()       → 統合候補→割当計算→最終リスト
+#   _compute_capital_allocation() → capital モード計算
+#   _compute_slot_allocation()    → slot モード計算
+#
+# Copilot へ：
+#   → API 契約は変更するな（downstream で breaking change）
+#   → strategies を渡さないと資本配分が未実装になる場合がある。厳格運用は ALLOCATION_REQUIRE_STRATEGIES=1
+#   → slot モードで実株数が必要なら include_trade_management=True を指定
+# ============================================================================
+
 """Final allocation stage utilities.
 
 This module extracts the core logic for the *allocation & final list* stage
@@ -1686,6 +1708,28 @@ def finalize_allocation(
     candidate_counts: dict[str, int] = {}
     for name in systems:
         candidate_counts[name] = _candidate_count(per_system_norm.get(name))
+
+    # ✅ 診断情報の整合性検証（デバッグモード時）
+    if debug_mode and system_diagnostics:
+        for system_name in systems:
+            diag = system_diagnostics.get(system_name, {})
+            setup_count = diag.get("setup_predicate_count", 0)
+            ranked_count = diag.get("ranked_top_n_count", 0)
+            actual_count = candidate_counts.get(system_name, 0)
+
+            if ranked_count > setup_count:
+                logger.error(
+                    "[ALLOC_DEBUG] %s: Logic error - ranked_count(%d) > "
+                    "setup_count(%d). Actual candidates: %d",
+                    system_name, ranked_count, setup_count, actual_count
+                )
+
+            if actual_count != ranked_count:
+                logger.warning(
+                    "[ALLOC_DEBUG] %s: Mismatch - diagnostics says %d, "
+                    "but DataFrame has %d rows",
+                    system_name, ranked_count, actual_count
+                )
 
     # Remember whether strategies was explicitly provided by the caller
     original_strategies_provided = strategies is not None

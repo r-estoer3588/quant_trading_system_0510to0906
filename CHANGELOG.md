@@ -47,7 +47,7 @@
 - **Cache Index Requirements**: `docs/technical/cache_index_requirements.md` で Feather フォーマット制約と DatetimeIndex 要件を解説
 - **Zero Candidates Guide**: `docs/technical/zero_candidates_guide.md` で System6 閾値問題とテスト環境設定を説明
 - **System6 Threshold Warning**: `docs/systems/システム6.txt` にテスト環境閾値の警告を追加
-- **Technical README**: `docs/technical/README.md` と `docs/README.md` に新規ドキュメントリンクを追加
+- **Technical README**: `docs/technical/INDEX.md` と `docs/README.md` に新規ドキュメントリンクを追加
 - **Implementation Review**: `TASK/implementation_review_report_20251011.md` で System1-7 Predicate Integration の包括的レビューを記録
 - **Diagnostics API**: `docs/technical/diagnostics.md` に仕様と使用例を追加
 - **README**: Diagnostics 機能の紹介セクション追加

@@ -1,4 +1,4 @@
-<!-- docs/branding/README.md -->
+<!-- docs/branding/INDEX.md -->
 
 # AI Narrative Studio — Branding Kit
 

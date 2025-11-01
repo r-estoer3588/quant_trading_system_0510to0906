@@ -1,3 +1,27 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは core/system7.py（SPY ショート カタストロフィー・ヘッジ）を UI 用に適応させるラッパー層
+#
+# ⚠️ CRITICAL: System7 は SPY 固定のヘッジ専用。ロジック変更・他銘柄割当は禁止
+#
+# 前提条件：
+#   - ロジック本体は core/system7.py。このファイルは orchestration のみ
+#   - SPY のみを対象（他銘柄への適用は禁止）
+#   - ポートフォリオ全体のダウンサイドヘッジ（トレード資本の 20%）
+#   - マーケット暴落時の損失軽減目的
+#   - 最終配分は finalize_allocation() で一元化
+#
+# ロジック単位：
+#   generate_signals()    → prepare_data + generate_candidates を順序実行
+#   apply_allocation()    → ヘッジ特有の配分情報をまとめて渡す
+#   _build_diagnostics()  → SPY の setup count を集計
+#
+# Copilot へ：
+#   → core のロジック変更は core/system7.py で実施
+#   → SPY 以外の銘柄割当提案は絶対受け入れるな
+#   → ヘッジ目的を忘れずに。収益最大化ではなく損失軽減が目的
+# ============================================================================
+
 """System7 strategy with cleaned Japanese comments and safe typing."""
 
 from __future__ import annotations

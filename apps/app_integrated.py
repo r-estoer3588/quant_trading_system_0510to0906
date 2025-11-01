@@ -1,8 +1,31 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは Streamlit 統合ダッシュボード。各システムのタブ + Metrics + Setup テスト等の集約UI
+#
+# 前提条件：
+#   - 当日シグナル実行は strategies/systemX_strategy.py を呼び出し（finalize_allocation 経由）
+#   - UI 進捗表示は ENABLE_PROGRESS_EVENTS=1 で有効化
+#   - スクリーンショット自動化は Playwright で完全自動（tools/run_and_snapshot.ps1）
+#   - レスポンシブ・タブ式設計（各システムごとタブ分離）
+#
+# ロジック単位：
+#   render_integrated_tab()    → 当日シグナル実行ボタン＆結果表示
+#   render_metrics_tab()       → daily_metrics.csv から推移グラフ
+#   render_positions_tab()     → ポジション管理 UI
+#   render_batch_tab()         → バッチ処理用 UI
+#
+# Copilot へ：
+#   → UI の体感スピード重視。重い処理は @st.cache_data で最適化
+#   → ボタンクリック後の待機は Playwright で自動検出（手動設定は --wait-after-click）
+#   → スクリーンショット撮影タイミングの信頼性を最優先
+#   → st.session_state を使った状態管理は必ずデバッグ出力付きで
+# ============================================================================
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -10,9 +33,9 @@ import streamlit as st
 # プロジェクトルート（apps/ から1階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import setup_logging
-import common.ui_patch  # noqa: F401
 from common.ui_tabs import (
     render_batch_tab,
     render_cache_health_tab,

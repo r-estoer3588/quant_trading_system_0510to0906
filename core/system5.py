@@ -1,3 +1,25 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは System5（ロング ミーン・リバージョン 高 ADX）のロジック専門
+#
+# 前提条件：
+#   - 高 ADX 環境（ADX7 > 55）でのミーン・リバージョン狙い
+#   - ATR_Pct による変動性フィルター（> 2.5%）
+#   - RSI3 < 50 で過売り確認
+#   - 指標は precomputed のみ使用（ADX7 でランキング）
+#   - フロー: setup() → rank() → signals() の順序実行
+#
+# ロジック単位：
+#   setup()       → フィルター条件チェック（ADX7>55、ATR_Pct>2.5% など）
+#   rank()        → ADX7 の降順ランキング（強いトレンド環境優先）
+#   signals()     → スコア付きシグナル抽出
+#
+# Copilot へ：
+#   → ADX 閾値（55）の変更は慎重に。他システムとの競合検証必須
+#   → RSI3 条件（< 50）の役割は「リバージョン環境確認」。ロジック変更禁止
+#   → ATR_Pct > 2.5% は変動性フィルター。下限変更は制御テストで確認
+# ============================================================================
+
 """System5 core logic (Long mean-reversion with high ADX).
 
 High ADX mean-reversion strategy:
@@ -231,7 +253,6 @@ def generate_candidates_system5(
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
-            setup_pass_count = 0  # カウンター追加
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
@@ -254,8 +275,6 @@ def generate_candidates_system5(
 
                 if not setup_ok:
                     continue
-
-                setup_pass_count += 1  # setup通過カウント
 
                 adx7_val = last_row.get("adx7", None)
                 try:
@@ -286,7 +305,11 @@ def generate_candidates_system5(
                     }
                 )
 
-            diagnostics["setup_predicate_count"] = setup_pass_count  # 記録
+            # ✅ setup通過件数 = rows の長さから直接計算（重複排除前）
+            diagnostics["setup_predicate_count"] = len(rows)
+            diagnostics["setup_unique_symbols"] = len(
+                set(row["symbol"] for row in rows)
+            )
             if not rows:
                 if log_callback:
                     try:
@@ -335,7 +358,21 @@ def generate_candidates_system5(
                 top_n
             )
             diagnostics["ranked_top_n_count"] = len(df_all)
+            diagnostics["top_n_requested"] = top_n
             diagnostics["ranking_source"] = "latest_only"
+
+            # ✅ 診断整合性チェック: ranked > setup は論理エラー
+            if diagnostics["ranked_top_n_count"] > diagnostics[
+                "setup_predicate_count"
+            ]:
+                if log_callback:
+                    ranked = diagnostics["ranked_top_n_count"]
+                    setup = diagnostics["setup_predicate_count"]
+                    log_callback(
+                        f"System5: WARNING - ranked_top_n ({ranked}) > "
+                        f"setup_predicate_count ({setup}). "
+                        "Possible duplicate or logic error."
+                    )
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
             for dt_raw, sub in df_all.groupby("date"):
                 dt = pd.Timestamp(str(dt_raw))
@@ -350,11 +387,11 @@ def generate_candidates_system5(
                     symbol_map[str(sym_val)] = payload
                 by_date[dt] = symbol_map
             if log_callback:
-                log_callback(
-                    (
-                        f"System5: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
-                    )
+                msg = (
+                    f"System5: latest_only fast-path -> {len(df_all)} "
+                    f"candidates (symbols={len(rows)})"
                 )
+                log_callback(msg)
             return (
                 (by_date, df_all.copy(), diagnostics)
                 if include_diagnostics
@@ -456,11 +493,11 @@ def generate_candidates_system5(
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
-        log_callback(
-            (
-                f"System5: Generated {total_candidates} candidates across {unique_dates} dates"
-            )
+        msg = (
+            f"System5: Generated {total_candidates} candidates "
+            f"across {unique_dates} dates"
         )
+        log_callback(msg)
 
     normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
     for dt, recs in candidates_by_date.items():

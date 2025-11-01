@@ -1,3 +1,24 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは System3（ロング ミーン・リバージョン 3 日ドロップ）のロジック専門
+#
+# 前提条件：
+#   - 3 日連続下落を売却シグナル検出（drop3d >= 0.125）
+#   - ロング戦略（売却後の回復狙い）
+#   - 指標は precomputed のみ使用（indicator_access.py 経由）
+#   - フロー: setup() → rank() → signals() の順序実行
+#
+# ロジック単位：
+#   setup()       → フィルター条件チェック（DollarVolume20>25M、atr_ratio>=0.05）
+#   rank()        → drop3d の降順ランキング（下落度合い大きい順）
+#   signals()     → スコア付きシグナル抽出
+#
+# Copilot へ：
+#   → 正確性を最優先。ドロップ判定の敏感性は慎重に調整
+#   → candidates が 0 の場合は正常。エラーと混同するな
+#   → setup 条件の厳格化は必ず制御テストで確認
+# ============================================================================
+
 """System3 core logic (Long mean-reversion).
 
 3-day drop mean-reversion strategy:
@@ -958,6 +979,15 @@ def generate_candidates_system3(
         ranked = filtered.sort_values("drop3d", ascending=False, kind="stable").copy()
         top_cut = ranked.head(top_n)
 
+        # 診断用：フィルタ前の件数を記録
+        try:
+            diagnostics["ranking_breakdown"] = {
+                "original_filtered": len(filtered),
+                "top_cut_before_topoff": len(top_cut),
+            }
+        except Exception:
+            pass
+
         # 足りない分を df_all_original + lagged_rows から補完（top-off）。date/entry_date を正規化。
         missing = max(0, int(top_n) - len(top_cut))
         if log_callback:
@@ -1025,7 +1055,30 @@ def generate_candidates_system3(
 
         df_all = top_cut
         diagnostics["ranked_top_n_count"] = len(df_all)
+        diagnostics["top_n_requested"] = top_n
         diagnostics["ranking_source"] = "latest_only"
+
+        # ✅ 診断内訳の詳細記録
+        try:
+            extras = max(0, len(df_all) - len(top_cut))
+            diagnostics["ranking_breakdown"]["extras_added"] = extras
+            diagnostics["ranking_breakdown"]["final_count"] = len(df_all)
+        except Exception:
+            pass
+
+        # ✅ 診断整合性チェック: ranked > setup は論理エラー
+        if diagnostics["ranked_top_n_count"] > diagnostics[
+            "setup_predicate_count"
+        ]:
+            if log_callback:
+                ranked = diagnostics["ranked_top_n_count"]
+                setup = diagnostics["setup_predicate_count"]
+                breakdown = diagnostics.get("ranking_breakdown", {})
+                log_callback(
+                    f"System3: WARNING - ranked_top_n ({ranked}) > "
+                    f"setup_predicate_count ({setup}). "
+                    f"Breakdown: {breakdown}"
+                )
 
         # 0 件時の原因推定（可視化用）
         if len(df_all) == 0:

@@ -1,15 +1,7 @@
 name: Auto-Update Documentation
 
+# TEMPORARY PAUSE: Disable push triggers; manual-only.
 on:
-    push:
-        branches:
-            - main
-            - branch0906
-        paths:
-            - "core/**/*.py"
-            - "common/**/*.py"
-            - "strategies/**/*.py"
-
     workflow_dispatch:
 
 jobs:

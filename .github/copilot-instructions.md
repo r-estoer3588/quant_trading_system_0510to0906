@@ -1,59 +1,69 @@
 # Copilot instructions — quick reference (repository-specific)
 
-目的: AI エージェントがこのリポジトリで安全かつ即戦力に編集・提案できるための最小ルール集。
+目的: このリポジトリで AI エージェントが安全かつ即戦力で作業するための最小限かつ実用的なルール集。まずは必ず `docs/README.md` を確認して全体像（設計/運用/コマンド）を掴んでください。
 
-必ず最初に読む: `docs/README.md`（設計・運用・コマンドの統合ハブ）。編集前はここで仕様・データフローと注意点を確認すること。
+## アーキテクチャ概要（把握のカギ）
 
-主要ポイント（要約）
+- 7 システム構成：ロング(1,3,4,5)／ショート(2,6,7)。System7 は SPY ショートのヘッジ専用（特例）。
+- UI: `apps/app_integrated.py`（統合タブ）/ `apps/app_today_signals.py`。
+- 純ロジック: `core/systemX.py`、戦略ラッパ: `strategies/systemX_strategy.py`、UI タブ: `apps/systems/app_systemX.py`。
+- 日次パイプライン: `scripts/run_all_systems_today.py`
+  - フロー: symbols → load/cache → indicators → filters/setup → ranking/signals → allocation → save/notify。
+- 最終配分: `core/final_allocation.py::finalize_allocation()`（slot/capital 両モード）。API 契約は変更しない。
 
-- エントリ: `apps/app_integrated.py`, `apps/app_today_signals.py`（Streamlit UI）
-- 日次パイプライン: `scripts/run_all_systems_today.py`（symbols → load → indicators → filters → setup → signals → allocation → save/notify）
-- 戦略分離: 低レベルロジックは `core/systemX.py`、戦略は `strategies/systemX_strategy.py`
+## 必須ルール（破らない）
 
-必須ルール（破らないでください）
+- キャッシュ I/O は必ず `common/cache_manager.py::CacheManager` 経由。`data_cache/`直参照・直接書込み禁止。
+- `core/system7.py` は SPY 固定のヘッジ専用。ロジック変更や SPY 以外の割当は禁止。
+- 設定は `config/settings.py::get_settings()`、環境は `config/environment.py::get_env_config()` を経由（`os.environ.get` 直読禁止）。
+- テストで外部 API 呼び出し禁止。キャッシュデータ使用かモック/フィクスチャで代替。
 
-- キャッシュ I/O は常に `common/cache_manager.py::CacheManager` を経由する（直接 `data_cache/` を参照・書き換えない）。
-- `core/system7.py`（SPY 固定）を改変しない。System7 はヘッジ専用で特別扱いです。
-- 設定は必ず `config/settings.py::get_settings()` 経由、環境変数は `config/environment.py::get_env_config()` を通す（直接 `os.environ.get()` 禁止）。
+## 開発ワークフロー（PowerShell 例）
 
-重要ファイル（参照例）
+- 依存: `pip install -r requirements.txt`
+- UI: `python -m streamlit run apps/app_integrated.py`
+- 当日パイプライン: `python scripts/run_all_systems_today.py --parallel --save-csv`
+- 高速検証: `python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark`
+- 制御テスト: `python scripts/run_controlled_tests.py`（または `pytest -q tests/test_systems_controlled_all.py`）
+- テスト: `pytest -q`（例: `pytest tests/test_system3.py::test_entry_rules`）
+- Lint/Format: `ruff check --fix .` → `black .` → `isort .`（pre-commit 推奨）
 
-- 処理フロー: `scripts/run_all_systems_today.py`
-- 最終配分: `core/final_allocation.py` (`finalize_allocation(...)` の呼び出し規約を尊重)
-- キャッシュ: `common/cache_manager.py`, `common/cache_io.py`
-- UI テスト/スクリーンショット: `tools/capture_ui_screenshot.py`, `tools/run_and_snapshot.ps1`, Playwright 設定 `playwright.config.ts`
+## キャッシュ層とデータ流儀
 
-よく使うコマンド（PowerShell 例）
+- 層: `full_backup`(原本) → `base`(指標付与済/既定) → `rolling`(直近 N 日/当日用)。
+- 解決順序: today は `rolling→base→full_backup`、backtest は `base→full_backup`。
+- 直接 `data_cache/` を触らず、`CacheManager`/`common/cache_io.py` を使う。
 
-- 依存インストール: `pip install -r requirements.txt`
-- UI 起動: `& .\venv\Scripts\python.exe -m streamlit run apps/app_integrated.py`
-- 当日一式（本番相当）: `python scripts/run_all_systems_today.py --parallel --save-csv`
-- 速い検証: `python scripts/run_all_systems_today.py --test-mode mini --skip-external --benchmark`
-- テスト: `python -m pytest -q`（個別: `pytest tests/test_system3.py::test_entry_rules`）
+## 診断・ログ・環境
 
-デバッグ・検証ループ（推奨ワークフロー）
+- Diagnostics 共通キー: `setup_predicate_count`, `ranked_top_n_count`, `ranking_source`。
+- 進捗監視: `ENABLE_PROGRESS_EVENTS=1` で UI から当日処理の進捗を追跡。
+- 配分デバッグ: `get_env_config().allocation_debug` を有効化すると詳細ログ。
+- スロット重複緩和: `slot_dedup_enabled` と `slot_max_rank_depth`（環境設定）。
 
-- 変更後は `--test-mode mini` で素早く動作確認。UI 変更は Playwright ベースの `tools/run_and_snapshot.ps1` でスクリーンショットを取り、`snapshots/` と `imgdiff_report.html` を確認する。
-- 再現性問題が疑われる場合、`common/testing.py::set_test_determinism()` を呼んで安定化を試みる。
+## 代表 API と使用例
 
-開発スタイルと CI 前提
+- 最終配分（契約厳守）: `core/final_allocation.py::finalize_allocation(per_system, strategies=?, positions=?, ...) -> (df, summary)`
+  - 例: `--test-mode mini` で得たシステム別候補を `per_system={"system1": df1, ...}` として渡す。
+- 指標/前処理: `common/indicators_precompute.py` / 利用は `common/indicator_access.py`。
 
-- Lint/format: `ruff`/`black`/`isort` を `pre-commit` で回す。CI は `ruff/black/mypy/pytest` を実行します。
-- 外部 API 呼び出しはテストで禁止。キャッシュ済みデータ（`data_cache/`）を使うか、モック/フィクスチャを使うこと。
+## UI/E2E（自動スクショ）
 
-実装時の小さな契約（短く）
+- スクショ自動化: `tools/run_and_snapshot.ps1`（内部で Playwright 操作 → 撮影 → スナップショット）。
+- 直接実行: `python tools/capture_ui_screenshot.py --url http://localhost:8501 --output results_images/today_signals_complete.png`。
 
-- 入出力: 公開関数に型ヒントをつける。戻り値はドキュメント化する。
-- エラー: 入力データ不備は早期に ValueError を投げる。外部 I/O の失敗は例外をラップして上位に伝える。
+## 実務の落とし穴（必読）
 
-変更を提案したら必ず添える情報（PR 必須項目）
+- slot モードで実株数が必要なら `include_trade_management=True` を指定（UI 連携は指定済み）。未指定だと shares 未算出で発注不可。
+- `strategies` を渡さないと資本配分計算が機能しない場合がある。厳格運用は `ALLOCATION_REQUIRE_STRATEGIES=1` で強制。
+- 現有ポジション集計は `symbol_system_map` の主系統（primary）に依存。未提供時は `common.symbol_map::load_symbol_system_map()` フォールバック。
 
-1. どの入力ファイル / キャッシュに影響するか（例: `data_cache/rolling/system3.feather`）
-2. 期待されるテストコマンド（`--test-mode mini` の例）
-3. UI 変更があればスクリーンショット（`results_images/`）
+## VS Code タスク（時短）
 
-その他: 不明点があれば、編集対象ファイルと実行したいコマンドを教えてください。こちらで patch を作り、`--test-mode mini` で確認して差分を示します。
+- VS Code から「Tasks: Run Task」で実行: “Run All Systems Today”, “Quick Test Run”, “Start Streamlit UI”。
 
-```
+## PR に必ず書くこと
 
-```
+1. 影響する入力/キャッシュ（例: `data_cache/rolling/system3.feather`） 2) 検証手順（`--test-mode mini` など具体コマンド） 3) UI 変更ならスクショ（`results_images/`）。
+
+ヒント: 再現性が不安定なときは `common/testing.py::set_test_determinism()` を冒頭で呼び、まず `mini` / 制御テストで差分ゼロを確認してから本番相当へ広げてください。

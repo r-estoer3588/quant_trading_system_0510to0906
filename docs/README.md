@@ -2,40 +2,128 @@
 
 このドキュメントは、7 つの売買システムを統合したクオンツトレーディングシステムの包括的なガイドです。
 
-## 📚 ドキュメント構成
+## 🌟 はじめに
 
-### 🚀 [クイックスタート](#quick-start)
+**このドキュメントの使い方**:
 
-- [セットアップ](../README.md#セットアップ) - 初回環境構築
-- [基本実行](../README.md#実行例) - UI 起動と基本操作
-- [テスト実行](./testing.md) - システム動作確認
-  - 統合制御テスト（systems 1-6）: `tests/test_systems_controlled_all.py` を実行する短い検証。開発中や変更適用後に素早くランク付けと最終エントリ数の整合を確認するために使います。
-    - 実行コマンド（ワンラン）:
-      ```powershell
-      python scripts/run_controlled_tests.py
-      ```
-    - 直接 pytest を使う場合:
-      ```powershell
-      python -m pytest -q tests/test_systems_controlled_all.py
-      ```
+- **初めて使う方**: [📘 初心者向けガイド](#-初心者向けガイド) から始めてください（環境構築 →UI 起動 → 基本操作の順）
+- **開発者の方**: [🔧 開発者向けガイド](#-開発者向けガイド) で技術詳細・テスト・カスタマイズ方法を確認してください
+- **特定の課題を解決したい**: 目次から該当セクションに直接ジャンプできます
 
-### 📊 [システム概要](#trading-systems)
+---
 
-- [システム構成と資産配分](#システム構成と資産配分)
-- [各システム詳細](./systems/) - System1-7 の個別仕様
-- [パフォーマンス指標](#kpi)
+## 📘 初心者向けガイド
 
-### 🔧 [技術文書](#technical-docs)
+このセクションは、システムを初めて使う方向けの基本的な操作ガイドです。
 
+### 🚀 クイックスタート
+
+1. **環境構築**: [セットアップ](../README.md#セットアップ) で Python 環境と依存パッケージをインストール
+2. **UI 起動**: [基本実行](../README.md#実行例) で Streamlit アプリを起動
+3. **動作確認**: UI から「Generate Signals」ボタンをクリックしてシグナル生成を試す
+
+### 📊 システム概要
+
+- [システム構成と資産配分](#システム構成と資産配分) - 7 つのシステムの役割と配分比率
+- [各システム詳細](./systems/INDEX.md) - System1-7 の個別仕様（ロング/ショート、エントリー条件など）
+- [パフォーマンス指標](#kpi) - バックテストの見方と評価基準
+
+### 🏃 運用ガイド
+
+- [運用ガイド一覧](./operations/INDEX.md) - 自動実行・通知・監視設定
+- [文字化け対策ガイド（Windows）](./operations/mojibake_guide.md) - UTF-8/NO_EMOJI の設定
+
+---
+
+## 🔧 開発者向けガイド
+
+このセクションは、コードを変更・拡張・テストする開発者向けの技術資料です。
+
+### 🧪 テストと検証
+
+- [テスト実行](./testing.md) - システム動作確認の基本
+
+  - **統合制御テスト**（systems 1-6）: `tests/test_systems_controlled_all.py` を実行する短い検証。開発中や変更適用後に素早くランク付けと最終エントリ数の整合を確認するために使います。
+
+    **Windows (PowerShell):**
+
+    ```powershell
+    python scripts/run_controlled_tests.py
+    # または直接 pytest を使う場合
+    python -m pytest -q tests/test_systems_controlled_all.py
+    ```
+
+    **Unix/Linux/Mac:**
+
+    ```bash
+    python3 scripts/run_controlled_tests.py
+    # または直接 pytest を使う場合
+    python3 -m pytest -q tests/test_systems_controlled_all.py
+    # または Makefile を使う場合
+    make test-controlled
+    ```
+
+### 技術文書
+
+- [技術文書一覧](./technical/INDEX.md) - 指標・実装・仕様の詳細資料
 - [キャッシュインデックス要件](./technical/cache_index_requirements.md) - Feather 形式の制約と日付インデックス変換
-- [候補数ゼロガイド](./technical/zero_candidates_guide.md) - System6 等で候補が出ない理由(正常動作)
+- [候補数ゼロガイド](./technical/zero_candidates_guide.md) - System6 等で候補が出ない理由（正常動作）
 - [環境変数一覧](./technical/environment_variables.md) - 既定値と用途
 - [SPY/取引日ユーティリティ](./technical/spy_utils.md) - 営業日ヘルパの仕様
 - [Playwright E2E テスト統合](./technical/playwright_integration.md) - Streamlit UI 自動テスト
 
-### 🏃 [運用ガイド](#operations)
+### 📖 Context Note 形式
 
-- [文字化け対策ガイド（Windows）](./operations/mojibake_guide.md) - UTF-8/NO_EMOJI の設定
+このプロジェクトでは、各ソースファイルの先頭に **「Context Note」** という設計意図・注意点をコメント形式で記載しています。以下の場面で参照してください：
+
+- **コード変更前**: ファイルの役割・前提条件・禁止事項を確認して、設計をズレさせない
+- **Copilot と相談するとき**: Context Note で Copilot が文脈を把握し、より正確な提案を得られる
+- **レビュー・デバッグ時**: README.md の抽象情報を補足する具体的なガイドとして機能
+
+---
+
+## 📚 共通リファレンス
+
+以下のセクションは、初心者・開発者共通で参照する詳細資料です。
+
+### 📖 Context Note 形式
+
+このプロジェクトでは、各ソースファイルの先頭に **「Context Note」** という設計意図・注意点をコメント形式で記載しています。以下の場面で参照してください：
+
+- **コード変更前**: ファイルの役割・前提条件・禁止事項を確認して、設計をズレさせない
+- **Copilot と相談するとき**: Context Note で Copilot が文脈を把握し、より正確な提案を得られる
+- **レビュー・デバッグ時**: README.md の抽象情報を補足する具体的なガイドとして機能
+
+#### 📋 Context Note の構成
+
+```python
+# 🧠 Context Note
+# このファイルは【役割・責務】
+#
+# 前提条件：
+#   - 【設計前提1】
+#   - 【設計前提2】
+#
+# ロジック単位：
+#   function_name() → 【役割】
+#
+# Copilot へ：
+#   → 【重点領域・禁止事項】
+```
+
+#### 📂 主要ファイルの Context Note 一覧
+
+| ファイル                           | 役割                                                     |
+| ---------------------------------- | -------------------------------------------------------- |
+| `core/systemX.py`                  | エントリー・ランキング・フィルタロジック（ロジック重視） |
+| `strategies/systemX_strategy.py`   | core のラッパー層（UI 連携）                             |
+| `scripts/run_all_systems_today.py` | 当日パイプライン全体（フロー管理）                       |
+| `common/cache_manager.py`          | キャッシュ層（I/O 統一、直接アクセス禁止）               |
+| `apps/app_integrated.py`           | Streamlit UI（進捗表示・タブ管理）                       |
+
+詳細は各ファイルの先頭 Context Note を参照してください。
+
+**新規ファイル追加・リファクタリング時の Context Note 記載ガイド**: [Context Note 追記ガイド](./context_note_guide.md)
 
 ### 🔗 関連リンク
 
@@ -113,13 +201,37 @@ AI と一緒にコード修正を進めるときは、テストと画像確認�
 
 #### 1. Playwright セットアップ（初回のみ）
 
-**Python パッケージとブラウザのインストール**:
+**前提条件:** 仮想環境（venv）を有効化してから実行してください。
+
+**Windows (PowerShell):**
 
 ```powershell
-# venv 環境で実行
+# 仮想環境の有効化
+.\venv\Scripts\Activate.ps1
+
+# Playwright インストール（約5分、300MBダウンロード）
 pip install playwright
-playwright install chromium  # 約300MB
+playwright install chromium
 ```
+
+**Unix/Linux/Mac:**
+
+```bash
+# 仮想環境の有効化
+source venv/bin/activate
+
+# Playwright インストール（約5分、300MBダウンロード）
+pip install playwright
+playwright install chromium
+
+# ネットワーク制限がある場合（システムライブラリも一緒にインストール）
+playwright install chromium --with-deps
+```
+
+**トラブルシューティング:**
+
+- インストールが失敗する場合: [Playwright 公式ドキュメント](https://playwright.dev/python/docs/intro)
+- プロキシ環境の場合: `HTTPS_PROXY` 環境変数を設定してください
 
 **VSCode 拡張機能（推奨）**:
 
@@ -140,6 +252,8 @@ playwright install chromium  # 約300MB
 
 **推奨**: 統合スクリプトを使う
 
+**Windows (PowerShell):**
+
 ```powershell
 # PowerShell スクリプト（ワンコマンド）
 .\tools\run_and_snapshot.ps1
@@ -151,31 +265,75 @@ playwright install chromium  # 約300MB
 .\tools\run_and_snapshot.ps1 -SkipSnapshot
 ```
 
+**Unix/Linux/Mac:**
+
+```bash
+# Python スクリプトを直接実行
+python3 tools/capture_ui_screenshot.py \
+    --url http://localhost:8501 \
+    --output results_images/today_signals_complete.png \
+    --click-button "Generate Signals" \
+    --wait-after-click 30
+
+# Makefile を使う場合
+make run-and-snapshot
+```
+
 **内部動作**:
 
 1. Playwright が Streamlit アプリ (`http://localhost:8501`) を開く
 2. 「Generate Signals」ボタンを自動クリック
 3. 実行完了を待機（デフォルト 30 秒、進行状況バーの消失を検出）
 4. フルページスクリーンショットを `results_images/today_signals_complete.png` に保存
+   - **ディレクトリ自動作成**: 出力先ディレクトリ（`results_images/`）が存在しない場合は自動的に作成されます
 5. `results_csv`, `logs`, `results_images` をスナップショット
+
+**画像パスのガイドライン**:
+
+- スクリーンショット出力先は `results_images/` または `screenshots/` を推奨（`.gitignore` で管理済み）
+- カスタムパスを指定する場合: スクリプトが親ディレクトリを自動作成するため、事前準備は不要です
+- 例: `--output custom_dir/subdir/image.png` → `custom_dir/subdir/` が自動作成される
 
 #### 3. 手動実行（カスタマイズが必要な場合）
 
-**ボタンクリック + スクリーンショット**:
+**Windows (PowerShell):**
 
 ```powershell
+# ボタンクリック + スクリーンショット
 python tools/capture_ui_screenshot.py `
     --url http://localhost:8501 `
     --output results_images/today_signals_complete.png `
-  --click-button "Generate Signals" `
+    --click-button "Generate Signals" `
     --wait-after-click 30
-```
 
-**スクリーンショットのみ（ボタンクリックなし）**:
-
-```powershell
+# スクリーンショットのみ（ボタンクリックなし）
 python tools/capture_ui_screenshot.py --url http://localhost:8501 --output screenshots/ui_snapshot.png
+
+# カスタムディレクトリに保存（親ディレクトリが自動作成される）
+python tools/capture_ui_screenshot.py --url http://localhost:8501 --output my_reports/2024-11/ui_final.png
 ```
+
+**Unix/Linux/Mac:**
+
+```bash
+# ボタンクリック + スクリーンショット
+python3 tools/capture_ui_screenshot.py \
+    --url http://localhost:8501 \
+    --output results_images/today_signals_complete.png \
+    --click-button "Generate Signals" \
+    --wait-after-click 30
+
+# スクリーンショットのみ（ボタンクリックなし）
+python3 tools/capture_ui_screenshot.py --url http://localhost:8501 --output screenshots/ui_snapshot.png
+
+# カスタムディレクトリに保存（親ディレクトリが自動作成される）
+python3 tools/capture_ui_screenshot.py --url http://localhost:8501 --output my_reports/2024-11/ui_final.png
+```
+
+**注意事項**:
+
+- `results_images/` と `screenshots/` は `.gitignore` で除外されているため、Git に追跡されません
+- PR やレポート用の画像は手動で管理するか、別の専用ディレクトリ（例: `docs/images/`）にコピーしてください
 
 **利用可能なオプション**:
 

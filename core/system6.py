@@ -1,9 +1,31 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは System6（ショート ミーン・リバージョン 高シックスデイサージ）のロジック専門
+#
+# 前提条件：
+#   - 6 日上昇サージを検出して空売りシグナル生成
+#   - 高変動性環境で機能（HV 上昇確認）
+#   - 指標は precomputed のみ使用
+#   - フロー: setup() → rank() → signals() の順序実行
+#   - 候補数が 0 になることは正常（サージ条件が厳しい）
+#
+# ロジック単位：
+#   prepare_data()       → 6 日サージ計算・フィルター条件チェック
+#   generate_candidates() → スコアリング＆ランキング
+#   signals()           → シグナル抽出
+#
+# Copilot へ：
+#   → candidates 数がゼロでもエラーではない。正常な現象として扱う
+#   → 6 日サージ検出ロジックは絶対変更禁止（他システムとの差別化要素）
+#   → ボラティリティ条件の変更は制御テストで必ず確認
+# ============================================================================
+
 """System6 core logic (Short mean-reversion momentum burst)."""
 
-from collections.abc import Callable
 import logging
 import math
 import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import pandas as pd

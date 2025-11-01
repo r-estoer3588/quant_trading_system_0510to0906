@@ -12,9 +12,9 @@ Streamlit ベースのアプリで 7 つの売買システムを可視化・バ�
 詳細なドキュメントは **[docs/](./docs/)** フォルダに整理されています：
 
 - 🚀 **[クイックスタート](./docs/#quick-start)** - 初回セットアップから基本操作まで
-- 📊 **[システム仕様](./docs/systems/)** - System1-7 の詳細仕様と資産配分
-- 🔧 **[技術文書](./docs/technical/)** - アーキテクチャ・指標計算・処理フロー
-- 🏃 **[運用ガイド](./docs/operations/)** - 自動実行・通知・監視設定
+- 📊 **[システム仕様](./docs/systems/INDEX.md)** - System1-7 の詳細仕様と資産配分
+- 🔧 **[技術文書](./docs/technical/INDEX.md)** - アーキテクチャ・指標計算・処理フロー
+- 🏃 **[運用ガイド](./docs/operations/INDEX.md)** - 自動実行・通知・監視設定
 - 🤖 **[AI 連携](./docs/technical/mcp_integration_plan.md)** - MCP 統合と VS Code 連携
 
 > **[📋 統合ドキュメント目次はこちら](./docs/README.md)**

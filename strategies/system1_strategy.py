@@ -1,3 +1,24 @@
+# ============================================================================
+# 🧠 Context Note
+# このファイルは core/system1.py を Streamlit UI 用に適応させるラッパー層。バックテスト＆当日実行両対応
+#
+# 前提条件：
+#   - UI からのシグナル呼び出しフロー: symbol list → setup → rank → signals
+#   - ロジックの本体は core/system1.py。このファイルは orchestration のみ
+#   - Alpaca 発注対応。YAML 設定経由のパラメータ注入
+#   - 最終配分は finalize_allocation() で一元化（API 契約厳守）
+#
+# ロジック単位：
+#   generate_signals() → prepare_data + generate_candidates を順序実行
+#   apply_allocation() → 当日配分・ポジション情報をまとめて finalize_allocation() へ
+#   prepare_data()    → キャッシュから指標ロード
+#
+# Copilot へ：
+#   → core のロジック変更は core/system1.py で実施（このファイルは変更禁止）
+#   → finalize_allocation() API 契約は変更するな
+#   → UI 用の検証は簡潔に。複雑な検査は core に任せる
+# ============================================================================
+
 """System1 strategy wrapper class using shared core functions.
 
 This class integrates with YAML-driven settings for backtest parameters

@@ -1,0 +1,51 @@
+name: Documentation Check
+
+on:
+    push:
+        paths:
+            - "docs/**/*.md"
+            - "README.md"
+            - "CHANGELOG.md"
+            - "CONTRIBUTING.md"
+    pull_request:
+        paths:
+            - "docs/**/*.md"
+            - "README.md"
+            - "CHANGELOG.md"
+            - "CONTRIBUTING.md"
+
+jobs:
+    markdown-link-check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Check Markdown links
+              uses: gaurav-nelson/github-action-markdown-link-check@v1
+              with:
+                  use-quiet-mode: "yes"
+                  use-verbose-mode: "no"
+                  config-file: ".markdown-link-check.json"
+                  folder-path: "docs/"
+                  file-path: "./README.md, ./CHANGELOG.md, ./CONTRIBUTING.md"
+                  max-depth: -1
+                  check-modified-files-only: "no"
+
+    markdown-lint:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Install markdownlint-cli
+              run: npm install -g markdownlint-cli
+
+            - name: Run markdownlint
+              run: markdownlint '**/*.md' --ignore node_modules --ignore venv --config .markdownlint.json || true
+              continue-on-error: true
