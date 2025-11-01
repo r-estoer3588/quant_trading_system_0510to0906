@@ -1,0 +1,72 @@
+�ˋ�����f�[�^�𐶐���... �o�͐�: C:\Repos\quant_trading_system\data_cache\test_symbols
+  FAIL_ALL�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FAIL_ALL.feather
+    �ŐV�f�[�^: Close=1.81, Volume=1,276,567.0
+    SMA25=2.10, SMA50=2.00
+    RSI3=100.0
+  FILTER_ONLY_S1�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S1.feather
+    �ŐV�f�[�^: Close=45.20, Volume=1,276,567.0
+    SMA25=52.00, SMA50=51.00
+    RSI3=100.0
+  FILTER_ONLY_S2�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S2.feather
+    �ŐV�f�[�^: Close=22.60, Volume=1,276,567.0
+    SMA25=21.75, SMA50=22.26
+    RSI3=100.0
+  FILTER_ONLY_S3�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S3.feather
+    �ŐV�f�[�^: Close=19.89, Volume=1,276,567.0
+    SMA25=19.14, SMA50=19.59
+    RSI3=100.0
+  FILTER_ONLY_S4�𐶐���...
+Traceback (most recent call last):
+  File "C:\Repos\quant_trading_system\tools\generate_test_symbols.py", line 380, in <module>
+    generate_test_symbols()
+  File "C:\Repos\quant_trading_system\tools\generate_test_symbols.py", line 369, in generate_test_symbols
+    print(f"\n\u2705 �ˋ�����f�[�^��������: {len(configs)}����")
+UnicodeEncodeError: 'cp932' codec can't encode character '\u2705' in position 2: illegal multibyte sequence
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S4.feather
+    �ŐV�f�[�^: Close=90.39, Volume=1,276,567.0
+    SMA25=87.00, SMA50=89.04
+    RSI3=100.0
+  FILTER_ONLY_S5�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S5.feather
+    �ŐV�f�[�^: Close=13.56, Volume=1,276,567.0
+    SMA25=13.05, SMA50=13.36
+    RSI3=100.0
+  FILTER_ONLY_S6�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S6.feather
+    �ŐV�f�[�^: Close=18.08, Volume=1,276,567
+    SMA25=17.40, SMA50=17.81
+    RSI3=100.0
+  SETUP_PASS_S1�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S1.feather
+    �ŐV�f�[�^: Close=45.20, Volume=1,276,567.0
+    SMA25=51.00, SMA50=49.00
+    RSI3=100.0
+  SETUP_PASS_S2�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S2.feather
+    �ŐV�f�[�^: Close=22.60, Volume=1,276,567
+    SMA25=21.75, SMA50=22.26
+    RSI3=100.0
+  SETUP_PASS_S3�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S3.feather
+    �ŐV�f�[�^: Close=19.89, Volume=1,276,567.0
+    SMA25=19.14, SMA50=19.59
+    RSI3=100.0
+  SETUP_PASS_S4�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S4.feather
+    �ŐV�f�[�^: Close=90.39, Volume=1,276,567.0
+    SMA25=87.00, SMA50=89.04
+    RSI3=100.0
+  SETUP_PASS_S5�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S5.feather
+    �ŐV�f�[�^: Close=13.56, Volume=1,276,567.0
+    SMA25=13.05, SMA50=13.36
+    RSI3=100.0
+  SETUP_PASS_S6�𐶐���...
+    �ۑ�����: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S6.feather
+    �ŐV�f�[�^: Close=18.08, Volume=1,276,567
+    SMA25=17.40, SMA50=17.81
+    RSI3=100.0

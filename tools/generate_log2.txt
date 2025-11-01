@@ -1,0 +1,72 @@
+架空銘柄データを生成中... 出力先: C:\Repos\quant_trading_system\data_cache\test_symbols
+  FAIL_ALLを生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FAIL_ALL.feather
+    最新データ: Close=1.81, Volume=1,276,567.0
+    SMA25=2.10, SMA50=2.00
+    RSI3=100.0
+  FILTER_ONLY_S1を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S1.feather
+    最新データ: Close=45.20, Volume=1,276,567.0
+    SMA25=52.00, SMA50=51.00
+    RSI3=100.0
+  FILTER_ONLY_S2を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S2.feather
+    最新データ: Close=22.60, Volume=1,276,567.0
+    SMA25=21.75, SMA50=22.26
+    RSI3=100.0
+  FILTER_ONLY_S3を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S3.feather
+    最新データ: Close=19.89, Volume=1,276,567.0
+    SMA25=19.14, SMA50=19.59
+    RSI3=100.0
+  FILTER_ONLY_S4を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S4.feather
+    最新データ: Close=90.39, Volume=1,276,567.0
+    SMA25=87.00, SMA50=89.04
+    RSI3=100.0
+  FILTER_ONLY_S5を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S5.feather
+    最新データ: Close=13.56, Volume=1,276,567.0
+    SMA25=13.05, SMA50=13.36
+    RSI3=100.0
+  FILTER_ONLY_S6を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\FILTER_ONLY_S6.feather
+    最新データ: Close=18.08, Volume=1,276,567
+    SMA25=17.40, SMA50=17.81
+    RSI3=100.0
+  SETUP_PASS_S1を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S1.feather
+    最新データ: Close=45.20, Volume=1,276,567.0
+    SMA25=51.00, SMA50=49.00
+    RSI3=100.0
+  SETUP_PASS_S2を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S2.feather
+    最新データ: Close=22.60, Volume=1,276,567
+    SMA25=21.75, SMA50=22.26
+    RSI3=100.0
+  SETUP_PASS_S3を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S3.feather
+    最新データ: Close=19.89, Volume=1,276,567.0
+    SMA25=19.14, SMA50=19.59
+    RSI3=100.0
+  SETUP_PASS_S4を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S4.feather
+    最新データ: Close=90.39, Volume=1,276,567.0
+    SMA25=87.00, SMA50=89.04
+    RSI3=100.0
+  SETUP_PASS_S5を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S5.feather
+    最新データ: Close=13.56, Volume=1,276,567.0
+    SMA25=13.05, SMA50=13.36
+    RSI3=100.0
+  SETUP_PASS_S6を生成中...
+    保存完了: C:\Repos\quant_trading_system\data_cache\test_symbols\SETUP_PASS_S6.feather
+    最新データ: Close=18.08, Volume=1,276,567
+    SMA25=17.40, SMA50=17.81
+    RSI3=100.0
+
+✅ 架空銘柄データ生成完了: 13銘柄
+📁 出力ディレクトリ: C:\Repos\quant_trading_system\data_cache\test_symbols
+
+📖 使用方法:
+  python scripts/run_all_systems_today.py --test-mode test_symbols --skip-external
