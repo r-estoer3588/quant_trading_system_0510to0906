@@ -361,6 +361,16 @@ class EnvironmentConfig:
     `diagnostics_snapshot_*.json` を出力し、UI フル実行時の 3 点同期（JSONL × スクショ × 診断）に利用できる。
     """
 
+    slot_dedup_enabled: bool = field(
+        default_factory=lambda: _get_bool_env("SLOT_DEDUP_ENABLED", False)
+    )
+    """スロット配分前にラウンドロビン方式でシンボル重複を解消する。"""
+
+    slot_max_rank_depth: int = field(
+        default_factory=lambda: _get_int_env("SLOT_MAX_RANK_DEPTH", 6)
+    )
+    """重複解消の候補探索で見る最大ランク深度。0以下なら無制限。"""
+
     # ===== 4.5. latest_only 鮮度ガード（カレンダー日ベース） =====
     latest_only_max_date_lag_days: int | None = field(
         default_factory=lambda: _get_int_env("LATEST_ONLY_MAX_DATE_LAG_DAYS", 0) or None
