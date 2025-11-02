@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 from typing import Any, TypeVar
 
 from common.utils import BatchSizeMonitor, resolve_batch_size

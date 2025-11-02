@@ -19,8 +19,8 @@ days have passed since the entry date.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 

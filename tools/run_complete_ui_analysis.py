@@ -14,11 +14,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 
 
 def run_command(cmd: list[str], description: str) -> bool:

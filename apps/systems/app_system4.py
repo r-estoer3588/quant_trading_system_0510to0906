@@ -1,10 +1,11 @@
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
+import common.ui_patch  # noqa: F401
 from common.i18n import language_selector, load_translations_from_dir, tr
 from common.logging_utils import log_with_progress
 from common.notifier import Notifier, get_notifiers_from_env, now_jst_str
@@ -16,7 +17,6 @@ from common.ui_components import (
     show_signal_trade_summary,
 )
 from common.ui_manager import UIManager
-import common.ui_patch  # noqa: F401
 from common.utils_spy import get_spy_data_cached
 from strategies import get_strategy
 

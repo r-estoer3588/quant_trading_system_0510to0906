@@ -8,9 +8,9 @@ consistent metrics for UI / logging.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import math
+from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
 import pandas as pd

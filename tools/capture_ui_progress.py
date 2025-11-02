@@ -6,9 +6,9 @@
 """
 
 import argparse
+import time
 from datetime import datetime
 from pathlib import Path
-import time
 
 from playwright.sync_api import sync_playwright
 

@@ -15,10 +15,10 @@ Usage:
     - screenshots/progress_tracking/tri_sync_report.json（3点同期詳細）
 """
 
-from datetime import datetime, timedelta, timezone
 import json
-from pathlib import Path
 import re
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Iterable, cast
 
 

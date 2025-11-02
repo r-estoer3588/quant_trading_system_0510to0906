@@ -4,9 +4,9 @@
 """
 
 import os
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 # プロジェクトルート（tests/experimental/ から2階層上）をパスに追加
 sys.path.insert(0, str(Path(__file__).parents[2]))

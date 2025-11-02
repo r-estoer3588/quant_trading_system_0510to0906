@@ -3,8 +3,8 @@ Test script to verify progress_events functionality.
 """
 
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 # Test progress events
 from common.progress_events import (

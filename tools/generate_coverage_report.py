@@ -12,11 +12,11 @@ CI/CDやローカル開発で使用します。
 """
 
 import argparse
-from datetime import datetime
 import json
-from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 
 
 def run_coverage(formats: list[str], output_dir: Path) -> dict:

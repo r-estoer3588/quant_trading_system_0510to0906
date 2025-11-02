@@ -9,10 +9,10 @@ This module provides:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-import time
 from typing import Any, Dict, Optional
 
 

@@ -25,9 +25,9 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import shutil
 from datetime import datetime
 from pathlib import Path
-import shutil
 from typing import Optional
 
 import pandas as pd

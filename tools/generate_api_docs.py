@@ -11,8 +11,8 @@ Python モジュールの docstring から markdown ドキュメントを自動�
 import argparse
 import importlib
 import inspect
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 

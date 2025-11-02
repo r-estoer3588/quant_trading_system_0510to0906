@@ -21,11 +21,12 @@
 
 from __future__ import annotations
 
+import logging
+
 # ruff: noqa: E501
 # flake8: noqa: E501
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
 from pathlib import Path
 from typing import cast
 

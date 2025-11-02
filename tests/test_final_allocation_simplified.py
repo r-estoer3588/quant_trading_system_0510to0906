@@ -6,8 +6,8 @@ Focus on key functions: finalize_allocation, load_symbol_system_map, AllocationS
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pandas as pd

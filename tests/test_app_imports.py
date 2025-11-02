@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Test app imports after reorganization"""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))

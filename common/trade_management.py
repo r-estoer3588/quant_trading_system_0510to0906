@@ -14,10 +14,10 @@ all 7 trading systems with their specific rule sets.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-import logging
 from typing import Any, Dict, List, Optional
 
 import pandas as pd

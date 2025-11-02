@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # typing.Any intentionally unused here
 

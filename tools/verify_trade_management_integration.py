@@ -2,8 +2,8 @@
 """Verify that trade management is actually integrated into allocation."""
 # ruff: noqa: E402
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd

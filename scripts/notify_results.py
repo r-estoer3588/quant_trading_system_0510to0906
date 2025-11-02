@@ -8,9 +8,9 @@ Slack に日次シグナル生成の結果を通知。
 """
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
-import sys
 
 
 def send_notification(signal_count: int, log_file: Path):

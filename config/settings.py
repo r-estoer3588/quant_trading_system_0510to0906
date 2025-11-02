@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
-import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -440,7 +440,7 @@ def _build_cache_config(cfg: dict[str, Any], root: Path) -> CacheConfig:
             max_symbols=max_symbols_final,
             round_decimals=rolling_round,
             recompute_indicators_on_read=bool(
-                rolling_cfg.get("recompute_indicators_on_read", True)
+                rolling_cfg.get("recompute_indicators_on_read", False)
             ),
             adaptive_window_count=_coerce_int(
                 rolling_cfg.get("adaptive_window_count", 8), 8

@@ -5,18 +5,18 @@ JSON logs, performance metrics, monitoring capabilities, trace ID integration,
 and error code system support. Integrates with trading_errors.ErrorCode.
 """
 
-from collections import defaultdict, deque
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import threading
 import time
 import traceback
+from collections import defaultdict, deque
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:

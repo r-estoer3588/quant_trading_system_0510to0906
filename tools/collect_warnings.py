@@ -20,11 +20,11 @@ Design constraints:
 from __future__ import annotations
 
 import argparse
+import json
+import re
 from collections import Counter
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import re
 
 WARNING_REGEX = re.compile(r"([A-Za-z0-9_]+Warning):")
 

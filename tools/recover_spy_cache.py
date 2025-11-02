@@ -5,9 +5,9 @@ import argparse
 import sys
 import time
 
-from dotenv import load_dotenv
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 
 import common  # noqa: F401
 from common.cache_manager import CacheManager

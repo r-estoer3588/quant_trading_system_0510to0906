@@ -46,6 +46,14 @@ DEFAULT_ATR_PCT_THRESHOLD: float = 0.025
 
 # --- 汎用ユーティリティ ----------------------------------------------------
 
+# 環境設定はモジュールロード時に一度だけ取得してキャッシュ
+try:  # 軽量最適化: 環境は実行時に変わらない前提
+    from config.environment import get_env_config as _get_env_config
+
+    _ENV_CACHED = _get_env_config()
+except Exception:  # pragma: no cover - 例外時は None でフォールバック
+    _ENV_CACHED = None
+
 
 def _to_float(value: Any) -> float:
     """安全な float 変換 (失敗 / NaN は math.nan)。
@@ -163,22 +171,23 @@ def system3_setup_predicate(
 
         row_map: _Mapping[str, Any] = _cast(_Mapping[str, Any], row)
         # Phase 2 filter (safety check)
-        # NOTE: keep this logic consistent with core/system3.prepare_data_vectorized_system3
-        # which uses Close >= 5 and dollarvolume20 > 25_000_000 as the Phase2 filter.
+        # NOTE: keep this logic consistent with
+        # core/system3.prepare_data_vectorized_system3
+        # which uses Close >= 5 and dollarvolume20 > 25_000_000
+        # as the Phase2 filter.
         close_v: float = indicator_to_float(get_indicator(row_map, "Close"))
         dv20_v: float = indicator_to_float(get_indicator(row_map, "dollarvolume20"))
         atr_ratio: float = indicator_to_float(get_indicator(row_map, "atr_ratio"))
 
-        # ATR 閾値（テスト時は環境変数による上書きを許可）
+        # ATR 閾値（テスト時は環境値による上書きを許可）
         atr_thr = 0.05
         try:
-            from config.environment import get_env_config as _get_env  # 遅延 import
-
-            _env = _get_env()
-            if _env.min_atr_ratio_for_test is not None:
-                atr_thr = float(_env.min_atr_ratio_for_test)
+            if (
+                _ENV_CACHED is not None
+                and _ENV_CACHED.min_atr_ratio_for_test is not None
+            ):
+                atr_thr = float(_ENV_CACHED.min_atr_ratio_for_test)
         except Exception:
-            # 環境の取得に失敗しても既定値で継続
             atr_thr = 0.05
 
         if math.isnan(close_v) or math.isnan(dv20_v) or math.isnan(atr_ratio):
@@ -432,7 +441,8 @@ def validate_predicate_equivalence(
     if mismatches and log_fn:
         try:
             log_fn(
-                f"[{system_id}] setup predicate mismatch: mismatches={len(mismatches)} sample={mismatches}"
+                f"[{system_id}] setup predicate mismatch: "
+                f"mismatches={len(mismatches)} sample={mismatches}"
             )
         except Exception:
             pass

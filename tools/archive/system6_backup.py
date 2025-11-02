@@ -1,8 +1,8 @@
 """System6 core logic (Short mean-reversion momentum burst)."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 from ta.volatility import AverageTrueRange

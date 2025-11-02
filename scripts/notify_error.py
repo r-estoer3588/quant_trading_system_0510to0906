@@ -8,9 +8,9 @@
 """
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
-import sys
 
 from common.notifier import Notifier
 

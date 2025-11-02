@@ -31,8 +31,8 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
-from collections import defaultdict
 import math
+from collections import defaultdict
 from typing import Any, Callable, Mapping, Optional, cast
 
 import pandas as pd

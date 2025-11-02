@@ -6,9 +6,9 @@
     python tools/check_project_rules.py common/*.py
 """
 
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Dict, List
 
 # プロジェクトルール定義

@@ -8,12 +8,12 @@ Discord webhooks are also supported via ``DISCORD_WEBHOOK_URL``.
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from pathlib import Path
 
-from PIL import Image
 import pandas as pd
+from PIL import Image
 
 from common.notifier import create_notifier
 from common.price_chart import save_price_chart

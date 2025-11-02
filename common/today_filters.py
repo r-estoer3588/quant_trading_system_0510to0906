@@ -11,8 +11,8 @@ run_all_systems_today.py からロジックを分離（責務分割）:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import os
+from collections.abc import Sequence
 
 import pandas as pd
 

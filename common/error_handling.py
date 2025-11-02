@@ -22,8 +22,8 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from typing import Any
 
 # 既存の共通例外を継承

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import ast
+import json
+import os
+import re
+import subprocess
+import sys
 from collections import Counter, deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-import json
-import os
 from pathlib import Path
-import re
-import subprocess
-import sys
 from typing import Any
 
 import pandas as pd

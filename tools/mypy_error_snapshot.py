@@ -19,12 +19,12 @@ Design:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
 import shlex
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import List
 
 ERROR_CODE_RE = re.compile(r"error: .* \[(?P<code>[a-zA-Z0-9_-]+)\]")

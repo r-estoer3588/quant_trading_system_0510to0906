@@ -42,13 +42,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
-from pathlib import Path as _Path
 import sys
 import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from pathlib import Path as _Path
 from typing import Any
 
 _ROOT = _Path(__file__).resolve().parents[1]

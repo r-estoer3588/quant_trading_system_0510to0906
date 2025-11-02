@@ -21,24 +21,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone, tzinfo
-
 # ruff: noqa: E402
 # flake8: noqa: E402
 import importlib
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import sys
-from threading import Lock
 import time
-from typing import TYPE_CHECKING, Any, cast
 import uuid
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
+from pathlib import Path
+from threading import Lock
+from typing import TYPE_CHECKING, Any, cast
 
 try:
     from zoneinfo import ZoneInfo
@@ -96,10 +95,10 @@ from common.system_groups import (  # noqa: E402
     format_group_counts,
     format_group_counts_and_values,
 )
+from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
 from common.today_signals import (  # noqa: E402
     run_all_systems_today as compute_today_signals,
 )
-from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
 from common.utils_spy import (  # noqa: E402
     calculate_trading_days_lag,
     describe_trading_gap,

@@ -6,8 +6,8 @@ Usage:
 """
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # プロジェクトルートをパスに追加
 ROOT = Path(__file__).parent.parent

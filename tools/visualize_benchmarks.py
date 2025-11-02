@@ -7,10 +7,10 @@
 """
 
 import argparse
-from datetime import datetime, timedelta
 import json
-from pathlib import Path
 import sys
+from datetime import datetime, timedelta
+from pathlib import Path
 
 
 def main():

@@ -3,9 +3,9 @@
 """Test script to verify that the format migration works correctly."""
 
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 import pandas as pd
 

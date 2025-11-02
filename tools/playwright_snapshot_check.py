@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import argparse
 import glob
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def find_latest_snapshot(results_dir: Path) -> Path | None:

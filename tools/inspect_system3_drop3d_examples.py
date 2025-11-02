@@ -7,8 +7,8 @@ representative example rows.
 """
 import argparse
 import csv
-from pathlib import Path
 import statistics
+from pathlib import Path
 
 
 def parse_float(s):

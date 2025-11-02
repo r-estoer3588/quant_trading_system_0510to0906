@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
 try:  # pragma: no cover - fallback for older repos
     from common.progress import log_with_progress  # type: ignore

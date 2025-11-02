@@ -12,16 +12,16 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterable
 import concurrent.futures
-from dataclasses import dataclass, field
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]

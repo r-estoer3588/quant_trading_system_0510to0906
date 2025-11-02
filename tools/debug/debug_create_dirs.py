@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Debug script to isolate create_dirs hang."""
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 
 def test_dir_creation():

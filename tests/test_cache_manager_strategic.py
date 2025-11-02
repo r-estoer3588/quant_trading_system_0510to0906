@@ -5,9 +5,9 @@ Building on 58% baseline to reach 80% by focusing on uncovered methods
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np

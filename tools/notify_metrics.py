@@ -7,8 +7,8 @@ no webhook is configured (logs only).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 import logging
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 

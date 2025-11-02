@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 import logging
 import os
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import requests

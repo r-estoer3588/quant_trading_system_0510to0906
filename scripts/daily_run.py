@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 import io
 import logging
 import sys
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 
 # Windows スケジューラー実行時の cp932 エンコードエラーを回避
 if sys.platform == "win32":

@@ -2,9 +2,9 @@
 極限最適化: メモリマッピング + 超軽量データ構造
 """
 
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 # パス設定 - tests/experimental/ から2階層上のルートへ
 _ROOT = Path(__file__).resolve().parents[2]

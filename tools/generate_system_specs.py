@@ -10,8 +10,8 @@
 
 import argparse
 import ast
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def extract_system_spec(system_num: int) -> dict:

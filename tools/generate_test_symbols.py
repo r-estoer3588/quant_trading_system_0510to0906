@@ -16,8 +16,8 @@ System1-7 の各段階（フィルター・セットアップ・シグナル）�
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np

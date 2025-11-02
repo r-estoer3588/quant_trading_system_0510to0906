@@ -9,10 +9,10 @@ raise NotImplementedError(
 
 # 以下は保持のため残しますが使用されません
 
+import time as _t
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-import time as _t
 
 import pandas as pd
 

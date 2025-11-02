@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Any
 
 try:
     import anyio  # type: ignore

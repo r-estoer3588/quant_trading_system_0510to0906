@@ -16,9 +16,9 @@ Highlights
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
 import json
 import logging
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeAlias
 

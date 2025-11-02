@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import logging
 import os
 import threading
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 

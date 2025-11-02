@@ -9,10 +9,10 @@ Prints strategy output count, collected log messages, and last_diagnostics.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import pprint
 import sys
 import traceback
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd

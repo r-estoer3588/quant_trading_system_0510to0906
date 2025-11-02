@@ -22,12 +22,12 @@ Behavior:
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
 import json
 import logging
-from pathlib import Path
 import subprocess
 import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 

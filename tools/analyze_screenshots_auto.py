@@ -9,12 +9,12 @@ Usage:
 """
 
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
-from PIL import Image
 import pytesseract
+from PIL import Image
 
 
 def extract_timestamp_from_filename(filename: str) -> str:

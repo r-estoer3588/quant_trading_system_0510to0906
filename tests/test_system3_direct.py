@@ -5,8 +5,8 @@ System3 direct test - avoiding cache_manager import issues
 System3（473行, 0%→30-40%目標) の効率的カバレッジ向上（直接実行版）
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd

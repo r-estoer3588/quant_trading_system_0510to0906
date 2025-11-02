@@ -6,8 +6,8 @@
 - 最適化: 全指標計算を除去、プリコンピュート指標のみ使用
 """
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 

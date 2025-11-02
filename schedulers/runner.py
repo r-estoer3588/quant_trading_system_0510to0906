@@ -5,11 +5,11 @@ Supports a minimal subset of cron: "m h * * d".
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime
 import logging
 import sys
 import time
+from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 

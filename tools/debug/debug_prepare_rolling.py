@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Debug tool for analyzing the _prepare_rolling_frame function step by step."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 

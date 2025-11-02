@@ -13,12 +13,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import io
-from pathlib import Path
 import subprocess
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
 # Windows スケジューラー実行時の cp932 エンコードエラーを回避
 if sys.platform == "win32":

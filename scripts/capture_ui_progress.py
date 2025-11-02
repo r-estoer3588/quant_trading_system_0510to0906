@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime
 import logging
 import os
-from pathlib import Path
 import re
+from datetime import datetime
+from pathlib import Path
 
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Optional
 
 # Ensure project root on sys.path for local imports when run directly

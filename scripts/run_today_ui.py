@@ -33,9 +33,9 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def parse_args() -> tuple[argparse.Namespace, list[str]]:

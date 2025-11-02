@@ -2,11 +2,11 @@
 This is a simple runner tailored for the current debugging session.
 """
 
-from pathlib import Path
 import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 URL = "http://localhost:8501"
 TIMEOUT = 60

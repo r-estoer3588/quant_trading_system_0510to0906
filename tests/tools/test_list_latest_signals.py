@@ -3,9 +3,9 @@ from __future__ import annotations
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import types
+from pathlib import Path
 
 from _pytest.monkeypatch import MonkeyPatch
 

@@ -17,9 +17,9 @@ rolling最終日が直近営業日でない銘柄の『理由』を自動分類�
 """
 
 import glob
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import pandas as pd

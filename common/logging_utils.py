@@ -1,10 +1,10 @@
-from collections.abc import Callable
 import logging
 import logging.handlers
-from pathlib import Path
 import time
-from typing import Any
 import unicodedata
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 from config.settings import Settings
 

@@ -16,12 +16,12 @@ STRUCTURED_LOG_NDJSON_PREFIX: ファイル名プレフィックス (デフォル
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional, TextIO
 
 try:

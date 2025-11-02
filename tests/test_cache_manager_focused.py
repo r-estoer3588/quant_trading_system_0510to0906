@@ -2,8 +2,8 @@
 Simplified and focused CacheManager tests for maximum coverage boost
 """
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock
 
 import numpy as np

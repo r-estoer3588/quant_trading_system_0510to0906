@@ -8,11 +8,11 @@
     python tools/auto_snapshot.py --skip-comparison  # 比較スキップ
 """
 
-from datetime import datetime
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 SNAPSHOT_DIR = Path("snapshots")

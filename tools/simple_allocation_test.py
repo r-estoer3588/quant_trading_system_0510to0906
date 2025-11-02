@@ -2,8 +2,8 @@
 # ruff: noqa: E402
 """簡単な配分テスト - TRDlist 10件→Entry 0件問題の検証"""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).resolve().parents[1]

@@ -13,8 +13,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import re
+from pathlib import Path
 
 # 対象となる st.* ウィジェット関数名（最初の文字列引数を翻訳する想定）
 WIDGETS = [

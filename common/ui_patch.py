@@ -12,9 +12,9 @@ try:
     import pandas as pd
     import streamlit as st
 
+    import common.ui_components as _ui
     from common.logging_utils import log_with_progress as _core_log_with_progress
     from common.performance_summary import summarize as _summarize_perf
-    import common.ui_components as _ui
     from config.settings import get_settings
 except Exception:  # pragma: no cover
     _core_log_with_progress = None
@@ -151,8 +151,8 @@ try:
     import pandas as _pd
     import streamlit as _st
 
-    from common.i18n import tr as _tr
     import common.ui_components as _ui_mod
+    from common.i18n import tr as _tr
 
     _plt = None  # 遅延インポート: 実際にグラフ描画が必要になるまで import しない
 

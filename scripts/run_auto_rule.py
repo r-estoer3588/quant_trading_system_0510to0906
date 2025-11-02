@@ -15,9 +15,9 @@ Notes:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 

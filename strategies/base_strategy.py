@@ -1,6 +1,6 @@
-from abc import ABC, abstractmethod
 import logging
 import math
+from abc import ABC, abstractmethod
 from typing import Any, Dict
 
 import pandas as pd

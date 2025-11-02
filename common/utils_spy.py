@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Iterable
 from datetime import time as dtime
-import os
 from pathlib import Path
-import sys
 from typing import overload
 from zoneinfo import ZoneInfo
 

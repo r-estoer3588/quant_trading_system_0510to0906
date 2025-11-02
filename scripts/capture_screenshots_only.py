@@ -1,8 +1,8 @@
 """Streamlit UIのスクリーンショットを定期的に撮影するスクリプト（実行は手動）"""
 
 import asyncio
-from datetime import datetime
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from playwright.async_api import async_playwright

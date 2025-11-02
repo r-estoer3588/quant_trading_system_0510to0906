@@ -6,17 +6,17 @@ UIManager（任意）に進捗とログを出力できるようにしている�
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, cast
 
 import matplotlib as mpl
-from matplotlib import font_manager as _font_manager
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from matplotlib import font_manager as _font_manager
 
 from common.cache_format import round_dataframe
 from common.utils import get_cached_data, safe_filename
@@ -29,9 +29,9 @@ try:
     _APP_SETTINGS = get_settings(create_dirs=True)
 except Exception:
     _APP_SETTINGS = None
+import common.i18n as i18n
 from common.cache_manager import base_cache_path, load_base_cache
 from common.holding_tracker import generate_holding_matrix
-import common.i18n as i18n
 from common.logging_utils import log_with_progress
 from scripts.tickers_loader import get_all_tickers
 
@@ -635,8 +635,8 @@ def run_backtest_app(
             try:
                 import json
                 import math
-                from pathlib import Path
                 import statistics
+                from pathlib import Path
 
                 settings = get_settings(create_dirs=True)
                 perf_dir = Path(settings.LOGS_DIR) / "perf_estimates"

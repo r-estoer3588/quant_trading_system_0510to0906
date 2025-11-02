@@ -8,9 +8,9 @@ relying on directory scans that may include stale files.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 MANIFEST_FILENAME = "_symbols.json"

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from common.exit_planner import decide_exit_schedule
 import common.today_signals as today_signals
 import common.utils_spy as utils_spy
+from common.exit_planner import decide_exit_schedule
 from strategies.system2_strategy import System2Strategy
 from strategies.system4_strategy import System4Strategy
 

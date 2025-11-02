@@ -12,9 +12,9 @@ NotImplementedError によりモジュールが直接インポートできない
 unittest.mock.patch を使用して関数の動作をテストします。
 """
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 import pandas as pd

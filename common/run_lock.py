@@ -26,9 +26,9 @@ PIPELINE_LOCK_STALE_SECONDS (default 3600s).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import time
+from pathlib import Path
 from typing import Any
 
 DEFAULT_STALE_SECONDS = int(os.getenv("PIPELINE_LOCK_STALE_SECONDS", "3600"))

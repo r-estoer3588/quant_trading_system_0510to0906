@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import importlib
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def iter_module_names(root: Path):

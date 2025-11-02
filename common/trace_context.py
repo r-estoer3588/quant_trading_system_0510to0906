@@ -9,13 +9,13 @@ This module provides:
 
 from __future__ import annotations
 
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
-import uuid
 
 
 class ProcessingPhase(Enum):

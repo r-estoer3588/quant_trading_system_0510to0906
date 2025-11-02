@@ -8,11 +8,11 @@
     python tools/auto_benchmark.py --threshold 0.15  # 15%の劣化まで許容
 """
 
-from datetime import datetime
 import json
-from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 BENCHMARK_HISTORY = Path("benchmarks/history.jsonl")

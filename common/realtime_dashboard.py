@@ -4,15 +4,15 @@ StreamlitとPlotlyを使用したリアルタイムメトリクス可視化機�
 CPU/メモリ/処理速度の推移をグラフ形式で表示。
 """
 
-from datetime import datetime
 import time
+from datetime import datetime
 from typing import Any, Dict, List
 
 try:
     import plotly.express as px
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
     import streamlit as st
+    from plotly.subplots import make_subplots
 
     DASHBOARD_AVAILABLE = True
 except ImportError:

@@ -4,8 +4,8 @@ Tests for progress events functionality.
 
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from common.progress_events import (

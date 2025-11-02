@@ -3,8 +3,8 @@ Enhanced tests for CacheManager to boost coverage to 80%+
 Testing all critical methods including read, write, indicators, and batch operations
 """
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np

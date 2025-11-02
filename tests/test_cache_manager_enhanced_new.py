@@ -3,8 +3,8 @@ Comprehensive tests for common.cache_manager module.
 Focus on key functionality: initialization, read/write operations, health checks.
 """
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np

@@ -34,13 +34,13 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 import logging
 import math
 import os
-from typing import Any, TypeAlias, TypedDict, cast
 import warnings
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, TypeAlias, TypedDict, cast
 
 import pandas as pd
 

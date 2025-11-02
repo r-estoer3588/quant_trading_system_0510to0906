@@ -1,8 +1,8 @@
 """System3 core logic (Long mean-reversion)."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 

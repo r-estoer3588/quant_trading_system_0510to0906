@@ -21,14 +21,14 @@ Phase 6で導入。既存のperf_snapshotに加えて、以下を測定：
 
 from __future__ import annotations
 
+import json
+import os
+import platform
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
-import os
 from pathlib import Path
-import platform
-import time
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 if TYPE_CHECKING:

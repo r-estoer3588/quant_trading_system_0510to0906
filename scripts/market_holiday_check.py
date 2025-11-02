@@ -14,8 +14,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import json
+from datetime import date, datetime
 
 
 def _today_str() -> str:

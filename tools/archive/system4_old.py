@@ -1,8 +1,8 @@
 """System4 core logic (Long trend low-vol pullback)."""
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
