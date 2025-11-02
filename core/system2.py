@@ -36,6 +36,11 @@ from typing import Any, cast
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
+from common.system_candidates_utils import (
+    choose_mode_date_for_latest_only,
+    normalize_dataframe_to_by_date,
+    set_diagnostics_after_ranking,
+)
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM2_REQUIRED_INDICATORS
 from common.system_setup_predicates import validate_predicate_equivalence
@@ -303,16 +308,15 @@ def generate_candidates_system2(
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             # 最頻日で揃える（欠落シンボル耐性）
-            try:
-                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+            mode_date = choose_mode_date_for_latest_only(date_counter)
+            if mode_date is not None:
                 df_all = df_all[df_all["date"] == mode_date]
-            except Exception:
-                pass
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(
                 top_n
             )
-            diagnostics["ranked_top_n_count"] = len(df_all)
-            diagnostics["ranking_source"] = "latest_only"
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=df_all, ranking_source="latest_only"
+            )
             # 候補0件なら代表サンプルを1-2件だけDEBUGログ出力
             if diagnostics.get("ranked_top_n_count", 0) == 0 and log_callback:
                 try:
@@ -344,25 +348,11 @@ def generate_candidates_system2(
                 except Exception:
                     pass
             # Orchestrator expects: {date: {symbol: {field: value}}}
-            by_date: dict[pd.Timestamp, dict[str, dict]] = {}
-            for dt_raw, sub in df_all.groupby("date"):
-                # 明示的に文字列→Timestamp へ (型推論安定化)
-                dt = pd.to_datetime(str(dt_raw))
-                symbol_map: dict[str, dict[str, Any]] = {}
-                for rec in sub.to_dict("records"):
-                    sym = rec.get("symbol")
-                    if not sym:
-                        continue
-                    payload: dict[str, Any] = {
-                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
-                    }
-                    symbol_map[str(sym)] = payload
-                by_date[dt] = symbol_map
+            by_date = normalize_dataframe_to_by_date(df_all)
             if log_callback:
                 log_callback(
-                    (
-                        f"System2: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
-                    )
+                    f"System2: latest_only fast-path -> {len(df_all)} candidates "
+                    f"(symbols={len(rows)})"
                 )
             return (
                 (by_date, df_all.copy(), diagnostics)
@@ -454,35 +444,27 @@ def generate_candidates_system2(
         candidates_df = candidates_df.sort_values(
             ["date", "adx7"], ascending=[True, False]
         )
-        last_date = max(candidates_by_date.keys()) if candidates_by_date else None
-        if last_date is not None:
-            diagnostics["ranked_top_n_count"] = len(
-                candidates_by_date.get(last_date, [])
-            )
-        diagnostics["ranking_source"] = "full_scan"
+        set_diagnostics_after_ranking(
+            diagnostics, final_df=candidates_df, ranking_source="full_scan"
+        )
     else:
         candidates_df = None
+        set_diagnostics_after_ranking(
+            diagnostics, final_df=None, ranking_source="full_scan"
+        )
 
     if log_callback:
         total_candidates = len(all_candidates)
         unique_dates = len(candidates_by_date)
         log_callback(
-            (
-                f"System2: Generated {total_candidates} candidates across {unique_dates} dates"
-            )
+            f"System2: Generated {total_candidates} candidates across "
+            f"{unique_dates} dates"
         )
 
     # Normalize to {date: {symbol: payload}}
-    normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
-    for dt, recs in candidates_by_date.items():
-        out_symbol_map: dict[str, dict[str, Any]] = {}
-        for rec in recs:
-            sym_any = rec.get("symbol")
-            if not isinstance(sym_any, str) or not sym_any:
-                continue
-            payload = {k: v for k, v in rec.items() if k not in ("symbol", "date")}
-            out_symbol_map[sym_any] = payload
-        normalized[dt] = out_symbol_map
+    from common.system_candidates_utils import normalize_candidates_by_date
+
+    normalized = normalize_candidates_by_date(candidates_by_date)
     return (
         (normalized, candidates_df, diagnostics)
         if include_diagnostics

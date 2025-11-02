@@ -37,6 +37,12 @@ from typing import Any, cast
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
+from common.system_candidates_utils import (
+    choose_mode_date_for_latest_only,
+    normalize_candidates_by_date,
+    normalize_dataframe_to_by_date,
+    set_diagnostics_after_ranking,
+)
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import SYSTEM3_REQUIRED_INDICATORS
 from common.system_setup_predicates import validate_predicate_equivalence
@@ -545,7 +551,8 @@ def generate_candidates_system3(
                             ) = _evaluate_row(last_row)
                             # ラグ超過でも setup 通過ならカウント
                             if setup_col_ex:
-                                diagnostics["setup_predicate_count"] += 1
+                                # setup 通過は最終候補確定後に一括計上する（ここでは加算しない）
+                                pass
                             if final_ok_ex and not setup_col_ex:
                                 diagnostics["predicate_only_pass_count"] += 1
                                 diagnostics["mismatch_flag"] = 1
@@ -619,8 +626,7 @@ def generate_candidates_system3(
                     pred_reason,
                 ) = _evaluate_row(last_row)
 
-                if setup_col:
-                    diagnostics["setup_predicate_count"] += 1
+                # setup 通過は最終候補確定後に一括計上する（ここでは加算しない）
                 if final_ok and not setup_col:
                     diagnostics["predicate_only_pass_count"] += 1
                     diagnostics["mismatch_flag"] = 1
@@ -1055,9 +1061,10 @@ def generate_candidates_system3(
                 pass
 
         df_all = top_cut
-        diagnostics["ranked_top_n_count"] = len(df_all)
+        set_diagnostics_after_ranking(
+            diagnostics, final_df=df_all, ranking_source="latest_only"
+        )
         diagnostics["top_n_requested"] = top_n
-        diagnostics["ranking_source"] = "latest_only"
 
         # ✅ 診断内訳の詳細記録
         try:
@@ -1112,12 +1119,12 @@ def generate_candidates_system3(
                 log_callback(msg)
 
         # Build per-date list of candidate dicts (public API expectation)
-        by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+        by_date_list: dict[pd.Timestamp, list[dict[str, Any]]] = {}
         for dt_raw, sub in df_all.groupby("date"):
             dt = pd.Timestamp(str(dt_raw))
             # Ensure ordering within each date remains by drop3d desc
             sub_sorted = sub.sort_values("drop3d", ascending=False, kind="stable")
-            by_date[dt] = []
+            by_date_list[dt] = []
             for rec in sub_sorted.to_dict("records"):
                 item: dict[str, Any] = {
                     "symbol": rec.get("symbol"),
@@ -1131,7 +1138,7 @@ def generate_candidates_system3(
                     item["entry_date"] = rec.get("entry_date")
                 if "atr10" in rec:
                     item["atr10"] = rec.get("atr10")
-                by_date[dt].append(item)
+                by_date_list[dt].append(item)
 
         if log_callback:
             msg = (
@@ -1141,8 +1148,8 @@ def generate_candidates_system3(
             log_callback(msg)
 
         if include_diagnostics:
-            return by_date, df_all.copy(), diagnostics
-        return by_date, df_all.copy()
+            return by_date_list, df_all.copy(), diagnostics
+        return by_date_list, df_all.copy()
 
     # Aggregate all dates
     all_dates_set: set[pd.Timestamp] = set()
@@ -1222,23 +1229,23 @@ def generate_candidates_system3(
         candidates_df = candidates_df.sort_values(
             ["date", "drop3d"], ascending=[True, False]
         )
-        diagnostics["ranking_source"] = "full_scan"
-        try:
-            last_dt = max(candidates_by_date.keys())
-            diagnostics["ranked_top_n_count"] = len(candidates_by_date.get(last_dt, []))
-        except Exception:
-            diagnostics["ranked_top_n_count"] = 0
+        set_diagnostics_after_ranking(
+            diagnostics, final_df=candidates_df, ranking_source="full_scan"
+        )
     else:
         candidates_df = None
+        set_diagnostics_after_ranking(
+            diagnostics, final_df=None, ranking_source="full_scan"
+        )
 
-        if log_callback:
-            total_candidates = len(all_candidates)
-            unique_dates = len(candidates_by_date)
-            summary_msg = (
-                f"System3: Generated {total_candidates} candidates "
-                f"across {unique_dates} dates"
-            )
-            log_callback(summary_msg)
+    if log_callback:
+        total_candidates = len(all_candidates)
+        unique_dates = len(candidates_by_date)
+        summary_msg = (
+            f"System3: Generated {total_candidates} candidates "
+            f"across {unique_dates} dates"
+        )
+        log_callback(summary_msg)
 
     # Keep original API: date -> list[dict]
     if include_diagnostics:

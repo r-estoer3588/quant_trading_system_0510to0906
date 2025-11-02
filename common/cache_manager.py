@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 # ruff: noqa: E501
 # flake8: noqa: E501
@@ -39,6 +38,7 @@ from common.cache_io import CacheFileManager
 from common.cache_validation import perform_cache_health_check
 from common.cache_warnings import report_rolling_issue
 from common.indicators_common import add_indicators
+from config.environment import get_env_config
 from config.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,30 @@ CASE_MAP = {
 }
 
 
+def _apply_column_case_mapping(df: pd.DataFrame, to_upper: bool = True) -> pd.DataFrame:
+    """列名の大文字小文字変換を統一的に適用する。
+    
+    Args:
+        df: 対象DataFrame
+        to_upper: True なら小文字→大文字、False なら大文字→小文字
+    
+    Returns:
+        列名変換後のDataFrame
+    """
+    if df is None or df.empty:
+        return df
+    
+    if to_upper:
+        # 小文字 → 大文字（CASE_MAP使用）
+        rename_dict = {k: v for k, v in CASE_MAP.items() if k in df.columns}
+    else:
+        # 大文字 → 小文字（逆マップ）
+        reverse_map = {v: k for k, v in CASE_MAP.items()}
+        rename_dict = {k: v for k, v in reverse_map.items() if k in df.columns}
+    
+    return df.rename(columns=rename_dict) if rename_dict else df
+
+
 class CacheManager:
     """
     二層キャッシュ管理（full / rolling）。
@@ -92,6 +116,15 @@ class CacheManager:
 
         # 入出力管理
         self.file_manager = CacheFileManager(settings)
+
+    @property
+    def _rolling_target_len(self) -> int:
+        """Rolling cache の目標データ長（テスト互換性のため保持）。"""
+        return self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days
+
+    def _detect_path(self, dir_path: Path, ticker: str) -> Path:
+        """パス検出（テスト互換性のため保持、実装は file_manager に委譲）。"""
+        return self.file_manager.detect_path(dir_path, ticker)
 
     def _read_base_and_tail(
         self, ticker: str, tail_rows: int = 330
@@ -143,10 +176,9 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
-        base_renamed = base.rename(
-            columns={k: v for k, v in CASE_MAP.items() if k in base.columns}
-        )
-        base_renamed["Date"] = base_renamed["date"]
+        # 統一ヘルパーで列名変換（小文字 → 大文字）
+        base_renamed = _apply_column_case_mapping(base, to_upper=True)
+        base_renamed["Date"] = base_renamed.get("date", base["date"])
 
         # 既存の指標列を削除して強制的に再計算を実行
         indicator_cols = [
@@ -192,6 +224,93 @@ class CacheManager:
             logger.error(f"Failed to recompute indicators: {e}")
             return df
 
+    def _handle_rolling_fallback_and_heal(
+        self, ticker: str, df: pd.DataFrame | None, path: Path
+    ) -> pd.DataFrame | None:
+        """Rolling cache が欠落または不完全な場合のフォールバックと自己修復処理。
+        
+        Args:
+            ticker: 銘柄コード
+            df: 既存の rolling DataFrame（None可）
+            path: rolling cache のパス
+        
+        Returns:
+            修復されたDataFrame、または None
+        """
+        # rolling が欠落している場合、base から生成
+        if df is None or df.empty:
+            report_rolling_issue("missing_rolling", ticker, "fallback to base+tail")
+            df = self._read_base_and_tail(ticker)
+
+            if df is not None and not df.empty:
+                # rolling形式で保存
+                try:
+                    self.file_manager.write_atomic(df, path, ticker, "rolling")
+                    logger.debug(f"Generated rolling cache for {ticker}")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to save generated rolling for {ticker}: {e}"
+                    )
+        
+        # 指標再計算の自己修復処理
+        try:
+            recompute_flag = bool(
+                getattr(
+                    self.settings.cache.rolling,
+                    "recompute_indicators_on_read",
+                    True,
+                )
+            )
+        except Exception:
+            recompute_flag = True
+
+        if df is not None and recompute_flag:
+            try:
+                required_indicators = ["drop3d", "atr_ratio", "dollarvolume20"]
+                missing = [
+                    c
+                    for c in required_indicators
+                    if c not in df.columns or df[c].isna().all()
+                ]
+                if missing:
+                    logger.info(
+                        f"Rolling cache for {ticker} missing indicators {missing}; attempting recompute"
+                    )
+                    recomputed = self._recompute_indicators(df)
+                    # Validate recompute produced usable values for the required indicators
+                    ok = True
+                    for c in required_indicators:
+                        if (
+                            c not in recomputed.columns
+                            or recomputed[c].dropna().empty
+                        ):
+                            ok = False
+                            break
+                    if ok:
+                        try:
+                            # Persist recomputed rolling cache and use it for return
+                            self.write_atomic(recomputed, ticker, "rolling")
+                            df = recomputed
+                            logger.info(
+                                f"Recomputed and saved rolling cache for {ticker}"
+                            )
+                        except (
+                            Exception
+                        ) as e:  # pragma: no cover - best-effort save
+                            logger.warning(
+                                f"Failed to save recomputed rolling for {ticker}: {e}"
+                            )
+                    else:
+                        logger.warning(
+                            f"Recompute did not produce required indicators for {ticker}: {missing}"
+                        )
+            except Exception as e:  # pragma: no cover - defensive
+                logger.exception(
+                    f"Error during recompute indicators for {ticker}: {e}"
+                )
+
+        return df
+
     def read(self, ticker: str, profile: str) -> pd.DataFrame | None:
         """指定プロファイルからデータを読み込む。"""
         original_ticker = ticker
@@ -215,80 +334,11 @@ class CacheManager:
                 except Exception:
                     pass
 
-            if df is None or df.empty:
-                # baseからrolling相当を生成
-                report_rolling_issue("missing_rolling", ticker, "fallback to base+tail")
-                df = self._read_base_and_tail(ticker)
+            # フォールバックと自己修復処理（抽出メソッド）
+            df = self._handle_rolling_fallback_and_heal(ticker, df, path)
 
-                if df is not None and not df.empty:
-                    # rolling形式で保存
-                    try:
-                        self.file_manager.write_atomic(df, path, ticker, profile)
-                        logger.debug(f"Generated rolling cache for {ticker}")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to save generated rolling for {ticker}: {e}"
-                        )
-
-                # If rolling exists but lacks essential indicators, optionally
-                # attempt to recompute them on read to self-heal broken caches.
-                try:
-                    recompute_flag = bool(
-                        getattr(
-                            self.settings.cache.rolling,
-                            "recompute_indicators_on_read",
-                            True,
-                        )
-                    )
-                except Exception:
-                    recompute_flag = True
-
-                if df is not None and recompute_flag:
-                    try:
-                        required_indicators = ["drop3d", "atr_ratio", "dollarvolume20"]
-                        missing = [
-                            c
-                            for c in required_indicators
-                            if c not in df.columns or df[c].isna().all()
-                        ]
-                        if missing:
-                            logger.info(
-                                f"Rolling cache for {ticker} missing indicators {missing}; attempting recompute"
-                            )
-                            recomputed = self._recompute_indicators(df)
-                            # Validate recompute produced usable values for the required indicators
-                            ok = True
-                            for c in required_indicators:
-                                if (
-                                    c not in recomputed.columns
-                                    or recomputed[c].dropna().empty
-                                ):
-                                    ok = False
-                                    break
-                            if ok:
-                                try:
-                                    # Persist recomputed rolling cache and use it for return
-                                    self.write_atomic(recomputed, ticker, "rolling")
-                                    df = recomputed
-                                    logger.info(
-                                        f"Recomputed and saved rolling cache for {ticker}"
-                                    )
-                                except (
-                                    Exception
-                                ) as e:  # pragma: no cover - best-effort save
-                                    logger.warning(
-                                        f"Failed to save recomputed rolling for {ticker}: {e}"
-                                    )
-                            else:
-                                logger.warning(
-                                    f"Recompute did not produce required indicators for {ticker}: {missing}"
-                                )
-                    except Exception as e:  # pragma: no cover - defensive
-                        logger.exception(
-                            f"Error during recompute indicators for {ticker}: {e}"
-                        )
-
-                return cast(pd.DataFrame | None, df)
+            if df is None:
+                return None
 
             # データサイズチェック（ただし上場間もない銘柄は正常なケースとして扱う）
             if len(df) < self.rolling_cfg.base_lookback_days:
@@ -329,12 +379,8 @@ class CacheManager:
 
         # 健全性チェック（環境変数で抑制可能）
         try:
-            _silent = (os.getenv("CACHE_HEALTH_SILENT") or "").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
+            env_config = get_env_config()
+            _silent = getattr(env_config, "cache_health_silent", False)
         except Exception:
             _silent = False
         if not _silent:
@@ -466,9 +512,13 @@ class CacheManager:
                     "status": "success",
                     "message": "プルーニング対象ファイルなし",
                     "pruned": 0,
+                    "pruned_files": [],
+                    "dropped_rows_total": 0,
                 }
 
             pruned_count = 0
+            pruned_files_list = []
+            dropped_rows_total = 0
             staleness_threshold = self.rolling_cfg.max_staleness_days
 
             for file_path in rolling_files:
@@ -488,8 +538,10 @@ class CacheManager:
 
                     days_stale = (anchor_latest - file_latest).days
                     if days_stale > staleness_threshold:
+                        dropped_rows_total += len(df)
                         file_path.unlink()
                         pruned_count += 1
+                        pruned_files_list.append(ticker_name)
                         logger.info(
                             f"Pruned stale rolling cache: {ticker_name} ({days_stale} days stale)"
                         )
@@ -502,6 +554,8 @@ class CacheManager:
                 "status": "success",
                 "message": f"プルーニング完了: {pruned_count} ファイル削除",
                 "pruned": pruned_count,
+                "pruned_files": pruned_files_list,
+                "dropped_rows_total": dropped_rows_total,
                 "anchor_date": anchor_latest.strftime("%Y-%m-%d"),
             }
 
@@ -778,7 +832,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     x = df.copy()
 
-    # Normalize column names
+    # Normalize column names to lowercase first
     rename_map = {c: c.lower() for c in x.columns}
     x = x.rename(columns=rename_map)
 
@@ -798,34 +852,31 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
             close_source = candidate
             break
 
-    # Build rename map without duplicates
+    # Build rename map without duplicates - systematic approach
     ohlcv_map = {}
-    if "open" in x.columns:
+    if "open" in x.columns and "Open" not in ohlcv_map.values():
         ohlcv_map["open"] = "Open"
-    if "high" in x.columns:
+    if "high" in x.columns and "High" not in ohlcv_map.values():
         ohlcv_map["high"] = "High"
-    if "low" in x.columns:
+    if "low" in x.columns and "Low" not in ohlcv_map.values():
         ohlcv_map["low"] = "Low"
-    if close_source:
+    if close_source and "Close" not in ohlcv_map.values():
         ohlcv_map[close_source] = "Close"
-    if "volume" in x.columns:
+    if "volume" in x.columns and "Volume" not in ohlcv_map.values():
         ohlcv_map["volume"] = "Volume"
-    elif "vol" in x.columns:
+    elif "vol" in x.columns and "Volume" not in ohlcv_map.values():
         ohlcv_map["vol"] = "Volume"
 
-    # Rename and drop duplicates
-    x = x.rename(columns=ohlcv_map)
-    # 防御的に列重複を除去（大小文字違いの重複や二重リネーム対策）
-    if getattr(x, "columns", None) is not None:
-        try:
-            x = x.loc[:, ~x.columns.duplicated(keep="last")]
-        except Exception:
-            pass
-
-    # Drop unused close-related columns to prevent duplicates
+    # Drop unused close-related columns BEFORE renaming to prevent duplicates
     cols_to_drop = [c for c in close_candidates if c in x.columns and c != close_source]
     if cols_to_drop:
         x = x.drop(columns=cols_to_drop, errors="ignore")
+
+    # Apply rename map
+    x = x.rename(columns=ohlcv_map)
+    
+    # Final safety: remove any duplicate columns
+    x = x.loc[:, ~x.columns.duplicated(keep="last")]
 
     required = {"High", "Low", "Close"}
     if not required.issubset(x.columns):

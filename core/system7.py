@@ -31,6 +31,7 @@ from typing import Any, Callable, Tuple
 
 import pandas as pd
 
+from common.system_candidates_utils import set_diagnostics_after_ranking
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils_spy import resolve_signal_entry_date
 
@@ -236,7 +237,6 @@ def generate_candidates_system7(
 
             if setup_ok:
                 diagnostics["setup_predicate_count"] += 1
-                diagnostics["ranked_top_n_count"] = 1
 
                 setup_date = df.index[-1]
                 entry_date = resolve_signal_entry_date(setup_date)
@@ -273,8 +273,9 @@ def generate_candidates_system7(
                             )
                         except Exception:
                             pass
-                    diagnostics["ranked_top_n_count"] = 1
-                    diagnostics["ranking_source"] = "latest_only"
+                    set_diagnostics_after_ranking(
+                        diagnostics, final_df=df_fast, ranking_source="latest_only"
+                    )
                     if progress_callback:
                         try:
                             progress_callback(1, 1)
@@ -395,7 +396,10 @@ def generate_candidates_system7(
             payload_map["SPY"] = payload
         normalized_full[pd.Timestamp(dt)] = payload_map
     # full scan: diagnostics を安定して更新
-    diagnostics["ranking_source"] = "full_scan"
+    set_diagnostics_after_ranking(
+        diagnostics, final_df=None, ranking_source="full_scan"
+    )
+    # System7 full path custom: use normalized_full dict size for ranked count
     if normalized_full:
         try:
             last_dt = max(normalized_full.keys())

@@ -34,6 +34,12 @@ from ta.volatility import AverageTrueRange
 from common.batch_processing import process_symbols_batch
 from common.i18n import tr
 from common.structured_logging import MetricsCollector
+from common.system_candidates_utils import (
+    choose_mode_date_for_latest_only,
+    normalize_candidates_by_date,
+    normalize_dataframe_to_by_date,
+    set_diagnostics_after_ranking,
+)
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import resolve_batch_size
 
@@ -493,41 +499,28 @@ def generate_candidates_system6(
             if target_dt is not None:
                 df_all = df_all[df_all["date"] == target_dt]
             else:
-                try:
-                    mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
+                mode_date = choose_mode_date_for_latest_only(date_counter)
+                if mode_date is not None:
                     df_all = df_all[df_all["date"] == mode_date]
-                except Exception:
-                    pass
             df_all = df_all.sort_values("return_6d", ascending=False, kind="stable")
             df_all = df_all.head(int(top_n)) if top_n else df_all
             # rank 付与（従来互換）
             total = len(df_all)
             df_all.loc[:, "rank"] = list(range(1, total + 1))
             df_all.loc[:, "rank_total"] = total
-            normalized: dict[pd.Timestamp, dict[str, dict[str, Any]]] = {}
-            for dt_raw, sub in df_all.groupby("date"):
-                dt = pd.Timestamp(str(dt_raw))
-                symbol_map: dict[str, dict[str, Any]] = {}
-                for rec in sub.to_dict("records"):
-                    # ensure record and payload keys are strings for type-checkers
-                    sym_val = rec.get("symbol")
-                    if not isinstance(sym_val, str) or not sym_val:
-                        continue
-                    payload: dict[str, Any] = {
-                        str(k): v for k, v in rec.items() if k not in ("symbol", "date")
-                    }
-                    symbol_map[sym_val] = payload
-                normalized[dt] = symbol_map
+            normalized = normalize_dataframe_to_by_date(df_all)
 
             if log_callback:
                 try:
                     log_callback(
-                        f"System6: latest_only fast-path -> {len(df_all)} candidates (symbols={len(rows)})"
+                        f"System6: latest_only fast-path -> {len(df_all)} candidates "
+                        f"(symbols={len(rows)})"
                     )
                 except Exception:
                     pass
-            diagnostics["ranked_top_n_count"] = len(df_all)
-            diagnostics["ranking_source"] = "latest_only"
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=df_all, ranking_source="latest_only"
+            )
             if include_diagnostics:
                 return (normalized, df_all.copy(), diagnostics)
             else:
@@ -787,7 +780,12 @@ def generate_candidates_system6(
             symbol_dict[sym_val] = payload
         normalized_full[pd.Timestamp(dt)] = symbol_dict
     # diagnostics for full path
-    diagnostics["ranking_source"] = diagnostics.get("ranking_source") or "full_scan"
+    set_diagnostics_after_ranking(
+        diagnostics,
+        final_df=None,
+        ranking_source=diagnostics.get("ranking_source") or "full_scan",
+    )
+    # System6 full path custom: use normalized_full dict size for ranked count
     try:
         last_dt = max(normalized_full.keys()) if normalized_full else None
         if last_dt is not None:

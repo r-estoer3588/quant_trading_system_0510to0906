@@ -33,12 +33,12 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Callable, DefaultDict, Mapping, Optional, cast
+from typing import Any, Callable, Mapping, Optional, cast
 
 import pandas as pd
 
 from common.batch_processing import process_symbols_batch
+from common.system_candidates_utils import set_diagnostics_after_ranking
 from common.system_common import check_precomputed_indicators, get_total_days
 from common.system_constants import REQUIRED_COLUMNS
 from common.system_setup_predicates import (
@@ -48,90 +48,74 @@ from common.system_setup_predicates import (
 from strategies.constants import STOP_ATR_MULTIPLE_SYSTEM1
 
 
-@dataclass(slots=True)
-class System1Diagnostics:
-    """Lightweight diagnostics payload for System1 candidate generation."""
+def _create_system1_diagnostics(
+    mode: str = "full_scan", top_n: int = 20
+) -> dict[str, Any]:
+    """Create System1 diagnostics dict with all required fields.
+    
+    Replaces the former System1Diagnostics dataclass to unify all systems (1-7)
+    with dict-based diagnostics for Phase-A commonization.
+    
+    Args:
+        mode: "latest_only" or "full_scan"
+        top_n: Number of top candidates to generate
+        
+    Returns:
+        Diagnostics dict with all counters initialized to 0/None and
+        exclude_reasons/exclude_symbols as defaultdict instances.
+    """
+    return {
+        "mode": mode,
+        "top_n": top_n,
+        # counts
+        "symbols_total": 0,
+        "symbols_with_data": 0,
+        "total_symbols": 0,
+        "filter_pass": 0,
+        "setup_flag_true": 0,
+        "fallback_pass": 0,
+        "roc200_positive": 0,
+        "final_pass": 0,
+        "setup_predicate_count": 0,
+        "ranked_top_n_count": 0,
+        "predicate_only_pass_count": 0,
+        "mismatch_flag": 0,
+        "date_fallback_count": 0,
+        # ranking source marker
+        "ranking_source": None,
+        # reason histogram (defaultdict for convenience)
+        "exclude_reasons": defaultdict(int),
+        "exclude_symbols": defaultdict(set),
+    }
 
-    mode: str = "full_scan"  # or "latest_only"
-    top_n: int = 20
 
-    # counts
-    symbols_total: int = 0
-    symbols_with_data: int = 0
-    total_symbols: int = 0
-    filter_pass: int = 0
-    setup_flag_true: int = 0
-    fallback_pass: int = 0
-    roc200_positive: int = 0
-    final_pass: int = 0
-    setup_predicate_count: int = 0
-    ranked_top_n_count: int = 0
-    predicate_only_pass_count: int = 0
-    mismatch_flag: int = 0
-    date_fallback_count: int = 0
-
-    # ranking source marker
-    ranking_source: str | None = None
-
-    # reason histogram
-    exclude_reasons: DefaultDict[str, int] = field(
-        default_factory=lambda: defaultdict(int)
-    )
-    # map reason -> set of symbols that were excluded for that reason
-    exclude_symbols: DefaultDict[str, set] = field(
-        default_factory=lambda: defaultdict(set)
-    )
-
-    def as_dict(self) -> dict[str, Any]:
-        # normalize defaultdict to plain dict of ints
-        return {
-            "mode": self.mode,
-            "top_n": int(self.top_n),
-            "symbols_total": int(self.symbols_total),
-            "symbols_with_data": int(self.symbols_with_data),
-            "total_symbols": int(self.total_symbols),
-            "filter_pass": int(self.filter_pass),
-            "setup_flag_true": int(self.setup_flag_true),
-            "fallback_pass": int(self.fallback_pass),
-            "roc200_positive": int(self.roc200_positive),
-            "final_pass": int(self.final_pass),
-            "setup_predicate_count": int(self.setup_predicate_count),
-            "ranked_top_n_count": int(self.ranked_top_n_count),
-            "predicate_only_pass_count": int(self.predicate_only_pass_count),
-            "mismatch_flag": int(self.mismatch_flag),
-            "date_fallback_count": int(self.date_fallback_count),
-            "ranking_source": self.ranking_source,
-            "exclude_reasons": {
-                k: int(v) for k, v in dict(self.exclude_reasons).items()
-            },
-            # normalize sets to sorted lists for JSON friendliness
-            "exclude_symbols": {
-                k: sorted(list(v)) for k, v in dict(self.exclude_symbols).items()
-            },
-        }
-
-    def add_exclude(self, reason: str, symbol: str | None) -> None:
-        """Record an exclusion reason and optionally the symbol.
-
-        This increments the counter in ``exclude_reasons`` and adds the
-        symbol to ``exclude_symbols`` set for the given reason. Implementation
-        is defensive: any errors in diagnostics updating should not raise.
-        """
-        try:
-            r = str(reason)
-            self.exclude_reasons[r] += 1
-            if symbol:
-                try:
-                    self.exclude_symbols[r].add(str(symbol))
-                except Exception:
-                    # defensive: ignore symbol add errors
-                    pass
-        except Exception:
-            # keep diagnostics best-effort
+def _add_exclude(diag: dict[str, Any], reason: str, symbol: str | None) -> None:
+    """Record an exclusion reason and optionally the symbol.
+    
+    Helper function for System1 diagnostics. Increments counter in
+    ``exclude_reasons`` and adds symbol to ``exclude_symbols`` set.
+    Implementation is defensive: errors should not raise.
+    
+    Args:
+        diag: Diagnostics dict
+        reason: Exclusion reason string
+        symbol: Optional symbol string to record
+    """
+    try:
+        r = str(reason)
+        diag["exclude_reasons"][r] += 1
+        if symbol:
             try:
-                self.exclude_reasons["exception"] += 1
+                diag["exclude_symbols"][r].add(str(symbol))
             except Exception:
+                # defensive: ignore symbol add errors
                 pass
+    except Exception:
+        # keep diagnostics best-effort
+        try:
+            diag["exclude_reasons"]["exception"] += 1
+        except Exception:
+            pass
 
 
 def summarize_system1_diagnostics(
@@ -839,7 +823,7 @@ def generate_candidates_system1(
     batch_size: int | None = None,
     latest_only: bool = False,
     include_diagnostics: bool = False,
-    diagnostics: System1Diagnostics | Mapping[str, Any] | None = None,
+    diagnostics: dict[str, Any] | Mapping[str, Any] | None = None,
     **kwargs: object,
 ) -> (
     tuple[dict[pd.Timestamp, object], pd.DataFrame | None]
@@ -859,12 +843,13 @@ def generate_candidates_system1(
     resolved_top_n = 20 if top_n is None else top_n
     mode = "latest_only" if latest_only else "full_scan"
 
-    if isinstance(diagnostics, System1Diagnostics):
+    # Initialize or reuse diagnostics dict
+    if diagnostics is not None and isinstance(diagnostics, dict):
         diag = diagnostics
-        diag.mode = mode
-        diag.top_n = resolved_top_n
+        diag["mode"] = mode
+        diag["top_n"] = resolved_top_n
     else:
-        diag = System1Diagnostics(mode=mode, top_n=resolved_top_n)
+        diag = _create_system1_diagnostics(mode=mode, top_n=resolved_top_n)
         if isinstance(diagnostics, Mapping):
             prev_reasons = diagnostics.get("exclude_reasons")
             if isinstance(prev_reasons, Mapping):
@@ -878,7 +863,7 @@ def generate_candidates_system1(
                         except Exception:
                             cnt = 1
                         for _ in range(cnt):
-                            diag.add_exclude(str(key), None)
+                            _add_exclude(diag, str(key), None)
                     except Exception:
                         continue
 
@@ -889,7 +874,17 @@ def generate_candidates_system1(
         tuple[dict[pd.Timestamp, object], pd.DataFrame | None]
         | tuple[dict[pd.Timestamp, object], pd.DataFrame | None, dict[str, object]]
     ):
-        diag_payload = diag.as_dict()
+        # Normalize defaultdict to plain dict for JSON serialization
+        diag_payload = {
+            **diag,
+            "exclude_reasons": {
+                k: int(v) for k, v in dict(diag["exclude_reasons"]).items()
+            },
+            "exclude_symbols": {
+                k: sorted(list(v))
+                for k, v in dict(diag["exclude_symbols"]).items()
+            },
+        }
         normalized = dict(by_date)
         if include_diagnostics:
             return normalized, merged, diag_payload
@@ -897,14 +892,14 @@ def generate_candidates_system1(
         return normalized, merged, diag_payload
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
-        diag.symbols_total = len(prepared_dict or {})
-        diag.ranking_source = mode
+        diag["symbols_total"] = len(prepared_dict or {})
+        set_diagnostics_after_ranking(diag, final_df=None, ranking_source=mode)
         if log_callback:
             log_callback("System1: No data provided for candidate generation")
         return finalize({}, None)
 
-    diag.symbols_total = len(prepared_dict)
-    diag.symbols_with_data = sum(
+    diag["symbols_total"] = len(prepared_dict)
+    diag["symbols_with_data"] = sum(
         1
         for df in prepared_dict.values()
         if isinstance(df, pd.DataFrame) and not df.empty
@@ -981,10 +976,12 @@ def generate_candidates_system1(
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
-                diag.total_symbols += 1
-                if log_callback and diag.total_symbols <= 5:
+                diag["total_symbols"] += 1
+                if log_callback and diag["total_symbols"] <= 5:
+                    total_sym = diag["total_symbols"]
                     log_callback(
-                        f"[DEBUG_S1_LOOP] Processing symbol {sym}, total_symbols={diag.total_symbols}"
+                        f"[DEBUG_S1_LOOP] Processing symbol {sym}, "
+                        f"total_symbols={total_sym}"
                     )
                 row_obj: pd.Series | pd.DataFrame | None
                 date_val: pd.Timestamp | None
@@ -994,10 +991,10 @@ def generate_candidates_system1(
                 # latest index guard (e.g., SPY cache tail issues)
                 try:
                     if getattr(df.index, "size", 0) == 0 or df.index[-1] is None:
-                        diag.add_exclude("latest_index_missing", sym)
+                        _add_exclude(diag, "latest_index_missing", sym)
                         continue
                 except Exception:
-                    diag.add_exclude("latest_index_missing", sym)
+                    _add_exclude(diag, "latest_index_missing", sym)
                     continue
                 if target_date is not None:
                     if target_date in df.index:
@@ -1010,7 +1007,7 @@ def generate_candidates_system1(
                                 str(latest_idx_raw)
                             ).normalize()
                         except Exception:
-                            diag.add_exclude("invalid_date", sym)
+                            _add_exclude(diag, "invalid_date", sym)
                             continue
 
                         # Fast path: if dates equal, accept immediately
@@ -1021,7 +1018,7 @@ def generate_candidates_system1(
                                 row_obj = None
                             date_val = latest_idx_norm
                             fallback_used = True
-                            diag.date_fallback_count += 1
+                            diag["date_fallback_count"] += 1
                         else:
                             # Unconditional fallback to latest available bar.
                             # Final selection by date is handled after the loop
@@ -1032,13 +1029,13 @@ def generate_candidates_system1(
                                 row_obj = None
                             date_val = latest_idx_norm
                             fallback_used = True
-                            diag.date_fallback_count += 1
+                            diag["date_fallback_count"] += 1
                 else:
                     latest_idx_raw = df.index[-1]
                     try:
                         date_val = pd.Timestamp(str(latest_idx_raw)).normalize()
                     except Exception:
-                        diag.add_exclude("invalid_date", sym)
+                        _add_exclude(diag, "invalid_date", sym)
                         continue
                     try:
                         row_obj = df.loc[latest_idx_raw]
@@ -1047,7 +1044,7 @@ def generate_candidates_system1(
 
                 last_row = _ensure_series(row_obj)
                 if last_row is None or date_val is None:
-                    diag.add_exclude("invalid_row", sym)
+                    _add_exclude(diag, "invalid_row", sym)
                     continue
 
                 # Staleness guard (calendar-day based): when target_date is defined and
@@ -1063,7 +1060,7 @@ def generate_candidates_system1(
                             (pd.Timestamp(target_date) - pd.Timestamp(date_val)).days
                         )
                         if delta_days > max_lag_days:
-                            diag.add_exclude("too_stale", sym)
+                            _add_exclude(diag, "too_stale", sym)
                             continue
                 except Exception:
                     # On any failure, do not exclude based on staleness.
@@ -1077,9 +1074,9 @@ def generate_candidates_system1(
                     pred_ok, pred_reason = bool(res_pred), None
                 if not pred_ok:
                     if pred_reason:
-                        diag.add_exclude(str(pred_reason), sym)
+                        _add_exclude(diag, str(pred_reason), sym)
                     else:
-                        diag.add_exclude("predicate_failed", sym)
+                        _add_exclude(diag, "predicate_failed", sym)
                     continue
 
                 # Count Phase2 filter pass (Close>=5 & DollarVolume20>=50M)
@@ -1092,7 +1089,7 @@ def generate_candidates_system1(
                         and close_v >= 5.0
                         and dv20_v >= 50_000_000
                     ):
-                        diag.filter_pass += 1
+                        diag["filter_pass"] += 1
                 except Exception:
                     pass
 
@@ -1103,7 +1100,7 @@ def generate_candidates_system1(
                             last_row, allow_fallback=True
                         )
                         if bool(passed_legacy) != bool(pred_ok):
-                            diag.add_exclude("_predicate_mismatch", sym)
+                            _add_exclude(diag, "_predicate_mismatch", sym)
                 except Exception:
                     # do not block on diagnostics
                     pass
@@ -1118,18 +1115,18 @@ def generate_candidates_system1(
                         and not math.isnan(sma50_v)
                         and sma25_v > sma50_v
                     ):
-                        diag.setup_flag_true += 1
+                        diag["setup_flag_true"] += 1
                 except Exception:
                     pass
                 try:
                     roc200_v = _to_float(last_row.get("roc200"))
                     if not math.isnan(roc200_v) and roc200_v > 0:
-                        diag.roc200_positive += 1
+                        diag["roc200_positive"] += 1
                 except Exception:
                     pass
 
-                diag.setup_predicate_count += 1
-                diag.final_pass += 1
+                diag["setup_predicate_count"] += 1
+                diag["final_pass"] += 1
                 roc200_val = _to_float(last_row.get("roc200"))
                 close_val = _to_float(last_row.get("Close", 0))
                 atr20_val = _to_float(last_row.get("atr20", 0))
@@ -1169,7 +1166,7 @@ def generate_candidates_system1(
                 if label_dt is None:
                     # ラベル日付が解決できない場合は除外（診断カウント）
                     try:
-                        diag.add_exclude("invalid_date_label", sym)
+                        _add_exclude(diag, "invalid_date_label", sym)
                     except Exception:
                         pass
                     continue
@@ -1210,7 +1207,9 @@ def generate_candidates_system1(
             if log_callback:
                 log_callback(f"[DEBUG_S1] Collected rows={len(rows)}")
             if len(rows) == 0:
-                diag.ranking_source = "latest_only_empty"
+                set_diagnostics_after_ranking(
+                    diag, final_df=None, ranking_source="latest_only_empty"
+                )
                 return finalize({}, None)
 
             df_all = pd.DataFrame(rows)
@@ -1345,8 +1344,10 @@ def generate_candidates_system1(
                     pass
 
             df_all = top_cut
-            diag.ranked_top_n_count = len(df_all)
-            diag.ranking_source = "latest_only"
+            # Use common utility to set ranking diagnostics
+            set_diagnostics_after_ranking(
+                diag, final_df=df_all, ranking_source="latest_only"
+            )
 
             # Build by_date structure
             by_date: dict[pd.Timestamp, dict[str, dict]] = {}
@@ -1372,7 +1373,9 @@ def generate_candidates_system1(
         except Exception as e_latest:
             if log_callback:
                 log_callback(f"System1 latest_only error: {e_latest}")
-            diag.ranking_source = "error_latest"
+            set_diagnostics_after_ranking(
+                diag, final_df=None, ranking_source="error_latest"
+            )
             return finalize({}, None)
 
     # Original else block (latest_only=False) is now unreachable because we always
@@ -1390,7 +1393,11 @@ def generate_candidates_system1(
     )
 
     if not all_dates:
-        diag.ranking_source = "latest_only" if latest_only else "full_scan"
+        set_diagnostics_after_ranking(
+            diag,
+            final_df=None,
+            ranking_source="latest_only" if latest_only else "full_scan",
+        )
         if log_callback:
             log_callback("System1: No valid dates found in data")
         return finalize({}, None)
@@ -1421,7 +1428,7 @@ def generate_candidates_system1(
             row = cast(pd.Series, row_obj)
 
             if date == diag_target_date:
-                diag.total_symbols += 1
+                diag["total_symbols"] += 1
 
                 pred_res = system1_setup_predicate(row, return_reason=True)
                 if isinstance(pred_res, tuple):
@@ -1443,31 +1450,31 @@ def generate_candidates_system1(
                     }
 
                 if pred_val:
-                    diag.setup_predicate_count += 1
+                    diag["setup_predicate_count"] += 1
 
                 setup_flag = bool(row.get("setup", False))
                 if pred_val and not setup_flag:
-                    diag.predicate_only_pass_count += 1
-                    diag.mismatch_flag = 1
+                    diag["predicate_only_pass_count"] += 1
+                    diag["mismatch_flag"] = 1
 
                 try:
                     if flags.get("filter_ok"):
-                        diag.filter_pass += 1
+                        diag["filter_pass"] += 1
                 except Exception:
                     pass
                 try:
                     if flags.get("setup_flag"):
-                        diag.setup_flag_true += 1
+                        diag["setup_flag_true"] += 1
                 except Exception:
                     pass
                 try:
                     if flags.get("fallback_ok"):
-                        diag.fallback_pass += 1
+                        diag["fallback_pass"] += 1
                 except Exception:
                     pass
                 try:
                     if flags.get("roc200_positive"):
-                        diag.roc200_positive += 1
+                        diag["roc200_positive"] += 1
                 except Exception:
                     pass
 
@@ -1477,10 +1484,10 @@ def generate_candidates_system1(
                         if pred_reason is not None
                         else "predicate_failed"
                     )
-                    diag.add_exclude(reason_key, symbol)
+                    _add_exclude(diag, reason_key, symbol)
                     continue
 
-                diag.final_pass += 1
+                diag["final_pass"] += 1
 
             setup_flag = bool(row.get("setup", False))
             if not setup_flag:
@@ -1527,13 +1534,17 @@ def generate_candidates_system1(
         candidates_df = candidates_df.sort_values(
             ["date", "roc200"], ascending=[True, False]
         )
-        last_date = max(candidates_by_date.keys()) if candidates_by_date else None
-        if last_date is not None:
-            diag.ranked_top_n_count = len(candidates_by_date.get(last_date, []))
-        diag.ranking_source = "full_scan"
+        # Use common utility to set ranking diagnostics
+        set_diagnostics_after_ranking(
+            diag, final_df=candidates_df, ranking_source="full_scan"
+        )
     else:
         candidates_df = None
-        diag.ranking_source = "latest_only" if latest_only else "full_scan"
+        set_diagnostics_after_ranking(
+            diag,
+            final_df=None,
+            ranking_source="latest_only" if latest_only else "full_scan",
+        )
 
     if log_callback:
         total_candidates = len(all_candidates)
@@ -1632,6 +1643,5 @@ __all__ = [
     "get_total_days_system1",
     "generate_roc200_ranking_system1",
     "system1_row_passes_setup",
-    "System1Diagnostics",
     "summarize_system1_diagnostics",
 ]

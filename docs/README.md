@@ -63,7 +63,7 @@
     make test-controlled
     ```
 
-### 技術文書
+### 🔧 技術文書
 
 - [技術文書一覧](./technical/INDEX.md) - 指標・実装・仕様の詳細資料
 - [キャッシュインデックス要件](./technical/cache_index_requirements.md) - Feather 形式の制約と日付インデックス変換
@@ -86,13 +86,7 @@
 
 以下のセクションは、初心者・開発者共通で参照する詳細資料です。
 
-### 📖 Context Note 形式
-
-このプロジェクトでは、各ソースファイルの先頭に **「Context Note」** という設計意図・注意点をコメント形式で記載しています。以下の場面で参照してください：
-
-- **コード変更前**: ファイルの役割・前提条件・禁止事項を確認して、設計をズレさせない
-- **Copilot と相談するとき**: Context Note で Copilot が文脈を把握し、より正確な提案を得られる
-- **レビュー・デバッグ時**: README.md の抽象情報を補足する具体的なガイドとして機能
+### 📖 Context Note 形式の詳細
 
 #### 📋 Context Note の構成
 
@@ -133,16 +127,16 @@
 
 ---
 
-## システム構成と資産配分
+## 📊 システム構成と資産配分
 
-4 つの買いシステム
+### 4 つの買いシステム
 
 - システム 1 ーロング・トレンド・ハイ・モメンタム（トレード資産の 25%を配分）
 - システム 4 ーロング・トレンド・ロー・ボラティリティ（トレード資産の 25%を配分）
 - システム 3 ーロング・ミーン・リバージョン・セルオフ（トレード資産の 25%を配分）
 - システム 5 ーロング・ミーン・リバージョン・ハイ ADX・リバーサル（トレード資産の 25%を配分）
 
-3 つの売りシステム
+### 3 つの売りシステム
 
 - システム 2 ーショート RSI スラスト（トレード資産の 40%を配分）
 - システム 6 ーショート・ミーン・リバージョン・ハイ・シックスデイサージ（トレード資産の 40%を配分）
@@ -159,17 +153,17 @@
   - `candidates`: 当日候補数（最終スコアリング前のシステム別集計）
 - 用途: 事前フィルターの通過数と候補数の推移を日次で可視化し、データ品質やシグナル強度の変動を監視する。
 
-#### UI: Metrics タブ
+### UI: Metrics タブ
 
 - `app_integrated.py` のタブに `Metrics` を追加。`results_csv/daily_metrics.csv` を読み込み、システム別に `prefilter_pass` と `candidates` の推移をライン／バーで表示できる。
 
-#### 検証レポート（任意）
+### 検証レポート（任意）
 
 - `tools/build_metrics_report.py` が最新日のメトリクスと各システムのシグナル CSV（`signals_systemX_YYYY-MM-DD.csv`）を突き合わせ、`results_csv/daily_metrics_report.csv` を生成する。件数の齟齬チェックやサンプル銘柄の目視確認に使う。
 
 ---
 
-## 半自動の検証ループ運用
+## 🔄 半自動の検証ループ運用
 
 AI と一緒にコード修正を進めるときは、テストと画像確認を毎回セットで行います。ここでは必ず確認すべき流れをまとめます。
 
@@ -185,7 +179,7 @@ AI と一緒にコード修正を進めるときは、テストと画像確認�
 
 ループ操作を会話で共有するときは「検証ループプロンプト」という呼び名を使います。以下の定型文をチャットに貼れば、チーム全員が同じ流れで対応できます。
 
-```
+```text
 [検証ループプロンプト]
 目的: 変更コードをテストし、スナップショットと画像差分で確認する
 手順:
@@ -195,13 +189,41 @@ AI と一緒にコード修正を進めるときは、テストと画像確認�
 出力: snapshots/<timestamp>/ と imgdiff_report.html を保管
 ```
 
-### UI スクリーンショット取得（自動実行対応）
+---
 
-**重要**: 現在のスナップショット機能は、ファイルシステム上の成果物（CSV・ログ・画像ファイル）のみを対象としており、**Streamlit UI の画面キャプチャは手動操作が必要でした**。しかし、Playwright を使えば **ボタンクリックから完了画面の撮影まで完全自動化** できます。
+## 📸 UI スクリーンショット取得（自動実行対応）
 
-#### 1. Playwright セットアップ（初回のみ）
+Streamlit UI の画面キャプチャを **ボタンクリックから完了画面の撮影まで完全自動化** できます。Playwright を使用してブラウザを自動操作し、フルページスクリーンショットを取得します。
 
-**前提条件:** 仮想環境（venv）を有効化してから実行してください。
+### クイックスタート
+
+**最も簡単な方法（Windows）:**
+
+```powershell
+# 初回のみ: Playwright インストール
+pip install playwright
+playwright install chromium
+
+# 実行（ボタンクリック→撮影→スナップショット作成）
+.\tools\run_and_snapshot.ps1
+```
+
+**Unix/Linux/Mac:**
+
+```bash
+# 初回のみ: Playwright インストール
+pip install playwright
+playwright install chromium
+
+# 実行
+make run-and-snapshot
+```
+
+### 1. Playwright セットアップ（詳細）
+
+**基本インストール:**
+
+仮想環境を有効化してから実行してください。
 
 **Windows (PowerShell):**
 
@@ -220,37 +242,38 @@ playwright install chromium
 # 仮想環境の有効化
 source venv/bin/activate
 
-# Playwright インストール（約5分、300MBダウンロード）
+# Playwright インストール
 pip install playwright
 playwright install chromium
 
-# ネットワーク制限がある場合（システムライブラリも一緒にインストール）
+# ネットワーク制限がある場合
 playwright install chromium --with-deps
 ```
 
 **トラブルシューティング:**
 
-- インストールが失敗する場合: [Playwright 公式ドキュメント](https://playwright.dev/python/docs/intro)
-- プロキシ環境の場合: `HTTPS_PROXY` 環境変数を設定してください
+- インストール失敗: [Playwright 公式ドキュメント](https://playwright.dev/python/docs/intro) を参照
+- プロキシ環境: `HTTPS_PROXY` 環境変数を設定
 
-**VSCode 拡張機能（推奨）**:
+**VSCode 拡張機能（オプション）:**
 
-1. VSCode で拡張機能 "Playwright Test for VSCode" をインストール
-2. UI テストのデバッグ、レコーディング、インスペクターが使えるようになります
-3. `tools/capture_ui_screenshot.py` のステップ実行やブレークポイントが可能
+"Playwright Test for VSCode" をインストールすると、以下の機能が使えます：
 
-**拡張機能の利点**:
-
-- **Test Explorer**: VSCode のサイドバーからテストを実行
-- **Pick Locator**: UI 要素を選択して Playwright セレクターを自動生成
-- **Trace Viewer**: 実行履歴をタイムライン表示
-- **Codegen**: ブラウザ操作を自動コード生成
+- Test Explorer（サイドバーからテスト実行）
+- Pick Locator（UI 要素のセレクター自動生成）
+- Trace Viewer（実行履歴のタイムライン表示）
 
 詳細: [Playwright VSCode Extension](https://playwright.dev/docs/getting-started-vscode)
 
-#### 2. 自動実行（ボタンクリック + スクリーンショット + スナップショット）
+### 2. 自動実行
 
-**推奨**: 統合スクリプトを使う
+統合スクリプトを使うのが最も簡単です。以下の処理を自動実行します：
+
+1. Streamlit アプリを開く (`http://localhost:8501`)
+2. 「Generate Signals」ボタンをクリック
+3. 実行完了を待機（進行状況バーの消失を検出）
+4. フルページスクリーンショットを保存
+5. CSV/ログ/画像をスナップショット
 
 **Windows (PowerShell):**
 
@@ -268,33 +291,13 @@ playwright install chromium --with-deps
 **Unix/Linux/Mac:**
 
 ```bash
-# Python スクリプトを直接実行
-python3 tools/capture_ui_screenshot.py \
-    --url http://localhost:8501 \
-    --output results_images/today_signals_complete.png \
-    --click-button "Generate Signals" \
-    --wait-after-click 30
-
-# Makefile を使う場合
+# 基本実行
 make run-and-snapshot
 ```
 
-**内部動作**:
+**注意**: Streamlit アプリが `http://localhost:8501` で起動している必要があります。
 
-1. Playwright が Streamlit アプリ (`http://localhost:8501`) を開く
-2. 「Generate Signals」ボタンを自動クリック
-3. 実行完了を待機（デフォルト 30 秒、進行状況バーの消失を検出）
-4. フルページスクリーンショットを `results_images/today_signals_complete.png` に保存
-   - **ディレクトリ自動作成**: 出力先ディレクトリ（`results_images/`）が存在しない場合は自動的に作成されます
-5. `results_csv`, `logs`, `results_images` をスナップショット
-
-**画像パスのガイドライン**:
-
-- スクリーンショット出力先は `results_images/` または `screenshots/` を推奨（`.gitignore` で管理済み）
-- カスタムパスを指定する場合: スクリプトが親ディレクトリを自動作成するため、事前準備は不要です
-- 例: `--output custom_dir/subdir/image.png` → `custom_dir/subdir/` が自動作成される
-
-#### 3. 手動実行（カスタマイズが必要な場合）
+### 3. カスタマイズ実行
 
 **Windows (PowerShell):**
 
@@ -330,66 +333,54 @@ python3 tools/capture_ui_screenshot.py --url http://localhost:8501 --output scre
 python3 tools/capture_ui_screenshot.py --url http://localhost:8501 --output my_reports/2024-11/ui_final.png
 ```
 
-**注意事項**:
+**主要オプション:**
 
-- `results_images/` と `screenshots/` は `.gitignore` で除外されているため、Git に追跡されません
-- PR やレポート用の画像は手動で管理するか、別の専用ディレクトリ（例: `docs/images/`）にコピーしてください
+| オプション           | 説明                             | デフォルト              |
+| -------------------- | -------------------------------- | ----------------------- |
+| `--url`              | Streamlit アプリの URL           | `http://localhost:8501` |
+| `--output`           | 保存先パス（相対パス）           | 必須                    |
+| `--click-button`     | クリックするボタンのテキスト     | なし                    |
+| `--wait-after-click` | ボタンクリック後の待機時間（秒） | 15                      |
+| `--no-scroll`        | 最下部へのスクロールを無効化     | 無効                    |
+| `--wait`             | ページ読み込み後の待機時間（秒） | 3                       |
 
-**利用可能なオプション**:
+**画像パスについて:**
 
-- `--url`: Streamlit アプリの URL（デフォルト: `http://localhost:8501`）
-- `--output`: 保存先パス（プロジェクトルートからの相対パス）
-  -- `--click-button`: クリックするボタンのテキスト（例: `"Generate Signals"`）
-- `--wait-after-click`: ボタンクリック後の待機時間（秒）（デフォルト: 15）
-- `--no-scroll`: 最下部へのスクロールを無効化（デフォルトは有効）
-- `--wait`: ページ読み込み後の待機時間（秒）（デフォルト: 3）
+- 推奨ディレクトリ: `results_images/` または `screenshots/`（`.gitignore` で Git 管理外）
+- カスタムパス: 親ディレクトリは自動作成されます（例: `my_reports/2024-11/ui.png`）
+- PR 用画像: `docs/images/` にコピーして Git 管理下に置いてください
 
-#### 4. チャットから指定（AI コーディング時）
+### 4. AI コーディング用プロンプト
 
 会話で「検証ループプロンプト」と言えば、AI が自動的に以下を実行します：
 
-```
+```text
 [検証ループプロンプト - UI版]
-目的: Streamlit UIの完了画面を自動撮影し、スナップショット比較
+目的: Streamlit UI の完了画面を自動撮影し、スナップショット比較
 手順:
 1. .\tools\run_and_snapshot.ps1 でボタンクリック→撮影→スナップショット
 2. python tools/imgdiff.py で差分確認
 3. 差分があれば Copilot に修正提案を依頼
-完全自動: ボタンクリック、待機、スクロール、フルページ撮影まですべて自動
 ```
 
-#### 5. 注意事項
+### 5. 参考情報
 
-- **事前条件**: Streamlit アプリが `http://localhost:8501` で起動していること
-- **フルページ**: デフォルトで最下部までスクロール後、全体を撮影
+**重要な注意点:**
+
+- **事前条件**: Streamlit アプリを `http://localhost:8501` で起動しておく
 - **待機時間**: 処理が重い場合は `--wait-after-click` を延長（例: 60 秒）
-  -- **ボタン名**: デフォルトは英語表記 `"Generate Signals"`。日本語 UI を使う場合は絵文字を含めた日本語表記（例: `"▶ 本日のシグナル実行"`）を指定してください。
-- **環境依存**: フォント・レンダリングの微差が発生する可能性あり（決定性は `common/testing.py::set_test_determinism()` で対応）
-- **Git 管理**: `snapshots/`, `results_images/`, `screenshots/` は `.gitignore` で除外されています（テスト用一時ファイルのため）
+- **ボタン名**: 日本語 UI の場合は絵文字含む正確な表記を指定（例: `"▶ 本日のシグナル実行"`）
+- **環境依存**: フォント・レンダリングの微差が発生する場合は `common/testing.py::set_test_determinism()` で対応
 
-#### 6. Makefile ターゲット（Unix/Linux/Mac）
+**Makefile ターゲット（Unix/Linux/Mac）:**
 
 ```bash
-make run-and-snapshot
+make run-and-snapshot  # capture_ui_screenshot.py + snapshot.py を連続実行
 ```
 
-内部的に `tools/capture_ui_screenshot.py` と `tools/snapshot.py` を連続実行します。
+**Image Diff Report（ダークモード対応）:**
 
-#### 7. Image Diff Report（ダークモード対応）
+`tools/imgdiff.py` で生成される `imgdiff_report.html` は、VSCode スタイルのダークモード配色で表示されます。画像ホバー時の拡大表示やレスポンシブデザインに対応しています。
 
-`tools/imgdiff.py` で生成される HTML レポートは **ダークモード** で表示されます：
-
-**特徴**:
-
-- VSCode スタイルの配色（背景: `#1e1e1e`, テキスト: `#d4d4d4`）
-- 画像ホバー時の拡大表示（スムーズなトランジション）
-- 差分がない場合は緑色のチェックマーク付きメッセージ
-- レスポンシブデザイン（モバイル対応）
-
-**生成場所**:
-
-- `snapshots/<最新>/imgdiff_report.html`
-- ブラウザで開くと自動的にダークモードで表示されます
-
-**カスタマイズ**:
-配色を変更したい場合は `tools/imgdiff.py` の `_build_report()` 関数内の CSS を編集してください。
+- 生成場所: `snapshots/<最新>/imgdiff_report.html`
+- カスタマイズ: `tools/imgdiff.py` の `_build_report()` 関数内の CSS を編集
