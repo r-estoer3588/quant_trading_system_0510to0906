@@ -43,6 +43,7 @@ class ProgressEventEmitter:
     enabled: bool
     _log_file: Path | None
     logger: logging.Logger
+    _state_file: Path | None
 
     def __new__(cls):
         if cls._instance is None:
@@ -68,6 +69,7 @@ class ProgressEventEmitter:
         self._log_file: Path | None = None
         self._file_handle: object | None = None
         self.logger = logging.getLogger(__name__)
+        self._state_file = None
         self._initialized = True
 
         if self.enabled:
@@ -81,6 +83,8 @@ class ProgressEventEmitter:
             logs_dir.mkdir(parents=True, exist_ok=True)
 
             self._log_file = logs_dir / "progress_today.jsonl"
+            # 直近イベントのスナップショット（UI/自動化のポーリング用）
+            self._state_file = logs_dir / "progress_state.json"
 
             # Reset file on initialization
             self.reset()
@@ -115,6 +119,19 @@ class ProgressEventEmitter:
             with open(self._log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event_record, ensure_ascii=False) + "\n")
                 f.flush()  # リアルタイム表示のため即座にフラッシュ
+
+            # 直近イベントのスナップショットを state.json に保存（オプショナル）
+            try:
+                if self._state_file is not None:
+                    state_payload = {
+                        "updated_at": event_record["timestamp"],
+                        "last_event": event_record,
+                    }
+                    with open(self._state_file, "w", encoding="utf-8") as sf:
+                        sf.write(json.dumps(state_payload, ensure_ascii=False))
+                        sf.flush()
+            except Exception as se:  # pragma: no cover - best-effort
+                self.logger.debug(f"Failed to write progress state: {se}")
 
         except Exception as e:
             self.logger.error(f"Failed to emit progress event: {e}")
@@ -179,7 +196,15 @@ class ProgressEventEmitter:
         data = {"system": system_name, "final_count": final_count}
         if additional_data:
             data.update(additional_data)
-        self.emit(f"{system_name}_complete", data)
+        # UI 同期のために標準イベント 'system_complete' を発行
+        # （apps.progress_components.StageTracker はこのイベントを監視する）
+        self.emit("system_complete", data)
+        # 後方互換: 旧仕様の systemX_complete も併せて発行（テストや既存ツール向け）
+        try:
+            legacy = dict(data)
+        except Exception:
+            legacy = data
+        self.emit(f"{system_name}_complete", legacy)
 
     def emit_phase(
         self,

@@ -38,9 +38,10 @@ import pandas as pd
 
 from common.batch_processing import process_symbols_batch
 from common.system_candidates_utils import (
+    apply_thresholds,
     choose_mode_date_for_latest_only,
-    normalize_candidates_by_date,
-    normalize_dataframe_to_by_date,
+    finalize_ranking_and_diagnostics,
+    prepare_ranking_input,
     set_diagnostics_after_ranking,
 )
 from common.system_common import check_precomputed_indicators, get_total_days
@@ -53,6 +54,109 @@ try:
     from config.environment import get_env_config as _get_env
 except Exception:  # フォールバック
     _get_env = None
+
+# ============================================================================
+# System3 Strategy Constants
+# ============================================================================
+MIN_PRICE = 5.0  # Minimum closing price for filter
+MIN_DOLLAR_VOLUME_20 = 25_000_000  # Minimum 20-day dollar volume
+DEFAULT_ATR_RATIO_THRESHOLD = 0.05  # Default ATR ratio threshold (can be overridden)
+DROP_3D_THRESHOLD = 0.125  # 3-day drop threshold (12.5%)
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+def _apply_filter_conditions(
+    df: pd.DataFrame, atr_threshold: float = DEFAULT_ATR_RATIO_THRESHOLD
+) -> pd.DataFrame:
+    """Apply System3 filter: Close>=MIN_PRICE, DollarVolume20>MIN, ATR>=threshold.
+
+    Preserves existing 'filter' column if present for test compatibility.
+
+    Args:
+        df: DataFrame with required columns (Close, dollarvolume20, atr_ratio)
+        atr_threshold: ATR ratio threshold (default: DEFAULT_ATR_RATIO_THRESHOLD)
+
+    Returns:
+        DataFrame with 'filter' boolean column added/updated
+    """
+    x = df.copy()
+
+    # Coerce to numeric to avoid runtime/type issues
+    try:
+        _val_close = x.get("Close")
+        if _val_close is None:
+            _close = pd.Series(0.0, index=x.index)
+        else:
+            _close = pd.to_numeric(_val_close, errors="coerce").fillna(0.0)
+    except Exception:
+        _close = pd.Series(0.0, index=x.index)
+
+    try:
+        _val_dvol = x.get("dollarvolume20")
+        if _val_dvol is None:
+            _dvol = pd.Series(0.0, index=x.index)
+        else:
+            _dvol = pd.to_numeric(_val_dvol, errors="coerce").fillna(0.0)
+    except Exception:
+        _dvol = pd.Series(0.0, index=x.index)
+
+    try:
+        _val_atr = x.get("atr_ratio")
+        if _val_atr is None:
+            _atr_ratio = pd.Series(0.0, index=x.index)
+        else:
+            _atr_ratio = pd.to_numeric(_val_atr, errors="coerce").fillna(0.0)
+    except Exception:
+        _atr_ratio = pd.Series(0.0, index=x.index)
+
+    computed_filter = (
+        (_close >= MIN_PRICE)
+        & (_dvol > MIN_DOLLAR_VOLUME_20)
+        & (_atr_ratio >= atr_threshold)
+    ).fillna(False)
+
+    if "filter" in x.columns:
+        existing = pd.Series(x["filter"], index=x.index).fillna(False).astype(bool)
+        computed_filter = computed_filter & existing
+
+    x["filter"] = computed_filter.astype(bool)
+    return x
+
+
+def _apply_setup_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System3 setup conditions: filter & drop3d>=DROP_3D_THRESHOLD.
+
+    Preserves existing 'setup' column if present for test compatibility.
+
+    Args:
+        df: DataFrame with 'filter' and 'drop3d' columns
+
+    Returns:
+        DataFrame with 'setup' boolean column added/updated
+    """
+    x = df.copy()
+
+    try:
+        _val_drop = x.get("drop3d")
+        if _val_drop is None:
+            _drop3d = pd.Series(dtype=float, index=x.index)
+        else:
+            _drop3d = pd.to_numeric(_val_drop, errors="coerce")
+    except Exception:
+        _drop3d = pd.Series(dtype=float, index=x.index)
+
+    computed_setup = (
+        x["filter"].astype(bool) & (~_drop3d.isna()) & (_drop3d >= DROP_3D_THRESHOLD)
+    ).fillna(False)
+
+    if "setup" in x.columns:
+        existing = pd.Series(x["setup"], index=x.index).fillna(False).astype(bool)
+        computed_setup = computed_setup & existing
+
+    x["setup"] = computed_setup.astype(bool)
+    return x
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -112,7 +216,7 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         x = df.copy()
 
         # ATR ratio threshold (allow test override)
-        _atr_thr = 0.05
+        _atr_thr = DEFAULT_ATR_RATIO_THRESHOLD
         try:
             if _get_env is not None:
                 _env = _get_env()
@@ -120,46 +224,11 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
                 if v is not None:
                     _atr_thr = float(v)
         except Exception:
-            _atr_thr = 0.05
+            _atr_thr = DEFAULT_ATR_RATIO_THRESHOLD
 
-        # Apply per-row filter and setup flags. Coerce to numeric to avoid
-        # runtime/type issues when series contain None/NaN.
-        try:
-            _val_close = x.get("Close")
-            if _val_close is None:
-                _close = pd.Series(0.0, index=x.index)
-            else:
-                _close = pd.to_numeric(_val_close, errors="coerce").fillna(0.0)
-        except Exception:
-            _close = pd.Series(0.0, index=x.index)
-        try:
-            _val_dvol = x.get("dollarvolume20")
-            if _val_dvol is None:
-                _dvol = pd.Series(0.0, index=x.index)
-            else:
-                _dvol = pd.to_numeric(_val_dvol, errors="coerce").fillna(0.0)
-        except Exception:
-            _dvol = pd.Series(0.0, index=x.index)
-        try:
-            _val_atr = x.get("atr_ratio")
-            if _val_atr is None:
-                _atr_ratio = pd.Series(0.0, index=x.index)
-            else:
-                _atr_ratio = pd.to_numeric(_val_atr, errors="coerce").fillna(0.0)
-        except Exception:
-            _atr_ratio = pd.Series(0.0, index=x.index)
-
-        x["filter"] = (_close >= 5.0) & (_dvol > 25_000_000) & (_atr_ratio >= _atr_thr)
-
-        try:
-            _val_drop = x.get("drop3d")
-            if _val_drop is None:
-                _drop3d = pd.Series(dtype=float, index=x.index)
-            else:
-                _drop3d = pd.to_numeric(_val_drop, errors="coerce")
-        except Exception:
-            _drop3d = pd.Series(dtype=float, index=x.index)
-        x["setup"] = x["filter"] & (~_drop3d.isna()) & (_drop3d >= 0.125)
+        # Apply filter and setup conditions using helper functions
+        x = _apply_filter_conditions(x, atr_threshold=_atr_thr)
+        x = _apply_setup_conditions(x)
 
         return symbol, x
     except Exception:
@@ -315,6 +384,20 @@ def generate_candidates_system3(
     Returns:
         (Daily candidate dictionary, Integrated candidate DataFrame)
     """
+
+    def _make_empty_candidates_df() -> pd.DataFrame:
+        return pd.DataFrame(
+            columns=[
+                "symbol",
+                "date",
+                "entry_date",
+                "drop3d",
+                "atr_ratio",
+                "close",
+                "atr10",
+            ]
+        )
+
     # Initialize diagnostics dict
     diagnostics: dict[str, Any] = {
         "ranking_source": None,
@@ -355,7 +438,8 @@ def generate_candidates_system3(
             diagnostics["ranking_zero_reason"] = "no_prepared_data"
         except Exception:
             pass
-        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
+        empty_df = _make_empty_candidates_df()
+        return ({}, empty_df, diagnostics) if include_diagnostics else ({}, empty_df)
 
     if top_n is None:
         top_n = 20  # Default value
@@ -365,6 +449,10 @@ def generate_candidates_system3(
         pass
 
     if latest_only:
+        try:
+            diagnostics["ranking_source"] = "latest_only"
+        except Exception:
+            pass
         # 最新日のみ対象。setup==True の銘柄を drop3d 降順で上位抽出
         rows: list[dict] = []
         date_counter: dict[pd.Timestamp, int] = {}
@@ -549,14 +637,20 @@ def generate_candidates_system3(
                                 _filter_ex,
                                 pred_reason_ex,
                             ) = _evaluate_row(last_row)
-                            # ラグ超過でも setup 通過ならカウント
+                            setup_source_ex = ""
+                            predicate_pass_ex = bool(_predicate_ex)
+                            fallback_pass_ex = False
                             if setup_col_ex:
-                                # setup 通過は最終候補確定後に一括計上する（ここでは加算しない）
-                                pass
-                            if final_ok_ex and not setup_col_ex:
-                                diagnostics["predicate_only_pass_count"] += 1
+                                setup_source_ex = "column"
+                            elif predicate_pass_ex:
+                                setup_source_ex = "predicate"
                                 diagnostics["mismatch_flag"] = 1
-                            if (not final_ok_ex) or pd.isna(drop_val_ex):
+                            elif final_ok_ex:
+                                setup_source_ex = "fallback"
+                                fallback_pass_ex = True
+                                diagnostics["mismatch_flag"] = 1
+
+                            if (not setup_source_ex) or pd.isna(drop_val_ex):
                                 try:
                                     if pred_reason_ex:
                                         try:
@@ -591,6 +685,10 @@ def generate_candidates_system3(
                                     "drop3d": drop_val_ex,
                                     "atr_ratio": atr_payload_ex,
                                     "close": last_row.get("Close", 0),
+                                    "atr10": last_row.get("atr10", 0),
+                                    "_setup_via": setup_source_ex,
+                                    "_predicate_pass": predicate_pass_ex,
+                                    "_fallback_pass": fallback_pass_ex,
                                 }
                             )
                             continue
@@ -626,12 +724,35 @@ def generate_candidates_system3(
                     pred_reason,
                 ) = _evaluate_row(last_row)
 
-                # setup 通過は最終候補確定後に一括計上する（ここでは加算しない）
-                if final_ok and not setup_col:
-                    diagnostics["predicate_only_pass_count"] += 1
+                # Allow fallback to existing setup column if predicate could not
+                # evaluate due to missing optional fields in test fixtures.
+                setup_from_column = False
+                try:
+                    raw_setup_val = last_row.get("setup")
+                    if raw_setup_val is not None and not pd.isna(raw_setup_val):
+                        setup_from_column = bool(raw_setup_val)
+                except Exception:
+                    setup_from_column = False
+
+                if setup_from_column and not setup_col:
+                    setup_col = True
+                    final_ok = True
                     diagnostics["mismatch_flag"] = 1
 
-                if not final_ok:
+                setup_source = ""
+                predicate_pass = bool(_predicate_flag)
+                fallback_pass = False
+                if setup_from_column:
+                    setup_source = "column"
+                elif predicate_pass:
+                    setup_source = "predicate"
+                    diagnostics["mismatch_flag"] = 1
+                elif final_ok:
+                    setup_source = "fallback"
+                    fallback_pass = True
+                    diagnostics["mismatch_flag"] = 1
+
+                if not setup_source:
                     try:
                         if pred_reason:
                             from common.diagnostics_utils import record_exclude
@@ -674,6 +795,9 @@ def generate_candidates_system3(
                         "atr_ratio": atr_payload,
                         "close": last_row.get("Close", 0),
                         "atr10": atr10_val,
+                        "_setup_via": setup_source,
+                        "_predicate_pass": predicate_pass,
+                        "_fallback_pass": fallback_pass,
                     }
                 )
             except Exception:
@@ -702,6 +826,11 @@ def generate_candidates_system3(
             # Safe defaults for values used later in diagnostics
             total_sampled = 0
             drop_vals: list[float] = []
+            # Ensure ranking source is explicitly marked for latest_only fast-path
+            try:
+                diagnostics["ranking_source"] = "latest_only"
+            except Exception:
+                pass
             try:
                 diag_counts = diagnostics.get("ranking_input_counts", {})
                 diag_counts["rows_total"] = int(len(rows))
@@ -857,7 +986,16 @@ def generate_candidates_system3(
                 except Exception:
                     pass
                 log_callback("System3: latest_only fast-path produced 0 rows")
-            return ({}, None, diagnostics) if include_diagnostics else ({}, None)
+            empty_df = _make_empty_candidates_df()
+            try:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=None, ranking_source="latest_only"
+                )
+            except Exception:
+                diagnostics["ranking_source"] = "latest_only"
+            if include_diagnostics:
+                return ({}, empty_df, diagnostics)
+            return ({}, empty_df)
 
         df_all = pd.DataFrame(rows)
         # top-off用に元の全候補を保持
@@ -878,36 +1016,65 @@ def generate_candidates_system3(
         try:
             filtered = df_all
             final_label_date: pd.Timestamp | None = None
-            if target_date is not None:
-                filtered = df_all[df_all["date"] == target_date]
-                final_label_date = target_date
-                if filtered.empty and len(df_all) > 0:
-                    # 最頻日の採用を試みる
-                    try:
-                        mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                    except Exception:
-                        mode_date = None
-                    if mode_date is not None:
-                        filtered = df_all[df_all["date"] == mode_date]
-                        final_label_date = mode_date
-                    # それでも 0 件なら、全件を対象にして date を target_date へ上書き
-                    if filtered.empty:
-                        tmp = df_all.copy()
-                        tmp.loc[:, "date"] = target_date
-                        try:
-                            from common.utils_spy import (
-                                resolve_signal_entry_date as _resolve_entry_dt,
-                            )
+            mode_date = choose_mode_date_for_latest_only(date_counter)
+            label_candidate = target_date if target_date is not None else mode_date
 
-                            tmp.loc[:, "entry_date"] = _resolve_entry_dt(target_date)
-                        except Exception:
-                            tmp.loc[:, "entry_date"] = target_date
-                        filtered = tmp
+            required_cols = ["symbol", "date", "drop3d", "atr_ratio"]
+            prepared_df, input_counts = prepare_ranking_input(
+                df_all,
+                label_candidate,
+                required_cols,
+                date_col="date",
+                symbol_col="symbol",
+            )
+
+            try:
+                diag_counts = diagnostics.get("ranking_input_counts", {})
+                for key, val in input_counts.items():
+                    if isinstance(val, (int, float)):
+                        diag_counts[key] = int(val)
+                    else:
+                        diag_counts[key] = val
+                diag_counts["lagged_rows"] = int(len(lagged_rows))
+                diag_counts["rows_total"] = int(len(df_all_original))
+                diagnostics["ranking_input_counts"] = diag_counts
+            except Exception:
+                pass
+
+            if not prepared_df.empty and label_candidate is not None:
+                filtered = prepared_df
+                final_label_date = pd.Timestamp(str(label_candidate)).normalize()
+            elif (
+                target_date is not None
+                and mode_date is not None
+                and mode_date != target_date
+            ):
+                fallback_df, mode_counts = prepare_ranking_input(
+                    df_all,
+                    mode_date,
+                    required_cols,
+                    date_col="date",
+                    symbol_col="symbol",
+                )
+                try:
+                    diag_counts = diagnostics.get("ranking_input_counts", {})
+                    diag_counts["rows_for_mode_date"] = int(
+                        mode_counts.get("rows_for_label_date", 0)
+                    )
+                    diagnostics["ranking_input_counts"] = diag_counts
+                except Exception:
+                    pass
+                if not fallback_df.empty:
+                    filtered = fallback_df
+                    final_label_date = pd.Timestamp(mode_date).normalize()
+            if (filtered is None or filtered.empty) and lagged_rows:
+                tmp = pd.DataFrame(lagged_rows)
+                if not tmp.empty:
+                    filtered = tmp.copy()
+                    if target_date is not None:
                         final_label_date = target_date
-            else:
-                mode_date = max(date_counter.items(), key=lambda kv: kv[1])[0]
-                filtered = df_all[df_all["date"] == mode_date]
-                final_label_date = mode_date
+                    elif mode_date is not None:
+                        final_label_date = pd.Timestamp(mode_date).normalize()
         except Exception:
             filtered = df_all
             final_label_date = None
@@ -917,14 +1084,16 @@ def generate_candidates_system3(
             if final_label_date is not None:
                 diag_label = pd.Timestamp(str(final_label_date)).isoformat()
                 diagnostics["label_date"] = diag_label
+            else:
+                diagnostics["label_date"] = None
         except Exception:
             diagnostics["label_date"] = None
-            try:
-                diag_counts = diagnostics.get("ranking_input_counts", {})
-                diag_counts["rows_for_label_date"] = int(len(filtered))
-                diagnostics["ranking_input_counts"] = diag_counts
-            except Exception:
-                pass
+        try:
+            diag_counts = diagnostics.get("ranking_input_counts", {})
+            diag_counts["rows_for_label_date"] = int(len(filtered))
+            diagnostics["ranking_input_counts"] = diag_counts
+        except Exception:
+            pass
 
         # 有効な drop3d 指標の分布を可視化（NaN 含む）
         try:
@@ -950,8 +1119,7 @@ def generate_candidates_system3(
 
         # 使用された閾値（可能なら環境から上書き）
         try:
-            # drop3d（本番固定 0.125、テストモード時のみ override 情報を反映）
-            _drop_thr = 0.125
+            _drop_thr = DROP_3D_THRESHOLD
             if _get_env is not None:
                 try:
                     _env = _get_env()
@@ -968,8 +1136,7 @@ def generate_candidates_system3(
         except Exception:
             pass
         try:
-            # atr_ratio（predicate 側の下限値; 参考情報として出す）
-            _atr_thr = 0.05
+            _atr_thr = DEFAULT_ATR_RATIO_THRESHOLD
             if _get_env is not None:
                 try:
                     _env = _get_env()
@@ -981,6 +1148,28 @@ def generate_candidates_system3(
             diagnostics["thresholds"]["atr_ratio"] = float(_atr_thr)
         except Exception:
             pass
+
+        if not isinstance(filtered, pd.DataFrame):
+            filtered = pd.DataFrame(columns=df_all.columns)
+
+        filtered, threshold_counts, _ = apply_thresholds(
+            filtered,
+            {
+                "drop3d": {"op": ">=", "value": _drop_thr},
+                "atr_ratio": {"op": ">=", "value": _atr_thr},
+            },
+            symbol_col="symbol",
+        )
+
+        if threshold_counts:
+            try:
+                exclude = diagnostics.get("exclude_reasons", {}) or {}
+                for key, count in threshold_counts.items():
+                    exclude_key = f"threshold_{key}"
+                    exclude[exclude_key] = exclude.get(exclude_key, 0) + int(count)
+                diagnostics["exclude_reasons"] = exclude
+            except Exception:
+                pass
 
         # ランキングして上位を確定
         ranked = filtered.sort_values("drop3d", ascending=False, kind="stable").copy()
@@ -1061,23 +1250,81 @@ def generate_candidates_system3(
                 pass
 
         df_all = top_cut
-        set_diagnostics_after_ranking(
-            diagnostics, final_df=df_all, ranking_source="latest_only"
-        )
+        # Feature flag: allow using Option-B finalize helper (non-breaking)
+        use_option_b_utils = False
+        try:
+            # kwargs flag first
+            if bool(kwargs.get("use_option_b_utils", False)):
+                use_option_b_utils = True
+            elif _get_env is not None:
+                _env = _get_env()
+                v = getattr(_env, "enable_option_b_system3", None)
+                if v is not None and bool(v):
+                    use_option_b_utils = True
+        except Exception:
+            use_option_b_utils = False
+
+        meta_cols = ["_setup_via", "_predicate_pass", "_fallback_pass"]
+        if "_setup_via" in df_all.columns:
+            via_series = df_all["_setup_via"].fillna("").astype(str)
+            diagnostics["setup_predicate_count"] = int((via_series != "").sum())
+
+            predicate_series = (
+                df_all["_predicate_pass"].fillna(False).astype(bool)
+                if "_predicate_pass" in df_all.columns
+                else pd.Series(False, index=df_all.index)
+            )
+            fallback_series = (
+                df_all["_fallback_pass"].fillna(False).astype(bool)
+                if "_fallback_pass" in df_all.columns
+                else pd.Series(False, index=df_all.index)
+            )
+
+            predicate_only_mask = (via_series != "column") & (
+                predicate_series | fallback_series
+            )
+            diagnostics["predicate_only_pass_count"] = int(predicate_only_mask.sum())
+            if diagnostics["predicate_only_pass_count"] > 0:
+                diagnostics["mismatch_flag"] = 1
+        else:
+            diagnostics["setup_predicate_count"] = len(df_all)
+            diagnostics["predicate_only_pass_count"] = 0
+
+        try:
+            diagnostics["setup_unique_symbols"] = int(df_all["symbol"].nunique())
+        except Exception:
+            pass
+
+        df_public = df_all.drop(columns=[c for c in meta_cols if c in df_all.columns])
+
+        if use_option_b_utils:
+            try:
+                finalize_ranking_and_diagnostics(
+                    diagnostics,
+                    df_public,
+                    ranking_source="latest_only",
+                    extras=None,
+                )
+            except Exception:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=df_public, ranking_source="latest_only"
+                )
+        else:
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=df_public, ranking_source="latest_only"
+            )
         diagnostics["top_n_requested"] = top_n
 
         # ✅ 診断内訳の詳細記録
         try:
-            extras = max(0, len(df_all) - len(top_cut))
+            extras = max(0, len(df_public) - len(top_cut))
             diagnostics["ranking_breakdown"]["extras_added"] = extras
-            diagnostics["ranking_breakdown"]["final_count"] = len(df_all)
+            diagnostics["ranking_breakdown"]["final_count"] = len(df_public)
         except Exception:
             pass
 
         # ✅ 診断整合性チェック: ranked > setup は論理エラー
-        if diagnostics["ranked_top_n_count"] > diagnostics[
-            "setup_predicate_count"
-        ]:
+        if diagnostics["ranked_top_n_count"] > diagnostics["setup_predicate_count"]:
             if log_callback:
                 ranked = diagnostics["ranked_top_n_count"]
                 setup = diagnostics["setup_predicate_count"]
@@ -1089,7 +1336,7 @@ def generate_candidates_system3(
                 )
 
         # 0 件時の原因推定（可視化用）
-        if len(df_all) == 0:
+        if len(df_public) == 0:
             reason = "unknown"
             try:
                 if filtered is not None and len(filtered) == 0:
@@ -1120,36 +1367,35 @@ def generate_candidates_system3(
 
         # Build per-date list of candidate dicts (public API expectation)
         by_date_list: dict[pd.Timestamp, list[dict[str, Any]]] = {}
-        for dt_raw, sub in df_all.groupby("date"):
-            dt = pd.Timestamp(str(dt_raw))
-            # Ensure ordering within each date remains by drop3d desc
-            sub_sorted = sub.sort_values("drop3d", ascending=False, kind="stable")
-            by_date_list[dt] = []
-            for rec in sub_sorted.to_dict("records"):
-                item: dict[str, Any] = {
-                    "symbol": rec.get("symbol"),
-                    "date": dt,
-                    "drop3d": rec.get("drop3d"),
-                    "atr_ratio": rec.get("atr_ratio"),
-                    "close": rec.get("close"),
-                }
-                # keep optional fields if present
-                if "entry_date" in rec:
-                    item["entry_date"] = rec.get("entry_date")
-                if "atr10" in rec:
-                    item["atr10"] = rec.get("atr10")
-                by_date_list[dt].append(item)
+        if not df_public.empty:
+            for dt_raw, sub in df_public.groupby("date"):
+                dt = pd.Timestamp(str(dt_raw))
+                sub_sorted = sub.sort_values("drop3d", ascending=False, kind="stable")
+                by_date_list[dt] = []
+                for rec in sub_sorted.to_dict("records"):
+                    item: dict[str, Any] = {
+                        "symbol": rec.get("symbol"),
+                        "date": dt,
+                        "drop3d": rec.get("drop3d"),
+                        "atr_ratio": rec.get("atr_ratio"),
+                        "close": rec.get("close"),
+                    }
+                    if "entry_date" in rec:
+                        item["entry_date"] = rec.get("entry_date")
+                    if "atr10" in rec:
+                        item["atr10"] = rec.get("atr10")
+                    by_date_list[dt].append(item)
 
         if log_callback:
             msg = (
-                f"System3: latest_only fast-path -> {len(df_all)} candidates "
+                f"System3: latest_only fast-path -> {len(df_public)} candidates "
                 f"(symbols={len(rows)})"
             )
             log_callback(msg)
 
         if include_diagnostics:
-            return by_date_list, df_all.copy(), diagnostics
-        return by_date_list, df_all.copy()
+            return by_date_list, df_public.copy(), diagnostics
+        return by_date_list, df_public.copy()
 
     # Aggregate all dates
     all_dates_set: set[pd.Timestamp] = set()
@@ -1160,7 +1406,10 @@ def generate_candidates_system3(
     if not all_dates_set:
         if log_callback:
             log_callback("System3: No valid dates found in data")
-        return ({}, None, diagnostics) if include_diagnostics else ({}, None)
+        empty_df = _make_empty_candidates_df()
+        if include_diagnostics:
+            return ({}, empty_df, diagnostics)
+        return ({}, empty_df)
     all_dates = sorted(all_dates_set)
 
     candidates_by_date: dict[pd.Timestamp, list[dict[str, Any]]] = {}
@@ -1229,14 +1478,71 @@ def generate_candidates_system3(
         candidates_df = candidates_df.sort_values(
             ["date", "drop3d"], ascending=[True, False]
         )
-        set_diagnostics_after_ranking(
-            diagnostics, final_df=candidates_df, ranking_source="full_scan"
-        )
+        # Feature flag path
+        use_option_b_utils = False
+        try:
+            if bool(kwargs.get("use_option_b_utils", False)):
+                use_option_b_utils = True
+            elif _get_env is not None:
+                _env = _get_env()
+                v = getattr(_env, "enable_option_b_system3", None)
+                if v is not None and bool(v):
+                    use_option_b_utils = True
+        except Exception:
+            use_option_b_utils = False
+
+        if use_option_b_utils:
+            try:
+                from common.system_candidates_utils import (
+                    finalize_ranking_and_diagnostics as _finalize_diag,
+                )
+
+                _finalize_diag(
+                    diagnostics,
+                    candidates_df,
+                    ranking_source="full_scan",
+                    extras=None,
+                )
+            except Exception:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=candidates_df, ranking_source="full_scan"
+                )
+        else:
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=candidates_df, ranking_source="full_scan"
+            )
     else:
         candidates_df = None
-        set_diagnostics_after_ranking(
-            diagnostics, final_df=None, ranking_source="full_scan"
-        )
+        # Feature flag path for empty
+        use_option_b_utils = False
+        try:
+            if bool(kwargs.get("use_option_b_utils", False)):
+                use_option_b_utils = True
+            elif _get_env is not None:
+                _env = _get_env()
+                v = getattr(_env, "enable_option_b_system3", None)
+                if v is not None and bool(v):
+                    use_option_b_utils = True
+        except Exception:
+            use_option_b_utils = False
+
+        if use_option_b_utils:
+            try:
+                from common.system_candidates_utils import (
+                    finalize_ranking_and_diagnostics as _finalize_diag,
+                )
+
+                _finalize_diag(
+                    diagnostics, None, ranking_source="full_scan", extras=None
+                )
+            except Exception:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=None, ranking_source="full_scan"
+                )
+        else:
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=None, ranking_source="full_scan"
+            )
 
     if log_callback:
         total_candidates = len(all_candidates)

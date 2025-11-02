@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import inspect
 import math
 import os
-import time as _t
-from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
+import time as _t
 from typing import Any, Mapping, cast
 
 import numpy as np
@@ -2966,8 +2966,8 @@ def run_all_systems_today(
         from scripts.run_all_systems_today import compute_today_signals as _compute
     except ImportError:
         # Streamlitなどからの実行時にパスが正しく設定されていない場合の回避策
-        import sys
         from pathlib import Path
+        import sys
 
         project_root = Path(__file__).parent.parent
         if str(project_root) not in sys.path:

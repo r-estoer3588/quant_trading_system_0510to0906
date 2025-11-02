@@ -16,8 +16,8 @@ System1-7 の各段階（フィルター・セットアップ・シグナル）�
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
 from typing import Any
 
 import numpy as np
@@ -149,9 +149,7 @@ def apply_symbol_config(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFram
     enriched = add_alias_columns(enriched)
 
     col_map = {
-        col.lower(): col
-        for col in enriched.columns
-        if col.lower() not in {"date"}
+        col.lower(): col for col in enriched.columns if col.lower() not in {"date"}
     }
 
     skip_keys = {"base_price", "volatility"}

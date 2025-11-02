@@ -12,6 +12,8 @@ from typing import Protocol
 
 import pandas as pd
 
+from common.performance_optimization import PerformanceTimer
+
 
 class StrategyProtocol(Protocol):
     def compute_pnl(
@@ -241,36 +243,41 @@ def run_integrated_backtest(
 
     戻り値: (trades_df, signal_counts_by_system)
     """
-    allocations = dict(allocations or DEFAULT_ALLOCATIONS)
-    logging.getLogger(__name__).info(
-        "[integrated] start | states=%d, long_share=%.2f, short_share=%.2f, gross=%s",
-        len(system_states),
-        float(long_share),
-        float(short_share),
-        bool(allow_gross_leverage),
-    )
-    name_to_state = {s.name: s for s in system_states}
-    # シグナル件数
-    signal_counts = {
-        s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
-        for s in system_states
-    }
+    with PerformanceTimer("integrated_backtest_total", verbose=True):
+        allocations = dict(allocations or DEFAULT_ALLOCATIONS)
+        logging.getLogger(__name__).info(
+            "[integrated] start | states=%d, long_share=%.2f, short_share=%.2f, gross=%s",
+            len(system_states),
+            float(long_share),
+            float(short_share),
+            bool(allow_gross_leverage),
+        )
+        name_to_state = {s.name: s for s in system_states}
+        # シグナル件数
+        signal_counts = {
+            s.name: int(sum(len(v) for v in s.candidates_by_date.values()))
+            for s in system_states
+        }
 
-    # 長短の初期資金
-    if long_share < 0 or short_share < 0 or (long_share + short_share) == 0:
-        long_share, short_share = 0.5, 0.5
-    total = float(initial_capital)
-    long_capital = total * (long_share / (long_share + short_share))
-    short_capital = total * (short_share / (long_share + short_share))
+        # 長短の初期資金
+        if long_share < 0 or short_share < 0 or (long_share + short_share) == 0:
+            long_share, short_share = 0.5, 0.5
+        total = float(initial_capital)
+        long_capital = total * (long_share / (long_share + short_share))
+        short_capital = total * (short_share / (long_share + short_share))
 
-    results: list[dict] = []
-    active_positions: list[dict] = []  # {symbol, system, side, exit_date, pnl, cost}
-    system_used_value: dict[str, float] = {s.name: 0.0 for s in system_states}
-    bucket_used_value: dict[str, float] = {"long": 0.0, "short": 0.0}
+        results: list[dict] = []
+        active_positions: list[dict] = (
+            []
+        )  # {symbol, system, side, exit_date, pnl, cost}
+        system_used_value: dict[str, float] = {s.name: 0.0 for s in system_states}
+        bucket_used_value: dict[str, float] = {"long": 0.0, "short": 0.0}
 
-    # 全営業日の集合（シグナルのある日ベース）
-    all_dates = _union_signal_dates(system_states)
-    logging.getLogger(__name__).info("[integrated] trading days: %d", len(all_dates))
+        # 全営業日の集合（シグナルのある日ベース）
+        all_dates = _union_signal_dates(system_states)
+        logging.getLogger(__name__).info(
+            "[integrated] trading days: %d", len(all_dates)
+        )
 
     start_time = time.time()
     for i, current_date in enumerate(all_dates, 1):

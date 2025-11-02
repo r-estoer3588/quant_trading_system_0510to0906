@@ -83,9 +83,7 @@ try:  # Local import guard for optional bulk updater
     from scripts.update_from_bulk_last_day import (
         CacheUpdateInterrupted as _CacheUpdateInterrupted,
     )
-    from scripts.update_from_bulk_last_day import (
-        run_bulk_update,
-    )
+    from scripts.update_from_bulk_last_day import run_bulk_update
 except Exception:  # pragma: no cover - unavailable in constrained envs
     run_bulk_update = None
     CacheUpdateInterrupted = None

@@ -6,26 +6,8 @@
     "--fast"
   ],
   "editor.codeActionsOnSave": {
-    "source.organizeImports": true
-  },
-  "[python]": {
-    "editor.defaultFormatter": "ms-python.python"
-  },
-  "ruff.enable": true,
-  "ruff.args": [
-    "--fix"
-  ]
-}
-{
-  "editor.formatOnSave": true,
-  "editor.defaultFormatter": "ms-python.python",
-  "python.formatting.provider": "black",
-  "python.formatting.blackArgs": [
-    "--fast"
-  ],
-  "editor.codeActionsOnSave": {
-    "source.organizeImports": true,
-    "source.fixAll.ruff": true
+    "source.organizeImports": "explicit",
+    "source.fixAll.ruff": "explicit"
   },
   "[python]": {
     "editor.defaultFormatter": "ms-python.python"

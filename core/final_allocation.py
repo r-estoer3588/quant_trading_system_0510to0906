@@ -34,13 +34,13 @@ slot-based or capital allocation mode.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 import logging
 import math
 import os
-import warnings
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from typing import Any, TypeAlias, TypedDict, cast
+import warnings
 
 import pandas as pd
 
@@ -791,11 +791,7 @@ def _emit_slot_consensus_logs(
             continue
         emoji = "" if env.no_emoji else "🤝 "
         side_label = result.side.upper()
-        depth_hint = (
-            ""
-            if result.max_depth is None
-            else f" depth≤{result.max_depth}"
-        )
+        depth_hint = "" if result.max_depth is None else f" depth≤{result.max_depth}"
         for symbol, entries in sorted(result.consensus_groups.items()):
             parts: list[str] = []
             best_rank: int | None = None
@@ -845,8 +841,10 @@ def _allocate_by_slots(
             continue
         per_system_local[name] = df
 
-    all_names = set(per_system_local.keys()) | set(long_weights.keys()) | set(
-        short_weights.keys()
+    all_names = (
+        set(per_system_local.keys())
+        | set(long_weights.keys())
+        | set(short_weights.keys())
     )
     raw_counts: dict[str, int] = {
         name: _candidate_count(per_system_local.get(name)) for name in all_names
@@ -908,8 +906,10 @@ def _allocate_by_slots(
     if consensus_results:
         _emit_slot_consensus_logs(consensus_results, env)
 
-    all_names = set(per_system_local.keys()) | set(long_weights.keys()) | set(
-        short_weights.keys()
+    all_names = (
+        set(per_system_local.keys())
+        | set(long_weights.keys())
+        | set(short_weights.keys())
     )
     candidate_counts: dict[str, int] = {
         name: _candidate_count(per_system_local.get(name)) for name in all_names
@@ -1721,14 +1721,19 @@ def finalize_allocation(
                 logger.error(
                     "[ALLOC_DEBUG] %s: Logic error - ranked_count(%d) > "
                     "setup_count(%d). Actual candidates: %d",
-                    system_name, ranked_count, setup_count, actual_count
+                    system_name,
+                    ranked_count,
+                    setup_count,
+                    actual_count,
                 )
 
             if actual_count != ranked_count:
                 logger.warning(
                     "[ALLOC_DEBUG] %s: Mismatch - diagnostics says %d, "
                     "but DataFrame has %d rows",
-                    system_name, ranked_count, actual_count
+                    system_name,
+                    ranked_count,
+                    actual_count,
                 )
 
     # Remember whether strategies was explicitly provided by the caller

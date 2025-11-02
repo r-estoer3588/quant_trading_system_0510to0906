@@ -200,7 +200,7 @@ class TestSystem5DiagnosticsConsistency:
         assert diagnostics["setup_predicate_count"] == 0
         assert diagnostics["ranked_top_n_count"] == 0
         assert len(by_date) == 0
-        assert (df_all is None or len(df_all) == 0)
+        assert df_all is None or len(df_all) == 0
 
     def test_exact_top_n_match(self):
         """境界ケース: 候補数がちょうど top_n と一致。"""

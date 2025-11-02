@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
-import time
 from datetime import datetime
+import json
 from pathlib import Path
+import time
 from typing import Any, Callable, cast
 
 import pandas as pd
@@ -16,6 +16,35 @@ from common.stage_metrics import (
     StageSnapshot,
 )
 from config.settings import get_settings
+
+try:
+    from config.environment import get_env_config
+except Exception:
+    get_env_config = None
+
+
+def read_progress_state() -> dict[str, Any]:
+    """Read the latest progress state snapshot from logs/progress_state.json.
+
+    Returns empty dict if file doesn't exist or can't be parsed.
+    This is faster than parsing JSONL for the latest event.
+    """
+    try:
+        settings = get_settings(create_dirs=False)
+        logs_dir = Path(getattr(settings, "LOGS_DIR", "logs"))
+    except Exception:
+        logs_dir = Path("logs")
+    state_path = logs_dir / "progress_state.json"
+    try:
+        if not state_path.exists():
+            return {}
+        content = state_path.read_text(encoding="utf-8", errors="ignore")
+        payload = json.loads(content)
+        if isinstance(payload, dict):
+            return payload
+        return {}
+    except Exception:
+        return {}
 
 
 def read_progress_events(limit: int = 50) -> list[dict[str, Any]]:
@@ -237,7 +266,36 @@ class StageTracker:
         self._sync_from_jsonl_if_needed()
 
     def _sync_from_jsonl_if_needed(self) -> None:
-        """JSONL進捗イベントから最新の候補数を取得してメトリクスを更新する"""
+        """最新の候補数を取得してメトリクスを更新する。
+
+        優先順位:
+        1. progress_state.json（最新イベントのスナップショット、最速）
+        2. progress_today.jsonl（従来の JSONL フォールバック）
+        """
+        # まず state.json から最新の system_complete を試す
+        try:
+            state = read_progress_state()
+            last_event = state.get("last_event")
+            if (
+                isinstance(last_event, dict)
+                and last_event.get("event_type") == "system_complete"
+            ):
+                data = last_event.get("data", {})
+                sys_name = data.get("system", "").lower()
+                candidates = data.get("candidates")
+                if sys_name and candidates is not None:
+                    prev = self._jsonl_candidates.get(sys_name)
+                    if prev != candidates:
+                        self._jsonl_candidates[sys_name] = candidates
+                        counts = self._ensure_counts(sys_name)
+                        counts["cand"] = int(candidates)
+                        counts["entry"] = int(candidates)
+                        self._render_metrics(sys_name)
+                    return  # state から取得成功したので終了
+        except Exception:
+            pass  # state 失敗時は JSONL にフォールバック
+
+        # フォールバック: JSONL から取得（従来ロジック）
         try:
             events = self._read_progress_events(100)
         except Exception:
@@ -261,23 +319,46 @@ class StageTracker:
                     self._render_metrics(sys_name)
 
     def _sync_final_counts_from_jsonl(self) -> None:
-        """JSONL進捗イベントから最終候補数(pipeline_complete)を取得してメトリクスを更新する"""
-        try:
-            events = self._read_progress_events(50)
-        except Exception:
-            events = []
-        if not events:
-            return
-        # system_complete イベントから各システムの候補数を取得
+        """最終候補数を取得してメトリクスを更新する。
+
+        優先順位:
+        1. progress_state.json から全システムの候補数を収集
+        2. progress_today.jsonl から収集（フォールバック）
+        """
         system_candidates: dict[str, int] = {}
-        for event in events:
-            if event.get("event_type") != "system_complete":
-                continue
-            data = event.get("data", {})
-            sys_name = data.get("system", "").lower()
-            candidates = data.get("candidates")
-            if sys_name and candidates is not None:
-                system_candidates[sys_name] = int(candidates)
+
+        # まず state.json から収集を試みる
+        try:
+            state = read_progress_state()
+            last_event = state.get("last_event")
+            if (
+                isinstance(last_event, dict)
+                and last_event.get("event_type") == "system_complete"
+            ):
+                data = last_event.get("data", {})
+                sys_name = data.get("system", "").lower()
+                candidates = data.get("candidates")
+                if sys_name and candidates is not None:
+                    system_candidates[sys_name] = int(candidates)
+        except Exception:
+            pass
+
+        # state から取得できなかった場合、または追加情報が必要な場合は JSONL も読む
+        if not system_candidates:
+            try:
+                events = self._read_progress_events(50)
+            except Exception:
+                events = []
+            if events:
+                # system_complete イベントから各システムの候補数を取得
+                for event in events:
+                    if event.get("event_type") != "system_complete":
+                        continue
+                    data = event.get("data", {})
+                    sys_name = data.get("system", "").lower()
+                    candidates = data.get("candidates")
+                    if sys_name and candidates is not None:
+                        system_candidates[sys_name] = int(candidates)
 
         # 各システムのメトリクスを更新
         for sys_name, cand_count in system_candidates.items():

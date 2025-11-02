@@ -10,11 +10,11 @@ Run from repo root:
 
 from __future__ import annotations
 
+from collections import defaultdict
 import json
 from pathlib import Path
-from collections import defaultdict
-import pandas as pd
 
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 

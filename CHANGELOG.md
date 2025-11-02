@@ -16,6 +16,8 @@
 - **Diff Comparison**: `tools/compare_diagnostics_snapshots.py` でスナップショット差分比較
 - **TRD Validation**: `tools/verify_trd_length.py` で Trading Day リスト長を検証
 - **Zero TRD Escalation**: 全システム候補ゼロ時に通知を送信
+- **System6 Option-B Finalize (Flagged)**: `ENABLE_OPTION_B_SYSTEM6` を追加。`core/system6.py` で共通 finalize ユーティリティを段階導入（既定OFF、戦略側からも `use_option_b_utils=True` で明示可）。
+- **UI Metrics (System6 latest_only/full_scan)**: 候補生成時に構造化ログでメトリクスを出力（`candidates`, `unique_dates`, `processed_symbols`）。`apps/app_today_signals.py` のログパネルで視認可能。
 
 ### Changed
 

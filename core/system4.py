@@ -48,9 +48,48 @@ from common.system_constants import SYSTEM4_REQUIRED_INDICATORS
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import get_cached_data
 
+# === System4 Business Rule Constants ===
+MIN_DOLLAR_VOLUME = 100_000_000  # DollarVolume50 minimum threshold
+HV50_MIN = 10  # Historical Volatility 50-day minimum %
+HV50_MAX = 40  # Historical Volatility 50-day maximum %
+MAX_RSI4_THRESHOLD = 30.0  # RSI4 oversold threshold
+DEFAULT_TOP_N = 20  # Default number of top candidates
 
-def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
-    """Check precomputed indicators and apply System4-specific filters.
+
+def _apply_filter_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System4 filter conditions to DataFrame.
+
+    Filter conditions: DollarVolume50>100M, HV50 10-40% (volatility contraction)
+
+    Args:
+        df: Input DataFrame with required indicators
+
+    Returns:
+        DataFrame with 'filter' column added
+    """
+    df["filter"] = (df["dollarvolume50"] > MIN_DOLLAR_VOLUME) & df["hv50"].between(
+        HV50_MIN, HV50_MAX
+    )
+    return df
+
+
+def _apply_setup_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System4 setup conditions to DataFrame.
+
+    Setup conditions: Filter + Close>SMA200 (trend confirmation)
+
+    Args:
+        df: Input DataFrame with 'filter' column and required indicators
+
+    Returns:
+        DataFrame with 'setup' column added
+    """
+    df["setup"] = df["filter"] & (df["Close"] > df["sma200"])
+    return df
+
+
+def _validate_and_apply_filters(symbol: str) -> tuple[str, pd.DataFrame | None]:
+    """Validate precomputed indicators and apply System4-specific filters.
 
     Args:
         symbol: Target symbol to process
@@ -70,18 +109,18 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         if missing_indicators:
             return symbol, None
 
-        # Apply System4-specific filters and setup
+        # Apply System4-specific filters and setup using helper functions
         x = df.copy()
-
-        # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
-        x["filter"] = (x["dollarvolume50"] > 100_000_000) & x["hv50"].between(10, 40)
-
-        # Setup: Filter + Close>SMA200 (trend confirmation)
-        x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
+        x = _apply_filter_conditions(x)
+        x = _apply_setup_conditions(x)
 
         return symbol, x
 
-    except Exception:
+    except Exception as e:
+        # Log the error for debugging but return None to continue processing
+        import logging
+
+        logging.getLogger(__name__).debug(f"Failed to process {symbol}: {e}")
         return symbol, None
 
 
@@ -125,19 +164,12 @@ def prepare_data_vectorized_system4(
             )
 
             if valid_data_dict:
-                # Apply System4-specific filters
+                # Apply System4-specific filters using helper functions
                 prepared_dict = {}
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
-
-                    # Filter: DollarVolume50>100M, HV50 10-40% (volatility contraction)
-                    x["filter"] = (x["dollarvolume50"] > 100_000_000) & x[
-                        "hv50"
-                    ].between(10, 40)
-
-                    # Setup: Filter + Close>SMA200 (trend confirmation)
-                    x["setup"] = x["filter"] & (x["Close"] > x["sma200"])
-
+                    x = _apply_filter_conditions(x)
+                    x = _apply_setup_conditions(x)
                     prepared_dict[symbol] = x
 
                 if log_callback:
@@ -175,7 +207,7 @@ def prepare_data_vectorized_system4(
     # Execute batch processing
     results, error_symbols = process_symbols_batch(
         target_symbols,
-        _compute_indicators,
+        _validate_and_apply_filters,
         batch_size=batch_size,
         use_process_pool=use_process_pool,
         max_workers=max_workers,
@@ -188,7 +220,8 @@ def prepare_data_vectorized_system4(
         validate_predicate_equivalence(results, "4", log_fn=log_callback)
     except Exception:
         pass
-    return results
+    typed_results = cast(dict[str, pd.DataFrame], results)
+    return typed_results
 
 
 def generate_candidates_system4(
@@ -234,37 +267,73 @@ def generate_candidates_system4(
         return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
     if top_n is None:
-        top_n = 20  # Default value
+        top_n = DEFAULT_TOP_N
 
     if latest_only:
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
-            setup_pass_count = 0  # カウンター追加
+            try:
+                from common.system_setup_predicates import (
+                    system4_setup_predicate as _s4_pred,
+                )
+            except Exception:
+                _s4_pred = None
+
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
 
-                # Use predicate-based evaluation (no setup column dependency)
+                setup_from_column = False
+                setup_value_available = False
                 try:
-                    from common.system_setup_predicates import (
-                        system4_setup_predicate as _s4_pred,
-                    )
+                    raw_setup = last_row.get("setup", None)
+                    if raw_setup is not None and not pd.isna(raw_setup):
+                        setup_value_available = True
+                        if bool(raw_setup):
+                            setup_from_column = True
                 except Exception:
-                    _s4_pred = None
+                    setup_value_available = False
 
-                setup_ok = False
+                predicate_pass = False
+                predicate_evaluated = False
                 if _s4_pred is not None:
                     try:
-                        setup_ok = bool(_s4_pred(last_row))
+                        predicate_pass = bool(_s4_pred(last_row))
+                        predicate_evaluated = True
                     except Exception:
-                        setup_ok = False
+                        predicate_pass = False
+
+                if not predicate_evaluated and not setup_value_available:
+                    try:
+                        filt = bool(
+                            (last_row.get("dollarvolume50", 0) > MIN_DOLLAR_VOLUME)
+                            and pd.notna(last_row.get("hv50", None))
+                            and HV50_MIN <= float(last_row.get("hv50", 0)) <= HV50_MAX
+                        )
+                        close_val = float(last_row.get("Close", float("nan")))
+                        sma200_val = float(last_row.get("sma200", float("nan")))
+                        predicate_pass = filt and (close_val > sma200_val)
+                        predicate_evaluated = True
+                    except Exception:
+                        predicate_pass = False
+                        predicate_evaluated = False
+
+                setup_ok = False
+                setup_source = ""
+                if setup_from_column:
+                    setup_ok = True
+                    setup_source = "column"
+                    if predicate_evaluated and not predicate_pass:
+                        diagnostics["mismatch_flag"] = 1
+                elif predicate_pass:
+                    setup_ok = True
+                    setup_source = "predicate"
+                    diagnostics["mismatch_flag"] = 1
 
                 if not setup_ok:
                     continue
-
-                setup_pass_count += 1  # setup通過カウント
 
                 rsi4_val = last_row.get("rsi4", None)
                 try:
@@ -289,7 +358,7 @@ def generate_candidates_system4(
                 except Exception:
                     pass
 
-                dt = pd.Timestamp(df.index[-1])
+                dt = pd.Timestamp(str(df.index[-1]))
                 date_counter[dt] = date_counter.get(dt, 0) + 1
                 rows.append(
                     {
@@ -302,11 +371,20 @@ def generate_candidates_system4(
                         "entry_price": entry_price,
                         "stop_price": stop_price,
                         "atr40": atr40_val,
+                        "_setup_via": setup_source,
+                        "_predicate_pass": bool(predicate_pass),
                     }
                 )
 
-            diagnostics["setup_predicate_count"] = setup_pass_count  # 記録
             if not rows:
+                # 0件時も診断を明示セット（一貫性のため）
+                try:
+                    diagnostics["setup_unique_symbols"] = 0
+                    set_diagnostics_after_ranking(
+                        diagnostics, final_df=None, ranking_source="latest_only"
+                    )
+                except Exception:
+                    diagnostics["ranking_source"] = "latest_only"
                 if log_callback:
                     try:
                         samples: list[str] = []
@@ -325,7 +403,8 @@ def generate_candidates_system4(
                                     s_rsi_f = float("nan")
                                 samples.append(
                                     (
-                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} rsi4={s_rsi_f:.4f}"
+                                        f"{s_sym}: date={s_dt.date()} setup={s_setup} "
+                                        f"rsi4={s_rsi_f:.4f}"
                                     )
                                 )
                                 taken += 1
@@ -351,19 +430,47 @@ def generate_candidates_system4(
             df_all = df_all.sort_values("rsi4", ascending=True, kind="stable").head(
                 top_n
             )
-            set_diagnostics_after_ranking(
-                diagnostics, final_df=df_all, ranking_source="latest_only"
+
+            # Recalculate diagnostics from metadata
+            if "_setup_via" in df_all.columns:
+                via_series = df_all["_setup_via"].fillna("").astype(str)
+                diagnostics["setup_predicate_count"] = int((via_series != "").sum())
+
+                predicate_series = (
+                    df_all["_predicate_pass"].fillna(False).astype(bool)
+                    if "_predicate_pass" in df_all.columns
+                    else pd.Series(False, index=df_all.index)
+                )
+
+                predicate_only_mask = (via_series != "column") & predicate_series
+                diagnostics["predicate_only_pass_count"] = int(
+                    predicate_only_mask.sum()
+                )
+            else:
+                diagnostics["setup_predicate_count"] = len(df_all)
+                diagnostics["predicate_only_pass_count"] = 0
+
+            diagnostics["setup_unique_symbols"] = int(df_all["symbol"].nunique())
+
+            # Strip metadata before public return
+            meta_cols = ["_setup_via", "_predicate_pass"]
+            df_public = df_all.drop(
+                columns=[c for c in meta_cols if c in df_all.columns]
             )
-            by_date = normalize_dataframe_to_by_date(df_all)
+
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=df_public, ranking_source="latest_only"
+            )
+            by_date = normalize_dataframe_to_by_date(df_public)
             if log_callback:
                 log_callback(
-                    f"System4: latest_only fast-path -> {len(df_all)} candidates "
+                    f"System4: latest_only fast-path -> {len(df_public)} candidates "
                     f"(symbols={len(rows)})"
                 )
             return (
-                (by_date, df_all.copy(), diagnostics)
+                (by_date, df_public.copy(), diagnostics)
                 if include_diagnostics
-                else (by_date, df_all.copy())
+                else (by_date, df_public.copy())
             )
         except Exception as e:
             if log_callback:
@@ -404,15 +511,19 @@ def generate_candidates_system4(
 
                 pred_val = _s4_pred(row)
                 if pred_val:
-                    diagnostics["setup_predicate_count"] += 1
+                    diagnostics["setup_predicate_count"] = (
+                        int(diagnostics.get("setup_predicate_count") or 0) + 1
+                    )
                 if pred_val and not setup_val:
-                    diagnostics["predicate_only_pass_count"] += 1
+                    diagnostics["predicate_only_pass_count"] = (
+                        int(diagnostics.get("predicate_only_pass_count") or 0) + 1
+                    )
                     diagnostics["mismatch_flag"] = 1
                 if not bool(setup_val):
                     continue
                 rsi4_val = cast(Any, row.get("rsi4", 100))
                 try:
-                    if pd.isna(rsi4_val) or float(rsi4_val) >= 30.0:
+                    if pd.isna(rsi4_val) or float(rsi4_val) >= MAX_RSI4_THRESHOLD:
                         continue
                 except Exception:
                     continue
@@ -484,7 +595,8 @@ def get_total_days_system4(data_dict: dict[str, pd.DataFrame]) -> int:
     Returns:
         Maximum day count
     """
-    return get_total_days(data_dict)
+    total_days: int = get_total_days(data_dict)
+    return total_days
 
 
 __all__ = [

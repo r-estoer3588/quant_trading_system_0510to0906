@@ -55,19 +55,6 @@ def _create_system3_test_data(
 
 
 class TestSystem3DiagnosticsConsistency:
-    """System3 の STUpass/TRDlist 整合性テストケース集。"""
-
-    def test_stupass_trdlist_consistency_normal_case(self):
-        """通常ケース: STUpass >= TRDlist が保証されること。"""
-        # Given: 20件のセットアップ通過データ（top_n以上）
-        prepared_dict = _create_system3_test_data(n_symbols=20)
-
-import pandas as pd
-
-from core.system3 import generate_candidates_system3
-
-
-class TestSystem3DiagnosticsConsistency:
     """System3の診断整合性テスト群。"""
 
     def test_stupass_trdlist_consistency_normal_case(self):
@@ -108,10 +95,7 @@ class TestSystem3DiagnosticsConsistency:
         _, df_all, diagnostics = result  # type: ignore[misc]
 
         # Then: 基本不変条件
-        assert (
-            diagnostics["setup_predicate_count"]
-            >= diagnostics["ranked_top_n_count"]
-        )
+        assert diagnostics["setup_predicate_count"] >= diagnostics["ranked_top_n_count"]
         assert diagnostics["ranked_top_n_count"] == 10  # top_n通り
         assert len(df_all) == 10  # type: ignore[arg-type]
 
@@ -133,16 +117,9 @@ class TestSystem3DiagnosticsConsistency:
         # Then: 候補不足でも整合性保証
         assert diagnostics["setup_predicate_count"] == 5
         assert diagnostics["ranked_top_n_count"] == 5  # 5件しかない
-        assert (
-            diagnostics["ranked_top_n_count"]
-            <= diagnostics["setup_predicate_count"]
-        )
+        assert diagnostics["ranked_top_n_count"] <= diagnostics["setup_predicate_count"]
         assert len(df_all) == 5  # type: ignore[arg-type]
 
-    def test_stupass_equals_trdlist_exact_match(self):
-        """境界ケース: 候補数がちょうど top_n と一致。"""
-        # Given: 10件のセットアップ通過データ（top_n=10）
-        prepared_dict = _create_system3_test_data(n_symbols=10)
     def test_stupass_equals_trdlist_exact_match(self):
         """境界ケース: 候補数がちょうど top_n と一致。"""
         # Given: 10件のセットアップ通過データ（top_n=10）
@@ -262,4 +239,4 @@ class TestSystem3DiagnosticsConsistency:
         assert diagnostics["setup_predicate_count"] == 0
         assert diagnostics["ranked_top_n_count"] == 0
         assert df_all is None or len(df_all) == 0  # type: ignore[arg-type]
-        assert (df_all is None or len(df_all) == 0)
+        assert df_all is None or len(df_all) == 0

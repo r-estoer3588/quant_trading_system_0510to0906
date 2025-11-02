@@ -146,3 +146,173 @@ __all__ = [
     "normalize_dataframe_to_by_date",
     "choose_mode_date_for_latest_only",
 ]
+
+
+# ===============================
+# Option-B helper (non-breaking)
+# ===============================
+
+
+def prepare_ranking_input(
+    df: pd.DataFrame | None,
+    label_date: Any | None,
+    required_cols: list[str] | tuple[str, ...] | None = None,
+    *,
+    date_col: str = "date",
+    symbol_col: str = "symbol",
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Prepare ranking input by validating columns and filtering by label_date.
+
+    - Ensures required columns exist (records missing list in counts)
+    - If label_date is provided, filters rows to that date (normalized)
+    - Returns filtered df (possibly empty) and counts for diagnostics
+    """
+    counts: dict[str, Any] = {
+        "rows_total": 0,
+        "rows_for_label_date": 0,
+        "missing_required": [],
+    }
+
+    if df is None or getattr(df, "empty", True):
+        return pd.DataFrame(), counts
+
+    work = df.copy()
+    counts["rows_total"] = int(len(work))
+
+    # Required columns check
+    try:
+        if required_cols:
+            missing = [c for c in required_cols if c not in work.columns]
+            if missing:
+                counts["missing_required"] = list(map(str, missing))
+                # Return empty but keep counts for diagnostics visibility
+                return pd.DataFrame(columns=list(work.columns)), counts
+    except Exception:
+        # Soft-fail: Do not raise; just proceed without required check
+        pass
+
+    # Label date filtering (normalize to Timestamp/normalize())
+    if label_date is not None:
+        try:
+            lbl = pd.Timestamp(str(label_date)).normalize()
+            if date_col in work.columns:
+                work[date_col] = pd.to_datetime(
+                    work[date_col], errors="coerce"
+                ).dt.normalize()
+                work = work.loc[work[date_col] == lbl]
+            else:
+                # try using index as date if DataFrame is time-indexed
+                if isinstance(work.index, pd.DatetimeIndex):
+                    work = work.loc[work.index.normalize() == lbl]
+        except Exception:
+            # If date parse fails, return empty selection but keep total count
+            work = work.iloc[0:0]
+
+    counts["rows_for_label_date"] = int(len(work))
+    return work, counts
+
+
+def apply_thresholds(
+    df: pd.DataFrame,
+    rules: dict[str, dict[str, Any]] | None,
+    *,
+    symbol_col: str = "symbol",
+) -> tuple[pd.DataFrame, dict[str, int], dict[str, list[str]]]:
+    """Apply threshold rules to a DataFrame and report exclude breakdown.
+
+    rules format example:
+        {
+          "drop3d": {"op": ">=", "value": 0.125},
+          "atr_ratio": {"op": ">=", "value": 0.05}
+        }
+    Returns: (filtered_df, reason_counts, reason_symbols)
+    """
+    if df is None or df.empty or not rules:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame(), {}, {}
+
+    work = df.copy()
+    reason_counts: dict[str, int] = {}
+    reason_symbols: dict[str, list[str]] = {}
+
+    def _cmp(series: pd.Series, op: str, val: Any) -> pd.Series:
+        s = pd.to_numeric(series, errors="coerce")
+        if op == ">=":
+            return s >= val
+        if op == ">":
+            return s > val
+        if op == "<=":
+            return s <= val
+        if op == "<":
+            return s < val
+        if op == "==":
+            return s == val
+        if op == "!=":
+            return s != val
+        # default: treat as invalid operator -> no row passes
+        return pd.Series(False, index=s.index)
+
+    # start from all-True and AND each rule
+    keep_mask = pd.Series(True, index=work.index)
+    for col, spec in rules.items():
+        try:
+            op = str(spec.get("op", ">=")).strip()
+            val = spec.get("value", None)
+            cond = _cmp(work[col], op, val)
+        except Exception:
+            # missing column -> reject all for this rule
+            cond = pd.Series(False, index=work.index)
+
+        # rows failing this rule
+        fail_mask = (~cond) & keep_mask
+        if fail_mask.any():
+            reason_counts[col] = int(fail_mask.sum())
+            if symbol_col in work.columns:
+                try:
+                    reason_symbols[col] = (
+                        work.loc[fail_mask, symbol_col].astype(str).head(50).tolist()
+                    )
+                except Exception:
+                    reason_symbols[col] = []
+            else:
+                reason_symbols[col] = []
+
+        keep_mask &= cond
+
+    # finally filter
+    return work.loc[keep_mask].copy(), reason_counts, reason_symbols
+
+
+def finalize_ranking_and_diagnostics(
+    diagnostics: dict[str, Any],
+    ranked_df: pd.DataFrame | None,
+    *,
+    ranking_source: str,
+    extras: dict[str, Any] | None = None,
+) -> None:
+    """Finalize diagnostics after ranking and attach optional extras.
+
+    - Sets ranked_top_n_count, final_top_n_count, ranking_source
+    - Keeps setup_predicate_count as-is (caller sets beforehand)
+    - Merges extras (keys not in standard safe diag become diagnostics_extra at export)
+    """
+    set_diagnostics_after_ranking(
+        diagnostics, final_df=ranked_df, ranking_source=ranking_source
+    )
+    # mirror to final_top_n_count for snapshot consumers
+    try:
+        diagnostics["final_top_n_count"] = int(diagnostics.get("ranked_top_n_count", 0))
+    except Exception:
+        diagnostics["final_top_n_count"] = diagnostics.get("ranked_top_n_count", 0)
+
+    if extras and isinstance(extras, dict):
+        try:
+            diagnostics.update(extras)
+        except Exception:
+            pass
+
+
+__all__ += [
+    "prepare_ranking_input",
+    "apply_thresholds",
+    "finalize_ranking_and_diagnostics",
+]

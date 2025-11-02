@@ -7,8 +7,8 @@ Output:
   docs/playwright_mini_repro.zip
 """
 
-import zipfile
 from pathlib import Path
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "docs"

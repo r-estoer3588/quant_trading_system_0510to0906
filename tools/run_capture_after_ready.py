@@ -3,6 +3,7 @@ Usage:
     python tools/run_capture_after_ready.py --url http://localhost:8501 --timeout 60 -- --output ... --click-button "Generate Signals" ...
 Note: Arguments after '--' are passed to capture_ui_screenshot.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,11 +27,27 @@ def wait_for_url(url: str, timeout: int) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://localhost:8501")
-    parser.add_argument("--timeout", type=int, default=60, help="seconds to wait for URL")
-    parser.add_argument("--venv-python", default=None, help="path to python executable (uses sys.executable if not provided)")
+    parser.add_argument(
+        "--timeout", type=int, default=60, help="seconds to wait for URL"
+    )
+    parser.add_argument(
+        "--venv-python",
+        default=None,
+        help="path to python executable (uses sys.executable if not provided)",
+    )
     parser.add_argument("--capture-script", default="tools/capture_ui_screenshot.py")
-    parser.add_argument("--wait-after-ready", type=int, default=2, help="seconds to wait a bit after URL ready before capture")
-    parser.add_argument("--retry-capture", type=int, default=1, help="how many times to retry capture on failure")
+    parser.add_argument(
+        "--wait-after-ready",
+        type=int,
+        default=2,
+        help="seconds to wait a bit after URL ready before capture",
+    )
+    parser.add_argument(
+        "--retry-capture",
+        type=int,
+        default=1,
+        help="how many times to retry capture on failure",
+    )
     parser.add_argument("--", dest="_", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -72,5 +89,5 @@ def main() -> int:
     return 3
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

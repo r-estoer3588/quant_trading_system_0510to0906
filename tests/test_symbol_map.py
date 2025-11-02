@@ -1,4 +1,5 @@
 """Unit tests for common.symbol_map helpers."""
+
 from pathlib import Path
 
 from common.symbol_map import (

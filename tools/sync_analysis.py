@@ -15,7 +15,7 @@ Usage:
     - screenshots/progress_tracking/tri_sync_report.json（3点同期詳細）
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -46,9 +46,36 @@ def parse_screenshot_timestamp(filename: str) -> datetime | None:
     if match:
         date_str = match.group(1)
         time_str = match.group(2)
-        dt_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+        dt_str = (
+            f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} "
+            f"{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+        )
         return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
     return None
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    """Datetime を UTC 基準の naive に正規化（tzあり→UTCに変換してtzinfoを除去）。"""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _parse_timestamp_to_naive_utc(ts: str) -> datetime:
+    """サポートするタイムスタンプ文字列を UTC naive datetime に変換。
+
+    - スラッシュ区切り: "YYYY/MM/DD HH:MM:SS" → naive（ローカル相当）
+    - ISO 形式: "YYYY-MM-DDTHH:MM:SS[.fff][±HH:MM|Z]" → tzがあればUTCに変換後naive
+    - 'Z' を '+00:00' に置換して fromisoformat が扱えるようにする
+    """
+    if "/" in ts:
+        # 例: 2025/10/13 6:52:07
+        dt = datetime.strptime(ts, "%Y/%m/%d %H:%M:%S")
+        return _to_naive_utc(dt)  # そのままnaive
+    # ISO系: Z を +00:00 に正規化
+    ts_norm = ts.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(ts_norm)
+    return _to_naive_utc(dt)  # tzありならUTC→naive、無ければそのまま
 
 
 def find_nearest_event(screenshot_time: datetime, events: list[dict]) -> dict | None:
@@ -60,12 +87,7 @@ def find_nearest_event(screenshot_time: datetime, events: list[dict]) -> dict | 
         try:
             # JSONLのタイムスタンプ形式: "2025/10/13 6:52:07" または ISO形式
             ts_str = event.get("timestamp", "")
-            if "/" in ts_str:
-                # "2025/10/13 6:52:07" 形式
-                event_time = datetime.strptime(ts_str, "%Y/%m/%d %H:%M:%S")
-            else:
-                # ISO形式
-                event_time = datetime.fromisoformat(ts_str)
+            event_time = _parse_timestamp_to_naive_utc(ts_str)
 
             delta = abs((screenshot_time - event_time).total_seconds())
             if min_delta is None or delta < min_delta:
@@ -137,7 +159,8 @@ def analyze_sync():
             str(r.get("candidates", "-")) if r.get("candidates") is not None else "-"
         )
         print(
-            f"{r['screenshot_time']:<10} {r['screenshot']:<35} {r['event_type']:<18} {r['system']:<8} {cand_str:<6}"
+            f"{r['screenshot_time']:<10} {r['screenshot']:<35} "
+            f"{r['event_type']:<18} {r['system']:<8} {cand_str:<6}"
         )
 
     if len(sync_results) > 20:
@@ -168,9 +191,7 @@ def analyze_sync():
             try:
                 if ts is None:
                     return None
-                if "/" in ts:
-                    return datetime.strptime(ts, "%Y/%m/%d %H:%M:%S")
-                return datetime.fromisoformat(ts)
+                return _parse_timestamp_to_naive_utc(ts)
             except Exception:
                 return None
 
@@ -178,8 +199,8 @@ def analyze_sync():
         lines: list[str] = []
         lines.append("# 同期分析レポート\n")
         lines.append(f"生成時刻: {datetime.now().isoformat()}\n")
-        lines.append(f"- JSONLイベント: {len(events)} 件")
-        lines.append(f"- システム関連イベント: {len(system_events)} 件")
+        lines.append(f"- JSONLイベント: {len(events)} 件\n")
+        lines.append(f"- システム関連イベント: {len(system_events)} 件\n")
         lines.append(f"- スクリーンショット: {len(screenshots)} 枚\n")
 
         # スクショの時刻配列
@@ -376,7 +397,9 @@ def analyze_sync():
                 exp0 = data0.get("export_date")
                 try:
                     exp_dt0 = (
-                        datetime.fromisoformat(exp0) if isinstance(exp0, str) else None
+                        _parse_timestamp_to_naive_utc(exp0)
+                        if isinstance(exp0, str)
+                        else None
                     )
                 except Exception:
                     exp_dt0 = None
@@ -391,7 +414,9 @@ def analyze_sync():
                 exp = data.get("export_date")
                 try:
                     exp_dt = (
-                        datetime.fromisoformat(exp) if isinstance(exp, str) else None
+                        _parse_timestamp_to_naive_utc(exp)
+                        if isinstance(exp, str)
+                        else None
                     )
                 except Exception:
                     exp_dt = None
@@ -500,7 +525,8 @@ def analyze_sync():
                 f" → {'一致' if alloc_total == sum_jsonl else '不一致'}\n"
             )
         lines.append(
-            "\n| System | JSONL candidates | Diagnostics ranked_top_n | status | start SS | complete SS |\n"
+            "\n| System | JSONL candidates | Diagnostics ranked_top_n | "
+            "status | start SS | complete SS |\n"
         )
         lines.append("|---|---:|---:|---|---|---|\n")
         for r in tri_rows:

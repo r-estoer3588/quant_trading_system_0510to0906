@@ -11,7 +11,7 @@ def _make_prepared(
     """Helper to build a minimal prepared DataFrame for System1.
 
     We only include columns referenced in fast/full candidate paths:
-      - Close, roc200, setup, filter, sma25, sma50
+      - Close, roc200, setup, filter, sma25, sma50, sma200, dollarvolume20
     """
     assert len(dates) == len(roc_vals)
     df = pd.DataFrame(
@@ -24,6 +24,9 @@ def _make_prepared(
             "filter": [True] * len(dates),
             "sma25": [50.0] * len(dates),
             "sma50": [40.0] * len(dates),
+            # System1 predicate needs sma200 and dollarvolume20 for full scan
+            "sma200": [90.0] * len(dates),
+            "dollarvolume20": [60_000_000.0] * len(dates),
         },
         index=dates,
     )

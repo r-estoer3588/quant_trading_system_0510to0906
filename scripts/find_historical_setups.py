@@ -5,8 +5,8 @@ Usage: python scripts/find_historical_setups.py --date YYYY-MM-DD --sample 99999
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
 
 if str(Path(__file__).resolve().parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

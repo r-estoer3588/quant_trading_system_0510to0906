@@ -12,9 +12,9 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from functools import lru_cache
+import os
 
 
 def _get_bool_env(key: str, default: bool = False) -> bool:
@@ -127,9 +127,7 @@ class EnvironmentConfig:
     )
     """UI向け構造化ログ（JSON）を出力。"""
 
-    debug_mode: bool = field(
-        default_factory=lambda: _get_bool_env("DEBUG_MODE", False)
-    )
+    debug_mode: bool = field(default_factory=lambda: _get_bool_env("DEBUG_MODE", False))
     """開発・デバッグ用の詳細UI出力を有効化。DEBUG_MODE=1 でオン。"""
 
     structured_log_ndjson: bool = field(
@@ -151,6 +149,53 @@ class EnvironmentConfig:
         default_factory=lambda: _get_bool_env("ENABLE_SUBSTEP_LOGS", False)
     )
     """サブステップの詳細ログを有効化。"""
+
+    # ===== 1.5. 機能フラグ（安全な段階的ロールアウト用） =====
+    enable_option_b_system3: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_OPTION_B_SYSTEM3", False)
+    )
+    """System3 の候補最終化ユーティリティ（Option B）を有効化。
+
+    目的:
+        - System3 で新しい共通ユーティリティ finalize_ranking_and_diagnostics を
+          安全に段階導入するためのトグル。
+
+    仕様:
+        - True: core/system3.py が finalize_ranking_and_diagnostics を使用（kwargs の
+                use_option_b_utils=True も引き続き有効）。
+        - False(既定): 既存の set_diagnostics_after_ranking を使用。
+
+    備考:
+        - テストやスポット検証での比較を容易にするため、環境変数
+          ENABLE_OPTION_B_SYSTEM3=1 で切り替え可能。
+    """
+
+    enable_option_b_system5: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_OPTION_B_SYSTEM5", False)
+    )
+    """System5 の候補最終化ユーティリティ（Option B）を有効化。
+
+    System3 と同様に、 finalize_ranking_and_diagnostics の段階導入を
+    安全に行うためのフラグ。既定は False（従来動作）。
+    """
+
+    enable_option_b_system6: bool = field(
+        default_factory=lambda: _get_bool_env("ENABLE_OPTION_B_SYSTEM6", False)
+    )
+    """System6 の候補最終化ユーティリティ（Option B）を有効化。
+
+    目的:
+        - System6 のランキング最終化・診断付与を共通ヘルパーで行うための段階導入フラグ。
+
+    仕様:
+        - True: core/system6.py が finalize_ranking_and_diagnostics を使用（kwargs の
+                use_option_b_utils=True も引き続き有効）。
+        - False(既定): 既存の set_diagnostics_after_ranking を使用。
+
+    備考:
+        - パリティ検証のため、環境変数 ENABLE_OPTION_B_SYSTEM6=1 で切り替え可能。
+        - 既定は安全側（False）。
+    """
 
     trd_log_ok: bool = field(default_factory=lambda: _get_bool_env("TRD_LOG_OK", False))
     """TRDlist生成成功時のログを表示。"""

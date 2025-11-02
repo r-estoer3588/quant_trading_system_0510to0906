@@ -13,10 +13,10 @@ Results are saved as JSON in ``results_csv_test/rebuild_rolling_report_<ts>.json
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from datetime import datetime
+import json
 from pathlib import Path
+import sys
 from typing import Any
 
 import pandas as pd

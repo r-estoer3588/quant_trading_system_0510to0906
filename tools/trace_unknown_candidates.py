@@ -12,17 +12,19 @@ Outputs:
 """
 from __future__ import annotations
 
+from io import StringIO
+
 # json is not needed here; keep imports minimal
 import logging
 import os
+from pathlib import Path
 import re
 import sys
-from io import StringIO
-from pathlib import Path
-from common.io_utils import safe_unicode, write_json, df_to_csv
 from typing import Dict, List
 
 import pandas as pd
+
+from common.io_utils import df_to_csv, safe_unicode, write_json
 
 # Ensure repo root is importable for 'core' and 'strategies' packages
 repo_root = Path(__file__).resolve().parents[1]
@@ -35,7 +37,7 @@ PAYLOAD_DIR = Path(__file__).resolve().parents[1] / "repro_payloads"
 
 
 def capture_allocation_logs(
-    per_system_map: Dict[str, pd.DataFrame]
+    per_system_map: Dict[str, pd.DataFrame],
 ) -> tuple[pd.DataFrame, object, str]:
     """Run finalize_allocation with ALLOCATION_DEBUG=1 and capture logs."""
     # Ensure debug env

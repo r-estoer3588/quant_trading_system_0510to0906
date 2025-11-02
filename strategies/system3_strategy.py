@@ -75,6 +75,18 @@ class System3Strategy(AlpacaOrderMixin, StrategyBase):
         batch_size = self._get_batch_size_setting(len(data_dict))
         # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
         latest_only = bool(kwargs.pop("latest_only", False))
+        # 環境フラグが立っている場合、Option-B ユーティリティを core 側へ渡す
+        try:
+            from config.environment import get_env_config as _get_env
+
+            _env = _get_env()
+            if (
+                bool(getattr(_env, "enable_option_b_system3", False))
+                and "use_option_b_utils" not in kwargs
+            ):
+                kwargs["use_option_b_utils"] = True
+        except Exception:
+            pass
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
 

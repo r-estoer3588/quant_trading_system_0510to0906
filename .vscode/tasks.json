@@ -544,6 +544,17 @@
 			],
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "List Latest Signals",
+			"type": "shell",
+			"command": "${config:python.defaultInterpreterPath}",
+			"args": [
+				"tools/list_latest_signals.py",
+				"--latest",
+				"3"
+			],
+			"group": "test"
 		}
 	]
 }

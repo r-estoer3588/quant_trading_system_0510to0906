@@ -7,6 +7,7 @@ from core.system2 import generate_candidates_system2
 from core.system3 import generate_candidates_system3
 from core.system4 import generate_candidates_system4
 from core.system5 import generate_candidates_system5
+from core.system6 import generate_candidates_system6
 from core.system7 import generate_candidates_system7
 
 
@@ -94,6 +95,31 @@ def _make_df_system5(pass_setup: bool = True) -> pd.DataFrame:
             (df["Close"] >= 5.0) & (df["adx7"] > 35.0) & (df["atr_pct"] > 0.025)
         )
         df["setup"] = df["filter"]
+    return df
+
+
+def _make_df_system6(pass_setup: bool = True) -> pd.DataFrame:
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03"])  # two rows, last is latest
+    data = {
+        "Open": [10.0, 10.5],
+        "High": [10.5, 11.0],
+        "Low": [9.8, 10.2],
+        "Close": [10.2, 11.5],
+        "Volume": [2_000_000, 2_200_000],
+        "dollarvolume50": [12_000_000, 13_000_000],
+        "hv50": [20.0, 22.0],
+        "return_6d": [0.15, 0.25],
+        "UpTwoDays": [False, True],
+        "atr10": [0.5, 0.55],
+    }
+    df = pd.DataFrame(data, index=dates)
+    if pass_setup:
+        df["filter"] = (
+            (df["Low"] >= 5.0)
+            & (df["dollarvolume50"] > 10_000_000)
+            & df["hv50"].between(10.0, 40.0)
+        )
+        df["setup"] = df["filter"] & (df["return_6d"] > 0.20) & df["UpTwoDays"]
     return df
 
 
@@ -186,6 +212,32 @@ def test_system4_diagnostics_latest_only_shape():
         by_date, merged = result  # type: ignore[misc]
         diag = {}
     assert isinstance(by_date, dict)
+    assert merged is not None
+    assert isinstance(diag, dict)
+    for k in [
+        "ranking_source",
+        "setup_predicate_count",
+        "ranked_top_n_count",
+        "predicate_only_pass_count",
+        "mismatch_flag",
+    ]:
+        assert k in diag
+    assert diag["ranking_source"] == "latest_only"
+    assert int(diag["ranked_top_n_count"]) >= 1
+
+
+def test_system6_diagnostics_latest_only_shape():
+    prepared = {"CCC": _make_df_system6(pass_setup=True)}
+    result = generate_candidates_system6(
+        prepared, latest_only=True, include_diagnostics=True, top_n=5
+    )
+    if isinstance(result, tuple) and len(result) == 3:
+        by_date, merged, diag = result
+    else:
+        by_date, merged = result  # type: ignore[misc]
+        diag = {}
+    assert isinstance(by_date, dict)
+    # System6 は latest_only でも DataFrame を返す設計
     assert merged is not None
     assert isinstance(diag, dict)
     for k in [

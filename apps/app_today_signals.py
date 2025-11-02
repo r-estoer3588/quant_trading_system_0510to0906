@@ -21,23 +21,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
+
 # ruff: noqa: E402
 # flake8: noqa: E402
 import importlib
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import sys
-import time
-import uuid
-from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime, timezone, tzinfo
-from pathlib import Path
 from threading import Lock
+import time
 from typing import TYPE_CHECKING, Any, cast
+import uuid
 
 try:
     from zoneinfo import ZoneInfo
@@ -96,12 +97,9 @@ from common.system_groups import (  # noqa: E402
     format_group_counts_and_values,
 )
 from common.today_signals import (  # noqa: E402
-    LONG_SYSTEMS,
-    SHORT_SYSTEMS,
-)
-from common.today_signals import (  # noqa: E402
     run_all_systems_today as compute_today_signals,
 )
+from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
 from common.utils_spy import (  # noqa: E402
     calculate_trading_days_lag,
     describe_trading_gap,
@@ -2951,7 +2949,9 @@ def render_today_signals_results(
         try:
             if artifacts and getattr(artifacts, "logger", None) is not None:
                 try:
-                    artifacts.logger.log("Signals generation complete", no_timestamp=True)
+                    artifacts.logger.log(
+                        "Signals generation complete", no_timestamp=True
+                    )
                 except Exception:
                     pass
         except Exception:
@@ -2984,14 +2984,20 @@ def render_today_signals_results(
                 marker_file = Path("results_csv") / "last_run_complete.txt"
 
             try:
-                rows = len(final_df) if "final_df" in locals() and final_df is not None else "NA"
+                rows = (
+                    len(final_df)
+                    if "final_df" in locals() and final_df is not None
+                    else "NA"
+                )
             except Exception:
                 rows = "NA"
 
             try:
                 with marker_file.open("w", encoding="utf-8") as mf:
                     mf.write("Signals generation complete\n")
-                    mf.write(f"timestamp_utc: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+                    mf.write(
+                        f"timestamp_utc: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
+                    )
                     mf.write(f"final_rows: {rows}\n")
             except Exception:
                 # ignore write failures
@@ -4143,7 +4149,9 @@ if "positions_df" in st.session_state:
                             if preview_df is None:
                                 st.error("送信対象が選択されていません")
                             elif dry_run_manual_exit:
-                                st.success("ドライランのため注文送信をスキップしました。")
+                                st.success(
+                                    "ドライランのため注文送信をスキップしました。"
+                                )
                                 st.dataframe(
                                     preview_df,
                                     width="stretch",
@@ -4155,7 +4163,13 @@ if "positions_df" in st.session_state:
 
                                 results = _submit_exit_orders_df(
                                     preview_df[
-                                        ["symbol", "qty", "position_side", "system", "when"]
+                                        [
+                                            "symbol",
+                                            "qty",
+                                            "position_side",
+                                            "system",
+                                            "when",
+                                        ]
                                     ],
                                     paper=paper_mode,
                                     tif=(tif_val or "CLS"),
@@ -4169,13 +4183,14 @@ if "positions_df" in st.session_state:
                                     )
                                     st.dataframe(results, width="stretch")
                                 else:
-                                    st.info("該当する予約または実行対象がありませんでした")
+                                    st.info(
+                                        "該当する予約または実行対象がありませんでした"
+                                    )
 
                         except Exception as e:  # noqa: BLE001
-                            if (
-                                isinstance(e, RuntimeError)
-                                and "unsupported_manual_market_exit" in str(e)
-                            ):
+                            if isinstance(
+                                e, RuntimeError
+                            ) and "unsupported_manual_market_exit" in str(e):
                                 st.warning(
                                     "成行（Market）は現在、手動手仕舞いからの即時送信に対応していません。"
                                 )

@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 from typing import Literal
 
 try:
@@ -36,6 +36,8 @@ def capture_streamlit_screenshot(
     wait_jsonl: bool = False,
     jsonl_path: Path | None = None,
     wait_progress_pct: int | None = None,
+    wait_state: bool = False,
+    state_path: Path | None = None,
 ) -> bool:
     """Streamlit UI のスクリーンショットを取得。
 
@@ -308,6 +310,22 @@ def capture_streamlit_screenshot(
                     except Exception:
                         return False
 
+                def _state_has_pipeline_complete(path: Path) -> bool:
+                    """progress_state.json から pipeline_complete を検出する。"""
+                    try:
+                        if not path.exists():
+                            return False
+                        content = path.read_text(encoding="utf-8", errors="ignore")
+                        obj = json.loads(content)
+                        if not isinstance(obj, dict):
+                            return False
+                        last_event = obj.get("last_event")
+                        if not isinstance(last_event, dict):
+                            return False
+                        return last_event.get("event_type") == "pipeline_complete"
+                    except Exception:
+                        return False
+
                 def _dom_progress_pct() -> int | None:
                     try:
                         value = page.evaluate(
@@ -371,8 +389,18 @@ def capture_streamlit_screenshot(
                                 break
                             except Exception:
                                 continue
-                if not waited and (wait_jsonl or (wait_progress_pct is not None)):
-                    print("Polling JSONL/progress until completion criteria match...")
+                if not waited and (
+                    wait_jsonl or wait_state or (wait_progress_pct is not None)
+                ):
+                    msg = "Polling "
+                    parts = []
+                    if wait_state:
+                        parts.append("state.json")
+                    if wait_jsonl:
+                        parts.append("JSONL")
+                    if wait_progress_pct is not None:
+                        parts.append("progress")
+                    print(msg + "/".join(parts) + " until completion criteria match...")
                     # ポーリング: 1秒間隔
                     started = time.time()
                     jl_path = (
@@ -384,7 +412,21 @@ def capture_streamlit_screenshot(
                             / "progress_today.jsonl"
                         )
                     )
+                    st_path = (
+                        state_path
+                        if state_path
+                        else (
+                            Path(__file__).resolve().parents[1]
+                            / "logs"
+                            / "progress_state.json"
+                        )
+                    )
                     while time.time() < deadline:
+                        # 優先順位: state.json -> JSONL -> DOM progress
+                        if wait_state and _state_has_pipeline_complete(st_path):
+                            print("Detected pipeline_complete in progress_state.json.")
+                            waited = True
+                            break
                         if wait_jsonl and _jsonl_has_pipeline_complete_since(
                             jl_path, since_epoch=started
                         ):
@@ -394,9 +436,11 @@ def capture_streamlit_screenshot(
                         if wait_progress_pct is not None:
                             pct = _dom_progress_pct()
                             if isinstance(pct, int) and pct >= int(wait_progress_pct):
-                                print(
-                                    f"Detected progress >= {wait_progress_pct}% (now {pct}%)."
+                                msg = (
+                                    f"Detected progress >= {wait_progress_pct}% "
+                                    f"(now {pct}%)."
                                 )
+                                print(msg)
                                 waited = True
                                 break
                         # 軽負荷スリープ
@@ -546,6 +590,15 @@ def main() -> None:
         help="Path to progress_today.jsonl (default: logs/progress_today.jsonl)",
     )
     parser.add_argument(
+        "--wait-state",
+        action="store_true",
+        help="Wait until logs/progress_state.json shows pipeline_complete",
+    )
+    parser.add_argument(
+        "--state-path",
+        help="Path to progress_state.json (default: logs/progress_state.json)",
+    )
+    parser.add_argument(
         "--wait-progress-pct",
         type=int,
         help="Wait until UI header shows progress >= given percent (e.g., 85)",
@@ -578,6 +631,9 @@ def main() -> None:
     jl_path = (
         Path(args.jsonl_path).resolve() if getattr(args, "jsonl_path", None) else None
     )
+    st_path = (
+        Path(args.state_path).resolve() if getattr(args, "state_path", None) else None
+    )
     success = capture_streamlit_screenshot(
         args.url,
         output_path,
@@ -594,6 +650,8 @@ def main() -> None:
         wait_jsonl=bool(args.wait_jsonl),
         jsonl_path=jl_path,
         wait_progress_pct=args.wait_progress_pct,
+        wait_state=bool(getattr(args, "wait_state", False)),
+        state_path=st_path,
     )
     sys.exit(0 if success else 1)
 

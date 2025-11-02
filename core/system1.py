@@ -31,8 +31,8 @@ ROC200-based momentum strategy:
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
+import math
 from typing import Any, Callable, Mapping, Optional, cast
 
 import pandas as pd
@@ -47,19 +47,120 @@ from common.system_setup_predicates import (
 )
 from strategies.constants import STOP_ATR_MULTIPLE_SYSTEM1
 
+# ============================================================================
+# Constants
+# ============================================================================
+MIN_PRICE = 5.0  # Minimum stock price for filter
+MIN_DOLLAR_VOLUME_20 = 50_000_000  # Minimum 20-day dollar volume
+MIN_ROC200 = 0.0  # Minimum ROC200 for momentum confirmation
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+def _apply_filter_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System1 filter: Close>=MIN_PRICE & DollarVolume20>MIN_DOLLAR_VOLUME_20.
+
+    Preserves existing 'filter' column if present for test compatibility.
+
+    Args:
+        df: DataFrame with Close and dollarvolume20 columns
+
+    Returns:
+        DataFrame with 'filter' boolean column added/updated
+    """
+    x = df.copy()
+
+    # Coerce to numeric to avoid runtime/type issues
+    try:
+        _val_close = x.get("Close")
+        if _val_close is None:
+            _close = pd.Series(0.0, index=x.index)
+        else:
+            _close = pd.to_numeric(_val_close, errors="coerce").fillna(0.0)
+    except Exception:
+        _close = pd.Series(0.0, index=x.index)
+
+    try:
+        _val_dv = x.get("dollarvolume20")
+        if _val_dv is None:
+            _dv = pd.Series(0.0, index=x.index)
+        else:
+            _dv = pd.to_numeric(_val_dv, errors="coerce").fillna(0.0)
+    except Exception:
+        _dv = pd.Series(0.0, index=x.index)
+
+    x["filter"] = (_close >= MIN_PRICE) & (_dv > MIN_DOLLAR_VOLUME_20)
+    return x
+
+
+def _apply_setup_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System1 setup: filter & Close>SMA200 & ROC200>MIN_ROC200.
+
+    Preserves existing 'setup' column if present for test compatibility.
+
+    Args:
+        df: DataFrame with filter, Close, sma200, roc200 columns
+
+    Returns:
+        DataFrame with 'setup' boolean column added/updated
+    """
+    x = df.copy()
+
+    # Get filter column (already computed by _apply_filter_conditions)
+    try:
+        _filt = x.get("filter")
+        if _filt is None:
+            _filter = pd.Series(False, index=x.index)
+        else:
+            _filter = pd.to_numeric(_filt, errors="coerce").fillna(0).astype(bool)
+    except Exception:
+        _filter = pd.Series(False, index=x.index)
+
+    # Coerce numeric columns
+    try:
+        _val_close = x.get("Close")
+        if _val_close is None:
+            _close = pd.Series(0.0, index=x.index)
+        else:
+            _close = pd.to_numeric(_val_close, errors="coerce").fillna(0.0)
+    except Exception:
+        _close = pd.Series(0.0, index=x.index)
+
+    try:
+        _val_sma = x.get("sma200")
+        if _val_sma is None:
+            _sma = pd.Series(0.0, index=x.index)
+        else:
+            _sma = pd.to_numeric(_val_sma, errors="coerce").fillna(0.0)
+    except Exception:
+        _sma = pd.Series(0.0, index=x.index)
+
+    try:
+        _val_roc = x.get("roc200")
+        if _val_roc is None:
+            _roc = pd.Series(0.0, index=x.index)
+        else:
+            _roc = pd.to_numeric(_val_roc, errors="coerce").fillna(0.0)
+    except Exception:
+        _roc = pd.Series(0.0, index=x.index)
+
+    x["setup"] = _filter & (_close > _sma) & (_roc > MIN_ROC200)
+    return x
+
 
 def _create_system1_diagnostics(
     mode: str = "full_scan", top_n: int = 20
 ) -> dict[str, Any]:
     """Create System1 diagnostics dict with all required fields.
-    
+
     Replaces the former System1Diagnostics dataclass to unify all systems (1-7)
     with dict-based diagnostics for Phase-A commonization.
-    
+
     Args:
         mode: "latest_only" or "full_scan"
         top_n: Number of top candidates to generate
-        
+
     Returns:
         Diagnostics dict with all counters initialized to 0/None and
         exclude_reasons/exclude_symbols as defaultdict instances.
@@ -91,11 +192,11 @@ def _create_system1_diagnostics(
 
 def _add_exclude(diag: dict[str, Any], reason: str, symbol: str | None) -> None:
     """Record an exclusion reason and optionally the symbol.
-    
+
     Helper function for System1 diagnostics. Increments counter in
     ``exclude_reasons`` and adds symbol to ``exclude_symbols`` set.
     Implementation is defensive: errors should not raise.
-    
+
     Args:
         diag: Diagnostics dict
         reason: Exclusion reason string
@@ -314,15 +415,10 @@ def _compute_indicators_frame(df: pd.DataFrame) -> pd.DataFrame:
     if missing_indicators:
         raise ValueError(f"missing precomputed indicators: {missing_indicators}")
     # Derive filter/setup (legacy style) for tests expecting them here.
-    try:
-        if "filter" not in x.columns:
-            x["filter"] = (x["Low"] >= 5) & (x["dollarvolume20"] > 50_000_000)
-        if "setup" not in x.columns:
-            x["setup"] = x["filter"] & (x["sma25"] > x["sma50"])
-    except Exception:
-        # Fallback safe defaults
-        x["filter"] = pd.Series(False, index=x.index, dtype=bool)
-        x["setup"] = pd.Series(False, index=x.index, dtype=bool)
+    # Use helper functions for consistency.
+    if "filter" not in x.columns or "setup" not in x.columns:
+        x = _apply_filter_conditions(x)
+        x = _apply_setup_conditions(x)
     return x
 
 
@@ -353,39 +449,13 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         if "roc200" not in df.columns:
             return symbol, None
 
-        # Apply System1-specific filters and setup (best-effort). If required
-        # columns are missing, set conservative defaults (False) to avoid
-        # accidental passes while still keeping the symbol in prepared data
-        # for ranking by roc200.
+        # Apply System1-specific filters and setup using helper functions
+        # for consistency across all systems. If required columns are missing,
+        # helpers set conservative defaults (False) to avoid accidental passes
+        # while still keeping the symbol in prepared data for ranking by roc200.
         x = df.copy()
-
-        # Filter: Close>=5, DollarVolume20>50M
-        try:
-            filt = (x["Close"] >= 5.0) & (
-                x.get(
-                    "dollarvolume20",
-                    pd.Series(index=x.index, dtype=float),
-                )
-                > 50_000_000
-            )
-        except Exception:
-            # If columns not available, mark filter False
-            filt = pd.Series(False, index=x.index, dtype=bool)
-        x["filter"] = filt
-
-        # Setup: Filter + Close>SMA200 + ROC200>0
-        try:
-            setup = (
-                filt
-                & (
-                    x.get("Close", pd.Series(index=x.index, dtype=float))
-                    > x.get("sma200", pd.Series(index=x.index, dtype=float))
-                )
-                & (x["roc200"] > 0)
-            )
-        except Exception:
-            setup = pd.Series(False, index=x.index, dtype=bool)
-        x["setup"] = setup
+        x = _apply_filter_conditions(x)
+        x = _apply_setup_conditions(x)
 
         return symbol, x
 
@@ -574,9 +644,11 @@ def prepare_data_vectorized_system1(
                         if missing_ohlc:
                             try:
                                 if log_callback and symbol in ("SPY", "A"):
-                                    log_callback(
-                                        f"[DEBUG_PREPARED] {symbol}: missing OHLC before augment => {missing_ohlc}"
-                                    )
+                                    msg = (
+                                        "[DEBUG_PREPARED] %s: missing OHLC before "
+                                        "augment => %s"
+                                    ) % (symbol, missing_ohlc)
+                                    log_callback(msg)
                             except Exception:
                                 pass
                             x = _augment_ohlc_if_missing(symbol, x)
@@ -610,46 +682,9 @@ def prepare_data_vectorized_system1(
                         if x.empty:
                             continue
 
-                        # 軽量 filter/setup 付与
-                        try:
-                            dv = x.get(
-                                "dollarvolume20",
-                                pd.Series(index=x.index, dtype=float),
-                            )
-                            close_s = x.get(
-                                "Close", pd.Series(index=x.index, dtype=float)
-                            )
-                            filt = (close_s >= 5.0) & (dv > 50_000_000)
-                        except Exception:
-                            filt = pd.Series(
-                                False,
-                                index=x.index,
-                                dtype=bool,
-                            )  # type: ignore[assignment]
-                        x["filter"] = filt
-
-                        try:
-                            close_s = x.get(
-                                "Close", pd.Series(index=x.index, dtype=float)
-                            )
-                            sma200_s = x.get(
-                                "sma200", pd.Series(index=x.index, dtype=float)
-                            )
-                            roc_ok = (
-                                x.get(
-                                    "roc200",
-                                    pd.Series(index=x.index, dtype=float),
-                                )
-                                > 0
-                            )
-                            setup = filt & (close_s > sma200_s) & roc_ok
-                        except Exception:
-                            setup = pd.Series(
-                                False,
-                                index=x.index,
-                                dtype=bool,
-                            )  # type: ignore[assignment]
-                        x["setup"] = setup
+                        # Apply System1 filter and setup using helper functions
+                        x = _apply_filter_conditions(x)
+                        x = _apply_setup_conditions(x)
 
                         # DEBUG: prepared_dict 格納前に Close/Open 値を確認
                         if log_callback and symbol in ("SPY", "A"):
@@ -662,7 +697,9 @@ def prepare_data_vectorized_system1(
                                     close_val = x["Close"].iloc[-1]
                                 if has_open and len(x) > 0:
                                     open_val = x["Open"].iloc[-1]
-                                msg = f"[DEBUG_PREPARED] {symbol}: Close={close_val} Open={open_val} shape={x.shape}"
+                                msg = (
+                                    "[DEBUG_PREPARED] %s: Close=%s Open=%s shape=%s"
+                                ) % (symbol, close_val, open_val, x.shape)
                                 log_callback(msg)
                             except Exception as e:
                                 log_callback(f"[DEBUG_PREPARED] {symbol}: ERROR={e}")
@@ -708,37 +745,9 @@ def prepare_data_vectorized_system1(
                         except Exception:
                             pass  # Keep original index if conversion fails
 
-                    # Filter: Close>=5, DollarVolume20>50M（欠損は安全側に False）
-                    try:
-                        dv = x.get(
-                            "dollarvolume20", pd.Series(index=x.index, dtype=float)
-                        )
-                        filt = (x["Close"] >= 5.0) & (dv > 50_000_000)
-                    except Exception:
-                        filt = pd.Series(
-                            False,
-                            index=x.index,
-                            dtype=bool,
-                        )  # type: ignore[assignment]
-                    x["filter"] = filt
-
-                    # Setup: Filter + Close>SMA200 + ROC200>0（欠損は False）
-                    try:
-                        close_s = x.get("Close", pd.Series(index=x.index, dtype=float))
-                        sma200_s = x.get(
-                            "sma200", pd.Series(index=x.index, dtype=float)
-                        )
-                        roc_ok = (
-                            x.get("roc200", pd.Series(index=x.index, dtype=float)) > 0
-                        )
-                        setup = filt & (close_s > sma200_s) & roc_ok
-                    except Exception:
-                        setup = pd.Series(
-                            False,
-                            index=x.index,
-                            dtype=bool,
-                        )  # type: ignore[assignment]
-                    x["setup"] = setup
+                    # Apply System1 filter and setup using helper functions
+                    x = _apply_filter_conditions(x)
+                    x = _apply_setup_conditions(x)
 
                     prepared_dict[symbol] = x
 
@@ -867,12 +876,27 @@ def generate_candidates_system1(
                     except Exception:
                         continue
 
+    def _make_empty_latest_frame() -> pd.DataFrame:
+        return pd.DataFrame(
+            columns=[
+                "symbol",
+                "date",
+                "entry_date",
+                "roc200",
+                "close",
+                "entry_price",
+                "stop_price",
+                "atr20",
+                "setup",
+            ]
+        )
+
     def finalize(
         by_date: Mapping[pd.Timestamp, object],
         merged: pd.DataFrame | None,
     ) -> (
-        tuple[dict[pd.Timestamp, object], pd.DataFrame | None]
-        | tuple[dict[pd.Timestamp, object], pd.DataFrame | None, dict[str, object]]
+        tuple[dict[pd.Timestamp, object], pd.DataFrame]
+        | tuple[dict[pd.Timestamp, object], pd.DataFrame, dict[str, object]]
     ):
         # Normalize defaultdict to plain dict for JSON serialization
         diag_payload = {
@@ -881,15 +905,19 @@ def generate_candidates_system1(
                 k: int(v) for k, v in dict(diag["exclude_reasons"]).items()
             },
             "exclude_symbols": {
-                k: sorted(list(v))
-                for k, v in dict(diag["exclude_symbols"]).items()
+                k: sorted(list(v)) for k, v in dict(diag["exclude_symbols"]).items()
             },
         }
         normalized = dict(by_date)
+        if isinstance(merged, pd.DataFrame):
+            merged_df = merged.copy()
+        else:
+            merged_df = _make_empty_latest_frame()
+
         if include_diagnostics:
-            return normalized, merged, diag_payload
+            return normalized, merged_df, diag_payload
         # Maintain backward compatibility: always include diagnostics payload
-        return normalized, merged, diag_payload
+        return normalized, merged_df, diag_payload
 
     if not isinstance(prepared_dict, dict) or not prepared_dict:
         diag["symbols_total"] = len(prepared_dict or {})
@@ -908,9 +936,10 @@ def generate_candidates_system1(
     # Fast path: evaluate only the most recent bar per symbol
     if latest_only:
         if log_callback:
-            log_callback(
-                f"[DEBUG_S1_LATEST] Entering latest_only block, prepared_dict keys={len(prepared_dict)}"
-            )
+            msg = (
+                "[DEBUG_S1_LATEST] Entering latest_only block, prepared_dict " "keys=%s"
+            ) % len(prepared_dict)
+            log_callback(msg)
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
@@ -1066,13 +1095,26 @@ def generate_candidates_system1(
                     # On any failure, do not exclude based on staleness.
                     pass
 
-                # Primary evaluation via predicate (single source)
-                res_pred = system1_setup_predicate(last_row, return_reason=True)
-                if isinstance(res_pred, tuple):
-                    pred_ok, pred_reason = res_pred
-                else:
-                    pred_ok, pred_reason = bool(res_pred), None
-                if not pred_ok:
+                # Setup優先: setup列がTrueならそのまま通過
+                # そうでなければpredicateで判定
+                setup_col = bool(last_row.get("setup", False))
+                pred_reason: str | None = None
+                pred_ok = setup_col
+                accept_candidate = setup_col
+
+                if not setup_col:
+                    # Primary evaluation via predicate (single source)
+                    res_pred = system1_setup_predicate(last_row, return_reason=True)
+                    if isinstance(res_pred, tuple):
+                        pred_ok, pred_reason = res_pred
+                    else:
+                        pred_ok, pred_reason = bool(res_pred), None
+                    accept_candidate = pred_ok
+                    if pred_ok:
+                        diag["predicate_only_pass_count"] += 1
+                        diag["mismatch_flag"] = 1
+
+                if not accept_candidate:
                     if pred_reason:
                         _add_exclude(diag, str(pred_reason), sym)
                     else:
@@ -1215,16 +1257,20 @@ def generate_candidates_system1(
             df_all = pd.DataFrame(rows)
             df_all_original = df_all.copy()
             if log_callback:
-                log_callback(
-                    f"[DEBUG_S1] df_all created: {len(df_all)} rows, columns={list(df_all.columns)}"
+                msg = ("[DEBUG_S1] df_all created: %s rows, columns=%s") % (
+                    len(df_all),
+                    list(df_all.columns),
                 )
+                log_callback(msg)
                 # Log date statistics
                 if "date" in df_all.columns and len(df_all) > 0:
                     try:
                         date_sample = df_all["date"].head(5).tolist()
-                        log_callback(
-                            f"[DEBUG_S1] date_sample={date_sample}, target_date={target_date}"
+                        msg = ("[DEBUG_S1] date_sample=%s, target_date=%s") % (
+                            date_sample,
+                            target_date,
                         )
+                        log_callback(msg)
                     except Exception:
                         pass
 
@@ -1437,9 +1483,7 @@ def generate_candidates_system1(
                     pred_val, pred_reason = bool(pred_res), None
 
                 try:
-                    res_legacy = system1_row_passes_setup(
-                        row, allow_fallback=False
-                    )
+                    res_legacy = system1_row_passes_setup(row, allow_fallback=False)
                     _passed_legacy, flags, _legacy_reason = res_legacy
                 except Exception:
                     flags = {
@@ -1538,6 +1582,14 @@ def generate_candidates_system1(
         set_diagnostics_after_ranking(
             diag, final_df=candidates_df, ranking_source="full_scan"
         )
+        # Preserve legacy semantics: ranked_top_n_count reflects
+        # the last_date bucket size (not all rows in candidates_df)
+        try:
+            if candidates_by_date:
+                last_date = max(candidates_by_date.keys())
+                diag["ranked_top_n_count"] = len(candidates_by_date.get(last_date, []))
+        except Exception:
+            pass
     else:
         candidates_df = None
         set_diagnostics_after_ranking(

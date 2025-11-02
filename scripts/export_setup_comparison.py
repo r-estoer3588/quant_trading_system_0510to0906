@@ -6,8 +6,8 @@ prints the head (first 50 rows) to stdout in CSV form for easy copy/paste.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+import sys
 
 if str(Path(__file__).resolve().parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

@@ -2,7 +2,8 @@
   {
     "id": 1,
     "text": "Option B: System3/5 共通処理の抽出設計案を作成",
-    "status": "todo",
-    "created": "2025-11-01T21:06:05"
+    "status": "done",
+    "created": "2025-11-01T21:06:05",
+    "completed": "2025-11-01T21:55:00"
   }
 ]

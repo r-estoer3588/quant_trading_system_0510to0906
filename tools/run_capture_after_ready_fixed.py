@@ -1,14 +1,16 @@
 """Wait until Streamlit URL ready then run the capture helper with fixed options.
 This is a simple runner tailored for the current debugging session.
 """
+
+from pathlib import Path
 import subprocess
 import sys
 import time
 import urllib.request
-from pathlib import Path
 
 URL = "http://localhost:8501"
 TIMEOUT = 60
+
 
 def wait(url, timeout):
     deadline = time.time() + timeout
@@ -20,7 +22,8 @@ def wait(url, timeout):
             time.sleep(1)
     return False
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     ok = wait(URL, TIMEOUT)
     if not ok:
         print(f"{URL} not ready after {TIMEOUT}s")
@@ -28,8 +31,21 @@ if __name__ == '__main__':
     print("URL ready, running capture helper...")
     py = sys.executable
     script = Path(__file__).resolve().parents[1] / "tools" / "capture_ui_screenshot.py"
-    cmd = [str(py), str(script), "--url", URL, "--output", "results_images/today_signals_complete_after_fix4.png",
-           "--click-button", "Generate Signals", "--wait-after-click", "960", "--wait-jsonl", "--wait-results", "--show-browser"]
+    cmd = [
+        str(py),
+        str(script),
+        "--url",
+        URL,
+        "--output",
+        "results_images/today_signals_complete_after_fix4.png",
+        "--click-button",
+        "Generate Signals",
+        "--wait-after-click",
+        "960",
+        "--wait-jsonl",
+        "--wait-results",
+        "--show-browser",
+    ]
     print("CMD:", " ".join(cmd))
     rc = subprocess.call(cmd)
     print("capture exit code:", rc)

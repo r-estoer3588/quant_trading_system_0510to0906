@@ -9,12 +9,13 @@ This script calls each strategy's get_today_signals and prints
 `entry_skip_counts`, `entry_skip_details`, `entry_skip_samples` and a sample row.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import traceback
+
 import pandas as pd
 
 from strategies.system1_strategy import System1Strategy

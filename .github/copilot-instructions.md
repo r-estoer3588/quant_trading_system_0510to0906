@@ -10,6 +10,39 @@
 - 当日パイプライン: `scripts/run_all_systems_today.py`（symbols → cache/load → indicators → filters/setup → ranking/signals → allocation → save/notify）。
 - 最終配分: `core/final_allocation.py::finalize_allocation()`（slot/capital 両モード、API 契約は変更しない）。
 
+## 新規実装モジュール（2024 Q4 Workstream #2-5）
+
+### Workstream #2: Option B 本格展開
+- **`common/system_candidates_utils.py`**: Phase-A 共通化ユーティリティ
+  - `set_diagnostics_after_ranking()`: 診断更新の標準化
+  - `normalize_candidates_by_date()`: 候補を {date: {symbol: payload}} 形式に正規化
+  - `normalize_dataframe_to_by_date()`: DataFrame を正規化形式に変換
+  - `choose_mode_date_for_latest_only()`: 最頻日選択（欠落銘柄耐性）
+- **System3/5/6 統合**: `ENABLE_OPTION_B_SYSTEM[3|5|6]` feature flags で段階的ロールアウト
+
+### Workstream #3: パフォーマンス最適化
+- **`common/performance_optimization.py`** (420 行)
+  - `get_optimal_worker_count()`: CPU 自動スケーリング（70% 利用率、上限 8）
+  - `ParallelBacktestRunner`: 並列バックテスト実行（ProcessPool/ThreadPool 自動選択）
+  - `PerformanceTimer`: コンテキストマネージャで実行時間計測
+  - `DataFrameCache`: 読み取り専用ビューベースのキャッシュ
+
+### Workstream #4: 診断・監視強化
+- **`common/alert_framework.py`** (500 行)
+  - `AlertManager`: 条件登録・イベント管理
+  - `AlertCondition`: プラガブル条件定義（6 operators: >, >=, <, <=, ==, !=）
+  - `AlertEvent`: イベント記録（4 重大度レベル、6 アクション型）
+  - `AlertSeverity`: INFO, WARNING, ERROR, CRITICAL
+  - `AlertAction`: LOG, LOG_WARNING, LOG_ERROR, NOTIFY, STOP, CUSTOM
+  - `make_freshness_alert()`, `make_latency_alert()`, `make_memory_alert()`: 事前定義プリセット
+
+### Workstream #5: ドキュメント完全化
+- **`docs/TECHNICAL_SPECS.md`** (450 行)
+  - System1-7 詳細仕様（エントリー条件、ランキング、指標）
+  - Option-B 3 段階アーキテクチャ（入力検証→閾値適用→診断確定）
+  - 診断標準コントラクト
+  - トラブルシューティングガイド
+
 ## 絶対ルール（破らない）
 
 - キャッシュ I/O は必ず `common/cache_manager.py::CacheManager` 経由。`data_cache/` を直接読まない/書かない。

@@ -47,7 +47,7 @@ def test_system6_latest_only_parity_latest_day():
     fast_by_date, fast_df = generate_candidates_system6(
         prepared, top_n=top_n, latest_only=True
     )
-    assert fast_df is not None
+    assert fast_df is not None  # latest_only でも DataFrame 返却（System6 仕様）
     # fast_path の最新日を抽出
     fast_latest = max(fast_by_date.keys())
 

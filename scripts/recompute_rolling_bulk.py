@@ -11,12 +11,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+import json
 from pathlib import Path
 from pathlib import Path as _Path
+import sys
 from typing import Any
 
 # Ensure repository root is importable when running script directly

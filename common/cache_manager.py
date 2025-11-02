@@ -21,12 +21,11 @@
 
 from __future__ import annotations
 
-import logging
-
 # ruff: noqa: E501
 # flake8: noqa: E501
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 from pathlib import Path
 from typing import cast
 
@@ -75,17 +74,17 @@ CASE_MAP = {
 
 def _apply_column_case_mapping(df: pd.DataFrame, to_upper: bool = True) -> pd.DataFrame:
     """列名の大文字小文字変換を統一的に適用する。
-    
+
     Args:
         df: 対象DataFrame
         to_upper: True なら小文字→大文字、False なら大文字→小文字
-    
+
     Returns:
         列名変換後のDataFrame
     """
     if df is None or df.empty:
         return df
-    
+
     if to_upper:
         # 小文字 → 大文字（CASE_MAP使用）
         rename_dict = {k: v for k, v in CASE_MAP.items() if k in df.columns}
@@ -93,7 +92,7 @@ def _apply_column_case_mapping(df: pd.DataFrame, to_upper: bool = True) -> pd.Da
         # 大文字 → 小文字（逆マップ）
         reverse_map = {v: k for k, v in CASE_MAP.items()}
         rename_dict = {k: v for k, v in reverse_map.items() if k in df.columns}
-    
+
     return df.rename(columns=rename_dict) if rename_dict else df
 
 
@@ -120,11 +119,14 @@ class CacheManager:
     @property
     def _rolling_target_len(self) -> int:
         """Rolling cache の目標データ長（テスト互換性のため保持）。"""
-        return self.rolling_cfg.base_lookback_days + self.rolling_cfg.buffer_days
+        base_days = int(getattr(self.rolling_cfg, "base_lookback_days", 0) or 0)
+        buffer_days = int(getattr(self.rolling_cfg, "buffer_days", 0) or 0)
+        return base_days + buffer_days
 
     def _detect_path(self, dir_path: Path, ticker: str) -> Path:
         """パス検出（テスト互換性のため保持、実装は file_manager に委譲）。"""
-        return self.file_manager.detect_path(dir_path, ticker)
+        detected = self.file_manager.detect_path(dir_path, ticker)
+        return cast(Path, detected)
 
     def _read_base_and_tail(
         self, ticker: str, tail_rows: int = 330
@@ -176,6 +178,10 @@ class CacheManager:
             if col in base.columns:
                 base[col] = pd.to_numeric(base[col], errors="coerce")
 
+        # valid_dates は後続の結合に使うため保持（日時インデックス・重複除去）
+        valid_dates = pd.DatetimeIndex(base["date"]).dropna()
+        valid_dates = pd.DatetimeIndex(valid_dates.unique())
+
         # 統一ヘルパーで列名変換（小文字 → 大文字）
         base_renamed = _apply_column_case_mapping(base, to_upper=True)
         base_renamed["Date"] = base_renamed.get("date", base["date"])
@@ -207,16 +213,46 @@ class CacheManager:
             # consistent with the latest OHLC history.
 
             # Start with OHLCV columns only from the original df
-            ohlcv_cols = [col for col in BASIC_OHLCV_COLS if col in df.columns]
-            combined = df[ohlcv_cols].copy().reset_index(drop=True)
+            indicator_cols = [
+                col for col in enriched.columns if col not in BASIC_OHLCV_COLS
+            ]
 
-            # Add all indicator columns from enriched
-            for col, series in enriched.items():
-                if col in BASIC_OHLCV_COLS:
-                    # Skip OHLCV columns - already copied
-                    continue
-                # Add or replace indicator columns from enriched (位置ベースで代入)
-                combined[col] = series.values
+            # 元データを有効な日付に合わせて整列
+            combined = df.copy()
+            combined["date"] = pd.to_datetime(combined.get("date"), errors="coerce")
+            combined = combined.dropna(subset=["date"])
+            combined = combined.drop_duplicates(subset=["date"], keep="last")
+
+            if combined.empty:
+                return df
+
+            # valid_dates が空の場合は元データを返す
+            if valid_dates.empty:
+                return df
+
+            combined = combined.set_index("date")
+            combined = combined.loc[~combined.index.duplicated(keep="last")]
+            combined = combined.reindex(valid_dates)
+            combined = combined.dropna(how="all")
+            if combined.empty:
+                return df
+
+            # 指標列を日付キーで整列して結合
+            enriched_aligned = (
+                enriched.set_index("date")[indicator_cols]
+                if indicator_cols
+                else pd.DataFrame(index=valid_dates)
+            )
+            enriched_aligned = enriched_aligned.loc[
+                ~enriched_aligned.index.duplicated(keep="last")
+            ]
+            enriched_aligned = enriched_aligned.reindex(combined.index)
+
+            if indicator_cols:
+                for col in indicator_cols:
+                    combined[col] = enriched_aligned[col]
+
+            combined = combined.reset_index().rename(columns={"index": "date"})
 
             # drop any duplicated columns just in case
             return combined.loc[:, ~combined.columns.duplicated(keep="first")]
@@ -228,12 +264,12 @@ class CacheManager:
         self, ticker: str, df: pd.DataFrame | None, path: Path
     ) -> pd.DataFrame | None:
         """Rolling cache が欠落または不完全な場合のフォールバックと自己修復処理。
-        
+
         Args:
             ticker: 銘柄コード
             df: 既存の rolling DataFrame（None可）
             path: rolling cache のパス
-        
+
         Returns:
             修復されたDataFrame、または None
         """
@@ -251,7 +287,7 @@ class CacheManager:
                     logger.warning(
                         f"Failed to save generated rolling for {ticker}: {e}"
                     )
-        
+
         # 指標再計算の自己修復処理
         try:
             recompute_flag = bool(
@@ -280,10 +316,7 @@ class CacheManager:
                     # Validate recompute produced usable values for the required indicators
                     ok = True
                     for c in required_indicators:
-                        if (
-                            c not in recomputed.columns
-                            or recomputed[c].dropna().empty
-                        ):
+                        if c not in recomputed.columns or recomputed[c].dropna().empty:
                             ok = False
                             break
                     if ok:
@@ -294,9 +327,7 @@ class CacheManager:
                             logger.info(
                                 f"Recomputed and saved rolling cache for {ticker}"
                             )
-                        except (
-                            Exception
-                        ) as e:  # pragma: no cover - best-effort save
+                        except Exception as e:  # pragma: no cover - best-effort save
                             logger.warning(
                                 f"Failed to save recomputed rolling for {ticker}: {e}"
                             )
@@ -305,9 +336,7 @@ class CacheManager:
                             f"Recompute did not produce required indicators for {ticker}: {missing}"
                         )
             except Exception as e:  # pragma: no cover - defensive
-                logger.exception(
-                    f"Error during recompute indicators for {ticker}: {e}"
-                )
+                logger.exception(f"Error during recompute indicators for {ticker}: {e}")
 
         return df
 
@@ -853,7 +882,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
             break
 
     # Build rename map without duplicates - systematic approach
-    ohlcv_map = {}
+    ohlcv_map: dict[str, str] = {}
     if "open" in x.columns and "Open" not in ohlcv_map.values():
         ohlcv_map["open"] = "Open"
     if "high" in x.columns and "High" not in ohlcv_map.values():
@@ -874,7 +903,7 @@ def compute_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     # Apply rename map
     x = x.rename(columns=ohlcv_map)
-    
+
     # Final safety: remove any duplicate columns
     x = x.loc[:, ~x.columns.duplicated(keep="last")]
 

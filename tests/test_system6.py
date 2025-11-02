@@ -26,7 +26,7 @@ def dummy_data():
 def test_minimal_indicators(dummy_data):
     strategy = System6Strategy()
     processed = strategy.prepare_minimal_for_test(dummy_data)
-    assert "ATR10" in processed["DUMMY"].columns
+    assert "atr10" in processed["DUMMY"].columns
 
 
 def test_placeholder_run(dummy_data):

@@ -88,6 +88,19 @@ class System5Strategy(AlpacaOrderMixin, StrategyBase):
 
         latest_only = bool(kwargs.pop("latest_only", False))
 
+        # 環境フラグが立っている場合、Option-B ユーティリティを core 側へ渡す
+        try:
+            from config.environment import get_env_config as _get_env
+
+            _env = _get_env()
+            if (
+                bool(getattr(_env, "enable_option_b_system5", False))
+                and "use_option_b_utils" not in kwargs
+            ):
+                kwargs["use_option_b_utils"] = True
+        except Exception:
+            pass
+
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
 

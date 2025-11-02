@@ -95,6 +95,14 @@ class System6Strategy(AlpacaOrderMixin, StrategyBase):
         batch_size = self._get_batch_size_setting(len(data_dict))
         # 重複渡し防止: kwargs に残っている latest_only を取り除いてから明示引数で渡す
         latest_only = bool(kwargs.pop("latest_only", False))
+        # Option-B 段階導入（環境フラグで既定値を補う）
+        try:
+            from config.environment import get_env_config as _get_env  # 遅延import
+
+            env = _get_env()
+            kwargs.setdefault("use_option_b_utils", bool(env.enable_option_b_system6))
+        except Exception:
+            pass
         try:  # noqa: SIM105
             from common.perf_snapshot import get_global_perf
 

@@ -3,7 +3,7 @@
 # このファイルは System5（ロング ミーン・リバージョン 高 ADX）のロジック専門
 #
 # 前提条件：
-#   - 高 ADX 環境（ADX7 > 55）でのミーン・リバージョン狙い
+#   - 高 ADX 環境（ADX7 > 35）でのミーン・リバージョン狙い
 #   - ATR_Pct による変動性フィルター（> 2.5%）
 #   - RSI3 < 50 で過売り確認
 #   - 指標は precomputed のみ使用（ADX7 でランキング）
@@ -15,7 +15,7 @@
 #   signals()     → スコア付きシグナル抽出
 #
 # Copilot へ：
-#   → ADX 閾値（55）の変更は慎重に。他システムとの競合検証必須
+#   → ADX 閾値（35）の変更は慎重に。他システムとの競合検証必須
 #   → RSI3 条件（< 50）の役割は「リバージョン環境確認」。ロジック変更禁止
 #   → ATR_Pct > 2.5% は変動性フィルター。下限変更は制御テストで確認
 # ============================================================================
@@ -25,7 +25,7 @@
 High ADX mean-reversion strategy:
 - Indicators: adx7, atr10, dollarvolume20, atr_pct (precomputed only)
 - Setup conditions: Close>=5, AvgVol50>500k, DV50>2.5M, ATR_Pct>2.5%,
-  Close>SMA100+ATR10, ADX7>55, RSI3<50
+    Close>SMA100+ATR10, ADX7>35, RSI3<50
 - Candidate generation: ADX7 descending ranking by date, extract top_n
 - Optimization: Removed all indicator calculations, using precomputed indicators only
 """
@@ -49,14 +49,90 @@ from common.system_constants import SYSTEM5_REQUIRED_INDICATORS
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils import get_cached_data
 
-# ATR percentage threshold for System5 filtering
-DEFAULT_ATR_PCT_THRESHOLD = 0.025
+# ============================================================================
+# System5 Strategy Constants
+# ============================================================================
+# Price & Volume filters
+MIN_PRICE = 5.0  # Minimum closing price for candidates
+
+# ADX-based filters
+MIN_ADX = 35.0  # Minimum ADX7 for high trend strength environment
+MIN_ADX_FULL_SCAN = 35.0  # ADX7 threshold for full-scan filtering
+
+# Volatility filters
+DEFAULT_ATR_PCT_THRESHOLD = 0.025  # 2.5% minimum ATR percentage
+
+# Ranking parameters
+DEFAULT_TOP_N = 20  # Default number of top candidates to extract
 
 
 def format_atr_pct_threshold_label(threshold: float | None = None) -> str:
     """UI/ログ用のATR閾値ラベルを一元化。scripts/today や today_signals で利用。"""
     actual_threshold = threshold if threshold is not None else DEFAULT_ATR_PCT_THRESHOLD
     return f"> {actual_threshold:.2%}"
+
+
+# ============================================================================
+# System5 Helper Functions
+# ============================================================================
+
+
+def _apply_filter_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System5 filter conditions, preserving existing 'filter' column if present.
+
+    Args:
+        df: DataFrame with required indicators (Close, adx7, atr_pct)
+
+    Returns:
+        DataFrame with 'filter' column added/updated
+    """
+    result = df.copy()
+
+    close = pd.to_numeric(result["Close"], errors="coerce")
+    adx7 = pd.to_numeric(result["adx7"], errors="coerce")
+    atr_pct = pd.to_numeric(result["atr_pct"], errors="coerce")
+
+    computed_filter = (
+        (close >= MIN_PRICE) & (adx7 > MIN_ADX) & (atr_pct > DEFAULT_ATR_PCT_THRESHOLD)
+    ).fillna(False)
+
+    if "filter" in result.columns:
+        existing = (
+            pd.Series(result["filter"], index=result.index).fillna(False).astype(bool)
+        )
+        computed_filter = computed_filter & existing
+
+    result["filter"] = computed_filter.astype(bool)
+
+    return result
+
+
+def _apply_setup_conditions(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply System5 setup conditions, preserving existing 'setup' column if present.
+
+    For System5, setup conditions are identical to filter conditions.
+
+    Args:
+        df: DataFrame with 'filter' column
+
+    Returns:
+        DataFrame with 'setup' column added/updated
+    """
+    result = df.copy()
+
+    computed_setup = (
+        pd.Series(result["filter"], index=result.index).fillna(False).astype(bool)
+    )
+
+    if "setup" in result.columns:
+        existing = (
+            pd.Series(result["setup"], index=result.index).fillna(False).astype(bool)
+        )
+        computed_setup = computed_setup & existing
+
+    result["setup"] = computed_setup.astype(bool)
+
+    return result
 
 
 def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
@@ -80,18 +156,10 @@ def _compute_indicators(symbol: str) -> tuple[str, pd.DataFrame | None]:
         if missing_indicators:
             return symbol, None
 
-        # Apply System5-specific filters and setup
+        # Apply System5-specific filters and setup using helpers
         x = df.copy()
-
-        # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-        x["filter"] = (
-            (x["Close"] >= 5.0)
-            & (x["adx7"] > 35.0)
-            & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-        )
-
-        # Setup: Same as filter for System5 (simple high ADX trend selection)
-        x["setup"] = x["filter"]
+        x = _apply_filter_conditions(x)
+        x = _apply_setup_conditions(x)
 
         return symbol, x
 
@@ -139,22 +207,12 @@ def prepare_data_vectorized_system5(
             )
 
             if valid_data_dict:
-                # Apply System5-specific filters
+                # Apply System5-specific filters using helpers
                 prepared_dict = {}
                 for symbol, df in valid_data_dict.items():
                     x = df.copy()
-
-                    # Filter: Close>=5, ADX7>35, ATR_Pct>2.5% (high volatility trend)
-                    x["filter"] = (
-                        (x["Close"] >= 5.0)
-                        & (x["adx7"] > 35.0)
-                        & (x["atr_pct"] > DEFAULT_ATR_PCT_THRESHOLD)
-                    )
-
-                    # Setup: Same as filter for System5
-                    # (simple high ADX trend selection)
-                    x["setup"] = x["filter"]
-
+                    x = _apply_filter_conditions(x)
+                    x = _apply_setup_conditions(x)
                     prepared_dict[symbol] = x
 
                 if log_callback:
@@ -247,41 +305,108 @@ def generate_candidates_system5(
             "mismatch_flag": 0,
         }
 
+    # Reset counters every invocation to avoid carrying stale values when dict is reused
+    diagnostics["setup_predicate_count"] = 0
+    diagnostics["ranked_top_n_count"] = 0
+    diagnostics["predicate_only_pass_count"] = 0
+    diagnostics["mismatch_flag"] = 0
+
     if not prepared_dict:
         if log_callback:
             log_callback("System5: No data provided for candidate generation")
+        # データが空でも latest_only / full_scan に応じて ranking_source を設定
+        try:
+            set_diagnostics_after_ranking(
+                diagnostics,
+                final_df=None,
+                ranking_source=("latest_only" if latest_only else "full_scan"),
+            )
+        except Exception:
+            diagnostics["ranking_source"] = (
+                "latest_only" if latest_only else "full_scan"
+            )
         return ({}, None, diagnostics) if include_diagnostics else ({}, None)
 
     if top_n is None:
-        top_n = 20  # Default value
+        top_n = DEFAULT_TOP_N
 
     if latest_only:
         try:
             rows: list[dict] = []
             date_counter: dict[pd.Timestamp, int] = {}
-            setup_pass_count = 0  # 👈 setup 通過数を明示的にカウント
+            try:
+                from common.system_setup_predicates import (
+                    system5_setup_predicate as _s5_pred,
+                )
+            except Exception:
+                _s5_pred = None
             for sym, df in prepared_dict.items():
                 if df is None or df.empty:
                     continue
                 last_row = df.iloc[-1]
 
-                # Use predicate-based evaluation (no setup column dependency)
+                # Prefer precomputed setup column; fall back to predicate evaluation
+                # or manual recomputation when needed
+                setup_from_column = False
+                setup_value_available = False
                 try:
-                    from common.system_setup_predicates import (
-                        system5_setup_predicate as _s5_pred,
-                    )
+                    raw_setup = last_row.get("setup", None)
+                    if raw_setup is not None and not pd.isna(raw_setup):
+                        setup_value_available = True
+                        if bool(raw_setup):
+                            setup_from_column = True
                 except Exception:
-                    _s5_pred = None
+                    setup_from_column = False
+                    setup_value_available = False
 
-                setup_ok = False
+                predicate_pass = False
+                predicate_evaluated = False
                 if _s5_pred is not None:
                     try:
-                        setup_ok = bool(_s5_pred(last_row))
+                        predicate_pass = bool(_s5_pred(last_row))
+                        predicate_evaluated = True
                     except Exception:
-                        setup_ok = False
+                        predicate_pass = False
+                        predicate_evaluated = False
 
-                if setup_ok:
-                    setup_pass_count += 1  # 👈 setup 通過をカウント
+                manual_pass = False
+                if (
+                    not setup_from_column
+                    and not predicate_evaluated
+                    and not setup_value_available
+                ):
+                    try:
+                        close_val = last_row.get("Close", float("nan"))
+                        adx_val = last_row.get("adx7", float("nan"))
+                        atr_pct_val = last_row.get("atr_pct", float("nan"))
+                        if (
+                            pd.notna(close_val)
+                            and pd.notna(adx_val)
+                            and pd.notna(atr_pct_val)
+                        ):
+                            manual_pass = bool(
+                                float(close_val) >= MIN_PRICE
+                                and float(adx_val) > MIN_ADX
+                                and float(atr_pct_val) > DEFAULT_ATR_PCT_THRESHOLD
+                            )
+                    except Exception:
+                        manual_pass = False
+
+                setup_ok = False
+                setup_source = ""
+                if setup_from_column:
+                    setup_ok = True
+                    setup_source = "column"
+                    if predicate_evaluated and not predicate_pass:
+                        diagnostics["mismatch_flag"] = 1
+                elif predicate_pass:
+                    setup_ok = True
+                    setup_source = "predicate"
+                    diagnostics["mismatch_flag"] = 1
+                elif manual_pass:
+                    setup_ok = True
+                    setup_source = "manual"
+                    diagnostics["mismatch_flag"] = 1
 
                 if not setup_ok:
                     continue
@@ -292,7 +417,7 @@ def generate_candidates_system5(
                         continue
                 except Exception:
                     continue
-                dt = pd.Timestamp(df.index[-1])
+                dt = pd.Timestamp(str(df.index[-1]))
                 date_counter[dt] = date_counter.get(dt, 0) + 1
 
                 # ATR10を配分計算用に保持
@@ -312,11 +437,12 @@ def generate_candidates_system5(
                         "atr_pct": last_row.get("atr_pct", 0),
                         "close": last_row.get("Close", 0),
                         "atr10": atr10_val,
+                        "_setup_via": setup_source,
+                        "_predicate_pass": bool(predicate_pass),
+                        "_manual_pass": bool(manual_pass),
                     }
                 )
 
-            # ✅ setup通過件数は最終候補確定時に一括計上する（ここでは設定しない）
-            # diagnostics["setup_predicate_count"] は下段で len(df_all) に統一
             diagnostics["setup_unique_symbols"] = len(
                 set(row["symbol"] for row in rows)
             )
@@ -356,6 +482,13 @@ def generate_candidates_system5(
                     except Exception:
                         pass
                     log_callback("System5: latest_only fast-path produced 0 rows")
+                # 診断の一貫性: 0件でも ranking_source を latest_only に設定（log_callback 有無に関わらず）
+                try:
+                    set_diagnostics_after_ranking(
+                        diagnostics, final_df=None, ranking_source="latest_only"
+                    )
+                except Exception:
+                    diagnostics["ranking_source"] = "latest_only"
                 return ({}, None, diagnostics) if include_diagnostics else ({}, None)
             df_all = pd.DataFrame(rows)
             mode_date = choose_mode_date_for_latest_only(date_counter)
@@ -364,15 +497,82 @@ def generate_candidates_system5(
             df_all = df_all.sort_values("adx7", ascending=False, kind="stable").head(
                 top_n
             )
-            set_diagnostics_after_ranking(
-                diagnostics, final_df=df_all, ranking_source="latest_only"
+
+            if "_setup_via" in df_all.columns:
+                via_series = df_all["_setup_via"].fillna("").astype(str)
+                diagnostics["setup_predicate_count"] = int((via_series != "").sum())
+
+                if "_predicate_pass" in df_all.columns:
+                    predicate_series = (
+                        df_all["_predicate_pass"].fillna(False).astype(bool)
+                    )
+                else:
+                    predicate_series = pd.Series(False, index=df_all.index)
+
+                if "_manual_pass" in df_all.columns:
+                    manual_series = df_all["_manual_pass"].fillna(False).astype(bool)
+                else:
+                    manual_series = pd.Series(False, index=df_all.index)
+
+                predicate_only_mask = (via_series != "column") & (
+                    predicate_series | manual_series
+                )
+                diagnostics["predicate_only_pass_count"] = int(
+                    predicate_only_mask.sum()
+                )
+            else:
+                diagnostics["setup_predicate_count"] = len(df_all)
+                diagnostics["predicate_only_pass_count"] = 0
+
+            diagnostics["setup_unique_symbols"] = int(df_all["symbol"].nunique())
+
+            meta_cols = ["_setup_via", "_predicate_pass", "_manual_pass"]
+            df_public = df_all.drop(
+                columns=[c for c in meta_cols if c in df_all.columns]
             )
+
+            # Feature flag: allow using Option-B finalize helper (non-breaking)
+            use_option_b_utils = False
+            try:
+                if bool(kwargs.get("use_option_b_utils", False)):
+                    use_option_b_utils = True
+                else:
+                    try:
+                        from config.environment import get_env_config as _get_env
+
+                        _env = _get_env()
+                        v = getattr(_env, "enable_option_b_system5", None)
+                        if v is not None and bool(v):
+                            use_option_b_utils = True
+                    except Exception:
+                        use_option_b_utils = False
+            except Exception:
+                use_option_b_utils = False
+
+            if use_option_b_utils:
+                try:
+                    from common.system_candidates_utils import (
+                        finalize_ranking_and_diagnostics as _finalize_diag,
+                    )
+
+                    _finalize_diag(
+                        diagnostics,
+                        df_public,
+                        ranking_source="latest_only",
+                        extras=None,
+                    )
+                except Exception:
+                    set_diagnostics_after_ranking(
+                        diagnostics, final_df=df_public, ranking_source="latest_only"
+                    )
+            else:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=df_public, ranking_source="latest_only"
+                )
             diagnostics["top_n_requested"] = top_n
 
             # ✅ 診断整合性チェック: ranked > setup は論理エラー
-            if diagnostics["ranked_top_n_count"] > diagnostics[
-                "setup_predicate_count"
-            ]:
+            if diagnostics["ranked_top_n_count"] > diagnostics["setup_predicate_count"]:
                 if log_callback:
                     ranked = diagnostics["ranked_top_n_count"]
                     setup = diagnostics["setup_predicate_count"]
@@ -381,17 +581,17 @@ def generate_candidates_system5(
                         f"setup_predicate_count ({setup}). "
                         "Possible duplicate or logic error."
                     )
-            by_date = normalize_dataframe_to_by_date(df_all)
+            by_date = normalize_dataframe_to_by_date(df_public)
             if log_callback:
                 msg = (
-                    f"System5: latest_only fast-path -> {len(df_all)} "
+                    f"System5: latest_only fast-path -> {len(df_public)} "
                     f"candidates (symbols={len(rows)})"
                 )
                 log_callback(msg)
             return (
-                (by_date, df_all.copy(), diagnostics)
+                (by_date, df_public.copy(), diagnostics)
                 if include_diagnostics
-                else (by_date, df_all.copy())
+                else (by_date, df_public.copy())
             )
         except Exception as e:
             if log_callback:
@@ -439,7 +639,7 @@ def generate_candidates_system5(
                     continue
                 adx7_val = cast(Any, row.get("adx7", 0))
                 try:
-                    if pd.isna(adx7_val) or float(adx7_val) <= 35.0:
+                    if pd.isna(adx7_val) or float(adx7_val) <= MIN_ADX_FULL_SCAN:
                         continue
                 except Exception:
                     continue
@@ -477,14 +677,78 @@ def generate_candidates_system5(
             ["date", "adx7"], ascending=[True, False]
         )
         diagnostics["ranking_source"] = "full_scan"
-        set_diagnostics_after_ranking(
-            diagnostics, final_df=candidates_df, ranking_source="full_scan"
-        )
+        # Feature flag: Option-B finalize helper
+        use_option_b_utils = False
+        try:
+            if bool(kwargs.get("use_option_b_utils", False)):
+                use_option_b_utils = True
+            else:
+                try:
+                    from config.environment import get_env_config as _get_env
+
+                    _env = _get_env()
+                    v = getattr(_env, "enable_option_b_system5", None)
+                    if v is not None and bool(v):
+                        use_option_b_utils = True
+                except Exception:
+                    use_option_b_utils = False
+        except Exception:
+            use_option_b_utils = False
+
+        if use_option_b_utils:
+            try:
+                from common.system_candidates_utils import (
+                    finalize_ranking_and_diagnostics as _finalize_diag,
+                )
+
+                _finalize_diag(
+                    diagnostics, candidates_df, ranking_source="full_scan", extras=None
+                )
+            except Exception:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=candidates_df, ranking_source="full_scan"
+                )
+        else:
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=candidates_df, ranking_source="full_scan"
+            )
     else:
         candidates_df = None
-        set_diagnostics_after_ranking(
-            diagnostics, final_df=None, ranking_source="full_scan"
-        )
+        # Feature flag: Option-B finalize helper for empty case
+        use_option_b_utils = False
+        try:
+            if bool(kwargs.get("use_option_b_utils", False)):
+                use_option_b_utils = True
+            else:
+                try:
+                    from config.environment import get_env_config as _get_env
+
+                    _env = _get_env()
+                    v = getattr(_env, "enable_option_b_system5", None)
+                    if v is not None and bool(v):
+                        use_option_b_utils = True
+                except Exception:
+                    use_option_b_utils = False
+        except Exception:
+            use_option_b_utils = False
+
+        if use_option_b_utils:
+            try:
+                from common.system_candidates_utils import (
+                    finalize_ranking_and_diagnostics as _finalize_diag,
+                )
+
+                _finalize_diag(
+                    diagnostics, None, ranking_source="full_scan", extras=None
+                )
+            except Exception:
+                set_diagnostics_after_ranking(
+                    diagnostics, final_df=None, ranking_source="full_scan"
+                )
+        else:
+            set_diagnostics_after_ranking(
+                diagnostics, final_df=None, ranking_source="full_scan"
+            )
 
     if log_callback:
         total_candidates = len(all_candidates)

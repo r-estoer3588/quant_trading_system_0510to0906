@@ -1,7 +1,7 @@
 import os
+from pathlib import Path
 import threading
 import time
-from pathlib import Path
 
 from common.run_lock import RunLock
 

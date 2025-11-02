@@ -71,7 +71,11 @@ except Exception:  # pragma: no cover - optional runtime dependency
 
         stdio = _StdIo()
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from common.progress_events import ProgressEventEmitter
+from config.settings import get_settings
 
 from . import operations as ops
 
@@ -374,6 +378,48 @@ def create_server() -> Server:
                     "additionalProperties": False,
                 },
             ),
+            # Progress Event Bus (MVP): publish and read progress events/state via MCP
+            types.Tool(
+                name="publish_progress_event",
+                description=(
+                    "進捗イベントを発行します。JSONL(progress_today.jsonl)と"
+                    "stateスナップショット(progress_state.json)に反映されます。"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "event_type": {"type": "string"},
+                        "data": {"type": "object", "default": {}},
+                        "level": {
+                            "type": "string",
+                            "enum": ["info", "warning", "error"],
+                            "default": "info",
+                        },
+                    },
+                    "required": ["event_type"],
+                    "additionalProperties": False,
+                },
+            ),
+            types.Tool(
+                name="get_progress_events",
+                description=(
+                    "最新の進捗イベント(JSONL)を取得します。limit 行を末尾から返します。"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "minimum": 1, "default": 50}
+                    },
+                    "additionalProperties": False,
+                },
+            ),
+            types.Tool(
+                name="get_progress_state",
+                description=(
+                    "進捗の最新スナップショット(progress_state.json)を返します。"
+                ),
+                inputSchema={"type": "object", "additionalProperties": False},
+            ),
         ]
 
     @server.call_tool()
@@ -517,6 +563,58 @@ def create_server() -> Server:
             )
             return (_text(json.dumps(result, ensure_ascii=False, indent=2)), result)
 
+        # --- Progress Event Bus tools (MVP) ---
+        def _logs_dir() -> Path:
+            try:
+                settings = get_settings(create_dirs=True)
+                logs_path = Path(getattr(settings, "LOGS_DIR", "logs"))
+            except Exception:
+                logs_path = Path("logs")
+            logs_path.mkdir(parents=True, exist_ok=True)
+            return logs_path
+
+        if name == "publish_progress_event":
+            etype = str(arguments.get("event_type"))
+            data = arguments.get("data") or {}
+            level = str(arguments.get("level", "info"))
+            emitter = ProgressEventEmitter()
+            await _run_sync(emitter.emit, etype, data, level)
+            return _text("ok")
+
+        if name == "get_progress_events":
+            limit = int(arguments.get("limit", 50))
+            path = _logs_dir() / "progress_today.jsonl"
+            events: list[dict[str, Any]] = []
+            try:
+                if path.exists():
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    lines = content.splitlines()
+                    for line in lines[-max(1, limit) :]:
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(obj, dict):
+                            events.append(obj)
+            except Exception:
+                events = []
+            text = json.dumps({"events": events}, ensure_ascii=False, indent=2)
+            return (_text(text), {"events": events})
+
+        if name == "get_progress_state":
+            path = _logs_dir() / "progress_state.json"
+            payload: dict[str, Any]
+            try:
+                if path.exists():
+                    text_content = path.read_text(encoding="utf-8", errors="ignore")
+                    payload = json.loads(text_content)
+                else:
+                    payload = {"updated_at": None, "last_event": None}
+            except Exception:
+                payload = {"updated_at": None, "last_event": None}
+            text = json.dumps(payload, ensure_ascii=False, indent=2)
+            return (_text(text), payload)
+
         raise ValueError(f"未知のツールです: {name}")
 
     return server
@@ -532,4 +630,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
-    anyio.run(main)
+    try:
+        if anyio is not None and hasattr(anyio, "run"):
+            anyio.run(main)
+        else:  # fallback to asyncio if anyio is unavailable
+            asyncio.run(main())
+    except Exception:  # conservative fallback
+        asyncio.run(main())

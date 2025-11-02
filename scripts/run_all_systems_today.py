@@ -45,19 +45,19 @@ from __future__ import annotations
 
 # flake8: noqa: E501
 import argparse
-import io
-import json
-import logging
-import multiprocessing
-import os
-import sys
-import threading
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
+import io
+import json
+import logging
+import multiprocessing
+import os
 from pathlib import Path
+import sys
+import threading
 from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
@@ -988,6 +988,101 @@ def _emit_ui_log(message: str) -> None:
         pass
 
 
+def _map_stage_progress_phase(progress: object) -> str:
+    """進捗率から大まかなフェーズ名を推定する。"""
+
+    try:
+        value = int(progress)
+    except Exception:
+        return "対象読み込み"
+    if value <= 0:
+        return "対象準備"
+    if value < 10:
+        return "対象読み込み"
+    if value < 30:
+        return "フィルター"
+    if value < 60:
+        return "セットアップ"
+    if value < 90:
+        return "トレード候補選定"
+    return "エントリー"
+
+
+def _emit_stage_progress_event(event: StageEvent) -> None:
+    """StageEvent を CLI ログ／MCP へ橋渡しする。"""
+
+    payload: dict[str, Any] = {
+        "system": event.system,
+        "progress": int(event.progress),
+        "phase": _map_stage_progress_phase(event.progress),
+    }
+
+    if event.filter_count is not None:
+        payload["filter_count"] = int(event.filter_count)
+    if event.setup_count is not None:
+        payload["setup_count"] = int(event.setup_count)
+    if event.candidate_count is not None:
+        payload["candidate_count"] = int(event.candidate_count)
+    if event.entry_count is not None:
+        payload["entry_count"] = int(event.entry_count)
+    if event.substage_name is not None:
+        payload["substage_name"] = event.substage_name
+    if event.substage_progress is not None:
+        payload["substage_progress"] = int(event.substage_progress)
+    if event.substage_total is not None:
+        payload["substage_total"] = int(event.substage_total)
+
+    emit_progress_event("stage_update", payload)
+    _log_stage_progress_event(payload)
+
+
+def _snapshot_to_progress_payload(snapshot: StageSnapshot | None) -> dict[str, Any]:
+    """StageSnapshot をイベント用ペイロードに変換する。"""
+
+    if snapshot is None:
+        return {}
+
+    payload: dict[str, Any] = {
+        "progress": int(snapshot.progress),
+        "phase": _map_stage_progress_phase(snapshot.progress),
+    }
+
+    if snapshot.target is not None:
+        payload["target"] = int(snapshot.target)
+    if snapshot.filter_pass is not None:
+        payload["filter_pass"] = int(snapshot.filter_pass)
+    if snapshot.setup_pass is not None:
+        payload["setup_pass"] = int(snapshot.setup_pass)
+    if snapshot.candidate_count is not None:
+        payload["candidate_count"] = int(snapshot.candidate_count)
+    if snapshot.entry_count is not None:
+        payload["entry_count"] = int(snapshot.entry_count)
+    if snapshot.exit_count is not None:
+        payload["exit_count"] = int(snapshot.exit_count)
+
+    return payload
+
+
+def _log_stage_progress_event(payload: Mapping[str, Any]) -> None:
+    """CLI ログにも進捗変化を残して視認性を揃える。"""
+
+    try:
+        system = str(payload.get("system", "unknown"))
+        progress = int(payload.get("progress", 0))
+        phase = str(payload.get("phase", "対象読み込み"))
+        extra_bits: list[str] = []
+        for key in ("filter_count", "setup_count", "candidate_count", "entry_count"):
+            if key in payload:
+                extra_bits.append(f"{key}={payload[key]}")
+        substage = payload.get("substage_name")
+        if substage:
+            extra_bits.append(f"substage={substage}")
+        suffix = f" ({', '.join(extra_bits)})" if extra_bits else ""
+        _log(f"[{system}] 進捗 {progress}%: {phase}{suffix}")
+    except Exception:
+        pass
+
+
 def _drain_stage_event_queue() -> None:
     """メインスレッドでステージ進捗イベントを処理し、UI 表示を更新する。"""
 
@@ -1086,6 +1181,12 @@ def _drain_stage_event_queue() -> None:
 
     if not events:
         return
+
+    for event in events:
+        try:
+            _emit_stage_progress_event(event)
+        except Exception:
+            continue
 
     if not cb2 or not callable(cb2):
         return
@@ -5355,7 +5456,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                                 setup_count = int(setup_count)
                             except Exception:
                                 setup_count = None
-                _stage(system_name, 75, candidate_count=int(count), setup_count=setup_count)
+                _stage(
+                    system_name, 75, candidate_count=int(count), setup_count=setup_count
+                )
             except Exception:
                 pass
 
@@ -5375,12 +5478,20 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         _log(f"✅ {system_name} 完了: {len(per_system[system_name])}件")
         # Progress: per-system complete
         try:
+            snapshot: StageSnapshot | None
+            try:
+                snapshot = GLOBAL_STAGE_METRICS.get_snapshot(system_name)
+            except Exception:
+                snapshot = None
+
+            event_data = {
+                "system": system_name,
+                "candidates": int(len(per_system.get(system_name, pd.DataFrame()))),
+            }
+            event_data.update(_snapshot_to_progress_payload(snapshot))
             emit_progress_event(
                 "system_complete",
-                {
-                    "system": system_name,
-                    "candidates": int(len(per_system.get(system_name, pd.DataFrame()))),
-                },
+                event_data,
             )
         except Exception:
             pass

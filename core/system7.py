@@ -26,6 +26,7 @@ System7 は SPY 専用のため、prepare_data/generate_candidates のみ共通�
 run_backtest は strategy 側にカスタム実装が残る。
 """
 
+import logging
 import os
 from typing import Any, Callable, Tuple
 
@@ -34,6 +35,14 @@ import pandas as pd
 from common.system_candidates_utils import set_diagnostics_after_ranking
 from common.system_setup_predicates import validate_predicate_equivalence
 from common.utils_spy import resolve_signal_entry_date
+
+# System7 configuration constants
+MIN_ROWS_FOR_CACHE = 300  # Minimum rows required to enable caching
+RECOMPUTE_CONTEXT_DAYS = 70  # Days of context needed for indicator recomputation
+MIN_50_WINDOW = 50  # 50-day low window for setup detection
+RECENT_WINDOW_SIZE = 50  # Window size for recent candidate counting
+
+logger = logging.getLogger(__name__)
 
 
 def prepare_data_vectorized_system7(
@@ -64,18 +73,20 @@ def prepare_data_vectorized_system7(
         # Early exit: check required precomputed indicators exist (lowercase)
         if "atr50" not in df.columns:
             raise RuntimeError(
-                "IMMEDIATE_STOP: System7 missing indicator atr50 for SPY. Daily signal execution must be stopped."
+                "IMMEDIATE_STOP: System7 missing indicator atr50 for SPY. "
+                "Daily signal execution must be stopped."
             )
 
         cache_path = os.path.join(cache_dir, "SPY.feather")
-        use_cache = bool(reuse_indicators and len(df) >= 300)
+        use_cache = bool(reuse_indicators and len(df) >= MIN_ROWS_FOR_CACHE)
         cached: pd.DataFrame | None = None
         if use_cache and os.path.exists(cache_path):
             try:
                 cached = pd.read_feather(cache_path)
                 cached["Date"] = pd.to_datetime(cached["Date"]).dt.normalize()
                 cached.set_index("Date", inplace=True)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"System7: Failed to read cache for SPY: {e}")
                 cached = None
 
         def _calc_indicators(src: pd.DataFrame) -> pd.DataFrame:
@@ -85,10 +96,12 @@ def prepare_data_vectorized_system7(
             # Check if precomputed ATR50 exists
             if "atr50" not in x.columns:
                 raise RuntimeError(
-                    "IMMEDIATE_STOP: System7 missing indicator atr50. Daily signal execution must be stopped."
+                    "IMMEDIATE_STOP: System7 missing indicator atr50. "
+                    "Daily signal execution must be stopped."
                 )
 
-            # Use precomputed ATR50 (lowercase) and create uppercase version for consistency
+            # Use precomputed ATR50 (lowercase) and create uppercase version
+            # for consistency
             x["ATR50"] = x["atr50"]
 
             # Use precomputed indicators for min_50 and max_70
@@ -99,7 +112,8 @@ def prepare_data_vectorized_system7(
                 pass
             else:
                 raise RuntimeError(
-                    "IMMEDIATE_STOP: System7 missing indicator min_50. Daily signal execution must be stopped."
+                    "IMMEDIATE_STOP: System7 missing indicator min_50. "
+                    "Daily signal execution must be stopped."
                 )
 
             if "Max_70" in x.columns:
@@ -109,7 +123,8 @@ def prepare_data_vectorized_system7(
                 pass
             else:
                 raise RuntimeError(
-                    "IMMEDIATE_STOP: System7 missing indicator max_70. Daily signal execution must be stopped."
+                    "IMMEDIATE_STOP: System7 missing indicator max_70. "
+                    "Daily signal execution must be stopped."
                 )
 
             x["setup"] = x["Low"] <= x["min_50"]
@@ -121,7 +136,7 @@ def prepare_data_vectorized_system7(
             if new_rows.empty:
                 result_df = cached
             else:
-                context_start = last_date - pd.Timedelta(days=70)
+                context_start = last_date - pd.Timedelta(days=RECOMPUTE_CONTEXT_DAYS)
                 recompute_src = df[df.index >= context_start]
                 recomputed = _calc_indicators(recompute_src)
                 recomputed = recomputed[recomputed.index > last_date]
@@ -132,22 +147,26 @@ def prepare_data_vectorized_system7(
                     result_df.loc[cached.index, "max_70"] = cached["max_70"]
                 try:
                     result_df.reset_index().to_feather(cache_path)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"System7: Failed to save cache for SPY: {e}")
                     pass
         else:
             result_df = _calc_indicators(df)
             try:
                 if use_cache:
                     result_df.reset_index().to_feather(cache_path)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"System7: Failed to save initial cache for SPY: {e}")
                 pass
         # テスト互換: 返却範囲は入力 df のインデックスに厳密一致させる
         try:
             result_df = result_df.reindex(df.index)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"System7: Failed to reindex result for SPY: {e}")
             pass
         prepared_dict["SPY"] = result_df
     except Exception as e:
+        logger.debug(f"System7: Failed to prepare data for SPY: {e}")
         if skip_callback:
             try:
                 skip_callback(f"SPY の処理をスキップしました: {e}")
@@ -232,11 +251,14 @@ def generate_candidates_system7(
             setup_ok = False
             try:
                 setup_ok = bool(_s7_pred(last_row))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"System7: Setup predicate failed for SPY: {e}")
                 setup_ok = False
 
             if setup_ok:
-                diagnostics["setup_predicate_count"] += 1
+                diagnostics["setup_predicate_count"] = (
+                    int(diagnostics.get("setup_predicate_count") or 0) + 1
+                )
 
                 setup_date = df.index[-1]
                 entry_date = resolve_signal_entry_date(setup_date)
@@ -271,7 +293,8 @@ def generate_candidates_system7(
                             log_callback(
                                 "System7: latest_only fast-path -> 1 candidate"
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"System7: Log callback failed: {e}")
                             pass
                     set_diagnostics_after_ranking(
                         diagnostics, final_df=df_fast, ranking_source="latest_only"
@@ -279,7 +302,8 @@ def generate_candidates_system7(
                     if progress_callback:
                         try:
                             progress_callback(1, 1)
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"System7: Progress callback failed: {e}")
                             pass
                     return (
                         (normalized, df_fast, diagnostics)
@@ -304,15 +328,18 @@ def generate_candidates_system7(
                             f"close={s_close_f:.2f}"
                         )
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"System7: Debug log failed: {e}")
                     pass
             if progress_callback:
                 try:
                     progress_callback(1, 1)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"System7: Progress callback failed (no setup): {e}")
                     pass
             return ({}, None, diagnostics) if include_diagnostics else ({}, None)
         except Exception as e:  # fallback to full scan
+            logger.debug(f"System7: Fast-path failed, falling back to full scan: {e}")
             if log_callback:
                 try:
                     log_callback(f"System7: fast-path failed -> fallback ({e})")
@@ -331,13 +358,15 @@ def generate_candidates_system7(
             limit_n = None
     try:
         setup_days = df[df["setup"]]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"System7: Failed to filter setup days: {e}")
         setup_days = pd.DataFrame()
 
     for date, row in setup_days.iterrows():
         try:
             entry_date = resolve_signal_entry_date(pd.to_datetime(str(date)))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"System7: Failed to resolve entry date for {date}: {e}")
             continue
         if pd.isna(entry_date):
             continue
@@ -349,7 +378,8 @@ def generate_candidates_system7(
             last_price = df["Close"].iloc[-1]
         try:
             atr_val_full = row.get("ATR50") if hasattr(row, "get") else row["ATR50"]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"System7: Failed to get ATR50 for {date}: {e}")
             atr_val_full = None
         rec = {
             "symbol": "SPY",
@@ -367,21 +397,25 @@ def generate_candidates_system7(
             all_dates = (
                 pd.Index(pd.to_datetime(df.index).normalize()).unique().sort_values()
             )
-            window_size = int(min(50, len(all_dates)) or 50)
+            window_size = int(
+                min(RECENT_WINDOW_SIZE, len(all_dates)) or RECENT_WINDOW_SIZE
+            )
             if window_size > 0:
                 recent_set = set(all_dates[-window_size:])
             else:
                 recent_set = set()
-            count_50 = sum(1 for d in candidates_by_date.keys() if d in recent_set)
+            count_recent = sum(1 for d in candidates_by_date.keys() if d in recent_set)
             log_callback(
-                f"候補日数: {count_50} (直近({count_50}/{window_size})日間, 50日安値由来の翌営業日数)"
+                f"候補日数: {count_recent} (直近({count_recent}/{window_size})日間, "
+                f"{MIN_50_WINDOW}日安値由来の翌営業日数)"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"System7: Failed to compute recent window stats: {e}")
     if progress_callback:
         try:
             progress_callback(1, 1)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"System7: Progress callback failed (full scan): {e}")
             pass
 
     # Normalize list structure to dict-of-dicts
@@ -404,7 +438,8 @@ def generate_candidates_system7(
         try:
             last_dt = max(normalized_full.keys())
             diagnostics["ranked_top_n_count"] = len(normalized_full.get(last_dt, {}))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"System7: Failed to compute ranked count: {e}")
             diagnostics["ranked_top_n_count"] = 0
     else:
         diagnostics["ranked_top_n_count"] = 0

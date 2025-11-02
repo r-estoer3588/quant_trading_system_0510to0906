@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime
 import logging
 import os
-import re
-from datetime import datetime
 from pathlib import Path
+import re
 
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 # ログ設定
 logging.basicConfig(

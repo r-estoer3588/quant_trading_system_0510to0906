@@ -12,9 +12,11 @@ def _make_prepared(
     return pd.DataFrame(
         {
             "Close": [70.0 + i for i in range(len(dates))],
+            "sma150": [65.0] * len(dates),  # Close>sma150を満たす
             "drop3d": drop_vals,
             "setup": [True] * len(dates),
             "atr_ratio": [0.8] * len(dates),
+            "dollarvolume20": [30_000_000] * len(dates),
         },
         index=dates,
     )
@@ -42,13 +44,13 @@ def test_system3_latest_only_parity_latest_day():
     assert full_df is not None and latest in full_by_date
 
     fast_syms = list(fast_df[fast_df["date"] == latest]["symbol"])  # drop3d desc
-    full_syms = list(full_by_date[latest].keys())
+    full_syms = [r["symbol"] for r in full_by_date[latest]]
     expected = ["AAA", "BBB", "CCC"]  # 0.50 > 0.40 > 0.30
     assert fast_syms == expected
     assert full_syms == expected
 
     fast_map = {r.symbol: r for r in fast_df.itertuples() if r.date == latest}
-    full_map = full_by_date[latest]
+    full_map = {r["symbol"]: r for r in full_by_date[latest]}
     for sym in expected:
-        assert float(fast_map[sym].drop3d) == float(full_map[sym]["drop3d"])  # type: ignore[index]
-        assert float(fast_map[sym].close) == float(full_map[sym]["close"])  # type: ignore[index]
+        assert float(fast_map[sym].drop3d) == float(full_map[sym]["drop3d"])
+        assert float(fast_map[sym].close) == float(full_map[sym]["close"])

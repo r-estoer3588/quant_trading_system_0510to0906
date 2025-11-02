@@ -1,0 +1,39 @@
+{
+	"folders": [
+		{
+			"name": "📊 Quant Trading System",
+			"path": "."
+		},
+		{
+			"name": "📝 Note Articles",
+			"path": "./note-articles"
+		}
+	],
+	"settings": {
+		"files.exclude": {
+			"**/__pycache__": true,
+			"**/*.pyc": true,
+			"**/.pytest_cache": true,
+			"**/.ruff_cache": true,
+			"**/.mypy_cache": true,
+			"**/node_modules": true
+		},
+		"search.exclude": {
+			"**/venv": true,
+			"**/node_modules": true,
+			"**/.git": true
+		},
+		"git.detectSubmodules": false,
+		"git.autoRepositoryDetection": true
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"charliermarsh.ruff",
+			"streetsidesoftware.code-spell-checker",
+			"yzhang.markdown-all-in-one",
+			"bierner.markdown-preview-github-styles"
+		]
+	}
+}
