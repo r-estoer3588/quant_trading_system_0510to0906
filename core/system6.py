@@ -1,3 +1,4 @@
+# isort: skip_file  # Conditional and late imports; keep order stable with Black
 # ============================================================================
 # 🧠 Context Note
 # このファイルは System6（ショート ミーン・リバージョン 高シックスデイサージ）のロジック専門
@@ -22,10 +23,10 @@
 
 """System6 core logic (Short mean-reversion momentum burst)."""
 
-from collections.abc import Callable
 import logging
 import math
 import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import pandas as pd
@@ -386,7 +387,9 @@ def generate_candidates_system6(
     #   - env.full_scan_today が False （明示 full 走査要求がない）
     #   - include_diagnostics は影響なし（fast path も診断返却対応済み）
     try:  # 環境依存のため失敗しても安全に継続
-        from config.environment import get_env_config  # 遅延インポートで初期化コスト最小化
+        from config.environment import (
+            get_env_config,
+        )  # 遅延インポートで初期化コスト最小化
 
         env = get_env_config()
         # PyTest 実行中はテストの明示指定（latest_only=False など）を尊重して強制切替しない

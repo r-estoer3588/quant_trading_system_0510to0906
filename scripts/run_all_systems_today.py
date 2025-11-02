@@ -1,3 +1,4 @@
+# isort: skip_file  # Script needs early runtime code before some imports (Windows encoding fix)
 # ============================================================================
 # 🧠 Context Note
 # このファイルは当日シグナル生成全体フロー（symbols → indicators → signals → allocation）の主導者
@@ -45,19 +46,19 @@ from __future__ import annotations
 
 # flake8: noqa: E501
 import argparse
-from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextvars import ContextVar
-from dataclasses import dataclass, field
-from datetime import datetime
 import io
 import json
 import logging
 import multiprocessing
 import os
-from pathlib import Path
 import sys
 import threading
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from threading import Lock
 from typing import Any, cast, no_type_check
 from zoneinfo import ZoneInfo
@@ -4687,7 +4688,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # 本番では常に 5.0% を表示し、ロジックは変更しない
         _atr_label_pct = 5.0
         try:
-            from config.environment import get_env_config as _get_env  # 遅延import（安全）
+            from config.environment import (
+                get_env_config as _get_env,
+            )  # 遅延import（安全）
 
             _env_label = _get_env()
             if hasattr(_env_label, "is_test_mode") and bool(_env_label.is_test_mode()):
