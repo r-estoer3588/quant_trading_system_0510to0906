@@ -2,16 +2,17 @@
 """Controlled pipeline test orchestrator (deterministic).
 
 Actions:
-  1) Generate 113 test symbols (+ SPY rolling) deterministically
-  2) Run pipeline in test mode: --test-mode test_symbols --skip-external --save-csv
-  3) Validate outputs:
-     - validation_report_*.json has summary.errors == 0
-     - signals_final_*.csv exists and has exactly 10 rows
+    1) Generate test symbols deterministically (current set: 13 + SPY rolling)
+    2) Run pipeline in test mode: --test-mode test_symbols --skip-external --save-csv
+    3) Validate outputs:
+         - validation_report_*.json has summary.errors == 0
+             - signals_final_*.csv exists under settings.outputs.signals_dir
+                 and has expected deterministic row count (currently 1)
 
 Exit codes:
-  0 = success
-  2 = generation or pipeline failed
-  3 = validation failed
+    0 = success
+    2 = generation or pipeline failed
+    3 = validation failed
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+from config.settings import get_settings
 
 
 def _run_generator() -> None:
@@ -60,13 +62,14 @@ def _latest_file(root: Path, pattern: str) -> Optional[Path]:
 
 
 def _validate_outputs() -> None:
-    # validation_report lives under results_csv_test/validation
-    val_dir = Path("results_csv_test") / "validation"
+    # Resolve directories from settings for robustness
+    settings = get_settings(create_dirs=False)
+
+    # validation_report lives under settings.RESULTS_DIR/validation
+    val_dir = Path(settings.RESULTS_DIR) / "validation"
     val_file = _latest_file(val_dir, "validation_report_*.json")
     if not val_file or not val_file.exists():
-        sys.stderr.write(
-            "validation report not found under results_csv_test/validation\n"
-        )
+        sys.stderr.write(f"validation report not found under {val_dir}\n")
         raise SystemExit(3)
     try:
         report = json.loads(val_file.read_text(encoding="utf-8"))
@@ -79,23 +82,20 @@ def _validate_outputs() -> None:
         raise SystemExit(3)
 
     # final CSV lives under settings.outputs.signals_dir; glob by pattern
-    # Avoid importing settings to minimize side-effects; default to "results_csv".
-    # If customized, adjust here or pass RUN_NAMESPACE in CI.
-    sig_dir = Path("results_csv")
-    if not sig_dir.exists():
-        # fallback: try results_csv_test (some setups may direct there)
-        sig_dir = Path("results_csv_test")
+    sig_dir = Path(settings.outputs.signals_dir)
     final_csv = _latest_file(sig_dir, "signals_final_*.csv")
     if not final_csv or not final_csv.exists():
         sys.stderr.write(f"final CSV not found under {sig_dir}\n")
         raise SystemExit(3)
     try:
         df = pd.read_csv(final_csv)
-        if len(df) != 10:
+        # Deterministic expectation for current test symbol set is 1
+        expected_rows = 1
+        if len(df) != expected_rows:
             sys.stderr.write(
                 (
-                    "unexpected final count: {} rows (expected 10) in {}\n".format(
-                        len(df), final_csv.name
+                    "unexpected final count: {} rows (expected {}) in {}\n".format(
+                        len(df), expected_rows, final_csv.name
                     )
                 )
             )
@@ -109,7 +109,7 @@ def main() -> int:
     _run_generator()
     _run_pipeline()
     _validate_outputs()
-    print("\n✅ Controlled pipeline test passed: validation OK, final=10 rows")
+    print("\n✅ Controlled pipeline test passed: validation OK (final rows validated)")
     return 0
 
 
