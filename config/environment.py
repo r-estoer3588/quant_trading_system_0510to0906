@@ -12,9 +12,9 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from functools import lru_cache
-import os
 
 
 def _get_bool_env(key: str, default: bool = False) -> bool:
