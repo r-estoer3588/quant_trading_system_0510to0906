@@ -4687,9 +4687,7 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # 本番では常に 5.0% を表示し、ロジックは変更しない
         _atr_label_pct = 5.0
         try:
-            from config.environment import (
-                get_env_config as _get_env,
-            )  # 遅延import（安全）
+            from config.environment import get_env_config as _get_env  # 遅延import（安全）
 
             _env_label = _get_env()
             if hasattr(_env_label, "is_test_mode") and bool(_env_label.is_test_mode()):
