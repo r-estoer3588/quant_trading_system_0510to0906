@@ -353,10 +353,11 @@ def _inject_css() -> None:
             margin: var(--spacing-md) 0;
             box-shadow: var(--shadow-md);
             transition: all 0.3s ease;
+            min-height: 120px; /* stabilize card height */
         }
 
         .ap-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-1px); /* reduce hover shift */
             box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.2);
         }
 
@@ -369,6 +370,7 @@ def _inject_css() -> None:
             border: 1px solid var(--border-color);
             box-shadow: var(--shadow-sm);
             transition: all 0.3s ease;
+            min-height: 136px; /* stabilize metric card height */
         }
 
         .ap-metric:hover {
@@ -390,6 +392,8 @@ def _inject_css() -> None:
             color: var(--text-primary);
             margin-bottom: var(--spacing-xs);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-variant-numeric: tabular-nums; /* prevent width jank when numbers change */
+            font-feature-settings: 'tnum' 1;
         }
 
         .ap-metric .delta-pos {
@@ -419,6 +423,8 @@ def _inject_css() -> None:
             margin-bottom: var(--spacing-xs);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
             line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum' 1;
         }
 
         .ap-metric-label {
@@ -496,6 +502,8 @@ def _inject_css() -> None:
             font-weight: bold;
             color: var(--text-primary);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum' 1;
         }
 
         .ap-stat-value.green {
@@ -555,6 +563,12 @@ def _inject_css() -> None:
             .ap-stat-grid {
                 grid-template-columns: 1fr;
             }
+        }
+
+        /* Respect user motion preferences to avoid jank */
+        @media (prefers-reduced-motion: reduce) {
+            .ap-card, .ap-metric { transition: none; }
+            .ap-card:hover, .ap-metric:hover { transform: none; }
         }
         </style>
         """
@@ -1202,7 +1216,9 @@ def _render_exit_actions(
         except Exception:
             pass
         st.dataframe(
-            _sanitize_dataframe_for_arrow(limit_info_df), width="stretch"
+            _sanitize_dataframe_for_arrow(limit_info_df),
+            width="stretch",
+            height=220,
         )
 
     # 上限日数に近いか、すでに到達したポジションを特定
@@ -1969,6 +1985,7 @@ def main() -> None:
                 st.dataframe(
                     _sanitize_dataframe_for_arrow(display_df),
                     width="stretch",
+                    height=420,
                     hide_index=True,
                     column_config=col_cfg,
                 )
@@ -1976,6 +1993,7 @@ def main() -> None:
                 st.dataframe(
                     _sanitize_dataframe_for_arrow(display_df),
                     width="stretch",
+                    height=420,
                     hide_index=True,
                 )
 
