@@ -1162,6 +1162,15 @@ def _render_exit_actions(
         limit_info_df = df[
             ["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]
         ].copy()
+        # Arrow 互換性の問題を解決: オブジェクト型を文字列に変換
+        try:
+            for col in limit_info_df.columns:
+                if limit_info_df[col].dtype == object:
+                    limit_info_df[col] = limit_info_df[col].apply(
+                        lambda x: str(x) if x is not None else None
+                    )
+        except Exception:
+            pass
         st.dataframe(limit_info_df, width="stretch")
 
     # 上限日数に近いか、すでに到達したポジションを特定
@@ -1880,6 +1889,17 @@ def main() -> None:
             display_df = pos_df.drop(
                 columns=["_limit_days", "_limit_reached"], errors="ignore"
             )
+
+            # Arrow 互換性の問題を解決: UUID や他の複雑なオブジェクトを文字列に変換
+            try:
+                for col in display_df.columns:
+                    if display_df[col].dtype == object:
+                        # UUID オブジェクトを文字列に変換
+                        display_df[col] = display_df[col].apply(
+                            lambda x: str(x) if x is not None else None
+                        )
+            except Exception:
+                pass
 
             # カラム設定
             col_cfg: dict[str, Any] = {}
