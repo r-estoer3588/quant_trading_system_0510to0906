@@ -159,6 +159,7 @@ PR 作成時に自動的にカバレッジレポートが生成され、以下�
 - 🚀 **日次シグナル自動実行**: Windows タスクスケジューラで毎日 10:00 JST に自動生成
 - 📊 **Slack 通知**: 成功/エラーを自動通知（`#trading-signals`, `#trading-errors`）
 - ☁️ **GitHub Actions**: クラウドでのシグナル生成、ドキュメント更新、セキュリティ監査
+- 💰 **Alpaca Paper Trading**: 仮想トレード実績の自動蓄積（詳細は下記）
 
 ### ドキュメント自動化
 
@@ -186,7 +187,8 @@ pip install -r requirements.txt
 ### 主要な環境変数
 
 - `EODHD_API_KEY`: EOD Historical Data API キー（必須）
-- `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`: Alpaca ブローカー連携用
+- `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`: Alpaca ブローカー連携用（**Paper Trading対応済み**）
+- `ALPACA_PAPER`: `true` でペーパートレード、`false` で本番取引（デフォルト: `true`）
 - `SLACK_WEBHOOK_URL` または `SLACK_BOT_TOKEN`+`SLACK_CHANNEL`: Slack 通知設定
 - `DISCORD_WEBHOOK_URL`: Discord 通知設定
 
@@ -215,6 +217,7 @@ pip install -r requirements.txt
 - UI: `streamlit run apps/app_integrated.py`
 - Alpaca ダッシュボード: `streamlit run app_alpaca_dashboard.py`
 - 当日パイプライン: `python scripts/run_all_systems_today.py --parallel --save-csv`
+- **🔥 Alpaca Paper Trading**: `python scripts/daily_paper_trade.py --dry-run` （詳細は下記）
 
 ### ログ最適化機能
 
@@ -278,6 +281,68 @@ COMPACT_TODAY_LOGS=1 ENABLE_PROGRESS_EVENTS=1 ROLLING_ISSUES_VERBOSE_HEAD=3 \
   - レート制限により同種メッセージが適切な間隔（2-10 秒）で出力
   - 重要な情報（エラー、最終結果など）は引き続き INFO レベルで表示
   - ログファイルサイズが約 60-80%削減（実測値）
+
+---
+
+## 🔥 Alpaca Paper Trading 連携
+
+システムが生成したシグナルを **Alpaca Paper Trading API** へ自動送信し、仮想トレード実績を蓄積できます。
+
+### セットアップ
+
+1. [Alpaca](https://alpaca.markets/) でアカウント作成（無料）
+2. Paper Trading 用の API キーを取得
+3. `.env` に以下を追加：
+
+```bash
+APCA_API_KEY_ID=your_key_id_here
+APCA_API_SECRET_KEY=your_secret_key_here
+ALPACA_PAPER=true  # ペーパートレード（仮想）モード
+```
+
+### 実行方法
+
+```bash
+# Dry-run（注文を送信せず確認のみ）
+python scripts/daily_paper_trade.py --dry-run
+
+# 実際にペーパートレード実行
+python scripts/daily_paper_trade.py
+
+# フルモード（全銘柄対象）
+python scripts/daily_paper_trade.py --mode full --verbose
+```
+
+### 主な機能
+
+- ✅ **全システム統合**: System1-7 のシグナルを自動送信
+- ✅ **注文タイプ対応**: システム別に Market / Limit を自動選択
+- ✅ **ログ記録**: `results_csv/paper_trade_log_*.csv` に注文履歴を保存
+- ✅ **通知連携**: Slack/Discord へ注文結果を自動通知
+- ✅ **エラーハンドリング**: リトライ機能とレート制限対応
+
+### 自動化（オプション）
+
+毎日市場終了前（15:45 ET）に自動実行する設定：
+
+```powershell
+# Windows タスクスケジューラ
+$action = New-ScheduledTaskAction `
+    -Execute "python" `
+    -Argument "c:\Repos\quant_trading_system\scripts\daily_paper_trade.py" `
+    -WorkingDirectory "c:\Repos\quant_trading_system"
+
+$trigger = New-ScheduledTaskTrigger -Daily -At "15:45"
+
+Register-ScheduledTask `
+    -TaskName "AlpacaPaperTrade" `
+    -Action $action `
+    -Trigger $trigger
+```
+
+**📚 詳細ガイド**: [docs/ALPACA_PAPER_TRADING.md](./docs/ALPACA_PAPER_TRADING.md)
+
+---
 
 ## テスト
 

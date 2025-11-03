@@ -6654,19 +6654,74 @@ def merge_signals_for_cli(signals_for_merge: list[Signal]) -> None:
 
 
 def maybe_submit_orders(final_df: pd.DataFrame, args: argparse.Namespace) -> None:
+    """Alpacaへの注文送信（オプション）"""
     if final_df.empty or not args.alpaca_submit:
         return
-    submit_orders_df(
-        final_df,
-        paper=(not args.live),
-        order_type=args.order_type,
-        system_order_type=None,
-        tif=args.tif,
-        retries=2,
-        delay=0.5,
-        log_callback=_log,
-        notify=True,
-    )
+
+    _log("🚀 Alpacaへ注文を送信しています...")
+
+    # トレード履歴ロガー
+    try:
+        from common.trade_history import get_trade_history_logger
+        history_logger = get_trade_history_logger()
+    except Exception:
+        history_logger = None
+
+    # Run ID取得
+    try:
+        run_id = str(globals().get("_RUN_ID") or "unknown")
+    except Exception:
+        run_id = "cli_run"
+
+    try:
+        results_df = submit_orders_df(
+            final_df,
+            paper=(not args.live),
+            order_type=args.order_type,
+            system_order_type=None,
+            tif=args.tif,
+            retries=2,
+            delay=0.5,
+            log_callback=_log,
+            notify=True,
+        )
+
+        if results_df is not None and not results_df.empty:
+            # 結果サマリー
+            total = len(results_df)
+            success = len(results_df[results_df["status"].notna()])
+            errors = len(results_df[results_df["error"].notna()])
+
+            _log(f"✅ 注文送信完了: {success}/{total} 件成功, {errors} 件エラー")
+
+            # エラー詳細
+            if errors > 0:
+                error_df = results_df[results_df["error"].notna()]
+                for _, row in error_df.iterrows():
+                    _log(
+                        f"  ❌ {row['symbol']}: {row.get('error', 'Unknown error')}"
+                    )
+
+            # 履歴記録
+            if history_logger:
+                try:
+                    history_logger.log_orders(
+                        results_df,
+                        paper_mode=(not args.live),
+                        run_id=run_id,
+                        metadata={
+                            "cli_mode": True,
+                            "tif": args.tif,
+                        },
+                    )
+                    _log(f"📝 トレード履歴を記録: {total} 件")
+                except Exception as exc:
+                    _log(f"⚠️ 履歴記録に失敗: {exc}")
+        else:
+            _log("📭 送信された注文はありませんでした")
+
+    except Exception as exc:
+        _log(f"❌ Alpaca注文送信に失敗: {exc}", level="ERROR")
 
 
 def maybe_run_planned_exits(args: argparse.Namespace) -> None:

@@ -199,13 +199,16 @@ def calculate_business_holding_days(
         return 0
 
 
-def submit_exit_orders_df(df, *args, **kwargs):
-    """Minimal stub: pretend to submit orders and return an empty result."""
-    try:
-        # In real usage this submits to broker; here we just return an empty list
-        return []
-    except Exception:
-        return []
+# submit_exit_orders_df は common.alpaca_order から import して使用
+# スタブではなく実装版を使用するように変更
+try:
+    from common.alpaca_order import submit_exit_orders_df
+except ImportError:
+    # フォールバック: テスト環境用のスタブ
+    def submit_exit_orders_df(df, *args, **kwargs):
+        """Fallback stub for testing environments without alpaca-py."""
+        import pandas as pd
+        return pd.DataFrame()
 
 
 class Notifier:

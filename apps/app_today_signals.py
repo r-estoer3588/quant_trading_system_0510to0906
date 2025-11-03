@@ -99,6 +99,7 @@ from common.system_groups import (  # noqa: E402
 from common.today_signals import (  # noqa: E402
     run_all_systems_today as compute_today_signals,
 )
+from common.trade_history import get_trade_history_logger  # noqa: E402
 from common.today_signals import LONG_SYSTEMS, SHORT_SYSTEMS  # noqa: E402
 from common.utils_spy import (  # noqa: E402
     calculate_trading_days_lag,
@@ -3271,6 +3272,11 @@ def _execute_auto_trading(
 ) -> None:
     st.divider()
     st.subheader("Alpaca自動発注結果")
+
+    # トレード履歴ロガーの初期化
+    history_logger = get_trade_history_logger()
+    run_id = st.session_state.get("last_run_id", "unknown")
+
     system_order_type = {
         "system1": "market",
         "system3": "market",
@@ -3280,23 +3286,81 @@ def _execute_auto_trading(
         "system6": "limit",
         "system7": "limit",
     }
-    results_df = submit_orders_df(
-        final_df,
-        paper=trade_options.paper_mode,
-        order_type=None,
-        system_order_type=system_order_type,
-        tif="DAY",
-        retries=int(trade_options.retries),
-        delay=float(max(0.0, trade_options.delay)),
-        log_callback=logger.log,
-        notify=run_config.notify,
-    )
+
+    # プログレス表示
+    with st.spinner("Alpacaへ注文を送信中..."):
+        try:
+            results_df = submit_orders_df(
+                final_df,
+                paper=trade_options.paper_mode,
+                order_type=None,
+                system_order_type=system_order_type,
+                tif="DAY",
+                retries=int(trade_options.retries),
+                delay=float(max(0.0, trade_options.delay)),
+                log_callback=logger.log,
+                notify=run_config.notify,
+            )
+
+            # 履歴ログに記録
+            if results_df is not None and not results_df.empty:
+                try:
+                    history_logger.log_orders(
+                        results_df,
+                        paper_mode=trade_options.paper_mode,
+                        run_id=run_id,
+                        metadata={
+                            "tif": "DAY",
+                            "notify": run_config.notify,
+                        },
+                    )
+                    logger.log(
+                        f"✅ トレード履歴を記録しました: "
+                        f"{len(results_df)} 件"
+                    )
+                except Exception as exc:
+                    logger.log(f"⚠️ 履歴記録に失敗: {exc}")
+
+        except Exception as exc:
+            st.error(f"❌ 注文送信に失敗しました: {exc}")
+            logger.log(f"ERROR: {exc}")
+            return
+
+    # 結果表示
     if results_df is not None and not results_df.empty:
+        # 成功・失敗のサマリー
+        total = len(results_df)
+        success = len(results_df[results_df["status"].notna()])
+        errors = len(results_df[results_df["error"].notna()])
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("合計注文数", total)
+        with col2:
+            st.metric("成功", success, delta=f"{success/total*100:.0f}%")
+        with col3:
+            st.metric("エラー", errors, delta=f"-{errors}" if errors > 0 else "0")
+
+        # 詳細テーブル
         st.dataframe(results_df, width="stretch")
+
+        # エラー詳細
+        if errors > 0:
+            st.warning(f"⚠️ {errors} 件の注文でエラーが発生しました")
+            error_df = results_df[results_df["error"].notna()]
+            st.dataframe(
+                error_df[["symbol", "side", "qty", "error"]],
+                width="stretch"
+            )
+
+        # ポーリング
         if trade_options.poll_status and any(
             results_df["order_id"].fillna("").astype(str)
-        ):  # noqa: E501
+        ):
             _poll_order_status(results_df, trade_options)
+    else:
+        st.info("📭 送信された注文はありませんでした")
+
     if trade_options.update_bp_after:
         _update_buying_power(trade_options)
 
@@ -4229,3 +4293,105 @@ if st.button("Generate Signals", type="primary"):
     render_today_signals_results(artifacts, run_config, trade_options)
 else:
     _render_previous_results_section()
+
+
+# ===== トレード履歴タブの追加 =====
+with st.expander("📊 トレード履歴"):
+    st.markdown("### 過去の注文履歴")
+
+    try:
+        history_logger = get_trade_history_logger()
+
+        # フィルタオプション
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            days_filter = st.selectbox(
+                "期間", [7, 14, 30, 90, 365], index=2, key="history_days"
+            )
+        with col2:
+            paper_only = st.checkbox(
+                "ペーパートレードのみ", value=True, key="history_paper_only"
+            )
+        with col3:
+            limit = st.number_input(
+                "表示件数", min_value=10, max_value=1000, value=100, key="history_limit"
+            )
+
+        # 統計情報
+        stats = history_logger.get_stats(days=days_filter, paper_only=paper_only)
+
+        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+        with stat_col1:
+            st.metric("合計注文数", stats["total_orders"])
+        with stat_col2:
+            st.metric("成功", stats["successful_orders"])
+        with stat_col3:
+            st.metric("失敗", stats["failed_orders"])
+        with stat_col4:
+            st.metric("銘柄数", stats["total_symbols"])
+
+        # システム別内訳
+        if stats.get("systems"):
+            st.markdown("**システム別内訳**")
+            systems_df = pd.DataFrame(
+                list(stats["systems"].items()), columns=["System", "Count"]
+            )
+            st.dataframe(systems_df, width="stretch", hide_index=True)
+
+        # 履歴テーブル
+        history_df = history_logger.get_recent_trades(
+            limit=limit, paper_only=paper_only
+        )
+
+        if not history_df.empty:
+            st.markdown("**注文履歴**")
+
+            # 表示用にカラムを整形
+            display_df = history_df[
+                [
+                    "timestamp",
+                    "symbol",
+                    "side",
+                    "qty",
+                    "price",
+                    "status",
+                    "system",
+                    "order_type",
+                    "error",
+                ]
+            ].copy()
+
+            display_df["timestamp"] = pd.to_datetime(
+                display_df["timestamp"]
+            ).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            st.dataframe(
+                display_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "timestamp": "日時",
+                    "symbol": "銘柄",
+                    "side": "売買",
+                    "qty": st.column_config.NumberColumn("数量", format="%d"),
+                    "price": st.column_config.NumberColumn("価格", format="$%.2f"),
+                    "status": "ステータス",
+                    "system": "システム",
+                    "order_type": "注文種別",
+                    "error": "エラー",
+                },
+            )
+
+            # CSVエクスポート
+            csv = history_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 履歴をCSVでダウンロード",
+                csv,
+                file_name=f"trade_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("📭 履歴がありません")
+
+    except Exception as exc:
+        st.error(f"履歴の読み込みに失敗: {exc}")
