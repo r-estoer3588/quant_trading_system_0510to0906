@@ -3331,7 +3331,8 @@ def _execute_auto_trading(
         # 成功・失敗のサマリー
         total = len(results_df)
         success = len(results_df[results_df["status"].notna()])
-        errors = len(results_df[results_df["error"].notna()])
+        # error列が存在するかチェック（存在しないかもしれない）
+        errors = len(results_df[results_df.get("error", pd.Series(dtype=object)).notna()]) if "error" in results_df.columns else 0
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -3345,13 +3346,15 @@ def _execute_auto_trading(
         st.dataframe(results_df, width="stretch")
 
         # エラー詳細
-        if errors > 0:
+        if errors > 0 and "error" in results_df.columns:
             st.warning(f"⚠️ {errors} 件の注文でエラーが発生しました")
             error_df = results_df[results_df["error"].notna()]
-            st.dataframe(
-                error_df[["symbol", "side", "qty", "error"]],
-                width="stretch"
-            )
+            error_cols = [c for c in ["symbol", "side", "qty", "error"] if c in error_df.columns]
+            if error_cols:
+                st.dataframe(
+                    error_df[error_cols],
+                    width="stretch"
+                )
 
         # ポーリング
         if trade_options.poll_status and any(

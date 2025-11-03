@@ -1,326 +1,254 @@
 {
+  "AAAU": [
+    "system1"
+  ],
   "ABVX": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "COMM": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "CX": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "APP": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "B": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "BA": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "CYBR": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "BABA": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "APTV": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "EBAY": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
   "AEO": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
-  "CIEN": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "APLS": [
+    "system3"
   ],
-  "BE": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "APP": [
+    "system1"
+  ],
+  "APTV": [
+    "system1"
+  ],
+  "ASX": [
+    "system2"
+  ],
+  "ATXS": [
+    "system5"
+  ],
+  "AVTR": [
+    "system3"
+  ],
+  "B": [
+    "system1"
+  ],
+  "BA": [
+    "system1"
+  ],
+  "BABA": [
+    "system1"
   ],
   "BBW": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
-  "OUST": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BE": [
+    "system1"
   ],
-  "KGC": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BETR": [
+    "system1"
   ],
-  "METC": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BL": [
+    "system2"
   ],
-  "RCAT": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BLK": [
+    "system4"
   ],
-  "DB": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BMA": [
+    "system5"
   ],
-  "RDDT": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "BMNR": [
+    "system1"
   ],
   "BROS": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
   "C": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
-  "AAAU": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CASY": [
+    "system4"
   ],
-  "ZEPP": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CELC": [
+    "system1"
   ],
-  "WLDS": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CG": [
+    "system4"
   ],
-  "INOD": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CI": [
+    "system3"
   ],
-  "PAPL": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CIEN": [
+    "system1"
   ],
-  "RZLV": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "CLS": [
+    "system2"
+  ],
+  "CMG": [
+    "system3"
+  ],
+  "CNP": [
+    "system4"
+  ],
+  "COMM": [
+    "system1"
+  ],
+  "CWH": [
+    "system3"
+  ],
+  "CX": [
+    "system1"
+  ],
+  "CYBR": [
+    "system1"
+  ],
+  "DB": [
+    "system1"
+  ],
+  "DTE": [
+    "system4"
+  ],
+  "EBAY": [
+    "system1"
   ],
   "FCEL": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
-  "PBPB": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "FI": [
+    "system3"
   ],
-  "TRVI": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
-  ],
-  "WBD": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "FMC": [
+    "system3"
   ],
   "GCTK": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
   ],
-  "RAPP": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+  "GH": [
+    "system2"
+  ],
+  "GSAT": [
+    "system1"
+  ],
+  "IMVT": [
+    "system5"
+  ],
+  "INBX": [
+    "system2"
+  ],
+  "INOD": [
+    "system1"
+  ],
+  "KGC": [
+    "system1"
+  ],
+  "LRN": [
+    "system3"
+  ],
+  "MAZE": [
+    "system5"
+  ],
+  "MDT": [
+    "system4"
+  ],
+  "METC": [
+    "system1"
+  ],
+  "NEGG": [
+    "system1"
+  ],
+  "NKTR": [
+    "system1"
+  ],
+  "ODD": [
+    "system5"
+  ],
+  "OUST": [
+    "system1"
+  ],
+  "PAPL": [
+    "system1"
+  ],
+  "PBPB": [
+    "system1"
+  ],
+  "PFGC": [
+    "system4"
   ],
   "PL": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
+  ],
+  "QBTS": [
+    "system1"
+  ],
+  "RAPP": [
+    "system1"
+  ],
+  "RCAT": [
+    "system1"
+  ],
+  "RDDT": [
+    "system1"
+  ],
+  "RHI": [
+    "system5"
+  ],
+  "RNA": [
+    "system2"
+  ],
+  "ROIV": [
+    "system5"
+  ],
+  "RVMD": [
+    "system5"
+  ],
+  "RZLV": [
+    "system1"
+  ],
+  "SBET": [
+    "system1"
+  ],
+  "SFM": [
+    "system3"
+  ],
+  "SGI": [
+    "system4"
+  ],
+  "STI": [
+    "system1"
+  ],
+  "TPR": [
+    "system4"
+  ],
+  "TRVI": [
+    "system1"
   ],
   "TSLR": [
-    "system1",
-    "system2",
-    "system3",
-    "system4",
-    "system5",
-    "system6",
-    "system7"
+    "system1"
+  ],
+  "VIAV": [
+    "system2"
+  ],
+  "VRNS": [
+    "system3"
+  ],
+  "VRSN": [
+    "system5"
+  ],
+  "VTYX": [
+    "system2"
+  ],
+  "WBD": [
+    "system2"
+  ],
+  "WHD": [
+    "system2"
+  ],
+  "WLDS": [
+    "system1"
+  ],
+  "WMT": [
+    "system4"
+  ],
+  "WRBY": [
+    "system5"
+  ],
+  "ZEPP": [
+    "system1"
   ]
 }
