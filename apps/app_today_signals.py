@@ -3812,17 +3812,22 @@ with st.sidebar:
                 for order in orders:
                     orders_data.append(
                         {
-                            "注文ID": order.id,
+                            "注文ID": str(order.id) if order.id else "",  # UUID を文字列に変換
                             "銘柄": order.symbol,
                             "サイド": order.side,
                             "数量": order.qty,
                             "注文価格": getattr(order, "limit_price", "Market"),
                             "注文タイプ": order.order_type,
                             "状況": order.status,
-                            "作成日時": order.created_at,
+                            "作成日時": str(order.created_at) if order.created_at else "",
                         }
                     )
                 orders_df = pd.DataFrame(orders_data)
+                # Arrow 互換性のため全列を文字列化
+                try:
+                    orders_df = orders_df.astype(str)
+                except Exception:
+                    pass
                 st.dataframe(orders_df, width="stretch")
             else:
                 st.info("未約定注文はありません")
