@@ -1,0 +1,150 @@
+[14:28:58 | 0分00秒]  ログ保存先: C:\Repos\quant_trading_system\logs\today_signals_20251103_1428.log
+[14:28:58 | 0分00秒] ⏱️  軽量ベンチマーク(時間計測)を有効化しました
+[14:28:58 | 0分00秒]  デバッグ: compute_today_signals開始
+####################################################################
+#   本日のシグナル 実行開始 (Engine)
+# ⏱️ 2025-11-03 14:28:59 | RUN-ID: 0a5ffac9
+####################################################################
+
+ エントリー予定日(NYSE): 2025-11-03
+ シグナル基準日(前営業日): 2025-10-31
+i️ 注: EODHDは当日終値が未反映のため、直近営業日ベースで計算します。
+
+[14:28:59 | 0分01秒]  架空銘柄モード: 13銘柄を使用 (skip_external=True)
+[14:28:59 | 0分01秒]  対象シンボル数: 14 | 銘柄数:13
+#  銘柄数:13
+[14:28:59 | 0分01秒]  サンプル: SPY, FAIL_ALL, FILTER_ONLY_S1, FILTER_ONLY_S2, FILTER_ONLY_S3, FILTER_ONLY_S4, FILTER_ONLY_S5, FILTER_ONLY_S6, SETUP_PASS_S1, SETUP_PASS_S2...
+[14:28:59 | 0分01秒] [WARNING] [TST-FRESHNESS] テストモード: 基本データの鮮度許容を 365 営業日へ緩和します (rolling cache 検証)
+[14:29:41 | 0分43秒]  データカバレッジ: rolling取得済み 14/14 | missing=0
+[14:29:41 | 0分43秒]  Phase 0: rolling キャッシュの最新営業日チェック中 (期待日: 2025-10-31)...
+[14:29:41 | 0分43秒] i️ 許容遅延: 過去 3 営業日までを有効とみなしています (基準日: 2025-10-31)
+[14:29:41 | 0分43秒] ✅ Phase 0 完了: 14 銘柄が処理対象(0 銘柄を除外)
+[14:29:41 | 0分43秒] ⚠️ SPYキャッシュの最終日が固定したシグナル基準日と異なります: cache=2025-11-03 / frozen=2025-10-31 (営業日差: 0日)
+[14:29:41 | 0分43秒]  指標事前計算状況をチェック中...
+[14:29:41 | 0分43秒] ✅ 指標事前計算チェック: 全て正常
+[14:29:41 | 0分43秒]  事前フィルター実行中 (system1〜system6)...
+[14:29:41 | 0分43秒] [system1] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system2] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system3] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system4] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system5] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system6] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system7] 進捗 0%: 対象準備 (filter_count=14)
+[14:29:41 | 0分43秒] [system1] 進捗 25%: フィルター (filter_count=4)
+[14:29:41 | 0分43秒] [system2] 進捗 25%: フィルター (filter_count=4)
+[14:29:41 | 0分43秒] [system3] 進捗 25%: フィルター (filter_count=2)
+[14:29:41 | 0分43秒] [system4] 進捗 25%: フィルター (filter_count=1)
+[14:29:41 | 0分43秒] [system5] 進捗 25%: フィルター (filter_count=6)
+[14:29:41 | 0分43秒] [system6] 進捗 25%: フィルター (filter_count=3)
+[14:29:41 | 0分43秒] [system7] 進捗 25%: フィルター (filter_count=1)
+[14:29:41 | 0分43秒]  system1内訳: 元=14, 価格>=5: 13, DV20>=50M: 4
+[14:29:41 | 0分43秒]  system2内訳: 元=14, 価格>=5: 13, DV20>=25M: 9, ATR比率>=3%: 4
+[14:29:41 | 0分43秒]  system3内訳: 元=14, Low>=1: 14, AvgVol50>=1M: 14, ATR_Ratio>=5.0%: 2
+[14:29:41 | 0分43秒]  system4内訳: 元=14, DV50>=100M: 4, HV50 10〜40: 1
+[14:29:41 | 0分43秒]  system5内訳: 元=14, AvgVol50>500k: 14, DV50>2.5M: 13, ATR_Pct>2.5%: 6
+[14:29:41 | 0分43秒]  system6内訳: 元=14, Low>=5: 13, DV50>10M: 13
+[14:29:41 | 0分43秒]  system7内訳: SPY固定 | SPY存在=1
+[14:29:41 | 0分43秒]  フィルター結果: system1=4件, system2=4件, system3=2件, system4=1件, system5=6件, system6=3件, system7=1件
+[14:29:41 | 0分43秒]  指標データ: system1=4銘柄
+[14:29:41 | 0分43秒]  system1セットアップ内訳: フィルタ通過=4, SPY>SMA100: 1, SMA25>SMA50: 2
+[DEBUG_S1_COLS] sym=SPY df_cols=['date', 'atr10', 'atr20', 'atr40', 'atr50', 'sma25', 'sma50', 'sma100', 'sma150', 'sma200', 'roc200', 'rsi3', 'rsi4', 'adx7', 'dollarvolume20', 'dollarvolume50', 'avgvolume50', 'atr_ratio', 'atr_pct', 'return_3d', 'return_6d', 'return_pct', 'uptwodays', 'twodayup', 'drop3d', 'hv50', 'min_50', 'max_70', 'Open', 'High', 'Low', 'Close', 'Volume', 'adjclose', 'Date']
+[DEBUG_S1_ONCE] sym=SPY sma25_raw=253.60671997070312 sma50_raw=257.3467102050781 cols_sample=['date', 'atr10', 'atr20', 'atr40', 'atr50', 'sma25', 'sma50', 'sma100', 'sma150', 'sma200', 'roc200', 'rsi3', 'rsi4', 'adx7', 'dollarvolume20', 'dollarvolume50', 'avgvolume50', 'atr_ratio', 'atr_pct', 'return_3d', 'return_6d', 'return_pct', 'uptwodays', 'twodayup', 'drop3d']
+[14:29:41 | 0分43秒] [system1] 進捗 50%: セットアップ (filter_count=4, setup_count=2)
+[14:29:41 | 0分43秒]  指標データ: system2=4銘柄
+[14:29:42 | 0分43秒]  system2セットアップ内訳: フィルタ通過=4, RSI3>90: 0, TwoDayUp: 0
+[14:29:42 | 0分43秒] [system2] 進捗 50%: セットアップ (filter_count=4, setup_count=0)
+[14:29:42 | 0分43秒]  指標データ: system3=2銘柄
+[14:29:42 | 0分43秒]  system3セットアップ内訳: フィルタ通過=2 (詳細は候補生成後)
+[14:29:42 | 0分43秒] [system3] 進捗 50%: セットアップ (filter_count=2)
+[14:29:42 | 0分43秒]  指標データ: system4=1銘柄
+[14:29:42 | 0分43秒]  system4セットアップ内訳: フィルタ通過=1, Close>SMA200: 1
+[14:29:42 | 0分43秒] [system4] 進捗 50%: セットアップ (filter_count=1, setup_count=1)
+[14:29:42 | 0分43秒]  指標データ: system5=6銘柄
+[14:29:42 | 0分43秒]  system5セットアップ内訳: フィルタ通過=6 (詳細は候補生成後)
+[14:29:42 | 0分43秒] [system5] 進捗 50%: セットアップ (filter_count=6)
+[14:29:42 | 0分43秒]  指標データ: system6=3銘柄
+[14:29:42 | 0分43秒]  system6セットアップ内訳: フィルタ通過=3, return_6d>20%: 0, UpTwoDays: 3
+[14:29:42 | 0分43秒] [system6] 進捗 50%: セットアップ (filter_count=3, setup_count=0)
+[14:29:42 | 0分43秒]  system7セットアップ内訳: フィルタ通過=1, Low<=min_50: 0
+[14:29:42 | 0分43秒] [system7] 進捗 50%: セットアップ (filter_count=1, setup_count=0)
+[14:29:42 | 0分43秒]  セットアップ結果: system1=2件, system2=0件, system3=0件, system4=1件, system5=0件, system6=0件, system7=0件
+[14:29:42 | 0分43秒]  各システムの当日シグナル抽出を開始
+[14:29:42 | 0分43秒] ▶ system1 開始
+[14:29:42 | 0分43秒] [system1]  system1: シグナル抽出を開始
+[14:29:42 | 0分43秒] [system1] DEBUG call generate_candidates latest_only=True
+[14:29:43 | 0分45秒] [system1] DEBUG get_today_signals returned 0 rows
+[14:29:43 | 0分45秒] [system1] ❌ system1: 0 件
+[14:29:43 | 0分45秒] [system1] 進捗 75%: トレード候補選定 (candidate_count=0)
+[14:29:43 | 0分45秒] [system1] 候補0件理由: 抽出上限 10 件, フィルター通過 0 件, セットアップ成立 0 件, 代替判定成立 0 件, ROC200>0 0 件, 最終通過 0 件。
+[14:29:43 | 0分45秒] [system1] 候補0件の除外内訳: sma_trend 2 件, ROC200≤0 2 件
+[14:29:43 | 0分45秒] ✅ system1 完了: 0件
+[14:29:43 | 0分45秒] ▶ system2 開始
+[14:29:43 | 0分45秒] [system2]  system2: シグナル抽出を開始
+[14:29:45 | 0分47秒] [system2] ❌ system2: 0 件
+[14:29:45 | 0分47秒] [system2] 進捗 75%: トレード候補選定 (candidate_count=0)
+[14:29:45 | 0分47秒] ✅ system2 完了: 0件
+[14:29:45 | 0分47秒] ▶ system3 開始
+[14:29:45 | 0分47秒] [system3]  system3: シグナル抽出を開始
+[14:29:45 | 0分47秒] [system3] ❌ system3: 0 件
+[14:29:45 | 0分47秒] [system3] 進捗 75%: トレード候補選定 (setup_count=2, candidate_count=0)
+[14:29:45 | 0分47秒] [system3] 候補0件診断: top_n=10, reason=unknown, label_date=2025-11-03T00:00:00, rows_total=2, rows_for_label_date=2, lagged_rows=0, drop3d_stats=min=0.1773, max=0.2917, mean=0.2345, median=0.2345, nan_count=0
+[14:29:45 | 0分47秒] [system3] thresholds=drop3d:0.125, atr_ratio:0.05; exclude_reasons: none
+[14:29:45 | 0分47秒] ✅ system3 完了: 0件
+[14:29:45 | 0分47秒] ▶ system4 開始
+[14:29:45 | 0分47秒] [system4]  system4: シグナル抽出を開始
+[14:29:46 | 0分48秒] [system4] ✅ system4: 1 件
+[14:29:46 | 0分48秒] [system4] 進捗 75%: トレード候補選定 (candidate_count=1)
+[14:29:46 | 0分48秒] ✅ system4 完了: 1件
+[14:29:46 | 0分48秒] ▶ system5 開始
+[14:29:46 | 0分48秒] [system5]  system5: シグナル抽出を開始
+[14:29:47 | 0分48秒] [system5] ❌ system5: 0 件
+[14:29:47 | 0分48秒] [system5] 進捗 75%: トレード候補選定 (setup_count=3, candidate_count=0)
+[14:29:47 | 0分48秒] ✅ system5 完了: 0件
+[14:29:47 | 0分48秒] ▶ system6 開始
+[14:29:47 | 0分48秒] [system6]  system6: シグナル抽出を開始
+[14:29:48 | 0分50秒] [system6] ❌ system6: 0 件
+[14:29:48 | 0分50秒] [system6] 進捗 75%: トレード候補選定 (candidate_count=0)
+[14:29:48 | 0分50秒] ✅ system6 完了: 0件
+[14:29:48 | 0分50秒] ▶ system7 開始
+[14:29:48 | 0分50秒] [system7]  system7: シグナル抽出を開始
+[14:29:49 | 0分51秒] [system7] ❌ system7: 0 件
+[14:29:49 | 0分51秒] [system7] 進捗 75%: トレード候補選定 (candidate_count=0)
+[14:29:49 | 0分51秒] ✅ system7 完了: 0件
+[14:29:49 | 0分51秒]  最終候補件数: 1
+[14:29:49 | 0分51秒] ✅ system4: 1 件
+[14:29:49 | 0分51秒] [system1] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒] [system2] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒] [system3] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒] [system4] 進捗 100%: エントリー (candidate_count=1, entry_count=1)
+[14:29:49 | 0分51秒] [system5] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒] [system6] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒] [system7] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:49 | 0分51秒]  Diagnostics snapshot exported: diagnostics_test\diagnostics_snapshot_20251103_142949.json
+[14:29:49 | 0分51秒]  Discrepancy Triage Results:
+[14:29:49 | 0分51秒]   === Candidate Discrepancy Triage Summary ===
+[14:29:49 | 0分51秒]   ✓ [system1] Setup 0 == Final 0
+[14:29:49 | 0分51秒]   ✓ [system2] Setup 0 == Final 0
+[14:29:49 | 0分51秒]   ✓ [system3] Setup 2 == Final 2
+[14:29:49 | 0分51秒]   ✓ [system4] Setup 1 == Final 1
+[14:29:49 | 0分51秒]   ✓ [system5] Setup 3 == Final 3
+[14:29:49 | 0分51秒]   ✓ [system6] Setup 0 == Final 0
+[14:29:49 | 0分51秒]   ✓ [system7] Setup 0 == Final 0
+[14:29:49 | 0分51秒]
+[14:29:49 | 0分51秒]   Category Summary:
+[14:29:49 | 0分51秒]     exact_match: 7 system(s)
+[14:29:49 | 0分51秒]  Discrepancy triage exported: diagnostics_test\discrepancy_triage_20251103_142949.json
+[14:29:50 | 0分52秒] [system1] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒] [system2] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒] [system3] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒] [system4] 進捗 100%: エントリー (candidate_count=1, entry_count=1)
+[14:29:50 | 0分52秒] [system5] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒] [system6] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒] [system7] 進捗 100%: エントリー (candidate_count=0, entry_count=0)
+[14:29:50 | 0分52秒]  保存: C:\Repos\quant_trading_system\data_cache\signals にCSVを書き出しました
+[14:29:50 | 0分52秒] ✅ CSV保存確認: signals_final_2025-11-03.csv (1行)
+[14:29:50 | 0分52秒] 検証OK: validation_report_2025-11-03.json に詳細を保存しました
+[14:29:50 | 0分52秒] ✅ シグナル検出処理 終了 | 最終候補 1 件
+####################################################################
+#   本日のシグナル 実行終了 (Engine)
+# ⏱️ 2025-11-03 14:29:50 | RUN-ID: 0055867b
+####################################################################
