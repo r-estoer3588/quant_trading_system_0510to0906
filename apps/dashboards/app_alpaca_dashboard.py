@@ -336,12 +336,12 @@ def _inject_css() -> None:
         }
 
         .ap-toolbar .stTimeInput > div > div > input {
-            height: 2rem;
-            font-size: 0.85rem;
+            height: 2.5rem; /* match button height */
+            font-size: 0.95rem;
         }
 
-        .ap-toolbar .stCheckbox {
-            margin-top: 0.25rem;
+        .ap-toolbar .stToggle, .ap-toolbar .stCheckbox {
+            margin-top: 0.45rem; /* visually center toggle/checkbox */
         }
 
         /* Cards */
@@ -1583,7 +1583,7 @@ def main() -> None:
                 label_visibility="collapsed",
             )
         with schedule_inner_cols[1]:
-            opt_in = st.checkbox(
+            opt_in = st.toggle(
                 "参加",
                 value=bool(saved.get("opt_in", False)),
                 key="auto_rule_opt_in",
