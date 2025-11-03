@@ -4051,14 +4051,15 @@ if st.button("🔍 Alpacaから保有ポジション取得"):
 
 if "positions_df" in st.session_state:
     positions_df = st.session_state["positions_df"]
-    if not positions_df.empty:
+    # positions_df は DataFrame であることを確認
+    if isinstance(positions_df, pd.DataFrame) and not positions_df.empty:
         try:
             summary_table = _build_position_summary_table(positions_df)
-            if not summary_table.empty:
+            if isinstance(summary_table, pd.DataFrame) and not summary_table.empty:
                 st.caption("保有ポジション（System × Side別）")
                 st.dataframe(summary_table, width="stretch")
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ ポジション集計表示に失敗: {e}")
 
         # 表示用にカラムを日本語化
         df_disp = positions_df.copy()

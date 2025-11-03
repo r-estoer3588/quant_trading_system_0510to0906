@@ -1806,7 +1806,7 @@ def _save_prev_counts(
 ) -> None:
     try:
         counts = {
-            k: (0 if (v is None or v.empty) else int(len(v)))
+            k: (0 if (v is None or not isinstance(v, pd.DataFrame) or v.empty) else int(len(v)))
             for k, v in per_system_map.items()
         }
         data = {"timestamp": datetime.utcnow().isoformat() + "Z", "counts": counts}
