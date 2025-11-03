@@ -2162,11 +2162,11 @@ def main() -> None:
                         "qty": getattr(o, "qty", ""),
                         "side": getattr(o, "side", ""),
                         "type": getattr(o, "type", ""),
-                        "id": getattr(o, "id", ""),
+                        "id": str(getattr(o, "id", "")),
                     }
                     for o in open_orders
                 ]
-                st.table(pd.DataFrame(rows))
+                st.table(_sanitize_dataframe_for_arrow(pd.DataFrame(rows)))
             except Exception:
                 st.write(open_orders)
             c1, c2 = st.columns([3, 1])
