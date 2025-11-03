@@ -93,6 +93,23 @@ def _fmt_money(x: Any | None) -> str:
         return str(x or "-")
 
 
+def _sanitize_dataframe_for_arrow(df: pd.DataFrame) -> pd.DataFrame:
+    """Arrow 互換性の問題を解決: UUID や他の複雑なオブジェクトを文字列に変換"""
+    if df.empty:
+        return df
+    try:
+        df_copy = df.copy()
+        for col in df_copy.columns:
+            if df_copy[col].dtype == object:
+                # オブジェクト型のカラムをすべて文字列に変換
+                df_copy[col] = df_copy[col].apply(
+                    lambda x: str(x) if x is not None else None
+                )
+        return df_copy
+    except Exception:
+        return df
+
+
 def _get_nyse_status(now_newyork: datetime) -> str:
     """NYSE の営業状況と次回オープンまでのカウントダウンを返す。"""
     try:
@@ -1090,6 +1107,18 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         df["直近価格チャート"] = price_series
     except Exception:
         pass
+
+    # Arrow 互換性の問題を解決: UUID や他の複雑なオブジェクトを文字列に変換
+    try:
+        for col in df.columns:
+            if df[col].dtype == object:
+                # オブジェクト型のカラムをすべて文字列に変換
+                df[col] = df[col].apply(
+                    lambda x: str(x) if x is not None else None
+                )
+    except Exception:
+        pass
+
     return df
 
 
@@ -1163,6 +1192,7 @@ def _render_exit_actions(
             ["銘柄", "システム", "保有日数", "_limit_days", "_limit_reached"]
         ].copy()
         # Arrow 互換性の問題を解決: オブジェクト型を文字列に変換
+        # Arrow 互換性の問題を解決
         try:
             for col in limit_info_df.columns:
                 if limit_info_df[col].dtype == object:
@@ -1171,7 +1201,9 @@ def _render_exit_actions(
                     )
         except Exception:
             pass
-        st.dataframe(limit_info_df, width="stretch")
+        st.dataframe(
+            _sanitize_dataframe_for_arrow(limit_info_df), width="stretch"
+        )
 
     # 上限日数に近いか、すでに到達したポジションを特定
     eligible_df = df[
@@ -1935,13 +1967,17 @@ def main() -> None:
             # データフレームの表示
             try:
                 st.dataframe(
-                    display_df,
+                    _sanitize_dataframe_for_arrow(display_df),
                     width="stretch",
                     hide_index=True,
                     column_config=col_cfg,
                 )
             except Exception:
-                st.dataframe(display_df, width="stretch", hide_index=True)
+                st.dataframe(
+                    _sanitize_dataframe_for_arrow(display_df),
+                    width="stretch",
+                    hide_index=True,
+                )
 
             # エクスポート機能
             st.markdown("#### 📥 データエクスポート")
