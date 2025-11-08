@@ -148,9 +148,6 @@ scheduler:
     - name: precompute_shared_indicators
       cron: "30 7 * * 1-5" # 平日 07:30（市場時間外のウォームアップ）
       task: precompute_shared_indicators
-    - name: run_today_signals
-      cron: "15 8 * * 1-5"
-      task: run_today_signals
     - name: send_signals
       cron: "30 8 * * 1-5" # 平日 08:30
       task: notify_signals
@@ -163,6 +160,9 @@ scheduler:
     - name: build_metrics_report
       cron: "55 8 * * 1-5" # 平日 08:55（確認用レポート）
       task: build_metrics_report
+    - name: run_today_signals
+      cron: "0 11 * * 1-5" # 平日 11:00（朝のタスク後に実行）
+      task: run_today_signals
     - name: daily_run
       cron: "15 6 * * 2-6" # 米国市場クローズ後の朝に日次バッチを実行
       task: daily_run
