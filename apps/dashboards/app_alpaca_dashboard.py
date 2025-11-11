@@ -1511,7 +1511,15 @@ def _group_by_system(
         work["評価額"] = work["数量"].astype(float) * work["現在値"].astype(float)
     except Exception:
         return {}
-    work["system"] = work["銘柄"].map(symbol_map).fillna("unknown")
+
+    # Convert list values to comma-separated strings
+    def _map_system(symbol):
+        value = symbol_map.get(symbol, "unknown")
+        if isinstance(value, list):
+            return ",".join(value) if value else "unknown"
+        return str(value) if value else "unknown"
+
+    work["system"] = work["銘柄"].map(_map_system)
 
     grouped: dict[str, pd.DataFrame] = {}
     for system_value, g in work.groupby("system"):

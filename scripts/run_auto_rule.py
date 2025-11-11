@@ -25,7 +25,6 @@ import pandas as pd
 
 from common import broker_alpaca as ba
 from common.alpaca_order import submit_exit_orders_df
-from common.notifier import Notifier
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -156,9 +155,39 @@ def main() -> None:
     cfg = load_json(CONFIG_PATH)
     markers = load_sent_markers()
     rows = build_auto_rows(cfg, markers)
+
+    # エグジット候補が0件の場合も通知
     if not rows:
         logger.info("no candidates for auto-rule")
+        try:
+            from common.notifier import create_notifier
+
+            notifier = create_notifier(platform="slack", fallback=True)
+
+            # ポジション数を取得
+            try:
+                client = ba.get_client(paper=args.paper)
+                positions_count = len(client.get_all_positions())
+            except Exception:
+                positions_count = 0
+
+            message = f"""
+📊 **現在のポジション状況**
+• 保有銘柄数: {positions_count}銘柄
+
+✅ エグジット条件に該当する銘柄はありませんでした
+"""
+
+            notifier.send(
+                "🤖 自動エグジット確認完了",
+                message,
+                channel=None,
+            )
+            logger.info("No exit candidates - Slack notification sent")
+        except Exception:
+            logger.exception("notify failed")
         return
+
     df = pd.DataFrame(rows)
     logger.info("candidates: %s", ", ".join(r["symbol"] for r in rows))
 
@@ -166,22 +195,65 @@ def main() -> None:
         logger.info("dry-run enabled, not submitting orders")
         return
 
+    # 実行前のポジション数を記録
+    client = ba.get_client(paper=args.paper)
     try:
-        res = submit_exit_orders_df(df, paper=args.paper, tif="CLS", notify=True)
+        positions_before = len(client.get_all_positions())
+    except Exception:
+        positions_before = 0
+
+    try:
+        res = submit_exit_orders_df(
+            df, paper=args.paper, tif="CLS", notify=False
+        )
         logger.info("submitted %d orders", len(res))
         for r in rows:
             mark_sent(r["symbol"], markers)
         save_json(SENT_PATH, markers)
+
+        # 実行後のポジション数を取得
         try:
-            nd = load_json(DATA_DIR / "notify_settings.json")
-            notifier = Notifier(
-                platform=nd.get("platform", "auto"),
-                webhook_url=nd.get("webhook_url"),
-            )
+            positions_after = len(client.get_all_positions())
+        except Exception:
+            positions_after = positions_before
+
+        # Slack通知を送信（ポジション変化の詳細付き）
+        try:
+            from common.notifier import create_notifier
+
+            notifier = create_notifier(platform="slack", fallback=True)
+
+            # エグジット詳細を整形
+            exit_details = []
+            for r in rows:
+                symbol = r["symbol"]
+                qty = r["qty"]
+                system = r.get("system", "unknown")
+                exit_details.append(f"• {symbol} ({system}): {qty}株")
+
+            details_text = "\n".join(exit_details) if exit_details else "なし"
+
+            # ポジション変化のサマリー
+            position_change = positions_before - positions_after
+
+            message = f"""
+📊 **ポジション変化**
+• エグジット前: {positions_before}銘柄
+• エグジット後: {positions_after}銘柄
+• 減少数: {position_change}銘柄
+
+🔻 **エグジット銘柄（{len(rows)}件）**
+{details_text}
+
+✅ 自動エグジット処理が完了しました
+"""
+
             notifier.send(
-                "自動ルール: まとめて決済実行",
-                "送信銘柄: " + ", ".join(r["symbol"] for r in rows),
+                "🤖 自動エグジット実行完了",
+                message,
+                channel=None,  # SLACK_CHANNEL_SIGNALS を使用
             )
+            logger.info("Slack notification sent successfully")
         except Exception:
             logger.exception("notify failed")
     except Exception:

@@ -121,8 +121,16 @@ def task_daily_run():
 def task_run_today_signals():
     try:
         from scripts.run_all_systems_today import compute_today_signals
+        from tools.notify_signals import send_signal_notification
 
-        compute_today_signals(None, save_csv=True, notify=False)
+        final_df, _ = compute_today_signals(None, save_csv=True, notify=False)
+
+        # Slack通知を送信
+        if final_df is not None and not final_df.empty:
+            send_signal_notification(final_df)
+            logging.info(f"シグナル生成完了: {len(final_df)}件 (Slack通知送信済み)")
+        else:
+            logging.info("シグナル生成完了: 0件")
     except Exception:
         logging.exception("run_today_signals タスクが失敗しました")
 
@@ -163,6 +171,19 @@ def task_precompute_shared_indicators():
         logging.exception("precompute_shared_indicators タスクが失敗しました")
 
 
+def task_run_auto_rule():
+    """自動ルールに基づいてポジションをエグジット"""
+    try:
+        from scripts.run_auto_rule import main as run_auto_rule_main
+
+        # paper=True でペーパートレーディング、dry_run=False で実際に注文送信
+        import sys
+        sys.argv = ["run_auto_rule", "--paper"]  # 本番の場合は --paper を削除
+        run_auto_rule_main()
+    except Exception:
+        logging.exception("run_auto_rule タスクが失敗しました")
+
+
 TASKS: dict[str, Callable[[], None]] = {
     "cache_daily_data": task_cache_daily_data,
     "warm_cache": task_cache_daily_data,
@@ -175,6 +196,7 @@ TASKS: dict[str, Callable[[], None]] = {
     "notify_metrics": task_notify_metrics,
     "build_metrics_report": task_build_metrics_report,
     "daily_run": task_daily_run,
+    "run_auto_rule": task_run_auto_rule,
 }
 
 

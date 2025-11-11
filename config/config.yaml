@@ -163,6 +163,12 @@ scheduler:
     - name: run_today_signals
       cron: "0 11 * * 1-5" # 平日 11:00（朝のタスク後に実行）
       task: run_today_signals
+    - name: run_auto_rule_morning
+      cron: "30 11 * * 1-5" # 平日 11:30（シグナル生成後にエグジット判定）
+      task: run_auto_rule
+    - name: run_auto_rule_afternoon
+      cron: "0 14 * * 1-5" # 平日 14:00（市場中盤でエグジット判定）
+      task: run_auto_rule
     - name: daily_run
       cron: "15 6 * * 2-6" # 米国市場クローズ後の朝に日次バッチを実行
       task: daily_run

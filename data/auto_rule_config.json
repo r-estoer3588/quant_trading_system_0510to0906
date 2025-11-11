@@ -1,0 +1,37 @@
+{
+  "system1": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System1: ロング・トレンド・ハイ・モメンタム - 損切り-10%"
+  },
+  "system2": {
+    "pnl_threshold": -15.0,
+    "partial_pct": 100,
+    "comment": "System2: ショート RSI スラスト - 損切り-15%"
+  },
+  "system3": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System3: ロング・ミーン・リバージョン・セルオフ - 損切り-10%"
+  },
+  "system4": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System4: ロング・トレンド・ロー・ボラティリティ - 損切り-10%"
+  },
+  "system5": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System5: ロング・ミーン・リバージョン・ハイ ADX・リバーサル - 損切り-10%"
+  },
+  "system6": {
+    "pnl_threshold": -15.0,
+    "partial_pct": 100,
+    "comment": "System6: ショート・ミーン・リバージョン・ハイ・シックスデイサージ - 損切り-15%"
+  },
+  "system7": {
+    "pnl_threshold": -20.0,
+    "partial_pct": 100,
+    "comment": "System7: カタストロフィーヘッジ - 損切り-20%"
+  }
+}
