@@ -1,0 +1,614 @@
+5444a71|2025-11-30|fix: 再計算ロックのタイムスタンプを更新
+bbb79e1|2025-11-24|fix: 再計算ロックのタイムスタンプを更新
+a7027b2|2025-11-22|fix: 再計算ロックのタイムスタンプを更新
+b546a97|2025-11-12|fix: 更新された再計算ロックのタイムスタンプを修正
+cf249bb|2025-11-11|feat: システムマッピングの改善とデータフレームの整形処理を追加
+426873d|2025-11-08|feat: スケジューラーに当日シグナル生成タスクを追加し、実行時刻を変更
+e6ec87e|2025-11-03|feat: Add logging for today's signals execution and enhance test symbol generation
+77f0ee2|2025-11-03|CSSの調整とトグルボタンの導入により、ユーザーインターフェースの視認性を向上
+159390c|2025-11-03|CSSの調整とデータフレーム表示の高さを設定し、ユーザーの動作設定に配慮したアニメーションを追加
+4536150|2025-11-03|オープンオーダーのIDを文字列に変換し、Arrow互換性のためにデータフレームをサニタイズする処理を追加
+d8b4785|2025-11-03|Arrow 互換性の問題を解決するために、データフレーム内のオブジェクト型を文字列に変換する処理を追加
+77895a8|2025-11-03|Arrow 互換性の問題を解決するために、オブジェクト型の列を文字列に変換する処理を追加
+307eed3|2025-11-03|注文データのUUIDと作成日時を文字列に変換し、Arrow互換性のために全列を文字列化する処理を追加
+6559dc9|2025-11-03|Fix DataFrame type checks and improve error handling in position summary display
+eafd285|2025-11-03|Update symbol system mapping and add trade history
+b9cbdba|2025-11-03|Add Entry/Exit test results documentation and enhance order submission logging
+27c862f|2025-11-02|chore(ci): isort import order fixes (6 files) to satisfy CI Unified lint
+66ac335|2025-11-02|chore: remove accidental additions from previous commit
+3595e89|2025-11-02|chore(ci): apply isort import ordering across repo to satisfy CI Unified lint check; no functional changes
+672ba1b|2025-11-02|fix: import logging and pathlib in multiple files for consistency
+374bf7e|2025-11-02|Add tests for zero candidates in System5 and System6 with latest_only flag
+c34c7e1|2025-11-02|tests: make controlled pipeline test robust to settings outputs; expect 1 row for current deterministic set; fix success message
+a369a7b|2025-11-02|test(option-b): fix System3 parity test to toggle flags; add System6 Option-B parity test; ensure ON/OFF equivalence and robust diagnostics handling
+bf3107d|2025-11-01|fix(diagnostics): System3/System5 の STUpass/TRDlist 不整合を修正
+b1a6924|2025-11-01|Add comprehensive documentation and diagnostics tests for trading systems
+feead68|2025-11-01|Remove tasks-state.json file as it is no longer needed for task management.
+a6d4321|2025-11-01|コード変更の目的を明確にするためのコミットメッセージ
+a0a044d|2025-11-01|tests/scripts/tools: add controlled pipeline test, add symbol_map tests, tidy imports
+9553ad7|2025-11-01|core,symbol_map: align load_symbol_system_map to return lowercase primary string; relax strict strategies check
+b725a81|2025-11-01|common: update alpaca_order/profit_protection; add symbol_map utilities
+539873a|2025-11-01|config: update environment settings
+da1a46f|2025-11-01|docs: update README and testing guide
+1420773|2025-11-01|chore(lint): fix ruff E712/F841/E501 in tools/scripts; ensure bool masks robust
+f2033e6|2025-11-01|test: update tools/generate_test_symbols.py with NYSE business days, deterministic seeds, and indicator overrides
+8cf33f3|2025-11-01|tools: 新しいログ生成スクリプトを追加し、架空銘柄データの生成プロセスを記録
+a22d15c|2025-10-31|Add task state for AI competition and update recompute lock timestamp
+90fa7fe|2025-10-27|tmp_recompute_lock: 更新日時を2025-10-27に変更
+b279766|2025-10-25|Merge pull request #125 from r-estoer3588/add/controlled-test-pr
+9c09ed3|2025-10-25|tools: 新しいスクリプトを追加し、Streamlit URL の準備を待ってからキャプチャを実行する機能を実装
+7485d4a|2025-10-25|tests: harden controlled systems test; add PR body and CI workflow note
+702d4c4|2025-10-25|Refactor code for improved readability and consistency
+2bc6295|2025-10-25|各種スクリプトにデバッグ機能を追加し、メトリクス表示を明確化。新しいドキュメントを作成し、履歴と最新のセットアップを比較するスクリプトを追加。
+c0040ff|2025-10-22|CLI スモークテスト追加、CI ジョブ追加、Windows 文字化け対策、再現用ツールを追加
+c67a1b7|2025-10-21|Add diagnostic helper and record_exclude usage in system3; format files
+bf7c68d|2025-10-21|リコンプートスクリプトに出力パスオプションを追加し、通知機能を実装。キャッシュ更新タスクの引数を整理し、エラーログの出力を強化。
+e5db438|2025-10-21|cheerioのインポート方法を修正し、診断ユーティリティを追加。キャッシュ更新スクリプトの引数を整理し、タスク登録機能を強化。
+da506e4|2025-10-21|各種スクリプトにキャッシュ更新と再計算機能を追加し、Slack通知機能を実装
+ae1707e|2025-10-21|Add CLI wrapper for filtering empty flags and enhance diagnostics in System1
+50652d4|2025-10-21|CacheManager: Implement automatic indicator recomputation on read and add bulk recompute script
+6093d6d|2025-10-21|Add various tools for debugging and building Playwright repros
+79c181b|2025-10-21|ダウンロード資産セクションにメタ情報を追加
+665ae8d|2025-10-20|Copilot instructions: 更新されたエントリポイントとデータフローの概要を簡潔に整理し、必須ルールや開発コマンドを明確化
+508dc8f|2025-10-20|Improve CTA and add file metadata for paid assets
+7c46492|2025-10-20|Add note preview link to week2 article
+0d220db|2025-10-20|画像ファイルの更新とPlaywright設定ファイルのコードスタイルを統一
+e08f686|2025-10-20|Polish checklist PDF layout: larger checkbox and spacing; regenerate zip
+ea5139a|2025-10-19|Add new checklist assets and update CI configuration for Playwright
+3604e52|2025-10-19|Improve checklist PDF: embed Japanese-capable font and regenerate assets zip
+a5f9830|2025-10-19|Add checklist PDF generator script
+1dbd1ad|2025-10-19|Generate real checklist_week2.pdf and regenerate assets zip
+3272b07|2025-10-19|Replace placeholder checklist and eyecatch with real assets; regenerate zip
+7d3e70e|2025-10-19|Add paid asset link to week2 article and include downloads zip
+1044c7e|2025-10-19|記事の文言を微調整し、可読性を向上させるためにスペースを追加
+1f97d2d|2025-10-19|Refactor allocation logic and improve error handling in final_allocation.py
+b99fdd1|2025-10-19|Enhance screenshot capture tool and article eyecatch generator
+1d1a135|2025-10-19|chore: extend .gitignore with common temp/IDE/build patterns
+01d308a|2025-10-18|chore: add *.isorted to .gitignore
+2e78346|2025-10-18|chore: apply pre-commit formatting (black/ruff/isort) across repo
+a937f2e|2025-10-18|chore: accept pre-commit formatting changes to app_today_signals.py
+779bcad|2025-10-18|chore: apply pre-commit automatic fixes
+abb1c47|2025-10-18|ci: add isort steps to workflows; ruff: narrow import ignore to I001; docs: formatting order
+5d374e1|2025-10-18|ci: add isort check to CI and tighten ruff import ignore; docs: formatting steps
+7f54b97|2025-10-18|chore: normalize imports and formatting (isort -> black -> ruff)
+2b90298|2025-10-18|WIP: force sync bypassing pre-commit hooks
+0827ad0|2025-10-16|style: apply pre-commit auto-fixes (black/isort/ruff)
+70f2444|2025-10-15|chore: remove duplicate common/pyproject.toml (config unification)
+0cd2f88|2025-10-15|chore: format workflow stabilization (A-D)\n- pre-commit: black 24.10.0 + check-only, isort check-only\n- add Makefile fmt/fmt-check/lint targets\n- doc: README format flow\n- unify pyproject (drop common/pyproject.toml)
+2c78c25|2025-10-15|Workaround: commit despite phantom black/isort for system6
+789111f|2025-10-14|Add keyword quick reference, next article template, and 48-hour operation checklist for enhanced article writing and management
+ef1b825|2025-10-13|docs: update tri-sync full-run report (timings/perf notes)
+665fb46|2025-10-13|docs: tri-sync full-run report for 2025-10-13 (non-parallel & parallel) + artifacts pointers
+4dcc35e|2025-10-13|feat: Add .gitattributes for line ending normalization and binary file handling; create CODEOWNERS for repository ownership; implement bug report and feature request templates; enhance daily signals workflow permissions; update .gitignore for new virtual environments; modify pre-commit configuration for system Python; update VSCode tasks to use default interpreter path; create cleanup script for old virtual environments; add article eyecatch image generation script; establish publish checklist for security compliance.
+2ec7a28|2025-10-13|chore(env): point VSCode & tools to venv; unblock commit while fixing WindowsApps Python issue
+8ef35c6|2025-10-13|feat: Update Copilot instructions with VS Code tasks integration, test determinism enhancements, and recent architectural improvements
+720642c|2025-10-13|feat: Add new tools for header image generation and icon processing
+6e2f6df|2025-10-13|feat: Improve universe loading logic to use local cache and enhance error handling
+26284f4|2025-10-13|Add tools for UI progress tracking, snapshot comparison, regression detection, API documentation generation, system specifications generation, and scheduled tasks for cache updates and daily signals
+b7e7e0d|2025-10-13|Add End-to-End tests for Streamlit UI using Playwright
+d162088|2025-10-12|feat: Update VSCode settings and add new tasks for improved development workflow
+e4d90f6|2025-10-12|fix: Reorder import statements for consistency and clarity
+ee98089|2025-10-12|feat: Add position size calculation method to trading strategies
+5347428|2025-10-11|feat: Update symbol_system_map to allow multiple system assignments for each symbol
+7abc6ba|2025-10-11|Streamlit UIスクリーンショットツールにユーザー待機オプションとカラースキーム設定を追加
+6ee034a|2025-10-11|Diagnostics APIの統一キーをfinal_top_n_countからranked_top_n_countに変更し、関連するテストを更新
+c6979b7|2025-10-11|Add comprehensive tests for System7 functionality and error handling
+e4d07d2|2025-10-11|Format pyproject.toml (auto-formatting)
+c5bf2be|2025-10-11|Fix syntax errors in test_system7_latest_only_path.py
+bb9603d|2025-10-11|.gitignoreの更新: vscode AIルールを無視するための指示を追加
+5fa9dd8|2025-10-11|Refactor tests and remove obsolete test_s3_topoff.py
+e9c9f69|2025-10-11|Enhance System7 Tests: Coverage and Functionality Improvements
+cb9d411|2025-10-11|feat(phase6): run_all_systems_todayにPerformanceMonitor統合
+9a5486c|2025-10-11|feat(phase6): パフォーマンス測定拡充 - PerformanceMonitor実装
+17fc4f7|2025-10-11|docs: Phase7完了報告と最終チェックリスト更新
+0f8b0ab|2025-10-11|refactor: Codacy削除とGitHub Actions品質自動化に移行
+086503f|2025-10-11|Enhance scripts and tests for improved functionality and error handling
+1bbab7a|2025-10-10|feat: Add Codacy analysis runner for WSL with UTF-8 enforcement and flexible modes
+56e0f48|2025-10-10|chore(codacy): ensure excludes present in HEAD
+ca42551|2025-10-10|feat: Implement target date prioritization with safe fallback in candidate generation for System1 and System3
+80df1f7|2025-10-08|feat: Implement daily automated update system with health checks
+18293de|2025-10-07|Refactor imports and improve code formatting in run_all_systems_today.py
+b0d69e3|2025-10-07|Refactor top_n setting logic in System4 and System5 strategies
+ca61d49|2025-10-07|Refactor system7.py for improved logging and diagnostics; add new diagnostic snapshots
+21a856b|2025-10-06|Refactor imports and improve code formatting in run_all_systems_today.py
+2d8ca4c|2025-10-06|Update BULK_API_GUIDE.md: Enhance task scheduling instructions for CMD and PowerShell
+4db35bb|2025-10-06|Add Bulk API data quality verification and scheduled update scripts
+10f5e92|2025-10-05|Refactor update_from_bulk_last_day.py: Enhance performance and add new features
+747aea9|2025-10-05|Refactor code for improved readability and maintainability in cache_manager.py, cache_validation.py, and update_from_bulk_last_day.py
+1c14658|2025-10-05|Refactor rolling indicator computation in update_from_bulk_last_day.py
+60696c3|2025-10-05|Refactor code structure and improve logging in today signals application
+5d40e21|2025-10-05|新しいワークスペース設定ファイルを追加
+421ea07|2025-10-05|Refactor code for improved readability and maintainability
+06c6c97|2025-10-05|Refactor imports and improve code formatting in run_all_systems_today.py
+e22982f|2025-10-05|コードのインポート順序を整理し、可読性を向上させるためにリファクタリングを実施
+bf49d7f|2025-10-05|型キャストを修正し、辞書のキーを文字列に変換するように変更
+ce770af|2025-10-05|style: settle core/system3.py formatting
+eb366bf|2025-10-04|データフレーム表示の幅を「stretch」に変更し、可視性を向上させる
+aeb060c|2025-10-04|依存関係の追加: seaborn パッケージを requirements.txt に追加
+68ebe16|2025-10-04|依存関係の整理: 不要なパッケージを削除し、重複を解消
+4a48f40|2025-10-04|コードの整形: 不要な改行を削除し、可読性を向上させるためにコードを整理
+2a57583|2025-10-04|設定: mypy と Python 分析のためのエラー除外パターンを追加
+56af0f3|2025-10-04|pre-push: keep black check, move heavy hooks to manual (pipeline & quality aggregate)
+80509be|2025-10-04|pre-push: use pinned black hook instead of local check
+5659e75|2025-10-04|Add pre-push hook verification guide
+c3094d2|2025-10-04|Apply pre-commit auto-fixes (black + end-of-file-fixer)
+2a15b17|2025-10-04|Apply black formatting (second pass after pre-commit auto-fix)
+12c37a5|2025-10-04|Apply black formatting to all files (auto-fixed by pre-commit hook)
+d5d5832|2025-10-04|feat: Codacy分析の設定を更新し、SARIF形式での出力を追加 fix: JSONチェックの除外パターンを追加し、pytestの依存関係を追加
+f3c356f|2025-10-04|Implement code changes to enhance functionality and improve performance
+4602a0d|2025-10-04|Phase0-7: Diagnostics API & Setup Predicates Unification
+7ad5fdd|2025-10-03|Refactor and enhance various modules
+43a1a52|2025-10-03|fix: ペーパー資金リセット機能を削除し、API非対応の明示化
+16a9e73|2025-10-03|feat: ローカル品質集約ツールを追加し、複数の静的解析ツールを統合 fix: API 非対応のペーパー口座リセット機能を明示化し、ユーザーへの案内を追加 fix: Streamlit の表示ロジックを改善し、エラーメッセージを強化
+39ce18c|2025-10-03|fix: Python仮想環境を.gitignoreに追加し、不要なコードを削除
+e16af3d|2025-10-03|fix: Streamlitのexpanderネスト禁止に対応し、表示方法を変更
+1b1cfb4|2025-10-03|feat: Add performance snapshot feature for runtime measurement
+34a37ec|2025-10-03|Add UTF-8 support for mypy execution and refactor strategies
+fda2392|2025-10-02|fix: 不要なインポートを削除し、コードの可読性を向上
+55ab9a6|2025-10-01|feat: コードの可読性を向上させるために、条件式のインデントを整理
+f515fff|2025-10-01|Refactor signal computation and add debug Slack notifier
+e56b91c|2025-10-01|feat: 環境変数による手動再構築の詳細出力制限を実装し、パフォーマンスを向上。保有マトリクスの初期化方法を改善し、FutureWarningを回避。フィルター条件の正規化を強化。
+92414cb|2025-10-01|feat: 画像アップロードの成功/失敗を環境変数で管理し、失敗時に通知を追加。シグナル送信時のカラム名正規化を強化。
+8fed17f|2025-10-01|Enhance filtering and debugging capabilities
+c19f18a|2025-10-01|feat: バックテストの開始と終了時に詳細なログ出力を追加し、JSON形式でのイベント記録を実装
+b652f79|2025-10-01|feat: ログ出力のコンパクトモードを実装し、手動再構築通知の集約を追加。テストケースを作成。
+cbde918|2025-10-01|feat: サイドバーのシステム名と表示名を再定義し、UIの言語切替機能を改善。通常モードでの再実行ボタンを追加。
+b2cc177|2025-10-01|Enhance structured logging and UI components
+de942ca|2025-10-01|feat: サイドバーに言語切替とシステム6の条件詳細を追加し、UIを改善
+6c798da|2025-10-01|feat: return_6dを%表示に変換し、データフレームの表示を更新。ログ出力の構造化を追加。
+88e8dc0|2025-10-01|fix: ログ出力を個別からサマリー表示に変更し、関連メッセージを更新
+bfba739|2025-10-01|Refactor CI Quality Gate Workflow and Enhance Python Code Quality
+6b5bdda|2025-10-01|Remove outdated test files and add new tools for warning aggregation and collection
+4663a5a|2025-10-01|fix: max_hold_daysとfallback_exit_after_daysのコメントを整形
+1c690ef|2025-10-01|feat: システム6にHV50指標を追加し、関連する計算とテストを更新
+bfadd76|2025-10-01|fix: compute_entryの戻り値を確認し、Noneチェックを追加。新しい指標計算テストを追加
+fb7af39|2025-10-01|refactor: 日付インデックスの正規化と列名の標準化を改善し、無限値処理を追加
+11e51d7|2025-10-01|fix: バッチサイズのデフォルト値を設定し、インデックス対応の問題を解決するために.valuesを使用
+9491021|2025-10-01|fix: 初期資本のデフォルト値を1000から100000に変更し、全シンボル使用のチェックボックスのデフォルト値をTrueに設定
+e326432|2025-10-01|test: ファイルハンドルリークをテストする新しいスクリプトを追加
+924d8e8|2025-10-01|feat: メトリクスコレクタを共有し、ファイルハンドルのリークを防止
+51a8095|2025-10-01|fix: 無限値をNaNに変換してから日付変換を行う処理を追加
+7645c0f|2025-10-01|feat: 日付インデックスの決定と正規化を追加し、データフレームの整合性を向上
+7a47178|2025-09-30|fix: ショート戦略におけるストップロスの条件を修正
+6493f40|2025-09-30|feat: 統計計算の改善とショート戦略の損益計算ロジックを修正
+d73625a|2025-09-30|feat: Adjust batch size for System6 candidate generation and improve logging for skipped entries
+883dda8|2025-09-30|feat: Improve System6 candidate selection guidance and enhance logging for better user experience
+63f051c|2025-09-30|feat: Update System6 candidate selection guidance and adjust default symbol limit in UI components
+4d1ffa4|2025-09-30|feat: Update System6 candidate selection guidance and adjust default symbol limit
+7d879b2|2025-09-30|feat: Implement historical analysis for System6 setup conditions and enhance candidate generation statistics
+a94fe7f|2025-09-30|feat: Refactor imports in app_system6.py for improved organization and clarity
+7483512|2025-09-30|feat: Remove progress text display in ProgressUI and normalize indicator names in tests
+1bf4ea7|2025-09-29|feat: Improve logging levels for rolling issues and enhance test coverage for System2 indicators
+b802bd9|2025-09-29|feat: Normalize indicator names and improve progress tracking across systems
+e7776e4|2025-09-29|feat: Implement System6 core logic for mean-reversion momentum burst strategy
+6826719|2025-09-29|feat: Add test symbol generation script and enhance SPY cache recovery with error handling
+2bcba10|2025-09-29|feat: Improve stage tracking and logging for new listings and data validation
+0a151ba|2025-09-29|style: Format log message for better readability in _load_basic_data function
+90c97c6|2025-09-29|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+7bdcb8d|2025-09-29|feat: Add scripts for debugging and checking rolling data indicators
+9177d88|2025-09-29|Merge pull request #120 from r-estoer3588/itt9en-codex/conduct-analysis-for-signal-execution-system
+20d7f72|2025-09-29|docs: summarize signal system improvements
+5cb8c03|2025-09-29|refactor: Add SPY data analysis and caching functionality in check_spy_data.py, enhance error handling in recover_spy_cache.py, and implement tests for CacheManager in test_cache_manager.py
+87be4aa|2025-09-28|refactor: Improve SPY data processing and error handling in recover_spy_cache.py
+cfce630|2025-09-28|refactor: Update Alpaca API key environment variables and enhance debugging tools
+2b247a4|2025-09-28|refactor: Replace direct client.get_orders calls with ba.get_open_orders for consistency
+eb5dd0d|2025-09-28|Refactor imports and error handling across multiple modules
+f3ac4f8|2025-09-28|Add sys.path manipulation for project root and refactor allocation logic
+2172d6d|2025-09-28|Refactor and enhance tests for System5 strategy and final allocation module
+4bc15db|2025-09-28|Pre-cleanup snapshot: Major reorganization and cleanup preparation
+fa97c63|2025-09-27|refactor: Reorganize import statements in run_all_systems_today.py for improved readability
+ced852d|2025-09-27|fix: Improve logging format and handle unexpected results in execute_today_signals
+6161f37|2025-09-27|refactor: Clean up logging and import statements in app_today_signals.py and run_all_systems_today.py
+2441594|2025-09-27|feat: Add configuration files for linting and spell checking, and refactor app_today_signals.py for improved readability and functionality
+d982e1e|2025-09-27|Add comprehensive tests for systems and modules, refactor imports, and deprecate unused scripts
+ef58db7|2025-09-27|Add comprehensive tests for indicators_precompute.py
+dd5d907|2025-09-27|refactor: Improve code readability by formatting and organizing function definitions and error messages
+f02b786|2025-09-27|Add System6 and System7 implementations for SPY data processing and caching
+4aa46a1|2025-09-27|feat: Reorganize applications (Phase 2)
+027f50c|2025-09-27|feat: Reorganize project structure (Phase 1)
+ef5c84f|2025-09-27|Add experimental tests for pipeline functionality and performance optimizations
+2977dd1|2025-09-27|chore: pre-reorganization backup - save current state before directory restructure
+0e1d6e6|2025-09-27|refactor: Update imports to use cache_format instead of cache_manager for round_dataframe
+53c7898|2025-09-27|refactor: Replace typing imports with built-in types for consistency
+cd0baf1|2025-09-27|feat: Introduce system-specific configurations and refactor strategies
+370018c|2025-09-27|Refactor I/O Optimization Benchmark and related tests
+4fc574f|2025-09-27|feat: Enhance rolling indicators processing and validation
+4e50748|2025-09-27|feat: Optimize Phase2 data loading and introduce new normalization script
+d6c0076|2025-09-27|feat: Implement System2 core logic for RSI spike strategy
+af78ea8|2025-09-27|Refactor and enhance tests across multiple modules
+da45666|2025-09-27|Add comprehensive tests for System6 direct functions and refactor UI component tests
+d152b30|2025-09-27|Refactor test cases in system3 and system4 to improve readability and maintainability
+10e5514|2025-09-27|Add comprehensive tests for ui_components and utils modules
+5b16c8e|2025-09-26|refactor: Import statements reordered for consistency and clarity
+9e4ac93|2025-09-26|Refactor type checking for entry_loc in system strategies
+83566dc|2025-09-26|feat: 指標列の大文字・小文字対応を改善し、標準化処理を強化
+0449cfa|2025-09-25|feat: 指標列名を大文字に統一し、API呼び出し時に小文字変換を追加
+5c0c4b7|2025-09-25|feat: Enhance header message logging in execute_today_signals
+7a39572|2025-09-25|Refactor CacheManager and DataFrame utilities
+c413719|2025-09-24|Refactor code for improved readability and maintainability
+3b3f2e2|2025-09-23|Refactor code for improved readability and maintainability
+009d97a|2025-09-23|feat: ストリームリットAPIをメインスレッドからのみ呼び出すように修正し、バックグラウンドスレッドでの呼び出しを防止
+3834f30|2025-09-23|feat: NaN率チェック機能を追加し、スキップされた列のログ出力を実装
+d89d641|2025-09-23|feat: NaNを0として扱うようにspy_filterの処理を改善
+5ea4498|2025-09-23|feat: 各列のルックバックを追加し、NaN比率の計算を改善
+df1e018|2025-09-23|feat: 今日の実行モードを確認する関数を追加し、シンボルリストの出力を制御
+9cdaaed|2025-09-23|feat: システム設定を更新し、各戦略のパラメータをドキュメントに合わせて追加
+be1a0d9|2025-09-23|refactor: NAN列の管理を改善し、必須およびオプションの列のチェックを明確化
+c78e75b|2025-09-23|refactor: コードの冗長性を削減し、データフレームの再構築条件を簡素化
+3bad4ca|2025-09-23|feat: 新しい統計表示とキャッシュ検証機能を追加し、データ保存先を拡張
+4a01533|2025-09-23|Refactor configuration handling and improve CSV settings
+8907726|2025-09-23|Add Gemini documentation and implement run_auto_rule script with PowerShell wrapper
+dd5d9b5|2025-09-23|Refactor code structure for improved readability and maintainability
+d521cbc|2025-09-23|feat: 本日のBulk更新を明示的に実行するオプションを追加し、引数未指定時のデフォルト動作を変更
+6241dc6|2025-09-23|Add tests for appending to cache with NaN prices and progress tracking
+95d0c30|2025-09-22|fix: castを使用してallowed_recent_datesの型を明示的に指定し、Timestamp変換時のエラー処理を改善
+767a794|2025-09-22|feat: CacheUpdateInterruptedクラスを一般的な例外に変更し、進捗情報を保持する中断処理を改善
+b9700ef|2025-09-22|feat: SMA/EMAおよびATR指標の列名を小文字に変更し、一貫性を向上
+2a54052|2025-09-22|feat: DataFrameの結合時に全てNAの列を除外する関数を追加し、キャッシュ更新処理を改善
+4c3a544|2025-09-22|feat: ポジション管理機能を強化し、経過日手仕切りの即時決済を実装。データ処理の改善とエラーハンドリングを追加。
+4c13753|2025-09-22|feat: 英語の曜日表示を追加し、NYSEのオープンまでのカウントダウン機能を実装。キャッシュ管理のCSV書き出し設定を追加。
+22ec98a|2025-09-22|feat: 型チェックのためのインポートを追加し、依存関係を動的に読み込む処理を実装
+008bbc1|2025-09-22|Refactor test files and improve code readability
+2fd001b|2025-09-22|feat: 数値列を指定桁数に丸める機能を追加し、キャッシュ処理に適用
+1e52c5f|2025-09-22|feat: Enhance bulk update functionality and introduce statistics tracking
+b99cc4f|2025-09-21|feat: 主要指標列を定義し、キャッシュの読み込み時にNaN率をチェックするテストを追加
+a4e4ab6|2025-09-21|feat: ステージカウントの最終化処理にスナップショットからのデータ取得を追加
+8252860|2025-09-21|refactor: 不要なインポートと未使用の関数を削除
+0389c24|2025-09-21|feat: キャッシュの丸め桁数設定を追加し、データフレームの書き出し時に適用
+a19a836|2025-09-21|chore(config): enable cache rounding to 2 decimal places
+90281e7|2025-09-21|feat: .coverageファイルを.gitignoreに追加
+388078a|2025-09-21|feat: 新しいカバレッジ情報を格納するバイナリファイルを追加
+29e439b|2025-09-21|fix: Noneチェックを追加し、データフレームの取得処理を改善
+3c832ca|2025-09-21|feat: カバレッジ情報を格納する新しいバイナリファイルを追加
+11cd137|2025-09-21|refactor: 不要なインポートを削除し、コードの可読性を向上
+d779b3d|2025-09-21|Enhance symbol universe handling in scripts
+f6b5836|2025-09-21|feat: 銘柄ユニバースを取得・フィルタするユーティリティを追加し、日次データキャッシュの管理を改善
+983f531|2025-09-21|feat: 新しいスクリプトを追加し、欠損データの分析とレポート生成機能を実装
+d88b00c|2025-09-21|feat: EODHD参照銘柄数の取得機能を追加し、統計情報に関連情報を追加
+8341563|2025-09-21|feat: 新しいスクリプトを追加し、銘柄マニフェストの処理とデータの欠損分析機能を強化
+62ae2f1|2025-09-21|feat: シンボルマニフェストの保存と読み込み機能を追加し、データキャッシュの管理を改善
+64ec386|2025-09-21|feat: max_symbolsの設定を追加し、処理上限銘柄数を制御する機能を実装
+9fd57f3|2025-09-21|fix: 修正されたインポート順序とsys.pathの設定を追加
+7d5915e|2025-09-21|feat: ステージメトリクスストアに表示メトリクスの管理機能を追加
+3f4e583|2025-09-21|Enhance stage metrics tracking and data type validation
+42a9886|2025-09-21|feat: drop_duplicate_columns関数を追加し、重複カラムを解消する機能を実装
+1349836|2025-09-21|feat: OHLCV列名の正規化と統合機能を追加 fix: データ鮮度チェックのロギング機能を改善 test: データ鮮度フィルタリングのユニットテストを追加
+7f71ba6|2025-09-21|Refactor indicators and cache management
+a51ceee|2025-09-21|Refactor strategies to allow top_n parameter override in candidate generation
+6aae35a|2025-09-21|fix: ログメッセージの行末にコメントを追加し、コードの可読性を向上
+d11be6c|2025-09-21|fix: ログコールバックのフォーマットを簡素化し、データ処理の安定性を向上
+3f48208|2025-09-21|fix: 早期終了理由を追加し、データフレームの生成を改善
+7e39972|2025-09-20|Merge pull request #118 from r-estoer3588/copilot/fix-117
+124e021|2025-09-20|fix: 修正された環境変数チェックの条件を簡素化
+82d6dfa|2025-09-20|feat: Enhance zero reason diagnostics and logging
+20cabd9|2025-09-20|fix: Simplify base assignment logic in compute_today_signals function
+529a6c2|2025-09-20|feat: Add Codacy analysis script and update logging metrics in today_signals.py
+22100cc|2025-09-20|feat: Add Codacy analysis files and enhance logging in today_signals.py and utils_spy.py
+eaafa0e|2025-09-20|feat: Add coverage report file to track test coverage
+44ba4b9|2025-09-20|Remove duplicate entry for SPY in universe_auto.txt and ensure ZYXI is properly formatted at the end of the file.
+02a5fea|2025-09-20|feat: Enhance cache loading logic and add fast-path required columns for today signals
+95103d3|2025-09-20|feat: Add MCP server integration and enhance cache management with freshness validation
+de5cffc|2025-09-19|Initial plan
+9913427|2025-09-19|Merge pull request #114 from r-estoer3588/dya73e-codex/fix-empty-signal-from-prepare_data
+6d8e4ee|2025-09-19|fix(today): reinstate strategy preprocessing fallback
+14e3351|2025-09-19|Merge pull request #113 from r-estoer3588/copilot/fix-112
+91cf2b0|2025-09-19|Merge pull request #111 from r-estoer3588/copilot/fix-110
+9cf0ac1|2025-09-19|fix: Improve date handling in rebuild_rolling_cache_from_base function
+7c91a80|2025-09-19|feat: Add Codacy instructions for AI behavior and update .gitignore to exclude the instructions file
+7406e40|2025-09-19|feat: Add coverage report file
+5df9d5d|2025-09-19|fix: Remove unused imports from run_all_systems_today.py
+2cc49c5|2025-09-19|feat: Enhance System5 and System6 exit logic and implement base cache management
+2fb1348|2025-09-19|feat: Add coverage report file
+1363b59|2025-09-19|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+52e3925|2025-09-19|feat: Add daily run task and MCP server integration
+5e97c8e|2025-09-19|Merge pull request #109 from r-estoer3588/copilot/fix-108
+fc23189|2025-09-18|Initial plan
+dd0116e|2025-09-18|Initial plan
+6d93fa1|2025-09-18|Initial plan
+cc6e336|2025-09-19|Merge pull request #103 from r-estoer3588/ffb2nk-codex/review-optimization-proposals-for-final-list-generation
+3d7aab7|2025-09-19|Optimize allocation and reuse position data
+5126c5a|2025-09-18|Merge pull request #100 from r-estoer3588/3dcf5u-codex/add-missing-data-identification-button
+9268c42|2025-09-18|fix(data_loader): insert base fallback for rolling profile
+c147203|2025-09-18|Merge pull request #99 from r-estoer3588/d1yaoq-codex/fix-trdlist-not-updating-properly
+82035a2|2025-09-18|refactor(core): derive entry dates from calendar
+384a911|2025-09-18|Merge pull request #98 from r-estoer3588/862mu4-codex/update-spy-with-sma100/200-and-save
+c946b30|2025-09-18|Implement setup evaluation and SPY caching updates
+f52797e|2025-09-18|Merge pull request #97 from r-estoer3588/xd3d1u-codex/create-cli-for-calculating-shared-indicators
+10d11de|2025-09-18|feat(tools): export shared indicators csv
+bd35e92|2025-09-18|Merge pull request #96 from r-estoer3588/9e8j18-codex/optimize-precompute_shared_indicators-process
+312747f|2025-09-18|optimize shared indicator cache reuse
+06daa2b|2025-09-18|Merge pull request #95 from r-estoer3588/8whm0w-codex/update-rolling-period-to-300-days
+0db4536|2025-09-18|fix(config): extend rolling cache lookback
+b9f61c2|2025-09-17|Merge pull request #92 from r-estoer3588/fs0yt9-codex/fix-indicator-calculation-in-today_signals.py
+d1f44d2|2025-09-17|Merge pull request #91 from r-estoer3588/38ak98-codex/fix-bug-with-empty-trade-candidate-list
+d31c310|2025-09-17|feat(cache): support feather format in cache manager
+7928ba9|2025-09-17|Merge pull request #90 from r-estoer3588/5im3o7-codex/debug-files-with-multiple-errors
+bf7bd03|2025-09-17|Fix timezone handling for today signal candidates
+1c2b53f|2025-09-17|fix(core): repair system today signal helpers
+3f133f2|2025-09-17|Merge pull request #89 from r-estoer3588/cya7g5-codex/find-if-elapsed-days-are-applied
+6331862|2025-09-17|test(position_age): clean future import
+3518d3e|2025-09-17|Merge pull request #88 from r-estoer3588/y44mpg-codex/fix-candidate-extraction-issue-for-today
+e5b09af|2025-09-17|fix: refresh rolling cache and relax NaN screening
+05356e6|2025-09-17|Refactor system4 and system5: Enhance data preparation and indicator computation
+0248b32|2025-09-17|feat: システム5のデータ準備関数を追加し、ローリングキャッシュの鮮度検証と自動更新機能を実装
+6d07278|2025-09-17|feat: データフレームの保有日数の正規化処理を追加し、カラム名を日本語に変更
+540c292|2025-09-17|feat: 各システムのエントリ日付処理を改善し、NY証券取引所の翌営業日を取得する機能を追加
+7264754|2025-09-17|feat: Enhance CacheManager and system6 logic with improved data handling and indicator calculations
+7546ac5|2025-09-17|feat: run_all_systems_today関数を追加し、compute_today_signalsのエイリアスを設定
+2bb1c02|2025-09-17|feat: シンボルユニバースの準備と基本データのロード処理を追加し、シグナル抽出の流れを改善
+b5fd93c|2025-09-17|feat: キャッシュ管理におけるデータ読み込みの警告処理を強化し、NaN・型不一致・非正値の健全性チェックを追加
+24aeed4|2025-09-17|feat: データフレームの健全性チェックを追加し、NaN・型不一致・異常値を検出
+6561056|2025-09-17|Increase buffer days in cache configuration and settings from 40 to 100. Update various systems to retrieve the last closing price and include it in the generated signals. Adjust recent days in cache daily data script and lookback default in run_all_systems_today script from 240 to 300. Modify test for cache manager to reflect changes in buffer days.
+93df4a4|2025-09-17|feat: 本日のシグナル実行ボタンの処理を改善し、CLI引数の解析とログ設定を整理
+7c9ad16|2025-09-17|feat: prepare_dataおよびgenerate_candidatesメソッドの引数名を変更し、コードの可読性を向上
+a6b90f4|2025-09-17|feat: Plotlyのインポートエラーハンドリングを強化し、データフレームのカラム処理を改善。依存関係をrequirements-dev.txtに追加
+35a8ecd|2025-09-17|feat: 本日のシグナル表示を改善し、フォントを統一。ダウンロードボタンのキーにタイムスタンプを追加
+4701047|2025-09-17|feat: append_to_cache関数に進捗報告機能を追加し、キャッシュ更新中のユーザー中断を処理する例外を実装
+7f2c53f|2025-09-17|feat: AlpacaダッシュボードのCSSを改善し、スタイルを統一。Plotlyのインポートエラーハンドリングを強化
+0523ee0|2025-09-17|feat: Alpacaのショート可否を確認する機能を追加し、システム2/6の候補を事前フィルタリング。スキップ理由の詳細をCSVに保存する機能を実装
+358e20a|2025-09-17|feat: NYSEの営業状況を取得する機能を追加し、ポジションの現在値取得ロジックを改善。テストケースを更新
+fd58dd5|2025-09-16|feat: ログ出力の改善とデータ構造の更新。スキップしたデータの集計サマリーをログにのみ出力し、JSONファイルに新しいエントリを追加
+6b81ba4|2025-09-16|feat: メトリクスの要約処理を改善し、通知機能を強化。エグジット件数の推定を修正し、システム別の最終メトリクスを送信する機能を追加
+5d63504|2025-09-16|feat: データ準備処理のエラーハンドリングを強化し、フォールバック機能を追加。シンボルの計算エラー時に全体を中断しないように修正
+b752b50|2025-09-16|feat: データフレームのインデックスを正規化し、重複を排除。OHLCV列を数値化する処理を追加し、エラーハンドリングを強化
+14b4f57|2025-09-16|feat: データフレームのインデックスを正規化し、昇順・重複除去を実施。キャッシュデータの健全性を向上させるための処理を追加
+7e8fa87|2025-09-16|feat: システムのグループ化ユーティリティを追加し、スキップ理由の収集機能を実装。データ処理の安定性を向上させるための型強制を追加
+6bfa51d|2025-09-16|feat: 各システムのデータ処理において、必須列の存在チェックを追加し、スキップ理由を詳細に記録する機能を実装
+05a277f|2025-09-16|feat: 現在のアクティブポジション数をシステム名ごとに取得する機能を追加し、資金配分のロジックを改善。ログ出力を強化し、利用可能スロットを表示する機能を実装
+b5a2512|2025-09-16|feat: 経過日手仕切りの上限日数を定義し、表示機能を追加。コードの可読性を向上させるためにインデントを修正
+37d47fc|2025-09-16|feat: plotlyのインポートをオプショナルにし、_safe_float関数を追加して値を安全に変換する機能を実装
+8729a4e|2025-09-16|feat: カバレッジ情報のバイナリファイルを更新
+f78203d|2025-09-16|feat: シンボルとシステムのマッピングをロードする機能を追加し、キャッシュマネージャーのデータ処理を改善。Plotlyを使用したグラフ表示を実装し、テストを追加。
+300e123|2025-09-15|feat: カバレッジ情報を保存するための新しいファイルを追加
+0edc606|2025-09-15|feat: Slack通知を有効化するデフォルト設定を変更し、ドライランオプションのデフォルトを実発注に変更
+bdee954|2025-09-15|feat: 自動保存機能を追加し、手動保存ボタンを残す。手仕舞い計画の自動実行オプションを追加。エントリーキャッシュ機能を実装し、通知機能を強化。
+5351be5|2025-09-15|feat: カバレッジ情報を保存するための新しいファイルを追加
+0646f1b|2025-09-15|feat: システム別CSVの自動保存機能を追加し、空のデータフレームはスキップするように修正
+7c6038d|2025-09-15|feat: CSV自動保存機能を追加し、保存先とファイル名形式を選択可能に
+7a5ced3|2025-09-15|feat: リラン後の結果再表示を有効にするフラグをリセットする機能を追加
+7869698|2025-09-15|feat: データフレームの列名を小文字化し、重複を除去する機能を追加 feat: Slack通知の送信時にテキストブロックを追加 feat: 注文IDをUUID形式から文字列に変換する処理を追加 feat: 画像を縦に結合する機能を追加し、通知に送信するチャートを改善 test: Slack通知の送信が一度だけ行われることを確認するテストを追加
+fbdbc84|2025-09-15|feat: Slack通知設定の改善と再表示機能を追加
+600a485|2025-09-15|feat: Slack通知機能を追加し、未約定注文の表示機能を実装
+9241998|2025-09-15|feat: CSV保存機能の改善とファイル名形式の選択肢を追加
+aa53d4a|2025-09-15|feat: .coverageファイルを新規作成し、カバレッジ情報を管理
+1f3df63|2025-09-15|feat: Streamlitのチェックボックスにセッションステートを追加し、Alpaca自動発注の設定を改善
+a6888af|2025-09-15|feat: .coverageファイルを新規作成し、カバレッジ情報を管理
+b8efe43|2025-09-15|feat: get_today_signals_for_strategy関数の前営業日取得方法をNYSEカレンダーに基づくように修正し、TRDlistの候補件数通知を追加
+1d8f64b|2025-09-15|feat: Slack Web APIへの移行に伴う通知機能の改善と設定の更新
+87aacb4|2025-09-15|feat: get_today_signals_for_strategy関数の候補キーの正規化を追加し、TRDlist件数の即時通知を実装
+b90103a|2025-09-15|feat: Slack通知のメッセージ送信を改善し、ブロック形式をサポート
+fadce51|2025-09-15|feat: compute_today_signals関数にEODHDの計算方法に関する注記を追加
+1b534a3|2025-09-15|feat: get_today_signals_for_strategy関数のエラーハンドリングを改善し、ターゲット日付の設定を修正
+5eb7009|2025-09-15|feat: 日本語ラベルを追加し、進捗表示を統一
+e07bab2|2025-09-15|feat: メトリクス通知のフォーマットを改善し、フィールド形式で表示
+efe7805|2025-09-15|feat: system7のロジックを改善し、コメントを明確化
+a68681b|2025-09-15|feat: システム別のTop10を個別に出力し、フィルタ条件を改善
+ff6fcfe|2025-09-15|feat: メトリクス通知のフォーマットを改善し、テーブル形式で表示
+ff4a175|2025-09-15|feat: 新しいカバレッジレポート用のバイナリファイルを追加
+c3a36a0|2025-09-15|feat: 当日のトレード候補件数の取得ロジックを改善し、最も近い未来日の候補を考慮
+416809c|2025-09-15|feat: シグナル表示のメトリクス改善と候補生成のログメッセージを明確化
+6469983|2025-09-15|feat: UI ログ出力の改善と Exit 件数の即時反映機能を追加
+3c57a38|2025-09-15|feat: システムログのクリア処理を追加し、SMA50の計算を実装
+fd56f01|2025-09-15|feat: 新しいカバレッジレポート用のバイナリファイルを追加
+44e1ce7|2025-09-15|Implement code changes to enhance functionality and improve performance
+5b77717|2025-09-15|feat: 補完処理のログ出力を改善し、プロセスプールの使用条件を明確化
+a063e24|2025-09-15|feat: カバレッジレポート用の新しいバイナリファイルを追加
+c217a8b|2025-09-15|Implement code changes to enhance functionality and improve performance
+eeae6c9|2025-09-15|feat: 新しいデータローダーを追加し、OHLCV列名の正規化を実装
+52698af|2025-09-15|feat: 共有指標の前計算ログを表示対象に追加し、データ補完処理を改善
+1471013|2025-09-15|fix: 重複インポートを削除し、キャッシュの読み込み処理を簡素化
+1e236d2|2025-09-15|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+fe85dfe|2025-09-15|feat: OHLCV列名の大小文字を統一するヘルパー関数を追加し、データフレームの整形を改善
+5ac1765|2025-09-14|Merge pull request #85 from r-estoer3588/codex/investigate-high-skip-rate-due-to-data-issues
+db70efa|2025-09-14|chore: restore coverage data
+0662c22|2025-09-14|feat: カバレッジ情報を保存するための新しいファイルを追加
+22fa815|2025-09-14|feat: システムの進行状況表示を改善し、テキストを短縮
+f51bf2e|2025-09-14|feat: メトリクス表示の改善とログ出力の重複防止を実装
+3aa113b|2025-09-14|feat: メトリクス表示の改善とデータ抽出ヘルパーを追加
+08a12b2|2025-09-14|feat: システム別のメトリクス表示を追加し、CLI バナーを強化
+360b3fc|2025-09-14|feat: フェーズ表示の改善とシステム別セットアップ内訳のログ出力を追加
+212eb3d|2025-09-14|feat: Notifierのインポートを修正し、create_notifierを使用するように変更
+8a2c891|2025-09-14|feat: 並列実行の詳細設定を削除し、システムフィルター内訳を追加
+0ed1fdf|2025-09-14|feat: コードの整理と可読性向上のためのインポート順序の修正
+88e4495|2025-09-14|feat: ログ出力を改善し、CLI 出力に経過時間を追加
+f15459a|2025-09-14|feat: 並列実行オプションのデフォルト設定を改善し、Windows環境でのプロセスプール設定を追加
+de834ae|2025-09-14|（（復元した））feat: 不要なユニバース件数引数を削除し、ログ出力を簡素化
+9869fcb|2025-09-14|Implement code changes to enhance functionality and improve performance
+6a76cfc|2025-09-14|feat: ユニバース件数を引数として追加し、ログ出力を改善
+70a1d42|2025-09-14|feat: 並列実行オプションの設定をサイドバーに移動し、プロセスプールの設定を改善
+392d520|2025-09-14|feat: Windows環境での並列実行オプションを追加し、System2フィルター内訳の可視化を改善
+08bafd2|2025-09-14|feat: 日本語でのメトリクス表示を追加し、対象銘柄数の表示を改善
+9d699da|2025-09-14|feat: add account summary and planned exits management to positions tab
+fc18c37|2025-09-14|feat: implement positions tab and scheduled exit order functionality
+d82ae12|2025-09-14|feat: add symbol-system mapping persistence and implement exit order submission functionality
+07160c5|2025-09-14|fix: update yearly and monthly resampling frequency from 'Y' to 'YE' and 'M' to 'ME' for accurate data aggregation
+fe22e7c|2025-09-14|feat: add Streamlit context check and display metrics for each system
+107949c|2025-09-14|feat: add Streamlit context detection and improve logging visibility
+de2783d|2025-09-14|refactor: update requirements to include alpaca-trade-api and adjust network stack dependencies
+2c15525|2025-09-14|feat: add coverage report file for improved test tracking
+b239b84|2025-09-14|refactor: enhance Streamlit UI detection and error handling in utils_spy and i18n modules
+14d35d1|2025-09-14|refactor: improve logging in notifier and batch processing, add keyword filtering for log messages
+206fcfd|2025-09-14|feat: Add daily metrics tracking and reporting functionality
+4e1b926|2025-09-14|refactor: enhance signal processing and caching mechanisms, improve logging and progress tracking
+4bdb40f|2025-09-14|refactor: streamline progress tracking and enhance filtering logic in signal processing
+47c9503|2025-09-13|docs: add initial Copilot instructions for AI coding agent usage
+715c63e|2025-09-13|refactor: enhance logging format for better context in system execution
+11c9446|2025-09-13|refactor: enhance progress tracking and stage updates for system execution
+5faa6af|2025-09-13|refactor: add per-system progress tracking and stage updates for signal execution
+9056021|2025-09-13|refactor: improve logging clarity and system order consistency in signal processing
+4dd6412|2025-09-13|refactor: enhance type annotations and improve function signatures in runner and strategy files
+880078a|2025-09-13|refactor: optimize code structure and improve performance across multiple files
+bbed327|2025-09-13|refactor(instructions): improve clarity and formatting in guidelines for tone and writing style
+f713f11|2025-09-13|refactor(account): enhance Alpaca account information handling with additional state variables and update functionality
+3b55e3a|2025-09-13|refactor(signals): enhance signal processing with automatic buying power updates and improved filtering logic
+a7c55d7|2025-09-13|refactor(instructions): add comprehensive guidelines for tone, writing style, and output format
+c89f812|2025-09-13|refactor(logging): improve log messages for filtering and setup checks in signal processing
+09527b2|2025-09-13|refactor(logging): update logging to include timestamp in UI and log start of signal detection
+8a21aab|2025-09-13|refactor(indicators): add parallel processing option for shared indicators precomputation
+3fd3107|2025-09-13|refactor(logging): enhance logging function to control UI callback output
+e2baa85|2025-09-13|refactor(indicators): add precomputation of shared indicators and filter UI logs
+747d173|2025-09-13|refactor(logging): enhance logging functionality and add progress callback for signal processing
+2b1a7ba|2025-09-13|refactor(progress): add progress bar and logging for signal computation steps
+a2b56b7|2025-09-13|Refactor cache management and improve data handling
+36c80d1|2025-09-13|refactor(utils): enhance get_cached_data function with improved date handling and error management
+e17141a|2025-09-13|refactor(system3): optimize DataFrame copying by using shallow copy for performance
+8842c63|2025-09-13|refactor(utils): improve data caching logic and error handling in get_cached_data function refactor(update_from_bulk_last_day): enhance append_to_cache function with CacheManager integration and improve error handling
+d7bfa34|2025-09-13|refactor(utils_spy): simplify SPY cache loading and remove automatic update logic
+2647488|2025-09-13|refactor(app_today_signals): add logging functionality and improve elapsed time display
+c262c17|2025-09-13|refactor: replace equity curve saving with price chart saving and add trade markers
+2f3364e|2025-09-13|refactor(app_today_signals): streamline test mode options for symbol selection
+011afc9|2025-09-13|refactor(app_today_signals): remove duplicate checkbox for test mode symbol limit
+44ca642|2025-09-13|refactor(app_today_signals): improve checkbox handling and error management in unique checkbox implementation
+f8ec95c|2025-09-13|refactor(app_today_signals): enhance checkbox handling for test mode options refactor(common): improve logging and streamline order management in Alpaca integration
+bb5b5e7|2025-09-13|refactor(app_today_signals): improve checkbox handling and streamline test mode options
+ca191ab|2025-09-13|Merge pull request #84 from r-estoer3588:copilot/vscode1757684883880
+2e9c9d9|2025-09-13|Refactor Alpaca order management and logging
+8eb3a2d|2025-09-13|refactor(system1): remove SPY data download utility and enhance data handling in core logic
+769684d|2025-09-12|refactor(system1): remove SPY data download functionality and streamline data retrieval
+e36e995|2025-09-12|Merge branch 'copilot/vscode1757684883880' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into copilot/vscode1757684883880
+68c1377|2025-09-12|fix(system1): ensure groupby keys are explicitly converted to string
+040ff48|2025-09-12|Initial plan
+71c636b|2025-09-12|Checkpoint from VS Code for coding agent session
+d89271a|2025-09-11|Merge pull request #81 from r-estoer3588/codex/reduce-number-of-pull-requests
+c82e881|2025-09-11|fix: make positions df resilient and preserve max_70
+e44362e|2025-09-11|Merge pull request #79 from r-estoer3588/codex/treat-70-day-high-check-failure-as-error
+34c4a30|2025-09-11|fix(common): handle 70-day high check failure
+3becc46|2025-09-11|Merge pull request #78 from r-estoer3588/codex/implement-missing-features-p0g7y6
+e3d1b17|2025-09-11|refactor(core): simplify system7 for single symbol
+50bc9fa|2025-09-11|Merge pull request #77 from r-estoer3588/codex/implement-missing-features-tlluzk
+5098cb6|2025-09-11|fix(dashboard): compute holding days for positions
+fecad48|2025-09-11|Merge pull request #73 from r-estoer3588/codex/determine-necessity-of-code-implementation
+4f7b5a0|2025-09-11|feat(app): show positions and profit checks
+f14d9a8|2025-09-11|Merge pull request #72 from r-estoer3588/codex/fix-loading-errors-on-signal-execution
+d3334cc|2025-09-11|fix(cache): handle legacy Date column in cache
+496b9f4|2025-09-11|Merge pull request #71 from r-estoer3588/codex/implement-_migrate_root_csv_to_full-function
+e1d365b|2025-09-11|refactor(scripts): deduplicate cache migration
+bae6199|2025-09-11|feat(cache): add group resolution and support for saving SPY data to multiple directories
+1ee3174|2025-09-11|feat(cache): implement dynamic cache directory resolution and update command-line arguments for SPY data fetching
+edc956b|2025-09-11|feat(ui): enhance integrated UI with additional settings display and error handling
+f51618f|2025-09-11|fix(cache): refactor CSV migration logic in _migrate_root_csv_to_full function
+3c2b8ef|2025-09-11|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+efcaec2|2025-09-11|feat(cache): implement legacy CSV migration to CacheManager structure
+998f5d2|2025-09-10|Merge pull request #70 from r-estoer3588/codex/implement-_migrate_root_csv_to_full-function
+b963629|2025-09-10|fix(cache): migrate legacy csv caches
+f4c6e14|2025-09-10|refactor: remove obsolete cache_daily_data.py and today_signal.py files
+d0350dc|2025-09-10|feat(core): implement BatchSizeMonitor for dynamic batch size adjustment
+8bb97c5|2025-09-10|Refactor indicator computation across systems to support parallel processing
+3195767|2025-09-10|Merge pull request #69 from r-estoer3588:codex/implement-automatic-optimization-for-logging
+8dc11b5|2025-09-10|Merge branch 'branch0906' into codex/implement-automatic-optimization-for-logging
+d62143d|2025-09-10|feat(core): auto-tune batch size for systems2-7
+4db8304|2025-09-10|Merge pull request #67 from r-estoer3588:codex/implement-asynchronous-i/o-and-preprocessing-pipeline
+7b82cd0|2025-09-10|feat(common): add async prefetch loader
+6ca36c1|2025-09-10|Merge pull request #66 from r-estoer3588/codex/implement-incremental-update-and-differential-calculation
+f729261|2025-09-10|feat(core): cache incremental System2-7 indicators
+425cc62|2025-09-10|Merge pull request #65 from r-estoer3588/codex-nauaxx
+1e5e815|2025-09-10|feat(common): scale batch size for small universes
+0f78aa3|2025-09-10|Merge pull request #64 from r-estoer3588/codex/resolve-conflicts-in-pull-request-#56
+5158e60|2025-09-10|fix(scripts): simplify string concatenation in run_all_systems_today
+8d0d3c3|2025-09-10|Merge pull request #63 from r-estoer3588/codex/resolve-conflicts-in-pull-request-#60
+48bd89a|2025-09-10|fix(strategies): centralize magic numbers into shared constants
+442ec90|2025-09-10|Merge pull request #62 from r-estoer3588/copilot/fix-61
+653dce9|2025-09-10|Merge pull request #51 from r-estoer3588/copilot/fix-50
+48b3497|2025-09-10|Merge pull request #58 from r-estoer3588/copilot/fix-57
+75a33ef|2025-09-10|Initial plan
+b82b8cf|2025-09-10|Merge pull request #49 from r-estoer3588/copilot/fix-48
+471d576|2025-09-10|Replace magic numbers with named constants in strategy and core modules
+a802183|2025-09-10|Merge pull request #46 from r-estoer3588/copilot/fix-45
+0c1c2d1|2025-09-10|Merge pull request #44 from r-estoer3588/copilot/fix-43
+7ee9c87|2025-09-10|fix(tests): change zip() to use strict=True for DataFrame validation
+dfc617f|2025-09-10|Merge pull request #42 from r-estoer3588/copilot/fix-41
+b9826e1|2025-09-10|Define named constants for magic numbers in strategy files
+949a8d6|2025-09-10|Fix redundant 'or 0' patterns and create getattr redundancy fix tool
+fb831ec|2025-09-10|Optimize SPY max_70 calculation by avoiding redundant computation
+7f49655|2025-09-10|Initial plan
+5eac03d|2025-09-10|fix: simplify list comprehension for better readability in app_today_signals.py
+d151f90|2025-09-10|Initial plan to fix redundant getattr 'or 0' pattern
+9e27bb2|2025-09-10|Initial plan: Define named constants for magic numbers in strategies
+95c17b0|2025-09-10|Merge pull request #52 from r-estoer3588/codex/fix-invalid-date-check-for-positions
+60d84c8|2025-09-10|feat: add position age utilities
+475ca18|2025-09-10|Merge pull request #39 from r-estoer3588/copilot/fix-38
+b309821|2025-09-10|Initial plan
+eb55f7a|2025-09-10|Initial plan
+cb67c51|2025-09-10|Initial plan
+5aebac0|2025-09-10|Initial plan
+d80c3db|2025-09-10|Initial plan
+0328550|2025-09-10|Initial plan
+efda0fc|2025-09-09|Merge pull request #35 from r-estoer3588/codex/determine-parallel-execution-feasibility-for-systems
+aa321e7|2025-09-09|fix(signals): avoid streamlit rerun in parallel
+b981c71|2025-09-09|Merge pull request #33 from r-estoer3588/codex/add-daily-chart-for-recommended-stocks
+ef73c26|2025-09-09|feat(tools): include daily charts in signal notifications
+6fcc350|2025-09-09|Merge pull request #32 from r-estoer3588/codex/enhance-daily-signal-slack-notifications
+7464c86|2025-09-09|feat(notifier): enrich slack signal message
+25dd632|2025-09-09|Merge pull request #31 from r-estoer3588/codex/add-dashboard-for-daily-position-overview
+76e7cc9|2025-09-09|feat(dashboard): add system allocation pie charts
+63b057a|2025-09-09|Merge pull request #30 from r-estoer3588/codex/resolve-merge-conflicts-for-pull-requests
+8906e86|2025-09-09|docs: note UI symbol data preload
+9b90e55|2025-09-09|Merge pull request #29 from r-estoer3588/codex/resolve-conflicts-and-merge-pull-request
+b418196|2025-09-09|chore(system3): rename DropRate_3D to Drop3D and update docs
+0b0c357|2025-09-09|Merge pull request #27 from r-estoer3588/codex/resolve-conflicts-and-address-review-comments
+1a7982f|2025-09-09|fix(cache): sync recent cache when file already up-to-date
+33cce19|2025-09-09|Merge pull request #26 from r-estoer3588/codex/update-required_indicators.md-with-system-setups-b6xpi1
+9772a4c|2025-09-09|chore: switch system4 volatility to HV50
+7aea372|2025-09-09|Merge pull request #25 from r-estoer3588/codex/check-profit-protection-in-systems-1-7
+91414ce|2025-09-09|chore: revert coverage artifact
+2bfcdaf|2025-09-09|fix(cache): implement dummy function for _migrate_root_csv_to_full and improve path handling in cache_single
+183769b|2025-09-09|feat(strategy): add StrategyProtocol for strategy methods and enhance base strategy class
+65989c7|2025-09-09|Refactor and enhance trading systems and indicators
+51afebd|2025-09-08|Merge pull request #24 from r-estoer3588/codex/add-trading-strategies-for-systems-1-to-7
+ea02865|2025-09-08|feat(strategies): define entry rules for systems2-7
+3eb1e72|2025-09-08|Merge pull request #23 from r-estoer3588/codex/add-existing-memo-for-trading-systems
+dc4dbbb|2025-09-08|docs: record system allocations
+7e8a5b8|2025-09-08|Merge pull request #21 from r-estoer3588/codex/update-daily-cache-to-write-existing-data
+7eb194a|2025-09-08|refactor(scripts): use rolling cache
+8f0da22|2025-09-08|Merge pull request #20 from r-estoer3588/codex/implement-two-layer-caching-system
+9b79e4b|2025-09-08|refactor(cache): use CacheManager in daily cache script
+1ccdc6d|2025-09-08|Merge pull request #16 from r-estoer3588/codex/document-required-indicators-for-signal-calculation
+4962684|2025-09-08|docs: classify indicator implementations
+c2efffe|2025-09-08|Merge pull request #15 from r-estoer3588/codex/implement-two-layer-caching-system
+e61a6af|2025-09-08|feat(cache): add two-tier cache management
+13278c4|2025-09-08|Merge pull request #14 from r-estoer3588/codex/fix-error-handling
+0164e3b|2025-09-08|fix(app): reset DataFrame index in today signals
+fe52da5|2025-09-08|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+aea77cd|2025-09-08|feat(dashboard): improve data loading and caching for signal computation
+9ce0293|2025-09-07|Merge pull request #13 from r-estoer3588/codex/set-line-length-policy-for-flake8
+7cd028e|2025-09-07|chore(dev): add flake8 formatting hooks
+080bd92|2025-09-07|feat(linting): update flake8 configuration and add to pre-commit hooks
+c2b006e|2025-09-07|feat(dashboard): enhance UI with modern CSS and Japanese labels for metrics
+e067138|2025-09-07|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+3eaf43f|2025-09-07|feat(slack): add script for sending test messages to Slack channels
+7404f42|2025-09-07|Merge pull request #12 from r-estoer3588/codex/improve-order-notification-ux
+96d3aed|2025-09-07|feat(notifications): aggregate trade alerts with amounts
+9740308|2025-09-07|feat(slack): add test script for sending messages to Slack channels fix(settings): remove deprecated max_line_length setting and ensure proper formatting refactor(broker_alpaca): improve code readability and error handling chore(requirements): update alpaca-py dependency specification
+db2e687|2025-09-07|fix(settings): ensure max line length is set to 88
+f8738e8|2025-09-07|Merge pull request #11 from r-estoer3588/codex/add-button-to-cancel-all-current-orders
+d6fefa0|2025-09-07|feat(ui): add cancel-all-orders button
+031b941|2025-09-07|Merge pull request #10 from r-estoer3588/codex/create-stylish-dashboard-for-alpaca-status
+4c2fbc5|2025-09-07|feat(app): add Alpaca status dashboard
+b98f705|2025-09-07|Merge pull request #9 from r-estoer3588/codex/fix-uuid-serialization-issue
+805c7d5|2025-09-07|feat: add UUID-safe JSON serialization helper
+9d55f80|2025-09-07|feat: 注文状況ポーリング機能の説明を追加し、成功・警告メッセージの処理を改善
+c45e7ee|2025-09-07|feat: 資産管理機能の改善とシステム別シグナル表示の追加
+435fd4c|2025-09-07|Merge branch 'branch0906' of https://github.com/r-estoer3588/quant_trading_system_0510to0906 into branch0906
+41156a2|2025-09-07|Merge remote-tracking branch 'origin/copilot/fix-07291eae-56c2-4bf6-a609-d6448af22a33'
+ff8ea13|2025-09-07|refactor(app): improve code readability and type hints in Alpaca account handling
+0841112|2025-09-07|feat: branch0906をmainにマージ - 機能拡張とバグ修正の統合
+468f3f2|2025-09-07|Merge pull request #7 from r-estoer3588/copilot/fix-07291eae-56c2-4bf6-a609-d6448af22a33
+7c07065|2025-09-07|初期計画: branch0906をmainにマージするためのPR作成準備
+0bb9277|2025-09-07|Initial plan
+054f774|2025-09-07|Merge pull request #6 from r-estoer3588/codex/fix-duplicate-download_button-id-error
+2b1cebf|2025-09-07|fix(app): add unique keys for download buttons
+e6a716e|2025-09-07|Merge pull request #5 from r-estoer3588/codex/update-batch-backtest-summary-ui
+75a345c|2025-09-07|fix(ui): resolve conflicts for today signals
+6db9c26|2025-09-07|Refactor input handling in app_today_signals.py and ui_tabs.py; enhance Alpaca client initialization in broker_alpaca.py; update universe_auto.txt with additional tickers; add alpaca_fetchtest.py for account and order retrieval.
+bac3280|2025-09-07|資産推移と実行日数のチェック機能を追加し、資金不足の可能性を判定するロジックを実装。資金が0以下または初期資金の10%未満になった日を表示する機能を追加。Alpacaからの残高取得機能を実装し、UIの数値入力を改善。ログ表示機能を強化し、選択理由を表示する機能を追加。
+5c51a14|2025-09-07|資産推移と実行日数のチェック機能を追加し、資金不足の可能性を判定するロジックを実装。資金が0以下または初期資金の10%未満になった日を表示し、CSVダウンロード機能を追加。
+031f5de|2025-09-06|型ヒントを改善し、辞書の値の型をAnyに変更。データフレームの年の抽出を堅牢にし、エラーハンドリングを強化。UIの数値入力を整形し、コードの可読性を向上。
+1eede4d|2025-09-06|run_tab関数からインジケーター確認機能を削除し、generate_candidatesメソッドの引数処理を柔軟に改善。ATRの計算時にNone/NaNを考慮し、リスク計算の条件を追加。
+de2c0d6|2025-09-06|.editorconfigを追加し、コーディングスタイルの一貫性を確保。VSCode設定を更新し、EOLとエンコーディングを指定。system4.pyでATR計算のフォーマットを改善し、system7_strategy.pyのprepare_dataメソッドの引数を型ヒント付きで修正。
+5e4252c|2025-09-06|0906-4
+e17ddf1|2025-09-06|0906-3
+f48c236|2025-09-06|0906-2
+c2a0788|2025-09-06|0906-2
+ed2092a|2025-09-06|0906-new_repo
+f106e68|2025-09-06|Add .env to .gitignore
+8ca57a7|2025-09-06|Initial clean commit
