@@ -225,6 +225,7 @@ except ImportError:
     def submit_exit_orders_df(df, *args, **kwargs):
         """Fallback stub for testing environments without alpaca-py."""
         import pandas as pd
+
         return pd.DataFrame()
 
 
@@ -239,342 +240,71 @@ class Notifier:
 
 
 def _inject_css() -> None:
-    """Inject modern dashboard CSS with light/dark theme support."""
+    """Inject modern dashboard CSS with light/dark theme support.
+
+    Loads CSS from external file for better maintainability.
+    Falls back to minimal inline styles if file not available.
+    """
     try:
-        css = """
-        <style>
-        /* CSS Variables for theme consistency */
-        :root {
-            --primary-color: #1f77b4;
-            --secondary-color: #ff7f0e;
-            --success-color: #2ca02c;
-            --danger-color: #d62728;
-            --warning-color: #ff9800;
-            --info-color: #17a2b8;
-
-            --bg-primary: #ffffff;
-            --bg-secondary: #f8f9fa;
-            --bg-card: #ffffff;
-            --border-color: #dee2e6;
-            --text-primary: #212529;
-            --text-secondary: #6c757d;
-            --text-muted: #adb5bd;
-
-            --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-            --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-            --border-radius: 0.5rem;
-            --border-radius-sm: 0.375rem;
-            --spacing-xs: 0.25rem;
-            --spacing-sm: 0.5rem;
-            --spacing-md: 1rem;
-            --spacing-lg: 1.5rem;
-            --spacing-xl: 3rem;
-        }
-
-        /* Dark theme support */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-primary: #1e1e1e;
-                --bg-secondary: #2d2d2d;
-                --bg-card: #2d2d2d;
-                --border-color: #404040;
-                --text-primary: #ffffff;
-                --text-secondary: #b3b3b3;
-                --text-muted: #808080;
-            }
-        }
-
-        /* Base layout improvements */
-        .main > div {
-            padding-top: var(--spacing-sm) !important;
-        }
-
-        /* Typography */
-        .ap-title {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: var(--spacing-md);
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .ap-section {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: var(--spacing-lg) 0 var(--spacing-md) 0;
-            border-bottom: 2px solid var(--border-color);
-            padding-bottom: var(--spacing-sm);
-        }
-
-        /* Toolbar */
-        .ap-toolbar {
-            position: sticky;
-            top: 0;
-            background: var(--bg-primary);
-            backdrop-filter: blur(10px);
-            z-index: 100;
-            padding: var(--spacing-md) 0;
-            margin-bottom: var(--spacing-md);
-            border-bottom: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-        }
-
-        /* Toolbar内のコンポーネント間隔調整 */
-        .ap-toolbar .stColumns {
-            gap: var(--spacing-md);
-        }
-
-        .ap-toolbar .stButton > button {
-            height: 2.5rem;
-            font-size: 0.9rem;
-            font-weight: 600;
-            border-radius: var(--border-radius-sm);
-        }
-
-        .ap-toolbar .stTimeInput > div > div > input {
-            height: 2.5rem; /* match button height */
-            font-size: 0.95rem;
-        }
-
-        .ap-toolbar .stToggle, .ap-toolbar .stCheckbox {
-            margin-top: 0.45rem; /* visually center toggle/checkbox */
-        }
-
-        /* Cards */
-        .ap-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            margin: var(--spacing-md) 0;
-            box-shadow: var(--shadow-md);
-            transition: all 0.3s ease;
-            min-height: 120px; /* stabilize card height */
-        }
-
-        .ap-card:hover {
-            transform: translateY(-1px); /* reduce hover shift */
-            box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.2);
-        }
-
-        /* Metrics */
-        .ap-metric {
-            text-align: center;
-            padding: var(--spacing-lg);
-            background: var(--bg-card);
-            border-radius: var(--border-radius);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-            transition: all 0.3s ease;
-            min-height: 136px; /* stabilize metric card height */
-        }
-
-        .ap-metric:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .ap-metric .label {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            margin-bottom: var(--spacing-xs);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .ap-metric .value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: var(--text-primary);
-            margin-bottom: var(--spacing-xs);
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-variant-numeric: tabular-nums; /* prevent width jank when numbers change */
-            font-feature-settings: 'tnum' 1;
-        }
-
-        .ap-metric .delta-pos {
-            color: var(--success-color);
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-
-        .ap-metric .delta-neg {
-            color: var(--danger-color);
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-
-        /* Metric components (for summary cards) */
-        .ap-metric-icon {
-            font-size: 2rem;
-            text-align: center;
-            margin-bottom: var(--spacing-sm);
-        }
-
-        .ap-metric-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: var(--text-primary);
-            text-align: center;
-            margin-bottom: var(--spacing-xs);
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            line-height: 1.1;
-            font-variant-numeric: tabular-nums;
-            font-feature-settings: 'tnum' 1;
-        }
-
-        .ap-metric-label {
-            font-size: 1rem;
-            color: var(--text-secondary);
-            text-align: center;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        /* Badges */
-        .ap-badge {
-            display: inline-block;
-            padding: var(--spacing-xs) var(--spacing-sm);
-            border-radius: var(--border-radius-sm);
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin: var(--spacing-xs);
-        }
-
-        .ap-badge.good {
-            background: rgba(44, 160, 44, 0.1);
-            color: var(--success-color);
-            border: 1px solid rgba(44, 160, 44, 0.3);
-        }
-
-        .ap-badge.warn {
-            background: rgba(255, 152, 0, 0.1);
-            color: var(--warning-color);
-            border: 1px solid rgba(255, 152, 0, 0.3);
-        }
-
-        .ap-badge.danger {
-            background: rgba(214, 39, 40, 0.1);
-            color: var(--danger-color);
-            border: 1px solid rgba(214, 39, 40, 0.3);
-        }
-
-        /* Statistics */
-        .ap-stat-grid {
-            display: grid;
-            gap: var(--spacing-md);
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        }
-
-        .ap-stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .ap-stat-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: var(--spacing-sm) 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .ap-stat-item:last-child {
-            border-bottom: none;
-        }
-
-        .ap-stat-label {
-            font-weight: 500;
-            color: var(--text-secondary);
-        }
-
-        .ap-stat-value {
-            font-weight: bold;
-            color: var(--text-primary);
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-variant-numeric: tabular-nums;
-            font-feature-settings: 'tnum' 1;
-        }
-
-        .ap-stat-value.green {
-            color: var(--success-color);
-        }
-
-        .ap-stat-value.red {
-            color: var(--danger-color);
-        }
-
-        /* Position table enhancements */
-        .stDataFrame {
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius);
-            overflow: hidden;
-        }
-
-        /* Animation utilities */
-        .ap-fade {
-            animation: fadeIn 0.6s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Button enhancements */
-        .stButton > button {
-            border-radius: var(--border-radius-sm);
-            border: none;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-
-        .stButton > button:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-sm);
-        }
-
-        /* Responsive improvements */
-        @media (max-width: 768px) {
-            .ap-title {
-                font-size: 1.5rem;
-            }
-
-            .ap-metric .value {
-                font-size: 1.5rem;
-            }
-
-            .ap-stat-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Respect user motion preferences to avoid jank */
-        @media (prefers-reduced-motion: reduce) {
-            .ap-card, .ap-metric { transition: none; }
-            .ap-card:hover, .ap-metric:hover { transform: none; }
-        }
-        </style>
-        """
-        st.markdown(css, unsafe_allow_html=True)
+        # Try to load external CSS first
+        css_path = Path(__file__).parent / "styles" / "dashboard.css"
+        if css_path.exists():
+            css = css_path.read_text(encoding="utf8")
+            # Add Google Fonts
+            fonts = """
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+            """
+            st.markdown(f"<style>{fonts}{css}</style>", unsafe_allow_html=True)
+            return
     except Exception:
         pass
+
+    # Fallback: minimal inline CSS
+    css = """
+    <style>
+    :root {
+        --primary-color: #667eea;
+        --success-color: #10b981;
+        --danger-color: #ef4444;
+        --bg-card: #ffffff;
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --border-color: #e2e8f0;
+        --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+        --radius-lg: 0.75rem;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-card: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --border-color: #334155;
+        }
+    }
+    .ap-metric {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: var(--shadow-md);
+        min-height: 140px;
+    }
+    .ap-metric .value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--text-primary);
+    }
+    .ap-metric .label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+    }
+    .ap-metric .delta-pos { color: var(--success-color); }
+    .ap-metric .delta-neg { color: var(--danger-color); }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def _resolve_position_price(position: Any) -> float | str:
@@ -1127,9 +857,7 @@ def _positions_to_df(positions, client=None) -> pd.DataFrame:
         for col in df.columns:
             if df[col].dtype == object:
                 # オブジェクト型のカラムをすべて文字列に変換
-                df[col] = df[col].apply(
-                    lambda x: str(x) if x is not None else None
-                )
+                df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
     except Exception:
         pass
 

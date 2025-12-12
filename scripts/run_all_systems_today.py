@@ -155,36 +155,42 @@ from strategies.system6_strategy import System6Strategy
 from strategies.system7_strategy import System7Strategy
 from tools.notify_metrics import send_metrics_notification  # noqa: E402
 
-# --- Console encoding helpers (to mitigate mojibake on Windows terminals) ---
+# --- Refactored modules (Phase 2) ---
+# These classes/functions were extracted to scripts/pipeline/ for better maintainability
+from scripts.pipeline.benchmark import LightweightBenchmark
+from scripts.pipeline.context import TodayRunContext
+from scripts.pipeline.cache_pool import BaseCachePool
+from scripts.pipeline.stage_reporter import (
+    StageReporter,
+    register_stage_callback,
+    register_stage_exit_callback,
+    register_universe_target_callback,
+    _drain_stage_event_queue,
+    _ensure_stage_event_pump,
+    _stop_stage_event_pump,
+)
+from scripts.pipeline.logging_utils import (
+    GLOBAL_SKIP_KEYWORDS as _GLOBAL_SKIP_KEYWORDS_UTIL,
+    UI_ONLY_SKIP_KEYWORDS as _UI_ONLY_SKIP_KEYWORDS_UTIL,
+    INDICATOR_SKIP_KEYWORDS as _INDICATOR_SKIP_KEYWORDS,
+    format_log_prefix,
+    safe_print,
+    should_skip_log,
+    should_skip_ui_log,
+    strip_emojis as _strip_emojis_util,
+    console_supports_utf8 as _console_supports_utf8_util,
+    build_structured_log_object,
+)
+
+# --- Console encoding helpers ---
+# NOTE: _console_supports_utf8 and _strip_emojis are imported from logging_utils
+# as _console_supports_utf8_util and _strip_emojis_util
+
 _env = get_env_config()
 _NO_EMOJI_ENV = bool(_env.no_emoji)
 
 # コンパクトログ（詳細DEBUGを抑制）
 _COMPACT_LOG = bool(_env.compact_logs)
-
-
-def _console_supports_utf8() -> bool:
-    try:
-        enc = (getattr(sys.stdout, "encoding", None) or "").lower()
-        return "utf-8" in enc or "65001" in enc  # CP65001 is UTF-8 on Windows
-    except Exception:
-        return False
-
-
-def _strip_emojis(text: str) -> str:
-    try:
-        import re as _re
-
-        # Remove characters outside BMP (common emojis etc.)
-        return _re.sub(r"[\U00010000-\U0010FFFF]", "", str(text))
-    except Exception:
-        # Fallback: best-effort ASCII replacement
-        try:
-            enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
-            return str(text).encode(enc, errors="ignore").decode(enc, errors="ignore")
-        except Exception:
-            return str(text)
-
 
 _LOG_CALLBACK = None
 
@@ -232,267 +238,29 @@ _LOG_START_TS: float | None = None  # CLI 用の経過時間測定開始時刻
 _STRUCTURED_LOG_START_TS: float | None = None  # monotonic-ish epoch seconds
 _STRUCTURED_LAST_PHASE: dict[str, str] | None = None  # {system: last_phase}
 
-# ログファイル設定（デフォルトは固定ファイル）。必要に応じて日付付きへ切替。
 # レート制限ロガー
 _rate_limited_logger = None
 
 
-# --- Lightweight Benchmark (--benchmark flag) --------------------------------------------
-class LightweightBenchmark:
-    """軽量ベンチマーク（時間計測のみ、--benchmark フラグで有効化）。"""
-
-    def __init__(self, enabled: bool = False):
-        self.enabled = enabled
-        self.phases: dict[str, dict[str, float]] = {}
-        self._current_phase: str | None = None
-        self._start_time: float | None = None
-        self._global_start: float | None = None
-        # 追加メタデータ（任意のブロックや明細を保存するための拡張領域）
-        self.extras: dict[str, Any] = {}
-
-    def start_phase(self, phase_name: str) -> None:
-        """フェーズ開始時刻を記録。"""
-        if not self.enabled:
-            return
-        import time
-
-        if self._global_start is None:
-            self._global_start = time.perf_counter()
-        self._current_phase = phase_name
-        self._start_time = time.perf_counter()
-
-    def end_phase(self) -> None:
-        """フェーズ終了時刻を記録。"""
-        if not self.enabled or self._current_phase is None or self._start_time is None:
-            return
-        import time
-
-        end_time = time.perf_counter()
-        duration = end_time - self._start_time
-        self.phases[self._current_phase] = {
-            "start": self._start_time - (self._global_start or 0.0),
-            "end": end_time - (self._global_start or 0.0),
-            "duration_sec": round(duration, 6),
-        }
-        self._current_phase = None
-        self._start_time = None
-
-    def get_report(self) -> dict[str, Any]:
-        """ベンチマークレポートを取得。"""
-        if not self.enabled:
-            return {"enabled": False, "phases": {}, "total_duration_sec": 0.0}
-
-        total_duration = sum(p["duration_sec"] for p in self.phases.values())
-        return {
-            "enabled": True,
-            "timestamp": datetime.now().isoformat(),
-            "phases": self.phases,
-            "total_duration_sec": round(total_duration, 6),
-            # 追加メタデータ（フェーズ内訳など）
-            "extras": self.extras,
-        }
-
-    def save_report(self, output_path: str | Path) -> None:
-        """レポートをJSONで保存。"""
-        if not self.enabled:
-            return
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(self.get_report(), f, ensure_ascii=False, indent=2)
-
-    # 追加: 任意セクションの付加
-    def add_extra_section(self, name: str, payload: Any) -> None:
-        if not self.enabled:
-            return
-        try:
-            self.extras[str(name)] = payload
-        except Exception:
-            # extras 書き込み失敗は致命的ではないので無視
-            pass
-
+# --- Lightweight Benchmark (--benchmark flag) ---
+# NOTE: LightweightBenchmark class moved to scripts/pipeline/benchmark.py
+# Import is at top of file: from scripts.pipeline.benchmark import LightweightBenchmark
 
 _LIGHTWEIGHT_BENCHMARK: LightweightBenchmark | None = None
 
 
-# --- stage progress bridging helpers -----------------------------------------------------
+# --- stage progress bridging helpers ---
+# NOTE: StageReporter and related functions moved to scripts/pipeline/stage_reporter.py
+# Imports at top: from scripts.pipeline.stage_reporter import (
+#     StageReporter, register_stage_callback, register_stage_exit_callback,
+#     register_universe_target_callback, _drain_stage_event_queue,
+#     _ensure_stage_event_pump, _stop_stage_event_pump
+# )
 
+# Legacy module-level state kept for compatibility with internal references
 _PER_SYSTEM_STAGE = None
 _PER_SYSTEM_EXIT = None
 _SET_STAGE_UNIVERSE_TARGET = None
-
-_STAGE_EVENT_PUMP_THREAD: threading.Thread | None = None
-_STAGE_EVENT_PUMP_STOP: threading.Event | None = None
-_STAGE_EVENT_PUMP_INTERVAL = 0.25  # デフォルト250ms
-
-# 最適化用フラグ（アクティブ処理時は頻繁に、アイドル時は負荷軽減）
-_STAGE_EVENT_PUMP_ADAPTIVE = True
-_STAGE_EVENT_PUMP_MIN_INTERVAL = 0.1  # 最小100ms（高負荷時）
-_STAGE_EVENT_PUMP_MAX_INTERVAL = 1.0  # 最大1秒（アイドル時）
-_STAGE_EVENT_PUMP_IDLE_THRESHOLD = 5  # 5回連続でイベントなしでアイドル判定
-
-
-class StageReporter:
-    """Callable wrapper that forwards stage progress with an associated system name."""
-
-    __slots__ = ("system", "_queue")
-
-    def __init__(self, system: str, queue: Any | None = None) -> None:
-        self.system = str(system or "").strip().lower() or "unknown"
-        self._queue = queue
-
-    def __call__(
-        self,
-        progress: int,
-        filter_count: int | None = None,
-        setup_count: int | None = None,
-        candidate_count: int | None = None,
-        entry_count: int | None = None,
-    ) -> None:
-        if self._queue is not None:
-            try:
-                self._queue.put(
-                    (
-                        self.system,
-                        progress,
-                        filter_count,
-                        setup_count,
-                        candidate_count,
-                        entry_count,
-                    ),
-                    block=False,
-                )
-            except Exception:
-                pass
-            return
-        _stage(
-            self.system,
-            progress,
-            filter_count,
-            setup_count,
-            candidate_count,
-            entry_count,
-        )
-
-
-def register_stage_callback(callback: Callable[..., None] | None) -> None:
-    """Register per-system stage callback and ensure the event pump is running."""
-
-    globals()["_PER_SYSTEM_STAGE"] = callback
-    if callable(callback):
-        _ensure_stage_event_pump()
-    else:
-        _stop_stage_event_pump()
-
-
-def register_stage_exit_callback(callback: Callable[[str, int], None] | None) -> None:
-    """Register per-system exit callback (UI integration helper)."""
-
-    globals()["_PER_SYSTEM_EXIT"] = callback
-
-
-def register_universe_target_callback(
-    callback: Callable[[int | None], None] | None,
-) -> None:
-    """Register callback to update the shared universe target in the UI."""
-
-    globals()["_SET_STAGE_UNIVERSE_TARGET"] = callback
-
-
-def _ensure_stage_event_pump(interval: float | None = None) -> None:
-    """Start a background thread that periodically drains stage events for the UI.
-
-    アダプティブ間隔調整機能:
-    - イベントが頻繁な時は高頻度（100ms）
-    - アイドル時は低頻度（1秒）でCPU負荷軽減
-    """
-
-    cb = globals().get("_PER_SYSTEM_STAGE")
-    if not cb or not callable(cb):
-        return
-
-    thread = globals().get("_STAGE_EVENT_PUMP_THREAD")
-    if isinstance(thread, threading.Thread) and thread.is_alive():
-        return
-
-    stop_event = threading.Event()
-    globals()["_STAGE_EVENT_PUMP_STOP"] = stop_event
-
-    base_interval = float(
-        interval if interval is not None else _STAGE_EVENT_PUMP_INTERVAL
-    )
-
-    def _pump() -> None:
-        current_interval = base_interval
-        idle_count = 0
-
-        while not stop_event.is_set():
-            events_processed = False
-            try:
-                # イベント数をチェックしてアダプティブ調整
-                queue_obj = globals().get("_PROGRESS_QUEUE")
-                queue_size = 0
-                if queue_obj is not None:
-                    try:
-                        # キューサイズの概算（実際には非破壊的にチェック不可）
-                        queue_size = (
-                            queue_obj.qsize() if hasattr(queue_obj, "qsize") else 0
-                        )
-                    except Exception:
-                        queue_size = 0
-
-                _drain_stage_event_queue()
-
-                # GLOBAL_STAGE_METRICS からもイベント数をチェック
-                try:
-                    metrics_events = len(GLOBAL_STAGE_METRICS.drain_events())
-                    if metrics_events > 0 or queue_size > 0:
-                        events_processed = True
-                except Exception:
-                    pass
-
-                # アダプティブ間隔調整
-                if _STAGE_EVENT_PUMP_ADAPTIVE:
-                    if events_processed:
-                        # イベントがあった場合、間隔を短縮
-                        current_interval = max(
-                            _STAGE_EVENT_PUMP_MIN_INTERVAL, current_interval * 0.8
-                        )
-                        idle_count = 0
-                    else:
-                        # イベントがなかった場合、アイドルカウント増加
-                        idle_count += 1
-                        if idle_count >= _STAGE_EVENT_PUMP_IDLE_THRESHOLD:
-                            # アイドル状態では間隔を延長してCPU負荷軽減
-                            current_interval = min(
-                                _STAGE_EVENT_PUMP_MAX_INTERVAL, current_interval * 1.2
-                            )
-
-            except Exception:
-                pass
-
-            stop_event.wait(current_interval)
-
-    pump_thread = threading.Thread(target=_pump, name="stage-event-pump", daemon=True)
-    globals()["_STAGE_EVENT_PUMP_THREAD"] = pump_thread
-    pump_thread.start()
-
-
-def _stop_stage_event_pump(timeout: float = 1.0) -> None:
-    """Stop the background event pump thread if it is running."""
-
-    stop_event = globals().get("_STAGE_EVENT_PUMP_STOP")
-    thread = globals().get("_STAGE_EVENT_PUMP_THREAD")
-
-    if isinstance(stop_event, threading.Event):
-        stop_event.set()
-
-    if isinstance(thread, threading.Thread) and thread.is_alive():
-        if threading.current_thread() is not thread:
-            thread.join(timeout)
-
-    globals().pop("_STAGE_EVENT_PUMP_STOP", None)
-    globals().pop("_STAGE_EVENT_PUMP_THREAD", None)
 
 
 def _get_rate_limited_logger():
@@ -524,177 +292,10 @@ def _prepare_concat_frames(
     return cleaned
 
 
-@dataclass(slots=True)
-class BaseCachePool:
-    """base キャッシュの共有辞書をスレッドセーフに管理する補助クラス。"""
-
-    cache_manager: CacheManager
-    shared: dict[str, pd.DataFrame] | None = None
-    hits: int = 0
-    loads: int = 0
-    failures: int = 0
-    _lock: Lock = field(default_factory=Lock, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.shared is None:
-            self.shared = {}
-
-    def get(
-        self,
-        symbol: str,
-        *,
-        rebuild_if_missing: bool = True,
-        min_last_date: pd.Timestamp | None = None,
-        allowed_recent_dates: set[pd.Timestamp] | None = None,
-    ) -> tuple[pd.DataFrame | None, bool]:
-        """base キャッシュから銘柄シンボルの DataFrame を取得する。
-
-        Returns (df, from_cache):
-            - df: 取得または再構築された DataFrame（存在しなければ None）
-            - from_cache: True=共有キャッシュ命中 / False=新規ロード
-
-        フィルタ条件:
-            rebuild_if_missing: キャッシュ欠損時にベースデータを再構築するか
-            min_last_date: 末尾日付がこの日付(正規化)未満なら stale とみなす
-            allowed_recent_dates: 許可された最終日付集合（存在し、かつ一致しなければ stale）
-        stale 判定時はキャッシュを破棄して再ロードを試みる。
-        """
-
-        allowed_set = set(allowed_recent_dates or ())
-        if min_last_date is not None:
-            try:
-                min_norm: pd.Timestamp | None = pd.Timestamp(min_last_date).normalize()
-            except Exception:
-                min_norm = None
-        else:
-            min_norm = None
-
-        def _detect_last(frame: pd.DataFrame | None) -> pd.Timestamp | None:
-            if frame is None or getattr(frame, "empty", True):
-                return None
-            # 優先: index から推定
-            try:
-                idx_dt = pd.to_datetime(frame.index, errors="coerce")
-                if isinstance(idx_dt, pd.DatetimeIndex) and len(idx_dt):
-                    last_val = idx_dt[-1]
-                    return pd.Timestamp(cast(Any, last_val)).normalize()
-            except Exception:
-                pass
-            # 次点: Date/date 列から推定
-            try:
-                series = frame.get("Date") if frame is not None else None
-                if series is None and frame is not None and "date" in frame.columns:
-                    series = frame.get("date")
-                if series is not None:
-                    ser_dt = pd.to_datetime(series, errors="coerce").dropna()
-                    if len(ser_dt):
-                        return pd.Timestamp(cast(Any, ser_dt.iloc[-1])).normalize()
-            except Exception:
-                pass
-            return None
-
-        with self._lock:
-            if self.shared is not None and symbol in self.shared:
-                value = self.shared[symbol]
-                last_date = _detect_last(value)
-                stale = False
-                if allowed_set and (last_date is None or last_date not in allowed_set):
-                    stale = True
-                if not stale and min_norm is not None:
-                    if last_date is None or last_date < min_norm:
-                        stale = True
-                if not stale:
-                    self.hits += 1
-                    return value, True
-                try:
-                    if self.shared is not None:
-                        self.shared.pop(symbol, None)
-                except Exception:
-                    pass
-
-        df = load_base_cache(
-            symbol,
-            rebuild_if_missing=rebuild_if_missing,
-            cache_manager=self.cache_manager,
-            min_last_date=min_last_date,
-            allowed_recent_dates=allowed_set or None,
-            prefer_precomputed_indicators=True,
-        )
-
-        with self._lock:
-            if self.shared is not None and df is not None:
-                # only store when df is a real DataFrame
-                self.shared[symbol] = df
-            self.loads += 1
-            if df is None or getattr(df, "empty", True):
-                self.failures += 1
-
-        return df, False
-
-    def sync_to(self, target: dict[str, pd.DataFrame] | None) -> None:
-        """既存の外部辞書へ共有キャッシュを反映する。"""
-
-        if target is None or self.shared is None or target is self.shared:
-            return
-        with self._lock:
-            try:
-                target.update(self.shared)
-            except Exception:
-                pass
-
-    def snapshot_stats(self) -> dict[str, int]:
-        with self._lock:
-            size = len(self.shared or {})
-            return {
-                "hits": self.hits,
-                "loads": self.loads,
-                "failures": self.failures,
-                "size": size,
-            }
-
-
-@dataclass(slots=True)
-class TodayRunContext:
-    """保持共有状態とコールバックを集約した当日シグナル実行用コンテキスト。"""
-
-    settings: Any
-    cache_manager: CacheManager
-    signals_dir: Path
-    cache_dir: Path
-    slots_long: int | None = None
-    slots_short: int | None = None
-    capital_long: float | None = None
-    capital_short: float | None = None
-    save_csv: bool = False
-    csv_name_mode: str | None = None
-    notify: bool = True
-    log_callback: Callable[[str], None] | None = None
-    progress_callback: Callable[[int, int, str], None] | None = None
-    per_system_progress: Callable[[str, str], None] | None = None
-    symbol_data: dict[str, pd.DataFrame] | None = None
-    parallel: bool = False
-    run_start_time: datetime = field(default_factory=datetime.now)
-    start_equity: float = 0.0
-    run_id: str = ""
-    today: pd.Timestamp | None = None
-    symbol_universe: list[str] = field(default_factory=list)
-    basic_data: dict[str, pd.DataFrame] = field(default_factory=dict)
-    base_cache: dict[str, pd.DataFrame] = field(default_factory=dict)
-    system_filters: dict[str, list[str]] = field(default_factory=dict)
-    per_system_frames: dict[str, pd.DataFrame] = field(default_factory=dict)
-    final_signals: pd.DataFrame | None = None
-    system_diagnostics: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # テスト高速化オプション
-    test_mode: str | None = None  # mini/quick/sample
-    skip_external: bool = False  # 外部API呼び出しをスキップ
-    # latest_only グローバル制御: "データ基準日"（例: 週末は金曜、平日は当日）
-    signal_base_day: pd.Timestamp | None = None
-    # 実行開始時に確定する「エントリー予定日」（基準日の翌営業日）
-    entry_day: pd.Timestamp | None = None
-    # latest_only モードで許容する最新日からの遅延日数（営業日ベース）
-    max_date_lag_days: int = 1
-    # 任意のラン識別子（テスト/CI用）。ディレクトリ分離やログのプレフィックスに使用。
-    run_namespace: str | None = None
+# --- Cache Pool and Context ---
+# NOTE: BaseCachePool moved to scripts/pipeline/cache_pool.py
+# NOTE: TodayRunContext moved to scripts/pipeline/context.py
+# Imports at top of file
 
 
 def _get_account_equity() -> float:
@@ -860,7 +461,12 @@ def _emit_ui_log(message: str) -> None:
     環境変数 `STRUCTURED_UI_LOGS=1` の場合は JSON 文字列を送り、
     `{"ts": epoch_ms, "iso": iso8601, "msg": message}` 形式にする。
     既存テスト互換のためデフォルトは従来のプレーンテキスト。
+
+    Refactored: Uses build_structured_log_object from logging_utils.
     """
+    import json as _json
+    import time as _t
+
     # 1) フラグ判定（UI構造化 と NDJSON）
     try:
         structured_ui = bool(get_env_config().structured_ui_logs)
@@ -875,83 +481,19 @@ def _emit_ui_log(message: str) -> None:
     json_payload = None
     if structured_ui or ndjson_flag:
         try:
-            import json as _json
-            import re as _re
-            import time as _t
-
             # 開始基準時刻（プロセス起動後最初の呼び出しで初期化）
-            global _STRUCTURED_LOG_START_TS
+            global _STRUCTURED_LOG_START_TS, _STRUCTURED_LAST_PHASE
             if _STRUCTURED_LOG_START_TS is None:
                 _STRUCTURED_LOG_START_TS = _t.time()
-            now = _t.time()
-            iso = datetime.utcfromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-            # elapsed_ms was unused; keep timestamp in iso only
-            raw_msg = str(message)
-            lower = raw_msg.lower()
-            # system 抽出: System1..System7 (大文字小文字そのまま想定)
-            m_sys = _re.search(r"\bSystem([1-9]|1[0-9])\b", raw_msg)
-            system = f"system{m_sys.group(1)}" if m_sys else None
-
-            # phase マッチ辞書 (順序重要: より特殊な語を前に)
-            phase_patterns = [
-                ("universe", [r"universe", r"load symbols", r"symbol universe"]),
-                ("indicators", [r"indicator", r"precompute", r"adx", r"rsi"]),
-                ("filter", [r"filter", r"phase2 filter", r"screening"]),
-                ("setup", [r"setup", r"prepare setup"]),
-                ("ranking", [r"ranking", r"rank "]),
-                ("signals", [r" signal", r"signals", r"generate signal"]),
-                (
-                    "allocation",
-                    [r"allocation", r"alloc ", r"allocating", r"final allocation"],
-                ),
-            ]
-            phase = None
-            for ph, pats in phase_patterns:
-                if any(pat in lower for pat in pats):
-                    phase = ph
-                    break
-
-            # 開始/終了ステータス推定
-            phase_status = None
-            if phase:
-                if _re.search(r"\b(start|begin|開始)\b", lower):
-                    phase_status = "start"
-                elif _re.search(
-                    r"\b(done|complete|completed|終了|end|finished)\b", lower
-                ):
-                    phase_status = "end"
-
-            # 前回 phase の補強: system 単位で直前 phase を覚え、end/done だけのメッセージにも付与
-            global _STRUCTURED_LAST_PHASE
             if _STRUCTURED_LAST_PHASE is None:
                 _STRUCTURED_LAST_PHASE = {}
-            if system:
-                if phase:
-                    _STRUCTURED_LAST_PHASE[system] = phase
-                else:
-                    # 明示 phase なし かつ done/complete 語があれば直前を参照
-                    if _re.search(
-                        r"\b(done|complete|completed|終了|end|finished)\b", lower
-                    ):
-                        last = _STRUCTURED_LAST_PHASE.get(system)
-                        if last:
-                            phase = last
-                            phase_status = phase_status or "end"
 
-            # v: スキーマバージョン / lvl: 将来のレベル拡張 (現状 INFO 固定)
-            obj = {
-                "v": 1,
-                "ts": int(now * 1000),
-                "iso": iso,
-                "lvl": "INFO",
-                "msg": raw_msg,
-            }
-            if system:
-                obj["system"] = system
-            if phase:
-                obj["phase"] = phase
-            if phase_status:
-                obj["phase_status"] = phase_status
+            # Use centralized structured log builder
+            obj = build_structured_log_object(
+                str(message),
+                _STRUCTURED_LOG_START_TS,
+                _STRUCTURED_LAST_PHASE,
+            )
             if structured_ui:
                 json_payload = _json.dumps(obj)
         except Exception:
@@ -1222,99 +764,34 @@ def _log(
 ) -> None:
     """CLI 出力には [HH:MM:SS | m分s秒] を付与。必要に応じて UI コールバックを抑制。
 
-    Args:
-        msg: ログメッセージ
-        ui: UI表示フラグ
-        no_timestamp: タイムスタンプ無効化フラグ
-        phase_id: フェーズID
-        level: ログレベル (INFO, WARNING, ERROR, DEBUG)
-        error_code: エラーコード (エラー時に指定)
+    Refactored: Uses format_log_prefix, safe_print, should_skip_log from logging_utils.
     """
     import time as _t
 
     # 初回呼び出しで開始時刻を設定
+    global _LOG_START_TS
+    if _LOG_START_TS is None:
+        _LOG_START_TS = _t.time()
+
+    # プレフィックスを作成（logging_utils使用）
+    prefix = format_log_prefix(_LOG_START_TS, level, error_code, no_timestamp)
+
+    # キーワードによる除外判定（logging_utils使用）
     try:
-        global _LOG_START_TS
-        if _LOG_START_TS is None:
-            _LOG_START_TS = _t.time()
+        _show_ind_logs_flag = bool(get_env_config().show_indicator_logs)
     except Exception:
-        _LOG_START_TS = None
+        _show_ind_logs_flag = False
+    _hide_indicator_logs = not _show_ind_logs_flag
 
-    # プレフィックスを作成（現在時刻 + 分秒経過 + エラーコード）
-    try:
-        if no_timestamp:
-            prefix = ""
-        else:
-            now = _t.strftime("%H:%M:%S")
-            elapsed = 0 if _LOG_START_TS is None else max(0, _t.time() - _LOG_START_TS)
-            m, s = divmod(int(elapsed), 60)
-            # 秒は2桁ゼロ埋めで整形（例: 0分05秒）
-            prefix = f"[{now} | {m}分{s:02d}秒] "
+    if should_skip_log(str(msg), _GLOBAL_SKIP_KEYWORDS, _hide_indicator_logs):
+        return
+    ui_allowed = ui and not should_skip_ui_log(str(msg), _UI_ONLY_SKIP_KEYWORDS)
 
-        # エラーレベルとコードを含むプレフィックス
-        if level != "INFO":
-            prefix += f"[{level}] "
-        if error_code:
-            prefix += f"[{error_code}] "
-    except Exception:
-        prefix = ""
-
-    # キーワードによる除外判定（全体）
-    try:
-        # SHOW_INDICATOR_LOGS が真でない限り、インジケーター系の進捗ログを抑制
-        try:
-            _show_ind_logs_flag = bool(get_env_config().show_indicator_logs)
-        except Exception:
-            _show_ind_logs_flag = False
-        _hide_indicator_logs = not _show_ind_logs_flag
-        _indicator_skip = (
-            "インジケーター計算",
-            "指標計算",
-            "共有指標",
-            "指標データロード",
-            "📊 指標計算",
-            "🧮 共有指標",
-        )
-        _skip_all = _GLOBAL_SKIP_KEYWORDS + (
-            _indicator_skip if _hide_indicator_logs else ()
-        )
-        if any(k in str(msg) for k in _skip_all):
-            return
-        ui_allowed = ui and not any(k in str(msg) for k in _UI_ONLY_SKIP_KEYWORDS)
-    except Exception:
-        ui_allowed = ui
-
-    # CLI へは整形して出力（非UTF-8端末では絵文字等を安全化）
-    try:
-        display_msg = str(msg)
-        if _NO_EMOJI_ENV or not _console_supports_utf8():
-            try:
-                import unicodedata as _ud
-
-                display_msg = _strip_emojis(display_msg)
-                display_msg = _ud.normalize("NFKC", display_msg)
-            except Exception:
-                display_msg = _strip_emojis(display_msg)
-    except Exception:
-        display_msg = str(msg)
-    out = f"{prefix}{display_msg}"
-    try:
-        print(out, flush=True)
-    except UnicodeEncodeError:
-        try:
-            encoding = getattr(sys.stdout, "encoding", "") or "utf-8"
-            safe = out.encode(encoding, errors="replace").decode(
-                encoding, errors="replace"
-            )
-            print(safe, flush=True)
-        except Exception:
-            try:
-                safe = out.encode("ascii", errors="replace").decode(
-                    "ascii", errors="replace"
-                )
-                print(safe, flush=True)
-            except Exception:
-                pass
+    # CLI へは整形して出力（logging_utils使用）
+    display_msg = str(msg)
+    if _NO_EMOJI_ENV or not _console_supports_utf8_util():
+        display_msg = _strip_emojis_util(display_msg)
+    safe_print(display_msg, prefix)
 
     # UI 側への通知
     if ui_allowed:
@@ -1806,7 +1283,11 @@ def _save_prev_counts(
 ) -> None:
     try:
         counts = {
-            k: (0 if (v is None or not isinstance(v, pd.DataFrame) or v.empty) else int(len(v)))
+            k: (
+                0
+                if (v is None or not isinstance(v, pd.DataFrame) or v.empty)
+                else int(len(v))
+            )
             for k, v in per_system_map.items()
         }
         data = {"timestamp": datetime.utcnow().isoformat() + "Z", "counts": counts}
@@ -4687,7 +4168,9 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         # 本番では常に 5.0% を表示し、ロジックは変更しない
         _atr_label_pct = 5.0
         try:
-            from config.environment import get_env_config as _get_env  # 遅延import（安全）
+            from config.environment import (
+                get_env_config as _get_env,
+            )  # 遅延import（安全）
 
             _env_label = _get_env()
             if hasattr(_env_label, "is_test_mode") and bool(_env_label.is_test_mode()):
@@ -6663,6 +6146,7 @@ def maybe_submit_orders(final_df: pd.DataFrame, args: argparse.Namespace) -> Non
     # トレード履歴ロガー
     try:
         from common.trade_history import get_trade_history_logger
+
         history_logger = get_trade_history_logger()
     except Exception:
         history_logger = None
@@ -6698,9 +6182,7 @@ def maybe_submit_orders(final_df: pd.DataFrame, args: argparse.Namespace) -> Non
             if errors > 0:
                 error_df = results_df[results_df["error"].notna()]
                 for _, row in error_df.iterrows():
-                    _log(
-                        f"  ❌ {row['symbol']}: {row.get('error', 'Unknown error')}"
-                    )
+                    _log(f"  ❌ {row['symbol']}: {row.get('error', 'Unknown error')}")
 
             # 履歴記録
             if history_logger:

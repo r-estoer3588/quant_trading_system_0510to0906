@@ -172,6 +172,21 @@ scheduler:
     - name: daily_run
       cron: "15 6 * * 2-6" # 米国市場クローズ後の朝に日次バッチを実行
       task: daily_run
+    - name: daily_summary_report
+      cron: "0 17 * * 1-5" # 平日 17:00 JST - 日次サマリーレポート
+      task: daily_summary_report
+    - name: sync_positions_morning
+      cron: "0 9 * * 1-5" # 平日 09:00 JST - ポジション同期
+      task: sync_positions
+    - name: weekly_summary_report
+      cron: "0 10 * * 6" # 毎週土曜 10:00 JST - 週次レポート
+      task: weekly_summary_report
+    - name: monthly_detailed_report
+      cron: "0 9 1 * *" # 毎月1日 09:00 JST - 月次詳細レポート
+      task: monthly_detailed_report
+    - name: monitor_portfolio
+      cron: "*/30 22-6 * * 1-5" # 平日 22:00-06:00 JST (米国市場時間) 30分毎
+      task: monitor_portfolio
 
 ui:
   default_capital: 100000

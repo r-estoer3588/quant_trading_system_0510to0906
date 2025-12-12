@@ -15,6 +15,10 @@ import pandas as pd
 from common import broker_alpaca as ba
 from common.notifier import Notifier
 from common.position_age import load_entry_dates, save_entry_dates
+from common.position_tracker import (
+    remove_position,
+    update_positions_from_signals,
+)
 from common.symbol_map import (
     dump_symbol_system_map,
     load_symbol_system_map,
@@ -290,6 +294,15 @@ def submit_orders_df(
     except Exception:
         pass
 
+    # Position Tracker 自動更新（利食い・トレーリング用）
+    try:
+        successful_df = out[~out["order_id"].isna() & (out["order_id"] != "")]
+        if not successful_df.empty:
+            update_positions_from_signals(successful_df)
+            logger.info(f"Position tracker updated: {len(successful_df)} positions")
+    except Exception as e:
+        logger.warning(f"Failed to update position tracker: {e}")
+
     # 通知（任意）
     if notify:
         try:
@@ -400,6 +413,19 @@ def submit_exit_orders_df(
         dump_symbol_system_map(sys_map_store)
     except Exception:
         pass
+
+    # Position Tracker からエグジット済みシンボルを削除
+    try:
+        exited_symbols = [
+            r.get("symbol") for r in results if r.get("order_id") and not r.get("error")
+        ]
+        for sym in exited_symbols:
+            if sym:
+                remove_position(sym)
+        if exited_symbols:
+            logger.info(f"Position tracker cleaned: {len(exited_symbols)} exits")
+    except Exception as e:
+        logger.warning(f"Failed to clean position tracker: {e}")
 
     out = pd.DataFrame(results)
     # UUID を含む列は Streamlit/Arrow でそのまま扱えないため文字列化

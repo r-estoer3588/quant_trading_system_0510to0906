@@ -178,10 +178,82 @@ def task_run_auto_rule():
 
         # paper=True でペーパートレーディング、dry_run=False で実際に注文送信
         import sys
+
         sys.argv = ["run_auto_rule", "--paper"]  # 本番の場合は --paper を削除
         run_auto_rule_main()
     except Exception:
         logging.exception("run_auto_rule タスクが失敗しました")
+        _notify_task_error("run_auto_rule")
+
+
+def task_daily_summary_report():
+    """日次サマリーレポートをSlackに送信"""
+    try:
+        from scripts.daily_summary_report import send_report
+
+        send_report(paper=True)
+    except Exception:
+        logging.exception("daily_summary_report タスクが失敗しました")
+        _notify_task_error("daily_summary_report")
+
+
+def task_sync_positions():
+    """Alpacaポジションをトラッカーに同期"""
+    try:
+        from scripts.sync_positions_to_tracker import sync_positions
+
+        sync_positions(paper=True)
+    except Exception:
+        logging.exception("sync_positions タスクが失敗しました")
+        _notify_task_error("sync_positions")
+
+
+def _notify_task_error(task_name: str):
+    """タスク失敗をSlack通知"""
+    try:
+        from common.error_notifier import notify_error
+        import traceback
+
+        notify_error(
+            task_name, f"タスク {task_name} が失敗しました", traceback.format_exc()
+        )
+    except Exception:
+        logging.exception("エラー通知の送信に失敗しました")
+
+
+def task_weekly_summary_report():
+    """週次サマリーレポートをSlackに送信"""
+    try:
+        from scripts.weekly_summary_report import send_weekly_report
+
+        send_weekly_report(paper=True)
+    except Exception:
+        logging.exception("weekly_summary_report タスクが失敗しました")
+        _notify_task_error("weekly_summary_report")
+
+
+def task_monthly_detailed_report():
+    """月次詳細レポートをExcel/CSVで生成"""
+    try:
+        from scripts.monthly_detailed_report import generate_monthly_report
+        from scripts.monthly_detailed_report import send_notification
+
+        report_files = generate_monthly_report(paper=True)
+        send_notification(report_files, paper=True)
+    except Exception:
+        logging.exception("monthly_detailed_report タスクが失敗しました")
+        _notify_task_error("monthly_detailed_report")
+
+
+def task_monitor_portfolio():
+    """ポートフォリオPnL監視・アラート"""
+    try:
+        from scripts.monitor_portfolio import check_and_alert
+
+        check_and_alert(paper=True)
+    except Exception:
+        logging.exception("monitor_portfolio タスクが失敗しました")
+        _notify_task_error("monitor_portfolio")
 
 
 TASKS: dict[str, Callable[[], None]] = {
@@ -197,6 +269,11 @@ TASKS: dict[str, Callable[[], None]] = {
     "build_metrics_report": task_build_metrics_report,
     "daily_run": task_daily_run,
     "run_auto_rule": task_run_auto_rule,
+    "daily_summary_report": task_daily_summary_report,
+    "sync_positions": task_sync_positions,
+    "weekly_summary_report": task_weekly_summary_report,
+    "monthly_detailed_report": task_monthly_detailed_report,
+    "monitor_portfolio": task_monitor_portfolio,
 }
 
 

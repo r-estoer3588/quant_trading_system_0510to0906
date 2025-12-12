@@ -33,6 +33,10 @@ temp_*.txt
 temp_*.py
 .env
 *.env
+
+# Google Cloud Service Account (secrets - never commit)
+data/google_service_account.json
+**/google_service_account.json
 .coverage
 .tmp_*
 

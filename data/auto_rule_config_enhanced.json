@@ -1,0 +1,62 @@
+{
+  "system1": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System1: ロング・トレンド - 損切り-10%, トレーリング25%",
+    "use_trailing_stop": true,
+    "trailing_stop_pct": 0.25,
+    "profit_target_type": "none"
+  },
+  "system2": {
+    "pnl_threshold": -15.0,
+    "partial_pct": 100,
+    "comment": "System2: ショート RSI - 損切り-15%, 利食い+4%, 時間制限2日",
+    "use_trailing_stop": false,
+    "profit_target_type": "percentage",
+    "profit_target_value": 4.0,
+    "max_holding_days": 2
+  },
+  "system3": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System3: ロング・ミーン・リバージョン - 損切り-10%, 利食い+4%, 時間制限3日",
+    "use_trailing_stop": false,
+    "profit_target_type": "percentage",
+    "profit_target_value": 4.0,
+    "max_holding_days": 3
+  },
+  "system4": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System4: ロング・トレンド・低ボラ - 損切り-10%, トレーリング20%",
+    "use_trailing_stop": true,
+    "trailing_stop_pct": 0.2,
+    "profit_target_type": "none"
+  },
+  "system5": {
+    "pnl_threshold": -10.0,
+    "partial_pct": 100,
+    "comment": "System5: ロング・ミーン・リバージョン・ADX - 損切り-10%, 利食い1ATR, 時間制限6日",
+    "use_trailing_stop": false,
+    "profit_target_type": "atr",
+    "profit_target_value": 1.0,
+    "profit_target_atr_period": 10,
+    "max_holding_days": 6
+  },
+  "system6": {
+    "pnl_threshold": -15.0,
+    "partial_pct": 100,
+    "comment": "System6: ショート・ミーン・リバージョン - 損切り-15%, 利食い+5%, 時間制限3日",
+    "use_trailing_stop": false,
+    "profit_target_type": "percentage",
+    "profit_target_value": 5.0,
+    "max_holding_days": 3
+  },
+  "system7": {
+    "pnl_threshold": -20.0,
+    "partial_pct": 100,
+    "comment": "System7: カタストロフィーヘッジ - 損切り-20%のみ",
+    "use_trailing_stop": false,
+    "profit_target_type": "none"
+  }
+}

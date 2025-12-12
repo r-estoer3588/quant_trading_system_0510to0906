@@ -28,7 +28,7 @@ $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Pri
 $isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host "❌ このスクリプトは管理者権限で実行する必要があります" -ForegroundColor Red
+    Write-Host "ERROR: このスクリプトは管理者権限で実行する必要があります" -ForegroundColor Red
     Write-Host ""
     Write-Host "以下のいずれかの方法で実行してください:" -ForegroundColor Yellow
     Write-Host "  1. PowerShellを管理者として実行してから、このスクリプトを実行" -ForegroundColor Gray
@@ -46,12 +46,13 @@ $TaskName = "QuantTradingScheduler"
 
 # タスクの削除
 if ($Unregister) {
-    Write-Host "🗑️  タスク '$TaskName' を削除します..." -ForegroundColor Yellow
+    Write-Host "INFO: タスク '$TaskName' を削除します..." -ForegroundColor Yellow
     try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-        Write-Host "✅ タスクを削除しました" -ForegroundColor Green
-    } catch {
-        Write-Host "⚠️  タスクが見つかりませんでした" -ForegroundColor Yellow
+        Write-Host "SUCCESS: タスクを削除しました" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "WARNING: タスクが見つかりませんでした" -ForegroundColor Yellow
     }
     exit 0
 }
@@ -59,12 +60,12 @@ if ($Unregister) {
 # 既存タスクの確認と削除
 $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existingTask) {
-    Write-Host "⚠️  既存のタスク '$TaskName' が見つかりました" -ForegroundColor Yellow
+    Write-Host "WARNING: 既存のタスク '$TaskName' が見つかりました" -ForegroundColor Yellow
     Write-Host "   既存タスクを削除して再登録します..." -ForegroundColor Gray
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-Write-Host "📝 タスクスケジューラーにタスクを登録します..." -ForegroundColor Cyan
+Write-Host "INFO: タスクスケジューラーにタスクを登録します..." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "タスク名: $TaskName" -ForegroundColor Gray
 Write-Host "スクリプト: $ScriptPath" -ForegroundColor Gray
@@ -92,24 +93,16 @@ $Settings = New-ScheduledTaskSettingsSet `
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 # タスクを登録
-Register-ScheduledTask -TaskName $TaskName `
+$null = Register-ScheduledTask -TaskName $TaskName `
     -Action $Action `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "量的トレーディングシステムのスケジューラー（当日シグナル生成など）" | Out-Null
+    -Description "量的トレーディングシステムのスケジューラー（当日シグナル生成など）"
 
-Write-Host "✅ タスクを登録しました！" -ForegroundColor Green
+Write-Host "SUCCESS: Task registered!" -ForegroundColor Green
+Write-Host "TaskName: $TaskName" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "📋 次回のログイン時から自動的にスケジューラーが起動します" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "今すぐ起動する場合:" -ForegroundColor Yellow
-Write-Host "  .\start_scheduler.ps1" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "タスクの確認:" -ForegroundColor Yellow
-Write-Host "  1. タスクスケジューラーを開く" -ForegroundColor Gray
-Write-Host "  2. タスクスケジューラライブラリで '$TaskName' を検索" -ForegroundColor Gray
-Write-Host ""
-Write-Host "タスクの削除:" -ForegroundColor Yellow
-Write-Host "  .\register_task_scheduler.ps1 -Unregister" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "The scheduler will start automatically on next login." -ForegroundColor Yellow
+Write-Host "To start now, run: start_scheduler.ps1" -ForegroundColor Gray
+Write-Host "To unregister, run with -Unregister flag" -ForegroundColor Gray
