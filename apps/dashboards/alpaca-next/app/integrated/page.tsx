@@ -17,9 +17,11 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -30,6 +32,8 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { useSignalProgress } from "@/lib/useSignalProgress";
+import { ProgressPanel } from "@/components/progress/ProgressPanel";
 
 const SYSTEMS = [
   { id: 1, name: "System1", type: "long", allocation: 25, color: "#8b5cf6" },
@@ -52,15 +56,24 @@ interface SystemState {
   status: "idle" | "running" | "complete" | "error";
 }
 
-const generateSystemStates = (): SystemState[] => {
+interface Candidate {
+  symbol: string;
+  system: string;
+  side: string;
+  score: number;
+  price: number;
+  action: string;
+}
+
+const initialSystemStates = (): SystemState[] => {
   return SYSTEMS.map((sys) => ({
     system: sys.name,
     target: 6200,
-    filterPass: 1000 + Math.floor(Math.random() * 500),
-    setupPass: 50 + Math.floor(Math.random() * 100),
-    tradelist: Math.floor(Math.random() * 10),
-    entry: Math.floor(Math.random() * 5),
-    exit: Math.floor(Math.random() * 3),
+    filterPass: 0,
+    setupPass: 0,
+    tradelist: 0,
+    entry: 0,
+    exit: 0,
     status: "idle" as const,
   }));
 };
@@ -115,54 +128,82 @@ function SystemCard({ state, config }: { state: SystemState; config: typeof SYST
 }
 
 export default function IntegratedPage() {
-  const [systemStates, setSystemStates] = useState<SystemState[]>(generateSystemStates());
+  const [systemStates, setSystemStates] = useState<SystemState[]>(initialSystemStates());
   const [isRunning, setIsRunning] = useState(false);
   const [capital, setCapital] = useState(100000);
   const [longShare, setLongShare] = useState(50);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [candidates, setCandidates] = useState<{symbol: string; system: string; side: string; score: number; price: number; action: string}[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const [progressLog, setProgressLog] = useState<string[]>([]);
+
+  const { isConnected, events, connect, disconnect, clearEvents } = useSignalProgress();
+
+  // Process new events
+  useEffect(() => {
+    if (events.length === 0) return;
+
+    const latestEvent = events[events.length - 1];
+    if (!latestEvent) return;
+
+    // Update progress log
+    const message = latestEvent.data?.phase_name
+      ? `${latestEvent.data.phase_name}: ${latestEvent.data.status}`
+      : latestEvent.event_type;
+    setProgressLog((prev) => [...prev.slice(-20), message]);
+
+    // Update system states based on events
+    if (latestEvent.data?.system_name) {
+      setSystemStates((prev) =>
+        prev.map((s) =>
+          s.system.toLowerCase() === latestEvent.data?.system_name?.toLowerCase()
+            ? { ...s, status: "running" }
+            : s
+        )
+      );
+    }
+  }, [events]);
 
   const runSignals = async () => {
     setIsRunning(true);
+    setProgressLog([]);
+    clearEvents();
 
-    // First, show running state for each system progressively
-    for (let i = 0; i < SYSTEMS.length; i++) {
-      setSystemStates(prev => prev.map((s, idx) => idx === i ? { ...s, status: "running" } : s));
-      await new Promise(r => setTimeout(r, 100));
-    }
+    // Connect WebSocket for progress updates
+    connect();
+
+    // Set all systems to running
+    setSystemStates((prev) => prev.map((s) => ({ ...s, status: "running" })));
 
     try {
-      // Call the FastAPI endpoint
       const response = await fetch("http://localhost:8000/api/signals/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ capital, longShare, symbolLimit: 500 }),
+        body: JSON.stringify({
+          capital,
+          longShare,
+          symbolLimit: 500,
+          testMode: "test_symbols",  // 113 symbols for testing, use "" for full
+          skipExternal: true,
+        }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        // Update states from API response
         setSystemStates(data.systems.map((s: SystemState) => ({ ...s })));
         setCandidates(data.candidates);
+        setExecutionTime(data.executionTime);
         setLastUpdated(new Date());
       } else {
-        // Fallback to mock data if API fails
-        setSystemStates(prev => prev.map(s => ({
-          ...s,
-          status: "complete",
-          tradelist: Math.floor(Math.random() * 10),
-          entry: Math.floor(Math.random() * 5)
-        })));
+        // Error response
+        setSystemStates((prev) => prev.map((s) => ({ ...s, status: "error" })));
       }
     } catch (error) {
-      console.log("API unavailable, using mock data");
-      // Fallback to mock data
-      setSystemStates(prev => prev.map(s => ({
-        ...s,
-        status: "complete",
-        tradelist: Math.floor(Math.random() * 10),
-        entry: Math.floor(Math.random() * 5)
-      })));
+      console.error("API error:", error);
+      setSystemStates((prev) => prev.map((s) => ({ ...s, status: "error" })));
+    } finally {
+      // Disconnect WebSocket after completion
+      disconnect();
     }
 
     setLastUpdated(new Date());
@@ -173,7 +214,7 @@ export default function IntegratedPage() {
   const totalExit = systemStates.reduce((s, st) => s + st.exit, 0);
   const totalTradelist = systemStates.reduce((s, st) => s + st.tradelist, 0);
 
-  const allocationData = SYSTEMS.map(sys => ({
+  const allocationData = SYSTEMS.map((sys) => ({
     name: sys.name.replace("System", "S"),
     allocation: sys.allocation,
     color: sys.color,
@@ -196,6 +237,13 @@ export default function IntegratedPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 text-xs">
+                {isConnected ? (
+                  <><Wifi className="h-3 w-3 text-emerald-500" /><span className="text-emerald-500">接続中</span></>
+                ) : (
+                  <><WifiOff className="h-3 w-3 text-muted-foreground" /><span className="text-muted-foreground">未接続</span></>
+                )}
+              </div>
               <Link href="/backtest" className="px-4 py-2 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-500 transition-all">
                 バックテスト
               </Link>
@@ -207,12 +255,16 @@ export default function IntegratedPage() {
           {lastUpdated && (
             <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />最終更新: {lastUpdated.toLocaleString("ja-JP")}
+              {executionTime && <span className="ml-2">（実行時間: {executionTime.toFixed(1)}秒）</span>}
             </div>
           )}
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-6">
+        {/* Progress Panel */}
+        <ProgressPanel isRunning={isRunning} events={events} />
+
         <Card className="mb-6">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -254,6 +306,7 @@ export default function IntegratedPage() {
         <Tabs defaultValue="systems" className="w-full">
           <TabsList className="mb-6">
             <TabsTrigger value="systems">システム状態</TabsTrigger>
+            <TabsTrigger value="candidates">候補一覧 ({candidates.length})</TabsTrigger>
             <TabsTrigger value="allocation">配分設定</TabsTrigger>
           </TabsList>
 
@@ -263,6 +316,52 @@ export default function IntegratedPage() {
                 <SystemCard key={state.system} state={state} config={SYSTEMS[idx]!} />
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="candidates">
+            <Card>
+              <CardHeader><CardTitle className="text-lg">シグナル候補</CardTitle></CardHeader>
+              <CardContent>
+                {candidates.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">シグナル生成を実行してください</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 px-2">Symbol</th>
+                          <th className="text-left py-2 px-2">System</th>
+                          <th className="text-left py-2 px-2">Side</th>
+                          <th className="text-right py-2 px-2">Score</th>
+                          <th className="text-right py-2 px-2">Price</th>
+                          <th className="text-left py-2 px-2">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.slice(0, 20).map((c, i) => (
+                          <tr key={i} className="border-b hover:bg-muted/50">
+                            <td className="py-2 px-2 font-mono font-bold">{c.symbol}</td>
+                            <td className="py-2 px-2">{c.system}</td>
+                            <td className="py-2 px-2">
+                              <Badge variant={c.side === "long" ? "default" : "secondary"}>
+                                {c.side === "long" ? "買" : "売"}
+                              </Badge>
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono">{c.score.toFixed(1)}</td>
+                            <td className="py-2 px-2 text-right font-mono">${c.price.toFixed(2)}</td>
+                            <td className="py-2 px-2">
+                              <Badge variant={c.action === "entry" ? "outline" : "secondary"}>
+                                {c.action}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="allocation">
@@ -281,7 +380,7 @@ export default function IntegratedPage() {
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                  {SYSTEMS.map(sys => (<Badge key={sys.id} variant="outline" style={{ borderColor: sys.color, color: sys.color }}>{sys.name}: {sys.allocation}% ({sys.type})</Badge>))}
+                  {SYSTEMS.map((sys) => (<Badge key={sys.id} variant="outline" style={{ borderColor: sys.color, color: sys.color }}>{sys.name}: {sys.allocation}% ({sys.type})</Badge>))}
                 </div>
               </CardContent>
             </Card>
@@ -290,7 +389,7 @@ export default function IntegratedPage() {
       </main>
 
       <footer className="border-t mt-12 py-4">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">Integrated Dashboard • Next.js + Shadcn/UI</div>
+        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">Integrated Dashboard • Next.js + Shadcn/UI • WebSocket Enabled</div>
       </footer>
     </div>
   );

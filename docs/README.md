@@ -135,6 +135,47 @@
 
 ---
 
+## 🌐 Next.js ダッシュボード（新規）
+
+Streamlit UI に代わる、モダンな Next.js ベースのダッシュボードです。
+
+### 起動方法
+
+```powershell
+# 統合起動スクリプト（FastAPI + Next.js を同時起動）
+.\Start-Dashboard.ps1
+
+# または個別起動
+# FastAPI バックエンド (port 8000)
+python -m uvicorn apps.api.main:app --reload --port 8000
+
+# Next.js フロントエンド (port 3000)
+cd apps\dashboards\alpaca-next
+npm run dev -- --port 3000
+```
+
+### アクセス URL
+
+| ページ             | URL                              | 説明               |
+| ------------------ | -------------------------------- | ------------------ |
+| ホーム             | http://localhost:3000            | ポートフォリオ概要 |
+| 統合ダッシュボード | http://localhost:3000/integrated | シグナル生成 UI    |
+| バックテスト       | http://localhost:3000/backtest   | パフォーマンス分析 |
+| FastAPI Docs       | http://localhost:8000/docs       | API ドキュメント   |
+
+### 技術スタック
+
+- **フロントエンド**: Next.js 16, React 19, TailwindCSS, Shadcn/UI
+- **バックエンド**: FastAPI, WebSocket (リアルタイム進捗)
+- **データ**: Alpaca API, ローカルキャッシュ
+
+### 主な機能
+
+- ✅ ポートフォリオ残高・ポジション表示
+- ✅ System 1-7 シグナル生成（WebSocket 進捗表示）
+- ✅ バックテスト結果のグラフ表示
+- ✅ ダークモード対応
+
 ## 📊 システム構成と資産配分
 
 ### 4 つの買いシステム
@@ -169,7 +210,32 @@
 
 - `tools/build_metrics_report.py` が最新日のメトリクスと各システムのシグナル CSV（`signals_systemX_YYYY-MM-DD.csv`）を突き合わせ、`results_csv/daily_metrics_report.csv` を生成する。件数の齟齬チェックやサンプル銘柄の目視確認に使う。
 
----
+### 📂 CSV・ログ出力先一覧
+
+パイプライン実行時の出力ファイルと保存場所：
+
+| ファイル種別     | パス                                               | 生成タイミング                |
+| ---------------- | -------------------------------------------------- | ----------------------------- |
+| シグナル CSV     | `results_csv/signals_systemX_YYYY-MM-DD.csv`       | `--save-csv` 指定時           |
+| 配分結果 CSV     | `results_csv/final_allocation_YYYYMMDD_HHMMSS.csv` | `--save-csv` 指定時           |
+| 日次メトリクス   | `results_csv/daily_metrics.csv`                    | 毎回追記                      |
+| 進捗ログ (JSONL) | `logs/progress_today.jsonl`                        | `ENABLE_PROGRESS_EVENTS=1` 時 |
+| 実行ログ         | `logs/today_signals_YYYYMMDD_HHMM.log`             | 毎回生成                      |
+| ペーパートレード | `results_csv/paper_trade_log_*.csv`                | `daily_paper_trade.py` 実行時 |
+| 除外銘柄         | `logs/excluded_symbols_YYYYMMDD.csv`               | --skip-external 時            |
+
+### パイプライン実行例
+
+```powershell
+# テストモード（推奨: 再現性100%）
+python -m scripts.run_all_systems_today --test-mode test_symbols --skip-external --save-csv
+
+# 本番モード（全銘柄）
+python -m scripts.run_all_systems_today --parallel --save-csv
+
+# 進捗イベント有効化（UI リアルタイム表示用）
+$env:ENABLE_PROGRESS_EVENTS=1; python -m scripts.run_all_systems_today --parallel
+```
 
 ## 🔄 半自動の検証ループ運用
 
