@@ -132,6 +132,7 @@ class SchedulerJob:
     name: str
     cron: str
     task: str
+    dst_aware: bool = False  # True の場合、米国夏時間中は1時間早く実行
 
 
 @dataclass(frozen=True)
@@ -513,7 +514,14 @@ def _build_scheduler_config(cfg: dict[str, Any]) -> SchedulerConfig:
     jobs: list[SchedulerJob] = []
     for j in jobs_raw:
         try:
-            jobs.append(SchedulerJob(name=j["name"], cron=j["cron"], task=j["task"]))
+            jobs.append(
+                SchedulerJob(
+                    name=j["name"],
+                    cron=j["cron"],
+                    task=j["task"],
+                    dst_aware=bool(j.get("dst_aware", False)),
+                )
+            )
         except Exception:
             continue
     return SchedulerConfig(timezone=tz, jobs=tuple(jobs))

@@ -149,7 +149,7 @@ scheduler:
       cron: "30 7 * * 1-5" # 平日 07:30（市場時間外のウォームアップ）
       task: precompute_shared_indicators
     - name: send_signals
-      cron: "30 8 * * 1-5" # 平日 08:30
+      cron: "15 11 * * 1-5" # 平日 11:15 ← シグナル生成後に通知
       task: notify_signals
     - name: update_trailing_stops
       cron: "45 8 * * 1-5"
@@ -161,19 +161,25 @@ scheduler:
       cron: "55 8 * * 1-5" # 平日 08:55（確認用レポート）
       task: build_metrics_report
     - name: run_today_signals
-      cron: "0 11 * * 1-5" # 平日 11:00（朝のタスク後に実行）
+      cron: "0 11 * * 1-5" # 平日 11:00 ← 前営業日終値ベースでシグナル生成
       task: run_today_signals
-    - name: run_auto_rule_morning
-      cron: "30 11 * * 1-5" # 平日 11:30（シグナル生成後にエグジット判定）
+    - name: run_auto_rule_market_open
+      cron: "30 23 * * 1-5" # 平日 23:30 ← 市場オープン直後
       task: run_auto_rule
-    - name: run_auto_rule_afternoon
-      cron: "0 14 * * 1-5" # 平日 14:00（市場中盤でエグジット判定）
+      dst_aware: true # 夏時間中は22:30に実行
+    - name: run_auto_rule_mid_session
+      cron: "0 2 * * 2-6" # 火-土 02:00 ← 市場中盤
       task: run_auto_rule
+      dst_aware: true # 夏時間中は01:00に実行
+    - name: run_auto_rule_before_close
+      cron: "30 5 * * 2-6" # 火-土 05:30 ← 市場クローズ直前
+      task: run_auto_rule
+      dst_aware: true # 夏時間中は04:30に実行
     - name: daily_run
       cron: "15 6 * * 2-6" # 米国市場クローズ後の朝に日次バッチを実行
       task: daily_run
     - name: daily_summary_report
-      cron: "0 17 * * 1-5" # 平日 17:00 JST - 日次サマリーレポート
+      cron: "30 6 * * 2-6" # 火-土 06:30 ← 市場クローズ後
       task: daily_summary_report
     - name: sync_positions_morning
       cron: "0 9 * * 1-5" # 平日 09:00 JST - ポジション同期
@@ -184,8 +190,55 @@ scheduler:
     - name: monthly_detailed_report
       cron: "0 9 1 * *" # 毎月1日 09:00 JST - 月次詳細レポート
       task: monthly_detailed_report
-    - name: monitor_portfolio
-      cron: "*/30 22-6 * * 1-5" # 平日 22:00-06:00 JST (米国市場時間) 30分毎
+    # monitor_portfolio: 米国市場時間(JST 22:00-翌6:00)に30分毎実行
+    # 注: */30 と時間範囲はサポートされていないため、個別に時刻指定
+    - name: monitor_portfolio_2230
+      cron: "30 22 * * 1-5" # 平日 22:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_2300
+      cron: "0 23 * * 1-5" # 平日 23:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_2330
+      cron: "30 23 * * 1-5" # 平日 23:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0000
+      cron: "0 0 * * 2-6" # 火-土 00:00 (月-金の翌日)
+      task: monitor_portfolio
+    - name: monitor_portfolio_0030
+      cron: "30 0 * * 2-6" # 火-土 00:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0100
+      cron: "0 1 * * 2-6" # 火-土 01:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_0130
+      cron: "30 1 * * 2-6" # 火-土 01:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0200
+      cron: "0 2 * * 2-6" # 火-土 02:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_0230
+      cron: "30 2 * * 2-6" # 火-土 02:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0300
+      cron: "0 3 * * 2-6" # 火-土 03:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_0330
+      cron: "30 3 * * 2-6" # 火-土 03:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0400
+      cron: "0 4 * * 2-6" # 火-土 04:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_0430
+      cron: "30 4 * * 2-6" # 火-土 04:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0500
+      cron: "0 5 * * 2-6" # 火-土 05:00
+      task: monitor_portfolio
+    - name: monitor_portfolio_0530
+      cron: "30 5 * * 2-6" # 火-土 05:30
+      task: monitor_portfolio
+    - name: monitor_portfolio_0600
+      cron: "0 6 * * 2-6" # 火-土 06:00
       task: monitor_portfolio
 
 ui:

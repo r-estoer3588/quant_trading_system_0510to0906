@@ -19,6 +19,49 @@ from config.settings import get_settings
 Field = tuple[int, ...] | Literal["*"]
 
 
+def is_us_dst(dt: datetime | None = None) -> bool:
+    """米国がDST(夏時間)中かどうかを判定。
+
+    Args:
+        dt: 判定する日時(None の場合は現在時刻)
+
+    Returns:
+        米国が夏時間中なら True
+    """
+    if dt is None:
+        dt = datetime.now(ZoneInfo("America/New_York"))
+    ny_tz = ZoneInfo("America/New_York")
+    try:
+        ny_time = dt.astimezone(ny_tz)
+        # DSTオフセットが0でなければ夏時間
+        return ny_time.dst() is not None and ny_time.dst().total_seconds() > 0
+    except Exception:
+        return False
+
+
+def adjust_cron_for_dst(cron: str, is_dst: bool) -> str:
+    """DSTの場合、時刻を1時間早める。
+
+    Args:
+        cron: cron文字列 (例: "30 23 * * 1-5")
+        is_dst: 夏時間中かどうか
+
+    Returns:
+        調整後のcron文字列
+    """
+    if not is_dst:
+        return cron
+    parts = cron.split()
+    if len(parts) != 5:
+        return cron
+    try:
+        hour = int(parts[1])
+        parts[1] = str((hour - 1) % 24)
+        return " ".join(parts)
+    except (ValueError, IndexError):
+        return cron
+
+
 def parse_cron(cron: str):
     """Parse a very small subset of cron: "m h * * dow".
     - minute: 0-59 or "*"
@@ -294,18 +337,30 @@ def main():
         return 0
 
     compiled = []
+    current_dst = is_us_dst()
+    if current_dst:
+        logging.info(
+            "📍 米国は現在サマータイム(DST)中です。対象タスクは1時間早く実行されます。"
+        )
     for job in jobs:
         func = TASKS.get(job.task)
         if not func:
             logging.warning(f"未知のタスク '{job.task}' はスキップします。")
             continue
         try:
-            pred = parse_cron(job.cron)
+            # dst_aware が True の場合、夏時間中は1時間早く実行
+            cron_to_use = job.cron
+            dst_aware = getattr(job, "dst_aware", False)
+            if dst_aware and current_dst:
+                cron_to_use = adjust_cron_for_dst(job.cron, True)
+            pred = parse_cron(cron_to_use)
         except Exception as e:
             logging.error(f"cron 解析失敗 ({job.name}): {e}")
             continue
+        display_cron = cron_to_use if cron_to_use != job.cron else job.cron
+        dst_marker = " [DST調整済]" if (dst_aware and current_dst) else ""
         compiled.append((job.name, pred, func))
-        logging.info(f"登録: {job.name} ({job.cron}) -> {job.task}")
+        logging.info(f"登録: {job.name} ({display_cron}){dst_marker} -> {job.task}")
 
     # 簡易ポーリングループ（30秒）
     logging.info("スケジューラー開始")

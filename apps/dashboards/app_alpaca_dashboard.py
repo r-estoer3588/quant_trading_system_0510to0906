@@ -240,71 +240,100 @@ class Notifier:
 
 
 def _inject_css() -> None:
-    """Inject modern dashboard CSS with light/dark theme support.
+    """Inject modern dashboard CSS with 2025 design trends.
 
+    Features: Glassmorphism, micro-animations, dark mode support.
     Loads CSS from external file for better maintainability.
-    Falls back to minimal inline styles if file not available.
     """
+    # Google Fonts - Inter for UI, JetBrains Mono for numbers
+    fonts_html = """
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    """
+    st.markdown(fonts_html, unsafe_allow_html=True)
+
     try:
-        # Try to load external CSS first
         css_path = Path(__file__).parent / "styles" / "dashboard.css"
         if css_path.exists():
             css = css_path.read_text(encoding="utf8")
-            # Add Google Fonts
-            fonts = """
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-            """
-            st.markdown(f"<style>{fonts}{css}</style>", unsafe_allow_html=True)
+            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
             return
     except Exception:
         pass
 
-    # Fallback: minimal inline CSS
-    css = """
+    # Fallback: modern inline CSS with glassmorphism
+    fallback_css = """
     <style>
     :root {
-        --primary-color: #667eea;
-        --success-color: #10b981;
+        --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --success-color: #22c55e;
         --danger-color: #ef4444;
-        --bg-card: #ffffff;
+        --bg-glass: rgba(255, 255, 255, 0.7);
         --text-primary: #0f172a;
-        --text-secondary: #475569;
-        --border-color: #e2e8f0;
-        --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-        --radius-lg: 0.75rem;
+        --text-muted: #94a3b8;
+        --border-glass: rgba(148, 163, 184, 0.2);
+        --radius-xl: 1.25rem;
     }
     @media (prefers-color-scheme: dark) {
         :root {
-            --bg-card: #1e293b;
+            --bg-glass: rgba(17, 17, 24, 0.8);
             --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --border-color: #334155;
+            --text-muted: #64748b;
+            --border-glass: rgba(255, 255, 255, 0.1);
         }
     }
     .ap-metric {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-lg);
+        background: var(--bg-glass);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius-xl);
         padding: 1.5rem;
         text-align: center;
-        box-shadow: var(--shadow-md);
         min-height: 140px;
+        transition: all 0.25s ease;
+    }
+    .ap-metric:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.1);
     }
     .ap-metric .value {
-        font-size: 2rem;
-        font-weight: bold;
+        font-size: 2.25rem;
+        font-weight: 700;
         color: var(--text-primary);
+        font-family: 'JetBrains Mono', monospace;
     }
     .ap-metric .label {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-muted);
         text-transform: uppercase;
+        letter-spacing: 0.15em;
     }
-    .ap-metric .delta-pos { color: var(--success-color); }
-    .ap-metric .delta-neg { color: var(--danger-color); }
+    .ap-metric .delta-pos {
+        color: var(--success-color);
+        background: rgba(34, 197, 94, 0.15);
+        padding: 2px 8px;
+        border-radius: 9999px;
+    }
+    .ap-metric .delta-neg {
+        color: var(--danger-color);
+        background: rgba(239, 68, 68, 0.15);
+        padding: 2px 8px;
+        border-radius: 9999px;
+    }
+    .ap-title {
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: var(--primary-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.03em;
+    }
     </style>
     """
-    st.markdown(css, unsafe_allow_html=True)
+    st.markdown(fallback_css, unsafe_allow_html=True)
 
 
 def _resolve_position_price(position: Any) -> float | str:

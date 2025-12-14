@@ -79,12 +79,13 @@ $Action = New-ScheduledTaskAction -Execute "powershell.exe" `
 # トリガー: ユーザーログイン時
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 
-# 設定: バックグラウンドで実行、バッテリーでも動作
+# 設定: バックグラウンドで実行、バッテリーでも動作、スリープから復帰
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
     -RunOnlyIfNetworkAvailable `
+    -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Days 365) `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 5)
