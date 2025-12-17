@@ -17,50 +17,47 @@
     "--fix"
   ],
   // Workspace interpreter and environment
-  "python.defaultInterpreterPath": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
   "python.terminal.activateEnvironment": true,
   "python.terminal.executeInFileDir": false,
-  "terminal.integrated.env.windows": {
-    "PYTHONPATH": "C:\\Repos\\quant_trading_system"
-  },
-  "files.watcherExclude": {
-    "**/.wslvenv/**": true,
-    "**/.git/**": true,
-    "**/.venv/**": true,
-    "**/__pycache__/**": true,
-    "**/.streamlit/**": true,
-    "**/data_cache/**": true
-  },
-  "files.exclude": {
-    "**/.wslvenv": true,
-    "**/.venv": true,
-    "**/__pycache__": true,
-    "**/.git": true
-  },
-  "python.linting.enabled": false,
-  "python.linting.pylintEnabled": false,
-  "files.autoGuessEncoding": false,
-  "files.encoding": "utf8",
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 1000,
-  "python.testing.pytestArgs": [
-    "tests"
-  ],
-  "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true,
-  "editor.rulers": [
-    88
-  ],
-  "editor.wordWrap": "wordWrapColumn",
-  "editor.wordWrapColumn": 88,
-  "python.analysis.typeCheckingMode": "basic",
-  "terminal.integrated.defaultProfile.windows": "PowerShell",
-  "terminal.integrated.profiles.windows": {
-    "PowerShell": {
-      "source": "PowerShell",
-      "args": [
-        "-NoLogo"
-      ]
-    }
+},
+"files.watcherExclude": {
+  "**/.wslvenv/**": true,
+  "**/.git/**": true,
+  "**/.venv/**": true,
+  "**/__pycache__/**": true,
+  "**/.streamlit/**": true,
+  "**/data_cache/**": true
+},
+"files.exclude": {
+  "**/.wslvenv": true,
+  "**/.venv": true,
+  "**/__pycache__": true,
+  "**/.git": true
+},
+"python.linting.enabled": false,
+"python.linting.pylintEnabled": false,
+"files.autoGuessEncoding": false,
+"files.encoding": "utf8",
+"files.autoSave": "afterDelay",
+"files.autoSaveDelay": 1000,
+"python.testing.pytestArgs": [
+  "tests"
+],
+"python.testing.unittestEnabled": false,
+"python.testing.pytestEnabled": true,
+"editor.rulers": [
+  88
+],
+"editor.wordWrap": "wordWrapColumn",
+"editor.wordWrapColumn": 88,
+"python.analysis.typeCheckingMode": "basic",
+"terminal.integrated.defaultProfile.windows": "PowerShell",
+"terminal.integrated.profiles.windows": {
+  "PowerShell": {
+    "source": "PowerShell",
+    "args": [
+      "-NoLogo"
+    ]
   }
+}
 }
