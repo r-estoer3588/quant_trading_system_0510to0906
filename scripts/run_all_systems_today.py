@@ -4627,10 +4627,10 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
         except Exception:
             s1_val = int(s1_setup or 0)
         s2_val = int(s2_setup or 0) if "s2_setup" in locals() else 0
-        s3_val = int(s3_setup or 0) if "s3_setup" in locals() else 0
+        s3_val = int(s3_setup) if (s3_setup is not None) else -1  # 未計算は-1
         # system4 は Close>SMA200 件数（s4_close）をセットアップ相当として扱う
         s4_val = int(locals().get("s4_close", 0) or 0)
-        s5_val = int(s5_setup or 0) if "s5_setup" in locals() else 0
+        s5_val = int(s5_setup) if (s5_setup is not None) else -1  # 未計算は-1
         s6_val = int(s6_setup or 0) if "s6_setup" in locals() else 0
         s7_val = int(s7_setup or 0) if "s7_setup" in locals() else 0
 
@@ -4638,14 +4638,25 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
             "🧩 セットアップ結果: "
             + f"system1={s1_val}件, "
             + f"system2={s2_val}件, "
-            + f"system3={s3_val}件, "
+            + f"system3={'未計算' if s3_val == -1 else str(s3_val)}件, "
             + f"system4={s4_val}件, "
-            + f"system5={s5_val}件, "
+            + f"system5={'未計算' if s5_val == -1 else str(s5_val)}件, "
             + f"system6={s6_val}件, "
             + f"system7={s7_val}件"
         )
+        # setup_counts をループで参照するため保持
+        # 注: -1 は「未計算」を意味し、早期終了チェックでスキップされない
+        _setup_counts = {
+            "system1": s1_val,
+            "system2": s2_val,
+            "system3": s3_val,  # -1なら未計算、早期終了しない
+            "system4": s4_val,
+            "system5": s5_val,  # -1なら未計算、早期終了しない
+            "system6": s6_val,
+            "system7": s7_val,
+        }
     except Exception:
-        pass
+        _setup_counts = {}  # フォールバック: 早期終了チェックをスキップ
     if progress_callback:
         try:
             progress_callback(4, 8, "load_indicators")
@@ -4744,6 +4755,33 @@ def compute_today_signals(  # noqa: C901  # type: ignore[reportGeneralTypeIssues
                     f"[{system_name}] ⚠️ System4 は SPY 指標が必要ですが SPY データがありません。スキップします。"
                 )
                 per_system[system_name] = pd.DataFrame()
+                continue
+
+            # 早期終了: セットアップ候補が0件の場合、高コストな処理をスキップ
+            # (事前計算済みの _setup_counts を参照)
+            if _setup_counts.get(system_name, -1) == 0:
+                _log(f"[{system_name}] ⏭️ setup_count=0 のため処理をスキップ")
+                per_system[system_name] = pd.DataFrame()
+                _log(f"[{system_name}] ❌ {system_name}: 0 件 🚫")
+                try:
+                    _stage(system_name, 75, candidate_count=0)
+                    _stage(system_name, 100, candidate_count=0, entry_count=0)
+                except Exception:
+                    pass
+                _log(f"✅ {system_name} 完了: 0件")
+                # Progress event を発火（UIの一貫性維持）
+                try:
+                    emit_progress_event(
+                        "system_complete",
+                        {"system": system_name, "candidates": 0, "skipped": True},
+                    )
+                except Exception:
+                    pass
+                try:
+                    if per_system_progress and callable(per_system_progress):
+                        per_system_progress(system_name, "done")
+                except Exception:
+                    pass
                 continue
 
             _log(f"[{system_name}] 🔎 {system_name}: シグナル抽出を開始")

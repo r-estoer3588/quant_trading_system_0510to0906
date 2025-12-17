@@ -263,7 +263,12 @@ export default function IntegratedPage() {
 
       <main className="container mx-auto px-4 py-6">
         {/* Progress Panel */}
-        <ProgressPanel isRunning={isRunning} events={events} />
+        <ProgressPanel
+          isRunning={isRunning}
+          events={events}
+          executionTime={executionTime || undefined}
+          totalCandidates={candidates.length}
+        />
 
         <Card className="mb-6">
           <CardHeader className="pb-3">

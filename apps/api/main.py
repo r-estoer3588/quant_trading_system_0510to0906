@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -478,13 +479,8 @@ async def websocket_progress(websocket: WebSocket):
     await manager.connect(websocket)
 
     try:
-        # Reset progress file position
-        if PROGRESS_FILE.exists():
-            initial_size = PROGRESS_FILE.stat().st_size
-        else:
-            initial_size = 0
-
-        last_position = initial_size
+        # Start reading from beginning of file to capture all events
+        last_position = 0
 
         while True:
             # Check for new progress events
@@ -632,12 +628,22 @@ async def run_signals(request: RunSignalsRequest):
     # Add benchmark flag for timing info
     cmd.append("--benchmark")
 
-    # Clear progress file before starting
+    # Clear progress file and write session_start event
     try:
         if PROGRESS_FILE.exists():
             PROGRESS_FILE.unlink()
         PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROGRESS_FILE.touch()
+
+        # Write session_start event to mark new session
+        session_event = {
+            "timestamp": datetime.now().isoformat(),
+            "event_type": "session_start",
+            "level": "info",
+            "data": {"message": "Signal generation session started"},
+        }
+        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+            f.write(json.dumps(session_event, ensure_ascii=False) + "\n")
+            f.flush()
     except Exception:
         pass
 
@@ -652,24 +658,123 @@ async def run_signals(request: RunSignalsRequest):
     ]
 
     try:
-        # Run subprocess asynchronously
-        result = await asyncio.to_thread(
-            subprocess.run,
+        # Set environment to enable progress events
+        env = {**subprocess.os.environ, "ENABLE_PROGRESS_EVENTS": "1"}
+
+        # Run subprocess with streaming output
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
             cwd=str(PROJECT_ROOT),
-            timeout=600,  # 10 minute timeout
+            env=env,
         )
 
-        success = result.returncode == 0
-        message = (
-            "Signal generation complete."
-            if success
-            else f"Pipeline error: {result.stderr[:200]}"
-        )
+        # Stream stdout to progress file in real-time
+        output_lines = []
+
+        def stream_output():
+            """Read stdout and write progress events."""
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    line = line.rstrip()
+                    output_lines.append(line)
+
+                    # Write to progress file for WebSocket to pick up
+                    try:
+                        event = {
+                            "timestamp": datetime.now().isoformat(),
+                            "event_type": "pipeline_log",
+                            "level": "info",
+                            "data": {"message": line},
+                        }
+
+                        # Parse system name: [systemX] pattern
+                        sys_match = re.search(r"\[system(\d)\]", line, re.I)
+                        if sys_match:
+                            event["data"]["system"] = f"system{sys_match.group(1)}"
+
+                        # Parse progress percentage: 進捗 X%
+                        prog_match = re.search(r"進捗\s*(\d+)%", line)
+                        if prog_match:
+                            event["data"]["progress"] = int(prog_match.group(1))
+
+                        # Parse filter_count, setup_count, candidate_count, entry_count
+                        for key in [
+                            "filter_count",
+                            "setup_count",
+                            "candidate_count",
+                            "entry_count",
+                        ]:
+                            m = re.search(rf"{key}=(\d+)", line)
+                            if m:
+                                event["data"][key] = int(m.group(1))
+
+                        # Parse データロード進捗: 310/6201
+                        load_match = re.search(r"進捗[:\s]*(\d+)/(\d+)", line)
+                        if load_match:
+                            event["data"]["processed"] = int(load_match.group(1))
+                            event["data"]["total"] = int(load_match.group(2))
+
+                        # Emit stage_update for progress lines
+                        if prog_match and sys_match:
+                            event["event_type"] = "stage_update"
+                            phase_match = re.search(r"進捗\s*\d+%:\s*([^(]+)", line)
+                            if phase_match:
+                                event["data"]["phase"] = phase_match.group(1).strip()
+
+                        # Detect phases from message content
+                        elif "実行開始" in line or "シグナル検出処理開始" in line:
+                            event["event_type"] = "initialization"
+                        elif "基礎データロード" in line:
+                            event["event_type"] = "data_loading"
+                        elif "Phase 0" in line or "rolling キャッシュ" in line:
+                            event["event_type"] = "cache_check"
+                        elif "フィルター" in line:
+                            event["event_type"] = "filter"
+                        elif "セットアップ" in line:
+                            event["event_type"] = "setup"
+                        elif "シグナル抽出" in line or "トレード候補" in line:
+                            event["event_type"] = "signals"
+                        elif "エントリー" in line:
+                            event["event_type"] = "entry"
+                        elif "実行終了" in line or "最終候補件数" in line:
+                            event["event_type"] = "complete"
+
+                        with open(PROGRESS_FILE, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+                            f.flush()
+
+                    except Exception:
+                        pass
+
+            process.stdout.close()
+
+        # Run streaming in a thread while we wait
+        import threading
+
+        stream_thread = threading.Thread(target=stream_output, daemon=True)
+        stream_thread.start()
+
+        # Wait for process to complete with timeout (non-blocking)
+        try:
+            return_code = await asyncio.to_thread(process.wait, 600)
+            stream_thread.join(timeout=5)
+            success = return_code == 0
+            message = (
+                "Signal generation complete."
+                if success
+                else f"Pipeline error (exit code {return_code})"
+            )
+        except Exception:
+            # Timeout or other error
+            process.kill()
+            stream_thread.join(timeout=2)
+            success = False
+            message = "Pipeline timed out or failed"
 
         # Parse results
         candidates = parse_results_csv()
@@ -702,23 +807,6 @@ async def run_signals(request: RunSignalsRequest):
                 )
             )
 
-    except subprocess.TimeoutExpired:
-        success = False
-        message = "Pipeline timed out after 10 minutes"
-        candidates = []
-        systems = [
-            SystemState(
-                system=cfg["name"],
-                target=0,
-                filterPass=0,
-                setupPass=0,
-                tradelist=0,
-                entry=0,
-                exit=0,
-                status="error",
-            )
-            for cfg in systems_config
-        ]
     except Exception as e:
         success = False
         message = f"Error running pipeline: {str(e)}"
