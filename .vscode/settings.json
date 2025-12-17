@@ -1,5 +1,18 @@
 {
+  // ==========================================
+  //  共通設定 (Global Settings)
+  // ==========================================
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
   "editor.formatOnSave": true,
+  "editor.wordWrap": "wordWrapColumn",
+  "editor.wordWrapColumn": 88,
+  "editor.rulers": [
+    88
+  ],
+  // --- Python設定 (共通) ---
   "editor.defaultFormatter": "ms-python.python",
   "python.formatting.provider": "black",
   "python.formatting.blackArgs": [
@@ -16,48 +29,61 @@
   "ruff.lint.args": [
     "--fix"
   ],
-  // Workspace interpreter and environment
   "python.terminal.activateEnvironment": true,
   "python.terminal.executeInFileDir": false,
-},
-"files.watcherExclude": {
-  "**/.wslvenv/**": true,
-  "**/.git/**": true,
-  "**/.venv/**": true,
-  "**/__pycache__/**": true,
-  "**/.streamlit/**": true,
-  "**/data_cache/**": true
-},
-"files.exclude": {
-  "**/.wslvenv": true,
-  "**/.venv": true,
-  "**/__pycache__": true,
-  "**/.git": true
-},
-"python.linting.enabled": false,
-"python.linting.pylintEnabled": false,
-"files.autoGuessEncoding": false,
-"files.encoding": "utf8",
-"files.autoSave": "afterDelay",
-"files.autoSaveDelay": 1000,
-"python.testing.pytestArgs": [
-  "tests"
-],
-"python.testing.unittestEnabled": false,
-"python.testing.pytestEnabled": true,
-"editor.rulers": [
-  88
-],
-"editor.wordWrap": "wordWrapColumn",
-"editor.wordWrapColumn": 88,
-"python.analysis.typeCheckingMode": "basic",
-"terminal.integrated.defaultProfile.windows": "PowerShell",
-"terminal.integrated.profiles.windows": {
-  "PowerShell": {
-    "source": "PowerShell",
-    "args": [
-      "-NoLogo"
-    ]
+  "python.linting.enabled": false,
+  "python.linting.pylintEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.analysis.typeCheckingMode": "basic",
+  // --- 除外設定 ---
+  "files.watcherExclude": {
+    "**/.wslvenv/**": true,
+    "**/.git/**": true,
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.streamlit/**": true,
+    "**/data_cache/**": true
+  },
+  "files.exclude": {
+    "**/.wslvenv": true,
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/.git": true
+  },
+  // ==========================================
+  //  OS別分岐設定 (Platform Specific)
+  // ==========================================
+  // [WINDOWS] 既存のPython開発用 (固定パス)
+  // Windowsで開いたときだけ、以前の環境設定が有効になります
+  "[windows]": {
+    "terminal.integrated.cwd": "C:\\Repos\\quant_trading_system",
+    "python.defaultInterpreterPath": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.profiles.windows": {
+      "PowerShell": {
+        "source": "PowerShell",
+        "args": [
+          "-NoLogo"
+        ]
+      }
+    }
+  },
+  // [LINUX / WSL] 新規Swimmy開発用 (相対パス)
+  // WSLで開いたときは、固定パスを無視して「現在のフォルダ」を開きます
+  "[linux]": {
+    "terminal.integrated.cwd": "${workspaceFolder}"
+  },
+  // ==========================================
+  //  Swimmy言語設定 (Lisp / Rust)
+  // ==========================================
+  "[lisp]": {
+    "editor.defaultFormatter": "rheller.alive"
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
   }
-}
 }
