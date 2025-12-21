@@ -77,7 +77,10 @@ def get_portfolio_value(paper: bool = True) -> tuple[float, float, float]:
         account = client.get_account()
         equity = float(account.equity)
         cash = float(account.cash)
-        unrealized_pnl = float(account.unrealized_pl or 0)
+        # Note: Newer Alpaca SDK removed unrealized_pl from TradeAccount
+        # Calculate from positions instead
+        positions = client.get_all_positions()
+        unrealized_pnl = sum(float(p.unrealized_pl or 0) for p in positions)
         return equity, cash, unrealized_pnl
     except Exception as e:
         logger.error(f"Failed to get portfolio value: {e}")
@@ -234,8 +237,8 @@ def check_and_alert(
             losers,
         )
         try:
-            notifier = Notifier(platform="slack_api")
-            notifier.send(msg)
+            notifier = Notifier(platform="slack")
+            notifier.send(title="📊 Portfolio Monitor", message=msg)
             logger.info("Alert sent to Slack")
         except Exception as e:
             logger.error(f"Failed to send alert: {e}")

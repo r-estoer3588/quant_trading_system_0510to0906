@@ -222,24 +222,51 @@ class BulkDataVerifier:
             try:
                 cached = self.cm.read(symbol, "full")
                 if cached is not None and not cached.empty:
-                    # 最新行と比較
-                    latest_cached = cached.iloc[-1]
+                    # 日付カラムを特定
+                    date_col = "Date" if "Date" in cached.columns else "date"
 
-                    # 日付を確認
-                    cached_date = None
-                    if "Date" in cached.columns:
-                        cached_date = pd.to_datetime(cached["Date"].iloc[-1]).strftime(
-                            "%Y-%m-%d"
+                    # キャッシュの最新日付を取得
+                    cached_date = pd.to_datetime(
+                        cached[date_col].iloc[-1]
+                    ).strftime("%Y-%m-%d")
+                    print(f"  📁 キャッシュ最新日: {cached_date}")
+
+                    # 比較対象のキャッシュ行を決定
+                    latest_cached = None
+
+                    if bulk_date and cached_date == bulk_date:
+                        # 日付一致：最新行を使用
+                        latest_cached = cached.iloc[-1]
+                    elif bulk_date:
+                        # 日付不一致：同日データを探す
+                        print(
+                            f"  ⏭️ 日付不一致 "
+                            f"(Bulk: {bulk_date}, Cache: {cached_date})"
                         )
-                    elif "date" in cached.columns:
-                        cached_date = pd.to_datetime(cached["date"].iloc[-1]).strftime(
-                            "%Y-%m-%d"
-                        )
+                        try:
+                            cache_dates = pd.to_datetime(
+                                cached[date_col]
+                            ).dt.strftime("%Y-%m-%d")
+                            same_date_mask = cache_dates == bulk_date
+                            if same_date_mask.any():
+                                print("  🔍 同日データを発見、比較します")
+                                latest_cached = cached[same_date_mask].iloc[-1]
+                            else:
+                                print("  ⏭️ 同日データなし、スキップ")
+                                continue
+                        except Exception:
+                            print("  ⏭️ 日付解析エラー、スキップ")
+                            continue
+                    else:
+                        # Bulk日付が不明な場合は最新行と比較
+                        latest_cached = cached.iloc[-1]
 
-                    if cached_date:
-                        print(f"  📁 キャッシュ最新日: {cached_date}")
+                    if latest_cached is None:
+                        continue
 
-                    comparison = self.compare_prices(bulk_row, latest_cached, symbol)
+                    comparison = self.compare_prices(
+                        bulk_row, latest_cached, symbol
+                    )
                     comparison_done = True
 
                     if comparison["has_issues"]:

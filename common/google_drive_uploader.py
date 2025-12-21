@@ -46,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CREDENTIALS_PATH = ROOT / "data" / "google_service_account.json"
 
 # Scopes required
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 def get_drive_service():
@@ -118,7 +118,12 @@ def upload_to_drive(
 
         file = (
             service.files()
-            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
+            .create(
+                body=file_metadata,
+                media_body=media,
+                fields="id, webViewLink",
+                supportsAllDrives=True,
+            )
             .execute()
         )
 
