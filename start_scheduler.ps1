@@ -55,8 +55,29 @@ Write-Host "  • build_metrics_report  : 平日 08:55 - レポート生成" -Fo
 Write-Host "  • run_today_signals     : 平日 11:00 - 当日シグナル生成 ⭐" -ForegroundColor Yellow
 Write-Host "  • daily_run             : 火-土 06:15 - 日次バッチ処理" -ForegroundColor Gray
 Write-Host ""
-Write-Host "⏰ スケジューラー実行中... (Ctrl+C で停止)" -ForegroundColor Green
+Write-Host "⏰ スケジューラーをバックグラウンドで起動しています..." -ForegroundColor Green
 Write-Host ""
 
-# スケジューラーを起動
-python -m schedulers.runner
+# スケジューラーをバックグラウンドプロセスで起動（PowerShellウィンドウは自動閉じ）
+$SchedulerProcess = Start-Process `
+    -FilePath "python" `
+    -ArgumentList "-m", "schedulers.runner" `
+    -WorkingDirectory $ProjectRoot `
+    -WindowStyle Hidden `
+    -PassThru
+
+Write-Host "✅ スケジューラーが起動しました" -ForegroundColor Green
+Write-Host "   プロセスID: $($SchedulerProcess.Id)" -ForegroundColor Gray
+Write-Host "   ログファイル: .\logs\app.log" -ForegroundColor Gray
+Write-Host ""
+Write-Host "ℹ️  スケジューラーは以下の場所でバックグラウンド稼働します:" -ForegroundColor Cyan
+Write-Host "   - Windows タスクスケジューラ (起動時自動化)" -ForegroundColor Gray
+Write-Host "   - ローカルプロセス (現在のセッション)" -ForegroundColor Gray
+Write-Host ""
+Write-Host "停止方法:" -ForegroundColor Yellow
+Write-Host "   PowerShell: Get-Process python | Where-Object {$_.CommandLine -like '*schedulers.runner*'} | Stop-Process" -ForegroundColor Gray
+Write-Host "   または、タスクマネージャーで該当の python.exe を終了" -ForegroundColor Gray
+
+# スクリプト終了（PowerShellウィンドウは3秒後に自動閉じ）
+Start-Sleep -Seconds 3
+exit 0
