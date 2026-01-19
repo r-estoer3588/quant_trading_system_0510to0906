@@ -1,4 +1,7 @@
 {
+  "A": [
+    "system4"
+  ],
   "AAAU": [
     "system1"
   ],
@@ -7,6 +10,9 @@
   ],
   "AEO": [
     "system1"
+  ],
+  "ANF": [
+    "system5"
   ],
   "APLS": [
     "system3"
@@ -25,6 +31,9 @@
   ],
   "AVTR": [
     "system3"
+  ],
+  "AXTI": [
+    "system1"
   ],
   "B": [
     "system1"
@@ -56,14 +65,26 @@
   "BMNR": [
     "system1"
   ],
+  "BOOT": [
+    "system4"
+  ],
   "BROS": [
     "system1"
   ],
   "C": [
     "system1"
   ],
+  "CACI": [
+    "system4"
+  ],
+  "CAPR": [
+    "system5"
+  ],
   "CASY": [
     "system4"
+  ],
+  "CDTX": [
+    "system1"
   ],
   "CELC": [
     "system1"
@@ -77,6 +98,9 @@
   "CIEN": [
     "system1"
   ],
+  "CLH": [
+    "system4"
+  ],
   "CLS": [
     "system2"
   ],
@@ -86,8 +110,14 @@
   "CNP": [
     "system4"
   ],
+  "COGT": [
+    "system1"
+  ],
   "COMM": [
     "system1"
+  ],
+  "CVI": [
+    "system5"
   ],
   "CWH": [
     "system3"
@@ -101,11 +131,23 @@
   "DB": [
     "system1"
   ],
+  "DK": [
+    "system5"
+  ],
   "DTE": [
     "system4"
   ],
   "EBAY": [
     "system1"
+  ],
+  "EKSO": [
+    "system1"
+  ],
+  "ELVA": [
+    "system5"
+  ],
+  "EXPI": [
+    "system5"
   ],
   "FCEL": [
     "system1"
@@ -116,6 +158,9 @@
   "FMC": [
     "system3"
   ],
+  "FOLD": [
+    "system5"
+  ],
   "GCTK": [
     "system1"
   ],
@@ -125,20 +170,50 @@
   "GSAT": [
     "system1"
   ],
+  "HST": [
+    "system4"
+  ],
+  "HYMC": [
+    "system1"
+  ],
+  "IBM": [
+    "system4"
+  ],
   "IMVT": [
     "system5"
   ],
   "INBX": [
     "system2"
   ],
+  "INFY": [
+    "system5"
+  ],
   "INOD": [
+    "system1"
+  ],
+  "IREN": [
     "system1"
   ],
   "KGC": [
     "system1"
   ],
+  "KKR": [
+    "system4"
+  ],
+  "LCID": [
+    "system1"
+  ],
+  "LDOS": [
+    "system4"
+  ],
+  "LITE": [
+    "system1"
+  ],
   "LRN": [
     "system3"
+  ],
+  "LVS": [
+    "system4"
   ],
   "MAZE": [
     "system5"
@@ -146,17 +221,32 @@
   "MDT": [
     "system4"
   ],
+  "MET": [
+    "system4"
+  ],
   "METC": [
     "system1"
+  ],
+  "MLKN": [
+    "system5"
   ],
   "NEGG": [
     "system1"
   ],
+  "NFLX": [
+    "system5"
+  ],
   "NKTR": [
     "system1"
   ],
+  "NXE": [
+    "system2"
+  ],
   "ODD": [
     "system5"
+  ],
+  "ONDS": [
+    "system2"
   ],
   "OUST": [
     "system1"
@@ -172,6 +262,9 @@
   ],
   "PL": [
     "system1"
+  ],
+  "PTEN": [
+    "system2"
   ],
   "QBTS": [
     "system1"
@@ -212,6 +305,9 @@
   "STI": [
     "system1"
   ],
+  "TIGR": [
+    "system2"
+  ],
   "TPR": [
     "system4"
   ],
@@ -223,6 +319,9 @@
   ],
   "VIAV": [
     "system2"
+  ],
+  "VOR": [
+    "system3"
   ],
   "VRNS": [
     "system3"

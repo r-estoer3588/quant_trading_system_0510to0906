@@ -1,23 +1,35 @@
 # ============================================================================
-# スケジューラー起動スクリプト
+# ❌ DEPRECATED: スケジューラー起動スクリプト（2026-01-19 無効化）
 #
 # 説明:
-#   このスクリプトは当日シグナル生成を含む全ての定期タスクを実行するスケジューラーを起動します
+#   ⚠️  EODHD API契約終了に伴い、本スクリプトは無効化されました
+#   詳細は CHANGELOG.md を参照してください
 #
-# 使い方:
-#   .\start_scheduler.ps1
+# 現在のステータス:
+#   - Windows タスクスケジューラーのタスク: すべて Disabled
+#   - 日次更新・定期シグナル生成: 停止状態
 #
-# スケジュール設定:
-#   - config/config.yaml の scheduler セクションで設定されたタスクを自動実行
-#   - run_today_signals: 平日 08:15 (JST)
-#   - 他のタスク: ティッカー更新、キャッシュ更新、通知など
-#
-# 停止方法:
-#   - Ctrl+C で停止
-#   - または、タスクマネージャーでPythonプロセスを終了
+# 復旧方法（新たなデータ供給元導入時）:
+#   1. config/ で新API設定を構成
+#   2. scripts/cache_daily_data.py を新API対応に修正
+#   3. register_task_scheduler.ps1 を再実行
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "❌ エラー: このスクリプトは使用できません" -ForegroundColor Red
+Write-Host ""
+Write-Host "EODHD API契約終了（2026-01-19）に伴い、スケジューラーは無効化されました。" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "詳細:"
+Write-Host "  - CHANGELOG.md で操作履歴を確認" -ForegroundColor Gray
+Write-Host "  - Windows タスク状態確認:" -ForegroundColor Gray
+Write-Host "    Get-ScheduledTask -TaskName 'QuantTrading*' | Select-Object TaskName, State" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "新たなデータ供給元導入後に復旧してください。" -ForegroundColor Yellow
+Write-Host ""
+exit 1
 
 # プロジェクトルートディレクトリに移動
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### Operations
+
+- **Scheduler Suspension**: 2026-01-19 にEODHD API契約終了に伴い、全スケジュールタスク（QuantTradingCacheUpdate, QuantTradingDailySignals, QuantTradingDailyUpdate, QuantTradingRecomputeRolling, QuantTradingScheduler）を無効化。日次更新・定期シグナル生成は停止状態。
+- **PowerShell Scripts Deprecated**: `start_scheduler.ps1`、`register_task_scheduler.ps1` を非推奨化。実行時にエラーメッセージで無効化を通知。
+- **Directory Cleanup**: ルートディレクトリのテンポラリファイル群（14個）を `temp_archive/` ディレクトリに集約。
+
+## Unreleased
+
 ### Added
 
 - **Bulk API Quality Control**: 環境変数で Volume/価格差異の許容範囲を制御可能に（`config/environment.py`, `scripts/verify_bulk_accuracy.py`）

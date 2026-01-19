@@ -1,20 +1,18 @@
 # ============================================================================
-# Windowsタスクスケジューラー登録スクリプト
+# ❌ DEPRECATED: Windows タスクスケジューラー登録スクリプト（2026-01-19 無効化）
 #
 # 説明:
-#   このスクリプトはWindowsタスクスケジューラーにスケジューラーを自動起動するタスクを登録します
+#   ⚠️  EODHD API契約終了に伴い、本スクリプトは無効化されました
+#   詳細は CHANGELOG.md を参照してください
 #
-# 使い方:
-#   .\register_task_scheduler.ps1
+# 現在のステータス:
+#   - 登録済みタスク: すべて Disabled
+#   - 起動時の自動実行: 停止状態
 #
-# 動作:
-#   - タスク名: "QuantTradingScheduler"
-#   - トリガー: ログイン時に自動起動
-#   - 実行: start_scheduler.ps1 を実行
-#
-# 注意:
-#   - 管理者権限で実行する必要があります
-#   - 登録後は再起動時に自動的にスケジューラーが起動します
+# 復旧手順（新たなデータ供給元導入時）:
+#   1. 管理者権限で PowerShell を起動
+#   2. set-executionpolicy -executionpolicy bypass -scope currentuser
+#   3. .\\register_task_scheduler.ps1 を実行
 # ============================================================================
 
 param(
@@ -22,6 +20,18 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "❌ エラー: このスクリプトは使用できません" -ForegroundColor Red
+Write-Host ""
+Write-Host "EODHD API契約終了（2026-01-19）に伴い、スケジューラー登録は無効化されました。" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "現在のタスク状態確認:" -ForegroundColor Yellow
+Write-Host "  Get-ScheduledTask -TaskName 'QuantTrading*' | Select-Object TaskName, State" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "新たなデータ供給元導入後に復旧してください。" -ForegroundColor Yellow
+Write-Host ""
+exit 1
 
 # 管理者権限チェック
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
