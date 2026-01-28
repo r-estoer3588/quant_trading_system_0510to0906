@@ -60,7 +60,7 @@
   // [WINDOWS] 既存のPython開発用 (固定パス)
   // Windowsで開いたときだけ、以前の環境設定が有効になります
   "[windows]": {
-    "terminal.integrated.cwd": "C:\\Repos\\quant_trading_system",
+    // "terminal.integrated.cwd": "C:\\Repos\\quant_trading_system",
     "python.defaultInterpreterPath": "C:\\Repos\\quant_trading_system\\venv\\Scripts\\python.exe",
     "terminal.integrated.defaultProfile.windows": "PowerShell",
     "terminal.integrated.profiles.windows": {
