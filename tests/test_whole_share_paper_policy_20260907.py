@@ -2,19 +2,19 @@
 
 The live correctness issue was not order sizing itself: fractional long entries could
 not carry Alpaca-native stop/trailing protection, so S1/S4 silently changed exit
-semantics.  Production Paper entry planning must therefore never re-enable notional
+semantics. Production Paper entry planning must therefore never re-enable notional
 fractional execution without an explicit design change and replacement protection.
 """
 
-from pathlib import Path
+import pathlib
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUBMIT = ROOT / "scripts" / "paper_trading_submit.py"
 DRYRUN = ROOT / "scripts" / "paper_trading_dryrun.py"
 
 
-def _read(path: Path) -> str:
+def _read(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
