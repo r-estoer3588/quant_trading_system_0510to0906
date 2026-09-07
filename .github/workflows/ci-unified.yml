@@ -110,10 +110,6 @@ jobs:
         id: lint-scope
         shell: bash
         run: |
-          # main/develop/branch0906 は repo 全体を強制する (origin/main は現在
-          # repo-wide clean。その保証を changed-files 縮退で手放さない)。
-          # claude/* 等の運用 branch を base にする PR だけ、既存の lint 債務を
-          # 抱えたままでも新規変更を検証できるよう changed-files へ縮退する。
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             target="${{ github.event.pull_request.base.ref }}"
           else
@@ -150,7 +146,7 @@ jobs:
         shell: bash
         run: |
           mapfile -t targets < "$RUNNER_TEMP/lint-targets.txt"
-          isort --check-only "${targets[@]}"
+          isort --diff --check-only "${targets[@]}"
       - name: Ruff (lint)
         if: steps.lint-targets.outputs.count != '0'
         shell: bash
@@ -228,8 +224,6 @@ jobs:
 
           data = json.loads(p.read_text())
           files = data.get("files", {})
-
-          # Find core/system7.py in the coverage json
           key = None
           for k in files.keys():
               if k.endswith("core/system7.py"):
@@ -273,4 +267,3 @@ jobs:
           name: coverage-report-json
           path: coverage.json
           if-no-files-found: warn
-          retention-days: 30
