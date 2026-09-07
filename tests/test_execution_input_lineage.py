@@ -18,6 +18,7 @@ publish し得た。
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -73,7 +74,7 @@ def test_missing_field_is_unverified_not_verified():
 
 
 def test_absent_input_is_missing_and_tolerated():
-    """その段が動かなかった = 突合対象なしなので許容する。"""
+    """その段が動かなかった = lineage の突合対象なしなので許容する。"""
     lineage = execution_input_lineage(_signals(), None, _orders(RUN))
     assert lineage["paper_orders"] == "missing"
     assert execution_lineage_ok(lineage) is True
@@ -105,6 +106,28 @@ def test_recon_withholds_run_id_when_any_input_unbound(paper_run, exit_run):
     )
     assert recon["source_signals_run_id"] is None
     assert recon["execution_lineage_ok"] is False
+
+
+def test_recon_stamps_when_every_input_is_absent():
+    """両 execution 段が不在でも recon 自身の signals lineage は stamp できる。
+
+    ``test_absent_input_is_missing_and_tolerated`` は片側だけが missing の場合を
+    見ており、``test_recon_withholds_run_id_when_any_input_unbound`` の
+    ``(None, None)`` は「dict はあるが ``source_signals_run_id`` が無い」
+    (= ``unverified``) であって段の不在ではない。両段とも不在という
+    ``missing`` だけの lineage が **withhold 側に倒れない** ことを固定する。
+
+    これは execution/Exit が存在するという意味ではない。``--require-exit`` の
+    bundle preflight は別契約であり、全 execution input 不在なら引き続き
+    fail-closed することを下の end-to-end テストで固定する。
+    """
+    recon = build_recon(_signals(), None, None, date_str="2026-08-17")
+    assert recon["execution_lineage"] == {
+        "paper_orders": "missing",
+        "exit_orders": "missing",
+    }
+    assert recon["execution_lineage_ok"] is True
+    assert recon["source_signals_run_id"] == RUN
 
 
 # --- preflight fail-closed ----------------------------------------------
@@ -162,12 +185,32 @@ def test_preflight_accepts_fully_verified_execution_inputs(tmp_path: Path):
 
 
 def test_preflight_tolerates_missing_execution_stage(tmp_path: Path):
-    """その段が動かなかった (missing) だけなら publish を止めない。"""
+    """Lineage上 missing は許容するが、残る実測 Exit は別途必要。"""
     _stage(tmp_path, {"paper_orders": "missing", "exit_orders": "verified"})
     manifest = materialize_dashboard_bundle(
         results_dir=tmp_path, date_str=DATE, require_exit=True
     )
     assert manifest["date"] == DATE
+
+
+def test_all_missing_execution_stamps_recon_but_require_exit_still_fails_closed(
+    tmp_path: Path,
+):
+    """run_id stamp と Exit availability を混同しない end-to-end 境界。"""
+    _fixtures(tmp_path)
+    signals_path = tmp_path / f"today_signals_{COMPACT}.json"
+    signals = json.loads(signals_path.read_text(encoding="utf-8"))
+    recon = build_recon(signals, None, None, date_str=DATE)
+    assert recon["source_signals_run_id"] == signals["meta"]["run_id"]
+    assert recon["execution_lineage_ok"] is True
+    assert recon["inputs"]["exit_orders"] is False
+    _write(tmp_path / f"recon_{COMPACT}.json", recon)
+
+    with pytest.raises(BundleContractError) as exc:
+        materialize_dashboard_bundle(
+            results_dir=tmp_path, date_str=DATE, require_exit=True
+        )
+    assert "Exit materialization failed: exit_orders_input_missing" in str(exc.value)
 
 
 def test_preflight_still_accepts_legacy_recon_without_lineage(tmp_path: Path):
