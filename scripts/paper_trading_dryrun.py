@@ -25,7 +25,6 @@ from common.alpaca_trading import (  # noqa: E402
     signals_to_orders,
 )
 
-
 PAPER_WHOLE_SHARE_ONLY = True
 
 
