@@ -23,9 +23,9 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import importlib.util
 import json
-from datetime import datetime
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -292,10 +292,11 @@ def test_second_trigger_skips_after_success(make_runner):
     assert second.observed == [], "観測段も走らない"
 
 
-def test_done_lock_written_before_observability(make_runner, monkeypatch):
+def test_done_lock_written_before_finalize_artifacts(make_runner, monkeypatch):
     """DONE.lock は SUMMARY / completion_recon より **先に** durable 化される。
 
-    後続の I/O が失敗しても rc!=0 の再試行で同じ注文を二度出さないための順序。
+    これは ``finalize()`` 内の成果物順序を固定するテスト。notify/publish より前の
+    crash fence は wrapper の INFLIGHT.lock 契約が担当する。
     """
     runner = make_runner()
     seen: list[tuple[str, bool]] = []
