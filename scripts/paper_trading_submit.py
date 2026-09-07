@@ -44,7 +44,6 @@ from common.alpaca_trading import (  # noqa: E402
     signals_to_orders,
     submit_paper_order,
 )
-
 from common.position_age import load_entry_dates, save_entry_dates  # noqa: E402
 from common.position_tracker import update_positions_from_signals  # noqa: E402
 from common.symbol_map import (  # noqa: E402
