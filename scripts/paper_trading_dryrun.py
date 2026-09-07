@@ -2,6 +2,10 @@
 
 入力は CSV (final_df) または JSON (today_signals_YYYYMMDD.json) の両対応。
 JSON 入力は daily_pipeline.ps1 の paper_orders step 用。**実発注は一切行わない。**
+
+2026-09-07: Paper execution の正準 policy は whole-share only。
+実発注と dry-run の乖離を防ぐため、JSON 経路でも fractional/notional sizing を
+使わず、1株未満は理由付き skip として可視化する。
 """
 
 from __future__ import annotations
@@ -20,6 +24,9 @@ from common.alpaca_trading import (  # noqa: E402
     signals_json_to_orders,
     signals_to_orders,
 )
+
+
+PAPER_WHOLE_SHARE_ONLY = True
 
 
 def build_sizing_kwargs(args, *, client=None) -> tuple[dict, dict]:
@@ -169,7 +176,7 @@ def _dryrun_from_json(args):
         tier=args.tier,
         dry_run=True,
         min_notional_usd=args.min_notional,
-        prefer_fractional=(not args.no_fractional),
+        prefer_fractional=False,
         **sizing_kwargs,
     )
 
@@ -196,7 +203,6 @@ def _dryrun_from_json(args):
         print(df.to_string(index=False))
         skipped = [o for o in orders if getattr(o, "skip_reason", None)]
         submittable = len(orders) - len(skipped)
-        # total_notional は「送信可 (skip でない)」注文のみ集計 = 実際に deploy される額。
         total_notional = sum(
             (o.notional_usd or 0.0)
             for o in orders
@@ -228,15 +234,14 @@ def _dryrun_from_json(args):
             out_path,
             {
                 "date": str(json_data.get("date") or ""),
-                # どの signals run から生成された発注かを durable に残す。
-                # recon がこれを見て「同日だが別 run の残骸」を弾く。
                 "source_signals_run_id": str(
                     (json_data.get("meta") or {}).get("run_id") or ""
                 )
                 or None,
                 "tier": args.tier,
                 "min_notional_usd": args.min_notional,
-                "prefer_fractional": (not args.no_fractional),
+                "prefer_fractional": False,
+                "whole_share_only": PAPER_WHOLE_SHARE_ONLY,
                 "mode": "dry_run",
                 "count": len(orders),
                 "submittable": len(orders) - len(_skipped),
@@ -279,7 +284,7 @@ def main(argv=None):
     parser.add_argument(
         "--no-fractional",
         action="store_true",
-        help="fractional (notional 発注) を無効化し整数株で発注する。",
+        help="後方互換 no-op。Paper は常に整数株のみで計画する。",
     )
     parser.add_argument(
         "--equity",
