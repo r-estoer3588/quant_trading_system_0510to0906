@@ -8,7 +8,6 @@ fractional execution without an explicit design change and replacement protectio
 
 import pathlib
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUBMIT = ROOT / "scripts" / "paper_trading_submit.py"
 DRYRUN = ROOT / "scripts" / "paper_trading_dryrun.py"
