@@ -5,6 +5,7 @@
     - 送信前に ALPACA_PAPER=true と paper エンドポイントを検証 (live で fail-fast)。
     - 各注文の直前に summary を表示し [y/N] 確認 (CI 用に --yes で無人実行)。
     - 送信結果は logs/alpaca_orders_YYYYMMDD.log に追記。
+    - Paper entry は全 system で whole-share only。fractional/notional entry は使わない。
 
 使い方::
 
@@ -44,8 +45,6 @@ from common.alpaca_trading import (  # noqa: E402
     submit_paper_order,
 )
 
-# durable なタグ台帳 (position_tracker / symbol_system_map / position_entry_dates) を
-# entry 成功後に更新するための正準ライター群。**記録追加のみ・発注挙動は変えない**。
 from common.position_age import load_entry_dates, save_entry_dates  # noqa: E402
 from common.position_tracker import update_positions_from_signals  # noqa: E402
 from common.symbol_map import (  # noqa: E402
@@ -54,6 +53,7 @@ from common.symbol_map import (  # noqa: E402
     update_primary_system,
 )
 from scripts.paper_trading_dryrun import (  # noqa: E402
+    PAPER_WHOLE_SHARE_ONLY,
     _write_orders_json,
     build_sizing_kwargs,
     load_signals,
@@ -91,6 +91,12 @@ def _count_input_signals(json_data: dict) -> int:
 def _submit_from_json(args: argparse.Namespace) -> int:
     """--signals-json 経路: JSON → paper_orders JSON + Paper 口座送信 (--confirm 時).
 
+    Paper execution policy (2026-09-07): whole-share only。
+    fractional/notional entry は exit protection の意味を system ごとに変えてしまう
+    (特に S1/S4 の native trailing が失われる) ため、全 system で禁止する。
+    1 株未満は ``signals_json_to_orders(... prefer_fractional=False)`` の既存
+    unsizable/skip 経路に落とし、silent fallback はしない。
+
     NOTE (F2 P0#5 audit fix, 2026-07-03):
         以前は ``signals_json_to_orders`` が [] を返しても exit 0 で silent
         success 扱いだった。input JSON に signals が並んでいても schema drift
@@ -119,7 +125,7 @@ def _submit_from_json(args: argparse.Namespace) -> int:
             tier=args.tier,
             dry_run=True,
             min_notional_usd=args.min_notional,
-            prefer_fractional=(not args.no_fractional),
+            prefer_fractional=False,
             **sizing_kwargs,
         )
     else:
@@ -131,14 +137,14 @@ def _submit_from_json(args: argparse.Namespace) -> int:
         print(
             "=== PAPER 実発注モード (ALPACA_PAPER=true 確認済, mode="
             f"{sizing_meta['sizing_mode']} equity=${sizing_meta['account_equity_usd']:,.0f}"
-            f" src={sizing_meta['equity_source']}) ==="
+            f" src={sizing_meta['equity_source']}, whole_share_only=true) ==="
         )
         orders = signals_json_to_orders(
             json_data,
             tier=args.tier,
             dry_run=False,
             min_notional_usd=args.min_notional,
-            prefer_fractional=(not args.no_fractional),
+            prefer_fractional=False,
             **sizing_kwargs,
         )
 
@@ -150,8 +156,6 @@ def _submit_from_json(args: argparse.Namespace) -> int:
         f"生成={len(orders)} 送信={ok} 失敗={fail} skip={len(skipped)} "
         f"(--confirm={args.confirm})"
     )
-    # skip / fail は silent に落とさず、必ず理由付きで可視化する
-    # (silent success / silent drop を潰す方針)。
     if skipped:
         from collections import Counter
 
@@ -165,21 +169,13 @@ def _submit_from_json(args: argparse.Namespace) -> int:
             if o.error:
                 print(f"    - {o.system} {o.symbol} {o.side}: {str(o.error)[:80]}")
 
-    # F2 P0#5: 「input signals > 0 なのに生成 orders = 0」は subscriber が
-    # silent success と誤解できないよう可視化する。真の flat book
-    # (input=0 → orders=0) との区別を必ず出力側に残す。
     if input_signal_count == 0:
-        status_marker = "no_input_signals"  # 真の flat book: 静かに exit 0
+        status_marker = "no_input_signals"
     elif len(orders) == 0:
-        status_marker = "no_orders_generated"  # anomaly: 関数が何も返さなかった
+        status_marker = "no_orders_generated"
     elif fail > 0 and ok == 0:
         status_marker = "all_submit_failed"
     elif args.confirm and ok == 0:
-        # 実発注 (--confirm) したのに 1 件も送信されなかった (全件 skip:
-        # min_notional 未満 / wash / unsizable 等)。observability fix (2026-07-07)
-        # で min_notional drop が skip として orders に載るようになったため、この
-        # 「全 skip」を silent success させず no_orders_generated とは別の anomaly
-        # として区別する。dry-run は order_id が無く ok==0 が正常なので対象外。
         status_marker = "no_orders_submitted"
     elif fail > 0:
         status_marker = "partial_failed"
@@ -196,7 +192,7 @@ def _submit_from_json(args: argparse.Namespace) -> int:
         print(
             "[WARN] order は生成されましたが 1 件も送信されませんでした "
             f"(input={input_signal_count} 生成={len(orders)} skip={len(skipped)})。"
-            "skip 内訳 (min_notional 未満 / wash / unsizable 等) を確認してください。"
+            "skip 内訳 (min_notional 未満 / wash / unsizable / below_1_share 等) を確認してください。"
         )
 
     if args.output_json:
@@ -206,15 +202,14 @@ def _submit_from_json(args: argparse.Namespace) -> int:
             out_path,
             {
                 "date": str(json_data.get("date") or ""),
-                # どの signals run から生成された発注かを durable に残す。
-                # recon がこれを見て「同日だが別 run の残骸」を弾く。
                 "source_signals_run_id": str(
                     (json_data.get("meta") or {}).get("run_id") or ""
                 )
                 or None,
                 "tier": args.tier,
                 "min_notional_usd": args.min_notional,
-                "prefer_fractional": (not args.no_fractional),
+                "prefer_fractional": False,
+                "whole_share_only": PAPER_WHOLE_SHARE_ONLY,
                 "mode": "submitted" if args.confirm else "dry_run",
                 "count": len(orders),
                 "submitted": ok,
@@ -227,11 +222,6 @@ def _submit_from_json(args: argparse.Namespace) -> int:
         )
         print(f"[write] paper_orders JSON: {out_path}")
 
-    # exit code policy:
-    #   0 = ok / no_input_signals (真の flat book)
-    #   1 = partial_failed / all_submit_failed
-    #   3 = no_orders_generated / no_orders_submitted (anomaly: subscribers が
-    #       silent success と区別できるよう区別 code。1 だと submit_error と紛れる)
     if status_marker in ("no_orders_generated", "no_orders_submitted"):
         return 3
     return 0 if fail == 0 else 1
@@ -251,7 +241,6 @@ def _persist_entry_tags(successful: list, date_str: str) -> None:
     """
     if not successful:
         return
-    # 成功注文から (symbol, system, entry_date, entry_price) を確度順に導出。
     rows: list[dict] = []
     for po in successful:
         sym = str(getattr(po, "symbol", "") or "").upper()
@@ -265,7 +254,7 @@ def _persist_entry_tags(successful: list, date_str: str) -> None:
             or date_str
         )
         if not system:
-            continue  # system 不明は台帳に捏造しない (coid にも無ければ skip)
+            continue
         rows.append(
             {
                 "symbol": sym,
@@ -277,7 +266,6 @@ def _persist_entry_tags(successful: list, date_str: str) -> None:
     if not rows:
         return
 
-    # (a) symbol_system_map + position_entry_dates (price 不要 = 全成功注文を確実に記録)
     try:
         entry_map = load_entry_dates()
         sys_map_store = load_symbol_system_map()
@@ -293,7 +281,6 @@ def _persist_entry_tags(successful: list, date_str: str) -> None:
             f"[persist] symbol_system_map/entry_dates 更新失敗 (記録のみ・継続): {exc}"
         )
 
-    # (b) position_tracker.json (trailing/profit 用。既存 writer の契約に従う)
     try:
         import pandas as pd
 
@@ -329,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-fractional",
         action="store_true",
-        help="fractional (notional 発注) を無効化し整数株で発注する。",
+        help="後方互換 no-op。Paper 実発注は常に整数株のみ。",
     )
     parser.add_argument(
         "--equity",
@@ -376,7 +363,6 @@ def main(argv: list[str] | None = None) -> int:
     signals = load_signals(args)
     if signals is None or signals.empty:
         print("シグナルなし。発注対象はありません。")
-        # 真の flat book (input=0) は silent success で OK。
         return 0
 
     input_signal_count = int(len(signals))
@@ -389,7 +375,6 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"\n合計 {len(orders)} 注文 (dry-run)。実発注は --confirm を付けてください。"
         )
-        # dry-run 時も input>0 & orders=0 は anomaly を可視化する。
         if input_signal_count > 0 and len(orders) == 0:
             print(
                 "[WARN] input signals があるのに order が 0 件。"
@@ -408,7 +393,6 @@ def main(argv: list[str] | None = None) -> int:
 
     planned = signals_to_orders(signals, account_equity=args.equity, dry_run=True)
     if not planned:
-        # F2 P0#5: input>0 なのに planned=0 は silent success させない。
         print(
             "[WARN] 発注対象なし。input signals があるのに 1 件も plan されませんでした "
             f"(input={input_signal_count})。schema drift / side 不明 / shares<=0 を"
@@ -447,7 +431,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  FAIL: {summary} -> {exc}")
             failed += 1
 
-    # durable タグ永続化 (記録のみ・発注挙動は不変)。--confirm 実発注時のみ台帳更新。
     if args.confirm and successful_orders:
         _date = getattr(args, "date", None) or datetime.now().strftime("%Y-%m-%d")
         _persist_entry_tags(successful_orders, str(_date))
