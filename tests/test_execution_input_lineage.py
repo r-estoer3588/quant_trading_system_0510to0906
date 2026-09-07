@@ -18,8 +18,9 @@ publish し得た。
 
 from __future__ import annotations
 
-import sys
+import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -138,7 +139,6 @@ from test_prepare_dashboard_bundle import (  # noqa: E402
     DATE,
     _fixtures,
     _recon,
-    _signals as _bundle_signals,
     _write,
 )
 
@@ -197,8 +197,9 @@ def test_all_missing_execution_stamps_recon_but_require_exit_still_fails_closed(
     tmp_path: Path,
 ):
     """run_id stamp と Exit availability を混同しない end-to-end 境界。"""
-    signals = _bundle_signals()
-    _fixtures(tmp_path, signals=signals)
+    _fixtures(tmp_path)
+    signals_path = tmp_path / f"today_signals_{COMPACT}.json"
+    signals = json.loads(signals_path.read_text(encoding="utf-8"))
     recon = build_recon(signals, None, None, date_str=DATE)
     assert recon["source_signals_run_id"] == signals["meta"]["run_id"]
     assert recon["execution_lineage_ok"] is True
