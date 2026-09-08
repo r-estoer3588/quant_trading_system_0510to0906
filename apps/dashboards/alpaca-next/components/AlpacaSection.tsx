@@ -546,7 +546,32 @@ function exitBadge(p: AlpacaPosition): { text: string; cls: string; sub?: string
       sub: p.exit_date ?? undefined,
     };
   }
-  if ((p.exit_type === 'trailing' || p.exit_type === 'stop') && p.stop_price_est != null) {
+  if (p.exit_type === 'trailing') {
+    const wholeShare = Math.abs(p.qty - Math.round(p.qty)) <= 1e-6;
+    const trailPct =
+      p.trailing_stop_pct != null && Number.isFinite(p.trailing_stop_pct)
+        ? p.trailing_stop_pct * 100
+        : null;
+    if (!wholeShare) {
+      return p.stop_price_est != null
+        ? {
+            text: `synthetic stop ${fmtPrice(p.stop_price_est)} ⚠`,
+            cls: 'bg-warn/15 text-warn',
+            sub: 'trail gap · 日次ATR',
+          }
+        : {
+            text: 'synthetic daily ⚠',
+            cls: 'bg-warn/15 text-warn',
+            sub: 'trail gap · threshold未計測',
+          };
+    }
+    return {
+      text: trailPct != null ? `trail ${trailPct.toFixed(0)}%` : 'trail',
+      cls: 'bg-sky-400/15 text-sky-300',
+      sub: 'broker未検証',
+    };
+  }
+  if (p.exit_type === 'stop' && p.stop_price_est != null) {
     return {
       text: `stop ${fmtPrice(p.stop_price_est)}`,
       cls: 'bg-white/10 text-muted',

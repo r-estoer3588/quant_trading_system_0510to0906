@@ -2213,6 +2213,28 @@ def _stop_price_for(
     return floor
 
 
+def protective_stop_price(
+    *,
+    side: str,
+    avg_entry_price: float,
+    rules: Any,
+    atr_value: float | None,
+    symbol: str = "snapshot",
+) -> float | None:
+    """Public read-only wrapper around the canonical protective-stop formula.
+
+    Snapshot/reporting code must use the same env-driven floor semantics as the
+    execution path instead of reimplementing ``max(0.01, ...)``.
+    """
+    snap = PositionSnapshot(
+        symbol=symbol,
+        qty=1.0,
+        side=side,
+        avg_entry_price=float(avg_entry_price),
+    )
+    return _stop_price_for(snap, rules, atr_value)
+
+
 def _target_price_for(
     snap: PositionSnapshot, rules: Any, atr_value: float | None
 ) -> float | None:

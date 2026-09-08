@@ -88,6 +88,7 @@ from common.alpaca_trading import (  # noqa: E402
     compute_holding_days,
     parse_entry_date_from_client_order_id,
     parse_system_from_client_order_id,
+    protective_stop_price,
 )
 from common.exit_artifacts import (  # noqa: E402
     ROLE_EXECUTION,
@@ -372,11 +373,15 @@ def _estimate_stop_target(
         return stop, target
     atr_stop = atr.get(int(getattr(rules, "stop_atr_period", 20)))
     if atr_stop:
-        dist = atr_stop * float(getattr(rules, "stop_atr_multiplier", 0) or 0)
-        if dist > 0:
-            stop = round(
-                max(0.01, avg_entry - dist) if side == "long" else avg_entry + dist, 4
-            )
+        canonical_stop = protective_stop_price(
+            side=side,
+            avg_entry_price=avg_entry,
+            rules=rules,
+            atr_value=atr_stop,
+            symbol="dashboard-snapshot",
+        )
+        if canonical_stop is not None:
+            stop = round(canonical_stop, 4)
     ptype = getattr(rules, "profit_target_type", "none")
     pval = float(getattr(rules, "profit_target_value", 0) or 0)
     if ptype == "percentage" and pval > 0:
@@ -1317,6 +1322,13 @@ def build_snapshot(
             "days_remaining": days_remaining,
             "exit_date": exit_date,
             "exit_type": _exit_type(sys_label, rules),
+            "trailing_stop_pct": (
+                float(rules.trailing_stop_pct)
+                if rules is not None
+                and getattr(rules, "use_trailing_stop", False)
+                and getattr(rules, "trailing_stop_pct", 0) > 0
+                else None
+            ),
             "exit_expected": exit_expected,
             "exit_execution_state": exit_execution_state,
             "stop_price_est": stop_est,
