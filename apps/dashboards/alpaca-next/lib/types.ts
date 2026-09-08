@@ -286,6 +286,8 @@ export interface AlpacaPosition {
   exit_date: string | null;
   /** "time" | "trailing" | "stop" | "spy_hedge" | "unknown" */
   exit_type: string;
+  /** Strategy trailing width as a fraction (S1=0.25, S4=0.20). Intent only. */
+  trailing_stop_pct?: number | null;
   /** now エグジット条件成立時のみ "time_based" 等。 */
   exit_expected: string | null;
   /**
