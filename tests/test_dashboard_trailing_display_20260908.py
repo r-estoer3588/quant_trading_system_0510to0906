@@ -5,7 +5,6 @@ import pytest
 from common.trade_management import SYSTEM_TRADE_RULES
 from scripts import export_alpaca_snapshot as ex
 
-
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "apps" / "dashboards" / "alpaca-next" / "components" / "AlpacaSection.tsx"
 TYPES = ROOT / "apps" / "dashboards" / "alpaca-next" / "lib" / "types.ts"

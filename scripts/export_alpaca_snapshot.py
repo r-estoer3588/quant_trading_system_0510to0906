@@ -86,9 +86,9 @@ from common.alpaca_trading import (  # noqa: E402
     LiveAccountGuardError,
     assert_paper_env,
     compute_holding_days,
-    protective_stop_price,
     parse_entry_date_from_client_order_id,
     parse_system_from_client_order_id,
+    protective_stop_price,
 )
 from common.exit_artifacts import (  # noqa: E402
     ROLE_EXECUTION,
