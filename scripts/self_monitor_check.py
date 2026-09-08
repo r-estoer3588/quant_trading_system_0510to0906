@@ -737,13 +737,24 @@ def check_data_advance(data_cache_dir: Path, ref: str = "SPY") -> CheckResult:
         )
     try:
         import pandas as pd
+        import pandas_market_calendars as mcal
 
         from common.utils_spy import get_latest_nyse_trading_day
 
         now = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
         latest_nyse = pd.Timestamp(get_latest_nyse_trading_day(now)).normalize()
         fb_ts = pd.Timestamp(fb_date).normalize()
-        lag = max(0, int(pd.bdate_range(fb_ts, latest_nyse).size) - 1)
+
+        # pd.bdate_range は「月〜金」であり NYSE 休日を知らない。2026-09-09 は
+        # 09-04→09-08 の間に Labor Day (09-07) があるため、本来 lag=1 を lag=2 と
+        # 数えて WARN を誤発報した。NYSE の valid_days で「fb より後」の実セッション
+        # だけを数える。future-dated/corrupt cache は max(0, ...) で従来どおり 0 側。
+        nyse = mcal.get_calendar("NYSE")
+        valid_days = nyse.valid_days(start_date=fb_ts, end_date=latest_nyse)
+        if getattr(valid_days, "tz", None) is not None:
+            valid_days = valid_days.tz_convert(None)
+        valid_days = valid_days.normalize()
+        lag = max(0, int((valid_days > fb_ts).sum()))
         data["latest_nyse"] = str(latest_nyse.date())
         data["lag_business_days"] = lag
     except Exception as exc:  # noqa: BLE001
