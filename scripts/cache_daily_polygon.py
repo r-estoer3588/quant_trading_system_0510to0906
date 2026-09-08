@@ -481,7 +481,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         post_full_latest = (
-            _full_backup_latest_date(auto_settings) if auto_settings is not None else None
+            _full_backup_latest_date(auto_settings)
+            if auto_settings is not None
+            else None
         )
         advanced = post_full_latest is not None and (
             pre_full_latest is None or post_full_latest > pre_full_latest
