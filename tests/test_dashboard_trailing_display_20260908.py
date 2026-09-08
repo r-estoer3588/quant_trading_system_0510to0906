@@ -25,6 +25,19 @@ def test_snapshot_uses_execution_stop_floor_not_one_cent(monkeypatch):
     assert stop != pytest.approx(0.01)
 
 
+def test_snapshot_stop_floor_follows_execution_configuration(monkeypatch):
+    monkeypatch.delenv("PROTECT_STOP_FLOOR_ENABLED", raising=False)
+    monkeypatch.setenv("PROTECT_STOP_FLOOR_PCT", "0.40")
+    rules = SYSTEM_TRADE_RULES["system1"]
+    stop, _ = ex._estimate_stop_target(
+        side="long",
+        avg_entry=6.77,
+        rules=rules,
+        atr={int(rules.stop_atr_period): 10.0},
+    )
+    assert stop == pytest.approx(4.062)
+
+
 def test_dashboard_distinguishes_trailing_from_fixed_stop():
     text = COMPONENT.read_text(encoding="utf-8")
     assert "if (p.exit_type === 'trailing')" in text
