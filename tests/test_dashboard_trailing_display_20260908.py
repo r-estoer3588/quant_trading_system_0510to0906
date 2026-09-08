@@ -47,6 +47,11 @@ def test_trailing_width_is_exported_not_hard_coded_in_react():
     assert "trail 20%" not in component
 
 
+def test_strategy_trailing_widths_are_canonical():
+    assert SYSTEM_TRADE_RULES["system1"].trailing_stop_pct == pytest.approx(0.25)
+    assert SYSTEM_TRADE_RULES["system4"].trailing_stop_pct == pytest.approx(0.20)
+
+
 def test_fractional_classification_uses_tolerance():
     text = COMPONENT.read_text(encoding="utf-8")
     assert "Math.abs(p.qty - Math.round(p.qty)) <= 1e-6" in text
