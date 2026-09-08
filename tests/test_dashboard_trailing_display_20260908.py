@@ -5,6 +5,7 @@ import pytest
 from common.trade_management import SYSTEM_TRADE_RULES
 from scripts import export_alpaca_snapshot as ex
 
+# Presentation contract: strategy trailing intent is not broker-observed residency.
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = (
     ROOT / "apps" / "dashboards" / "alpaca-next" / "components" / "AlpacaSection.tsx"
