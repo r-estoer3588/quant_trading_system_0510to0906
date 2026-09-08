@@ -649,6 +649,162 @@ def summarize_by_exit_reason(trades: Sequence[ClosedTrade]) -> list[dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# 表示用: FIFO 分割された round-trip を「1 ポジション = 1 行」へ畳む
+# ---------------------------------------------------------------------------
+# :func:`reconstruct_round_trips` は 1 回の反対売買 (= 1 つの exit 注文) を FIFO で
+# entry lot ごとに割るので、1 つの Alpaca 注文 / ポジションが複数の
+# :class:`ClosedTrade` 行になる。会計 (``summarize_*`` / ``realized_by_day``) は
+# fragment のままで正しい (和は不変) が、dashboard の「決済済みトレード」表に
+# そのまま出すと 1 銘柄が 5 行に見え、「同じ銘柄で枠を 5 個使った」という誤解を
+# 生む。以下は **表示のためだけ** に fragment をポジション単位へ縮約する関数。
+# 台帳ファイル (``results_csv/exit_ledger_*.json``) の ``closed_trades`` は
+# fragment のまま維持し、突合・集計はそちらを使うこと。
+
+
+def _round_trip_group_key(
+    row: Mapping[str, Any],
+) -> tuple[str, str, str, str] | None:
+    """同一ポジションと見なす行のキー ``(symbol, side, entry_order_id, exit_order_id)``。
+
+    1 回の部分約定でバラけた fragment は **すべて同じ entry_order_id と
+    exit_order_id を持つ** (実データで確認済み)。片方でも欠ける古い台帳の行は
+    ``None`` を返し、呼び出し側で畳まず個別のまま残す (誤結合を避ける)。
+    部分決済を 2 回に分けた round-trip は exit_order_id が違うので、別ポジション
+    として正しく分かれたままになる。
+    """
+    entry_oid = str(row.get("entry_order_id") or "").strip()
+    exit_oid = str(row.get("exit_order_id") or "").strip()
+    if not entry_oid or not exit_oid:
+        return None
+    return (
+        str(row.get("symbol") or "").upper(),
+        str(row.get("side") or ""),
+        entry_oid,
+        exit_oid,
+    )
+
+
+def _row_decimal(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (ArithmeticError, TypeError, ValueError):
+        return Decimal(0)
+
+
+def _qty_weighted_avg(pairs: Sequence[tuple[Decimal, Decimal]]) -> Decimal:
+    """``[(value, weight), ...]`` の数量加重平均。weight 合計 0 なら単純平均。"""
+    total_w = sum((w for _, w in pairs), Decimal(0))
+    if total_w == 0:
+        vals = [v for v, _ in pairs]
+        return sum(vals, Decimal(0)) / Decimal(len(vals)) if vals else Decimal(0)
+    return sum((v * w for v, w in pairs), Decimal(0)) / total_w
+
+
+def _merge_round_trip_fragments(frags: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """同一ポジションの fragment 行群 -> 1 行 (:meth:`ClosedTrade.to_row` 形式 + 追加列)。
+
+    - ``qty`` は合計、``entry_price`` / ``exit_price`` は数量加重平均、
+      ``realized_pl`` は合計 (= そのポジションの実現損益。fragment の和に一致)。
+    - ``entry_time`` は最古、``exit_time`` は最新。
+    - session / system / exit_reason は fragment 間で共有されるので先頭の値。
+    - ``n_fills`` (畳んだ本数) と ``fills`` (畳む前の内訳) を付ける。
+    """
+    total_qty = sum((_row_decimal(f.get("qty")) for f in frags), Decimal(0))
+    total_pl = sum((_row_decimal(f.get("realized_pl")) for f in frags), Decimal(0))
+    w_entry = _qty_weighted_avg(
+        [
+            (_row_decimal(f.get("entry_price")), _row_decimal(f.get("qty")))
+            for f in frags
+        ]
+    )
+    w_exit = _qty_weighted_avg(
+        [(_row_decimal(f.get("exit_price")), _row_decimal(f.get("qty"))) for f in frags]
+    )
+    entry_notional = w_entry * total_qty
+    pct = (
+        float(total_pl / entry_notional * Decimal(100)) if entry_notional != 0 else None
+    )
+    by_entry = min(frags, key=lambda f: str(f.get("entry_time") or ""))
+    by_exit = max(frags, key=lambda f: str(f.get("exit_time") or ""))
+
+    aliases: list[str] = []
+    for f in frags:
+        for alias in f.get("symbol_aliases") or []:
+            if alias not in aliases:
+                aliases.append(alias)
+
+    merged = dict(frags[0])
+    merged.update(
+        {
+            "qty": float(total_qty),
+            "entry_price": round(float(w_entry), 4),
+            "exit_price": round(float(w_exit), 4),
+            "entry_time": by_entry.get("entry_time"),
+            "entry_session": by_entry.get("entry_session"),
+            "exit_time": by_exit.get("exit_time"),
+            "exit_session": by_exit.get("exit_session"),
+            "holding_days": max(
+                (int(f.get("holding_days") or 0) for f in frags), default=0
+            ),
+            "realized_pl": round(float(total_pl), 2),
+            "realized_pl_pct": round(pct, 3) if pct is not None else None,
+            "exit_reason": next(
+                (f.get("exit_reason") for f in frags if f.get("exit_reason")), None
+            ),
+            "symbol_aliases": aliases,
+            "n_fills": len(frags),
+            "fills": [
+                {
+                    "qty": float(_row_decimal(f.get("qty"))),
+                    "entry_price": f.get("entry_price"),
+                    "exit_price": f.get("exit_price"),
+                    "realized_pl": f.get("realized_pl"),
+                    "entry_time": f.get("entry_time"),
+                    "exit_time": f.get("exit_time"),
+                }
+                for f in frags
+            ],
+        }
+    )
+    return merged
+
+
+def aggregate_round_trip_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """FIFO で分割された round-trip 行を **1 ポジション = 1 行** に畳む (表示専用)。
+
+    入力・出力とも :meth:`ClosedTrade.to_row` 形式の dict。出力の各行には
+    ``n_fills`` (畳んだ本数) が付き、2 本以上なら ``fills`` に畳む前の内訳が入る。
+    元の並び順 (最初に現れた fragment の位置) を保つ。
+
+    **会計値は変えない**: 合計実現損益・勝率・件数などの集計は生の fragment に
+    対して行うこと。この関数は表示行の縮約だけを担う。
+    """
+    groups: dict[Any, list[Mapping[str, Any]]] = {}
+    order: list[Any] = []
+    for idx, row in enumerate(rows):
+        key = _round_trip_group_key(row)
+        # order_id が欠けて畳めない行は 1 行 1 グループ = 絶対に誤結合しない。
+        gkey: Any = key if key is not None else ("\0solo", idx)
+        if gkey not in groups:
+            groups[gkey] = []
+            order.append(gkey)
+        groups[gkey].append(row)
+
+    out: list[dict[str, Any]] = []
+    for gkey in order:
+        frags = groups[gkey]
+        if len(frags) == 1:
+            solo = dict(frags[0])
+            solo.setdefault("n_fills", 1)
+            out.append(solo)
+        else:
+            out.append(_merge_round_trip_fragments(frags))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # system 帰属 (どの system が建てた玉か)
 # ---------------------------------------------------------------------------
 

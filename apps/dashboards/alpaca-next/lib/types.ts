@@ -399,6 +399,20 @@ export interface ClosedTrade {
   system_source?: string | null;
   /** system が付かなかった理由 (system が null の時だけ入る)。 */
   system_unknown_reason?: string | null;
+  /** この行に畳み込まれた部分約定 (FIFO fragment) の本数。1 = 分割なし。 */
+  n_fills?: number;
+  /** n_fills > 1 のとき、畳む前の fragment 内訳 (任意展開表示用)。 */
+  fills?: ClosedTradeFill[];
+}
+
+/** 1 ポジション行に畳まれる前の FIFO fragment 1 本 (表示用の内訳)。 */
+export interface ClosedTradeFill {
+  qty: number;
+  entry_price: number;
+  exit_price: number;
+  realized_pl: number;
+  entry_time: string;
+  exit_time: string;
 }
 
 export interface RealizedSummary {
@@ -529,8 +543,12 @@ export interface RealizedBlock {
   all_time: RealizedSummary | null;
   by_day: RealizedDay[];
   by_system: Record<string, RealizedSummary>;
+  /** 「1 ポジション = 1 行」に畳んだ決済履歴 (部分約定は n_fills / fills に集約)。 */
   closed_trades: ClosedTrade[];
+  /** FIFO fragment の総数 (KPI の n_trades と同基準)。 */
   n_closed_trades_total?: number;
+  /** 集約後のポジション総数 = 決済済みトレード表の母数。 */
+  n_closed_positions_total?: number;
   measurement: ExitMeasurement | null;
   /** 旧 snapshot には無い → 内訳を出さない (0 と混同しないため)。 */
   attribution?: ExitAttribution | null;
