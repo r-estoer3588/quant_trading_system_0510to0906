@@ -205,8 +205,8 @@ class Runner:
         self.dry_run = bool(args.dry_run)
         # この「起動」の身元。date だけだと同日 2 トリガを区別できない (下記 _resolve_trigger)。
         started = datetime.now()
-        self.observed_at = (
-            started.astimezone(timezone.utc).isoformat(timespec="seconds")
+        self.observed_at = started.astimezone(timezone.utc).isoformat(
+            timespec="seconds"
         )
         self.trigger = _resolve_trigger(getattr(args, "trigger", None), started)
         self.run_id = f"{self.compact}-{self.trigger}-{started.strftime('%H%M%S')}"

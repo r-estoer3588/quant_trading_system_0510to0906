@@ -115,7 +115,9 @@ def make_runner(tmp_path, monkeypatch):
 
 
 def _completion(runner) -> dict:
-    return json.loads((runner.out / "completion_recon.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (runner.out / "completion_recon.json").read_text(encoding="utf-8")
+    )
 
 
 def _per_run(runner) -> dict:
