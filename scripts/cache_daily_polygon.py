@@ -408,11 +408,15 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    if getattr(args, "auto_latest", False):
+    auto_latest = bool(getattr(args, "auto_latest", False))
+    auto_settings: object | None = None
+    pre_full_latest: date | None = None
+    if auto_latest:
         from config.settings import get_settings
 
-        _settings = get_settings(create_dirs=True)
-        rng = resolve_auto_range(_settings)
+        auto_settings = get_settings(create_dirs=True)
+        pre_full_latest = _full_backup_latest_date(auto_settings)
+        rng = resolve_auto_range(auto_settings)
         if rng is None:
             logger.info(
                 "auto-latest: full_backup は既に最新 (fetch 対象日なし)。skip。"
@@ -461,6 +465,38 @@ def main(argv: list[str] | None = None) -> int:
         stats["written"],
         stats["failed"],
     )
+
+    # --auto-latest は「対象 range が存在する = full_backup を前進させる責任がある」経路。
+    # fetch/pivot が空でも run_backfill は stats=0 を返せるため、従来は exit=0 の silent
+    # success になり、daily_pipeline が緑のまま古い cache を再利用できた。dry-run 以外では
+    # (1) 取得日ゼロ、または (2) 参照銘柄 SPY が実際に前進しなかった、のどちらも WARN
+    # 用の rc=2 に倒す。pipeline 自体は後段を続行するが SelfMonitor が cache failure を拾う。
+    if auto_latest and not args.dry_run:
+        if int(stats.get("days", 0)) <= 0:
+            logger.error(
+                "auto-latest: 対象 range %s..%s が存在したが取得できた日が 0。"
+                "full_backup を前進できていないため exit=2",
+                args.start,
+                args.end,
+            )
+            return 2
+        post_full_latest = (
+            _full_backup_latest_date(auto_settings) if auto_settings is not None else None
+        )
+        advanced = post_full_latest is not None and (
+            pre_full_latest is None or post_full_latest > pre_full_latest
+        )
+        if not advanced:
+            logger.error(
+                "auto-latest: fetch は完走したが full_backup SPY が前進していない "
+                "(before=%s after=%s range=%s..%s)。exit=2",
+                pre_full_latest,
+                post_full_latest,
+                args.start,
+                args.end,
+            )
+            return 2
+
     return 0
 
 
