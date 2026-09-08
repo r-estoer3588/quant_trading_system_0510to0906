@@ -61,7 +61,10 @@ from common.alpaca_trading import (  # noqa: E402
     parse_entry_date_from_client_order_id,
     parse_system_from_client_order_id,
 )
-from common.exit_ledger import resolve_session_pnl  # noqa: E402
+from common.exit_ledger import (  # noqa: E402
+    aggregate_round_trip_rows,
+    resolve_session_pnl,
+)
 from common.position_tracker import load_tracker  # noqa: E402
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
 
@@ -811,6 +814,11 @@ def _realized_block(ledger: dict[str, Any] | None, date_str: str) -> dict[str, A
     measurement = ledger.get("measurement") or {}
     realized = ledger.get("realized") or {}
     stale = str(ledger.get("date") or "") != date_str
+    raw_closed = list(ledger.get("closed_trades") or [])
+    # 表示用: FIFO 分割 (1 exit 注文が entry lot ごとに割れた fragment) を
+    # 「1 ポジション = 1 行」へ畳む。台帳ファイルの closed_trades は fragment の
+    # まま (会計・突合はそちらを使う)。全件を畳んでから直近分だけ載せる。
+    closed_positions = aggregate_round_trip_rows(raw_closed)
     return {
         "available": True,
         "measured": bool(measurement.get("measured")),
@@ -831,8 +839,13 @@ def _realized_block(ledger: dict[str, Any] | None, date_str: str) -> dict[str, A
         # 全件が母数の exit 理由内訳 (履歴表は直近分しか載せないので母数が違う)。
         "by_exit_reason": realized.get("by_exit_reason") or [],
         # dashboard の履歴表は直近分だけあれば十分。全件は台帳側に残る。
-        "closed_trades": list(ledger.get("closed_trades") or [])[-400:],
-        "n_closed_trades_total": len(ledger.get("closed_trades") or []),
+        # closed_trades は「1 ポジション = 1 行」に畳んだ表示用の行
+        # (n_fills / fills 付き)。fragment の生データは台帳ファイル側。
+        "closed_trades": closed_positions[-400:],
+        # KPI (realized.all_time.n_trades) と突き合わせるための fragment 総数。
+        "n_closed_trades_total": len(raw_closed),
+        # 「決済済みトレード」表の母数 = 集約後のポジション数。
+        "n_closed_positions_total": len(closed_positions),
         "measurement": measurement,
         # system 帰属の根拠内訳 (unknown を「なぜ不明か」まで出すため)。
         "attribution": ledger.get("attribution"),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type {
   AlpacaPosition,
   AlpacaSnapshot,
@@ -1259,6 +1259,16 @@ function ClosedTradesTable({
 }) {
   const [limit, setLimit] = useState(40);
   const [reasonFilter, setReasonFilter] = useState<string>('all');
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+
+  const rowKeyOf = (t: ClosedTrade, i: number) =>
+    `${t.symbol}-${t.entry_order_id ?? ''}-${t.exit_order_id ?? ''}-${t.exit_time}-${i}`;
+  const toggleRow = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   const reasons = useMemo(() => {
     const set = new Set<string>();
@@ -1346,9 +1356,13 @@ function ClosedTradesTable({
             </tr>
           </thead>
           <tbody>
-            {shown.map((t, i) => (
+            {shown.map((t, i) => {
+              const rowKey = rowKeyOf(t, i);
+              const nFills = t.n_fills ?? 1;
+              const isOpen = expandedKeys.has(rowKey);
+              return (
+                <Fragment key={rowKey}>
               <tr
-                key={`${t.symbol}-${t.exit_time}-${i}`}
                 className="border-b border-white/5 hover:bg-white/[0.03]"
               >
                 <td className="py-1 pr-2 font-medium text-cardfg whitespace-nowrap">
@@ -1392,7 +1406,21 @@ function ClosedTradesTable({
                 <td className={`py-1 pr-2 ${t.side === 'long' ? 'text-ok/80' : 'text-fail/80'}`}>
                   {t.side === 'long' ? 'L' : 'S'}
                 </td>
-                <td className="py-1 pr-2 text-right">{fmtQty(t.qty)}</td>
+                <td className="py-1 pr-2 text-right whitespace-nowrap">
+                  {fmtQty(t.qty)}
+                  {nFills > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(rowKey)}
+                      className="ml-1 rounded bg-white/10 px-1 text-[9px] font-normal text-muted hover:text-cardfg"
+                      title={`1 回の決済が ${nFills} 件の部分約定に分かれています。クリックで内訳`}
+                      aria-expanded={isOpen}
+                    >
+                      {isOpen ? '▾' : '▸'}
+                      {nFills}約定
+                    </button>
+                  ) : null}
+                </td>
                 <td className="py-1 pr-2 text-muted">
                   {(t.entry_session ?? t.entry_time).slice(0, 10)}{' '}
                   <span className="text-cardfg">{fmtPrice(t.entry_price)}</span>
@@ -1416,7 +1444,37 @@ function ClosedTradesTable({
                   {exitReasonLabel(t.exit_reason)}
                 </td>
               </tr>
-            ))}
+              {isOpen && t.fills && t.fills.length > 0
+                ? t.fills.map((f, k) => (
+                    <tr
+                      key={`${rowKey}-fill-${k}`}
+                      className="border-b border-white/5 bg-white/[0.02] text-[10px] text-muted/70"
+                    >
+                      <td className="py-0.5 pr-2 pl-3 whitespace-nowrap" colSpan={3}>
+                        └ 約定 {k + 1} / {t.fills!.length}
+                      </td>
+                      <td className="py-0.5 pr-2 text-right">{fmtQty(f.qty)}</td>
+                      <td className="py-0.5 pr-2">
+                        {(f.entry_time ?? '').slice(0, 10)}{' '}
+                        <span className="text-cardfg/70">{fmtPrice(f.entry_price)}</span>
+                      </td>
+                      <td className="py-0.5 pr-2">
+                        {(f.exit_time ?? '').slice(0, 10)}{' '}
+                        <span className="text-cardfg/70">{fmtPrice(f.exit_price)}</span>
+                      </td>
+                      <td className="py-0.5 pr-2" />
+                      <td
+                        className={`py-0.5 pr-2 text-right ${pnlText(f.realized_pl)}`}
+                      >
+                        {fmtSignedUsd(f.realized_pl)}
+                      </td>
+                      <td className="py-0.5" />
+                    </tr>
+                  ))
+                : null}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1460,6 +1518,9 @@ function RealizedSection({ snap }: { snap: AlpacaSnapshot }) {
   const all = realized.all_time;
   const byDay = realized.by_day ?? [];
   const bySystem = Object.entries(realized.by_system ?? {});
+  // 決済履歴表の母数 = 集約後のポジション数 (旧 snapshot は fragment 総数のみ)。
+  const nClosedTotal =
+    realized.n_closed_positions_total ?? realized.n_closed_trades_total;
 
   return (
     <div className="space-y-4">
@@ -1554,24 +1615,29 @@ function RealizedSection({ snap }: { snap: AlpacaSnapshot }) {
       <div>
         <h4 className="text-[11px] text-muted mb-1">
           決済済みトレード
-          {realized.n_closed_trades_total &&
-          realized.n_closed_trades_total > realized.closed_trades.length ? (
+          {nClosedTotal && nClosedTotal > realized.closed_trades.length ? (
             <span className="text-muted/60">
               {' '}
-              — 直近 {realized.closed_trades.length} 件（全 {realized.n_closed_trades_total} 本は
+              — 直近 {realized.closed_trades.length} 件（全 {nClosedTotal} 本は
               results_csv/exit_ledger_*.json に保存）
             </span>
           ) : null}
         </h4>
+        <p className="mb-1 text-[10px] text-muted/60">
+          1 ポジション = 1 行。1 回の決済が部分約定で複数に分かれた分は畳んで表示（株数横の「n
+          約定」で内訳を展開）。
+        </p>
         <ClosedTradesTable
           trades={realized.closed_trades}
           totalByReason={realized.by_exit_reason}
-          nTotal={realized.n_closed_trades_total}
+          nTotal={nClosedTotal}
         />
       </div>
 
       <div className="text-[10px] text-muted/60 leading-relaxed">
-        出典: Alpaca の約定履歴（/v2/account/activities/FILL）を FIFO で round-trip 化。
+        出典: Alpaca の約定履歴（/v2/account/activities/FILL）を FIFO で round-trip 化し、
+        同一注文の部分約定を 1 ポジションに集約（累計・勝率などの集計値は集約前の
+        約定単位で計算しており不変）。
         台帳 {realized.ledger_date} · run {realized.ledger_run_id} · 生成{' '}
         {realized.ledger_generated_at ?? '—'} ·{' '}
         {realized.measurement?.coverage_start?.slice(0, 10) ?? '—'} 〜{' '}
