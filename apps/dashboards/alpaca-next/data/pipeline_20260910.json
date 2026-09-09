@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-03",
+  "date": "2026-09-10",
   "provider": "polygon_grouped_daily",
   "schema": "signal_pipeline/v1",
   "systems": {
@@ -10,7 +10,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -19,22 +19,22 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "Close >= 5 かつ DollarVolume20 > 50M",
-          "count": 1356,
+          "count": 1324,
           "measured": true,
-          "ratio_of_prev": 0.26213,
-          "ratio_of_universe": 0.26213
+          "ratio_of_prev": 0.255352,
+          "ratio_of_universe": 0.255352
         },
         {
           "name": "STUpass",
           "label": "STUpass",
           "condition": "SMA25 > SMA50 かつ ROC200 > 0",
-          "count": 537,
+          "count": 541,
           "measured": true,
-          "ratio_of_prev": 0.396018,
-          "ratio_of_universe": 0.103808,
+          "ratio_of_prev": 0.40861,
+          "ratio_of_universe": 0.104339,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -42,11 +42,11 @@
           "condition": "ROC200 降順 上位候補",
           "count": 10,
           "measured": true,
-          "ratio_of_prev": 0.018622,
-          "ratio_of_universe": 0.001933,
+          "ratio_of_prev": 0.018484,
+          "ratio_of_universe": 0.001929,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
@@ -57,8 +57,8 @@
           "ratio_of_prev": 0.1,
           "ratio_of_universe": 0.000193,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
@@ -69,7 +69,7 @@
           "ratio_of_prev": 0.0,
           "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
           "fired": 0,
           "exit_close": 0,
           "exit_protect": 0,
@@ -86,7 +86,7 @@
       ],
       "final_signals": 1,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys2": {
       "system_id": "sys2",
@@ -95,7 +95,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -104,22 +104,22 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "Close >= 5 かつ DollarVolume20 > 25M かつ ATR_Ratio > 0.03",
-          "count": 1812,
+          "count": 1790,
           "measured": true,
-          "ratio_of_prev": 0.35028,
-          "ratio_of_universe": 0.35028
+          "ratio_of_prev": 0.345227,
+          "ratio_of_universe": 0.345227
         },
         {
           "name": "STUpass",
           "label": "STUpass",
           "condition": "RSI3 > 90 かつ twodayup",
-          "count": 14,
+          "count": 23,
           "measured": true,
-          "ratio_of_prev": 0.007726,
-          "ratio_of_universe": 0.002706,
+          "ratio_of_prev": 0.012849,
+          "ratio_of_universe": 0.004436,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -127,11 +127,11 @@
           "condition": "ADX7 降順 上位候補",
           "count": 10,
           "measured": true,
-          "ratio_of_prev": 0.714286,
-          "ratio_of_universe": 0.001933,
+          "ratio_of_prev": 0.434783,
+          "ratio_of_universe": 0.001929,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
@@ -140,27 +140,27 @@
           "count": 8,
           "measured": true,
           "ratio_of_prev": 0.8,
-          "ratio_of_universe": 0.001546,
+          "ratio_of_universe": 0.001543,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
           "label": "Exit",
-          "condition": "本日手仕舞い発火 (close 0 / protect 2)",
-          "count": 2,
+          "condition": "本日手仕舞い発火 (close 0 / protect 0) · 2 armed",
+          "count": 0,
           "measured": true,
-          "ratio_of_prev": 0.25,
-          "ratio_of_universe": 0.000387,
+          "ratio_of_prev": 0.0,
+          "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
-          "fired": 2,
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
+          "fired": 0,
           "exit_close": 0,
-          "exit_protect": 2,
-          "armed": 0,
-          "armed_close": 0,
-          "armed_protect": 0,
+          "exit_protect": 0,
+          "armed": 2,
+          "armed_close": 1,
+          "armed_protect": 1,
           "rejected": 0,
           "rejected_close": 0,
           "rejected_protect": 0,
@@ -171,7 +171,7 @@
       ],
       "final_signals": 8,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys3": {
       "system_id": "sys3",
@@ -180,7 +180,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -189,22 +189,22 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "Close >= 5 かつ DollarVolume20 > 25M かつ ATR_Ratio >= 0.05",
-          "count": 1812,
+          "count": 1790,
           "measured": true,
-          "ratio_of_prev": 0.35028,
-          "ratio_of_universe": 0.35028
+          "ratio_of_prev": 0.345227,
+          "ratio_of_universe": 0.345227
         },
         {
           "name": "STUpass",
           "label": "STUpass",
           "condition": "drop3d >= 0.125",
-          "count": 46,
+          "count": 23,
           "measured": true,
-          "ratio_of_prev": 0.025386,
-          "ratio_of_universe": 0.008892,
+          "ratio_of_prev": 0.012849,
+          "ratio_of_universe": 0.004436,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -212,11 +212,11 @@
           "condition": "drop3d 降順 上位候補",
           "count": 10,
           "measured": true,
-          "ratio_of_prev": 0.217391,
-          "ratio_of_universe": 0.001933,
+          "ratio_of_prev": 0.434783,
+          "ratio_of_universe": 0.001929,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
@@ -225,27 +225,27 @@
           "count": 3,
           "measured": true,
           "ratio_of_prev": 0.3,
-          "ratio_of_universe": 0.00058,
+          "ratio_of_universe": 0.000579,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
           "label": "Exit",
-          "condition": "本日手仕舞い発火 (close 0 / protect 1)",
-          "count": 1,
+          "condition": "本日手仕舞い発火 (close 0 / protect 0) · 1 armed",
+          "count": 0,
           "measured": true,
-          "ratio_of_prev": 0.333333,
-          "ratio_of_universe": 0.000193,
+          "ratio_of_prev": 0.0,
+          "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
-          "fired": 1,
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
+          "fired": 0,
           "exit_close": 0,
-          "exit_protect": 1,
-          "armed": 0,
+          "exit_protect": 0,
+          "armed": 1,
           "armed_close": 0,
-          "armed_protect": 0,
+          "armed_protect": 1,
           "rejected": 0,
           "rejected_close": 0,
           "rejected_protect": 0,
@@ -256,7 +256,7 @@
       ],
       "final_signals": 3,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys4": {
       "system_id": "sys4",
@@ -265,7 +265,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -274,22 +274,22 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "DollarVolume50 > 100M かつ HV50 in [10,40]",
-          "count": 963,
+          "count": 941,
           "measured": true,
-          "ratio_of_prev": 0.186159,
-          "ratio_of_universe": 0.186159
+          "ratio_of_prev": 0.181485,
+          "ratio_of_universe": 0.181485
         },
         {
           "name": "STUpass",
           "label": "STUpass",
           "condition": "Close > SMA200",
-          "count": 323,
+          "count": 316,
           "measured": true,
-          "ratio_of_prev": 0.33541,
-          "ratio_of_universe": 0.06244,
+          "ratio_of_prev": 0.335813,
+          "ratio_of_universe": 0.060945,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -297,40 +297,40 @@
           "condition": "RSI4 昇順 上位候補 (最も oversold)",
           "count": 10,
           "measured": true,
-          "ratio_of_prev": 0.03096,
-          "ratio_of_universe": 0.001933,
+          "ratio_of_prev": 0.031646,
+          "ratio_of_universe": 0.001929,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
           "label": "Entry",
           "condition": "allocation 後エントリ発火",
-          "count": 1,
+          "count": 2,
           "measured": true,
-          "ratio_of_prev": 0.1,
-          "ratio_of_universe": 0.000193,
+          "ratio_of_prev": 0.2,
+          "ratio_of_universe": 0.000386,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
           "label": "Exit",
-          "condition": "本日手仕舞い発火 (close 0 / protect 0)",
+          "condition": "本日手仕舞い発火 (close 0 / protect 0) · 2 armed",
           "count": 0,
           "measured": true,
           "ratio_of_prev": 0.0,
           "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
           "fired": 0,
           "exit_close": 0,
           "exit_protect": 0,
-          "armed": 0,
+          "armed": 2,
           "armed_close": 0,
-          "armed_protect": 0,
+          "armed_protect": 2,
           "rejected": 0,
           "rejected_close": 0,
           "rejected_protect": 0,
@@ -339,9 +339,9 @@
           "suppressed_protect": 0
         }
       ],
-      "final_signals": 1,
+      "final_signals": 2,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys5": {
       "system_id": "sys5",
@@ -350,7 +350,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -359,10 +359,10 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "Close >= 5 かつ ADX7 > 55 かつ ATR_Pct > 0.04 かつ AvgVolume50 > 500k かつ DollarVolume50 > 2.5M",
-          "count": 3756,
+          "count": 3770,
           "measured": true,
-          "ratio_of_prev": 0.726078,
-          "ratio_of_universe": 0.726078
+          "ratio_of_prev": 0.727097,
+          "ratio_of_universe": 0.727097
         },
         {
           "name": "STUpass",
@@ -370,11 +370,11 @@
           "condition": "ADX7 > 55 かつ Close > SMA100+ATR10 かつ RSI3 < 50",
           "count": 12,
           "measured": true,
-          "ratio_of_prev": 0.003195,
-          "ratio_of_universe": 0.00232,
+          "ratio_of_prev": 0.003183,
+          "ratio_of_universe": 0.002314,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -383,38 +383,38 @@
           "count": 10,
           "measured": true,
           "ratio_of_prev": 0.833333,
-          "ratio_of_universe": 0.001933,
+          "ratio_of_universe": 0.001929,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
           "label": "Entry",
           "condition": "allocation 後エントリ発火",
-          "count": 7,
+          "count": 2,
           "measured": true,
-          "ratio_of_prev": 0.7,
-          "ratio_of_universe": 0.001353,
+          "ratio_of_prev": 0.2,
+          "ratio_of_universe": 0.000386,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
           "label": "Exit",
-          "condition": "本日手仕舞い発火 (close 0 / protect 0)",
+          "condition": "本日手仕舞い発火 (close 0 / protect 0) · 3 armed",
           "count": 0,
           "measured": true,
           "ratio_of_prev": 0.0,
           "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
           "fired": 0,
           "exit_close": 0,
           "exit_protect": 0,
-          "armed": 0,
-          "armed_close": 0,
+          "armed": 3,
+          "armed_close": 3,
           "armed_protect": 0,
           "rejected": 0,
           "rejected_close": 0,
@@ -424,9 +424,9 @@
           "suppressed_protect": 0
         }
       ],
-      "final_signals": 7,
+      "final_signals": 2,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys6": {
       "system_id": "sys6",
@@ -435,7 +435,7 @@
           "name": "Tgt",
           "label": "Tgt",
           "condition": "ユニバース対象銘柄数",
-          "count": 5173,
+          "count": 5185,
           "measured": true,
           "ratio_of_prev": null,
           "ratio_of_universe": 1.0
@@ -444,10 +444,10 @@
           "name": "FILpass",
           "label": "FILpass",
           "condition": "Low >= 5 かつ DollarVolume50 > 10M",
-          "count": 2338,
+          "count": 2323,
           "measured": true,
-          "ratio_of_prev": 0.451962,
-          "ratio_of_universe": 0.451962
+          "ratio_of_prev": 0.448023,
+          "ratio_of_universe": 0.448023
         },
         {
           "name": "STUpass",
@@ -458,8 +458,8 @@
           "ratio_of_prev": 0.0,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -470,8 +470,8 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
@@ -482,8 +482,8 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
@@ -494,7 +494,7 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
           "fired": 0,
           "exit_close": 0,
           "exit_protect": 0,
@@ -511,7 +511,7 @@
       ],
       "final_signals": 0,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     },
     "sys7": {
       "system_id": "sys7",
@@ -543,8 +543,8 @@
           "ratio_of_prev": 0.0,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "TRDlist",
@@ -555,8 +555,8 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Entry",
@@ -567,8 +567,8 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "today_signals.funnel",
-          "source_run_id": "20260903_223508_5691ac",
-          "source_observed_at": "2026-09-03T22:48:53+09:00"
+          "source_run_id": "20260910_062307_2eb489",
+          "source_observed_at": "2026-09-10T06:37:35+09:00"
         },
         {
           "name": "Exit",
@@ -579,7 +579,7 @@
           "ratio_of_prev": null,
           "ratio_of_universe": 0.0,
           "source": "execution_recon",
-          "source_observed_at": "2026-09-03T13:54:38+00:00",
+          "source_observed_at": "2026-09-09T21:40:42+00:00",
           "fired": 0,
           "exit_close": 0,
           "exit_protect": 0,
@@ -596,7 +596,7 @@
       ],
       "final_signals": 0,
       "final_signals_source": "today_signals.funnel",
-      "final_signals_source_run_id": "20260903_223508_5691ac"
+      "final_signals_source_run_id": "20260910_062307_2eb489"
     }
   },
   "notes": [
@@ -606,10 +606,10 @@
     "Funnel (Tgt/FILpass/STUpass/TRDlist/Entry) = signal engine funnel (today_signals_YYYYMMDD.json), measured=True。別 source の実測 phase は 保護し、spy_only Tgt の共有 universe は未計測理由を明示する。",
     "Exit = execution recon (recon_YYYYMMDD.json, ntfy と同一 source): count=fired(exit_submitted), close/protect は fired 分のみ, armed=未送信の提案 / rejected=broker 拒否 / suppressed=送れば確実に拒否されるため未送信 (いずれも別枠)。"
   ],
-  "source_signals_run_id": "20260903_223508_5691ac",
-  "source_signals_generated_at": "2026-09-03T22:48:53+09:00",
-  "source_signals_sha256": "d2e28b222faecf617d73140c137d2c76be45f80c28c6d7db13fdbffc586013f4",
-  "source_recon_sha256": "ab0a9cea0d7ab0fedba905ad37d167918477d1c65f395b692f6a6f450c87e8f5",
-  "source_recon_generated_at": "2026-09-03T13:54:38+00:00",
-  "materialized_at": "2026-09-03T13:54:38+00:00"
+  "source_signals_run_id": "20260910_062307_2eb489",
+  "source_signals_generated_at": "2026-09-10T06:37:35+09:00",
+  "source_signals_sha256": "0946c5bb6c0dd484c2c981bb6df49b08097e4bf189310d21c2aa8f69a7262d54",
+  "source_recon_sha256": "2a45c2e17ee9881920088aecd821732b02da1d14276a9765cf3a18443dc9b719",
+  "source_recon_generated_at": "2026-09-09T21:40:42+00:00",
+  "materialized_at": "2026-09-09T21:40:42+00:00"
 }

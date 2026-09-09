@@ -1,0 +1,44 @@
+{
+  "schema": "dashboard_bundle/v1",
+  "date": "2026-09-10",
+  "source_run_id": "20260910_062307_2eb489",
+  "materialized_at": "2026-09-09T21:40:42+00:00",
+  "files": {
+    "today_signals": {
+      "name": "today_signals_20260910.json",
+      "sha256": "0946c5bb6c0dd484c2c981bb6df49b08097e4bf189310d21c2aa8f69a7262d54"
+    },
+    "pipeline": {
+      "name": "pipeline_20260910.json",
+      "sha256": "02a48e8c0fe36ed86a54b7790f3e34e76198fd5a60875735766fcacc0c4f2161"
+    },
+    "narrative": {
+      "name": "narrative_20260910.json",
+      "sha256": "fe59d5b114c90ede58e0502a8070878ed16651e57b9e8ab9cd8b0397a9237b13"
+    },
+    "alpaca_snapshot": {
+      "name": "alpaca_snapshot_20260910.json",
+      "sha256": "3b2a00d8b8da6a7e296e76722bafe6c464e841f6aa202439ae37754efdeea9f6"
+    },
+    "notify_delivery": {
+      "name": "notify_delivery_20260910.json",
+      "sha256": "6cbaead3c18ebd8eef9f4e902d1355758025ca76855fea8df4fd04fdbcfb5176"
+    }
+  },
+  "sources": {
+    "recon": {
+      "name": "recon_20260910.json",
+      "sha256": "2a45c2e17ee9881920088aecd821732b02da1d14276a9765cf3a18443dc9b719"
+    }
+  },
+  "measurement": {
+    "funnel_measured": 35,
+    "funnel_total": 35,
+    "exit_measured": 7
+  },
+  "warnings": [],
+  "materialization": {
+    "funnel_status": "ok",
+    "exit_status": "ok"
+  }
+}
