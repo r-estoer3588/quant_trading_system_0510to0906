@@ -91,7 +91,9 @@ def load_history(rolling_dir: Path, symbol: str) -> pd.DataFrame | None:
     return df if not df.empty else None
 
 
-def entry_atr10_from_history(df: pd.DataFrame | None, entry_date: str | None) -> float | None:
+def entry_atr10_from_history(
+    df: pd.DataFrame | None, entry_date: str | None
+) -> float | None:
     """ATR10 from the last completed bar strictly before the actual entry date.
 
     This mirrors ``System5Strategy.compute_entry`` / ``compute_exit``: the strategy
@@ -127,7 +129,13 @@ def target_hit_date_from_history(
     unfinished High would turn a next-open rule into a same-session exit. Observation
     is capped to the first six post-entry sessions, matching the backtest loop.
     """
-    if df is None or df.empty or not entry_date or not target_price or target_price <= 0:
+    if (
+        df is None
+        or df.empty
+        or not entry_date
+        or not target_price
+        or target_price <= 0
+    ):
         return None
     try:
         entry = pd.Timestamp(str(entry_date)[:10]).normalize()
@@ -302,13 +310,19 @@ def build_system5_exit_orders(
                 "detail": (
                     "incompatible_existing_oco"
                     if incompatible_oco
-                    else "stop_already_open"
-                    if already_stop
-                    else "stop_pending_arm"
-                    if state.entry_atr10 is not None and not snap.is_fractional
-                    else "fractional_daily_stop"
-                    if snap.is_fractional
-                    else "missing_entry_atr10"
+                    else (
+                        "stop_already_open"
+                        if already_stop
+                        else (
+                            "stop_pending_arm"
+                            if state.entry_atr10 is not None and not snap.is_fractional
+                            else (
+                                "fractional_daily_stop"
+                                if snap.is_fractional
+                                else "missing_entry_atr10"
+                            )
+                        )
+                    )
                 ),
                 "entry_atr10": state.entry_atr10,
                 "target_price": state.target_price,

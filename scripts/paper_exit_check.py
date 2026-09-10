@@ -79,13 +79,13 @@ from common.exit_artifacts import (  # noqa: E402
 )
 from common.position_tracker import load_tracker  # noqa: E402
 from common.symbol_map import load_symbol_system_map  # noqa: E402
-from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
-from common.system5_live_exit import (  # noqa: E402
+from common.system5_live_exit import (
     SYSTEM5,
     SYSTEM5_TARGET_NEXT_OPEN,
     build_system5_exit_orders,
-    load_history as load_system5_history,
 )
+from common.system5_live_exit import load_history as load_system5_history  # noqa: E402
+from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SPY_ROLLING = ROOT / "data_cache" / "rolling" / "SPY.csv"
@@ -880,9 +880,7 @@ def main(argv: list[str] | None = None) -> int:
     # summary
     time_cnt = len(time_exits)
     breakout_cnt = sum(1 for e in exits if e.reason == "spy_breakout")
-    target_next_open_cnt = sum(
-        1 for e in exits if e.reason == SYSTEM5_TARGET_NEXT_OPEN
-    )
+    target_next_open_cnt = sum(1 for e in exits if e.reason == SYSTEM5_TARGET_NEXT_OPEN)
     protect_cnt = sum(1 for e in exits if e.reason.startswith("protect_"))
     print(
         f"[exit_check] positions={len(snapshots)} exits={len(exits)} "

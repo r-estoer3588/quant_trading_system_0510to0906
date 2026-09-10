@@ -23,8 +23,8 @@ from common.system5_live_exit import (
     SYSTEM5,
     SYSTEM5_TARGET_NEXT_OPEN,
     evaluate_system5_state,
-    load_history as load_system5_history,
 )
+from common.system5_live_exit import load_history as load_system5_history
 from common.trade_management import SYSTEM_TRADE_RULES
 from scripts import export_alpaca_snapshot_legacy as _legacy
 
