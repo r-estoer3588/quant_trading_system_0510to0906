@@ -18,6 +18,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from common.alpaca_trading import PositionSnapshot, protective_stop_price
+from common.system5_live_exit import (
+    SYSTEM5,
+    SYSTEM5_TARGET_NEXT_OPEN,
+    evaluate_system5_state,
+)
+from common.system5_live_exit import load_history as load_system5_history
 from common.trade_management import SYSTEM_TRADE_RULES
 from scripts import export_alpaca_snapshot_legacy as _legacy
 
@@ -318,12 +325,81 @@ def _apply_protection_truth(
     return snapshot
 
 
+def _apply_system5_truth(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Overlay only System5 timing/ATR fields with canonical strategy semantics."""
+    today = str(snapshot.get("date") or "")[:10]
+    rolling_dir = ROOT / "data_cache" / "rolling"
+    rules = SYSTEM_TRADE_RULES[SYSTEM5]
+    for position in snapshot.get("positions") or []:
+        if str(position.get("system") or "").lower() != SYSTEM5:
+            continue
+        snap = PositionSnapshot(
+            symbol=str(position.get("symbol") or "").upper(),
+            qty=float(position.get("qty") or 0.0),
+            side=str(position.get("side") or "long"),
+            avg_entry_price=float(position.get("avg_entry_price") or 0.0),
+            market_value=_f(position.get("market_value")),
+            unrealized_pl=_f(position.get("unrealized_pl")),
+            system=SYSTEM5,
+            entry_date=str(position.get("entry_date") or "")[:10] or None,
+        )
+        history = load_system5_history(rolling_dir, snap.symbol)
+        state = evaluate_system5_state(snap, today=today, history=history)
+
+        if snap.entry_date:
+            # Six full post-entry sessions are observations; the seventh open is the
+            # timeout.  Therefore holding=6 means "あと1日", not "本日手仕舞い".
+            position["days_remaining"] = (
+                int(rules.max_holding_days) + 1 - state.holding_days
+            )
+            position["exit_date"] = state.timeout_exit_date
+
+        position["target_price_est"] = (
+            round(state.target_price, 4) if state.target_price is not None else None
+        )
+        position["system5_entry_atr10"] = state.entry_atr10
+        position["system5_target_hit_date"] = state.target_hit_date
+
+        stop = None
+        if state.entry_atr10 is not None and snap.avg_entry_price > 0:
+            stop = protective_stop_price(
+                side=snap.side,
+                avg_entry_price=snap.avg_entry_price,
+                rules=rules,
+                atr_value=state.entry_atr10,
+                symbol=snap.symbol,
+            )
+        position["stop_price_est"] = round(stop, 4) if stop is not None else None
+        current = _f(position.get("current_price"))
+        position["distance_to_stop_pct"] = (
+            round((stop - current) / current * 100.0, 3)
+            if stop is not None and current is not None and current > 0
+            else None
+        )
+        target = state.target_price
+        position["distance_to_target_pct"] = (
+            round((target - current) / current * 100.0, 3)
+            if target is not None and current is not None and current > 0
+            else None
+        )
+
+        if state.target_exit_due:
+            position["exit_expected"] = SYSTEM5_TARGET_NEXT_OPEN
+        elif state.timeout_exit_due:
+            position["exit_expected"] = "time_based"
+        else:
+            position["exit_expected"] = None
+            position["exit_execution_state"] = None
+    return snapshot
+
+
 def build_snapshot(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """Delegate all legacy measurement, then replace only protection truth."""
     original_estimator = _legacy._estimate_stop_target
     _legacy._estimate_stop_target = _estimate_stop_target
     try:
         snapshot = _LEGACY_BUILD_SNAPSHOT(*args, **kwargs)
+        snapshot = _apply_system5_truth(snapshot)
     finally:
         _legacy._estimate_stop_target = original_estimator
 
