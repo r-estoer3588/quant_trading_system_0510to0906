@@ -24,7 +24,7 @@ def _history(*, hit_day: str | None = None, later_atr: float = 9.0) -> pd.DataFr
                 "Open": 100.0,
                 "High": high,
                 "Low": 95.0,
-                # Entry is 2026-09-01.  The pre-entry 2026-08-31 ATR is 5;
+                # Entry is 2026-09-01. The pre-entry 2026-08-31 ATR is 5;
                 # all later ATRs are intentionally different to catch drift.
                 "atr10": 5.0 if str(d.date()) == "2026-08-31" else later_atr,
             }
@@ -64,7 +64,7 @@ def test_target_touch_exits_market_at_next_session_open():
     target = [e for e in exits if e.reason == SYSTEM5_TARGET_NEXT_OPEN]
     assert len(target) == 1
     assert target[0].order_type == "market"
-    assert target[0].limit_price == 105.0  # audit trigger only, not a limit order
+    assert target[0].limit_price is None
 
 
 def test_sixth_session_is_still_observation_day_not_timeout_open():
@@ -73,6 +73,7 @@ def test_sixth_session_is_still_observation_day_not_timeout_open():
     state = evaluate_system5_state(_snap(), today="2026-09-10", history=df)
     assert state.holding_days == 6
     assert state.timeout_exit_due is False
+    assert state.timeout_exit_date == "2026-09-11"
     exits = build_system5_exit_orders(_snap(), today="2026-09-10", history=df)
     assert not [e for e in exits if e.reason == ExitReasonCode.TIME]
 
