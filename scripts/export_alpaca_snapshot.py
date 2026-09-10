@@ -26,6 +26,10 @@ ROOT = _legacy.ROOT
 PAPER_BASE = _legacy.PAPER_BASE
 SCHEMA = _legacy.SCHEMA
 PROVIDER = _legacy.PROVIDER
+# Keep the canonical session-P&L helper explicitly visible through this wrapper.
+# Existing source guards use this symbol to prove the bad equity-last_equity
+# calculation has not replaced the preserved accounting implementation.
+resolve_session_pnl = _legacy.resolve_session_pnl
 _QTY_EPS = 1e-6
 
 
@@ -68,291 +72,232 @@ def _estimate_stop_target(
     avg_entry: float,
     rules: Any,
     atr: dict[int, float],
-    actual_stop: float | None = None,
-    hwm: float | None = None,
-    trail_pct: float | None = None,
 ) -> tuple[float | None, float | None]:
-    """Resolve stop/target with real-data priority for trailing strategies.
+    """Compatibility helper: fixed stops stay canonical; trailing has no fake stop.
 
-    Trailing rules use: positive broker resting stop -> measured HWM -> ``None``.
-    ATR is deliberately *not* a trailing display fallback. Non-trailing systems
-    retain the canonical legacy ATR/target calculation.
+    The actual trailing threshold is applied later by ``_apply_protection_truth``
+    after OPEN-order/HWM observation is available.  Returning ``None`` for a
+    trailing stop here prevents the legacy ATR estimate from masquerading as a
+    moving broker/soft trail.
     """
-    if rules is None or not (avg_entry > 0):
-        return None, None
-    if not getattr(rules, "use_trailing_stop", False):
-        return _legacy._estimate_stop_target(
-            side=side, avg_entry=avg_entry, rules=rules, atr=atr
-        )
-
-    target = _target_only(side=side, avg_entry=avg_entry, rules=rules, atr=atr)
-    stop = _f(actual_stop)
-    if stop is not None and stop > 0:
-        return round(stop, 4), target
-
-    measured_hwm = _f(hwm)
-    width = _f(trail_pct)
-    if width is None:
-        width = _f(getattr(rules, "trailing_stop_pct", None))
-    if (
-        measured_hwm is None
-        or measured_hwm <= 0
-        or width is None
-        or not (0 < width < 1)
-    ):
-        return None, target
-    if side == "long":
-        stop = measured_hwm * (1.0 - width)
-    elif side == "short":
-        stop = measured_hwm * (1.0 + width)
-    else:
-        return None, target
-    return round(stop, 4), target
+    if getattr(rules, "use_trailing_stop", False):
+        return None, _target_only(side=side, avg_entry=avg_entry, rules=rules, atr=atr)
+    return _legacy._estimate_stop_target(
+        side=side, avg_entry=avg_entry, rules=rules, atr=atr
+    )
 
 
-def _fetch_open_protection(
-    client: Any,
-) -> tuple[bool, dict[str, list[dict[str, Any]]], str | None]:
-    """Observe OPEN broker protection orders only; never infer failure as absence."""
-    out: dict[str, list[dict[str, Any]]] = {}
+def _load_soft_state(path: Path | None = None) -> dict[str, dict[str, Any]]:
+    target = path or (ROOT / "data" / "trailing_stops.json")
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _iter_order_tree(order: Any):
+    yield order
+    for leg in getattr(order, "legs", None) or []:
+        yield from _iter_order_tree(leg)
+
+
+def get_open_order_protection(client: Any) -> dict[str, Any]:
+    """Observe broker-resident OPEN protection orders, read-only.
+
+    Failure is deliberately represented as ``measured=False`` rather than an
+    empty order set: API failure must never be rendered as verified absence.
+    """
+    observed_at = datetime.now(timezone.utc).isoformat()
     try:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
         orders = client.get_orders(
-            GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500)
+            GetOrdersRequest(status=QueryOrderStatus.OPEN, nested=True, limit=500)
         )
     except Exception as exc:
-        return False, out, str(exc)
+        return {
+            "measured": False,
+            "observed_at": observed_at,
+            "error": str(exc),
+            "by_symbol": {},
+        }
 
-    for order in orders or []:
-        symbol = str(getattr(order, "symbol", "") or "").upper()
-        order_type = _enum_value(
-            getattr(order, "type", None) or getattr(order, "order_type", None)
-        )
-        if not symbol or order_type not in {"stop", "stop_limit", "trailing_stop"}:
-            continue
-        trail_percent = _f(getattr(order, "trail_percent", None))
-        if trail_percent is not None and trail_percent > 1:
-            trail_percent /= 100.0
-        out.setdefault(symbol, []).append(
-            {
-                "order_id": str(getattr(order, "id", "") or "") or None,
-                "client_order_id": str(getattr(order, "client_order_id", "") or "")
-                or None,
-                "order_type": order_type,
-                "side": _enum_value(getattr(order, "side", None)),
-                "stop_price": _f(getattr(order, "stop_price", None)),
-                "hwm": _f(getattr(order, "hwm", None)),
-                "trail_pct": trail_percent,
-            }
-        )
-    return True, out, None
-
-
-def _load_soft_state() -> dict[str, dict[str, Any]]:
-    path = ROOT / "data" / "trailing_stops.json"
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _select_broker_threshold(
-    rows: list[dict[str, Any]], *, side: str, strategy_trail_pct: float
-) -> dict[str, Any] | None:
-    """Pick the most protective measured OPEN broker threshold for a position."""
-    candidates: list[dict[str, Any]] = []
-    exit_side = "sell" if side == "long" else "buy"
-    for row in rows:
-        order_side = str(row.get("side") or "")
-        if order_side and order_side != exit_side:
-            continue
-        stop = _f(row.get("stop_price"))
-        source = "broker_order"
-        hwm = _f(row.get("hwm"))
-        width = _f(row.get("trail_pct")) or strategy_trail_pct
-        if (stop is None or stop <= 0) and row.get("order_type") == "trailing_stop":
-            if hwm is not None and hwm > 0 and 0 < width < 1:
-                stop = hwm * (1.0 - width) if side == "long" else hwm * (1.0 + width)
-                source = "broker_hwm"
-        if stop is None or stop <= 0:
-            continue
-        candidates.append(
-            {
-                **row,
-                "effective_stop": stop,
-                "source": source,
-                "effective_trail_pct": width,
-            }
-        )
-    if not candidates:
-        return None
-    return (
-        max(candidates, key=lambda row: row["effective_stop"])
-        if side == "long"
-        else min(candidates, key=lambda row: row["effective_stop"])
-    )
-
-
-def _enrich_trailing_protection(
-    snapshot: dict[str, Any], client: Any
-) -> dict[str, Any]:
-    """Replace trailing display estimates only; accounting blocks are untouched."""
-    observed_at = datetime.now(timezone.utc).isoformat()
-    measured, broker, observation_error = _fetch_open_protection(client)
-    soft = _load_soft_state()
-    protection_rows: list[dict[str, Any]] = []
-
-    for pos in snapshot.get("positions", []) or []:
-        if not isinstance(pos, dict) or pos.get("exit_type") != "trailing":
-            continue
-        system = str(pos.get("system") or "").lower()
-        rules = SYSTEM_TRADE_RULES.get(system)
-        if rules is None or not getattr(rules, "use_trailing_stop", False):
-            continue
-        symbol = str(pos.get("symbol") or "").upper()
-        side = str(pos.get("side") or "").lower()
-        avg = _f(pos.get("avg_entry_price")) or 0.0
-        current = _f(pos.get("current_price"))
-        strategy_width = float(getattr(rules, "trailing_stop_pct", 0.0) or 0.0)
-        fractional = _is_fractional(pos.get("qty"))
-        selected = (
-            _select_broker_threshold(
-                broker.get(symbol, []),
-                side=side,
-                strategy_trail_pct=strategy_width,
-            )
-            if measured
-            else None
-        )
-
-        actual_stop = None
-        hwm = None
-        width = strategy_width
-        source: str | None = None
-        order_id = None
-        client_order_id = None
-        order_type = None
-        observed = "unmeasured" if not measured else "none"
-        state = "unmeasured" if not measured else "missing_after_arm"
-
-        if selected:
-            actual_stop = _f(selected.get("effective_stop"))
-            hwm = _f(selected.get("hwm"))
-            width = _f(selected.get("effective_trail_pct")) or strategy_width
-            source = str(selected.get("source") or "broker_order")
-            order_id = selected.get("order_id")
-            client_order_id = selected.get("client_order_id")
-            order_type = selected.get("order_type")
-            observed = "trailing" if order_type == "trailing_stop" else "stop"
-            state = "verified"
-        elif fractional:
-            local = soft.get(symbol) or {}
-            if (
-                isinstance(local, dict)
-                and str(local.get("system") or "").lower() == system
-            ):
-                hwm = _f(local.get("highest_price"))
-                if hwm is not None and hwm > 0:
-                    source = "soft_hwm"
-                    width = _f(local.get("trailing_stop_pct")) or strategy_width
-                    state = "soft_monitored"
-                else:
-                    state = "soft_unmeasured"
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for parent in orders or []:
+        for order in _iter_order_tree(parent):
+            symbol = str(getattr(order, "symbol", "") or "").upper()
+            if not symbol:
+                continue
+            order_type = _enum_value(getattr(order, "type", None))
+            order_class = _enum_value(getattr(order, "order_class", None))
+            if order_type not in {"trailing_stop", "stop", "stop_limit"} and order_class not in {
+                "bracket",
+                "oco",
+                "oto",
+            }:
+                continue
+            trail_percent = _f(getattr(order, "trail_percent", None))
+            trail_price = _f(getattr(order, "trail_price", None))
+            hwm = _f(getattr(order, "hwm", None))
+            stop_price = _f(getattr(order, "stop_price", None))
+            if order_type == "trailing_stop":
+                observed = "trailing"
+            elif order_class in {"bracket", "oco", "oto"}:
+                observed = "oco"
             else:
-                state = "soft_unmeasured"
-        elif measured:
-            # Conservative lifecycle boundary: an entry dated today may still be in the
-            # entry->protection arm interval. Older whole-share positions must have OPEN
-            # native protection; measured absence is an actionable fault.
-            entry_date = str(pos.get("entry_date") or "")[:10]
-            state = (
-                "pending_arm"
-                if entry_date and entry_date == str(snapshot.get("date") or "")[:10]
-                else "missing_after_arm"
+                observed = "stop"
+            by_symbol.setdefault(symbol, []).append(
+                {
+                    "protection_observed": observed,
+                    "order_type": order_type or None,
+                    "order_class": order_class or None,
+                    "resting_client_order_id": str(
+                        getattr(order, "client_order_id", "") or ""
+                    )
+                    or None,
+                    "trail_percent": trail_percent,
+                    "trail_price": trail_price,
+                    "hwm": hwm,
+                    "broker_stop_price": stop_price,
+                }
+            )
+    return {"measured": True, "observed_at": observed_at, "error": None, "by_symbol": by_symbol}
+
+
+def _canonical_trail_pct(position: dict[str, Any]) -> float | None:
+    system = str(position.get("system") or "").lower()
+    rules = SYSTEM_TRADE_RULES.get(system)
+    value = _f(getattr(rules, "trailing_stop_pct", None)) if rules is not None else None
+    if value is None:
+        value = _f(position.get("trailing_stop_pct"))
+    return value if value is not None and 0 < value < 1 else None
+
+
+def _entry_day(position: dict[str, Any], today: str) -> bool:
+    entry = str(position.get("entry_date") or "")[:10]
+    return bool(entry and entry == today)
+
+
+def _best_observed(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    order = {"trailing": 0, "oco": 1, "stop": 2}
+    return sorted(rows, key=lambda row: order.get(str(row.get("protection_observed")), 99))[0]
+
+
+def _apply_protection_truth(
+    snapshot: dict[str, Any],
+    *,
+    observation: dict[str, Any],
+    soft_state: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Overlay trailing protection truth without touching accounting blocks."""
+    measured = bool(observation.get("measured"))
+    observed_at = observation.get("observed_at")
+    by_symbol = observation.get("by_symbol") or {}
+    today = str(snapshot.get("date") or "")[:10]
+
+    for position in snapshot.get("positions") or []:
+        if str(position.get("exit_type") or "") != "trailing":
+            continue
+        symbol = str(position.get("symbol") or "").upper()
+        trail_pct = _canonical_trail_pct(position)
+        position["trailing_stop_pct"] = trail_pct
+        position["protection_observed_at"] = observed_at
+        position["protection_observation_measured"] = measured
+        position["protection_observation_error"] = observation.get("error") if not measured else None
+        position["protection_verified"] = False
+        position["resting_client_order_id"] = None
+        position["broker_hwm"] = None
+        position["broker_stop_price"] = None
+        position["stop_price_source"] = None
+
+        fractional = _is_fractional(position.get("qty"))
+        observed = _best_observed(list(by_symbol.get(symbol) or [])) if measured else None
+        if observed is not None:
+            position["protection_observed"] = observed.get("protection_observed")
+            position["resting_client_order_id"] = observed.get("resting_client_order_id")
+            position["broker_hwm"] = observed.get("hwm")
+            position["broker_stop_price"] = observed.get("broker_stop_price")
+            broker_trail_pct = _f(observed.get("trail_percent"))
+            if broker_trail_pct is not None:
+                broker_trail_pct /= 100.0
+            effective_pct = broker_trail_pct or trail_pct
+            broker_stop = _f(observed.get("broker_stop_price")) or _f(observed.get("trail_price"))
+            broker_hwm = _f(observed.get("hwm"))
+            if broker_stop is not None:
+                position["stop_price_est"] = broker_stop
+                position["stop_price_source"] = "broker_order"
+            elif broker_hwm is not None and effective_pct is not None:
+                position["stop_price_est"] = broker_hwm * (1.0 - effective_pct)
+                position["stop_price_source"] = "broker_hwm"
+            else:
+                position["stop_price_est"] = None
+            position["protection_verified"] = True
+            position["protection_state"] = "broker_verified"
+            if broker_trail_pct is not None:
+                position["trailing_stop_pct"] = broker_trail_pct
+        elif fractional:
+            soft = soft_state.get(symbol) if isinstance(soft_state.get(symbol), dict) else {}
+            hwm = _f(soft.get("highest_price"))
+            soft_pct = _f(soft.get("trailing_stop_pct")) or trail_pct
+            if hwm is not None and soft_pct is not None:
+                position["stop_price_est"] = hwm * (1.0 - soft_pct)
+                position["stop_price_source"] = "soft_hwm"
+                position["protection_observed"] = "soft"
+                position["protection_state"] = "soft_monitor"
+            else:
+                position["stop_price_est"] = None
+                position["protection_observed"] = "none" if measured else "unmeasured"
+                position["protection_state"] = "soft_pending" if measured else "unmeasured"
+        elif not measured:
+            position["stop_price_est"] = None
+            position["protection_observed"] = "unmeasured"
+            position["protection_state"] = "unmeasured"
+        else:
+            position["stop_price_est"] = None
+            position["protection_observed"] = "none"
+            position["protection_state"] = (
+                "pending_arm" if _entry_day(position, today) else "missing_after_arm"
             )
 
-        stop, target = _estimate_stop_target(
-            side=side,
-            avg_entry=avg,
-            rules=rules,
-            atr={},
-            actual_stop=actual_stop,
-            hwm=hwm,
-            trail_pct=width,
+        current = _f(position.get("current_price"))
+        stop = _f(position.get("stop_price_est"))
+        position["distance_to_stop_pct"] = (
+            ((current / stop) - 1.0) * 100.0 if current is not None and stop is not None and stop > 0 else None
         )
-        pos["stop_price_est"] = stop
-        if target is not None:
-            pos["target_price_est"] = target
-        pos["stop_price_source"] = source
-        pos["trailing_hwm"] = round(hwm, 4) if hwm is not None and hwm > 0 else None
-        pos["protection_mode"] = (
-            "synthetic_intraday" if fractional else "native_trailing_expected"
-        )
-        pos["protection_observed"] = observed
-        pos["protection_state"] = state
-        pos["protection_verified"] = state == "verified"
-        pos["protection_observed_at"] = observed_at
-        pos["protection_observation_error"] = (
-            observation_error if not measured else None
-        )
-        pos["protection_order_id"] = order_id
-        pos["resting_client_order_id"] = client_order_id
-        pos["protection_order_type"] = order_type
-        pos["broker_stop_price"] = (
-            round(actual_stop, 4)
-            if actual_stop is not None and actual_stop > 0
-            else None
-        )
-        pos["broker_hwm"] = (
-            round(hwm, 4) if selected and hwm is not None and hwm > 0 else None
-        )
-        if current is not None and current > 0 and stop is not None:
-            pos["distance_to_stop_pct"] = round((stop - current) / current * 100.0, 3)
-        else:
-            pos["distance_to_stop_pct"] = None
-
-        protection_rows.append(
-            {
-                "symbol": symbol,
-                "system": system,
-                "qty": pos.get("qty"),
-                "fractional": fractional,
-                "trail_pct": width,
-                "stop_price": stop,
-                "source": source,
-                "hwm": pos.get("trailing_hwm"),
-                "observed": observed,
-                "state": state,
-                "verified": state == "verified",
-                "order_id": order_id,
-                "client_order_id": client_order_id,
-                "order_type": order_type,
-            }
-        )
-
-    snapshot["trailing_protection"] = {
-        "measured": measured,
-        "observed_at": observed_at,
-        "observation_error": observation_error,
-        "priority": ["broker_order", "broker_hwm", "soft_hwm"],
-        "rows": protection_rows,
-    }
     return snapshot
 
 
-def build_snapshot(
-    client: Any, *, date_str: str, results_dir: Path, period: str
-) -> dict[str, Any]:
-    snapshot = _LEGACY_BUILD_SNAPSHOT(
-        client, date_str=date_str, results_dir=results_dir, period=period
+def build_snapshot(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Delegate all legacy measurement, then replace only protection truth."""
+    original_estimator = _legacy._estimate_stop_target
+    _legacy._estimate_stop_target = _estimate_stop_target
+    try:
+        snapshot = _LEGACY_BUILD_SNAPSHOT(*args, **kwargs)
+    finally:
+        _legacy._estimate_stop_target = original_estimator
+
+    client = kwargs.get("client")
+    if client is None:
+        # The legacy build currently accepts the trading client positionally first.
+        client = args[0] if args else None
+    observation = (
+        get_open_order_protection(client)
+        if client is not None
+        else {"measured": False, "observed_at": None, "error": "client unavailable", "by_symbol": {}}
     )
-    return _enrich_trailing_protection(snapshot, client)
+    return _apply_protection_truth(
+        snapshot,
+        observation=observation,
+        soft_state=_load_soft_state(),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the preserved CLI with this wrapper's protection-aware builder."""
     original = _legacy.build_snapshot
     _legacy.build_snapshot = build_snapshot
     try:
