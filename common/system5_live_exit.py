@@ -11,7 +11,7 @@ semantics are *not* a broker-resident take-profit order:
   the NEXT (seventh) session open
 
 The generic Alpaca protection builder can express a resting target/OCO, but that would
-sell at the target touch itself and therefore changes the strategy.  This module keeps
+sell at the target touch itself and therefore changes the strategy. This module keeps
 System5's trigger and execution timing explicit and side-effect free.
 """
 
@@ -60,7 +60,7 @@ def _history_dates(df: pd.DataFrame) -> pd.Series:
         if name in df.columns:
             return pd.to_datetime(df[name], errors="coerce").dt.normalize()
 
-    # Rolling CSVs commonly persist an unnamed DatetimeIndex in column 0.  Only accept
+    # Rolling CSVs commonly persist an unnamed DatetimeIndex in column 0. Only accept
     # it when most values parse as dates; otherwise fail closed rather than guessing.
     if len(df.columns):
         candidate = pd.to_datetime(df.iloc[:, 0], errors="coerce")
@@ -82,7 +82,7 @@ def _numeric_col(df: pd.DataFrame, *names: str) -> pd.Series:
 
 
 def load_history(rolling_dir: Path, symbol: str) -> pd.DataFrame | None:
-    """Load one rolling CSV.  Missing/invalid data is represented as None."""
+    """Load one rolling CSV. Missing/invalid data is represented as None."""
     path = rolling_dir / f"{str(symbol).upper()}.csv"
     try:
         df = pd.read_csv(path)
@@ -96,7 +96,7 @@ def entry_atr10_from_history(df: pd.DataFrame | None, entry_date: str | None) ->
 
     This mirrors ``System5Strategy.compute_entry`` / ``compute_exit``: the strategy
     freezes ATR from ``entry_idx - 1`` and does not move the target or stop as later ATR
-    changes.  Returning None is deliberate when the historical row cannot be proven.
+    changes. Returning None is deliberate when the historical row cannot be proven.
     """
     if df is None or df.empty or not entry_date:
         return None
@@ -124,7 +124,7 @@ def target_hit_date_from_history(
     """First completed post-entry session whose High reached the frozen target.
 
     ``today`` is excluded because open-run executes near the session open; using today's
-    unfinished High would turn a next-open rule into a same-session exit.  Observation
+    unfinished High would turn a next-open rule into a same-session exit. Observation
     is capped to the first six post-entry sessions, matching the backtest loop.
     """
     if df is None or df.empty or not entry_date or not target_price or target_price <= 0:
@@ -177,9 +177,12 @@ def evaluate_system5_state(
     target_due = False
     if hit:
         try:
-            target_due = count_trading_days(
-                date.fromisoformat(hit), date.fromisoformat(str(today)[:10])
-            ) >= 1
+            target_due = (
+                count_trading_days(
+                    date.fromisoformat(hit), date.fromisoformat(str(today)[:10])
+                )
+                >= 1
+            )
         except ValueError:
             target_due = False
 
@@ -187,10 +190,12 @@ def evaluate_system5_state(
     if snap.entry_date:
         try:
             d0 = date.fromisoformat(str(snap.entry_date)[:10])
-            timeout_date = add_trading_days(d0, int(rules.max_holding_days) + 1).isoformat()
+            timeout_date = add_trading_days(
+                d0, int(rules.max_holding_days) + 1
+            ).isoformat()
         except ValueError:
             timeout_date = None
-    # Six sessions are observed in full.  Timeout therefore starts at session seven.
+    # Six sessions are observed in full. Timeout therefore starts at session seven.
     timeout_due = holding >= int(rules.max_holding_days) + 1
     return System5ExitState(
         entry_atr10=atr10,
@@ -226,7 +231,7 @@ def build_system5_exit_orders(
 
     Priority matches the backtest: an already-observed target wins at the next open;
     otherwise timeout can fire at the seventh open; otherwise only the frozen-ATR stop
-    is broker-resident.  No native target/OCO is created for System5.
+    is broker-resident. No native target/OCO is created for System5.
     """
     if str(snap.system or "").lower() != SYSTEM5 or snap.abs_qty <= 0:
         return []
@@ -249,7 +254,6 @@ def build_system5_exit_orders(
                 order_type="market",
                 reason=SYSTEM5_TARGET_NEXT_OPEN,
                 entry_date=snap.entry_date,
-                limit_price=state.target_price,  # audit-only trigger level
                 holding_days=state.holding_days,
                 max_holding_days=int(rules.max_holding_days),
                 client_order_id=coid,
@@ -313,7 +317,7 @@ def build_system5_exit_orders(
             }
         )
 
-    # Never stack another order against an existing S5 OCO.  It is surfaced above as
+    # Never stack another order against an existing S5 OCO. It is surfaced above as
     # incompatible so operators can migrate it safely; new canonical S5 paths never
     # create one.
     if incompatible_oco or already_stop:
@@ -332,7 +336,7 @@ def build_system5_exit_orders(
         return []
 
     if snap.is_fractional:
-        # Legacy fractional positions cannot host native stops.  Evaluate the frozen
+        # Legacy fractional positions cannot host native stops. Evaluate the frozen
         # stop at this run; new Paper entries are whole-share-only as of PR #176.
         cur = snap.current_price
         if cur is None or cur <= 0:
