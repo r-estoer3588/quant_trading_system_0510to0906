@@ -53,7 +53,9 @@ def _is_fractional(qty: Any) -> bool:
     return bool(q is not None and abs(abs(q) - round(abs(q))) > _QTY_EPS)
 
 
-def _target_only(*, side: str, avg_entry: float, rules: Any, atr: dict[int, float]) -> float | None:
+def _target_only(
+    *, side: str, avg_entry: float, rules: Any, atr: dict[int, float]
+) -> float | None:
     _legacy_stop, target = _legacy._estimate_stop_target(
         side=side, avg_entry=avg_entry, rules=rules, atr=atr
     )
@@ -92,7 +94,12 @@ def _estimate_stop_target(
     width = _f(trail_pct)
     if width is None:
         width = _f(getattr(rules, "trailing_stop_pct", None))
-    if measured_hwm is None or measured_hwm <= 0 or width is None or not (0 < width < 1):
+    if (
+        measured_hwm is None
+        or measured_hwm <= 0
+        or width is None
+        or not (0 < width < 1)
+    ):
         return None, target
     if side == "long":
         stop = measured_hwm * (1.0 - width)
@@ -112,7 +119,9 @@ def _fetch_open_protection(
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
-        orders = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500))
+        orders = client.get_orders(
+            GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500)
+        )
     except Exception as exc:
         return False, out, str(exc)
 
@@ -129,7 +138,8 @@ def _fetch_open_protection(
         out.setdefault(symbol, []).append(
             {
                 "order_id": str(getattr(order, "id", "") or "") or None,
-                "client_order_id": str(getattr(order, "client_order_id", "") or "") or None,
+                "client_order_id": str(getattr(order, "client_order_id", "") or "")
+                or None,
                 "order_type": order_type,
                 "side": _enum_value(getattr(order, "side", None)),
                 "stop_price": _f(getattr(order, "stop_price", None)),
@@ -186,7 +196,9 @@ def _select_broker_threshold(
     )
 
 
-def _enrich_trailing_protection(snapshot: dict[str, Any], client: Any) -> dict[str, Any]:
+def _enrich_trailing_protection(
+    snapshot: dict[str, Any], client: Any
+) -> dict[str, Any]:
     """Replace trailing display estimates only; accounting blocks are untouched."""
     observed_at = datetime.now(timezone.utc).isoformat()
     measured, broker, observation_error = _fetch_open_protection(client)
@@ -238,7 +250,10 @@ def _enrich_trailing_protection(snapshot: dict[str, Any], client: Any) -> dict[s
             state = "verified"
         elif fractional:
             local = soft.get(symbol) or {}
-            if isinstance(local, dict) and str(local.get("system") or "").lower() == system:
+            if (
+                isinstance(local, dict)
+                and str(local.get("system") or "").lower() == system
+            ):
                 hwm = _f(local.get("highest_price"))
                 if hwm is not None and hwm > 0:
                     source = "soft_hwm"
@@ -253,7 +268,11 @@ def _enrich_trailing_protection(snapshot: dict[str, Any], client: Any) -> dict[s
             # entry->protection arm interval. Older whole-share positions must have OPEN
             # native protection; measured absence is an actionable fault.
             entry_date = str(pos.get("entry_date") or "")[:10]
-            state = "pending_arm" if entry_date and entry_date == str(snapshot.get("date") or "")[:10] else "missing_after_arm"
+            state = (
+                "pending_arm"
+                if entry_date and entry_date == str(snapshot.get("date") or "")[:10]
+                else "missing_after_arm"
+            )
 
         stop, target = _estimate_stop_target(
             side=side,
@@ -269,17 +288,27 @@ def _enrich_trailing_protection(snapshot: dict[str, Any], client: Any) -> dict[s
             pos["target_price_est"] = target
         pos["stop_price_source"] = source
         pos["trailing_hwm"] = round(hwm, 4) if hwm is not None and hwm > 0 else None
-        pos["protection_mode"] = "synthetic_intraday" if fractional else "native_trailing_expected"
+        pos["protection_mode"] = (
+            "synthetic_intraday" if fractional else "native_trailing_expected"
+        )
         pos["protection_observed"] = observed
         pos["protection_state"] = state
         pos["protection_verified"] = state == "verified"
         pos["protection_observed_at"] = observed_at
-        pos["protection_observation_error"] = observation_error if not measured else None
+        pos["protection_observation_error"] = (
+            observation_error if not measured else None
+        )
         pos["protection_order_id"] = order_id
         pos["resting_client_order_id"] = client_order_id
         pos["protection_order_type"] = order_type
-        pos["broker_stop_price"] = round(actual_stop, 4) if actual_stop is not None and actual_stop > 0 else None
-        pos["broker_hwm"] = round(hwm, 4) if selected and hwm is not None and hwm > 0 else None
+        pos["broker_stop_price"] = (
+            round(actual_stop, 4)
+            if actual_stop is not None and actual_stop > 0
+            else None
+        )
+        pos["broker_hwm"] = (
+            round(hwm, 4) if selected and hwm is not None and hwm > 0 else None
+        )
         if current is not None and current > 0 and stop is not None:
             pos["distance_to_stop_pct"] = round((stop - current) / current * 100.0, 3)
         else:

@@ -78,7 +78,9 @@ def trailing_threshold(*, side: str, hwm: float, trail_pct: float) -> float:
     raise ValueError(f"unsupported side: {side}")
 
 
-def update_hwm(*, side: str, previous: float | None, entry: float, current: float) -> float:
+def update_hwm(
+    *, side: str, previous: float | None, entry: float, current: float
+) -> float:
     """Pure monotone ratchet update."""
     vals = [v for v in (previous, entry, current) if v is not None and v > 0]
     if not vals:
@@ -128,7 +130,9 @@ def _order_system_index(client: Any) -> dict[str, dict[str, str | None]]:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
-        orders = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500))
+        orders = client.get_orders(
+            GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
+        )
     except Exception as exc:
         logger.warning("soft trailing: unable to read order attribution: %s", exc)
         return out
@@ -142,7 +146,11 @@ def _order_system_index(client: Any) -> dict[str, dict[str, str | None]]:
         if not system:
             continue
         filled_at = getattr(order, "filled_at", None)
-        entry_date = str(filled_at)[:10] if filled_at else parse_entry_date_from_client_order_id(coid)
+        entry_date = (
+            str(filled_at)[:10]
+            if filled_at
+            else parse_entry_date_from_client_order_id(coid)
+        )
         out[sym] = {"system": str(system).lower(), "entry_date": entry_date}
     return out
 
@@ -169,7 +177,9 @@ def _resolve_position_meta(
     return (str(system).lower() if system else None, entry_date)
 
 
-def _entry_price_from_tracker(symbol: str, tracker: dict[str, Any], fallback: float) -> float:
+def _entry_price_from_tracker(
+    symbol: str, tracker: dict[str, Any], fallback: float
+) -> float:
     row = tracker.get(symbol.upper()) or tracker.get(symbol.lower()) or {}
     if isinstance(row, dict):
         v = _f(row.get("entry_price"))
@@ -178,7 +188,9 @@ def _entry_price_from_tracker(symbol: str, tracker: dict[str, Any], fallback: fl
     return fallback
 
 
-def _bootstrap_high_from_cache(symbol: str, entry_date: str | None, entry_price: float) -> float:
+def _bootstrap_high_from_cache(
+    symbol: str, entry_date: str | None, entry_price: float
+) -> float:
     """Best-effort historical long HWM from rolling CSV daily High values."""
     best = entry_price
     path = ROOT / "data_cache" / "rolling" / f"{symbol.upper()}.csv"
@@ -190,7 +202,10 @@ def _bootstrap_high_from_cache(symbol: str, entry_date: str | None, entry_price:
             if not reader.fieldnames:
                 return best
             lower = {name.lower(): name for name in reader.fieldnames}
-            date_col = next((lower[k] for k in ("date", "datetime", "timestamp") if k in lower), None)
+            date_col = next(
+                (lower[k] for k in ("date", "datetime", "timestamp") if k in lower),
+                None,
+            )
             high_col = lower.get("high")
             if not date_col or not high_col:
                 return best
@@ -206,11 +221,15 @@ def _bootstrap_high_from_cache(symbol: str, entry_date: str | None, entry_price:
     return best
 
 
-def _same_position(prev: dict[str, Any], *, system: str, entry_date: str | None, entry_price: float) -> bool:
+def _same_position(
+    prev: dict[str, Any], *, system: str, entry_date: str | None, entry_price: float
+) -> bool:
     if not prev or str(prev.get("system") or "").lower() != system:
         return False
     old_entry = _f(prev.get("entry_price"))
-    if old_entry is None or abs(old_entry - entry_price) > max(0.01, entry_price * 1e-4):
+    if old_entry is None or abs(old_entry - entry_price) > max(
+        0.01, entry_price * 1e-4
+    ):
         return False
     old_date = str(prev.get("entry_date") or "")[:10] or None
     if old_date and entry_date and old_date != entry_date[:10]:
@@ -243,9 +262,23 @@ def run_soft_trailing(
         market_open = bool(getattr(clock, "is_open", False))
     except Exception as exc:
         logger.error("soft trailing: broker clock unavailable; fail closed: %s", exc)
-        return {"paper": True, "market_open": None, "checked": 0, "protected": 0, "closed": 0, "error": str(exc)}
+        return {
+            "paper": True,
+            "market_open": None,
+            "checked": 0,
+            "protected": 0,
+            "closed": 0,
+            "error": str(exc),
+        }
     if not market_open:
-        return {"paper": True, "market_open": False, "checked": 0, "protected": 0, "closed": 0, "rows": []}
+        return {
+            "paper": True,
+            "market_open": False,
+            "checked": 0,
+            "protected": 0,
+            "closed": 0,
+            "rows": [],
+        }
 
     positions = list(client.get_all_positions() or [])
     tracker = load_tracker() or {}
@@ -278,7 +311,12 @@ def run_soft_trailing(
             side = "long" if qty > 0 else "short"
         # S1/S4 are long by contract. Fail closed instead of managing an anomalous short.
         if side != "long":
-            logger.error("soft trailing: %s %s has anomalous side=%s; skipped", system, symbol, side)
+            logger.error(
+                "soft trailing: %s %s has anomalous side=%s; skipped",
+                system,
+                symbol,
+                side,
+            )
             continue
 
         avg_entry = _f(getattr(pos, "avg_entry_price", None)) or 0.0
@@ -287,12 +325,17 @@ def run_soft_trailing(
             mv = _f(getattr(pos, "market_value", None))
             current = abs(mv / qty) if mv is not None and qty else None
         if avg_entry <= 0 or current is None or current <= 0:
-            logger.warning("soft trailing: %s missing measured entry/current price; skipped", symbol)
+            logger.warning(
+                "soft trailing: %s missing measured entry/current price; skipped",
+                symbol,
+            )
             continue
 
         entry_price = _entry_price_from_tracker(symbol, tracker, avg_entry)
         prev = state.get(symbol) if isinstance(state.get(symbol), dict) else {}
-        same = _same_position(prev, system=system, entry_date=entry_date, entry_price=entry_price)
+        same = _same_position(
+            prev, system=system, entry_date=entry_date, entry_price=entry_price
+        )
         previous_hwm = _f(prev.get("highest_price")) if same else None
         bootstrap_hwm = _bootstrap_high_from_cache(symbol, entry_date, entry_price)
         hwm = update_hwm(
@@ -339,7 +382,9 @@ def run_soft_trailing(
                     order = client.close_position(symbol)
                     row["action"] = "close_market_submitted"
                     row["order_id"] = str(getattr(order, "id", "") or "") or None
-                    row["order_status"] = _enum_value(getattr(order, "status", None)) or None
+                    row["order_status"] = (
+                        _enum_value(getattr(order, "status", None)) or None
+                    )
                     closed += 1
                     _append_jsonl(
                         {"timestamp": stamp.isoformat(), "paper": True, **row},
