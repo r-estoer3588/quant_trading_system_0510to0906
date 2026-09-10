@@ -66,6 +66,7 @@ from common.alpaca_trading import (  # noqa: E402
     fetch_existing_exit_coids,
     fetch_existing_protect_coids,
     fetch_position_snapshots,
+    hydrate_system_tags,
     parse_entry_date_from_client_order_id,
     parse_system_from_client_order_id,
     probe_asset_tradable,
@@ -79,6 +80,12 @@ from common.exit_artifacts import (  # noqa: E402
 from common.position_tracker import load_tracker  # noqa: E402
 from common.symbol_map import load_symbol_system_map  # noqa: E402
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
+from common.system5_live_exit import (  # noqa: E402
+    SYSTEM5,
+    SYSTEM5_TARGET_NEXT_OPEN,
+    build_system5_exit_orders,
+    load_history as load_system5_history,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPY_ROLLING = ROOT / "data_cache" / "rolling" / "SPY.csv"
@@ -640,8 +647,21 @@ def main(argv: list[str] | None = None) -> int:
     # 建玉ごとの「保護がどう掛かっているか」。端株は broker 常駐注文を張れず日次
     # synthetic 判定に振替になるため、silent にせず artifact に残す (2026-08-19)。
     protection_coverage: list[dict[str, Any]] = []
-    exits = build_exit_orders_from_positions(
+    # Resolve tags before splitting: System5 now has a dedicated live adapter whose
+    # state machine mirrors strategies/system5_strategy.py exactly.  All other systems
+    # stay on the existing generic builder unchanged.
+    hydrate_system_tags(
         snapshots,
+        tracker=tracker,
+        entry_orders_index=entry_orders_index,
+        symbol_map=symbol_map,
+        symbol_aliases=rename_aliases,
+    )
+    generic_snapshots = [s for s in snapshots if str(s.system or "").lower() != SYSTEM5]
+    system5_snapshots = [s for s in snapshots if str(s.system or "").lower() == SYSTEM5]
+
+    exits = build_exit_orders_from_positions(
+        generic_snapshots,
         today=date_str,
         unassigned_out=unassigned,
         protection_coverage_out=protection_coverage,
@@ -656,6 +676,23 @@ def main(argv: list[str] | None = None) -> int:
         atr_by_symbol=atr_by_symbol,
         price_by_symbol=price_by_symbol,
     )
+
+    # System5 contract (Bensdorp): target touch is a trigger, NOT an immediate
+    # take-profit fill.  The target and stop both use ATR10 frozen from the bar before
+    # entry; target -> next-session OPEN market close; timeout -> seventh-session OPEN.
+    rolling_dir = ROOT / "data_cache" / "rolling"
+    for snap in system5_snapshots:
+        history = load_system5_history(rolling_dir, snap.symbol)
+        exits.extend(
+            build_system5_exit_orders(
+                snap,
+                today=date_str,
+                history=history,
+                existing_protect_coids=existing_protect_coids,
+                existing_exit_coids=existing_exit_coids,
+                coverage_out=protection_coverage,
+            )
+        )
 
     # orphan を「帰属欠落 (直せば守れる)」と「exit 発注不能 (手動対応が要る)」に
     # 分ける。build_exit_orders_from_positions は pure なのでここで broker を見る。
@@ -681,7 +718,12 @@ def main(argv: list[str] | None = None) -> int:
             close_syms = {
                 po.symbol.upper()
                 for po in exits
-                if po.reason in (ExitReasonCode.TIME, ExitReasonCode.BREAKOUT)
+                if po.reason
+                in (
+                    ExitReasonCode.TIME,
+                    ExitReasonCode.BREAKOUT,
+                    SYSTEM5_TARGET_NEXT_OPEN,
+                )
             }
             if close_syms:
                 canc = ba.cancel_open_orders_for_symbols(client, close_syms)
@@ -838,10 +880,14 @@ def main(argv: list[str] | None = None) -> int:
     # summary
     time_cnt = len(time_exits)
     breakout_cnt = sum(1 for e in exits if e.reason == "spy_breakout")
+    target_next_open_cnt = sum(
+        1 for e in exits if e.reason == SYSTEM5_TARGET_NEXT_OPEN
+    )
     protect_cnt = sum(1 for e in exits if e.reason.startswith("protect_"))
     print(
         f"[exit_check] positions={len(snapshots)} exits={len(exits)} "
-        f"(time={time_cnt}, breakout={breakout_cnt}, protect={protect_cnt}) "
+        f"(time={time_cnt}, target_next_open={target_next_open_cnt}, "
+        f"breakout={breakout_cnt}, protect={protect_cnt}) "
         f"mode={mode} submitted={submitted_ok} failed={submit_failed} "
         f"already_protected={already_protected}"
     )

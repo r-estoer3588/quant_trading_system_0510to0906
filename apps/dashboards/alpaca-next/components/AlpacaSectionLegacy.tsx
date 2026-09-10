@@ -514,6 +514,13 @@ function ReconStrip({ snap }: { snap: AlpacaSnapshot }) {
 // positions table (sortable / filterable, P&L heatmap, exit badge)
 // --------------------------------------------------------------------------
 function exitBadge(p: AlpacaPosition): { text: string; cls: string; sub?: string } {
+  if (p.exit_expected === 'system5_target_next_open') {
+    return {
+      text: '利益目標達成 · 次寄り手仕舞い',
+      cls: 'bg-ok/20 text-ok',
+      sub: 'S5: +1ATR到達 → 翌セッション寄付成行',
+    };
+  }
   if (p.exit_expected === 'time_based') {
     // days_remaining = max_hold - holding_days: 0 = 本日満期, <0 = 期限超過。
     // exit_expected='time_based' は days_remaining<=0 で必ず立つため、以前は
