@@ -1,3 +1,4 @@
+# Focused regression for PR #176 S1/S4 trailing protection remediation.
 name: S1 S4 trailing protection checks
 
 on:
