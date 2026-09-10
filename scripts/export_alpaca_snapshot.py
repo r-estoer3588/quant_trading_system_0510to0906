@@ -132,7 +132,11 @@ def get_open_order_protection(client: Any) -> dict[str, Any]:
                 continue
             order_type = _enum_value(getattr(order, "type", None))
             order_class = _enum_value(getattr(order, "order_class", None))
-            if order_type not in {"trailing_stop", "stop", "stop_limit"} and order_class not in {
+            if order_type not in {
+                "trailing_stop",
+                "stop",
+                "stop_limit",
+            } and order_class not in {
                 "bracket",
                 "oco",
                 "oto",
@@ -163,7 +167,12 @@ def get_open_order_protection(client: Any) -> dict[str, Any]:
                     "broker_stop_price": stop_price,
                 }
             )
-    return {"measured": True, "observed_at": observed_at, "error": None, "by_symbol": by_symbol}
+    return {
+        "measured": True,
+        "observed_at": observed_at,
+        "error": None,
+        "by_symbol": by_symbol,
+    }
 
 
 def _canonical_trail_pct(position: dict[str, Any]) -> float | None:
@@ -184,7 +193,9 @@ def _best_observed(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not rows:
         return None
     order = {"trailing": 0, "oco": 1, "stop": 2}
-    return sorted(rows, key=lambda row: order.get(str(row.get("protection_observed")), 99))[0]
+    return sorted(
+        rows, key=lambda row: order.get(str(row.get("protection_observed")), 99)
+    )[0]
 
 
 def _apply_protection_truth(
@@ -207,7 +218,9 @@ def _apply_protection_truth(
         position["trailing_stop_pct"] = trail_pct
         position["protection_observed_at"] = observed_at
         position["protection_observation_measured"] = measured
-        position["protection_observation_error"] = observation.get("error") if not measured else None
+        position["protection_observation_error"] = (
+            observation.get("error") if not measured else None
+        )
         position["protection_verified"] = False
         position["resting_client_order_id"] = None
         position["broker_hwm"] = None
@@ -215,17 +228,23 @@ def _apply_protection_truth(
         position["stop_price_source"] = None
 
         fractional = _is_fractional(position.get("qty"))
-        observed = _best_observed(list(by_symbol.get(symbol) or [])) if measured else None
+        observed = (
+            _best_observed(list(by_symbol.get(symbol) or [])) if measured else None
+        )
         if observed is not None:
             position["protection_observed"] = observed.get("protection_observed")
-            position["resting_client_order_id"] = observed.get("resting_client_order_id")
+            position["resting_client_order_id"] = observed.get(
+                "resting_client_order_id"
+            )
             position["broker_hwm"] = observed.get("hwm")
             position["broker_stop_price"] = observed.get("broker_stop_price")
             broker_trail_pct = _f(observed.get("trail_percent"))
             if broker_trail_pct is not None:
                 broker_trail_pct /= 100.0
             effective_pct = broker_trail_pct or trail_pct
-            broker_stop = _f(observed.get("broker_stop_price")) or _f(observed.get("trail_price"))
+            broker_stop = _f(observed.get("broker_stop_price")) or _f(
+                observed.get("trail_price")
+            )
             broker_hwm = _f(observed.get("hwm"))
             if broker_stop is not None:
                 position["stop_price_est"] = broker_stop
@@ -240,7 +259,11 @@ def _apply_protection_truth(
             if broker_trail_pct is not None:
                 position["trailing_stop_pct"] = broker_trail_pct
         elif fractional:
-            soft = soft_state.get(symbol) if isinstance(soft_state.get(symbol), dict) else {}
+            soft = (
+                soft_state.get(symbol)
+                if isinstance(soft_state.get(symbol), dict)
+                else {}
+            )
             hwm = _f(soft.get("highest_price"))
             soft_pct = _f(soft.get("trailing_stop_pct")) or trail_pct
             if hwm is not None and soft_pct is not None:
@@ -251,7 +274,9 @@ def _apply_protection_truth(
             else:
                 position["stop_price_est"] = None
                 position["protection_observed"] = "none" if measured else "unmeasured"
-                position["protection_state"] = "soft_pending" if measured else "unmeasured"
+                position["protection_state"] = (
+                    "soft_pending" if measured else "unmeasured"
+                )
         elif not measured:
             position["stop_price_est"] = None
             position["protection_observed"] = "unmeasured"
@@ -266,7 +291,9 @@ def _apply_protection_truth(
         current = _f(position.get("current_price"))
         stop = _f(position.get("stop_price_est"))
         position["distance_to_stop_pct"] = (
-            ((current / stop) - 1.0) * 100.0 if current is not None and stop is not None and stop > 0 else None
+            ((current / stop) - 1.0) * 100.0
+            if current is not None and stop is not None and stop > 0
+            else None
         )
     return snapshot
 
@@ -287,7 +314,12 @@ def build_snapshot(*args: Any, **kwargs: Any) -> dict[str, Any]:
     observation = (
         get_open_order_protection(client)
         if client is not None
-        else {"measured": False, "observed_at": None, "error": "client unavailable", "by_symbol": {}}
+        else {
+            "measured": False,
+            "observed_at": None,
+            "error": "client unavailable",
+            "by_symbol": {},
+        }
     )
     return _apply_protection_truth(
         snapshot,
