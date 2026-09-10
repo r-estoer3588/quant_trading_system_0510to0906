@@ -182,6 +182,8 @@ def test_paper_submitter_and_open_run_keep_whole_share_entry_policy():
         encoding="utf-8"
     )
     open_run = (root / "scripts" / "open_auto_run.py").read_text(encoding="utf-8")
-    assert "PAPER_WHOLE_SHARE_ONLY = True" in submitter
     assert "prefer_fractional=False" in submitter
+    assert '"prefer_fractional": False' in submitter
+    assert '"whole_share_only": PAPER_WHOLE_SHARE_ONLY' in submitter
+    assert "prefer_fractional=(not args.no_fractional)" not in submitter
     assert "paper_trading_submit.py" in open_run
