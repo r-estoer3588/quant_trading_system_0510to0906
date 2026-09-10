@@ -72,19 +72,39 @@ def _estimate_stop_target(
     avg_entry: float,
     rules: Any,
     atr: dict[int, float],
+    actual_stop: float | None = None,
+    hwm: float | None = None,
 ) -> tuple[float | None, float | None]:
-    """Compatibility helper: fixed stops stay canonical; trailing has no fake stop.
+    """Resolve stop truth without allowing ATR to impersonate a trailing stop.
 
-    The actual trailing threshold is applied later by ``_apply_protection_truth``
-    after OPEN-order/HWM observation is available.  Returning ``None`` for a
-    trailing stop here prevents the legacy ATR estimate from masquerading as a
-    moving broker/soft trail.
+    Fixed-stop systems delegate to the preserved canonical execution math.
+    Trailing systems resolve strictly as broker resting stop -> observed HWM
+    times canonical trail width -> unknown.  ``atr`` is accepted for target
+    compatibility only and is never used to fabricate a trailing threshold.
     """
-    if getattr(rules, "use_trailing_stop", False):
-        return None, _target_only(side=side, avg_entry=avg_entry, rules=rules, atr=atr)
-    return _legacy._estimate_stop_target(
-        side=side, avg_entry=avg_entry, rules=rules, atr=atr
-    )
+    if not getattr(rules, "use_trailing_stop", False):
+        return _legacy._estimate_stop_target(
+            side=side, avg_entry=avg_entry, rules=rules, atr=atr
+        )
+
+    target = _target_only(side=side, avg_entry=avg_entry, rules=rules, atr=atr)
+    stop = _f(actual_stop)
+    if stop is not None and stop > 0:
+        return stop, target
+
+    observed_hwm = _f(hwm)
+    trail_pct = _f(getattr(rules, "trailing_stop_pct", None))
+    if observed_hwm is None or observed_hwm <= 0 or trail_pct is None:
+        return None, target
+    if not 0 < trail_pct < 1:
+        return None, target
+
+    side_n = str(side or "").strip().lower()
+    if side_n == "long":
+        return observed_hwm * (1.0 - trail_pct), target
+    if side_n == "short":
+        return observed_hwm * (1.0 + trail_pct), target
+    return None, target
 
 
 def _load_soft_state(path: Path | None = None) -> dict[str, dict[str, Any]]:
