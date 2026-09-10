@@ -66,6 +66,7 @@ from common.alpaca_trading import (  # noqa: E402
     fetch_existing_exit_coids,
     fetch_existing_protect_coids,
     fetch_position_snapshots,
+    hydrate_system_tags,
     parse_entry_date_from_client_order_id,
     parse_system_from_client_order_id,
     probe_asset_tradable,
@@ -78,6 +79,10 @@ from common.exit_artifacts import (  # noqa: E402
 )
 from common.position_tracker import load_tracker  # noqa: E402
 from common.symbol_map import load_symbol_system_map  # noqa: E402
+from common.system5_live_exit import (  # noqa: E402
+    SYSTEM5_TARGET_NEXT_OPEN,
+    build_system5_live_exits,
+)
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -628,6 +633,16 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         symbol_map = {}
 
+    # S5 を generic builder から安全に分離するため、同 builder が内部で行う tag hydrate
+    # を先に一度実施する。ここは pure metadata 解決で、発注・戦略値は変更しない。
+    hydrate_system_tags(
+        snapshots,
+        tracker=tracker,
+        entry_orders_index=entry_orders_index,
+        symbol_map=symbol_map,
+        symbol_aliases=rename_aliases,
+    )
+
     # --- 3) context (SPY, ATR, 現値) ------------------------------------
     spy_high, spy_max70 = _load_spy_context()
     symbols = [s.symbol for s in snapshots]
@@ -640,8 +655,16 @@ def main(argv: list[str] | None = None) -> int:
     # 建玉ごとの「保護がどう掛かっているか」。端株は broker 常駐注文を張れず日次
     # synthetic 判定に振替になるため、silent にせず artifact に残す (2026-08-19)。
     protection_coverage: list[dict[str, Any]] = []
+
+    # System5 は canonical/backtest が「1ATR 到達 -> 翌営業日寄付成行」かつ
+    # 「6営業日を観察 -> 7日目寄付成行」。generic engine の resting target / hd>=6
+    # とは意味が違うため専用 adapter へ。S1/S2/S3/S4/S6/S7 は既存経路を不変に保つ。
+    system5_snapshots = [
+        s for s in snapshots if str(s.system or "").lower() == "system5"
+    ]
+    other_snapshots = [s for s in snapshots if s not in system5_snapshots]
     exits = build_exit_orders_from_positions(
-        snapshots,
+        other_snapshots,
         today=date_str,
         unassigned_out=unassigned,
         protection_coverage_out=protection_coverage,
@@ -655,6 +678,20 @@ def main(argv: list[str] | None = None) -> int:
         spy_max70=spy_max70,
         atr_by_symbol=atr_by_symbol,
         price_by_symbol=price_by_symbol,
+    )
+    system5_diagnostics: list[dict[str, Any]] = []
+    exits.extend(
+        build_system5_live_exits(
+            system5_snapshots,
+            today=date_str,
+            rolling_dir=ROOT / "data_cache" / "rolling",
+            existing_protect_coids=existing_protect_coids,
+            existing_exit_coids=existing_exit_coids,
+            latest_atr_by_symbol=atr_by_symbol,
+            price_by_symbol=price_by_symbol,
+            protection_coverage_out=protection_coverage,
+            diagnostics_out=system5_diagnostics,
+        )
     )
 
     # orphan を「帰属欠落 (直せば守れる)」と「exit 発注不能 (手動対応が要る)」に
@@ -674,14 +711,19 @@ def main(argv: list[str] | None = None) -> int:
             po.dry_run = True
     else:
         # --- cancel-before-close: 有害な held_for_orders 失敗を防ぐ -----------
-        # time/breakout の full-close (成行) を出す銘柄は、resting protective 注文
-        # (stop/limit/trailing) が qty を握って code 40310000 を招く。close 対象銘柄
-        # だけ先に protective を cancel して qty を解放する。保有継続銘柄は不変。
+        # time/breakout/target-next-open の full-close (成行) を出す銘柄は、resting
+        # protective 注文が qty を握って code 40310000 を招く。close 対象銘柄だけ
+        # 先に cancel し、保有継続銘柄は不変。
         if not getattr(args, "no_cancel_before_close", False):
             close_syms = {
                 po.symbol.upper()
                 for po in exits
-                if po.reason in (ExitReasonCode.TIME, ExitReasonCode.BREAKOUT)
+                if po.reason
+                in (
+                    ExitReasonCode.TIME,
+                    ExitReasonCode.BREAKOUT,
+                    SYSTEM5_TARGET_NEXT_OPEN,
+                )
             }
             if close_syms:
                 canc = ba.cancel_open_orders_for_symbols(client, close_syms)
@@ -694,22 +736,22 @@ def main(argv: list[str] | None = None) -> int:
                     # cancel は非同期。qty が解放されるまで短く待つ (best-effort)。
                     time.sleep(float(getattr(args, "cancel_settle_seconds", 2.5)))
 
-        # --- cancel-before-upgrade: 単発 stop -> OCO 昇格 (PROTECT_USE_OCO=1) ---
-        # 単発 stop が qty を全量予約したままだと OCO は code 40310000 で必ず拒否
-        # される。昇格対象の **その stop 1 本だけ** を coid 指定で外す
-        # (同じ銘柄の他注文には触らない)。dry-run では絶対に通らない経路。
-        upgrade_coids = {
+        # --- cancel-before-migration ----------------------------------------
+        # PreparedExit.cancel_client_order_ids は既存 OCO 昇格に加え、System5 の
+        # legacy OCO/target -> canonical stop-only 移行にも使う。指定された coid
+        # **だけ** を外し、同じ銘柄の手動注文には触らない。
+        migration_coids = {
             coid
             for po in exits
             if not po.skip_reason
             for coid in (getattr(po, "cancel_client_order_ids", None) or [])
         }
-        if upgrade_coids:
-            canc_up = ba.cancel_open_orders_by_client_order_ids(client, upgrade_coids)
+        if migration_coids:
+            canc_up = ba.cancel_open_orders_by_client_order_ids(client, migration_coids)
             print(
-                f"[exit_check] cancel-before-upgrade: canceled "
-                f"{canc_up['canceled']}/{len(upgrade_coids)} standalone stop(s) "
-                f"before submitting OCO protection"
+                f"[exit_check] cancel-before-migration: canceled "
+                f"{canc_up['canceled']}/{len(migration_coids)} protection order(s) "
+                f"before replacement"
             )
             if canc_up["canceled"]:
                 time.sleep(float(getattr(args, "cancel_settle_seconds", 2.5)))
@@ -778,8 +820,16 @@ def main(argv: list[str] | None = None) -> int:
     mode = "submitted" if not dry_run else "dry_run"
     role = role_for(dry_run)
     time_exits = [e for e in exits if e.reason == "time_based"]
+    target_next_open_exits = [
+        e for e in exits if e.reason == SYSTEM5_TARGET_NEXT_OPEN
+    ]
     unsubmitted_time_cnt = sum(
         1 for e in time_exits if e.dry_run or not e.order_id or bool(e.error)
+    )
+    unsubmitted_target_cnt = sum(
+        1
+        for e in target_next_open_exits
+        if e.dry_run or not e.order_id or bool(e.error)
     )
 
     sidecar = _write_output(
@@ -804,6 +854,10 @@ def main(argv: list[str] | None = None) -> int:
             "execution_health": (
                 "blocked_unsubmitted_time_exit" if unsubmitted_time_cnt > 0 else "ok"
             ),
+            # System5 canonical target は resting limit ではなく trigger -> next open。
+            "system5_target_next_open_due": len(target_next_open_exits),
+            "system5_target_next_open_unsubmitted": unsubmitted_target_cnt,
+            "system5_live_exit": system5_diagnostics,
             "spy_high": spy_high,
             "spy_max70": spy_max70,
             "unassigned_count": len(unassigned),
@@ -837,11 +891,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # summary
     time_cnt = len(time_exits)
+    target_next_open_cnt = len(target_next_open_exits)
     breakout_cnt = sum(1 for e in exits if e.reason == "spy_breakout")
     protect_cnt = sum(1 for e in exits if e.reason.startswith("protect_"))
     print(
         f"[exit_check] positions={len(snapshots)} exits={len(exits)} "
-        f"(time={time_cnt}, breakout={breakout_cnt}, protect={protect_cnt}) "
+        f"(time={time_cnt}, s5_target_next_open={target_next_open_cnt}, "
+        f"breakout={breakout_cnt}, protect={protect_cnt}) "
         f"mode={mode} submitted={submitted_ok} failed={submit_failed} "
         f"already_protected={already_protected}"
     )
