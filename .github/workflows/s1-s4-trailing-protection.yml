@@ -30,10 +30,20 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-      - name: Install project requirements
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install project and test requirements
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Black formatting contract
+        run: |
+          black --check \
+            common/soft_trailing.py \
+            scripts/export_alpaca_snapshot.py \
+            tests/test_s1_s4_soft_trailing_20260910.py
       - name: Focused trailing protection tests
         env:
           APCA_API_BASE_URL: https://paper-api.alpaca.markets
