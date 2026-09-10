@@ -67,6 +67,16 @@ def test_target_touch_exits_market_at_next_session_open():
     assert target[0].limit_price is None
 
 
+def test_target_next_open_skips_nyse_holiday():
+    # 9/4 Friday target hit; 9/7 Labor Day is not a session, so next open is 9/8.
+    exits = build_system5_exit_orders(
+        _snap(), today="2026-09-08", history=_history(hit_day="2026-09-04")
+    )
+    assert len(exits) == 1
+    assert exits[0].reason == SYSTEM5_TARGET_NEXT_OPEN
+    assert exits[0].order_type == "market"
+
+
 def test_sixth_session_is_still_observation_day_not_timeout_open():
     # 9/1 entry -> post-entry sessions: 9/2,3,4,8,9,10 because 9/7 is Labor Day.
     df = _history()
