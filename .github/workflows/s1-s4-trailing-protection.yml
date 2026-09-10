@@ -1,0 +1,65 @@
+name: S1 S4 trailing protection checks
+
+on:
+  push:
+    branches:
+      - fix/s1-s4-trailing-protection-20260910
+  pull_request:
+    paths:
+      - common/soft_trailing.py
+      - schedulers/runner.py
+      - schedulers/runner_legacy.py
+      - scripts/export_alpaca_snapshot.py
+      - scripts/export_alpaca_snapshot_legacy.py
+      - apps/dashboards/alpaca-next/components/AlpacaSection.tsx
+      - apps/dashboards/alpaca-next/components/AlpacaSectionLegacy.tsx
+      - tests/test_s1_s4_soft_trailing_20260910.py
+      - tests/test_dashboard_trailing_display_20260908.py
+      - .github/workflows/s1-s4-trailing-protection.yml
+
+permissions:
+  contents: read
+
+jobs:
+  python-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install project requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Focused trailing protection tests
+        env:
+          APCA_API_BASE_URL: https://paper-api.alpaca.markets
+        run: |
+          pytest -q \
+            tests/test_s1_s4_soft_trailing_20260910.py \
+            tests/test_dashboard_trailing_display_20260908.py \
+            tests/test_export_alpaca_snapshot.py \
+            tests/test_whole_share_paper_policy_20260907.py
+
+  dashboard-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/dashboards/alpaca-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/dashboards/alpaca-next/package-lock.json
+      - name: Install dashboard dependencies
+        run: npm ci
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+      - name: Next production build
+        run: npm run build
