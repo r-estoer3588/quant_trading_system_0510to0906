@@ -1,0 +1,39 @@
+name: System5 live parity one-shot format
+
+on:
+  push:
+    branches:
+      - fix/system5-live-exit-parity-20260910
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/system5-live-exit-parity-20260910
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install repo-pinned formatters
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Format touched Python files
+        run: |
+          isort common/system5_live_exit.py scripts/export_alpaca_snapshot.py scripts/paper_exit_check.py tests/test_system5_live_exit_parity_20260910.py
+          black common/system5_live_exit.py scripts/export_alpaca_snapshot.py scripts/paper_exit_check.py tests/test_system5_live_exit_parity_20260910.py
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/system5-live-format-once.yml
+          git config user.name "system5-parity-bot"
+          git config user.email "system5-parity-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "style(system5): apply pinned isort and black"
+          git push origin HEAD:fix/system5-live-exit-parity-20260910
