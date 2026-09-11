@@ -86,6 +86,16 @@ def wait_for_client_order_absent(
         time.sleep(max(0.01, float(poll_seconds)))
 
 
+def fetch_market_open_state(client: Any) -> bool | None:
+    """Return Alpaca regular-session open state; unreadable is None."""
+    try:
+        clock = client.get_clock()
+    except Exception:
+        return None
+    value = getattr(clock, "is_open", None)
+    return value if isinstance(value, bool) else None
+
+
 def execute_system5_protection_migration(
     po: PreparedExit,
     *,
@@ -118,10 +128,36 @@ def execute_system5_protection_migration(
             error="stale_or_unproven_old_protection",
         )
 
+    market_open = fetch_market_open_state(client)
+
     # A previous run may already have received a cancel acknowledgement and then
-    # timed out while Alpaca kept the order in pending_cancel.  Do not issue a
-    # second cancel in that state; just wait for the original cancel to settle.
+    # timed out while Alpaca kept the order in pending_cancel.  Outside the regular
+    # session, Alpaca can legitimately keep that state until the next market open.
+    # Do not spin for 30 seconds or issue another cancel while the venue is closed.
+    if before.get(old_coid) == "pending_cancel" and market_open is False:
+        return MigrationExecution(
+            False,
+            False,
+            po,
+            error="pending_cancel_wait_market_open",
+            canceled_client_order_id=old_coid,
+        )
+
+    # Never start a new destructive cancel+replace while the regular session is
+    # closed.  The resident legacy protection remains untouched and the operator can
+    # retry after market open, when cancel settlement can be verified immediately.
     if before.get(old_coid) != "pending_cancel":
+        if market_open is not True:
+            return MigrationExecution(
+                False,
+                True,
+                po,
+                error=(
+                    "market_closed_migration_not_started"
+                    if market_open is False
+                    else "market_state_unreadable_migration_not_started"
+                ),
+            )
         canceled = canceler(client, {old_coid})
         if old_coid not in set(canceled.get("coids") or []):
             return MigrationExecution(
@@ -231,5 +267,6 @@ __all__ = [
     "execute_system5_protection_migration",
     "fetch_open_client_order_ids",
     "fetch_open_client_order_states",
+    "fetch_market_open_state",
     "wait_for_client_order_absent",
 ]

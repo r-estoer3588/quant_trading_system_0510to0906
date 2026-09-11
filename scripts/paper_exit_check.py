@@ -90,6 +90,7 @@ from common.system5_migration_execution import (  # noqa: E402
 )
 from common.system5_protection_migration import (  # noqa: E402
     defer_extra_system5_migrations,
+    defer_system5_migrations_for_recovery,
     is_system5_protection_migration,
     observe_protection_fallbacks,
     system5_migrations_only,
@@ -733,6 +734,7 @@ def main(argv: list[str] | None = None) -> int:
     # blast radius to one S5 symbol per run; later candidates remain visible in the
     # artifact as deferred and will advance on the next run.
     deferred_s5_migrations = defer_extra_system5_migrations(exits)
+    deferred_s5_migrations += defer_system5_migrations_for_recovery(exits)
     if args.system5_migration_only:
         exits = system5_migrations_only(exits)
         print(

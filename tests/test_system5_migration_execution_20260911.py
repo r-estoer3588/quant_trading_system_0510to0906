@@ -10,8 +10,9 @@ CANON = "protect-s5c-TEST-20260901-20260911"
 
 
 class _Client:
-    def __init__(self, coids: list[str]):
+    def __init__(self, coids: list[str], *, market_open: bool = True):
         self.orders = [self._order(c) for c in coids]
+        self.market_open = market_open
 
     @staticmethod
     def _order(coid: str):
@@ -19,6 +20,9 @@ class _Client:
 
     def get_orders(self, filter=None):  # noqa: A002 - Alpaca-compatible fake
         return list(self.orders)
+
+    def get_clock(self):
+        return SimpleNamespace(is_open=self.market_open)
 
     def add(self, coid: str) -> None:
         self.orders.append(self._order(coid))
@@ -203,4 +207,52 @@ def test_pending_cancel_rerun_does_not_send_second_cancel():
     assert result.success is False
     assert result.safe is False
     assert result.error == "exact_cancel_not_settled_old_still_open"
+    assert calls["cancel"] == 0
+
+
+def test_market_closed_does_not_start_destructive_cancel():
+    client = _Client([OLD], market_open=False)
+    calls = {"cancel": 0, "submit": 0}
+
+    def canceler(client, coids):
+        calls["cancel"] += 1
+        return _cancel_remove(client, coids)
+
+    def submitter(candidate):
+        calls["submit"] += 1
+        return candidate
+
+    result = execute_system5_protection_migration(
+        _po(),
+        client=client,
+        canceler=canceler,
+        submitter=submitter,
+        cancel_timeout_seconds=0.0,
+    )
+    assert result.success is False
+    assert result.safe is True
+    assert result.error == "market_closed_migration_not_started"
+    assert calls == {"cancel": 0, "submit": 0}
+    assert any(o.client_order_id == OLD for o in client.orders)
+
+
+def test_pending_cancel_market_closed_waits_for_open_without_second_cancel():
+    client = _Client([OLD], market_open=False)
+    client.orders[0].status = "pending_cancel"
+    calls = {"cancel": 0}
+
+    def canceler(client, coids):
+        calls["cancel"] += 1
+        return _cancel_remove(client, coids)
+
+    result = execute_system5_protection_migration(
+        _po(),
+        client=client,
+        canceler=canceler,
+        submitter=lambda candidate: candidate,
+        cancel_timeout_seconds=0.0,
+    )
+    assert result.success is False
+    assert result.safe is False
+    assert result.error == "pending_cancel_wait_market_open"
     assert calls["cancel"] == 0

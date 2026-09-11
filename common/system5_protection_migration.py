@@ -136,6 +136,30 @@ def system5_migrations_only(exits: list[PreparedExit]) -> list[PreparedExit]:
     return [po for po in exits if is_system5_protect_stop(po)]
 
 
+def defer_system5_migrations_for_recovery(exits: list[PreparedExit]) -> int:
+    """Prioritize non-destructive S5 stop recovery over any legacy migration.
+
+    If a prior cancel finishes between runs, the now-missing canonical stop must be
+    restored before touching another symbol.  Defer every still-actionable destructive
+    migration for this run while leaving existing deferral reasons intact.
+    """
+    recovery_needed = any(
+        is_system5_protect_stop(po)
+        and not po.cancel_client_order_ids
+        and not po.skip_reason
+        for po in exits
+    )
+    if not recovery_needed:
+        return 0
+
+    deferred = 0
+    for po in exits:
+        if is_system5_protection_migration(po) and not po.skip_reason:
+            po.skip_reason = "s5_migration_deferred:recovery_first"
+            deferred += 1
+    return deferred
+
+
 def defer_extra_system5_migrations(exits: list[PreparedExit]) -> int:
     """Allow at most one destructive System5 protection migration per run.
 
@@ -162,5 +186,6 @@ __all__ = [
     "is_system5_protect_stop",
     "is_system5_protection_migration",
     "system5_migrations_only",
+    "defer_system5_migrations_for_recovery",
     "defer_extra_system5_migrations",
 ]
