@@ -120,6 +120,16 @@ def is_system5_protection_migration(po: PreparedExit) -> bool:
     )
 
 
+def system5_migrations_only(exits: list[PreparedExit]) -> list[PreparedExit]:
+    """Return only System5 cancel+replace migration proposals.
+
+    This is an operator scope guard: routine time exits and protection proposals from
+    other systems are intentionally excluded so a one-off legacy migration cannot
+    mutate unrelated broker orders.
+    """
+    return [po for po in exits if is_system5_protection_migration(po)]
+
+
 def defer_extra_system5_migrations(exits: list[PreparedExit]) -> int:
     """Allow at most one destructive System5 protection migration per run.
 
@@ -144,5 +154,6 @@ __all__ = [
     "ProtectionFallback",
     "observe_protection_fallbacks",
     "is_system5_protection_migration",
+    "system5_migrations_only",
     "defer_extra_system5_migrations",
 ]
