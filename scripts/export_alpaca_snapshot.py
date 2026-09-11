@@ -38,6 +38,7 @@ PROVIDER = _legacy.PROVIDER
 # calculation has not replaced the preserved accounting implementation.
 resolve_session_pnl = _legacy.resolve_session_pnl
 _QTY_EPS = 1e-6
+_SOFT_STATUS_MAX_AGE_SECONDS = 90 * 60
 
 
 def __getattr__(name: str) -> Any:
@@ -114,13 +115,90 @@ def _estimate_stop_target(
     return None, target
 
 
+def _parse_aware_timestamp(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _load_fresh_soft_status(
+    *, now: datetime | None = None
+) -> dict[str, dict[str, Any]]:
+    """Load the newest fresh soft-monitor status from the shared results dir.
+
+    The clean runtime keeps mutable HWM state outside the git worktree.  The
+    monitor already publishes a measured status JSON into ``results_csv`` (a
+    junction to the PRIMARY runtime data), so the dashboard can consume that as
+    evidence without dirtying the clean clone.  Status older than 90 minutes is
+    rejected instead of being treated as current protection evidence.
+    """
+    stamp = now or datetime.now(timezone.utc)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    stamp = stamp.astimezone(timezone.utc)
+    status_dir = ROOT / "results_csv"
+    try:
+        candidates = sorted(
+            status_dir.glob("soft_trailing_status_*.json"), reverse=True
+        )
+    except OSError:
+        return {}
+
+    for target in candidates[:3]:
+        try:
+            raw = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        generated_at = _parse_aware_timestamp(raw.get("generated_at"))
+        if generated_at is None:
+            continue
+        age_seconds = (stamp - generated_at).total_seconds()
+        if age_seconds < -300 or age_seconds > _SOFT_STATUS_MAX_AGE_SECONDS:
+            continue
+        rows = raw.get("rows")
+        if not isinstance(rows, list):
+            continue
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").upper()
+            hwm = _f(row.get("hwm"))
+            trail_pct = _f(row.get("trail_pct"))
+            if not symbol or hwm is None or hwm <= 0:
+                continue
+            if trail_pct is None or not 0 < trail_pct < 1:
+                continue
+            out[symbol] = {
+                "highest_price": hwm,
+                "trailing_stop_pct": trail_pct,
+                "last_update": generated_at.isoformat(),
+                "source": "soft_trailing_status",
+            }
+        if out:
+            return out
+    return {}
+
+
 def _load_soft_state(path: Path | None = None) -> dict[str, dict[str, Any]]:
     target = path or (ROOT / "data" / "trailing_stops.json")
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+        raw = {}
+    state = raw if isinstance(raw, dict) else {}
+    if state or path is not None:
+        return state
+    return _load_fresh_soft_status()
 
 
 def _iter_order_tree(order: Any):
