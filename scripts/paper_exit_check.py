@@ -85,8 +85,12 @@ from common.system5_live_exit import (
     build_system5_exit_orders,
 )
 from common.system5_live_exit import load_history as load_system5_history  # noqa: E402
+from common.system5_migration_execution import (  # noqa: E402
+    execute_system5_protection_migration,
+)
 from common.system5_protection_migration import (  # noqa: E402
     defer_extra_system5_migrations,
+    is_system5_protection_migration,
     observe_protection_fallbacks,
 )
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
@@ -559,6 +563,12 @@ def main(argv: list[str] | None = None) -> int:
         help="cancel 後、qty 解放を待つ秒数 (default 2.5)。",
     )
     parser.add_argument(
+        "--s5-migration-cancel-timeout-seconds",
+        type=float,
+        default=30.0,
+        help="S5 legacy protection の exact cancel が broker 上で消えるまで待つ上限秒数。",
+    )
+    parser.add_argument(
         "--fail-on-unsubmitted-time-exit",
         action="store_true",
         help=(
@@ -764,7 +774,7 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_coids = {
             coid
             for po in exits
-            if not po.skip_reason
+            if not po.skip_reason and not is_system5_protection_migration(po)
             for coid in (getattr(po, "cancel_client_order_ids", None) or [])
         }
         if upgrade_coids:
@@ -810,6 +820,32 @@ def main(argv: list[str] | None = None) -> int:
             rearmed.append(stop_po)
 
         for po in exits:
+            if is_system5_protection_migration(po) and not po.skip_reason:
+                outcome = execute_system5_protection_migration(
+                    po,
+                    client=client,
+                    canceler=ba.cancel_open_orders_by_client_order_ids,
+                    submitter=lambda candidate: submit_paper_exit_order(
+                        candidate, dry_run=False, client=client
+                    ),
+                    cancel_timeout_seconds=float(
+                        getattr(args, "s5_migration_cancel_timeout_seconds", 30.0)
+                    ),
+                )
+                if outcome.rollback is not None:
+                    rearmed.append(outcome.rollback)
+                if outcome.success:
+                    submitted_ok += 1
+                    print(
+                        f"[exit_check] S5 migration OK: {po.symbol} -> canonical stop"
+                    )
+                else:
+                    submit_failed += 1
+                    po.error = outcome.error or "system5_migration_failed"
+                    if outcome.safe:
+                        po.skip_reason = "s5_migration_failed_but_protection_preserved"
+                    print(f"[exit_check] S5 migration FAIL: {po.symbol}: {po.error}")
+                continue
             try:
                 result = submit_paper_exit_order(po, dry_run=False, client=client)
                 if result.error:
