@@ -181,3 +181,26 @@ def test_cancel_ack_without_settlement_is_not_declared_safe():
     assert result.safe is False
     assert result.error == "exact_cancel_not_settled_old_still_open"
     assert any(o.client_order_id == OLD for o in client.orders)
+
+
+def test_pending_cancel_rerun_does_not_send_second_cancel():
+    client = _Client([OLD])
+    client.orders[0].status = "pending_cancel"
+    calls = {"cancel": 0}
+
+    def canceler(client, coids):
+        calls["cancel"] += 1
+        return _cancel_remove(client, coids)
+
+    result = execute_system5_protection_migration(
+        _po(),
+        client=client,
+        canceler=canceler,
+        submitter=lambda candidate: candidate,
+        cancel_timeout_seconds=0.0,
+        poll_seconds=0.01,
+    )
+    assert result.success is False
+    assert result.safe is False
+    assert result.error == "exact_cancel_not_settled_old_still_open"
+    assert calls["cancel"] == 0

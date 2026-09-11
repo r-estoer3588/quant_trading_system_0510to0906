@@ -167,3 +167,28 @@ def test_system5_migration_only_scope_excludes_unrelated_exits():
     scoped = system5_migrations_only([unrelated, migration, deferred])
     assert scoped == [migration, deferred]
     assert unrelated not in scoped
+
+
+def test_system5_migration_scope_keeps_recovery_stop_after_cancel_settles():
+    recovery = PreparedExit(
+        symbol="HTFL",
+        system="system5",
+        qty=43,
+        side="sell",
+        order_type="stop",
+        reason=ExitReasonCode.PROTECT_STOP,
+        entry_date="2026-09-08",
+        stop_price=41.2,
+        client_order_id="protect-system5-HTFL-20260908-protect-stop",
+        time_in_force="gtc",
+    )
+    unrelated = PreparedExit(
+        symbol="OTHER",
+        system="system2",
+        qty=1,
+        side="sell",
+        order_type="stop",
+        reason=ExitReasonCode.PROTECT_STOP,
+    )
+    scoped = system5_migrations_only([unrelated, recovery])
+    assert scoped == [recovery]

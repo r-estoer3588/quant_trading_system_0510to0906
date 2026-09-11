@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from common.alpaca_trading import PreparedExit
+from common.alpaca_trading import ExitReasonCode, PreparedExit
 
 SYSTEM5 = "system5"
 
@@ -112,22 +112,28 @@ def observe_protection_fallbacks(
     return out
 
 
-def is_system5_protection_migration(po: PreparedExit) -> bool:
+def is_system5_protect_stop(po: PreparedExit) -> bool:
     return (
         str(po.system or "").lower() == SYSTEM5
         and po.order_type == "stop"
-        and bool(po.cancel_client_order_ids)
+        and po.reason == ExitReasonCode.PROTECT_STOP
     )
 
 
-def system5_migrations_only(exits: list[PreparedExit]) -> list[PreparedExit]:
-    """Return only System5 cancel+replace migration proposals.
+def is_system5_protection_migration(po: PreparedExit) -> bool:
+    return is_system5_protect_stop(po) and bool(po.cancel_client_order_ids)
 
-    This is an operator scope guard: routine time exits and protection proposals from
-    other systems are intentionally excluded so a one-off legacy migration cannot
-    mutate unrelated broker orders.
+
+def system5_migrations_only(exits: list[PreparedExit]) -> list[PreparedExit]:
+    """Return only System5 stop-protection work for the migration operator scope.
+
+    Besides destructive cancel+replace proposals, keep a non-destructive canonical
+    stop proposal.  This is required when a prior migration run timed out while the
+    broker order was ``pending_cancel`` and that cancel settles before the next run;
+    otherwise the migration-only scope would accidentally discard the recovery stop.
+    Time/target exits and every other system remain excluded.
     """
-    return [po for po in exits if is_system5_protection_migration(po)]
+    return [po for po in exits if is_system5_protect_stop(po)]
 
 
 def defer_extra_system5_migrations(exits: list[PreparedExit]) -> int:
@@ -153,6 +159,7 @@ def defer_extra_system5_migrations(exits: list[PreparedExit]) -> int:
 __all__ = [
     "ProtectionFallback",
     "observe_protection_fallbacks",
+    "is_system5_protect_stop",
     "is_system5_protection_migration",
     "system5_migrations_only",
     "defer_extra_system5_migrations",
