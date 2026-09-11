@@ -16,6 +16,7 @@ on:
       - apps/dashboards/alpaca-next/components/AlpacaSectionLegacy.tsx
       - tests/test_s1_s4_soft_trailing_20260910.py
       - tests/test_dashboard_trailing_display_20260908.py
+      - tests/test_soft_trailing_status_bridge_20260911.py
       - .github/workflows/s1-s4-trailing-protection.yml
 
 permissions:
@@ -44,7 +45,8 @@ jobs:
           black --check \
             common/soft_trailing.py \
             scripts/export_alpaca_snapshot.py \
-            tests/test_s1_s4_soft_trailing_20260910.py
+            tests/test_s1_s4_soft_trailing_20260910.py \
+            tests/test_soft_trailing_status_bridge_20260911.py
       - name: Focused trailing protection tests
         env:
           APCA_API_BASE_URL: https://paper-api.alpaca.markets
@@ -52,6 +54,7 @@ jobs:
           pytest -q \
             tests/test_s1_s4_soft_trailing_20260910.py \
             tests/test_dashboard_trailing_display_20260908.py \
+            tests/test_soft_trailing_status_bridge_20260911.py \
             tests/test_export_alpaca_snapshot.py \
             tests/test_whole_share_paper_policy_20260907.py
 
