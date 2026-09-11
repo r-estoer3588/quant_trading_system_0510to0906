@@ -520,6 +520,20 @@ def _write_output(
     return write_with_sidecar(output_path, payload, role)
 
 
+def _is_mandatory_full_close(po: PreparedExit) -> bool:
+    return po.order_type == "market" and po.reason in {
+        ExitReasonCode.TIME,
+        ExitReasonCode.BREAKOUT,
+        SYSTEM5_TARGET_NEXT_OPEN,
+    }
+
+
+def _is_already_protected_non_exit(po: PreparedExit, error: str | None) -> bool:
+    return classify_exit_submit_error(
+        error
+    ) == "already_protected" and not _is_mandatory_full_close(po)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -561,8 +575,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--cancel-settle-seconds",
         type=float,
-        default=2.5,
-        help="cancel 後、qty 解放を待つ秒数 (default 2.5)。",
+        default=30.0,
+        help="cancel 後、qty 解放を broker で確認する上限秒数 (default 30)。",
     )
     parser.add_argument(
         "--s5-migration-cancel-timeout-seconds",
@@ -781,8 +795,18 @@ def main(argv: list[str] | None = None) -> int:
                     f"symbol(s) before market close"
                 )
                 if canc["canceled"]:
-                    # cancel は非同期。qty が解放されるまで短く待つ (best-effort)。
-                    time.sleep(float(getattr(args, "cancel_settle_seconds", 2.5)))
+                    settle = ba.wait_for_no_open_orders_for_symbols(
+                        client,
+                        close_syms,
+                        timeout_seconds=float(
+                            getattr(args, "cancel_settle_seconds", 30.0)
+                        ),
+                    )
+                    if not settle["settled"]:
+                        print(
+                            f"[exit_check] WARNING cancel settlement incomplete: "
+                            f"pending_symbols={settle['pending_symbols']} error={settle['error']}"
+                        )
 
         # --- cancel-before-upgrade: 単発 stop -> OCO 昇格 (PROTECT_USE_OCO=1) ---
         # 単発 stop が qty を全量予約したままだと OCO は code 40310000 で必ず拒否
@@ -866,8 +890,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 result = submit_paper_exit_order(po, dry_run=False, client=client)
                 if result.error:
-                    kind = classify_exit_submit_error(result.error)
-                    if kind == "already_protected":
+                    if _is_already_protected_non_exit(result, result.error):
                         # 建玉が既存注文で全量予約済み = 保護は掛かっている。
                         # 監査用に broker の生文言は skip_reason へ移し、error は
                         # 落として下流が「失敗」と数えないようにする。
@@ -880,8 +903,7 @@ def main(argv: list[str] | None = None) -> int:
                 elif result.order_id:
                     submitted_ok += 1
             except Exception as exc:
-                kind = classify_exit_submit_error(str(exc))
-                if kind == "already_protected":
+                if _is_already_protected_non_exit(po, str(exc)):
                     po.skip_reason = f"already_protected:{exc}"
                     already_protected += 1
                 else:

@@ -547,6 +547,41 @@ def cancel_open_orders_for_symbols(client, symbols: Iterable[str]) -> dict[str, 
     return result
 
 
+def wait_for_no_open_orders_for_symbols(
+    client,
+    symbols: Iterable[str],
+    *,
+    timeout_seconds: float = 30.0,
+    poll_seconds: float = 0.25,
+) -> dict[str, Any]:
+    """Poll until target symbols have no broker-open orders.
+
+    A cancel acknowledgement is asynchronous at Alpaca.  A mandatory full-close must
+    not assume qty is released just because cancel returned successfully.
+    """
+    want = {str(s).upper() for s in symbols if str(s).strip()}
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    while True:
+        try:
+            orders = get_open_orders(client)
+        except Exception as exc:
+            return {
+                "settled": False,
+                "pending_symbols": sorted(want),
+                "error": str(exc),
+            }
+        pending = {
+            str(getattr(o, "symbol", "") or "").upper()
+            for o in (orders or [])
+            if str(getattr(o, "symbol", "") or "").upper() in want
+        }
+        if not pending:
+            return {"settled": True, "pending_symbols": [], "error": None}
+        if time.monotonic() >= deadline:
+            return {"settled": False, "pending_symbols": sorted(pending), "error": None}
+        time.sleep(max(0.01, float(poll_seconds)))
+
+
 def cancel_open_orders_by_client_order_ids(
     client, client_order_ids: Iterable[str]
 ) -> dict[str, Any]:
