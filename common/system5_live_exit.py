@@ -41,6 +41,9 @@ _TARGET_SUFFIX = "exit-target-next-open"
 _STOP_SUFFIX = "protect-stop"
 _STOP_REARM_SUFFIX = "protect-stop-rearm"
 _OCO_SUFFIX = "protect-oco"
+_TARGET_PROTECT_SUFFIX = "protect-target"
+_MIGRATED_STOP_PREFIX = "protect-s5c"
+_ROLLBACK_STOP_PREFIX = "protect-s5rb"
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +229,26 @@ def _protect_base(snap: PositionSnapshot) -> str:
     return f"protect-{SYSTEM5}-{snap.symbol}-{entry}"
 
 
+def _short_protect_tag(snap: PositionSnapshot) -> str:
+    return (snap.entry_date or "noentry").replace("-", "")[:8] or "noentry"
+
+
+def _migrated_stop_coid(snap: PositionSnapshot, today: str) -> str:
+    day = str(today).replace("-", "")[:8]
+    return f"{_MIGRATED_STOP_PREFIX}-{snap.symbol.upper()}-{_short_protect_tag(snap)}-{day}"
+
+
+def _rollback_stop_prefix(snap: PositionSnapshot) -> str:
+    return f"{_ROLLBACK_STOP_PREFIX}-{snap.symbol.upper()}-{_short_protect_tag(snap)}-"
+
+
+def _stop_price_matches(observed: float | None, expected: float | None) -> bool | None:
+    if observed is None or expected is None:
+        return None
+    tolerance = 0.011 if float(expected) >= 1.0 else 0.00011
+    return abs(float(observed) - float(expected)) <= tolerance
+
+
 def build_system5_exit_orders(
     snap: PositionSnapshot,
     *,
@@ -233,6 +256,7 @@ def build_system5_exit_orders(
     history: pd.DataFrame | None,
     existing_protect_coids: set[str] | None = None,
     existing_exit_coids: set[str] | None = None,
+    existing_protect_stop_prices: dict[str, float] | None = None,
     coverage_out: list[dict[str, Any]] | None = None,
 ) -> list[PreparedExit]:
     """Build System5 exits without altering the strategy.
@@ -240,6 +264,11 @@ def build_system5_exit_orders(
     Priority matches the backtest: an already-observed target wins at the next open;
     otherwise timeout can fire at the seventh open; otherwise only the frozen-ATR stop
     is broker-resident. No native target/OCO is created for System5.
+
+    Existing pre-fix protection is migrated only through a scoped cancel+replace
+    proposal.  The runner snapshots the old downside stop before it cancels anything
+    and rolls that stop back immediately if replacement fails.  This builder remains
+    pure and never touches the broker.
     """
     if str(snap.system or "").lower() != SYSTEM5 or snap.abs_qty <= 0:
         return []
@@ -247,6 +276,7 @@ def build_system5_exit_orders(
     state = evaluate_system5_state(snap, today=today, history=history)
     existing_protect = existing_protect_coids or set()
     existing_exit = existing_exit_coids or set()
+    observed_stop_prices = existing_protect_stop_prices or {}
     close_side = "sell" if snap.side == "long" else "buy"
 
     if state.target_exit_due:
@@ -295,8 +325,82 @@ def build_system5_exit_orders(
     stop_coid = f"{base}-{_STOP_SUFFIX}"
     rearm_coid = f"{base}-{_STOP_REARM_SUFFIX}"
     oco_coid = f"{base}-{_OCO_SUFFIX}"
-    incompatible_oco = oco_coid in existing_protect
-    already_stop = stop_coid in existing_protect or rearm_coid in existing_protect
+    target_coid = f"{base}-{_TARGET_PROTECT_SUFFIX}"
+    today_compact = str(today).replace("-", "")[:8]
+    migrated_prefix = (
+        f"{_MIGRATED_STOP_PREFIX}-{snap.symbol.upper()}-{_short_protect_tag(snap)}-"
+    )
+    rollback_prefix = _rollback_stop_prefix(snap)
+    migrated_coids = sorted(
+        c for c in existing_protect if c.startswith(migrated_prefix)
+    )
+    rollback_coids = sorted(
+        c for c in existing_protect if c.startswith(rollback_prefix)
+    )
+
+    expected_stop: float | None = None
+    if state.entry_atr10 is not None:
+        raw_stop = protective_stop_price(
+            side=snap.side,
+            avg_entry_price=snap.avg_entry_price,
+            rules=rules,
+            atr_value=state.entry_atr10,
+            symbol=snap.symbol,
+        )
+        if raw_stop is not None and raw_stop > 0:
+            expected_stop = round_to_alpaca_tick(raw_stop)
+
+    related = []
+    for coid in (stop_coid, rearm_coid, oco_coid, target_coid):
+        if coid in existing_protect:
+            related.append(coid)
+    related.extend(migrated_coids)
+    related.extend(rollback_coids)
+    related = sorted(set(related))
+
+    cancel_for_migration: str | None = None
+    migration_detail: str | None = None
+    keep_existing = False
+
+    if len(related) > 1:
+        # More than one full-quantity protection order is unexpected.  Never guess
+        # which one can be removed; leave all broker state untouched and surface it.
+        keep_existing = True
+        migration_detail = "ambiguous_multiple_protection"
+    elif len(related) == 1:
+        current = related[0]
+        if current in (oco_coid, target_coid):
+            cancel_for_migration = current
+            migration_detail = "legacy_target_or_oco_migration_pending"
+        elif current.startswith(rollback_prefix):
+            if current.endswith(f"-{today_compact}"):
+                # A failed migration already rolled protection back in this run/day.
+                # Do not churn it again until a later session gets a fresh coid.
+                keep_existing = True
+                migration_detail = "rollback_stop_active_retry_next_session"
+            else:
+                cancel_for_migration = current
+                migration_detail = "rollback_stop_retry_pending"
+        else:
+            observed = observed_stop_prices.get(current)
+            matches = _stop_price_matches(observed, expected_stop)
+            if matches is False:
+                current_migration_coid = _migrated_stop_coid(snap, today)
+                if current == current_migration_coid:
+                    keep_existing = True
+                    migration_detail = "migrated_stop_mismatch_retry_next_session"
+                else:
+                    cancel_for_migration = current
+                    migration_detail = "legacy_stop_price_migration_pending"
+            else:
+                # Unknown observed price is kept fail-safe.  A read failure must not
+                # trigger a cancellation merely because the price cannot be proved.
+                keep_existing = True
+                migration_detail = (
+                    "stop_already_open"
+                    if matches is True
+                    else "stop_price_unmeasured_keep_existing"
+                )
 
     if coverage_out is not None:
         coverage_out.append(
@@ -306,47 +410,37 @@ def build_system5_exit_orders(
                 "qty": snap.qty,
                 "is_fractional": snap.is_fractional,
                 "mode": "system5_canonical",
-                "resident_order": already_stop or incompatible_oco,
-                "detail": (
-                    "incompatible_existing_oco"
-                    if incompatible_oco
+                "resident_order": bool(related),
+                "detail": migration_detail
+                or (
+                    "stop_pending_arm"
+                    if state.entry_atr10 is not None and not snap.is_fractional
                     else (
-                        "stop_already_open"
-                        if already_stop
-                        else (
-                            "stop_pending_arm"
-                            if state.entry_atr10 is not None and not snap.is_fractional
-                            else (
-                                "fractional_daily_stop"
-                                if snap.is_fractional
-                                else "missing_entry_atr10"
-                            )
-                        )
+                        "fractional_daily_stop"
+                        if snap.is_fractional
+                        else "missing_entry_atr10"
                     )
                 ),
                 "entry_atr10": state.entry_atr10,
                 "target_price": state.target_price,
                 "target_hit_date": state.target_hit_date,
                 "timeout_exit_date": state.timeout_exit_date,
+                "expected_stop_price": expected_stop,
+                "existing_protection_coids": related,
             }
         )
 
-    # Never stack another order against an existing S5 OCO. It is surfaced above as
-    # incompatible so operators can migrate it safely; new canonical S5 paths never
-    # create one.
-    if incompatible_oco or already_stop:
+    if cancel_for_migration and observed_stop_prices.get(cancel_for_migration) is None:
+        # Cancel+replace is forbidden unless the currently broker-accepted downside
+        # stop was observed first.  Without that evidence there is no proven rollback.
+        if coverage_out is not None:
+            coverage_out[-1]["detail"] = "migration_blocked_missing_rollback_stop"
         return []
-    if state.entry_atr10 is None:
+    if keep_existing:
         return []
-
-    stop_price = protective_stop_price(
-        side=snap.side,
-        avg_entry_price=snap.avg_entry_price,
-        rules=rules,
-        atr_value=state.entry_atr10,
-        symbol=snap.symbol,
-    )
-    if stop_price is None or stop_price <= 0:
+    if state.entry_atr10 is None or expected_stop is None:
+        # Do not cancel legacy protection when the canonical frozen stop cannot be
+        # reconstructed.  Existing protection stays resident until evidence exists.
         return []
 
     if snap.is_fractional:
@@ -355,7 +449,7 @@ def build_system5_exit_orders(
         cur = snap.current_price
         if cur is None or cur <= 0:
             return []
-        breached = cur <= stop_price if snap.side == "long" else cur >= stop_price
+        breached = cur <= expected_stop if snap.side == "long" else cur >= expected_stop
         if not breached:
             return []
         coid = _exit_coid(snap, today, "exit-synstop")
@@ -370,13 +464,16 @@ def build_system5_exit_orders(
                 order_type="market",
                 reason=ExitReasonCode.PROTECT_STOP,
                 entry_date=snap.entry_date,
-                stop_price=round(stop_price, 4),
+                stop_price=round(expected_stop, 4),
                 client_order_id=coid,
                 dry_run=True,
                 time_in_force="day",
             )
         ]
 
+    replacement_coid = (
+        _migrated_stop_coid(snap, today) if cancel_for_migration else stop_coid
+    )
     return [
         PreparedExit(
             symbol=snap.symbol,
@@ -386,10 +483,18 @@ def build_system5_exit_orders(
             order_type="stop",
             reason=ExitReasonCode.PROTECT_STOP,
             entry_date=snap.entry_date,
-            stop_price=round_to_alpaca_tick(stop_price),
-            client_order_id=stop_coid,
+            stop_price=expected_stop,
+            client_order_id=replacement_coid,
             dry_run=True,
             time_in_force="gtc",
+            cancel_client_order_ids=(
+                [cancel_for_migration] if cancel_for_migration else []
+            ),
+            rollback_stop_price=(
+                observed_stop_prices.get(cancel_for_migration)
+                if cancel_for_migration
+                else None
+            ),
         )
     ]
 
