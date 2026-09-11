@@ -1,11 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import importlib.util
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 from common.alpaca_trading import ExitReasonCode, PreparedExit
 from scripts.paper_exit_check import _post_entry_protection_only
