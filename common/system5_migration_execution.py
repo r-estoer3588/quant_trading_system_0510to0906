@@ -32,32 +32,40 @@ def _walk_legs(order: Any):
         yield from _walk_legs(leg)
 
 
-def fetch_open_client_order_ids(client: Any) -> set[str] | None:
-    """Return broker-open client_order_ids, or None if state is unreadable."""
+def _status_value(value: Any) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def fetch_open_client_order_states(client: Any) -> dict[str, str] | None:
+    """Return broker-open client_order_id -> status; unreadable is None."""
     try:
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
         orders = client.get_orders(
             filter=GetOrdersRequest(
-                status=QueryOrderStatus.OPEN,
-                nested=True,
-                limit=500,
+                status=QueryOrderStatus.OPEN, nested=True, limit=500
             )
         )
     except Exception:
         return None
 
-    out: set[str] = set()
+    out: dict[str, str] = {}
     for parent in orders or []:
         coid = str(getattr(parent, "client_order_id", "") or "")
         if coid:
-            out.add(coid)
+            out[coid] = _status_value(getattr(parent, "status", None))
         for leg in _walk_legs(parent):
             leg_coid = str(getattr(leg, "client_order_id", "") or "")
             if leg_coid:
-                out.add(leg_coid)
+                out[leg_coid] = _status_value(getattr(leg, "status", None))
     return out
+
+
+def fetch_open_client_order_ids(client: Any) -> set[str] | None:
+    """Return broker-open client_order_ids, or None if state is unreadable."""
+    states = fetch_open_client_order_states(client)
+    return None if states is None else set(states)
 
 
 def wait_for_client_order_absent(
@@ -101,7 +109,7 @@ def execute_system5_protection_migration(
         )
 
     old_coid = cancel_coids[0]
-    before = fetch_open_client_order_ids(client)
+    before = fetch_open_client_order_states(client)
     if before is None or old_coid not in before:
         return MigrationExecution(
             False,
@@ -110,14 +118,18 @@ def execute_system5_protection_migration(
             error="stale_or_unproven_old_protection",
         )
 
-    canceled = canceler(client, {old_coid})
-    if old_coid not in set(canceled.get("coids") or []):
-        return MigrationExecution(
-            False,
-            True,
-            po,
-            error="exact_cancel_not_acknowledged",
-        )
+    # A previous run may already have received a cancel acknowledgement and then
+    # timed out while Alpaca kept the order in pending_cancel.  Do not issue a
+    # second cancel in that state; just wait for the original cancel to settle.
+    if before.get(old_coid) != "pending_cancel":
+        canceled = canceler(client, {old_coid})
+        if old_coid not in set(canceled.get("coids") or []):
+            return MigrationExecution(
+                False,
+                True,
+                po,
+                error="exact_cancel_not_acknowledged",
+            )
 
     if not wait_for_client_order_absent(
         client,
@@ -218,5 +230,6 @@ __all__ = [
     "MigrationExecution",
     "execute_system5_protection_migration",
     "fetch_open_client_order_ids",
+    "fetch_open_client_order_states",
     "wait_for_client_order_absent",
 ]
