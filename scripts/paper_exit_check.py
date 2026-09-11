@@ -534,6 +534,29 @@ def _is_already_protected_non_exit(po: PreparedExit, error: str | None) -> bool:
     ) == "already_protected" and not _is_mandatory_full_close(po)
 
 
+def _post_entry_protection_only(
+    exits: list[PreparedExit],
+    *,
+    symbols: set[str] | None = None,
+    entry_date: str | None = None,
+) -> list[PreparedExit]:
+    """Keep only non-destructive resident protection for scoped new entries."""
+    protect_reasons = {
+        ExitReasonCode.PROTECT_STOP,
+        ExitReasonCode.PROTECT_TRAIL,
+        ExitReasonCode.PROTECT_TARGET,
+        ExitReasonCode.PROTECT_OCO,
+    }
+    return [
+        po
+        for po in exits
+        if po.reason in protect_reasons
+        and not po.cancel_client_order_ids
+        and (not symbols or po.symbol.upper() in symbols)
+        and (not entry_date or str(po.entry_date or "")[:10] == entry_date)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -593,6 +616,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--protection-only-symbols",
+        default=None,
+        help=(
+            "comma-separated symbols。指定銘柄の非破壊 protective proposal だけを実行し、"
+            "time/target/breakout と cancel+replace upgrade/migration を除外する。"
+        ),
+    )
+    parser.add_argument(
+        "--today-entry-protection-only",
+        action="store_true",
+        help="Only non-destructive protection for positions whose entry_date matches --date.",
+    )
+    parser.add_argument(
         "--fail-on-unsubmitted-time-exit",
         action="store_true",
         help=(
@@ -605,6 +641,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.system5_migration_only and (
+        args.protection_only_symbols or args.today_entry_protection_only
+    ):
+        parser.error(
+            "system5 migration scope cannot be combined with post-entry protection scope"
+        )
 
     date_str = args.date or _today_str()
     date_compact = date_str.replace("-", "")
@@ -754,6 +796,19 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"[exit_check] execution scope=system5_migration_only "
             f"candidates={len(exits)} deferred={deferred_s5_migrations}"
+        )
+    elif args.protection_only_symbols or args.today_entry_protection_only:
+        protect_symbols = {
+            x.strip().upper()
+            for x in str(args.protection_only_symbols or "").split(",")
+            if x.strip()
+        }
+        protect_entry_date = date_str if args.today_entry_protection_only else None
+        exits = _post_entry_protection_only(
+            exits, symbols=protect_symbols or None, entry_date=protect_entry_date
+        )
+        print(
+            f"[exit_check] execution scope=post_entry_protection_only symbols={sorted(protect_symbols) if protect_symbols else 'all'} entry_date={protect_entry_date or 'any'} candidates={len(exits)}"
         )
 
     # orphan を「帰属欠落 (直せば守れる)」と「exit 発注不能 (手動対応が要る)」に
@@ -936,7 +991,15 @@ def main(argv: list[str] | None = None) -> int:
             "already_protected": already_protected,
             "system5_migration_deferred": deferred_s5_migrations,
             "execution_scope": (
-                "system5_migration_only" if args.system5_migration_only else "all_exits"
+                "system5_migration_only"
+                if args.system5_migration_only
+                else (
+                    "post_entry_protection_only"
+                    if (
+                        args.protection_only_symbols or args.today_entry_protection_only
+                    )
+                    else "all_exits"
+                )
             ),
             "broker_unreachable": broker_unreachable,
             # 「exit 案を作った」と「broker へ送った」を混同しないための運用 health。

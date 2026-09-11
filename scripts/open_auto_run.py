@@ -217,6 +217,9 @@ class Runner:
         self.results = ROOT / "results_csv"
         self.signals_json = self.results / f"today_signals_{self.compact}.json"
         self.exit_json = self.results / f"exit_orders_{self.compact}.json"
+        self.post_entry_protection_json = (
+            self.results / f"exit_orders_{self.compact}_post_entry_protection.json"
+        )
         # flatten で close 受理済み = 建玉が消えるのを待つべき symbol 集合。
         self.pending_flat_symbols: set[str] = set()
         self.paper_json = self.results / f"paper_orders_{self.compact}.json"
@@ -815,7 +818,7 @@ class Runner:
         except Exception as exc:  # noqa: BLE001
             self.log(f"[entry] paper_orders 解析失敗: {exc}")
 
-    def reconcile_entry_fills(self) -> None:
+    def reconcile_entry_fills(self) -> set[str]:
         """submit 時点の status スナップショットを **実 fill** で上書きする。
 
         ``paper_trading_submit`` が書けるのは submit 直後の status
@@ -826,13 +829,14 @@ class Runner:
         ここで order を終端化するまで re-poll し、artifact を実状へ合わせる。
         **観測のみ** — 発注も取消もしない。失敗しても run は継続する。
         """
+        filled_symbols: set[str] = set()
         if self.dry_run:
-            return
+            return filled_symbols
         try:
             data = json.loads(self.paper_json.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001 - artifact 未生成でも run は継続
             self.log(f"[fills] paper_orders 読めず reconcile skip: {exc}")
-            return
+            return filled_symbols
         orders = (data or {}).get("orders") or []
         by_id: dict[str, list[dict]] = {}
         for o in orders:
@@ -841,7 +845,7 @@ class Runner:
                 by_id.setdefault(str(oid), []).append(o)
         if not by_id:
             self.log("[fills] 再突合対象の order_id が無い -> skip")
-            return
+            return filled_symbols
 
         try:
             from common.broker_alpaca import get_orders_status_map
@@ -849,7 +853,7 @@ class Runner:
             client = self._client()
         except Exception as exc:  # noqa: BLE001
             self.log(f"[fills] broker 接続できず reconcile skip: {exc}")
-            return
+            return filled_symbols
 
         ids = list(by_id)
         deadline = time.monotonic() + float(self.args.poll_timeout)
@@ -899,6 +903,11 @@ class Runner:
                 row["status_source"] = "reconciled"
             if hit:
                 filled += len(rows)
+                filled_symbols.update(
+                    str(row.get("symbol") or "").upper()
+                    for row in rows
+                    if str(row.get("symbol") or "").strip()
+                )
 
         data["entry_filled"] = filled
         data["status_reconciled"] = reconciled
@@ -909,10 +918,38 @@ class Runner:
             )
         except Exception as exc:  # noqa: BLE001
             self.log(f"[fills] paper_orders 書き戻し失敗: {exc}")
-            return
+            return filled_symbols
         self._dump("paper_orders.json", data)
         self.record["entry_filled"] = filled
+        self.record["entry_filled_symbols"] = sorted(filled_symbols)
         self.log(f"[fills] entry fill 再突合: filled={filled}/{len(ids)} 件")
+        return filled_symbols
+
+    def post_entry_protection_stage(self, symbols: set[str]) -> int:
+        """Arm non-destructive protection for entries that filled in this run."""
+        if self.dry_run or not symbols:
+            self.record["post_entry_protection_status"] = (
+                "skipped_dry_run" if self.dry_run else "skipped_no_fills"
+            )
+            self.record["post_entry_protection_exit_code"] = 0
+            return 0
+        argv = [
+            str(ROOT / "scripts" / "paper_exit_check.py"),
+            "--date",
+            self.date,
+            "--output-json",
+            str(self.post_entry_protection_json),
+            "--protection-only-symbols",
+            ",".join(sorted(symbols)),
+            "--today-entry-protection-only",
+            "--confirm",
+            "--yes",
+        ]
+        rc, _out, _err = self.run_step("post_entry_protection", argv)
+        self.record["post_entry_protection_symbols"] = sorted(symbols)
+        self.record["post_entry_protection_exit_code"] = int(rc)
+        self.record["post_entry_protection_status"] = "ok" if int(rc) == 0 else "failed"
+        return int(rc)
 
     def _snapshot_positions(self, name: str) -> None:
         if self.dry_run:
@@ -1209,10 +1246,12 @@ class Runner:
         eq = self.equity()
         market_ids = self.exit_stage()
         self.wait_exit_fills(market_ids)  # exit->entry 順の担保点
+        protection_rc = 0
         if self.entry_allowed:
             self.entry_stage(eq)
             # submit 時点の status は必ず未終端。recon の前に実 fill へ寄せる。
-            self.reconcile_entry_fills()
+            filled_symbols = self.reconcile_entry_fills()
+            protection_rc = self.post_entry_protection_stage(filled_symbols)
         else:
             self.log(
                 f"[entry] SKIP: {self.record.get('entry_skip_reason')} "
@@ -1246,10 +1285,15 @@ class Runner:
         # 注文段は既に完了しているため、観測段の失敗時も DONE.lock を先に作る。
         # rc=4 による再試行で発注を重複させないことが最優先。
         self.finalize(aborted=False)
-        if notify_rc != 0 or publish_rc != 0 or self.record.get("flatten_error"):
+        if (
+            notify_rc != 0
+            or publish_rc != 0
+            or protection_rc != 0
+            or self.record.get("flatten_error")
+        ):
             self.log(
-                "=== OPEN AUTO RUN done with observability failure "
-                f"notify={notify_rc} publish={publish_rc} "
+                "=== OPEN AUTO RUN done with post-order degradation "
+                f"protection={protection_rc} notify={notify_rc} publish={publish_rc} "
                 f"flatten_error={bool(self.record.get('flatten_error'))} ==="
             )
             return OBSERVABILITY_DEGRADED_EXIT_CODE
