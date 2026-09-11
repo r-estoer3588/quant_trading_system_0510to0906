@@ -25,14 +25,16 @@ if (-not (Test-Path $launcher)) { throw "launcher not found: $launcher" }
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`" -PrimaryRoot `"$PrimaryRoot`"" `
     -WorkingDirectory $WorktreeRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At "22:35"
-$trigger.Repetition.Interval = "PT15M"
-$trigger.Repetition.Duration = "PT8H"
+$first = Get-Date -Hour 22 -Minute 35 -Second 0
+$triggers = @()
+for ($minutes = 0; $minutes -le 480; $minutes += 15) {
+    $triggers += New-ScheduledTaskTrigger -Daily -At $first.AddMinutes($minutes)
+}
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
     -Principal $principal -Settings $settings `
     -Description "Paper post-entry protection sweep; non-destructive scope." | Out-Null
-Write-Host "registered: $TaskName at 22:35 JST, every 15m for 8h"
+Write-Host "registered: $TaskName daily from 22:35 JST through 06:35 JST, every 15m"
 Write-Host "dry-run smoke test: powershell -File `"$launcher`" -DryRun -PrimaryRoot `"$PrimaryRoot`""
