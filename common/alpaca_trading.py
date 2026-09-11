@@ -1827,6 +1827,10 @@ class PreparedExit:
     # 予約したままだと OCO が code 40310000 で確実に拒否されるため)。
     # dry-run では絶対に cancel しない (提案として artifact に残るだけ)。
     cancel_client_order_ids: list[str] = field(default_factory=list)
+    # If cancel+replace is attempted, this is the broker-observed downside stop that
+    # was resident before cancellation.  It is rollback evidence, never a strategy
+    # input.  None means the caller must not perform a destructive migration.
+    rollback_stop_price: float | None = None
 
     def to_row(self) -> dict[str, Any]:
         return asdict(self)
@@ -2517,41 +2521,67 @@ def _build_protection_orders(
 
 
 def build_stop_rearm_after_failed_oco(po: PreparedExit) -> PreparedExit | None:
-    """OCO 昇格が失敗したときに張り直す単発 stop を作る (pure)。
+    """Build a downside stop after a cancel+replace protection failure (pure).
 
-    昇格は「resting の単発 stop を cancel してから OCO を出す」ので、OCO が
-    broker に拒否されると **建玉が無保護のまま翌 run まで放置** される。これは
-    利確が張れないことより遥かに悪い。よって昇格由来の OCO が失敗したら、
-    同じ qty / 同じ stop 価格の単発 stop を必ず張り直す。
+    Existing generic OCO-upgrade behavior is preserved: when a standalone stop was
+    canceled before an OCO submit, the OCO's stop price is re-armed under the legacy
+    ``protect-stop-rearm`` id.
 
-    coid は元のものを再利用できない (Alpaca は client_order_id を使い回せない)
-    ため ``-protect-stop-rearm`` を使う。この coid は次回以降の
-    ``_build_protection_orders`` で「stop は resting」かつ「昇格済で失敗」と
-    解釈され、昇格は再試行されない。
-
-    昇格由来でない OCO / stop 価格が無い場合は None (張り直す対象が無い)。
+    System5 additionally uses this rollback path when a pre-fix OCO/drifting stop is
+    canceled before a canonical frozen-ATR standalone stop.  In that case the rollback
+    price is *not* the new canonical price: it is the broker-observed old downside stop
+    captured before cancellation.  That distinction prevents a failed migration from
+    turning into an unprotected position.
     """
-    if po.order_type != "oco":
-        return None
     if not (po.cancel_client_order_ids or []):
         return None
-    if po.stop_price is None or po.stop_price <= 0:
-        return None
+
     entry_date_compact = (po.entry_date or "").replace("-", "")
-    base = f"protect-{po.system}-{po.symbol}-{entry_date_compact}"
-    return PreparedExit(
-        symbol=po.symbol,
-        system=po.system,
-        qty=po.qty,
-        side=po.side,
-        order_type="stop",
-        reason=ExitReasonCode.PROTECT_STOP,
-        entry_date=po.entry_date,
-        stop_price=po.stop_price,
-        client_order_id=f"{base}-{_PROTECT_STOP_REARM_SUFFIX}",
-        dry_run=True,
-        time_in_force="gtc",
-    )
+    if po.order_type == "oco":
+        if po.stop_price is None or po.stop_price <= 0:
+            return None
+        base = f"protect-{po.system}-{po.symbol}-{entry_date_compact}"
+        return PreparedExit(
+            symbol=po.symbol,
+            system=po.system,
+            qty=po.qty,
+            side=po.side,
+            order_type="stop",
+            reason=ExitReasonCode.PROTECT_STOP,
+            entry_date=po.entry_date,
+            stop_price=po.stop_price,
+            client_order_id=f"{base}-{_PROTECT_STOP_REARM_SUFFIX}",
+            dry_run=True,
+            time_in_force="gtc",
+        )
+
+    if (
+        str(po.system or "").lower() == "system5"
+        and po.order_type == "stop"
+        and po.rollback_stop_price is not None
+        and po.rollback_stop_price > 0
+    ):
+        day = "rollback"
+        if po.client_order_id:
+            tail = str(po.client_order_id).rsplit("-", 1)[-1]
+            if len(tail) == 8 and tail.isdigit():
+                day = tail
+        entry = entry_date_compact or "noentry"
+        return PreparedExit(
+            symbol=po.symbol,
+            system=po.system,
+            qty=po.qty,
+            side=po.side,
+            order_type="stop",
+            reason=ExitReasonCode.PROTECT_STOP,
+            entry_date=po.entry_date,
+            stop_price=round_to_alpaca_tick(po.rollback_stop_price),
+            client_order_id=f"protect-s5rb-{po.symbol}-{entry}-{day}",
+            dry_run=True,
+            time_in_force="gtc",
+        )
+
+    return None
 
 
 def _build_synthetic_protection_orders(

@@ -85,6 +85,10 @@ from common.system5_live_exit import (
     build_system5_exit_orders,
 )
 from common.system5_live_exit import load_history as load_system5_history  # noqa: E402
+from common.system5_protection_migration import (  # noqa: E402
+    defer_extra_system5_migrations,
+    observe_protection_fallbacks,
+)
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -642,6 +646,17 @@ def main(argv: list[str] | None = None) -> int:
     # 端株 synthetic の現値 fallback (snapshot.current_price を優先)。
     price_by_symbol = _load_price_by_symbol(symbols) if symbols else {}
 
+    # Read-only evidence captured before any cancel.  Legacy S5 OCO/stop migration
+    # is blocked unless its downside stop can be restored if replacement fails.
+    system5_fallbacks = (
+        observe_protection_fallbacks(client, existing_protect_coids)
+        if not broker_unreachable and existing_protect_coids
+        else {}
+    )
+    existing_protect_stop_prices = {
+        coid: evidence.stop_price for coid, evidence in system5_fallbacks.items()
+    }
+
     # --- 4) build exit proposals ----------------------------------------
     unassigned: list[dict[str, Any]] = []
     # 建玉ごとの「保護がどう掛かっているか」。端株は broker 常駐注文を張れず日次
@@ -690,9 +705,15 @@ def main(argv: list[str] | None = None) -> int:
                 history=history,
                 existing_protect_coids=existing_protect_coids,
                 existing_exit_coids=existing_exit_coids,
+                existing_protect_stop_prices=existing_protect_stop_prices,
                 coverage_out=protection_coverage,
             )
         )
+
+    # A cancel+replace protection migration is destructive even on Paper.  Limit the
+    # blast radius to one S5 symbol per run; later candidates remain visible in the
+    # artifact as deferred and will advance on the next run.
+    deferred_s5_migrations = defer_extra_system5_migrations(exits)
 
     # orphan を「帰属欠落 (直せば守れる)」と「exit 発注不能 (手動対応が要る)」に
     # 分ける。build_exit_orders_from_positions は pure なのでここで broker を見る。
@@ -838,6 +859,7 @@ def main(argv: list[str] | None = None) -> int:
             "failed": submit_failed,
             # 既存の保護注文で建玉が全量予約済みだった件数 (危険ではない)。
             "already_protected": already_protected,
+            "system5_migration_deferred": deferred_s5_migrations,
             "broker_unreachable": broker_unreachable,
             # 「exit 案を作った」と「broker へ送った」を混同しないための運用 health。
             # dashboard / verifier はこの値で dry-run の期限超過を赤く出せる。

@@ -145,3 +145,96 @@ def test_existing_stop_is_idempotent():
         existing_protect_coids={coid},
     )
     assert exits == []
+
+
+def test_legacy_oco_is_not_canceled_without_observed_rollback_stop():
+    snap = _snap()
+    oco = "protect-system5-TEST-20260901-protect-oco"
+    coverage: list[dict] = []
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={oco},
+        coverage_out=coverage,
+    )
+    assert exits == []
+    assert coverage[0]["detail"] == "migration_blocked_missing_rollback_stop"
+    assert coverage[0]["resident_order"] is True
+
+
+def test_legacy_oco_proposes_scoped_canonical_stop_with_rollback_evidence():
+    snap = _snap()
+    oco = "protect-system5-TEST-20260901-protect-oco"
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={oco},
+        existing_protect_stop_prices={oco: 84.0},
+    )
+    assert len(exits) == 1
+    stop = exits[0]
+    assert stop.order_type == "stop"
+    assert stop.stop_price == 85.0
+    assert stop.cancel_client_order_ids == [oco]
+    assert stop.rollback_stop_price == 84.0
+    assert stop.client_order_id.startswith("protect-s5c-TEST-20260901-")
+
+
+def test_wrong_pre_fix_stop_price_is_migrated_to_frozen_atr_stop():
+    snap = _snap()
+    old = "protect-system5-TEST-20260901-protect-stop"
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={old},
+        existing_protect_stop_prices={old: 82.0},
+    )
+    assert len(exits) == 1
+    assert exits[0].stop_price == 85.0
+    assert exits[0].rollback_stop_price == 82.0
+    assert exits[0].cancel_client_order_ids == [old]
+
+
+def test_matching_existing_stop_price_remains_idempotent_when_measured():
+    snap = _snap()
+    old = "protect-system5-TEST-20260901-protect-stop"
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={old},
+        existing_protect_stop_prices={old: 85.0},
+    )
+    assert exits == []
+
+
+def test_same_day_rollback_stop_is_not_churned_again():
+    snap = _snap()
+    rollback = "protect-s5rb-TEST-20260901-20260903"
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={rollback},
+        existing_protect_stop_prices={rollback: 84.0},
+    )
+    assert exits == []
+
+
+def test_prior_day_rollback_retries_canonical_migration():
+    snap = _snap()
+    rollback = "protect-s5rb-TEST-20260901-20260902"
+    exits = build_system5_exit_orders(
+        snap,
+        today="2026-09-03",
+        history=_history(),
+        existing_protect_coids={rollback},
+        existing_protect_stop_prices={rollback: 84.0},
+    )
+    assert len(exits) == 1
+    assert exits[0].stop_price == 85.0
+    assert exits[0].cancel_client_order_ids == [rollback]
+    assert exits[0].rollback_stop_price == 84.0
