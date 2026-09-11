@@ -10,6 +10,7 @@ from common.alpaca_trading import (
 from common.system5_protection_migration import (
     defer_extra_system5_migrations,
     observe_protection_fallbacks,
+    system5_migrations_only,
 )
 
 
@@ -149,3 +150,20 @@ def test_single_system5_migration_is_not_deferred():
     only = _migration_po("AAA")
     assert defer_extra_system5_migrations([only]) == 0
     assert only.skip_reason is None
+
+
+def test_system5_migration_only_scope_excludes_unrelated_exits():
+    migration = _migration_po("AAA")
+    deferred = _migration_po("BBB")
+    deferred.skip_reason = "s5_migration_deferred:one_per_run"
+    unrelated = PreparedExit(
+        symbol="OTHER",
+        system="system3",
+        qty=5,
+        side="sell",
+        order_type="market",
+        reason=ExitReasonCode.TIME,
+    )
+    scoped = system5_migrations_only([unrelated, migration, deferred])
+    assert scoped == [migration, deferred]
+    assert unrelated not in scoped

@@ -92,6 +92,7 @@ from common.system5_protection_migration import (  # noqa: E402
     defer_extra_system5_migrations,
     is_system5_protection_migration,
     observe_protection_fallbacks,
+    system5_migrations_only,
 )
 from common.trade_management import SYSTEM_TRADE_RULES  # noqa: E402
 
@@ -569,6 +570,14 @@ def main(argv: list[str] | None = None) -> int:
         help="S5 legacy protection の exact cancel が broker 上で消えるまで待つ上限秒数。",
     )
     parser.add_argument(
+        "--system5-migration-only",
+        action="store_true",
+        help=(
+            "S5 legacy protection migration だけを対象にする operator scope guard。"
+            "他 system の time/protection exit は発注も cancel もしない。"
+        ),
+    )
+    parser.add_argument(
         "--fail-on-unsubmitted-time-exit",
         action="store_true",
         help=(
@@ -724,6 +733,12 @@ def main(argv: list[str] | None = None) -> int:
     # blast radius to one S5 symbol per run; later candidates remain visible in the
     # artifact as deferred and will advance on the next run.
     deferred_s5_migrations = defer_extra_system5_migrations(exits)
+    if args.system5_migration_only:
+        exits = system5_migrations_only(exits)
+        print(
+            f"[exit_check] execution scope=system5_migration_only "
+            f"candidates={len(exits)} deferred={deferred_s5_migrations}"
+        )
 
     # orphan を「帰属欠落 (直せば守れる)」と「exit 発注不能 (手動対応が要る)」に
     # 分ける。build_exit_orders_from_positions は pure なのでここで broker を見る。
@@ -896,6 +911,9 @@ def main(argv: list[str] | None = None) -> int:
             # 既存の保護注文で建玉が全量予約済みだった件数 (危険ではない)。
             "already_protected": already_protected,
             "system5_migration_deferred": deferred_s5_migrations,
+            "execution_scope": (
+                "system5_migration_only" if args.system5_migration_only else "all_exits"
+            ),
             "broker_unreachable": broker_unreachable,
             # 「exit 案を作った」と「broker へ送った」を混同しないための運用 health。
             # dashboard / verifier はこの値で dry-run の期限超過を赤く出せる。
