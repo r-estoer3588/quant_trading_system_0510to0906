@@ -9,6 +9,7 @@ from common.alpaca_trading import (
 )
 from common.system5_protection_migration import (
     defer_extra_system5_migrations,
+    defer_system5_migrations_for_recovery,
     observe_protection_fallbacks,
     system5_migrations_only,
 )
@@ -192,3 +193,46 @@ def test_system5_migration_scope_keeps_recovery_stop_after_cancel_settles():
     )
     scoped = system5_migrations_only([unrelated, recovery])
     assert scoped == [recovery]
+
+
+def test_recovery_stop_defers_every_actionable_destructive_migration():
+    recovery = PreparedExit(
+        symbol="REC",
+        system="system5",
+        qty=10,
+        side="sell",
+        order_type="stop",
+        reason=ExitReasonCode.PROTECT_STOP,
+        entry_date="2026-09-01",
+        stop_price=80.0,
+        client_order_id="protect-system5-REC-20260901-protect-stop",
+        time_in_force="gtc",
+    )
+    first = _migration_po("AAA")
+    second = _migration_po("BBB")
+    rows = [recovery, first, second]
+    assert defer_system5_migrations_for_recovery(rows) == 2
+    assert recovery.skip_reason is None
+    assert first.skip_reason == "s5_migration_deferred:recovery_first"
+    assert second.skip_reason == "s5_migration_deferred:recovery_first"
+
+
+def test_recovery_priority_preserves_existing_one_per_run_deferral():
+    recovery = PreparedExit(
+        symbol="REC",
+        system="system5",
+        qty=10,
+        side="sell",
+        order_type="stop",
+        reason=ExitReasonCode.PROTECT_STOP,
+        stop_price=80.0,
+        client_order_id="protect-system5-REC-20260901-protect-stop",
+        time_in_force="gtc",
+    )
+    first = _migration_po("AAA")
+    second = _migration_po("BBB")
+    rows = [recovery, first, second]
+    assert defer_extra_system5_migrations(rows) == 1
+    assert defer_system5_migrations_for_recovery(rows) == 1
+    assert first.skip_reason == "s5_migration_deferred:recovery_first"
+    assert second.skip_reason == "s5_migration_deferred:one_per_run"
