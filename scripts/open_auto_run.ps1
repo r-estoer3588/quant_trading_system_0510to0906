@@ -204,7 +204,7 @@ if (-not $DryRun) {
             Write-Launch "released INFLIGHT.lock after safe exit=$code"
         }
         catch {
-            Write-Launch "WARN: INFLIGHT.lock cleanup failed after safe exit=$code: $_"
+            Write-Launch "WARN: INFLIGHT.lock cleanup failed after safe exit=${code}: $_"
         }
     }
     else {
